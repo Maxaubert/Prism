@@ -27,7 +27,13 @@ const api = {
   // frameless window controls
   minimize: (): void => ipcRenderer.send('window:minimize'),
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
-  close: (): void => ipcRenderer.send('window:close')
+  close: (): void => ipcRenderer.send('window:close'),
+  setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
+  onFullscreen: (cb: (on: boolean) => void): (() => void) => {
+    const listener = (_: unknown, on: boolean): void => cb(on)
+    ipcRenderer.on('window:fullscreen', listener)
+    return () => ipcRenderer.removeListener('window:fullscreen', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('prism', api)

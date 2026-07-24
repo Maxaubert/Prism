@@ -148,6 +148,8 @@ function createWindow(): void {
   })
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => (mainWindow = null))
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('window:fullscreen', true))
+  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('window:fullscreen', false))
   mainWindow.webContents.setWindowOpenHandler((d) => {
     void shell.openExternal(d.url)
     return { action: 'deny' }
@@ -203,6 +205,7 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize()
     )
     ipcMain.on('window:close', () => mainWindow?.close())
+    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => mainWindow?.setFullScreen(!!on))
 
     createWindow()
     app.on('activate', () => {
