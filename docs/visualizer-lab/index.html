@@ -108,7 +108,28 @@
     font-weight: 600;
   }
   button.primary:hover { filter: brightness(1.1); background: var(--accent); }
-  input[type=file] { display: none; }
+  /* A REAL, visible file input, not a button wired to a hidden one. The browser
+     opens the dialog itself with no JavaScript in the path, so there is nothing
+     to go wrong. */
+  .filepick {
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--dim);
+    max-width: 230px;
+  }
+  .filepick::file-selector-button {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--panel-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    padding: 7px 12px;
+    margin-right: 9px;
+    cursor: pointer;
+    transition: background 140ms var(--ease);
+  }
+  .filepick::file-selector-button:hover { background: #1d2130; }
 
   /* ------------------------------------------------------------- body */
   main {
@@ -232,13 +253,18 @@
 
   .errbar {
     position: absolute;
-    left: 0; right: 0; bottom: 0;
-    background: rgba(255, 70, 70, 0.14);
-    border-top: 1px solid rgba(255, 100, 100, 0.4);
-    color: #ffc9c9;
-    font: 12px/1.4 ui-monospace, Consolas, monospace;
-    padding: 8px 12px;
+    left: 50%; bottom: 22px;
+    transform: translateX(-50%);
+    max-width: min(680px, 88%);
+    background: #3a1520;
+    border: 1px solid rgba(255, 110, 110, 0.55);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    color: #ffd4d4;
+    font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+    padding: 12px 16px;
     display: none;
+    z-index: 5;
   }
 
   /* -------------------------------------------------------- transport */
@@ -305,8 +331,10 @@
   <button id="fsBtn" title="Fullscreen the stage">Fullscreen</button>
   <div class="src">
     <span class="track" id="trackName">No audio loaded</span>
-    <button id="pickBtn">Choose audio</button>
-    <input type="file" id="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.opus,.aac" />
+    <!-- Unfiltered on purpose: an accept list hides files in the OS dialog,
+         which reads as "I cannot choose my audio". Unsupported files just report
+         a decode error instead. -->
+    <input type="file" id="file" class="filepick" />
     <button id="demoBtn" class="primary">Load demo track</button>
   </div>
 </header>
@@ -363,12 +391,16 @@
           <output id="smoothOut">0.82</output>
         </div>
         <span class="fps" id="fps">-- fps</span>
+        <span class="fps" id="diag" title="page origin / audio state / analyser">--</span>
       </div>
     </footer>
   </div>
 </main>
 
-<audio id="au" crossorigin="anonymous"></audio>
+<!-- No crossorigin attribute. Every source here is same-origin or a blob: URL,
+     and setting it forces a CORS check that FAILS for a blob on a file:// page,
+     which silently breaks "Choose audio" when the page is opened from disk. -->
+<audio id="au"></audio>
 
 <script src="visualizers.js"></script>
 <script src="viz-bars.js"></script>
@@ -702,24 +734,17 @@
     loadSrc(URL.createObjectURL(f), f.name, true)
   }
   el('file').addEventListener('change', (e) => {
+    const input = e.target
+    const f = input.files && input.files[0]
     try {
-      loadFile(e.target.files && e.target.files[0])
+      loadFile(f)
     } catch (err) {
       fail('Could not open that file: ' + err.message)
     }
-  })
-  // A real button rather than a <label for>: a label fires the picker on both
-  // native activation and any handler, which opened two choosers at once.
-  // Clearing value first matters: without it, re-picking the SAME file fires no
-  // change event at all, so the second attempt looks like nothing happened.
-  el('pickBtn').addEventListener('click', () => {
-    try {
-      const f = el('file')
-      f.value = ''
-      f.click()
-    } catch (err) {
-      fail('Could not open the file picker: ' + err.message)
-    }
+    // Reset AFTER the File is captured, so re-picking the same file still fires a
+    // change event next time. Never touch value during the click event: doing that
+    // re-triggers the picker and produces an endless cascade of dialogs.
+    input.value = ''
   })
   const loadDemo = () => loadSrc('demo-loop.mp3', 'demo-loop.mp3', false)
   el('demoBtn').addEventListener('click', loadDemo)
@@ -789,6 +814,11 @@
     frames++
     if (now - lastFps > 500) {
       el('fps').textContent = Math.round((frames * 1000) / (now - lastFps)) + ' fps'
+      // Plain-language state, so a silent failure is visible instead of guessed at.
+      const proto = location.protocol === 'file:' ? 'file (serve it instead)' : 'served'
+      const audio = !au.src ? 'no file' : au.error ? 'load error' : au.paused ? 'paused' : 'playing'
+      const graph = !actx ? 'graph idle' : actx.state
+      el('diag').textContent = `${proto} · ${audio} · ${graph}`
       frames = 0
       lastFps = now
     }
