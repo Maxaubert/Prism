@@ -1,0 +1,763 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism Visualizer Lab</title>
+<style>
+  :root {
+    --accent: #6f6ae8;
+    --bg: #0b0d12;
+    --panel: #12141b;
+    --panel-2: #161923;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.13);
+    --ink: #e9ecf5;
+    --muted: #9aa1b4;
+    --dim: #6d7488;
+    --radius: 12px;
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;
+  }
+
+  kbd {
+    font: 11px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--line-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 2px 5px;
+    color: var(--muted);
+  }
+
+  /* ------------------------------------------------------------ header */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    margin-right: 4px;
+  }
+  .brand b { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .brand span { color: var(--dim); font-size: 12px; }
+
+  .src {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .track {
+    color: var(--muted);
+    font-size: 12.5px;
+    max-width: 30ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button, select, .filebtn {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--panel-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: background 140ms var(--ease), border-color 140ms var(--ease), transform 90ms var(--ease);
+  }
+  button:hover, select:hover, .filebtn:hover { background: #1d2130; border-color: rgba(255,255,255,0.2); }
+  button:active, .filebtn:active { transform: scale(0.975); }
+  button:focus-visible, select:focus-visible, .filebtn:focus-visible,
+  input:focus-visible, .style:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button.primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+  }
+  button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+  input[type=file] { display: none; }
+
+  /* ------------------------------------------------------------- body */
+  main {
+    display: grid;
+    grid-template-columns: 268px 1fr;
+    min-height: 0;
+  }
+
+  aside {
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 10px;
+  }
+  aside::-webkit-scrollbar { width: 10px; }
+  aside::-webkit-scrollbar-thumb { background: #262a38; border-radius: 6px; border: 3px solid var(--panel); }
+
+  .group {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 14px 8px 7px;
+  }
+  .group:first-child { padding-top: 4px; }
+
+  .style {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 9px 10px;
+    cursor: pointer;
+    transition: background 130ms var(--ease);
+  }
+  .style:hover { background: rgba(255,255,255,0.045); }
+  .style[aria-current="true"] {
+    background: color-mix(in oklab, var(--accent) 20%, transparent);
+    border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+  .style .n { font-weight: 600; font-size: 13.5px; }
+  .style .b { color: var(--muted); font-size: 11.5px; line-height: 1.4; margin-top: 2px; }
+  .style[data-error="1"] .n::after {
+    content: "error";
+    float: right;
+    font-size: 10px;
+    color: #ff8b8b;
+    background: rgba(255,80,80,0.14);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ------------------------------------------------------------ stage */
+  .stagewrap {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  #stage {
+    position: relative;
+    margin: 0;
+    background: var(--bg);
+    min-height: 0;
+    overflow: hidden;
+  }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+
+  #grid {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+    padding: 14px;
+    overflow-y: auto;
+    align-content: start;
+    min-height: 0;
+  }
+  body.gridmode #stage { display: none; }
+  body.gridmode #grid { display: grid; }
+
+  .cell {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--panel);
+    cursor: pointer;
+    transition: border-color 140ms var(--ease);
+  }
+  .cell:hover { border-color: var(--line-strong); }
+  .cell canvas { display: block; width: 100%; height: 168px; background: var(--bg); }
+  .cell .cap {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 11px;
+    font-size: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .cell .cap i { color: var(--dim); font-style: normal; font-size: 11px; }
+
+  .hint {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 14px;
+    text-align: center;
+    color: var(--muted);
+    pointer-events: none;
+    padding: 24px;
+  }
+  .hint .big { font-size: 17px; color: var(--ink); font-weight: 600; }
+  .hint .sub { font-size: 13px; max-width: 46ch; }
+  .hint button { pointer-events: auto; }
+  body.hasaudio .hint { display: none; }
+
+  .errbar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: rgba(255, 70, 70, 0.14);
+    border-top: 1px solid rgba(255, 100, 100, 0.4);
+    color: #ffc9c9;
+    font: 12px/1.4 ui-monospace, Consolas, monospace;
+    padding: 8px 12px;
+    display: none;
+  }
+
+  /* -------------------------------------------------------- transport */
+  footer {
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .tp { display: flex; align-items: center; gap: 10px; }
+
+  #seek { width: min(360px, 32vw); }
+  #vol { width: 92px; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: rgba(255,255,255,0.14);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--ink);
+    border: 0;
+    transition: transform 110ms var(--ease);
+  }
+  input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.18); }
+
+  .time { font: 12.5px/1 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--muted); min-width: 88px; }
+
+  .knobs { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-wrap: wrap; }
+  .knob { display: flex; align-items: center; gap: 7px; }
+  .knob label { font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+  .knob input[type=range] { width: 86px; }
+  .knob output { font: 11.5px/1 ui-monospace, Consolas, monospace; color: var(--muted); min-width: 30px; }
+  input[type=color] {
+    width: 30px; height: 26px; padding: 0;
+    background: none; border: 1px solid var(--line-strong);
+    border-radius: 7px; cursor: pointer;
+  }
+  .fps { font: 11.5px/1 ui-monospace, Consolas, monospace; color: var(--dim); min-width: 52px; }
+
+  body.drop #stage { outline: 2px dashed var(--accent); outline-offset: -10px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><b>Visualizer Lab</b> <span>Prism</span></div>
+  <button id="viewBtn" title="Toggle between one large stage and every style at once">Grid view</button>
+  <button id="fsBtn" title="Fullscreen the stage">Fullscreen</button>
+  <div class="src">
+    <span class="track" id="trackName">No audio loaded</span>
+    <button id="pickBtn">Choose audio</button>
+    <input type="file" id="file" accept="audio/*,.mp3,.wav,.flac,.ogg,.m4a,.opus,.aac" />
+    <button id="demoBtn" class="primary">Load demo track</button>
+  </div>
+</header>
+
+<main>
+  <aside id="list"></aside>
+
+  <div class="stagewrap">
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div class="hint">
+        <div class="big">Drop an audio file to begin</div>
+        <div class="sub">Or use “Choose audio”. The demo track is a 32 second loop with a kick, bass, chords and hats, built to exercise every band.</div>
+        <button id="demoBtn2" class="primary">Load demo track</button>
+      </div>
+      <div class="errbar" id="errbar"></div>
+    </div>
+    <div id="grid"></div>
+
+    <footer>
+      <div class="tp">
+        <button id="playBtn" style="min-width:74px">Play</button>
+        <span class="time" id="time">0:00 / 0:00</span>
+        <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek" />
+      </div>
+      <div class="tp">
+        <label for="vol" style="font-size:11.5px;color:var(--dim)">Vol</label>
+        <input type="range" id="vol" min="0" max="1" step="0.01" value="0.75" aria-label="Volume" />
+      </div>
+
+      <div class="knobs">
+        <div class="knob">
+          <label for="palette">Palette</label>
+          <select id="palette">
+            <option value="brand">Brand</option>
+            <option value="accent">Follow accent</option>
+            <option value="ice">Ice</option>
+            <option value="ember">Ember</option>
+            <option value="mono">Mono white</option>
+          </select>
+        </div>
+        <div class="knob">
+          <label for="accent">Accent</label>
+          <input type="color" id="accent" value="#6f6ae8" />
+        </div>
+        <div class="knob">
+          <label for="sens">Sensitivity</label>
+          <input type="range" id="sens" min="0.4" max="2.5" step="0.05" value="1" />
+          <output id="sensOut">1.00</output>
+        </div>
+        <div class="knob">
+          <label for="smooth">Smoothing</label>
+          <input type="range" id="smooth" min="0" max="0.95" step="0.01" value="0.82" />
+          <output id="smoothOut">0.82</output>
+        </div>
+        <span class="fps" id="fps">-- fps</span>
+      </div>
+    </footer>
+  </div>
+</main>
+
+<audio id="au" crossorigin="anonymous"></audio>
+
+<script src="visualizers.js"></script>
+<script src="codex-visualizers.js" onerror="window.__codexMissing=true"></script>
+<script>
+(() => {
+  'use strict'
+
+  /* ------------------------------------------------------ style registry */
+  const clean = (arr, origin) =>
+    (Array.isArray(arr) ? arr : [])
+      .filter((v) => v && typeof v.draw === 'function' && v.id && v.name)
+      .map((v) => ({ ...v, origin }))
+
+  const mine = clean(window.PRISM_VIZ, 'Prism set')
+  const codex = clean(window.CODEX_VIZ, 'Codex set')
+  const seen = new Set()
+  const STYLES = [...mine, ...codex].filter((v) => (seen.has(v.id) ? false : seen.add(v.id)))
+
+  if (!STYLES.length) {
+    document.getElementById('errbar').style.display = 'block'
+    document.getElementById('errbar').textContent = 'No visualizers loaded. Check visualizers.js.'
+    return
+  }
+
+  /* --------------------------------------------------------- audio graph */
+  const au = document.getElementById('au')
+  au.volume = 0.75
+  let actx = null
+  let analyser = null
+  let srcNode = null
+  let freq = new Uint8Array(1024)
+  // 128 is silence for time-domain data. A zero-filled array would read as
+  // full-scale deflection, so before any audio exists the level must start neutral.
+  let timeDom = new Uint8Array(2048).fill(128)
+
+  function ensureGraph() {
+    if (actx) return
+    actx = new (window.AudioContext || window.webkitAudioContext)()
+    analyser = actx.createAnalyser()
+    analyser.fftSize = 2048
+    analyser.smoothingTimeConstant = 0.6
+    // A MediaElementSource can only ever be made once per element, so the
+    // <audio> tag is reused for every file and only its src changes.
+    srcNode = actx.createMediaElementSource(au)
+    srcNode.connect(analyser)
+    analyser.connect(actx.destination)
+    freq = new Uint8Array(analyser.frequencyBinCount)
+    timeDom = new Uint8Array(analyser.fftSize).fill(128)
+  }
+  const resume = () => { if (actx && actx.state === 'suspended') actx.resume() }
+
+  /* ------------------------------------------------------- frame metrics */
+  let bassAvg = 0
+  let beat = 0
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
+
+  function bandAvg(from, to) {
+    let s = 0
+    let n = 0
+    for (let i = from; i < to && i < freq.length; i++) { s += freq[i]; n++ }
+    return n ? s / n / 255 : 0
+  }
+
+  const D = {
+    freq, time: timeDom, bass: 0, mid: 0, treble: 0,
+    level: 0, beat: 0, t: 0, playing: false, sampleRate: 44100
+  }
+
+  function sample(now) {
+    if (analyser) {
+      analyser.getByteFrequencyData(freq)
+      analyser.getByteTimeDomainData(timeDom)
+    }
+    D.freq = freq
+    D.time = timeDom
+    D.sampleRate = actx ? actx.sampleRate : 44100
+    D.t = now
+    D.playing = !au.paused
+
+    const binHz = D.sampleRate / (analyser ? analyser.fftSize : 2048)
+    const b = (hz) => Math.max(1, Math.round(hz / binHz))
+    D.bass = bandAvg(b(20), b(160))
+    D.mid = bandAvg(b(160), b(2000))
+    D.treble = bandAvg(b(2000), b(11000))
+
+    let sum = 0
+    for (let i = 0; i < timeDom.length; i += 2) {
+      const v = (timeDom[i] - 128) / 128
+      sum += v * v
+    }
+    D.level = clamp(Math.sqrt(sum / (timeDom.length / 2)) * 1.6, 0, 1)
+
+    // Transient detector: compare instantaneous bass against its slow mean.
+    bassAvg = bassAvg * 0.96 + D.bass * 0.04
+    const hit = clamp((D.bass - bassAvg * 1.22) * 3.4, 0, 1)
+    beat = Math.max(beat * 0.9, hit)
+    D.beat = beat
+    return D
+  }
+
+  /* -------------------------------------------------------------- knobs */
+  const PALETTES = {
+    brand: ['#5b5bd6', '#9a6cff', '#ff9a8b'],
+    ice: ['#38bdf8', '#818cf8', '#c4b5fd'],
+    ember: ['#fbbf24', '#f43f5e', '#c026d3'],
+    mono: ['#8f96ad', '#d5dae8', '#ffffff']
+  }
+  const el = (id) => document.getElementById(id)
+  const accentIn = el('accent')
+  const paletteIn = el('palette')
+  const sensIn = el('sens')
+  const smoothIn = el('smooth')
+
+  function lighten(hex, t) {
+    const s = hex.replace('#', '')
+    const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
+    const r = (n >> 16) & 255
+    const g = (n >> 8) & 255
+    const b = n & 255
+    const m = (c) => Math.round(c + (255 - c) * t)
+    return '#' + [m(r), m(g), m(b)].map((c) => c.toString(16).padStart(2, '0')).join('')
+  }
+
+  const OPTS = { accent: accentIn.value, palette: PALETTES.brand, sensitivity: 1, smoothing: 0.82, dpr: 1 }
+
+  function syncOpts() {
+    OPTS.accent = accentIn.value
+    OPTS.palette =
+      paletteIn.value === 'accent'
+        ? [accentIn.value, lighten(accentIn.value, 0.32), lighten(accentIn.value, 0.66)]
+        : PALETTES[paletteIn.value] || PALETTES.brand
+    OPTS.sensitivity = parseFloat(sensIn.value)
+    OPTS.smoothing = parseFloat(smoothIn.value)
+    document.documentElement.style.setProperty('--accent', accentIn.value)
+    el('sensOut').textContent = OPTS.sensitivity.toFixed(2)
+    el('smoothOut').textContent = OPTS.smoothing.toFixed(2)
+  }
+  ;[accentIn, paletteIn, sensIn, smoothIn].forEach((i) => i.addEventListener('input', syncOpts))
+  syncOpts()
+
+  /* ------------------------------------------------------------ panels */
+  const BG = '#0b0d12'
+  const broken = new Map()
+
+  function makePanel(canvas, viz) {
+    return { canvas, ctx: canvas.getContext('2d'), viz, state: {}, w: 0, h: 0 }
+  }
+
+  function renderPanel(p, d, dpr) {
+    const cv = p.canvas
+    const rect = cv.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const W = Math.round(rect.width * dpr)
+    const H = Math.round(rect.height * dpr)
+    if (cv.width !== W || cv.height !== H) {
+      cv.width = W
+      cv.height = H
+      p.state = {}
+      if (p.viz.init) {
+        try { p.viz.init(p.state, W, H) } catch (e) { flag(p.viz, e) }
+      }
+    }
+    const ctx = p.ctx
+    if (p.viz.trails) {
+      ctx.fillStyle = 'rgba(11,13,18,0.22)'
+      ctx.fillRect(0, 0, W, H)
+    } else {
+      ctx.clearRect(0, 0, W, H)
+    }
+    if (broken.has(p.viz.id)) return
+    ctx.save()
+    try {
+      p.viz.draw(ctx, W, H, d, OPTS, p.state)
+    } catch (e) {
+      flag(p.viz, e)
+    }
+    ctx.restore()
+  }
+
+  function flag(viz, err) {
+    if (broken.has(viz.id)) return
+    broken.set(viz.id, String((err && err.message) || err))
+    const btn = document.querySelector(`.style[data-id="${viz.id}"]`)
+    if (btn) btn.setAttribute('data-error', '1')
+    const bar = el('errbar')
+    bar.style.display = 'block'
+    bar.textContent = `${viz.name}: ${broken.get(viz.id)}`
+    console.error('[viz]', viz.id, err)
+  }
+
+  /* ------------------------------------------------------------ sidebar */
+  const list = el('list')
+  let active = STYLES[0]
+  let origin = null
+  STYLES.forEach((v) => {
+    if (v.origin !== origin) {
+      origin = v.origin
+      const h = document.createElement('div')
+      h.className = 'group'
+      h.textContent = origin
+      list.appendChild(h)
+    }
+    const b = document.createElement('button')
+    b.className = 'style'
+    b.dataset.id = v.id
+    b.innerHTML = `<div class="n"></div><div class="b"></div>`
+    b.querySelector('.n').textContent = v.name
+    b.querySelector('.b').textContent = v.blurb || ''
+    b.addEventListener('click', () => select(v))
+    list.appendChild(b)
+  })
+
+  const stagePanel = makePanel(el('cv'), STYLES[0])
+
+  function select(v) {
+    active = v
+    stagePanel.viz = v
+    stagePanel.state = {}
+    stagePanel.canvas.width = 0 // force re-init on the next frame
+    document.querySelectorAll('.style').forEach((b) =>
+      b.setAttribute('aria-current', String(b.dataset.id === v.id))
+    )
+    const bar = el('errbar')
+    if (broken.has(v.id)) {
+      bar.style.display = 'block'
+      bar.textContent = `${v.name}: ${broken.get(v.id)}`
+    } else {
+      bar.style.display = 'none'
+    }
+  }
+  select(STYLES[0])
+
+  /* -------------------------------------------------------------- grid */
+  const gridEl = el('grid')
+  const gridPanels = STYLES.map((v) => {
+    const cell = document.createElement('div')
+    cell.className = 'cell'
+    const cv = document.createElement('canvas')
+    const cap = document.createElement('div')
+    cap.className = 'cap'
+    const nm = document.createElement('span')
+    nm.textContent = v.name
+    const og = document.createElement('i')
+    og.textContent = v.origin === 'Codex set' ? 'Codex' : 'Prism'
+    cap.append(nm, og)
+    cell.append(cv, cap)
+    cell.addEventListener('click', () => { select(v); setGrid(false) })
+    gridEl.appendChild(cell)
+    return makePanel(cv, v)
+  })
+
+  let gridMode = false
+  function setGrid(on) {
+    gridMode = on
+    document.body.classList.toggle('gridmode', on)
+    el('viewBtn').textContent = on ? 'Single view' : 'Grid view'
+  }
+  el('viewBtn').addEventListener('click', () => setGrid(!gridMode))
+
+  el('fsBtn').addEventListener('click', () => {
+    const t = gridMode ? gridEl : el('stage')
+    if (document.fullscreenElement) document.exitFullscreen()
+    else t.requestFullscreen && t.requestFullscreen()
+  })
+
+  /* --------------------------------------------------------- transport */
+  const playBtn = el('playBtn')
+  const seek = el('seek')
+  const timeLbl = el('time')
+  let seeking = false
+
+  const fmt = (s) => {
+    if (!isFinite(s) || s < 0) s = 0
+    const m = Math.floor(s / 60)
+    const ss = Math.floor(s % 60)
+    return `${m}:${String(ss).padStart(2, '0')}`
+  }
+
+  function play() {
+    ensureGraph()
+    resume()
+    au.play().catch((e) => console.warn('play blocked', e))
+  }
+  playBtn.addEventListener('click', () => (au.paused ? play() : au.pause()))
+  au.addEventListener('play', () => { playBtn.textContent = 'Pause'; resume() })
+  au.addEventListener('pause', () => (playBtn.textContent = 'Play'))
+  au.addEventListener('timeupdate', () => {
+    if (!seeking && au.duration) seek.value = String((au.currentTime / au.duration) * 1000)
+    timeLbl.textContent = `${fmt(au.currentTime)} / ${fmt(au.duration)}`
+  })
+  au.addEventListener('ended', () => { au.currentTime = 0; play() }) // loop for testing
+  seek.addEventListener('input', () => { seeking = true })
+  seek.addEventListener('change', () => {
+    if (au.duration) au.currentTime = (parseFloat(seek.value) / 1000) * au.duration
+    seeking = false
+  })
+  el('vol').addEventListener('input', (e) => (au.volume = parseFloat(e.target.value)))
+
+  /* ------------------------------------------------------------ source */
+  let objectUrl = null
+  function loadSrc(url, label, isObject) {
+    ensureGraph()
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null }
+    if (isObject) objectUrl = url
+    au.src = url
+    el('trackName').textContent = label
+    document.body.classList.add('hasaudio')
+    au.load()
+    play()
+  }
+  function loadFile(f) {
+    if (!f) return
+    loadSrc(URL.createObjectURL(f), f.name, true)
+  }
+  el('file').addEventListener('change', (e) => loadFile(e.target.files[0]))
+  // A real button rather than a <label for>: a label would fire the picker on
+  // both native activation and any handler, which opened two choosers at once.
+  el('pickBtn').addEventListener('click', () => el('file').click())
+  const loadDemo = () => loadSrc('demo-loop.mp3', 'demo-loop.mp3', false)
+  el('demoBtn').addEventListener('click', loadDemo)
+  el('demoBtn2').addEventListener('click', loadDemo)
+  au.addEventListener('error', () => {
+    const bar = el('errbar')
+    bar.style.display = 'block'
+    bar.textContent =
+      'Could not load that audio. If you opened this page from the file system, serve it instead (start.cmd) so the demo track can load.'
+  })
+
+  ;['dragover', 'dragenter'].forEach((t) =>
+    window.addEventListener(t, (e) => { e.preventDefault(); document.body.classList.add('drop') })
+  )
+  ;['dragleave', 'dragend'].forEach((t) =>
+    window.addEventListener(t, () => document.body.classList.remove('drop'))
+  )
+  window.addEventListener('drop', (e) => {
+    e.preventDefault()
+    document.body.classList.remove('drop')
+    loadFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0])
+  })
+
+  /* --------------------------------------------------------- shortcuts */
+  window.addEventListener('keydown', (e) => {
+    const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName)
+    if (e.key === ' ' && !typing) {
+      e.preventDefault()
+      au.paused ? play() : au.pause()
+    } else if (e.key === 'ArrowDown' || e.key === 'j') {
+      if (typing) return
+      e.preventDefault()
+      select(STYLES[(STYLES.indexOf(active) + 1) % STYLES.length])
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      if (typing) return
+      e.preventDefault()
+      select(STYLES[(STYLES.indexOf(active) - 1 + STYLES.length) % STYLES.length])
+    } else if (e.key === 'g' && !typing) {
+      setGrid(!gridMode)
+    }
+  })
+
+  /* ------------------------------------------------------------- loop */
+  let frames = 0
+  let lastFps = performance.now()
+  function loop(now) {
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
+    OPTS.dpr = dpr
+    const d = sample(now)
+    if (gridMode) gridPanels.forEach((p) => renderPanel(p, d, dpr))
+    else renderPanel(stagePanel, d, dpr)
+
+    frames++
+    if (now - lastFps > 500) {
+      el('fps').textContent = Math.round((frames * 1000) / (now - lastFps)) + ' fps'
+      frames = 0
+      lastFps = now
+    }
+    requestAnimationFrame(loop)
+  }
+  requestAnimationFrame(loop)
+
+  // Expose a little surface for automated checks.
+  window.__lab = {
+    styles: STYLES.map((s) => ({ id: s.id, name: s.name, origin: s.origin })),
+    select: (id) => { const v = STYLES.find((s) => s.id === id); if (v) select(v); return !!v },
+    setGrid,
+    broken: () => Object.fromEntries(broken),
+    audio: au,
+    metrics: () => ({ bass: D.bass, mid: D.mid, treble: D.treble, level: D.level, beat: D.beat }),
+    canvas: () => (gridMode ? gridPanels.map((p) => p.canvas) : [stagePanel.canvas])
+  }
+  if (window.__codexMissing) console.warn('codex-visualizers.js not loaded yet')
+})()
+</script>
+</body>
+</html>
