@@ -11,6 +11,23 @@ import { VIZ_STYLES, DEFAULT_STYLE_ID } from '../lib/viz/styles'
 
 const STYLE_KEY = 'prism.viz.style'
 const WIDTH_KEY = 'prism.viz.width'
+const LAYOUT_KEY = 'prism.viz.layout'
+const LOGO_KEY = 'prism.viz.logo'
+
+// Fill runs the visualizer edge to edge and flush with the transport; band keeps
+// it to a strip, which suits the styles that read better small.
+const LAYOUT_LABELS: Array<[string, string]> = [
+  ['fill', 'Fill'],
+  ['band', 'Band']
+]
+
+function Logo(): JSX.Element {
+  return (
+    <div className="grid h-28 w-28 shrink-0 place-items-center rounded-3xl bg-gradient-to-br from-[#5b5bd6] via-[#9a6cff] to-[#ff9a8b] text-5xl text-white shadow-[0_12px_40px_rgba(120,90,255,0.35)]">
+      ♪
+    </div>
+  )
+}
 
 // Some styles read better spanning the glass, others want to sit in a band.
 const WIDTHS: Record<string, string> = {
@@ -70,6 +87,18 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
     setWidth(w)
     localStorage.setItem(WIDTH_KEY, w)
   }
+  const [layout, setLayout] = useState<string>(() => localStorage.getItem(LAYOUT_KEY) || 'fill')
+  const pickLayout = (l: string): void => {
+    setLayout(l)
+    localStorage.setItem(LAYOUT_KEY, l)
+  }
+  const [logo, setLogo] = useState<boolean>(() => localStorage.getItem(LOGO_KEY) === '1')
+  const toggleLogo = (): void => {
+    setLogo((x) => {
+      localStorage.setItem(LOGO_KEY, x ? '0' : '1')
+      return !x
+    })
+  }
   // Click-away and Escape close the menu.
   useEffect(() => {
     if (!menuOpen) return
@@ -103,13 +132,29 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
         <div className="grid flex-1 place-items-center p-8 text-center text-sm text-[#c9ccd6]">{c.error}</div>
       ) : (
         <>
-          {/* Nothing but the visualizer. The filename already sits in the title
-              bar, so repeating it here only crowds the display. */}
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            <div className={`h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
-              <Visualizer media={mediaEl} styleId={styleId} />
+          {/* No filename here: the title bar already carries it, and repeating it
+              under the artwork only crowds the display. */}
+          {layout === 'fill' ? (
+            <div className="relative flex min-h-0 flex-1 justify-center">
+              <div className={`h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
+                <Visualizer media={mediaEl} styleId={styleId} />
+              </div>
+              {logo && (
+                // Floats over a full-bleed visualizer, held high so it clears
+                // the bottom-anchored styles.
+                <div className="pointer-events-none absolute inset-x-0 top-[16%] flex justify-center">
+                  <Logo />
+                </div>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-9">
+              {logo && <Logo />}
+              <div className={`h-44 ${WIDTHS[width] ?? WIDTHS.full}`}>
+                <Visualizer media={mediaEl} styleId={styleId} />
+              </div>
+            </div>
+          )}
 
           {/* settings gear: pick the visualizer style */}
           <div data-viz-menu className="absolute right-3 top-3 z-10">
@@ -143,6 +188,31 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
                     <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-dim)]">{s.blurb}</div>
                   </button>
                 ))}
+
+                <div className="mt-1 border-t border-white/10 px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
+                  Layout
+                </div>
+                <div className="flex gap-1 px-1.5 pb-1">
+                  {LAYOUT_LABELS.map(([l, label]) => (
+                    <button
+                      key={l}
+                      onClick={() => pickLayout(l)}
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                        l === layout ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={toggleLogo}
+                    className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                      logo ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                    }`}
+                  >
+                    Artwork
+                  </button>
+                </div>
 
                 <div className="mt-1 border-t border-white/10 px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
                   Width

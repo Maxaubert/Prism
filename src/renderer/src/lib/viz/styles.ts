@@ -110,8 +110,8 @@ export const VIZ_STYLES: VizStyle[] = [
         b.update(d, o)
         const slot = W / n
         const bw = slot * 0.72
-        const base = H * 0.9
-        const maxH = H * 0.74
+        const base = H // flush with the transport, no gap beneath
+        const maxH = H * 0.86
         for (let i = 0; i < n; i++) {
           const v = clamp(b.values[i], 0, 1)
           peak[i] = Math.max(peak[i] - 0.006, v)
@@ -137,14 +137,14 @@ export const VIZ_STYLES: VizStyle[] = [
       const b = makeBands(n)
       return (ctx, W, H, d, o) => {
         b.update(d, o)
-        const base = H * 0.92
+        const base = H // flush with the transport
         const half = Math.floor(n / 2)
         const slot = W / n
         const bw = slot * 0.7
         for (let i = 0; i < n; i++) {
           const m = Math.abs(i - half)
           const v = clamp(b.values[m], 0, 1)
-          const h = Math.max(o.dpr, v * H * 0.78)
+          const h = Math.max(o.dpr, v * H * 0.9)
           const x = i * slot + (slot - bw) / 2
           ctx.fillStyle = paletteAt(o.palette, m / half, 0.95)
           ctx.beginPath()
@@ -193,8 +193,8 @@ export const VIZ_STYLES: VizStyle[] = [
         b.update(d, o)
         const slot = W / n
         const bw = slot * 0.7
-        const base = H * 0.92
-        const maxH = H * 0.74
+        const base = H // flush with the transport
+        const maxH = H * 0.88
         ctx.lineWidth = Math.max(1, 1.4 * o.dpr)
         for (let i = 0; i < n; i++) {
           const v = clamp(b.values[i], 0, 1)
