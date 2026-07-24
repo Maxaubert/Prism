@@ -159,7 +159,9 @@ export default function App(): JSX.Element {
         }`}
       >
         {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} /> : <EmptyState onOpen={browse} />}
-        {file && many && (
+        {/* Fullscreen is for watching, not browsing — keep the frame clean.
+            Paging still works there via PageUp/PageDown (and ←/→ for images). */}
+        {file && many && !fullscreen && (
           <>
             <NavArrow dir="l" onClick={() => go(-1)} />
             <NavArrow dir="r" onClick={() => go(1)} />

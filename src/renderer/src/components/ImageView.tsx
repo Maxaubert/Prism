@@ -130,7 +130,10 @@ export function ImageView({
             cursor,
             transition: panning ? 'none' : 'transform .12s ease-out'
           }}
-          className="max-h-full max-w-full object-contain"
+          // Fit the stage in both directions (same reason as the video): max-w/max-h
+          // cap at intrinsic size, which left images smaller than the window sitting
+          // tiny in the middle of the screen. Zoom still scales up from this fit.
+          className="h-full w-full object-contain"
         />
       )}
 

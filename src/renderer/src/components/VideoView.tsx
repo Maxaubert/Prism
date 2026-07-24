@@ -59,7 +59,10 @@ export function VideoView({
         ref={video}
         src={url}
         autoPlay
-        className="max-h-full max-w-full"
+        // Fill the stage and letterbox only on the axis that needs it. max-w/max-h
+        // would cap the video at its intrinsic size, so anything smaller than the
+        // window (e.g. a 720p file fullscreened) sat boxed in on all four sides.
+        className="h-full w-full object-contain"
         onClick={clickToggle}
         onDoubleClick={onToggleFullscreen}
         {...c.bind}
