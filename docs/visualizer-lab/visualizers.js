@@ -1,9 +1,9 @@
-/* Prism visualizer lab — the in-house style set.
+/* Prism visualizer lab — the style set.
  *
- * Every style is a plain object: { id, name, blurb, trails?, init?, draw }.
+ * Every style is a plain object: { id, name, family, blurb, trails?, init?, draw }.
  * The host clears (or fades, when trails is set) the canvas, computes the audio
  * frame once, and calls draw for each visible style. See index.html for the
- * host + the full contract; codex-visualizers.js follows the same contract.
+ * host + the full contract.
  *
  * Canvas units are DEVICE pixels, so every size is derived from W/H/dpr.
  */
@@ -16,8 +16,9 @@ const VIZ = (() => {
   const NYQ = SR / 2
 
   /** Log-spaced bin ranges. Music energy is bunched at the bottom, so linear
-   *  bins leave the right-hand half of any visualizer permanently dead. */
-  function bandRanges(count, fMin = 30, fMax = 16000) {
+   *  bins leave the top of the spectrum permanently dead. Stops at 12 kHz by
+   *  default: above that there is almost nothing in real music. */
+  function bandRanges(count, fMin = 30, fMax = 12000) {
     const out = []
     for (let i = 0; i < count; i++) {
       const f0 = fMin * Math.pow(fMax / fMin, i / count)
@@ -40,13 +41,12 @@ const VIZ = (() => {
       sum += v
       if (v > max) max = v
     }
-    return (((sum / (b1 - b0)) * 0.6 + max * 0.4) / 255)
+    return ((sum / (b1 - b0)) * 0.6 + max * 0.4) / 255
   }
 
   /** Perceptual shaping: gamma for contrast, a gentle treble tilt so highs still
    *  move. Calibrated so a loud mix lands near 0.7 and only real peaks approach
-   *  1.0. Overdriving these constants makes every bar sit pinned at full height,
-   *  which reads as frantic rather than responsive. */
+   *  1.0; overdriving it pins everything at full height, which reads as frantic. */
   function shape(v, i, n, o) {
     const tilt = 1 + (i / Math.max(1, n)) * 0.7
     return Math.pow(v, 1.85) * tilt * o.sensitivity * 0.45
@@ -58,10 +58,9 @@ const VIZ = (() => {
   }
 
   /** Per-band adaptive gain: scale each band against its own slowly-decaying
-   *  peak. Treble sits roughly ten times below bass in real music, so absolute
-   *  scaling leaves the high bands flat, which is what kills the top half of a
-   *  radial layout. The gate keeps genuine silence quiet rather than letting
-   *  the normaliser amplify noise. */
+   *  peak. Treble sits roughly ten times under bass in real music, so absolute
+   *  scaling leaves the high bands flat. The gate keeps genuine silence quiet
+   *  instead of letting the normaliser amplify noise. */
   function adaptive(peaks, i, v, o) {
     peaks[i] = Math.max(v, peaks[i] * 0.993)
     const rel = v / Math.max(peaks[i], 0.045)
@@ -106,35 +105,91 @@ const VIZ = (() => {
     return `rgba(${c[0]},${c[1]},${c[2]},${a})`
   }
 
-  /** Blur a value array in place-ish (returns new array) for organic shapes. */
-  function smoothArray(src, passes) {
-    let a = src
-    for (let p = 0; p < passes; p++) {
-      const b = new Float32Array(a.length)
-      for (let i = 0; i < a.length; i++) {
-        const l = a[Math.max(0, i - 1)]
-        const r = a[Math.min(a.length - 1, i + 1)]
-        b[i] = (l + a[i] * 2 + r) / 4
-      }
-      a = b
-    }
-    return a
+  /** A gradient sweeping the palette across the given axis. */
+  function sweep(ctx, x0, y0, x1, y1, pal, alpha) {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1)
+    g.addColorStop(0, paletteAt(pal, 0, alpha))
+    g.addColorStop(0.5, paletteAt(pal, 0.5, alpha))
+    g.addColorStop(1, paletteAt(pal, 1, alpha))
+    return g
   }
 
-  return { BINS, bandRanges, bandValue, shape, rate, adaptive, clamp, hexToRgb, mixRgb, paletteAt, rgba, smoothArray }
+  /* ------------------------------------------------------------ the wave model
+   *
+   * The whole line does not move together. It stays flat until sound arrives,
+   * and then each frequency band raises ONE perfect wave: a single sine period
+   * under a bell envelope. The width of that wave is a constant, and it is
+   * symmetric, so the rise always mirrors the fall. Only two things vary: how
+   * tall the wave is (that band's level) and where it sits along the line
+   * (that band's frequency, low on the left, high on the right).
+   */
+
+  // Few enough bands that neighbouring wavelets do NOT merge: band spacing
+  // (1/13 = 0.077) stays wider than the wave width (0.055), so each band shows
+  // one discrete wave sitting on an otherwise flat line, rather than a
+  // continuous buzz of overlapping ripples.
+  const WAVE_BANDS = 13
+  const WAVE_WIDTH = 0.055
+
+  function initWave(s, n) {
+    s.n = n || WAVE_BANDS
+    s.ranges = bandRanges(s.n)
+    s.h = new Float32Array(s.n)
+    s.pk = new Float32Array(s.n).fill(0.09)
+    s.pos = new Float32Array(s.n)
+    for (let i = 0; i < s.n; i++) s.pos[i] = (i + 0.5) / s.n
+  }
+
+  /** Refresh each band's height. Deliberately quick to respond: this family is
+   *  meant to feel reactive, and the shape stays perfect regardless of speed. */
+  function updateWave(s, d, o) {
+    const k = Math.min(1, rate(o) * 1.8)
+    for (let i = 0; i < s.n; i++) {
+      const target = adaptive(s.pk, i, bandValue(d.freq, s.ranges[i]), o)
+      s.h[i] += (target - s.h[i]) * k
+    }
+  }
+
+  /** One wavelet: a single sine period inside a Gaussian envelope. Antisymmetric
+   *  about its centre, so it rises and falls at matching angles every time. */
+  function wavelet(dx, wl) {
+    if (dx < -wl * 1.5 || dx > wl * 1.5) return 0 // compact support, for speed
+    const sigma = wl * 0.42
+    return Math.sin((2 * Math.PI * dx) / wl) * Math.exp(-(dx * dx) / (2 * sigma * sigma))
+  }
+
+  /** Sum every band's wavelet at position u (0..1 along the line). */
+  function waveAt(s, u, wl) {
+    let y = 0
+    for (let i = 0; i < s.n; i++) {
+      const h = s.h[i]
+      if (h > 0.004) y += h * wavelet(u - s.pos[i], wl)
+    }
+    return y
+  }
+
+  return {
+    BINS, bandRanges, bandValue, shape, rate, adaptive, clamp,
+    hexToRgb, mixRgb, paletteAt, rgba, sweep,
+    initWave, updateWave, wavelet, waveAt, WAVE_BANDS, WAVE_WIDTH
+  }
 })()
+
+// Shared with the sibling style files (viz-*.js), which push onto PRISM_VIZ.
+window.VIZ = VIZ
 
 /* ------------------------------------------------------------- the styles */
 
 window.PRISM_VIZ = [
-  /* 1 ---------------------------------------------------------------------- */
+  /* ============================================================ BARS ==== */
   {
     id: 'wave-bars',
     name: 'Wave Bars',
+    family: 'Bars',
     blurb: 'Mirrored bars around a center line. Prism ships this one today.',
     init(s) {
       s.n = 96
-      s.ranges = VIZ.bandRanges(s.n)
+      s.ranges = VIZ.bandRanges(s.n, 30, 16000)
       s.v = new Float32Array(s.n)
     },
     draw(ctx, W, H, d, o, s) {
@@ -160,20 +215,20 @@ window.PRISM_VIZ = [
     }
   },
 
-  /* 2 ---------------------------------------------------------------------- */
   {
     id: 'spectrum',
     name: 'Spectrum Bars',
+    family: 'Bars',
     blurb: 'Bottom-anchored analyser bars with falling peak-hold caps.',
     init(s) {
       s.n = 64
-      s.ranges = VIZ.bandRanges(s.n)
+      s.ranges = VIZ.bandRanges(s.n, 30, 16000)
       s.v = new Float32Array(s.n)
       s.peak = new Float32Array(s.n)
     },
     draw(ctx, W, H, d, o, s) {
       const base = H * 0.94
-      const maxH = H * 0.70
+      const maxH = H * 0.7
       const slot = W / s.n
       const bw = Math.max(2 * o.dpr, slot * 0.7)
       const k = VIZ.rate(o)
@@ -202,115 +257,85 @@ window.PRISM_VIZ = [
     }
   },
 
-  /* 3 ---------------------------------------------------------------------- */
+  /* ============================================================ WAVE ==== */
   {
-    id: 'oscilloscope',
-    name: 'Oscilloscope',
-    blurb: 'The true waveform, drawn as a single glowing line. Flat at silence.',
-    draw(ctx, W, H, d, o) {
+    id: 'wave-line',
+    name: 'Wave Line',
+    family: 'Wave',
+    blurb: 'Flat until sound arrives. Each band raises one perfect wave of fixed width; only height and position change.',
+    init(s) {
+      VIZ.initWave(s)
+    },
+    draw(ctx, W, H, d, o, s) {
+      VIZ.updateWave(s, d, o)
       const mid = H / 2
-      const amp = H * 0.30 * o.sensitivity
-      const n = d.time.length
-      const step = Math.max(1, Math.floor(n / Math.max(1, W / o.dpr / 1.5)))
+      const wl = VIZ.WAVE_WIDTH // constant wave width, as a fraction of the line
+      const amp = H * 0.34
+      const steps = Math.max(140, Math.min(460, Math.round(W / (2 * o.dpr))))
 
-      ctx.strokeStyle = VIZ.rgba(o.accent, 0.1)
-      ctx.lineWidth = o.dpr
       ctx.beginPath()
-      ctx.moveTo(0, mid)
-      ctx.lineTo(W, mid)
-      ctx.stroke()
-
-      ctx.lineWidth = 2.2 * o.dpr
+      for (let p = 0; p <= steps; p++) {
+        const u = p / steps
+        const y = mid - VIZ.waveAt(s, u, wl) * amp
+        if (p === 0) ctx.moveTo(0, y)
+        else ctx.lineTo(u * W, y)
+      }
+      ctx.strokeStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette)
+      ctx.lineWidth = 2.6 * o.dpr
       ctx.lineJoin = 'round'
       ctx.lineCap = 'round'
-      ctx.shadowColor = VIZ.rgba(o.accent, 0.75)
-      ctx.shadowBlur = 14 * o.dpr
-      ctx.strokeStyle = o.accent
-
-      ctx.beginPath()
-      for (let i = 0, p = 0; i < n; i += step, p++) {
-        const x = (i / (n - 1)) * W
-        const y = mid + ((d.time[i] - 128) / 128) * amp
-        if (p === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
+      ctx.shadowColor = VIZ.rgba(o.accent, 0.5)
+      ctx.shadowBlur = 12 * o.dpr
       ctx.stroke()
       ctx.shadowBlur = 0
     }
   },
 
-  /* 4 ---------------------------------------------------------------------- */
   {
-    id: 'wave-line',
-    name: 'Wave Line',
-    blurb: 'A smooth flowing wave that swells with the music. The calm cousin of the oscilloscope.',
+    id: 'mirror-wave',
+    name: 'Mirror Wave',
+    family: 'Wave',
+    blurb: 'The same waves, reflected above and below the line and filled between.',
     init(s) {
-      s.amp = 0
-      s.bass = 0
-      s.phase = 0
-      s.last = 0
+      VIZ.initWave(s)
     },
     draw(ctx, W, H, d, o, s) {
-      // Driven by loudness rather than raw samples, so it flows instead of
-      // buzzing. The oscilloscope shows the signal; this shows the feel of it.
-      const dt = s.last ? Math.min(0.05, (d.t - s.last) / 1000) : 0.016
-      s.last = d.t
-      const k = Math.max(0.03, (1 - o.smoothing) * 0.22)
-      // RMS of mastered audio sits low (~0.15), so drive it up before the curve,
-      // otherwise the wave is a barely visible ripple.
-      // Gate first so true silence is a perfectly flat line, then curve it.
-      const raw = VIZ.clamp((d.level * 2.0 + d.bass * 0.3) * o.sensitivity, 0, 1)
-      const drive = raw <= 0.035 ? 0 : (raw - 0.035) / 0.965
-      const targetAmp = Math.pow(drive, 0.75)
-      s.amp += (targetAmp - s.amp) * k
-      s.bass += (VIZ.clamp(d.bass, 0, 1) - s.bass) * k
-      s.phase += dt * (0.6 + s.bass * 0.9)
-
+      VIZ.updateWave(s, d, o)
       const mid = H / 2
-      const A = H * 0.18 * s.amp // no idle term: silence must be a flat line
-      const layers = 3
-      const steps = Math.max(48, Math.min(200, Math.round(W / (3 * o.dpr))))
+      const wl = VIZ.WAVE_WIDTH
+      const amp = H * 0.3
+      const steps = Math.max(120, Math.min(360, Math.round(W / (3 * o.dpr))))
+      const ys = new Float32Array(steps + 1)
+      for (let p = 0; p <= steps; p++) ys[p] = Math.abs(VIZ.waveAt(s, p / steps, wl)) * amp
 
-      for (let L = layers - 1; L >= 0; L--) {
-        const lp = L / (layers - 1 || 1)
-        const speed = 1 + L * 0.35
-        const scale = 1 - L * 0.28
-        ctx.beginPath()
-        for (let i = 0; i <= steps; i++) {
-          const x = (i / steps) * W
-          const u = i / steps
-          // taper at both ends so the wave reads as one contained shape
-          const envelope = Math.sin(Math.PI * u)
-          const w =
-            Math.sin(u * 6.2 + s.phase * speed) +
-            0.5 * Math.sin(u * 11.3 - s.phase * speed * 1.3 + 1.7) +
-            0.28 * Math.sin(u * 19.7 + s.phase * speed * 0.7 + 3.1)
-          const y = mid + w * envelope * A * scale
-          if (i === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
-        }
-        ctx.strokeStyle = VIZ.paletteAt(o.palette, 0.15 + lp * 0.7, L === 0 ? 1 : 0.34 - lp * 0.12)
-        ctx.lineWidth = (L === 0 ? 2.6 : 1.8) * o.dpr
-        ctx.lineJoin = 'round'
-        ctx.lineCap = 'round'
-        if (L === 0) {
-          ctx.shadowColor = VIZ.rgba(o.accent, 0.55)
-          ctx.shadowBlur = 12 * o.dpr
-        }
-        ctx.stroke()
-        ctx.shadowBlur = 0
+      ctx.beginPath()
+      for (let p = 0; p <= steps; p++) {
+        const x = (p / steps) * W
+        if (p === 0) ctx.moveTo(x, mid - ys[p])
+        else ctx.lineTo(x, mid - ys[p])
       }
+      for (let p = steps; p >= 0; p--) ctx.lineTo((p / steps) * W, mid + ys[p])
+      ctx.closePath()
+      ctx.fillStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette, 0.55)
+      ctx.fill()
+
+      ctx.strokeStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette)
+      ctx.lineWidth = 1.8 * o.dpr
+      ctx.stroke()
+
+      ctx.fillStyle = 'rgba(255,255,255,0.07)'
+      ctx.fillRect(0, mid - o.dpr / 2, W, o.dpr)
     }
   },
 
-  /* 5 ---------------------------------------------------------------------- */
   {
     id: 'liquid',
     name: 'Liquid Wave',
+    family: 'Wave',
     blurb: 'A smooth filled band that swells with the mix. Organic, no hard edges.',
     init(s) {
       s.n = 56
-      s.ranges = VIZ.bandRanges(s.n)
+      s.ranges = VIZ.bandRanges(s.n, 30, 16000)
       s.v = new Float32Array(s.n)
     },
     draw(ctx, W, H, d, o, s) {
@@ -320,63 +345,160 @@ window.PRISM_VIZ = [
         const target = VIZ.shape(VIZ.bandValue(d.freq, s.ranges[i]), i, s.n, o)
         s.v[i] += (target - s.v[i]) * k
       }
-      const sm = VIZ.smoothArray(s.v, 3)
-      const pts = []
-      for (let i = 0; i < s.n; i++) {
-        pts.push({
-          x: (i / (s.n - 1)) * W,
-          h: Math.max(0.03, sm[i]) * H * 0.28
-        })
+      // spatial blur, so the band reads as one liquid shape
+      let a = s.v
+      for (let pass = 0; pass < 3; pass++) {
+        const b = new Float32Array(a.length)
+        for (let i = 0; i < a.length; i++) {
+          const l = a[Math.max(0, i - 1)]
+          const r = a[Math.min(a.length - 1, i + 1)]
+          b[i] = (l + a[i] * 2 + r) / 4
+        }
+        a = b
       }
 
-      const trace = (sign) => {
-        ctx.moveTo(pts[0].x, mid + sign * pts[0].h)
+      const pts = []
+      for (let i = 0; i < s.n; i++) {
+        pts.push({ x: (i / (s.n - 1)) * W, h: Math.max(0.03, a[i]) * H * 0.28 })
+      }
+
+      const side = (sign) => {
         for (let i = 0; i < pts.length - 1; i++) {
-          const a = pts[i]
-          const b = pts[i + 1]
-          const cx = (a.x + b.x) / 2
-          ctx.quadraticCurveTo(a.x, mid + sign * a.h, cx, mid + sign * (a.h + b.h) / 2)
+          const p0 = pts[i]
+          const p1 = pts[i + 1]
+          const cx = (p0.x + p1.x) / 2
+          ctx.quadraticCurveTo(p0.x, mid + sign * p0.h, cx, mid + sign * (p0.h + p1.h) / 2)
         }
         const last = pts[pts.length - 1]
         ctx.lineTo(last.x, mid + sign * last.h)
       }
 
-      const g = ctx.createLinearGradient(0, 0, W, 0)
-      g.addColorStop(0, VIZ.paletteAt(o.palette, 0, 0.85))
-      g.addColorStop(0.5, VIZ.paletteAt(o.palette, 0.5, 0.85))
-      g.addColorStop(1, VIZ.paletteAt(o.palette, 1, 0.85))
-
       ctx.beginPath()
-      trace(-1)
-      const rev = pts.slice().reverse()
-      ctx.lineTo(rev[0].x, mid + rev[0].h)
-      for (let i = 0; i < rev.length - 1; i++) {
-        const a = rev[i]
-        const b = rev[i + 1]
-        const cx = (a.x + b.x) / 2
-        ctx.quadraticCurveTo(a.x, mid + a.h, cx, mid + (a.h + b.h) / 2)
+      ctx.moveTo(pts[0].x, mid - pts[0].h)
+      side(-1)
+      ctx.lineTo(pts[pts.length - 1].x, mid + pts[pts.length - 1].h)
+      for (let i = pts.length - 1; i > 0; i--) {
+        const p0 = pts[i]
+        const p1 = pts[i - 1]
+        const cx = (p0.x + p1.x) / 2
+        ctx.quadraticCurveTo(p0.x, mid + p0.h, cx, mid + (p0.h + p1.h) / 2)
       }
       ctx.closePath()
-      ctx.fillStyle = g
+      ctx.fillStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette, 0.85)
       ctx.fill()
-
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.fillStyle = VIZ.rgba(o.accent, 0.12 + d.level * 0.18)
-      ctx.fill()
-      ctx.globalCompositeOperation = 'source-over'
     }
   },
 
-  /* 6 ---------------------------------------------------------------------- */
+  {
+    id: 'ribbon',
+    name: 'Ribbon Wave',
+    family: 'Wave',
+    blurb: 'One wave drawn as a ribbon that thickens where the sound is loudest.',
+    init(s) {
+      VIZ.initWave(s)
+    },
+    draw(ctx, W, H, d, o, s) {
+      VIZ.updateWave(s, d, o)
+      const mid = H / 2
+      const wl = VIZ.WAVE_WIDTH
+      const amp = H * 0.26
+      const steps = Math.max(110, Math.min(320, Math.round(W / (3.5 * o.dpr))))
+      const base = Math.max(1.2 * o.dpr, H * 0.008)
+
+      const yy = new Float32Array(steps + 1)
+      const tt = new Float32Array(steps + 1)
+      for (let p = 0; p <= steps; p++) {
+        const v = VIZ.waveAt(s, p / steps, wl)
+        yy[p] = mid - v * amp
+        tt[p] = base * (0.5 + Math.abs(v) * 5)
+      }
+
+      ctx.beginPath()
+      for (let p = 0; p <= steps; p++) ctx.lineTo((p / steps) * W, yy[p] - tt[p])
+      for (let p = steps; p >= 0; p--) ctx.lineTo((p / steps) * W, yy[p] + tt[p])
+      ctx.closePath()
+      ctx.fillStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette)
+      ctx.shadowColor = VIZ.rgba(o.accent, 0.45)
+      ctx.shadowBlur = 14 * o.dpr
+      ctx.fill()
+      ctx.shadowBlur = 0
+    }
+  },
+
+  {
+    id: 'dot-wave',
+    name: 'Dot Wave',
+    family: 'Wave',
+    blurb: 'The same wave sampled into beads, each one growing with its own band.',
+    init(s) {
+      VIZ.initWave(s)
+    },
+    draw(ctx, W, H, d, o, s) {
+      VIZ.updateWave(s, d, o)
+      const mid = H / 2
+      const wl = VIZ.WAVE_WIDTH
+      const amp = H * 0.3
+      const dots = Math.max(28, Math.min(110, Math.round(W / (14 * o.dpr))))
+      const rBase = Math.max(1.4 * o.dpr, W / dots / 5)
+
+      ctx.fillStyle = 'rgba(255,255,255,0.05)'
+      ctx.fillRect(0, mid - o.dpr / 2, W, o.dpr)
+
+      for (let i = 0; i <= dots; i++) {
+        const u = i / dots
+        const v = VIZ.waveAt(s, u, wl)
+        const y = mid - v * amp
+        const r = rBase * (0.75 + Math.abs(v) * 6)
+        ctx.beginPath()
+        ctx.arc(u * W, y, r, 0, Math.PI * 2)
+        ctx.fillStyle = VIZ.paletteAt(o.palette, u, VIZ.clamp(0.35 + Math.abs(v) * 5, 0, 1))
+        ctx.fill()
+      }
+    }
+  },
+
+  {
+    id: 'echo-wave',
+    name: 'Echo Wave',
+    family: 'Wave',
+    blurb: 'The wave leaves a fading trail behind it, so you see the last moment of sound.',
+    trails: true,
+    init(s) {
+      VIZ.initWave(s)
+    },
+    draw(ctx, W, H, d, o, s) {
+      VIZ.updateWave(s, d, o)
+      const mid = H / 2
+      const wl = VIZ.WAVE_WIDTH
+      const amp = H * 0.3
+      const steps = Math.max(120, Math.min(380, Math.round(W / (2.5 * o.dpr))))
+
+      ctx.beginPath()
+      for (let p = 0; p <= steps; p++) {
+        const u = p / steps
+        const y = mid - VIZ.waveAt(s, u, wl) * amp
+        if (p === 0) ctx.moveTo(0, y)
+        else ctx.lineTo(u * W, y)
+      }
+      ctx.strokeStyle = VIZ.sweep(ctx, 0, 0, W, 0, o.palette)
+      ctx.lineWidth = 2.2 * o.dpr
+      ctx.lineJoin = 'round'
+      ctx.shadowColor = VIZ.rgba(o.accent, 0.6)
+      ctx.shadowBlur = 16 * o.dpr
+      ctx.stroke()
+      ctx.shadowBlur = 0
+    }
+  },
+
+  /* ======================================================== CIRCULAR ==== */
   {
     id: 'radial-ring',
     name: 'Radial Ring',
+    family: 'Circular',
     blurb: 'Spectrum rays around an open ring, balanced so the whole circle stays alive.',
     init(s) {
       s.half = 72
-      // Stop at 12 kHz: bands above that carry almost nothing in real music, and
-      // on a mirrored ring they land at the top seam as a dead notch.
-      s.ranges = VIZ.bandRanges(s.half, 30, 12000)
+      s.ranges = VIZ.bandRanges(s.half)
       s.v = new Float32Array(s.half)
       s.pk = new Float32Array(s.half).fill(0.09)
       s.boom = 0
@@ -388,8 +510,7 @@ window.PRISM_VIZ = [
       const k = VIZ.rate(o)
 
       for (let i = 0; i < s.half; i++) {
-        const raw = VIZ.bandValue(d.freq, s.ranges[i])
-        s.v[i] += (VIZ.adaptive(s.pk, i, raw, o) - s.v[i]) * k
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
       }
       s.boom = Math.max(d.beat, s.boom * 0.93)
 
@@ -411,7 +532,6 @@ window.PRISM_VIZ = [
       ctx.shadowColor = VIZ.rgba(o.accent, 0.45)
       ctx.shadowBlur = minD * 0.018
       for (let j = 0; j < total; j++) {
-        // mirrored, so the figure is symmetric: lows at the bottom seam
         const m = j < s.half ? j : total - 1 - j
         const t = m / (s.half - 1)
         const a = Math.PI / 2 + ((j + 0.5) / total) * Math.PI * 2
@@ -434,295 +554,10 @@ window.PRISM_VIZ = [
     }
   },
 
-  /* 7 ---------------------------------------------------------------------- */
-  {
-    id: 'orb',
-    name: 'Waveform Orb',
-    blurb: 'The waveform wrapped into a circle, so the outline breathes with the sound.',
-    init(s) {
-      s.N = 256
-      s.r = new Float32Array(s.N)
-    },
-    draw(ctx, W, H, d, o, s) {
-      const cx = W / 2
-      const cy = H / 2
-      const minD = Math.min(W, H)
-      const R = minD * 0.25
-      const amp = minD * 0.1 * o.sensitivity
-      const N = s.N
-      const n = d.time.length
-      const k = Math.max(0.1, VIZ.rate(o))
-
-      for (let i = 0; i < N; i++) {
-        const target = ((d.time[Math.floor((i / N) * n) % n] - 128) / 128) * amp
-        s.r[i] += (target - s.r[i]) * k
-      }
-      // wrap-around blur keeps the outline organic instead of spiky
-      const sm = new Float32Array(N)
-      for (let i = 0; i < N; i++) {
-        sm[i] = (s.r[(i - 1 + N) % N] + s.r[i] * 2 + s.r[(i + 1) % N]) / 4
-      }
-
-      const path = (scale) => {
-        ctx.beginPath()
-        for (let i = 0; i <= N; i++) {
-          const idx = i % N
-          const a = (idx / N) * Math.PI * 2 - Math.PI / 2
-          const r = R + sm[idx] * scale
-          const x = cx + Math.cos(a) * r
-          const y = cy + Math.sin(a) * r
-          if (i === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
-        }
-        ctx.closePath()
-      }
-
-      path(1.9)
-      ctx.strokeStyle = VIZ.rgba(o.accent, 0.16)
-      ctx.lineWidth = Math.max(1, minD * 0.003)
-      ctx.stroke()
-
-      path(1)
-      const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R + amp)
-      g.addColorStop(0, VIZ.paletteAt(o.palette, 0.15, 0.13))
-      g.addColorStop(1, VIZ.paletteAt(o.palette, 0.85, 0.01))
-      ctx.fillStyle = g
-      ctx.fill()
-
-      ctx.shadowColor = VIZ.rgba(o.accent, 0.75)
-      ctx.shadowBlur = minD * 0.032
-      ctx.strokeStyle = VIZ.paletteAt(o.palette, 0.4)
-      ctx.lineWidth = Math.max(1.6, minD * 0.0058)
-      ctx.stroke()
-      ctx.shadowBlur = 0
-    }
-  },
-
-  /* 8 ---------------------------------------------------------------------- */
-  {
-    id: 'spectrogram',
-    name: 'Spectrogram',
-    blurb: 'A scrolling heat map of the spectrum. Frequency up the side, time to the left.',
-    init(s, W, H) {
-      s.n = 128
-      s.ranges = VIZ.bandRanges(s.n)
-      s.off = document.createElement('canvas')
-      s.off.width = Math.max(1, W)
-      s.off.height = Math.max(1, H)
-      s.octx = s.off.getContext('2d')
-      s.octx.fillStyle = '#0b0d12'
-      s.octx.fillRect(0, 0, W, H)
-    },
-    draw(ctx, W, H, d, o, s) {
-      if (!s.octx) return
-      const col = Math.max(1, Math.round(2 * o.dpr))
-      // shift the history left by one column, then paint the new one at the edge
-      s.octx.globalCompositeOperation = 'copy'
-      s.octx.drawImage(s.off, -col, 0)
-      s.octx.globalCompositeOperation = 'source-over'
-      s.octx.fillStyle = '#0b0d12'
-      s.octx.fillRect(W - col, 0, col, H)
-
-      const cellH = H / s.n
-      for (let i = 0; i < s.n; i++) {
-        const v = VIZ.clamp(VIZ.shape(VIZ.bandValue(d.freq, s.ranges[i]), i, s.n, o), 0, 1)
-        if (v <= 0.012) continue
-        // low frequencies at the bottom
-        const y = H - (i + 1) * cellH
-        s.octx.fillStyle = VIZ.paletteAt(o.palette, VIZ.clamp(v * 1.15, 0, 1), VIZ.clamp(0.15 + v * 1.5, 0, 1))
-        s.octx.fillRect(W - col, y, col, Math.ceil(cellH) + 1)
-      }
-      ctx.drawImage(s.off, 0, 0)
-    }
-  },
-
-  /* 9 ---------------------------------------------------------------------- */
-  {
-    id: 'history',
-    name: 'Waveform History',
-    blurb: 'The last few seconds of loudness, scrolling by like a tape readout.',
-    init(s, W, H) {
-      s.bar = 3
-      s.cap = Math.max(8, Math.ceil(W / s.bar) + 2)
-      s.hist = new Float32Array(s.cap)
-      s.tone = new Float32Array(s.cap)
-      s.head = 0
-      s.acc = 0
-      s.accN = 0
-      void H
-    },
-    draw(ctx, W, H, d, o, s) {
-      const bw = Math.max(2, Math.round(3 * o.dpr))
-      const gap = Math.max(1, Math.round(o.dpr))
-      const slot = bw + gap
-      const cap = Math.max(8, Math.ceil(W / slot) + 2)
-      if (cap !== s.cap) {
-        const h = new Float32Array(cap)
-        const tn = new Float32Array(cap)
-        h.set(s.hist.subarray(0, Math.min(cap, s.hist.length)))
-        tn.set(s.tone.subarray(0, Math.min(cap, s.tone.length)))
-        s.hist = h
-        s.tone = tn
-        s.cap = cap
-        s.head = s.head % cap
-      }
-
-      // peak of this frame, plus a brightness cue for where the energy sits
-      let peak = 0
-      for (let i = 0; i < d.time.length; i += 4) {
-        const v = Math.abs(d.time[i] - 128) / 128
-        if (v > peak) peak = v
-      }
-      s.hist[s.head] = VIZ.clamp(Math.pow(peak, 1.6) * o.sensitivity, 0, 1.1)
-      const tot = d.bass + d.mid + d.treble + 1e-6
-      s.tone[s.head] = VIZ.clamp((d.mid * 0.5 + d.treble) / tot, 0, 1)
-      s.head = (s.head + 1) % s.cap
-
-      const mid = H / 2
-      ctx.fillStyle = 'rgba(255,255,255,0.05)'
-      ctx.fillRect(0, mid - o.dpr / 2, W, o.dpr)
-
-      for (let x = 0; x < s.cap; x++) {
-        // oldest at the left edge, newest at the right
-        const idx = (s.head + x) % s.cap
-        const v = s.hist[idx]
-        if (v <= 0) continue
-        const half = Math.max(o.dpr, v * H * 0.34)
-        const px = x * slot
-        if (px > W) break
-        ctx.fillStyle = VIZ.paletteAt(o.palette, s.tone[idx])
-        ctx.beginPath()
-        ctx.roundRect(px, mid - half, bw, half * 2, bw / 2)
-        ctx.fill()
-      }
-    }
-  },
-
-  /* 10 --------------------------------------------------------------------- */
-  {
-    id: 'particles',
-    name: 'Particle Field',
-    blurb: 'A drifting dot field that scatters on every kick and settles between them.',
-    trails: true,
-    init(s, W, H) {
-      s.n = 160
-      s.p = []
-      for (let i = 0; i < s.n; i++) {
-        const a = Math.random() * Math.PI * 2
-        const r = Math.pow(Math.random(), 0.6) * 0.45
-        s.p.push({
-          a,
-          r,
-          band: Math.floor(Math.random() * 24),
-          x: 0,
-          y: 0,
-          vx: 0,
-          vy: 0,
-          seed: Math.random() * 100
-        })
-      }
-      s.ranges = VIZ.bandRanges(24)
-      void W
-      void H
-    },
-    draw(ctx, W, H, d, o, s) {
-      const cx = W / 2
-      const cy = H / 2
-      const minD = Math.min(W, H)
-      const time = d.t / 1000
-
-      for (let i = 0; i < s.p.length; i++) {
-        const p = s.p[i]
-        const band = VIZ.clamp(VIZ.bandValue(d.freq, s.ranges[p.band]) * o.sensitivity, 0, 1.4)
-        // slow orbit + a kick that pushes outward, then eases home
-        const ang = p.a + time * 0.12 + Math.sin(time * 0.4 + p.seed) * 0.15
-        const push = d.beat * 0.09 + band * 0.055
-        const rad = (p.r + push) * minD
-        const x = cx + Math.cos(ang) * rad
-        const y = cy + Math.sin(ang) * rad * 0.82
-        const size = Math.max(o.dpr, (1.0 + band * 3.6) * o.dpr)
-
-        ctx.beginPath()
-        ctx.arc(x, y, size, 0, Math.PI * 2)
-        ctx.fillStyle = VIZ.paletteAt(o.palette, p.band / 23, VIZ.clamp(0.22 + band * 1.1, 0, 0.95))
-        ctx.fill()
-      }
-
-      const glow = minD * (0.05 + d.bass * 0.13)
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glow)
-      g.addColorStop(0, VIZ.rgba(o.accent, 0.5 * (0.3 + d.level)))
-      g.addColorStop(1, VIZ.rgba(o.accent, 0))
-      ctx.beginPath()
-      ctx.arc(cx, cy, glow, 0, Math.PI * 2)
-      ctx.fillStyle = g
-      ctx.fill()
-    }
-  },
-
-  /* 11 --------------------------------------------------------------------- */
-  {
-    id: 'vu',
-    name: 'VU Meters',
-    blurb: 'Segmented band meters with peak hold. The hi-fi readout, not a light show.',
-    init(s) {
-      s.v = [0, 0, 0, 0]
-      s.peak = [0, 0, 0, 0]
-    },
-    draw(ctx, W, H, d, o, s) {
-      const rows = [
-        ['LOW', d.bass],
-        ['MID', d.mid],
-        ['HIGH', d.treble],
-        ['OUT', d.level]
-      ]
-      const k = VIZ.rate(o)
-      const padX = W * 0.07
-      const labelW = Math.min(W * 0.16, 92 * o.dpr)
-      const trackX = padX + labelW
-      const trackW = W - trackX - padX
-      const gapY = H * 0.055
-      const rowH = (H - gapY * (rows.length + 1)) / rows.length
-      const segW = Math.max(3 * o.dpr, trackW / 44)
-      const segGap = Math.max(1.5 * o.dpr, segW * 0.32)
-      const segs = Math.max(6, Math.floor(trackW / (segW + segGap)))
-
-      ctx.font = `600 ${Math.round(Math.min(H * 0.09, 15 * o.dpr))}px ui-monospace, "Cascadia Mono", Consolas, monospace`
-      ctx.textBaseline = 'middle'
-
-      for (let r = 0; r < rows.length; r++) {
-        const [label, raw] = rows[r]
-        const target = VIZ.clamp(Math.pow(raw, 1.15) * o.sensitivity * 1.15, 0, 1)
-        s.v[r] += (target - s.v[r]) * k
-        s.peak[r] = Math.max(s.peak[r] - 0.005, s.v[r])
-
-        const y = gapY + r * (rowH + gapY)
-        const cyr = y + rowH / 2
-
-        ctx.fillStyle = 'rgba(233,236,245,0.55)'
-        ctx.fillText(label, padX, cyr)
-
-        const lit = Math.round(s.v[r] * segs)
-        const peakSeg = Math.round(s.peak[r] * segs)
-        for (let i = 0; i < segs; i++) {
-          const x = trackX + i * (segW + segGap)
-          const t = i / (segs - 1)
-          const on = i < lit
-          const isPeak = i === peakSeg - 1 && peakSeg > 0
-          if (on) ctx.fillStyle = VIZ.paletteAt(o.palette, t)
-          else if (isPeak) ctx.fillStyle = 'rgba(255,255,255,0.6)'
-          else ctx.fillStyle = 'rgba(255,255,255,0.07)'
-          ctx.beginPath()
-          ctx.roundRect(x, y + rowH * 0.16, segW, rowH * 0.68, segW * 0.3)
-          ctx.fill()
-        }
-      }
-    }
-  },
-
-  /* 12 --------------------------------------------------------------------- */
   {
     id: 'ripples',
     name: 'Bass Ripples',
+    family: 'Circular',
     blurb: 'Rings fire on every kick and spread outward through a spectrum halo.',
     init(s) {
       s.rings = []
@@ -747,8 +582,7 @@ window.PRISM_VIZ = [
       if (s.rings.length > 20) s.rings.splice(0, s.rings.length - 20)
 
       for (let i = 0; i < s.n; i++) {
-        const raw = VIZ.bandValue(d.freq, s.ranges[i])
-        s.v[i] += (VIZ.adaptive(s.pk, i, raw, o) - s.v[i]) * k
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
       }
 
       for (let i = s.rings.length - 1; i >= 0; i--) {
@@ -790,6 +624,235 @@ window.PRISM_VIZ = [
       ctx.arc(cx, cy, core, 0, Math.PI * 2)
       ctx.fillStyle = cg
       ctx.fill()
+    }
+  },
+
+  {
+    id: 'wave-ring',
+    name: 'Wave Ring',
+    family: 'Circular',
+    blurb: 'The wave model bent into a circle: perfect waves of fixed width around a ring.',
+    init(s) {
+      VIZ.initWave(s, 24)
+    },
+    draw(ctx, W, H, d, o, s) {
+      VIZ.updateWave(s, d, o)
+      const cx = W / 2
+      const cy = H / 2
+      const minD = Math.min(W, H)
+      const R = minD * 0.24
+      const amp = minD * 0.2
+      const wl = VIZ.WAVE_WIDTH
+      const steps = 300
+
+      ctx.beginPath()
+      for (let p = 0; p <= steps; p++) {
+        let u = p / steps
+        // wrap the wavelet field so the seam is continuous
+        let y = 0
+        for (let i = 0; i < s.n; i++) {
+          const h = s.h[i]
+          if (h <= 0.004) continue
+          let dx = u - s.pos[i]
+          if (dx > 0.5) dx -= 1
+          if (dx < -0.5) dx += 1
+          y += h * VIZ.wavelet(dx, wl)
+        }
+        const a = u * Math.PI * 2 - Math.PI / 2
+        const r = R + y * amp
+        const x = cx + Math.cos(a) * r
+        const yy = cy + Math.sin(a) * r
+        if (p === 0) ctx.moveTo(x, yy)
+        else ctx.lineTo(x, yy)
+      }
+      ctx.closePath()
+      ctx.strokeStyle = VIZ.sweep(ctx, cx - R, cy - R, cx + R, cy + R, o.palette)
+      ctx.lineWidth = Math.max(1.8, minD * 0.006)
+      ctx.lineJoin = 'round'
+      ctx.shadowColor = VIZ.rgba(o.accent, 0.55)
+      ctx.shadowBlur = minD * 0.03
+      ctx.stroke()
+      ctx.shadowBlur = 0
+
+      ctx.beginPath()
+      ctx.arc(cx, cy, R, 0, Math.PI * 2)
+      ctx.strokeStyle = VIZ.rgba(o.accent, 0.16)
+      ctx.lineWidth = Math.max(1, minD * 0.002)
+      ctx.stroke()
+    }
+  },
+
+  {
+    id: 'concentric',
+    name: 'Concentric Bands',
+    family: 'Circular',
+    blurb: 'One ring per frequency band, lows inside and highs outside, breathing in place.',
+    init(s) {
+      s.n = 14
+      s.ranges = VIZ.bandRanges(s.n)
+      s.v = new Float32Array(s.n)
+      s.pk = new Float32Array(s.n).fill(0.09)
+    },
+    draw(ctx, W, H, d, o, s) {
+      const cx = W / 2
+      const cy = H / 2
+      const minD = Math.min(W, H)
+      const k = VIZ.rate(o)
+      const inner = minD * 0.07
+      const step = (minD * 0.4 - inner) / s.n
+
+      for (let i = 0; i < s.n; i++) {
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
+      }
+
+      for (let i = s.n - 1; i >= 0; i--) {
+        const v = VIZ.clamp(s.v[i], 0, 1)
+        const r = inner + step * (i + 1) + v * step * 0.55
+        ctx.beginPath()
+        ctx.arc(cx, cy, r, 0, Math.PI * 2)
+        ctx.strokeStyle = VIZ.paletteAt(o.palette, i / (s.n - 1), VIZ.clamp(0.12 + v * 1.1, 0, 1))
+        ctx.lineWidth = Math.max(1, step * (0.12 + v * 0.5))
+        ctx.stroke()
+      }
+
+      const core = inner * (1 + d.beat * 0.35)
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, core)
+      g.addColorStop(0, VIZ.rgba(o.accent, 0.45 + d.bass * 0.4))
+      g.addColorStop(1, VIZ.rgba(o.accent, 0))
+      ctx.beginPath()
+      ctx.arc(cx, cy, core, 0, Math.PI * 2)
+      ctx.fillStyle = g
+      ctx.fill()
+    }
+  },
+
+  {
+    id: 'arc-spectrum',
+    name: 'Arc Spectrum',
+    family: 'Circular',
+    blurb: 'The spectrum wrapped into a dial, each band a thickening arc segment.',
+    init(s) {
+      s.n = 48
+      s.ranges = VIZ.bandRanges(s.n)
+      s.v = new Float32Array(s.n)
+      s.pk = new Float32Array(s.n).fill(0.09)
+    },
+    draw(ctx, W, H, d, o, s) {
+      const cx = W / 2
+      const cy = H / 2
+      const minD = Math.min(W, H)
+      const k = VIZ.rate(o)
+      const R = minD * 0.27
+      const maxT = minD * 0.11
+      const span = (Math.PI * 2) / s.n
+      const gap = span * 0.22
+
+      for (let i = 0; i < s.n; i++) {
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
+      }
+
+      ctx.lineCap = 'butt'
+      for (let i = 0; i < s.n; i++) {
+        const v = VIZ.clamp(s.v[i], 0, 1)
+        const t = Math.max(minD * 0.006, v * maxT)
+        const a0 = -Math.PI / 2 + i * span + gap / 2
+        const a1 = a0 + span - gap
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, a0, a1)
+        ctx.strokeStyle = VIZ.paletteAt(o.palette, i / (s.n - 1), VIZ.clamp(0.3 + v, 0, 1))
+        ctx.lineWidth = t
+        ctx.stroke()
+      }
+
+      ctx.beginPath()
+      ctx.arc(cx, cy, R - maxT * 0.62, 0, Math.PI * 2)
+      ctx.strokeStyle = VIZ.rgba(o.accent, 0.18)
+      ctx.lineWidth = Math.max(1, minD * 0.002)
+      ctx.stroke()
+    }
+  },
+
+  {
+    id: 'orbit',
+    name: 'Orbit Dots',
+    family: 'Circular',
+    blurb: 'Beads riding a ring, pushed outward by their own band and turning slowly.',
+    init(s) {
+      s.n = 56
+      s.ranges = VIZ.bandRanges(s.n)
+      s.v = new Float32Array(s.n)
+      s.pk = new Float32Array(s.n).fill(0.09)
+    },
+    draw(ctx, W, H, d, o, s) {
+      const cx = W / 2
+      const cy = H / 2
+      const minD = Math.min(W, H)
+      const k = VIZ.rate(o)
+      const R = minD * 0.24
+      const spin = (d.t / 1000) * 0.08
+
+      for (let i = 0; i < s.n; i++) {
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
+      }
+
+      ctx.beginPath()
+      ctx.arc(cx, cy, R, 0, Math.PI * 2)
+      ctx.strokeStyle = VIZ.rgba(o.accent, 0.14)
+      ctx.lineWidth = Math.max(1, minD * 0.002)
+      ctx.stroke()
+
+      for (let i = 0; i < s.n; i++) {
+        const v = VIZ.clamp(s.v[i], 0, 1)
+        const a = (i / s.n) * Math.PI * 2 - Math.PI / 2 + spin
+        const r = R + v * minD * 0.16
+        const rad = Math.max(1.2 * o.dpr, minD * (0.004 + v * 0.014))
+        ctx.beginPath()
+        ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, rad, 0, Math.PI * 2)
+        ctx.fillStyle = VIZ.paletteAt(o.palette, i / (s.n - 1), VIZ.clamp(0.3 + v * 1.2, 0, 1))
+        ctx.fill()
+      }
+    }
+  },
+
+  {
+    id: 'spiral',
+    name: 'Spiral Spectrum',
+    family: 'Circular',
+    blurb: 'The spectrum wound outward along a spiral, lows at the middle.',
+    init(s) {
+      s.n = 120
+      s.ranges = VIZ.bandRanges(s.n)
+      s.v = new Float32Array(s.n)
+      s.pk = new Float32Array(s.n).fill(0.09)
+    },
+    draw(ctx, W, H, d, o, s) {
+      const cx = W / 2
+      const cy = H / 2
+      const minD = Math.min(W, H)
+      const k = VIZ.rate(o)
+      const turns = 3
+      const rMax = minD * 0.4
+
+      for (let i = 0; i < s.n; i++) {
+        s.v[i] += (VIZ.adaptive(s.pk, i, VIZ.bandValue(d.freq, s.ranges[i]), o) - s.v[i]) * k
+      }
+
+      ctx.lineCap = 'round'
+      for (let i = 0; i < s.n; i++) {
+        const u = i / (s.n - 1)
+        const a = u * Math.PI * 2 * turns - Math.PI / 2
+        const r = minD * 0.06 + u * (rMax - minD * 0.06)
+        const v = VIZ.clamp(s.v[i], 0, 1)
+        const len = minD * (0.008 + v * 0.06)
+        const ca = Math.cos(a)
+        const sa = Math.sin(a)
+        ctx.beginPath()
+        ctx.moveTo(cx + ca * (r - len / 2), cy + sa * (r - len / 2))
+        ctx.lineTo(cx + ca * (r + len / 2), cy + sa * (r + len / 2))
+        ctx.strokeStyle = VIZ.paletteAt(o.palette, u, VIZ.clamp(0.28 + v * 1.1, 0, 1))
+        ctx.lineWidth = Math.max(1.2, minD * 0.006)
+        ctx.stroke()
+      }
     }
   }
 ]

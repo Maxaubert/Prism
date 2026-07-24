@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- This page is iterated on constantly; never serve a stale copy. -->
+<meta http-equiv="cache-control" content="no-store" />
 <title>Prism Visualizer Lab</title>
 <style>
   :root {
@@ -369,21 +371,32 @@
 <audio id="au" crossorigin="anonymous"></audio>
 
 <script src="visualizers.js"></script>
+<script src="viz-bars.js"></script>
+<script src="viz-wave.js"></script>
+<script src="viz-circular.js"></script>
+<script src="viz-grid.js"></script>
+<script src="viz-particle.js"></script>
+<script src="viz-abstract.js"></script>
 <script src="codex-visualizers.js" onerror="window.__codexMissing=true"></script>
 <script>
 (() => {
   'use strict'
 
   /* ------------------------------------------------------ style registry */
-  const clean = (arr, origin) =>
+  const clean = (arr) =>
     (Array.isArray(arr) ? arr : [])
       .filter((v) => v && typeof v.draw === 'function' && v.id && v.name)
-      .map((v) => ({ ...v, origin }))
+      .map((v) => ({ ...v, origin: v.family || 'Styles' }))
 
-  const mine = clean(window.PRISM_VIZ, 'Prism set')
-  const codex = clean(window.CODEX_VIZ, 'Codex set')
   const seen = new Set()
-  const STYLES = [...mine, ...codex].filter((v) => (seen.has(v.id) ? false : seen.add(v.id)))
+  const FAM_ORDER = ['Wave', 'Bars', 'Circular', 'Grid', 'Particle', 'Abstract']
+  const STYLES = [...clean(window.PRISM_VIZ), ...clean(window.CODEX_VIZ)]
+    .filter((v) => (seen.has(v.id) ? false : seen.add(v.id)))
+    .sort((a, b) => {
+      const fa = FAM_ORDER.indexOf(a.family)
+      const fb = FAM_ORDER.indexOf(b.family)
+      return (fa < 0 ? 99 : fa) - (fb < 0 ? 99 : fb)
+    })
 
   if (!STYLES.length) {
     document.getElementById('errbar').style.display = 'block'
@@ -519,6 +532,7 @@
     const cv = p.canvas
     const rect = cv.getBoundingClientRect()
     if (!rect.width || !rect.height) return
+    OPTS.dpr = dpr
     const W = Math.round(rect.width * dpr)
     const H = Math.round(rect.height * dpr)
     if (cv.width !== W || cv.height !== H) {
@@ -610,7 +624,7 @@
     const nm = document.createElement('span')
     nm.textContent = v.name
     const og = document.createElement('i')
-    og.textContent = v.origin === 'Codex set' ? 'Codex' : 'Prism'
+    og.textContent = v.family || ''
     cap.append(nm, og)
     cell.append(cv, cap)
     cell.addEventListener('click', () => { select(v); setGrid(false) })
@@ -667,6 +681,12 @@
 
   /* ------------------------------------------------------------ source */
   let objectUrl = null
+  function fail(msg) {
+    const bar = el('errbar')
+    bar.style.display = 'block'
+    bar.textContent = msg
+    console.error('[lab]', msg)
+  }
   function loadSrc(url, label, isObject) {
     ensureGraph()
     if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null }
@@ -681,18 +701,37 @@
     if (!f) return
     loadSrc(URL.createObjectURL(f), f.name, true)
   }
-  el('file').addEventListener('change', (e) => loadFile(e.target.files[0]))
-  // A real button rather than a <label for>: a label would fire the picker on
-  // both native activation and any handler, which opened two choosers at once.
-  el('pickBtn').addEventListener('click', () => el('file').click())
+  el('file').addEventListener('change', (e) => {
+    try {
+      loadFile(e.target.files && e.target.files[0])
+    } catch (err) {
+      fail('Could not open that file: ' + err.message)
+    }
+  })
+  // A real button rather than a <label for>: a label fires the picker on both
+  // native activation and any handler, which opened two choosers at once.
+  // Clearing value first matters: without it, re-picking the SAME file fires no
+  // change event at all, so the second attempt looks like nothing happened.
+  el('pickBtn').addEventListener('click', () => {
+    try {
+      const f = el('file')
+      f.value = ''
+      f.click()
+    } catch (err) {
+      fail('Could not open the file picker: ' + err.message)
+    }
+  })
   const loadDemo = () => loadSrc('demo-loop.mp3', 'demo-loop.mp3', false)
   el('demoBtn').addEventListener('click', loadDemo)
   el('demoBtn2').addEventListener('click', loadDemo)
   au.addEventListener('error', () => {
-    const bar = el('errbar')
-    bar.style.display = 'block'
-    bar.textContent =
-      'Could not load that audio. If you opened this page from the file system, serve it instead (start.cmd) so the demo track can load.'
+    const name = el('trackName').textContent
+    const viaFile = location.protocol === 'file:'
+    fail(
+      viaFile
+        ? `Could not load "${name}". This page was opened from the file system; run start.cmd and use http://localhost:8777 instead.`
+        : `Could not decode "${name}". Chromium may not support that codec. Try an mp3, m4a, wav, ogg or flac.`
+    )
   })
 
   ;['dragover', 'dragenter'].forEach((t) =>
@@ -733,8 +772,19 @@
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
     OPTS.dpr = dpr
     const d = sample(now)
-    if (gridMode) gridPanels.forEach((p) => renderPanel(p, d, dpr))
-    else renderPanel(stagePanel, d, dpr)
+    if (gridMode) {
+      // With this many styles, drawing every cell every frame will hang or crash
+      // the tab. Only the cells actually on screen are drawn, at 1x rather than
+      // device resolution.
+      const vh = window.innerHeight
+      for (const p of gridPanels) {
+        const r = p.canvas.getBoundingClientRect()
+        if (r.bottom < -120 || r.top > vh + 120) continue
+        renderPanel(p, d, 1)
+      }
+    } else {
+      renderPanel(stagePanel, d, dpr)
+    }
 
     frames++
     if (now - lastFps > 500) {
@@ -756,7 +806,6 @@
     metrics: () => ({ bass: D.bass, mid: D.mid, treble: D.treble, level: D.level, beat: D.beat }),
     canvas: () => (gridMode ? gridPanels.map((p) => p.canvas) : [stagePanel.canvas])
   }
-  if (window.__codexMissing) console.warn('codex-visualizers.js not loaded yet')
 })()
 </script>
 </body>
