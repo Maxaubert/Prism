@@ -104,6 +104,7 @@ export function Visualizer({
     let beat = 0
     // Drop detection (see below): tracks a break-then-slam, not every kick.
     let bassSlow = 0
+    let loud = 0.85 // frozen-during-break estimate of the loud-section bass level
     let breakFrames = 0
     let dropPending = false
     let drop = 0
@@ -200,21 +201,27 @@ export function Visualizer({
           }
 
           // Drop detector: a proper drop is the mix breaking down (bass falls away
-          // for a sustained beat or two) then slamming back to loud - not every
-          // kick, and not a quiet-section swell. Thresholds are absolute (bass here
-          // reads ~0.8 when the track is loud): a break is bass genuinely falling
-          // below BREAK, and it only counts as a drop when it climbs back above
-          // SLAM - which a quiet intro never reaches, so it can't misfire there.
-          const BREAK = 0.5
-          const SLAM = 0.72
+          // for a sustained beat or two) then slamming back to full - not every
+          // kick, and not a quiet-section swell.
+          //
+          // `loud` tracks the loud-section bass level: it rises fast, decays
+          // slowly, and is frozen while a break is in progress or armed, so the
+          // recovery threshold reflects the level the mix had *before* it broke.
+          // A drop fires when the bass climbs back to that full level (the impact)
+          // - not partway up the build-in, where an earlier plateau would trip an
+          // absolute threshold a beat too early. Everything is relative to `loud`,
+          // so it adapts to any track's loudness and a quiet intro (which never
+          // reaches its own recovery threshold) can't misfire.
           bassSlow += (frame.bass - bassSlow) * 0.25
-          if (bassSlow < BREAK) {
+          if (bassSlow > loud) loud += (bassSlow - loud) * 0.08
+          else if (breakFrames === 0 && !dropPending) loud += (bassSlow - loud) * 0.003
+          if (bassSlow < loud * 0.6) {
             breakFrames++
           } else {
             if (breakFrames > 25 && framesPlaying > 40) dropPending = true
             breakFrames = 0
           }
-          if (dropPending && bassSlow > SLAM) {
+          if (dropPending && bassSlow > loud * 0.92) {
             drop = 1
             dropPending = false
           }
