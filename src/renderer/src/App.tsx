@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import { VideoView } from './components/VideoView'
+import { AudioView } from './components/AudioView'
+import { ImageView } from './components/ImageView'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
-// or dialog), routes by kind to a viewer, and pages through the folder. The video
-// player is the first "perfect" viewer; image/audio/pdf/text are still stubs and
+// or dialog), routes by kind to a viewer, and pages through the folder. Video,
+// audio, and image are the built "perfect" viewers; pdf/text are still stubs and
 // get their own phase. All viewers eventually come from prism-core.
 
 const PLAYABLE = new Set(['video', 'audio'])
@@ -43,14 +45,9 @@ function Viewer({ file, onToggleFullscreen }: { file: ViewerFile; onToggleFullsc
     case 'video':
       return <VideoView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'image':
-      return <img src={url} alt={file.name} className="max-h-full max-w-full object-contain" />
+      return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return (
-        <div className="flex flex-col items-center gap-6">
-          <div className="grid h-40 w-40 place-items-center rounded-3xl bg-gradient-to-br from-[#6f5be6] to-[#ef9bb0] text-6xl">♪</div>
-          <audio src={url} controls autoPlay />
-        </div>
-      )
+      return <AudioView url={url} name={file.name} />
     case 'pdf':
       return <embed src={url} type="application/pdf" className="h-full w-full" />
     case 'text':

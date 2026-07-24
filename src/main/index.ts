@@ -14,7 +14,10 @@ const MEDIA_SCHEME = 'fsmedia'
 protocol.registerSchemesAsPrivileged([
   {
     scheme: MEDIA_SCHEME,
-    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true }
+    // corsEnabled so an <audio crossorigin> element served over fsmedia:// is not
+    // "tainted" — otherwise a MediaElementSource feeds the AnalyserNode silence and
+    // the audio visualizer would sit dead. Paired with the ACAO header in serveMedia.
+    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true }
   }
 ])
 

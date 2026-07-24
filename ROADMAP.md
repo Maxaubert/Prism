@@ -77,6 +77,28 @@ Create the shared engine so there is one implementation, not two.
 - Audio "folder queue" (play through the folder) — the lightest step toward a player, still not a
   library.
 
+## Customization & theming (a defining feature, planned)
+
+Prism should let people shape how their viewer looks and feels. The build is
+structured around **interchangeable UI pieces** so this is configuration, not a rewrite:
+
+- **Themes / color scheme** — dark (default), light, and "AMOLED black"; a single
+  accent color the user picks (drives the progress bar, sliders, highlights). All chrome
+  reads its colors from CSS variables (`--color-accent`, etc.) so a theme is just a token set.
+- **Density / style** — a "minimalist" mode (auto-hide everything, thin controls, no chrome)
+  vs a "full" mode (persistent controls, filename bar, filmstrip).
+- **Interchangeable components** — the transport bar, the scrub bar, and especially the
+  **audio visualizer** are swappable modules behind a small interface. A user chooses:
+  - Visualizer style: **horizontal waveform / wave-bars** (default), circular ring, oscilloscope
+    line, spectrum bars, or none.
+  - Progress-bar shape/color, control-bar layout, corner radius, whether cover art shows.
+- **Presets** — a few curated looks ("Minimal Dark", "Studio", "Neon") plus a settings panel
+  to tweak and save your own.
+
+Architecture note: keep every viewer's chrome (Transport, Scrubber, Visualizer) as small,
+prop-driven, replaceable components in `prism-core`, reading theme tokens from CSS variables.
+That is what makes the above configuration rather than forks.
+
 ## Distribution
 
 electron-builder → per-user NSIS installer, unsigned, GitHub Releases (mirrors Filesmith).

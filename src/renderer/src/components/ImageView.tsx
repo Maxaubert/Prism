@@ -1,0 +1,159 @@
+import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
+import { IconFull } from './icons'
+
+// The image viewer: fit-to-window by default, wheel zoom toward the cursor, drag
+// to pan, rotate, reset, and fullscreen. Remounted per file by the app (key=path),
+// so zoom/pan/rotation reset on navigation with no extra bookkeeping.
+
+const MAX_ZOOM = 40
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
+
+export function ImageView({
+  url,
+  name,
+  onToggleFullscreen
+}: {
+  url: string
+  name: string
+  onToggleFullscreen: () => void
+}): JSX.Element {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [zoom, setZoom] = useState(1)
+  const [tx, setTx] = useState(0)
+  const [ty, setTy] = useState(0)
+  const [rot, setRot] = useState(0)
+  const [panning, setPanning] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  const reset = useCallback(() => {
+    setZoom(1)
+    setTx(0)
+    setTy(0)
+  }, [])
+
+  const cursorFromCentre = (e: { clientX: number; clientY: number }): [number, number] => {
+    const r = stageRef.current?.getBoundingClientRect()
+    if (!r) return [0, 0]
+    return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]
+  }
+
+  const zoomAt = useCallback(
+    (e: { clientX: number; clientY: number }, next: number) => {
+      const ns = clamp(next, 1, MAX_ZOOM)
+      if (ns === 1) {
+        reset()
+        return
+      }
+      const [cx, cy] = cursorFromCentre(e)
+      setZoom((z) => {
+        const k = ns / z
+        setTx((x) => cx - k * (cx - x))
+        setTy((y) => cy - k * (cy - y))
+        return ns
+      })
+    },
+    [reset]
+  )
+
+  const zoomCentered = useCallback(
+    (factor: number) => {
+      const r = stageRef.current?.getBoundingClientRect()
+      const center = r ? { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 } : { clientX: 0, clientY: 0 }
+      zoomAt(center, zoom * factor)
+    },
+    [zoomAt, zoom]
+  )
+
+  const onWheel = (e: WheelEvent): void => {
+    zoomAt(e, zoom * (e.deltaY < 0 ? 1.18 : 1 / 1.18))
+  }
+
+  const onImgDown = (e: MouseEvent): void => {
+    if (zoom <= 1) return
+    e.preventDefault()
+    const orig = { x: e.clientX, y: e.clientY, tx, ty }
+    setPanning(true)
+    const move = (ev: globalThis.MouseEvent): void => {
+      setTx(orig.tx + (ev.clientX - orig.x))
+      setTy(orig.ty + (ev.clientY - orig.y))
+    }
+    const up = (): void => {
+      setPanning(false)
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+
+  // Image-specific keys (arrows stay with the app for folder nav).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      switch (e.key) {
+        case '+':
+        case '=': zoomCentered(1.18); break
+        case '-':
+        case '_': zoomCentered(1 / 1.18); break
+        case '0': reset(); break
+        case 'r':
+        case 'R': setRot((d) => (d + 90) % 360); break
+        case 'f':
+        case 'F': onToggleFullscreen(); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [zoomCentered, reset, onToggleFullscreen])
+
+  const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
+
+  return (
+    <div
+      ref={stageRef}
+      onWheel={onWheel}
+      className="group relative flex h-full w-full items-center justify-center overflow-hidden bg-[#0d0f14]"
+    >
+      {failed ? (
+        <div className="grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
+          This image can’t be displayed (unsupported format or corrupt file).
+        </div>
+      ) : (
+        <img
+          src={url}
+          alt={name}
+          draggable={false}
+          onError={() => setFailed(true)}
+          onMouseDown={onImgDown}
+          onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
+          style={{
+            transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
+            cursor,
+            transition: panning ? 'none' : 'transform .12s ease-out'
+          }}
+          className="max-h-full max-w-full object-contain"
+        />
+      )}
+
+      {/* control cluster, appears on hover */}
+      {!failed && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
+          <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1.18)} title="Zoom in (+)">+</button>
+          <div className="mx-1 h-5 w-px bg-white/15" />
+          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={() => setRot((d) => (d + 90) % 360)} title="Rotate (R)">
+            <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 12a9 9 0 1 1-3-6.7" />
+              <path d="M21 3v5h-5" />
+            </svg>
+          </button>
+          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={onToggleFullscreen} title="Fullscreen (F)">
+            {IconFull}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
