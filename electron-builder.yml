@@ -1,0 +1,21 @@
+appId: com.prism.viewer
+productName: Prism
+directories:
+  buildResources: build
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,.prettierrc.yaml,.prettierignore,eslint.config.js,tsconfig*.json}'
+  - '!{.git,.claude,docs,test}/*'
+  - '!build/**'
+  - '!dist/**'
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-Setup-${arch}-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

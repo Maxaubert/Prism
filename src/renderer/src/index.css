@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink: #eef0f4;
+  --color-dim: #8a8e99;
+  --color-accent: #5b5bd6;
+  --color-accent-hi: #7b7bf0;
+  --color-panel: #16181f;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #111318;
+  color: var(--color-ink);
+  font-family:
+    -apple-system, 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Frameless drag region for the top strip. */
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

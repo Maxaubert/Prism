@@ -1,0 +1,10 @@
+node_modules/
+out/
+dist/
+*.log
+.DS_Store
+.eslintcache
+
+# Local Claude settings overrides
+.claude/settings.local.json
+.harness/
