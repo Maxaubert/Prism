@@ -94,7 +94,7 @@ export function Visualizer({
     // 128 is silence; a zero-filled buffer would read as full-scale deflection.
     const time = new Uint8Array(2048).fill(128)
     const frame: AudioFrame = {
-      freq, time, bass: 0, mid: 0, treble: 0, level: 0, beat: 0,
+      freq, time, bass: 0, mid: 0, treble: 0, level: 0, beat: 0, drop: 0,
       t: 0, playing: false, sampleRate: 44100
     }
     const opts: VizOpts = { accent: theme.accent, palette: theme.palette, sensitivity: 1, dpr: 1 }
@@ -102,6 +102,13 @@ export function Visualizer({
     let raf = 0
     let bassAvg = 0
     let beat = 0
+    // Drop detection (see below): tracks a break-then-slam, not every kick.
+    let bassSlow = 0
+    let bassMax = 0.2
+    let breakFrames = 0
+    let dropPending = false
+    let drop = 0
+    let framesPlaying = 0
     let draw: DrawFn | null = null
     let builtFor = ''
     let builtW = 0
@@ -162,6 +169,37 @@ export function Visualizer({
         bassAvg = bassAvg * 0.96 + frame.bass * 0.04
         beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
         frame.beat = beat
+
+        // Drop detector: a proper drop is the mix breaking down (bass falls away
+        // for a sustained beat or two) then slamming back to full - not every
+        // kick. We smooth the bass, track its recent loud level, and fire once
+        // when it climbs back to full after a real break. Thresholds are relative
+        // to the loud level so it works whatever the track's absolute loudness.
+        // Resetting on pause means hitting play never reads the silence-to-music
+        // jump as a drop.
+        if (!frame.playing) {
+          breakFrames = 0
+          dropPending = false
+          framesPlaying = 0
+        } else {
+          framesPlaying++
+          bassSlow += (frame.bass - bassSlow) * 0.25
+          bassMax = Math.max(bassSlow, bassMax * 0.9995)
+          if (bassSlow < bassMax * 0.68) {
+            breakFrames++
+          } else {
+            // Climbed out of a lull. A sustained break (not the brief dip of the
+            // play-start ramp) arms a drop for when the bass reaches full again.
+            if (breakFrames > 25 && framesPlaying > 40) dropPending = true
+            breakFrames = 0
+          }
+          if (dropPending && bassSlow > bassMax * 0.9) {
+            drop = 1
+            dropPending = false
+          }
+        }
+        drop *= 0.9
+        frame.drop = drop
 
         // The theme drives colour: palette + accent every style reads, plus an
         // optional global glow / opacity applied here so it works on any shape.

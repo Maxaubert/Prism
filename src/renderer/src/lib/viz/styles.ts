@@ -397,8 +397,10 @@ export const VIZ_STYLES: VizStyle[] = [
       // Slightly less coupling than before (3 passes), so individual bars keep a
       // touch more of their own movement instead of fully melting together.
       const bands = makeRingBands(HALF, 0.55, 3)
-      const rings: Array<{ r: number; life: number }> = []
+      const rings: Array<{ r: number; life: number; big: boolean }> = []
       let armed = true
+      let dropArmed = true
+      let flash = 0 // decaying core flare, spikes on a drop
       return (ctx, W, H, d, o) => {
         const cx = W / 2
         const cy = H / 2
@@ -406,26 +408,41 @@ export const VIZ_STYLES: VizStyle[] = [
         const minD = Math.min(W, H)
 
         if (d.beat > 0.5 && armed) {
-          rings.push({ r: minD * 0.3, life: 1 })
+          rings.push({ r: minD * 0.3, life: 1, big: false })
           armed = false
         }
         if (d.beat < 0.22) armed = true
+        // A drop fires one big bright shockwave from the centre plus a core flare,
+        // so the moment the track slams back reads as an event, not another kick.
+        if (d.drop > 0.5 && dropArmed) {
+          rings.push({ r: minD * 0.12, life: 1, big: true })
+          flash = 1
+          dropArmed = false
+        }
+        if (d.drop < 0.2) dropArmed = true
+        flash *= 0.9
         if (rings.length > 20) rings.splice(0, rings.length - 20)
 
         bands.update(d, o)
 
         for (let i = rings.length - 1; i >= 0; i--) {
           const ring = rings[i]
-          ring.r += minD * 0.008 + minD * 0.007 * ring.life
-          ring.life -= 0.009
-          if (ring.life <= 0 || ring.r > minD * 1.1) {
+          const speed = ring.big ? 1.7 : 1
+          ring.r += (minD * 0.008 + minD * 0.007 * ring.life) * speed
+          ring.life -= ring.big ? 0.007 : 0.009
+          if (ring.life <= 0 || ring.r > minD * 1.15) {
             rings.splice(i, 1)
             continue
           }
           ctx.beginPath()
           ctx.arc(cx, cy, ring.r, 0, Math.PI * 2)
-          ctx.strokeStyle = rgba(o.accent, clamp(ring.life * 0.7, 0, 1))
-          ctx.lineWidth = Math.max(1, minD * 0.009 * ring.life)
+          if (ring.big) {
+            ctx.strokeStyle = rgba(o.accent, clamp(ring.life * 0.9, 0, 1))
+            ctx.lineWidth = Math.max(1, minD * 0.02 * ring.life)
+          } else {
+            ctx.strokeStyle = rgba(o.accent, clamp(ring.life * 0.7, 0, 1))
+            ctx.lineWidth = Math.max(1, minD * 0.009 * ring.life)
+          }
           ctx.stroke()
         }
 
@@ -455,7 +472,8 @@ export const VIZ_STYLES: VizStyle[] = [
         const t = d.t / 1000
         const driftX = (Math.sin(t * 0.31) + Math.sin(t * 0.17 + 1.3) * 0.6) * minD * 0.02
         const driftY = (Math.cos(t * 0.26) + Math.sin(t * 0.4 + 0.7) * 0.5) * minD * 0.018
-        const breathe = 1 + Math.sin(t * 0.7) * 0.06 + d.beat * 0.16
+        // Breathes with the beat and swells on a drop (flash).
+        const breathe = 1 + Math.sin(t * 0.7) * 0.06 + d.beat * 0.16 + flash * 0.4
         const bx = cx + driftX
         const by = cy + driftY
         const core = R * 0.62 * breathe
@@ -463,8 +481,8 @@ export const VIZ_STYLES: VizStyle[] = [
         const sx = bx + Math.sin(t * 0.53) * core * 0.22
         const sy = by + Math.cos(t * 0.61) * core * 0.22
         const cg = ctx.createRadialGradient(sx, sy, 0, bx, by, core)
-        cg.addColorStop(0, rgba(o.accent, 0.55 + d.beat * 0.3))
-        cg.addColorStop(0.45, rgba(o.accent, 0.16))
+        cg.addColorStop(0, rgba(o.accent, clamp(0.55 + d.beat * 0.3 + flash * 0.4, 0, 1)))
+        cg.addColorStop(0.45, rgba(o.accent, 0.16 + flash * 0.2))
         cg.addColorStop(1, rgba(o.accent, 0))
         ctx.beginPath()
         ctx.arc(bx, by, core, 0, Math.PI * 2)

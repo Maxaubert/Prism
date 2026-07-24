@@ -16,6 +16,9 @@ export interface AudioFrame {
   level: number
   /** Decaying transient pulse; spikes on kicks. */
   beat: number
+  /** Decaying drop pulse; spikes once when the mix breaks down then slams back
+   *  to full (the classic drop), not on every kick. */
+  drop: number
   /** Milliseconds since start. */
   t: number
   playing: boolean
