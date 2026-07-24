@@ -104,11 +104,11 @@ export function Visualizer({
     let beat = 0
     // Drop detection (see below): tracks a break-then-slam, not every kick.
     let bassSlow = 0
-    let bassMax = 0.2
     let breakFrames = 0
     let dropPending = false
     let drop = 0
     let framesPlaying = 0
+    let wasPlaying = false
     let draw: DrawFn | null = null
     let builtFor = ''
     let builtW = 0
@@ -165,40 +165,62 @@ export function Visualizer({
         }
         frame.level = clamp(Math.sqrt(sum / (time.length / 2)) * 1.6, 0, 1)
 
-        // Transient detector: instantaneous bass against its slow mean.
-        bassAvg = bassAvg * 0.96 + frame.bass * 0.04
-        beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
-        frame.beat = beat
+        // Pausing zeroes the analyser, so on resume the bass jumps from silence
+        // and any detector that compares against a stale average reads a false
+        // hit. On the transition into playing we prime the running means to the
+        // current level and open a short settle window; while paused both pulses
+        // are forced to zero so nothing fires.
+        if (frame.playing && !wasPlaying) {
+          bassAvg = frame.bass
+          bassSlow = frame.bass
+          framesPlaying = 0
+          breakFrames = 0
+          dropPending = false
+        }
+        wasPlaying = frame.playing
+        const settling = framesPlaying < 15
 
-        // Drop detector: a proper drop is the mix breaking down (bass falls away
-        // for a sustained beat or two) then slamming back to full - not every
-        // kick. We smooth the bass, track its recent loud level, and fire once
-        // when it climbs back to full after a real break. Thresholds are relative
-        // to the loud level so it works whatever the track's absolute loudness.
-        // Resetting on pause means hitting play never reads the silence-to-music
-        // jump as a drop.
         if (!frame.playing) {
+          beat = 0
+          drop = 0
           breakFrames = 0
           dropPending = false
           framesPlaying = 0
         } else {
           framesPlaying++
+          // Transient detector: instantaneous bass against its slow mean. During
+          // the settle window we pin the mean to the current bass so the ramp-in
+          // can't spike a kick.
+          bassAvg = bassAvg * 0.96 + frame.bass * 0.04
+          if (settling) {
+            bassAvg = frame.bass
+            beat = 0
+          } else {
+            beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
+          }
+
+          // Drop detector: a proper drop is the mix breaking down (bass falls away
+          // for a sustained beat or two) then slamming back to loud - not every
+          // kick, and not a quiet-section swell. Thresholds are absolute (bass here
+          // reads ~0.8 when the track is loud): a break is bass genuinely falling
+          // below BREAK, and it only counts as a drop when it climbs back above
+          // SLAM - which a quiet intro never reaches, so it can't misfire there.
+          const BREAK = 0.5
+          const SLAM = 0.72
           bassSlow += (frame.bass - bassSlow) * 0.25
-          bassMax = Math.max(bassSlow, bassMax * 0.9995)
-          if (bassSlow < bassMax * 0.68) {
+          if (bassSlow < BREAK) {
             breakFrames++
           } else {
-            // Climbed out of a lull. A sustained break (not the brief dip of the
-            // play-start ramp) arms a drop for when the bass reaches full again.
             if (breakFrames > 25 && framesPlaying > 40) dropPending = true
             breakFrames = 0
           }
-          if (dropPending && bassSlow > bassMax * 0.9) {
+          if (dropPending && bassSlow > SLAM) {
             drop = 1
             dropPending = false
           }
         }
         drop *= 0.9
+        frame.beat = beat
         frame.drop = drop
 
         // The theme drives colour: palette + accent every style reads, plus an
