@@ -10,6 +10,19 @@ import { VIZ_STYLES, DEFAULT_STYLE_ID } from '../lib/viz/styles'
 // (see the corsEnabled fsmedia scheme in main).
 
 const STYLE_KEY = 'prism.viz.style'
+const WIDTH_KEY = 'prism.viz.width'
+
+// Some styles read better spanning the glass, others want to sit in a band.
+const WIDTHS: Record<string, string> = {
+  full: 'w-full',
+  wide: 'w-full max-w-5xl',
+  compact: 'w-full max-w-2xl'
+}
+const WIDTH_LABELS: Array<[string, string]> = [
+  ['full', 'Full width'],
+  ['wide', 'Wide'],
+  ['compact', 'Compact']
+]
 
 // Some MP3s report duration Infinity until a seek forces Chromium to compute it,
 // which leaves the scrubber stuck; nudge to the end and back once on load.
@@ -39,19 +52,23 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
     setMediaEl(el)
   }
   const c = useMediaControls(audioRef, {
-    errorMsg: 'This audio can’t be played (unsupported codec or corrupt file).'
+    errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`
   })
-  const ext = (name.split('.').pop() ?? '').toUpperCase()
 
   // Chosen visualizer, remembered across sessions.
   const [styleId, setStyleId] = useState<string>(
     () => localStorage.getItem(STYLE_KEY) || DEFAULT_STYLE_ID
   )
+  const [width, setWidth] = useState<string>(() => localStorage.getItem(WIDTH_KEY) || 'full')
   const [menuOpen, setMenuOpen] = useState(false)
   const pickStyle = (id: string): void => {
     setStyleId(id)
     localStorage.setItem(STYLE_KEY, id)
     setMenuOpen(false)
+  }
+  const pickWidth = (w: string): void => {
+    setWidth(w)
+    localStorage.setItem(WIDTH_KEY, w)
   }
   // Click-away and Escape close the menu.
   useEffect(() => {
@@ -86,20 +103,10 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
         <div className="grid flex-1 place-items-center p-8 text-center text-sm text-[#c9ccd6]">{c.error}</div>
       ) : (
         <>
-          {/* the now-playing cluster, vertically centered: cover, title, wave graph */}
-          <div className="flex flex-1 flex-col items-center justify-center gap-10 px-8">
-            <div className="flex flex-col items-center gap-5">
-              <div className="grid h-32 w-32 place-items-center rounded-3xl bg-gradient-to-br from-[#5b5bd6] via-[#9a6cff] to-[#ff9a8b] text-6xl text-white shadow-[0_12px_40px_rgba(120,90,255,0.35)]">
-                ♪
-              </div>
-              <div className="max-w-full text-center">
-                <div className="truncate text-[15px] font-semibold text-[#eceef4]">{name}</div>
-                <div className="mt-0.5 text-[12px] text-[var(--color-dim)]">{ext} audio</div>
-              </div>
-            </div>
-
-            {/* the visualizer */}
-            <div className="h-40 w-full max-w-4xl">
+          {/* Nothing but the visualizer. The filename already sits in the title
+              bar, so repeating it here only crowds the display. */}
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div className={`h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
               <Visualizer media={mediaEl} styleId={styleId} />
             </div>
           </div>
@@ -136,6 +143,23 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
                     <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-dim)]">{s.blurb}</div>
                   </button>
                 ))}
+
+                <div className="mt-1 border-t border-white/10 px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
+                  Width
+                </div>
+                <div className="flex gap-1 px-1.5 pb-1">
+                  {WIDTH_LABELS.map(([w, label]) => (
+                    <button
+                      key={w}
+                      onClick={() => pickWidth(w)}
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                        w === width ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>

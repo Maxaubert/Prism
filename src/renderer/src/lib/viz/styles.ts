@@ -211,6 +211,225 @@ export const VIZ_STYLES: VizStyle[] = [
     }
   },
 
+  /* ------------------------------------------- mirrored, centred on the glass */
+  {
+    id: 'mirror-led',
+    name: 'Mirror LED',
+    blurb: 'LED segments growing up and down from the centre line.',
+    create() {
+      const n = 32
+      const b = makeBands(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const rows = 12
+        const slot = W / n
+        const bw = slot * 0.68
+        const cellH = (H * 0.44) / rows
+        const gap = cellH * 0.26
+        for (let i = 0; i < n; i++) {
+          const lit = Math.round(clamp(b.values[i], 0, 1) * rows)
+          const x = i * slot + (slot - bw) / 2
+          for (let r = 0; r < rows; r++) {
+            const on = r < lit
+            const col = on ? paletteAt(o.palette, r / (rows - 1)) : 'rgba(255,255,255,0.05)'
+            ctx.fillStyle = col
+            ctx.fillRect(x, mid - (r + 1) * cellH + gap / 2, bw, cellH - gap)
+            ctx.fillStyle = on ? paletteAt(o.palette, r / (rows - 1), 0.55) : 'rgba(255,255,255,0.035)'
+            ctx.fillRect(x, mid + r * cellH + gap / 2, bw, cellH - gap)
+          }
+        }
+      }
+    }
+  },
+
+  {
+    id: 'mirror-wall',
+    name: 'Mirror Wall',
+    blurb: 'The rack-mount wall, reflected below the centre line.',
+    create() {
+      const n = 56
+      const b = makeBands(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const rows = 16
+        const cw = W / n
+        const ch = (H * 0.46) / rows
+        for (let i = 0; i < n; i++) {
+          const lit = clamp(b.values[i], 0, 1) * rows
+          for (let j = 0; j < rows; j++) {
+            const frac = clamp(lit - j, 0, 1)
+            const on = frac > 0.02
+            const t = j / (rows - 1)
+            ctx.fillStyle = on ? paletteAt(o.palette, t, 0.25 + frac * 0.75) : 'rgba(255,255,255,0.03)'
+            ctx.fillRect(i * cw + cw * 0.18, mid - (j + 1) * ch + ch * 0.18, cw * 0.64, ch * 0.64)
+            ctx.fillStyle = on ? paletteAt(o.palette, t, (0.25 + frac * 0.75) * 0.45) : 'rgba(255,255,255,0.02)'
+            ctx.fillRect(i * cw + cw * 0.18, mid + j * ch + ch * 0.18, cw * 0.64, ch * 0.64)
+          }
+        }
+      }
+    }
+  },
+
+  {
+    id: 'mirror-caps',
+    name: 'Mirror Caps',
+    blurb: 'Peak caps hovering above and below the centre.',
+    create() {
+      const n = 44
+      const b = makeBands(n)
+      const peak = new Float32Array(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const slot = W / n
+        const bw = slot * 0.72
+        const reach = H * 0.42
+        for (let i = 0; i < n; i++) {
+          const v = clamp(b.values[i], 0, 1)
+          peak[i] = Math.max(peak[i] - 0.006, v)
+          const off = Math.max(o.dpr, peak[i] * reach)
+          const x = i * slot + (slot - bw) / 2
+          const col = paletteAt(o.palette, i / (n - 1))
+          ctx.fillStyle = col
+          ctx.beginPath()
+          ctx.roundRect(x, mid - off, bw, 3 * o.dpr, 1.5 * o.dpr)
+          ctx.fill()
+          ctx.beginPath()
+          ctx.roundRect(x, mid + off - 3 * o.dpr, bw, 3 * o.dpr, 1.5 * o.dpr)
+          ctx.fill()
+          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.12)
+          ctx.fillRect(x, mid - off, bw, off * 2)
+        }
+      }
+    }
+  },
+
+  {
+    id: 'mirror-outline',
+    name: 'Mirror Outline',
+    blurb: 'Hollow bars opening out from the centre in both directions.',
+    create() {
+      const n = 30
+      const b = makeBands(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const slot = W / n
+        const bw = slot * 0.7
+        const reach = H * 0.42
+        ctx.lineWidth = Math.max(1, 1.4 * o.dpr)
+        for (let i = 0; i < n; i++) {
+          const v = clamp(b.values[i], 0, 1)
+          const h = Math.max(2 * o.dpr, v * reach)
+          const x = i * slot + (slot - bw) / 2
+          ctx.strokeStyle = paletteAt(o.palette, i / (n - 1))
+          ctx.strokeRect(x, mid - h, bw, h * 2)
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.07)'
+        ctx.fillRect(0, mid - o.dpr / 2, W, o.dpr)
+      }
+    }
+  },
+
+  {
+    id: 'mirror-dots',
+    name: 'Mirror Dots',
+    blurb: 'A dot board mirrored about the centre line.',
+    create() {
+      const n = 32
+      const b = makeBands(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const rows = 9
+        const cw = W / n
+        const ch = (H * 0.46) / rows
+        const r = Math.min(cw, ch) * 0.3
+        for (let i = 0; i < n; i++) {
+          const lit = Math.round(clamp(b.values[i], 0, 1) * rows)
+          for (let j = 0; j < rows; j++) {
+            const on = j < lit
+            const col = on ? paletteAt(o.palette, j / (rows - 1)) : 'rgba(255,255,255,0.05)'
+            const x = (i + 0.5) * cw
+            ctx.fillStyle = col
+            ctx.beginPath()
+            ctx.arc(x, mid - (j + 0.5) * ch, on ? r : r * 0.5, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.fillStyle = on ? paletteAt(o.palette, j / (rows - 1), 0.5) : 'rgba(255,255,255,0.035)'
+            ctx.beginPath()
+            ctx.arc(x, mid + (j + 0.5) * ch, on ? r : r * 0.5, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        }
+      }
+    }
+  },
+
+  {
+    id: 'chrome-bars',
+    name: 'Chrome Bars',
+    blurb: 'Bars on glass, mirrored about the centre with a polished falloff.',
+    create() {
+      const n = 48
+      const b = makeBands(n)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        const slot = W / n
+        const bw = slot * 0.6
+        const reach = H * 0.42
+        for (let i = 0; i < n; i++) {
+          const v = clamp(b.values[i], 0, 1)
+          const h = Math.max(o.dpr, v * reach)
+          const x = i * slot + (slot - bw) / 2
+          const t = i / (n - 1)
+          ctx.fillStyle = paletteAt(o.palette, t)
+          ctx.beginPath()
+          ctx.roundRect(x, mid - h, bw, h, [bw / 2, bw / 2, 0, 0])
+          ctx.fill()
+          const g = ctx.createLinearGradient(0, mid, 0, mid + h)
+          g.addColorStop(0, paletteAt(o.palette, t, 0.5))
+          g.addColorStop(0.4, paletteAt(o.palette, t, 0.14))
+          g.addColorStop(1, paletteAt(o.palette, t, 0))
+          ctx.fillStyle = g
+          ctx.beginPath()
+          ctx.roundRect(x, mid, bw, h, [0, 0, bw / 2, bw / 2])
+          ctx.fill()
+        }
+        ctx.fillStyle = sweep(ctx, 0, 0, W, 0, o.palette, 0.6)
+        ctx.fillRect(0, mid - o.dpr / 2, W, Math.max(1, o.dpr))
+      }
+    }
+  },
+
+  {
+    id: 'needles',
+    name: 'Needles',
+    blurb: 'Fine mirrored needles, dense across the full width.',
+    create() {
+      const n = 150
+      const b = makeBands(n, 16000)
+      return (ctx, W, H, d, o) => {
+        b.update(d, o)
+        const mid = H / 2
+        ctx.lineCap = 'round'
+        ctx.lineWidth = Math.max(1, o.dpr * 1.4)
+        for (let i = 0; i < n; i++) {
+          const v = clamp(b.values[i], 0, 1)
+          const h = Math.max(o.dpr, v * H * 0.42)
+          const x = ((i + 0.5) / n) * W
+          ctx.strokeStyle = paletteAt(o.palette, i / (n - 1), 0.35 + v * 0.65)
+          ctx.beginPath()
+          ctx.moveTo(x, mid - h)
+          ctx.lineTo(x, mid + h)
+          ctx.stroke()
+        }
+      }
+    }
+  },
+
   /* ------------------------------------------------------------------ wave */
   {
     id: 'liquid',
@@ -263,7 +482,7 @@ export const VIZ_STYLES: VizStyle[] = [
     name: 'Bass Ripples',
     blurb: 'Rings fire on every kick and spread through a spectrum halo.',
     create() {
-      const n = 64
+      const n = 72
       const ranges = bandRanges(n)
       const v = new Float32Array(n)
       const pk = new Float32Array(n).fill(0.09)
@@ -272,10 +491,11 @@ export const VIZ_STYLES: VizStyle[] = [
       return (ctx, W, H, d, o) => {
         const cx = W / 2
         const cy = H / 2
+        // Sized to fill the frame. Anything much smaller reads as a spinner.
         const minD = Math.min(W, H)
 
         if (d.beat > 0.5 && armed) {
-          rings.push({ r: minD * 0.14, life: 1 })
+          rings.push({ r: minD * 0.3, life: 1 })
           armed = false
         }
         if (d.beat < 0.22) armed = true
@@ -287,25 +507,25 @@ export const VIZ_STYLES: VizStyle[] = [
 
         for (let i = rings.length - 1; i >= 0; i--) {
           const ring = rings[i]
-          ring.r += minD * 0.0055 + minD * 0.005 * ring.life
-          ring.life -= 0.011
-          if (ring.life <= 0 || ring.r > minD * 0.8) {
+          ring.r += minD * 0.008 + minD * 0.007 * ring.life
+          ring.life -= 0.009
+          if (ring.life <= 0 || ring.r > minD * 1.1) {
             rings.splice(i, 1)
             continue
           }
           ctx.beginPath()
           ctx.arc(cx, cy, ring.r, 0, Math.PI * 2)
           ctx.strokeStyle = rgba(o.accent, clamp(ring.life * 0.7, 0, 1))
-          ctx.lineWidth = Math.max(1, minD * 0.007 * ring.life)
+          ctx.lineWidth = Math.max(1, minD * 0.009 * ring.life)
           ctx.stroke()
         }
 
-        const R = minD * 0.15
+        const R = minD * 0.26
         ctx.lineCap = 'round'
-        ctx.lineWidth = Math.max(1.4, minD * 0.007)
+        ctx.lineWidth = Math.max(1.6, minD * 0.011)
         for (let i = 0; i < n; i++) {
           const a = (i / n) * Math.PI * 2 - Math.PI / 2
-          const len = (0.02 + v[i] * 0.13) * minD
+          const len = (0.025 + v[i] * 0.21) * minD
           ctx.strokeStyle = paletteAt(o.palette, i / (n - 1))
           ctx.beginPath()
           ctx.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R)
@@ -313,14 +533,111 @@ export const VIZ_STYLES: VizStyle[] = [
           ctx.stroke()
         }
 
-        const core = R * 0.5 * (1 + d.beat * 0.18)
+        const core = R * 0.55 * (1 + d.beat * 0.16)
         const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, core)
-        cg.addColorStop(0, rgba(o.accent, 0.5 + d.beat * 0.35))
+        cg.addColorStop(0, rgba(o.accent, 0.45 + d.beat * 0.35))
         cg.addColorStop(1, rgba(o.accent, 0))
         ctx.beginPath()
         ctx.arc(cx, cy, core, 0, Math.PI * 2)
         ctx.fillStyle = cg
         ctx.fill()
+      }
+    }
+  },
+
+  {
+    id: 'radial-ring',
+    name: 'Radial Ring',
+    blurb: 'A big spectrum ring, mirrored so lows meet at the bottom.',
+    create() {
+      const half = 84
+      const ranges = bandRanges(half)
+      const v = new Float32Array(half)
+      const pk = new Float32Array(half).fill(0.09)
+      let boom = 0
+      return (ctx, W, H, d, o) => {
+        const cx = W / 2
+        const cy = H / 2
+        const minD = Math.min(W, H)
+        for (let i = 0; i < half; i++) {
+          v[i] += (adaptive(pk, i, bandValue(d.freq, ranges[i]), o) - v[i]) * 0.18
+        }
+        boom = Math.max(d.beat, boom * 0.93)
+        const R = minD * 0.27 * (1 + boom * 0.03)
+
+        // Soft interior glow, never a filled disc: a solid centre reads as a mud
+        // ball and leaves a dead gap between it and the rays.
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R)
+        g.addColorStop(0, rgba(o.accent, 0.03 + d.bass * 0.15))
+        g.addColorStop(1, rgba(o.accent, 0))
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, 0, Math.PI * 2)
+        ctx.fillStyle = g
+        ctx.fill()
+
+        const total = half * 2
+        ctx.lineCap = 'round'
+        ctx.lineWidth = Math.max(1.5, minD * 0.0095)
+        for (let j = 0; j < total; j++) {
+          const m = j < half ? j : total - 1 - j
+          const a = Math.PI / 2 + ((j + 0.5) / total) * Math.PI * 2
+          const len = (0.025 + v[m] * 0.22) * minD
+          const ca = Math.cos(a)
+          const sa = Math.sin(a)
+          ctx.strokeStyle = paletteAt(o.palette, m / (half - 1))
+          ctx.beginPath()
+          ctx.moveTo(cx + ca * R, cy + sa * R)
+          ctx.lineTo(cx + ca * (R + len), cy + sa * (R + len))
+          ctx.stroke()
+        }
+
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, 0, Math.PI * 2)
+        ctx.strokeStyle = rgba(o.accent, 0.5)
+        ctx.lineWidth = Math.max(1, minD * 0.0035)
+        ctx.stroke()
+      }
+    }
+  },
+
+  {
+    id: 'radial-scope',
+    name: 'Radial Scope',
+    blurb: 'The waveform wrapped into a large breathing circle.',
+    create() {
+      const N = 256
+      const r = new Float32Array(N)
+      return (ctx, W, H, d, o) => {
+        const cx = W / 2
+        const cy = H / 2
+        const minD = Math.min(W, H)
+        const R = minD * 0.3
+        const amp = minD * 0.14 * o.sensitivity
+        const n = d.time.length
+        for (let i = 0; i < N; i++) {
+          const t = ((d.time[Math.floor((i / N) * n) % n] - 128) / 128) * amp
+          r[i] += (t - r[i]) * 0.2
+        }
+        ctx.beginPath()
+        for (let i = 0; i <= N; i++) {
+          const idx = i % N
+          const sm = (r[(idx - 1 + N) % N] + r[idx] * 2 + r[(idx + 1) % N]) / 4
+          const a = (idx / N) * Math.PI * 2 - Math.PI / 2
+          const rr = R + sm
+          const x = cx + Math.cos(a) * rr
+          const y = cy + Math.sin(a) * rr
+          if (i === 0) ctx.moveTo(x, y)
+          else ctx.lineTo(x, y)
+        }
+        ctx.closePath()
+        const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R + amp)
+        g.addColorStop(0, paletteAt(o.palette, 0.15, 0.13))
+        g.addColorStop(1, paletteAt(o.palette, 0.85, 0.01))
+        ctx.fillStyle = g
+        ctx.fill()
+        ctx.strokeStyle = sweep(ctx, cx - R, cy - R, cx + R, cy + R, o.palette)
+        ctx.lineWidth = Math.max(1.8, minD * 0.006)
+        ctx.stroke()
       }
     }
   },
