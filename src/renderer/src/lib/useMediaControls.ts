@@ -106,6 +106,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // the player owns ←/→ (seek) and the rest of the standard media shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Never swallow keys meant for a text field: space would toggle playback
+      // instead of typing a space, and the letter shortcuts would fire too.
+      const el = e.target as HTMLElement | null
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
       const act = (): void => onActivity?.()
       switch (e.key) {
         case ' ':

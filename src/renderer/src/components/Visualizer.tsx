@@ -1,5 +1,5 @@
 import { useEffect, useRef, type JSX } from 'react'
-import { BRAND_PALETTE, clamp, type AudioFrame, type DrawFn, type VizOpts } from '../lib/viz/core'
+import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
 import { styleById } from '../lib/viz/styles'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
@@ -28,21 +28,25 @@ const BG = '#0d0f14'
 export function Visualizer({
   media,
   styleId,
-  accent = '#7c74f0'
+  theme
 }: {
   media: HTMLMediaElement | null
   styleId: string
-  accent?: string
+  theme: VizTheme
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  // The draw loop reads the current style through a ref so that switching styles
-  // does not tear down and restart the loop. Synced in an effect, since writing
-  // to a ref during render is not allowed.
+  // The draw loop reads the current style + theme through refs so switching
+  // either does not tear down and restart the loop. Synced in effects, since
+  // writing to a ref during render is not allowed.
   const styleRef = useRef(styleId)
+  const themeRef = useRef(theme)
   useEffect(() => {
     styleRef.current = styleId
   }, [styleId])
+  useEffect(() => {
+    themeRef.current = theme
+  }, [theme])
 
   // Wire the element into the graph, and keep the context resumed while it plays.
   useEffect(() => {
@@ -93,7 +97,7 @@ export function Visualizer({
       freq, time, bass: 0, mid: 0, treble: 0, level: 0, beat: 0,
       t: 0, playing: false, sampleRate: 44100
     }
-    const opts: VizOpts = { accent, palette: BRAND_PALETTE, sensitivity: 1, dpr: 1 }
+    const opts: VizOpts = { accent: theme.accent, palette: theme.palette, sensitivity: 1, dpr: 1 }
 
     let raf = 0
     let bassAvg = 0
@@ -159,7 +163,13 @@ export function Visualizer({
         beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
         frame.beat = beat
 
-        opts.accent = accent
+        // The theme drives colour: palette + accent every style reads, plus an
+        // optional global glow / opacity applied here so it works on any shape.
+        const th = themeRef.current
+        opts.palette = th.palette
+        opts.accent = th.accent
+        opts.vgrad = th.vgrad ?? null
+        opts.cycle = th.cycle ?? null
         opts.dpr = dpr
 
         const style2 = styleById(styleRef.current)
@@ -171,6 +181,11 @@ export function Visualizer({
         }
         if (draw) {
           ctx.save()
+          if (th.alpha != null) ctx.globalAlpha = th.alpha
+          if (th.glow) {
+            ctx.shadowColor = th.accent
+            ctx.shadowBlur = th.glow * dpr
+          }
           try {
             draw(ctx, W, H, frame, opts)
           } catch (err) {
@@ -184,7 +199,7 @@ export function Visualizer({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [accent, media])
+  }, [media, theme.accent, theme.palette])
 
   return <canvas ref={canvasRef} className="h-full w-full" style={{ background: BG }} />
 }

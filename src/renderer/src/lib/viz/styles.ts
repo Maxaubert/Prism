@@ -7,270 +7,204 @@ import {
   bandValue,
   clamp,
   makeBands,
-  makeShapedBands,
   paletteAt,
   rgba,
   shape,
   sweep,
-  adaptive,
-  type VizStyle
+  type AudioFrame,
+  type VizOpts,
+  type VizStyle,
+  type VizTheme
 } from './core'
 
-export const VIZ_STYLES: VizStyle[] = [
-  /* ------------------------------------------------------------------ bars */
-  {
-    id: 'wave-bars',
-    name: 'Wave Bars',
-    blurb: 'Mirrored bars around a center line.',
-    create() {
-      const n = 96
-      const b = makeShapedBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const mid = H / 2
-        const slot = W / n
-        const bw = Math.max(2 * o.dpr, slot * 0.62)
-        ctx.fillStyle = 'rgba(255,255,255,0.06)'
-        ctx.fillRect(0, mid - o.dpr / 2, W, o.dpr)
-        for (let i = 0; i < n; i++) {
-          const half = Math.max(0.018, b.values[i]) * (H * 0.34)
-          const x = i * slot + (slot - bw) / 2
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1))
-          ctx.beginPath()
-          ctx.roundRect(x, mid - half, bw, half * 2, bw / 2)
-          ctx.fill()
+/** Ring shaping, ported from the tuning Filesmith settled on.
+ *
+ *  Deliberately ABSOLUTE: a hard contrast curve over a log-ish bin spread, with
+ *  a treble tilt and slow smoothing. Per-band adaptive gain (used by the bar
+ *  styles) gives every band its own scale, which on a ring reads as an uneven,
+ *  jittery outline; this keeps neighbouring rays related to each other, so the
+ *  ring stays smooth and still collapses when the track drops away. */
+function makeRingBands(half: number, normalize = 0.45, smoothPasses = 3): {
+  vals: Float32Array
+  update: (d: AudioFrame, o: VizOpts) => void
+} {
+  const CONTRAST = 2.1 // the raw curve; higher crushes quiet bands to nothing
+  const TILT = 2.1
+  const LEVEL = 2.1
+  const RESPONSIVENESS = 0.1
+  const REACTION = 0.1
+  const vals = new Float32Array(half) // what the style draws: blurred
+  const cur = new Float32Array(half) // per-band, before neighbours are mixed in
+  const tmp = new Float32Array(half)
+  const peaks = new Float32Array(half).fill(0.08)
+  return {
+    vals,
+    update(d, o) {
+      for (let m = 0; m < half; m++) {
+        const frac = m / half
+        const bin = 2 + Math.floor(Math.pow(frac, 1.5) * 430)
+        const raw = d.freq[Math.min(d.freq.length - 1, bin)] / 255
+
+        // Absolute: real dynamics, but leaves the quiet bands as stubs.
+        const absolute = Math.pow(raw, CONTRAST) * (1 + frac * TILT) * LEVEL * RESPONSIVENESS
+        // Normalised against each band's own recent peak: even all the way round,
+        // but flat and lifeless on its own.
+        peaks[m] = Math.max(raw, peaks[m] * 0.995)
+        const norm = (raw / Math.max(peaks[m], 0.06)) * clamp(raw * 6, 0, 1) * 0.28
+
+        const target = (absolute * (1 - normalize) + norm * normalize) * o.sensitivity
+        cur[m] += (target - cur[m]) * REACTION
+      }
+
+      // Couple each ray to its neighbours: a 1-2-1 kernel, so when one band
+      // spikes the rays beside it rise too, by progressively less. Without this
+      // every ray moves alone and the ring reads as a field of loose spikes
+      // rather than one connected surface.
+      vals.set(cur)
+      for (let p = 0; p < smoothPasses; p++) {
+        for (let m = 0; m < half; m++) {
+          const l = vals[m === 0 ? 0 : m - 1]
+          const r = vals[m === half - 1 ? half - 1 : m + 1]
+          tmp[m] = (l + vals[m] * 2 + r) * 0.25
         }
+        vals.set(tmp)
       }
     }
-  },
+  }
+}
 
-  {
-    id: 'twin-bars',
-    name: 'Twin Bars',
-    blurb: 'Bars on polished chrome, reflection falling away beneath.',
-    create() {
-      const n = 44
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const slot = W / n
-        const bw = slot * 0.62
-        const floorY = H * 0.54
-        const maxH = floorY * 0.92
-        const reflectMax = H - floorY
-
-        const sheen = ctx.createLinearGradient(0, floorY, 0, H)
-        sheen.addColorStop(0, 'rgba(255,255,255,0.10)')
-        sheen.addColorStop(0.35, 'rgba(255,255,255,0.02)')
-        sheen.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.fillStyle = sheen
-        ctx.fillRect(0, floorY, W, H - floorY)
-
-        for (let i = 0; i < n; i++) {
-          const v = clamp(b.values[i], 0, 1)
-          const h = Math.max(o.dpr, v * maxH)
-          const x = i * slot + (slot - bw) / 2
-          const t = i / (n - 1)
-
-          ctx.fillStyle = paletteAt(o.palette, t)
-          ctx.beginPath()
-          ctx.roundRect(x, floorY - h, bw, h, [bw / 2, bw / 2, 0, 0])
-          ctx.fill()
-
-          // The falloff is what makes this read as a mirror; a flat translucent
-          // copy just looks like a second bar.
-          const rh = Math.min(h, reflectMax)
-          if (rh > 1) {
-            const g = ctx.createLinearGradient(0, floorY, 0, floorY + rh)
-            g.addColorStop(0, paletteAt(o.palette, t, 0.5))
-            g.addColorStop(0.4, paletteAt(o.palette, t, 0.14))
-            g.addColorStop(1, paletteAt(o.palette, t, 0))
-            ctx.fillStyle = g
-            ctx.beginPath()
-            ctx.roundRect(x, floorY, bw, rh, [0, 0, bw / 2, bw / 2])
-            ctx.fill()
-          }
-        }
-
-        ctx.fillStyle = sweep(ctx, 0, 0, W, 0, o.palette, 0.6)
-        ctx.fillRect(0, floorY - o.dpr / 2, W, Math.max(1, o.dpr))
-      }
-    }
-  },
-
-  {
-    id: 'floating-caps',
-    name: 'Floating Caps',
-    blurb: 'Only the peak caps, hovering with no bar beneath.',
-    create() {
-      const n = 40
-      const b = makeBands(n)
-      const peak = new Float32Array(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const slot = W / n
-        const bw = slot * 0.72
-        const base = H // flush with the transport, no gap beneath
-        const maxH = H * 0.86
-        for (let i = 0; i < n; i++) {
-          const v = clamp(b.values[i], 0, 1)
-          peak[i] = Math.max(peak[i] - 0.006, v)
-          const y = base - Math.max(o.dpr, peak[i] * maxH)
-          const x = i * slot + (slot - bw) / 2
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1))
-          ctx.beginPath()
-          ctx.roundRect(x, y, bw, 3 * o.dpr, 1.5 * o.dpr)
-          ctx.fill()
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.16)
-          ctx.fillRect(x, y + 4 * o.dpr, bw, base - y)
-        }
-      }
-    }
-  },
-
-  {
-    id: 'centre-out',
-    name: 'Centre Out',
-    blurb: 'Bass in the middle, treble pushed to both edges.',
-    create() {
-      const n = 33
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const base = H // flush with the transport
-        const half = Math.floor(n / 2)
-        const slot = W / n
-        const bw = slot * 0.7
-        for (let i = 0; i < n; i++) {
-          const m = Math.abs(i - half)
-          const v = clamp(b.values[m], 0, 1)
-          const h = Math.max(o.dpr, v * H * 0.9)
-          const x = i * slot + (slot - bw) / 2
-          ctx.fillStyle = paletteAt(o.palette, m / half, 0.95)
-          ctx.beginPath()
-          ctx.roundRect(x, base - h, bw, h, [bw / 2, bw / 2, 0, 0])
-          ctx.fill()
-        }
-      }
-    }
-  },
-
-  {
-    id: 'side-bars',
-    name: 'Side Bars',
-    blurb: 'The spectrum turned on its side, lows at the bottom.',
-    create() {
-      const n = 28
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const rowH = H / n
-        const bh = rowH * 0.68
-        const x0 = W * 0.06
-        const maxW = W * 0.88
-        for (let i = 0; i < n; i++) {
-          const v = clamp(b.values[i], 0, 1)
-          const y = H - (i + 1) * rowH + (rowH - bh) / 2
-          const w = Math.max(o.dpr * 2, v * maxW)
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.95)
-          ctx.beginPath()
-          ctx.roundRect(x0, y, w, bh, bh / 2)
-          ctx.fill()
-        }
-      }
-    }
-  },
-
-  {
-    id: 'outline-bars',
-    name: 'Outline Bars',
-    blurb: 'Hollow bars with a bright cap riding each band.',
+// One grounded hollow-bar setup shared by every Outline variation: log bands,
+// a peak-hold per bar, and the geometry (bars flush to the bottom). Each variation
+// supplies only how a single bar is drawn.
+function outlineVariation(
+  id: string,
+  name: string,
+  blurb: string,
+  drawBar: (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    bw: number,
+    h: number,
+    col: string | CanvasGradient,
+    o: VizOpts
+  ) => void,
+  listed = true
+): VizStyle {
+  return {
+    id,
+    name,
+    blurb,
+    variant: listed,
     create() {
       const n = 30
       const b = makeBands(n)
-      const peak = new Float32Array(n)
       return (ctx, W, H, d, o) => {
-        b.update(d, o)
+        // Lower approach rate than the default: the bars glide a little more and
+        // read as less twitchy, without going sluggish.
+        b.update(d, o, 0.13)
         const slot = W / n
         const bw = slot * 0.7
         const base = H // flush with the transport
         const maxH = H * 0.88
+        const minH = maxH * 0.035 // always a small stub, never fully gone
         ctx.lineWidth = Math.max(1, 1.4 * o.dpr)
+        ctx.lineCap = 'butt'
         for (let i = 0; i < n; i++) {
           const v = clamp(b.values[i], 0, 1)
-          peak[i] = Math.max(peak[i] - 0.007, v)
-          const h = Math.max(2 * o.dpr, v * maxH)
+          const h = minH + v * (maxH - minH)
           const x = i * slot + (slot - bw) / 2
-          const col = paletteAt(o.palette, i / (n - 1))
-          ctx.strokeStyle = col
-          ctx.strokeRect(x, base - h, bw, h)
-          ctx.fillStyle = col
-          ctx.fillRect(x, base - Math.max(2 * o.dpr, peak[i] * maxH) - 3 * o.dpr, bw, 2.5 * o.dpr)
+          const y = base - h
+          let col: string | CanvasGradient
+          if (o.cycle) {
+            // Whole spectrum, rotating over time; each bar offset along the wheel.
+            let hue = (d.t * o.cycle + (i / n) * 320) % 360
+            if (hue < 0) hue += 360
+            col = `hsl(${hue}, 85%, 62%)`
+          } else if (o.vgrad) {
+            // Each bar carries the full top->bottom gradient over its own height.
+            const g = ctx.createLinearGradient(0, y, 0, base)
+            g.addColorStop(0, o.vgrad[0])
+            g.addColorStop(1, o.vgrad[1])
+            col = g
+          } else {
+            col = paletteAt(o.palette, i / (n - 1))
+          }
+          drawBar(ctx, x, y, bw, h, col, o)
         }
       }
     }
-  },
+  }
+}
+
+// ------------------------------------------------------------- colour themes
+// The same clean bar shape (a rounded-top solid bar) rendered with different
+// palettes and finishes, so the browseable list is a colour picker. The bar
+// shape itself is settled and lives on the presets.
+
+const P_BRAND = ['#5b5bd6', '#9a6cff', '#ff9a8b']
+const P_NEON = ['#18e0ff', '#8a5cff', '#ff3df0']
+const P_SPECTRUM = ['#8a5cff', '#ff6ac1', '#ffd36a', '#5cffd0', '#5c9cff']
+const P_GOLD = ['#fff3a0', '#ffd24a', '#ff9e2c']
+const P_ICE = ['#eafcff', '#8fd6ff', '#3f6dff']
+
+
+
+export const VIZ_STYLES: VizStyle[] = [
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /* ---------------------------------------------------------------- bar shapes */
+  outlineVariation('outline-bars', 'Outline', 'Hollow rectangular bars.', (ctx, x, y, bw, h, col) => {
+    ctx.strokeStyle = col
+    ctx.strokeRect(x, y, bw, h)
+  }),
+
+  outlineVariation('outline-round', 'Rounded', 'Hollow bars softened to rounded capsules.', (ctx, x, y, bw, h, col) => {
+    const r = Math.min(bw / 2, h / 2)
+    ctx.strokeStyle = col
+    ctx.beginPath()
+    ctx.roundRect(x, y, bw, h, r)
+    ctx.stroke()
+  }),
+
+  outlineVariation('solid-bars', 'Solid', 'Plain solid bars.', (ctx, x, y, bw, h, col) => {
+    ctx.fillStyle = col
+    ctx.fillRect(x, y, bw, h)
+  }),
+
+  outlineVariation('solid-round', 'Solid Round', 'Solid bars with rounded tops.', (ctx, x, y, bw, h, col) => {
+    ctx.fillStyle = col
+    ctx.beginPath()
+    ctx.roundRect(x, y, bw, h, [bw / 2, bw / 2, 0, 0])
+    ctx.fill()
+  }),
+
+  outlineVariation('segments', 'Segments', 'Bars built from stacked LED blocks.', (ctx, x, y, bw, h, col, o) => {
+    const cell = Math.max(4 * o.dpr, bw * 0.7)
+    const gap = cell * 0.28
+    ctx.fillStyle = col
+    for (let sy = y + h - cell; sy > y - 1; sy -= cell) {
+      ctx.beginPath()
+      ctx.roundRect(x, sy + gap / 2, bw, cell - gap, Math.min(bw, cell) * 0.18)
+      ctx.fill()
+    }
+  }),
+
 
   /* ------------------------------------------- mirrored, centred on the glass */
-  {
-    id: 'mirror-led',
-    name: 'Mirror LED',
-    blurb: 'LED segments growing up and down from the centre line.',
-    create() {
-      const n = 32
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const mid = H / 2
-        const rows = 12
-        const slot = W / n
-        const bw = slot * 0.68
-        const cellH = (H * 0.44) / rows
-        const gap = cellH * 0.26
-        for (let i = 0; i < n; i++) {
-          const lit = Math.round(clamp(b.values[i], 0, 1) * rows)
-          const x = i * slot + (slot - bw) / 2
-          for (let r = 0; r < rows; r++) {
-            const on = r < lit
-            const col = on ? paletteAt(o.palette, r / (rows - 1)) : 'rgba(255,255,255,0.05)'
-            ctx.fillStyle = col
-            ctx.fillRect(x, mid - (r + 1) * cellH + gap / 2, bw, cellH - gap)
-            ctx.fillStyle = on ? paletteAt(o.palette, r / (rows - 1), 0.55) : 'rgba(255,255,255,0.035)'
-            ctx.fillRect(x, mid + r * cellH + gap / 2, bw, cellH - gap)
-          }
-        }
-      }
-    }
-  },
 
-  {
-    id: 'mirror-wall',
-    name: 'Mirror Wall',
-    blurb: 'The rack-mount wall, reflected below the centre line.',
-    create() {
-      const n = 56
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const mid = H / 2
-        const rows = 16
-        const cw = W / n
-        const ch = (H * 0.46) / rows
-        for (let i = 0; i < n; i++) {
-          const lit = clamp(b.values[i], 0, 1) * rows
-          for (let j = 0; j < rows; j++) {
-            const frac = clamp(lit - j, 0, 1)
-            const on = frac > 0.02
-            const t = j / (rows - 1)
-            ctx.fillStyle = on ? paletteAt(o.palette, t, 0.25 + frac * 0.75) : 'rgba(255,255,255,0.03)'
-            ctx.fillRect(i * cw + cw * 0.18, mid - (j + 1) * ch + ch * 0.18, cw * 0.64, ch * 0.64)
-            ctx.fillStyle = on ? paletteAt(o.palette, t, (0.25 + frac * 0.75) * 0.45) : 'rgba(255,255,255,0.02)'
-            ctx.fillRect(i * cw + cw * 0.18, mid + j * ch + ch * 0.18, cw * 0.64, ch * 0.64)
-          }
-        }
-      }
-    }
-  },
 
   {
     id: 'mirror-caps',
@@ -288,7 +222,8 @@ export const VIZ_STYLES: VizStyle[] = [
         const reach = H * 0.42
         for (let i = 0; i < n; i++) {
           const v = clamp(b.values[i], 0, 1)
-          peak[i] = Math.max(peak[i] - 0.006, v)
+          // Fall fast enough to actually reach the centre line between hits.
+          peak[i] = Math.max(peak[i] - 0.022, v)
           const off = Math.max(o.dpr, peak[i] * reach)
           const x = i * slot + (slot - bw) / 2
           const col = paletteAt(o.palette, i / (n - 1))
@@ -333,39 +268,6 @@ export const VIZ_STYLES: VizStyle[] = [
     }
   },
 
-  {
-    id: 'mirror-dots',
-    name: 'Mirror Dots',
-    blurb: 'A dot board mirrored about the centre line.',
-    create() {
-      const n = 32
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const mid = H / 2
-        const rows = 9
-        const cw = W / n
-        const ch = (H * 0.46) / rows
-        const r = Math.min(cw, ch) * 0.3
-        for (let i = 0; i < n; i++) {
-          const lit = Math.round(clamp(b.values[i], 0, 1) * rows)
-          for (let j = 0; j < rows; j++) {
-            const on = j < lit
-            const col = on ? paletteAt(o.palette, j / (rows - 1)) : 'rgba(255,255,255,0.05)'
-            const x = (i + 0.5) * cw
-            ctx.fillStyle = col
-            ctx.beginPath()
-            ctx.arc(x, mid - (j + 0.5) * ch, on ? r : r * 0.5, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.fillStyle = on ? paletteAt(o.palette, j / (rows - 1), 0.5) : 'rgba(255,255,255,0.035)'
-            ctx.beginPath()
-            ctx.arc(x, mid + (j + 0.5) * ch, on ? r : r * 0.5, 0, Math.PI * 2)
-            ctx.fill()
-          }
-        }
-      }
-    }
-  },
 
   {
     id: 'chrome-bars',
@@ -452,23 +354,27 @@ export const VIZ_STYLES: VizStyle[] = [
           }
           a = b2
         }
-        const pts = Array.from({ length: n }, (_, i) => ({
-          x: (i / (n - 1)) * W,
-          h: Math.max(0.03, a[i]) * H * 0.28
-        }))
+        // Bleed the ends past both edges so the band runs off-frame instead of
+        // stopping short, and floor the height so the quiet end stays a visible
+        // band rather than tapering to a thread.
+        const over = W * 0.06
+        const xAt = (i: number): number => -over + (i / (n - 1)) * (W + 2 * over)
+        const hAt = (i: number): number => Math.max(0.06, a[i]) * H * 0.3
+
         ctx.beginPath()
-        ctx.moveTo(pts[0].x, mid - pts[0].h)
+        ctx.moveTo(xAt(0), mid - hAt(0))
         for (let i = 0; i < n - 1; i++) {
-          const p0 = pts[i]
-          const p1 = pts[i + 1]
-          ctx.quadraticCurveTo(p0.x, mid - p0.h, (p0.x + p1.x) / 2, mid - (p0.h + p1.h) / 2)
+          const cx = (xAt(i) + xAt(i + 1)) / 2
+          ctx.quadraticCurveTo(xAt(i), mid - hAt(i), cx, mid - (hAt(i) + hAt(i + 1)) / 2)
         }
-        ctx.lineTo(pts[n - 1].x, mid + pts[n - 1].h)
+        // explicit top-right, right edge, bottom-right corners, so nothing pinches
+        ctx.lineTo(xAt(n - 1), mid - hAt(n - 1))
+        ctx.lineTo(xAt(n - 1), mid + hAt(n - 1))
         for (let i = n - 1; i > 0; i--) {
-          const p0 = pts[i]
-          const p1 = pts[i - 1]
-          ctx.quadraticCurveTo(p0.x, mid + p0.h, (p0.x + p1.x) / 2, mid + (p0.h + p1.h) / 2)
+          const cx = (xAt(i) + xAt(i - 1)) / 2
+          ctx.quadraticCurveTo(xAt(i), mid + hAt(i), cx, mid + (hAt(i) + hAt(i - 1)) / 2)
         }
+        ctx.lineTo(xAt(0), mid + hAt(0)) // close the bottom-left; the notch was here
         ctx.closePath()
         ctx.fillStyle = sweep(ctx, 0, 0, W, 0, o.palette, 0.85)
         ctx.fill()
@@ -482,12 +388,15 @@ export const VIZ_STYLES: VizStyle[] = [
     name: 'Bass Ripples',
     blurb: 'Rings fire on every kick and spread through a spectrum halo.',
     create() {
-      // Dense and fine, matching the old Filesmith ring: a sparse ring of thick
-      // rays reads as a loading spinner rather than a spectrum.
-      const n = 190
-      const ranges = bandRanges(n)
-      const v = new Float32Array(n)
-      const pk = new Float32Array(n).fill(0.09)
+      // Mirrored and shaped like the Filesmith ring. Unmirrored, bass and treble
+      // sit on opposite sides and the outline reads lopsided; with per-band
+      // adaptive gain each ray moves on its own scale, which reads as a jagged,
+      // restless edge. Both are fixed here.
+      const HALF = 104 // 208 rays once mirrored
+      // Evened out in amplitude, and neighbour-coupled so the outline flows.
+      // Slightly less coupling than before (3 passes), so individual bars keep a
+      // touch more of their own movement instead of fully melting together.
+      const bands = makeRingBands(HALF, 0.55, 3)
       const rings: Array<{ r: number; life: number }> = []
       let armed = true
       return (ctx, W, H, d, o) => {
@@ -503,9 +412,7 @@ export const VIZ_STYLES: VizStyle[] = [
         if (d.beat < 0.22) armed = true
         if (rings.length > 20) rings.splice(0, rings.length - 20)
 
-        for (let i = 0; i < n; i++) {
-          v[i] += (adaptive(pk, i, bandValue(d.freq, ranges[i]), o) - v[i]) * 0.18
-        }
+        bands.update(d, o)
 
         for (let i = rings.length - 1; i >= 0; i--) {
           const ring = rings[i]
@@ -522,213 +429,62 @@ export const VIZ_STYLES: VizStyle[] = [
           ctx.stroke()
         }
 
-        const R = minD * 0.26
+        const R = minD * 0.25
+        const tipMax = minD * 0.48
+        const total = HALF * 2
         ctx.lineCap = 'round'
-        ctx.lineWidth = Math.max(1.2, minD * 0.0045)
-        for (let i = 0; i < n; i++) {
-          const a = (i / n) * Math.PI * 2 - Math.PI / 2
-          const len = (0.025 + v[i] * 0.21) * minD
-          ctx.strokeStyle = paletteAt(o.palette, i / (n - 1))
+        ctx.lineWidth = 3 * o.dpr
+        for (let j = 0; j < total; j++) {
+          // Mirrored about the vertical, bass meeting at the bottom seam.
+          const m = j < HALF ? j : total - 1 - j
+          const a = Math.PI / 2 + ((j + 0.5) / total) * Math.PI * 2
+          let tip = R + minD * bands.vals[m] * 0.55 // taller rays
+          if (tip > tipMax) tip = tipMax
+          const ca = Math.cos(a)
+          const sa = Math.sin(a)
+          ctx.strokeStyle = paletteAt(o.palette, m / (HALF - 1))
           ctx.beginPath()
-          ctx.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R)
-          ctx.lineTo(cx + Math.cos(a) * (R + len), cy + Math.sin(a) * (R + len))
+          ctx.moveTo(cx + ca * R, cy + sa * R)
+          ctx.lineTo(cx + ca * tip, cy + sa * tip)
           ctx.stroke()
         }
 
-        const core = R * 0.55 * (1 + d.beat * 0.16)
-        const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, core)
-        cg.addColorStop(0, rgba(o.accent, 0.45 + d.beat * 0.35))
+        // A living orb: the blob drifts on a slow lazy path and gently breathes,
+        // and the highlight orbits inside it, so it reads like something present
+        // and thinking rather than a static glow. Amplitudes are tiny on purpose.
+        const t = d.t / 1000
+        const driftX = (Math.sin(t * 0.31) + Math.sin(t * 0.17 + 1.3) * 0.6) * minD * 0.02
+        const driftY = (Math.cos(t * 0.26) + Math.sin(t * 0.4 + 0.7) * 0.5) * minD * 0.018
+        const breathe = 1 + Math.sin(t * 0.7) * 0.06 + d.beat * 0.16
+        const bx = cx + driftX
+        const by = cy + driftY
+        const core = R * 0.62 * breathe
+        // the shine sits off-centre and slowly circles within the orb
+        const sx = bx + Math.sin(t * 0.53) * core * 0.22
+        const sy = by + Math.cos(t * 0.61) * core * 0.22
+        const cg = ctx.createRadialGradient(sx, sy, 0, bx, by, core)
+        cg.addColorStop(0, rgba(o.accent, 0.55 + d.beat * 0.3))
+        cg.addColorStop(0.45, rgba(o.accent, 0.16))
         cg.addColorStop(1, rgba(o.accent, 0))
         ctx.beginPath()
-        ctx.arc(cx, cy, core, 0, Math.PI * 2)
+        ctx.arc(bx, by, core, 0, Math.PI * 2)
         ctx.fillStyle = cg
         ctx.fill()
       }
     }
   },
 
-  {
-    id: 'radial-ring',
-    name: 'Radial Ring',
-    blurb: 'A big spectrum ring, mirrored so lows meet at the bottom.',
-    create() {
-      const half = 136 // 272 rays once mirrored, as dense as Filesmith's ring
-      const ranges = bandRanges(half)
-      const v = new Float32Array(half)
-      const pk = new Float32Array(half).fill(0.09)
-      let boom = 0
-      return (ctx, W, H, d, o) => {
-        const cx = W / 2
-        const cy = H / 2
-        const minD = Math.min(W, H)
-        for (let i = 0; i < half; i++) {
-          v[i] += (adaptive(pk, i, bandValue(d.freq, ranges[i]), o) - v[i]) * 0.18
-        }
-        boom = Math.max(d.beat, boom * 0.93)
-        const R = minD * 0.27 * (1 + boom * 0.03)
 
-        // Soft interior glow, never a filled disc: a solid centre reads as a mud
-        // ball and leaves a dead gap between it and the rays.
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R)
-        g.addColorStop(0, rgba(o.accent, 0.03 + d.bass * 0.15))
-        g.addColorStop(1, rgba(o.accent, 0))
-        ctx.beginPath()
-        ctx.arc(cx, cy, R, 0, Math.PI * 2)
-        ctx.fillStyle = g
-        ctx.fill()
-
-        const total = half * 2
-        ctx.lineCap = 'round'
-        ctx.lineWidth = Math.max(1.2, minD * 0.004)
-        for (let j = 0; j < total; j++) {
-          const m = j < half ? j : total - 1 - j
-          const a = Math.PI / 2 + ((j + 0.5) / total) * Math.PI * 2
-          const len = (0.025 + v[m] * 0.22) * minD
-          const ca = Math.cos(a)
-          const sa = Math.sin(a)
-          ctx.strokeStyle = paletteAt(o.palette, m / (half - 1))
-          ctx.beginPath()
-          ctx.moveTo(cx + ca * R, cy + sa * R)
-          ctx.lineTo(cx + ca * (R + len), cy + sa * (R + len))
-          ctx.stroke()
-        }
-
-        ctx.beginPath()
-        ctx.arc(cx, cy, R, 0, Math.PI * 2)
-        ctx.strokeStyle = rgba(o.accent, 0.5)
-        ctx.lineWidth = Math.max(1, minD * 0.0035)
-        ctx.stroke()
-      }
-    }
-  },
-
-  {
-    id: 'radial-scope',
-    name: 'Radial Scope',
-    blurb: 'The waveform wrapped into a large breathing circle.',
-    create() {
-      const N = 256
-      const r = new Float32Array(N)
-      return (ctx, W, H, d, o) => {
-        const cx = W / 2
-        const cy = H / 2
-        const minD = Math.min(W, H)
-        const R = minD * 0.3
-        const amp = minD * 0.14 * o.sensitivity
-        const n = d.time.length
-        for (let i = 0; i < N; i++) {
-          const t = ((d.time[Math.floor((i / N) * n) % n] - 128) / 128) * amp
-          r[i] += (t - r[i]) * 0.2
-        }
-        ctx.beginPath()
-        for (let i = 0; i <= N; i++) {
-          const idx = i % N
-          const sm = (r[(idx - 1 + N) % N] + r[idx] * 2 + r[(idx + 1) % N]) / 4
-          const a = (idx / N) * Math.PI * 2 - Math.PI / 2
-          const rr = R + sm
-          const x = cx + Math.cos(a) * rr
-          const y = cy + Math.sin(a) * rr
-          if (i === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
-        }
-        ctx.closePath()
-        const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R + amp)
-        g.addColorStop(0, paletteAt(o.palette, 0.15, 0.13))
-        g.addColorStop(1, paletteAt(o.palette, 0.85, 0.01))
-        ctx.fillStyle = g
-        ctx.fill()
-        ctx.strokeStyle = sweep(ctx, cx - R, cy - R, cx + R, cy + R, o.palette)
-        ctx.lineWidth = Math.max(1.8, minD * 0.006)
-        ctx.stroke()
-      }
-    }
-  },
 
   /* ------------------------------------------------------------------ grid */
-  {
-    id: 'dot-matrix',
-    name: 'Dot Matrix',
-    blurb: 'A board of dots lighting column by column.',
-    create() {
-      const n = 32
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const rows = 16
-        const cw = W / n
-        const ch = H / rows
-        const r = Math.min(cw, ch) * 0.3
-        for (let i = 0; i < n; i++) {
-          const lit = Math.round(clamp(b.values[i], 0, 1) * rows)
-          for (let j = 0; j < rows; j++) {
-            const on = j < lit
-            ctx.beginPath()
-            ctx.arc((i + 0.5) * cw, H - (j + 0.5) * ch, on ? r : r * 0.5, 0, Math.PI * 2)
-            ctx.fillStyle = on ? paletteAt(o.palette, j / (rows - 1)) : 'rgba(255,255,255,0.055)'
-            ctx.fill()
-          }
-        }
-      }
-    }
-  },
+
+
+
 
   {
-    id: 'led-wall',
-    name: 'LED Wall',
-    blurb: 'Square pixels, bright where the energy is.',
-    create() {
-      const n = 28
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const rows = 14
-        const cw = W / n
-        const ch = H / rows
-        const pad = Math.min(cw, ch) * 0.16
-        for (let i = 0; i < n; i++) {
-          const lit = clamp(b.values[i], 0, 1) * rows
-          for (let j = 0; j < rows; j++) {
-            const frac = clamp(lit - j, 0, 1)
-            ctx.fillStyle =
-              frac > 0.02
-                ? paletteAt(o.palette, j / (rows - 1), 0.15 + frac * 0.85)
-                : 'rgba(255,255,255,0.04)'
-            ctx.fillRect(i * cw + pad, H - (j + 1) * ch + pad, cw - pad * 2, ch - pad * 2)
-          }
-        }
-      }
-    }
-  },
-
-  {
-    id: 'heat-grid',
-    name: 'Heat Grid',
-    blurb: 'A coarse grid coloured by the energy in each cell.',
-    create() {
-      const n = 24
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o, 0.13)
-        const cols = 12
-        const rows = 8
-        const cw = W / cols
-        const ch = H / rows
-        for (let i = 0; i < cols; i++) {
-          for (let j = 0; j < rows; j++) {
-            const idx = Math.floor(((i + j * cols) / (cols * rows)) * n)
-            const v = clamp(b.values[Math.min(n - 1, idx)], 0, 1)
-            ctx.fillStyle = paletteAt(o.palette, v, 0.06 + v * 0.9)
-            ctx.fillRect(i * cw + 1, j * ch + 1, cw - 2, ch - 2)
-          }
-        }
-      }
-    }
-  },
-
-  {
-    id: 'equaliser-wall',
-    name: 'Equaliser Wall',
-    blurb: 'A tall wall of narrow cells, the rack-mount look.',
+    id: 'clean-wall',
+    name: 'Clean Wall',
+    blurb: 'The rack-mount wall with the unlit cells hidden. Nothing but the sound.',
     create() {
       const n = 64
       const b = makeBands(n)
@@ -741,57 +497,84 @@ export const VIZ_STYLES: VizStyle[] = [
           const lit = clamp(b.values[i], 0, 1) * rows
           for (let j = 0; j < rows; j++) {
             const frac = clamp(lit - j, 0, 1)
-            ctx.fillStyle =
-              frac <= 0.02
-                ? 'rgba(255,255,255,0.035)'
-                : paletteAt(o.palette, j / (rows - 1), 0.25 + frac * 0.75)
+            if (frac <= 0.02) continue // no dark grid left showing through
+            ctx.fillStyle = paletteAt(o.palette, j / (rows - 1), 0.25 + frac * 0.75)
             ctx.fillRect(i * cw + cw * 0.18, H - (j + 1) * ch + ch * 0.18, cw * 0.64, ch * 0.64)
           }
         }
       }
     }
-  },
-
-  /* -------------------------------------------------------------- abstract */
-  {
-    id: 'horizon',
-    name: 'Horizon',
-    blurb: 'A sun on the horizon with a skyline and its reflection.',
-    create() {
-      const n = 40
-      const b = makeBands(n)
-      return (ctx, W, H, d, o) => {
-        b.update(d, o)
-        const minD = Math.min(W, H)
-        const hz = H * 0.62
-        const sunR = minD * (0.14 + d.bass * 0.05)
-        const g = ctx.createRadialGradient(W / 2, hz, 0, W / 2, hz, sunR)
-        g.addColorStop(0, paletteAt(o.palette, 0.9, 0.85))
-        g.addColorStop(1, paletteAt(o.palette, 0.4, 0.05))
-        ctx.beginPath()
-        ctx.arc(W / 2, hz, sunR, 0, Math.PI * 2)
-        ctx.fillStyle = g
-        ctx.fill()
-
-        const slot = W / n
-        for (let i = 0; i < n; i++) {
-          const v = clamp(b.values[i], 0, 1)
-          const h = v * H * 0.3
-          const x = i * slot
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.9)
-          ctx.fillRect(x + slot * 0.12, hz - h, slot * 0.76, h)
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.16)
-          ctx.fillRect(x + slot * 0.12, hz, slot * 0.76, h * 0.7)
-        }
-        ctx.fillStyle = 'rgba(255,255,255,0.12)'
-        ctx.fillRect(0, hz - o.dpr / 2, W, o.dpr)
-      }
-    }
   }
 ]
 
-export const DEFAULT_STYLE_ID = 'wave-bars'
+export const DEFAULT_STYLE_ID = 'ripples'
 
 export function styleById(id: string): VizStyle {
   return VIZ_STYLES.find((s) => s.id === id) ?? VIZ_STYLES[0]
+}
+
+
+// ------------------------------------------------------------------- themes
+// Colour + finish, applied on top of whichever shape a preset selected. Swaps
+// the palette and accent every style already reads, plus an optional global glow
+// or opacity handled by the Visualizer, so one theme recolours every shape.
+export const THEMES: VizTheme[] = [
+  { id: 'brand', name: 'Brand', blurb: 'Indigo, violet and coral.', palette: P_BRAND, accent: '#7c74f0' },
+  { id: 'neon', name: 'Neon', blurb: 'Electric cyan to magenta, glowing.', palette: P_NEON, accent: '#9a5cff', glow: 12 },
+  { id: 'glow', name: 'Glow', blurb: 'Brand colours with a soft bloom.', palette: P_BRAND, accent: '#8a7cff', glow: 15 },
+  { id: 'gradient', name: 'Gradient', blurb: 'A full spectrum sweep.', palette: P_SPECTRUM, accent: '#9a6cff' },
+  { id: 'rainbow', name: 'Rainbow', blurb: 'Every hue across the bars.', palette: ['#ff4d6d', '#ff9e2c', '#ffe14a', '#5cffa8', '#39c2ff', '#8a5cff'], accent: '#39c2ff' },
+  { id: 'gold', name: 'Gold', blurb: 'Warm yellow into amber.', palette: P_GOLD, accent: '#ffb42c' },
+  { id: 'ice', name: 'Ice', blurb: 'Pale blue into deep sky.', palette: P_ICE, accent: '#5aa0ff' },
+  { id: 'white', name: 'White', blurb: 'Clean monochrome white.', palette: ['#e9edf6', '#ffffff'], accent: '#ffffff' },
+
+  // ---- rich gradients ----
+  { id: 'fire', name: 'Fire', blurb: 'Yellow through orange into deep red.', palette: ['#ffe14a', '#ff8a1a', '#ff3535', '#c01418'], accent: '#ff6a1a', glow: 8 },
+  { id: 'ocean', name: 'Ocean', blurb: 'Shallows to the deep blue.', palette: ['#9bf6ff', '#38aeff', '#3358d8'], accent: '#22a0ff' },
+  { id: 'forest', name: 'Forest', blurb: 'Fresh leaf into pine.', palette: ['#c6ff9e', '#3ec46a', '#1c9a4e'], accent: '#3ec46a' },
+  { id: 'toxic', name: 'Toxic', blurb: 'Acid yellow-green, glowing.', palette: ['#eaff6a', '#7dff2c', '#00c853'], accent: '#7dff2c', glow: 10 },
+  { id: 'matrix', name: 'Matrix', blurb: 'Terminal green on black.', palette: ['#39ff14', '#00b30a'], accent: '#39ff14', glow: 10 },
+  { id: 'aurora', name: 'Aurora', blurb: 'Northern-lights teal, blue and violet.', palette: ['#5cffd0', '#39c2ff', '#8a5cff', '#ff6ac1'], accent: '#5cffd0', glow: 8 },
+  { id: 'nebula', name: 'Nebula', blurb: 'Deep violet, magenta and amber.', palette: ['#8b3ff0', '#db2777', '#f59e0b'], accent: '#db2777' },
+  { id: 'ultraviolet', name: 'Ultraviolet', blurb: 'Lilac into deep purple.', palette: ['#e9d5ff', '#b56cff', '#8a3ff0'], accent: '#a855f7', glow: 8 },
+  { id: 'miami', name: 'Miami', blurb: 'Hot cyan and pink.', palette: ['#00e5ff', '#c026d3', '#ff2fd0'], accent: '#ff2fd0', glow: 8 },
+  { id: 'candy', name: 'Candy', blurb: 'Cotton-candy blue and pink.', palette: ['#a0e9ff', '#c0a0ff', '#ffa0e0'], accent: '#ff9ee6' },
+
+  // ---- solid colours ----
+  { id: 's-green', name: 'Green', blurb: 'Solid green.', palette: ['#22c55e'], accent: '#22c55e' },
+  { id: 's-teal', name: 'Teal', blurb: 'Solid teal.', palette: ['#14b8a6'], accent: '#14b8a6' },
+  { id: 's-cyan', name: 'Cyan', blurb: 'Solid cyan.', palette: ['#22d3ee'], accent: '#22d3ee' },
+  { id: 's-sky', name: 'Sky', blurb: 'Solid sky blue.', palette: ['#38bdf8'], accent: '#38bdf8' },
+  { id: 's-blue', name: 'Blue', blurb: 'Solid blue.', palette: ['#3b6dff'], accent: '#3b6dff' },
+  { id: 's-indigo', name: 'Indigo', blurb: 'Solid indigo.', palette: ['#6366f1'], accent: '#6366f1' },
+  { id: 's-violet', name: 'Violet', blurb: 'Solid violet.', palette: ['#8b5cf6'], accent: '#8b5cf6' },
+  { id: 's-purple', name: 'Purple', blurb: 'Solid purple.', palette: ['#a855f7'], accent: '#a855f7' },
+  { id: 's-magenta', name: 'Magenta', blurb: 'Solid magenta.', palette: ['#e83fd0'], accent: '#e83fd0' },
+  { id: 's-pink', name: 'Pink', blurb: 'Solid hot pink.', palette: ['#ff5c9e'], accent: '#ff5c9e' },
+  { id: 's-coral', name: 'Coral', blurb: 'Solid coral.', palette: ['#ff8a6a'], accent: '#ff8a6a' },
+  { id: 's-crimson', name: 'Crimson', blurb: 'Solid crimson.', palette: ['#e01e4a'], accent: '#e01e4a' },
+
+  // ---- vertical gradients: each bar fades top -> bottom, both directions ----
+  { id: 'v-whiteblack', name: 'White → Black', blurb: 'White tips fading into the floor.', palette: ['#ffffff', '#2a2e3a'], accent: '#cfd4e0', vgrad: ['#ffffff', '#12141b'] },
+  { id: 'v-blackwhite', name: 'Black → White', blurb: 'Dark tips over a bright base.', palette: ['#2a2e3a', '#ffffff'], accent: '#cfd4e0', vgrad: ['#3a3f4d', '#ffffff'] },
+  { id: 'v-yellowred', name: 'Yellow → Red', blurb: 'Yellow tips over a red base.', palette: ['#ffe14a', '#ff2d2d'], accent: '#ff7a1a', vgrad: ['#ffe14a', '#ff2d2d'] },
+  { id: 'v-redyellow', name: 'Red → Yellow', blurb: 'Red tips over a yellow base.', palette: ['#ff2d2d', '#ffe14a'], accent: '#ff7a1a', vgrad: ['#ff2d2d', '#ffe14a'] },
+  { id: 'v-flame', name: 'Flame', blurb: 'White-hot tips down to deep red.', palette: ['#fff2b0', '#e01414'], accent: '#ff6a1a', vgrad: ['#fff2b0', '#c01212'] },
+  { id: 'v-cyanblue', name: 'Cyan → Blue', blurb: 'Cyan tips over deep blue.', palette: ['#8ff4ff', '#2f5cff'], accent: '#38aeff', vgrad: ['#8ff4ff', '#2f5cff'] },
+  { id: 'v-bluecyan', name: 'Blue → Cyan', blurb: 'Blue tips over cyan.', palette: ['#2f5cff', '#8ff4ff'], accent: '#38aeff', vgrad: ['#2f5cff', '#8ff4ff'] },
+  { id: 'v-teallime', name: 'Teal → Lime', blurb: 'Teal tips into lime.', palette: ['#0e9e8a', '#c0ff7a'], accent: '#3ec46a', vgrad: ['#12b89a', '#c0ff7a'] },
+  { id: 'v-pinkpurple', name: 'Pink → Purple', blurb: 'Pink tips fading to purple.', palette: ['#ff9ad8', '#7a3fe0'], accent: '#c05cff', vgrad: ['#ff9ad8', '#7a3fe0'] },
+  { id: 'v-purplepink', name: 'Purple → Pink', blurb: 'Purple tips fading to pink.', palette: ['#7a3fe0', '#ff9ad8'], accent: '#c05cff', vgrad: ['#8a4ff0', '#ff9ad8'] },
+  { id: 'v-orangemagenta', name: 'Orange → Magenta', blurb: 'Orange tips into magenta.', palette: ['#ff9e2c', '#e83fd0'], accent: '#ff6ac1', vgrad: ['#ff9e2c', '#e83fd0'] },
+  { id: 'v-redpurple', name: 'Red → Purple', blurb: 'Red tips into purple.', palette: ['#ff4d6d', '#8a3ff0'], accent: '#c05cff', vgrad: ['#ff4d6d', '#8a3ff0'] },
+
+  // ---- animated ----
+  { id: 'cycle', name: 'Cycle', blurb: 'Every hue, drifting across the bars over time.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#39c2ff', cycle: 0.03 },
+  { id: 'cycle-fast', name: 'Cycle Fast', blurb: 'The rainbow cycle, spun up.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#ff6ac1', cycle: 0.09 }
+]
+
+export const DEFAULT_THEME_ID = 'glow'
+
+export function themeById(id: string): VizTheme {
+  return THEMES.find((t) => t.id === id) ?? THEMES[0]
 }

@@ -27,6 +27,30 @@ export interface VizOpts {
   palette: string[]
   sensitivity: number
   dpr: number
+  /** When set, bar shapes fill each bar with a vertical top->bottom gradient
+   *  ([topColor, bottomColor]) instead of a flat palette colour. */
+  vgrad?: [string, string] | null
+  /** When set, bars cycle through the full hue wheel over time; the number is
+   *  hue-degrees per millisecond. */
+  cycle?: number | null
+}
+
+/** A colour theme, applied on top of any style. The style provides the shape;
+ *  the theme provides the palette and finish (glow / transparency). */
+export interface VizTheme {
+  id: string
+  name: string
+  blurb: string
+  palette: string[]
+  accent: string
+  /** Outer-glow blur in px (scaled by dpr) applied to the whole visual. */
+  glow?: number
+  /** Overall opacity, for the translucent looks. */
+  alpha?: number
+  /** Vertical per-bar gradient [top, bottom]; overrides the flat palette on bars. */
+  vgrad?: [string, string]
+  /** Cycle hue over time, hue-degrees per ms (an animated rainbow). */
+  cycle?: number
 }
 
 export type DrawFn = (
@@ -43,6 +67,9 @@ export interface VizStyle {
   blurb: string
   /** Fade the canvas instead of clearing it, for motion trails. */
   trails?: boolean
+  /** Shown in the browseable style list. Styles used only by a saved preset
+   *  (the settled looks) stay renderable but out of the list. */
+  variant?: boolean
   create(W: number, H: number): DrawFn
 }
 
@@ -108,10 +135,17 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
-/** Sample a palette at t (0-1). */
+/** Sample a palette at t (0-1). Single-colour palettes (the solid themes) just
+ *  return that colour; anything else would index pal[-1] and throw, which is
+ *  what made every solid theme render nothing. */
 export function paletteAt(pal: string[], t: number, alpha?: number): string {
-  const x = clamp(t, 0, 1) * (pal.length - 1)
-  const i = Math.min(pal.length - 2, Math.floor(x))
+  const segs = pal.length - 1
+  if (segs <= 0) {
+    const [r, g, b] = hexToRgb(pal[0])
+    return alpha == null ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${alpha})`
+  }
+  const x = clamp(t, 0, 1) * segs
+  const i = Math.min(segs - 1, Math.floor(x))
   const f = x - i
   const a = hexToRgb(pal[i])
   const b = hexToRgb(pal[i + 1])
@@ -155,8 +189,18 @@ export function makeBands(
   return {
     values,
     update(d, o, rate = 0.18) {
+      // Mostly absolute: loud bands reach full height and quiet ones stay short,
+      // so the field is not permanently filled and a loud hit really peaks. A
+      // treble tilt keeps the highs readable, and only a light adaptive touch
+      // (far less normalisation than the ring) stops the very top bands vanishing.
+      // Temporal smoothing (rate) still glides everything; loudness collapses it.
+      const dyn = clamp(d.level / 0.09, 0, 1)
       for (let i = 0; i < n; i++) {
-        const target = adaptive(peaks, i, bandValue(d.freq, ranges[i]), o)
+        const frac = i / n
+        const raw = bandValue(d.freq, ranges[i])
+        const abs = Math.pow(raw, 1.55) * (1 + frac * 1.3) * o.sensitivity * 1.18
+        const norm = adaptive(peaks, i, raw, o)
+        const target = clamp(abs * 0.85 + norm * 0.15, 0, 1.35) * dyn
         values[i] += (target - values[i]) * rate
       }
     }
