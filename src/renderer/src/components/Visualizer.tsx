@@ -28,25 +28,31 @@ const BG = '#0d0f14'
 export function Visualizer({
   media,
   styleId,
-  theme
+  theme,
+  dropStyle
 }: {
   media: HTMLMediaElement | null
   styleId: string
   theme: VizTheme
+  dropStyle: number
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  // The draw loop reads the current style + theme through refs so switching
-  // either does not tear down and restart the loop. Synced in effects, since
-  // writing to a ref during render is not allowed.
+  // The draw loop reads the current style + theme + drop variant through refs so
+  // switching any of them does not tear down and restart the loop. Synced in
+  // effects, since writing to a ref during render is not allowed.
   const styleRef = useRef(styleId)
   const themeRef = useRef(theme)
+  const dropStyleRef = useRef(dropStyle)
   useEffect(() => {
     styleRef.current = styleId
   }, [styleId])
   useEffect(() => {
     themeRef.current = theme
   }, [theme])
+  useEffect(() => {
+    dropStyleRef.current = dropStyle
+  }, [dropStyle])
 
   // Wire the element into the graph, and keep the context resumed while it plays.
   useEffect(() => {
@@ -268,6 +274,7 @@ export function Visualizer({
         opts.accent = th.accent
         opts.vgrad = th.vgrad ?? null
         opts.cycle = th.cycle ?? null
+        opts.dropStyle = dropStyleRef.current
         opts.dpr = dpr
 
         const style2 = styleById(styleRef.current)

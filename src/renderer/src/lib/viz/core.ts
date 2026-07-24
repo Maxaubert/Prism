@@ -36,6 +36,8 @@ export interface VizOpts {
   /** When set, bars cycle through the full hue wheel over time; the number is
    *  hue-degrees per millisecond. */
   cycle?: number | null
+  /** Which drop-burst variant the Halo ring fires on a drop (1-10). */
+  dropStyle?: number
 }
 
 /** A colour theme, applied on top of any style. The style provides the shape;

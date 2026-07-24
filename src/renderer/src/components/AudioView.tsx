@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
-import { DEFAULT_STYLE_ID, THEMES, DEFAULT_THEME_ID, themeById } from '../lib/viz/styles'
+import {
+  DEFAULT_STYLE_ID,
+  THEMES,
+  DEFAULT_THEME_ID,
+  themeById,
+  DROP_VARIANTS,
+  DEFAULT_DROP_STYLE
+} from '../lib/viz/styles'
 
 // The bar SHAPE comes from the preset (settled). The COLOUR is a separate axis:
 // the list is a colour picker, applied on top of whatever shape is showing.
@@ -18,6 +25,7 @@ const WIDTH_KEY = 'prism.viz.width'
 const LOGO_KEY = 'prism.viz.logo'
 const HEIGHT_KEY = 'prism.viz.height'
 const POS_KEY = 'prism.viz.pos'
+const DROP_KEY = 'prism.viz.drop'
 
 // Some styles read better spanning the glass, others want to sit in a band.
 const WIDTHS: Record<string, string> = {
@@ -195,6 +203,7 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   const [logo, setLogo] = useState<boolean>(() => localStorage.getItem(LOGO_KEY) === '1')
   const [height, setHeight] = useState<number>(() => num(HEIGHT_KEY, 88)) // % of the stage
   const [pos, setPos] = useState<number>(() => num(POS_KEY, 50)) // % from the top
+  const [dropStyle, setDropStyle] = useState<number>(() => num(DROP_KEY, DEFAULT_DROP_STYLE))
   const [menuOpen, setMenuOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -209,6 +218,10 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   const pickWidth = (w: string): void => {
     setWidth(w)
     localStorage.setItem(WIDTH_KEY, w)
+  }
+  const pickDrop = (n: number): void => {
+    setDropStyle(n)
+    localStorage.setItem(DROP_KEY, String(n))
   }
   const toggleLogo = (): void => {
     setLogo((x) => {
@@ -382,7 +395,12 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
             }}
           >
             <div className={`mx-auto h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
-              <Visualizer media={mediaEl} styleId={styleId} theme={themeById(themeId)} />
+              <Visualizer
+                media={mediaEl}
+                styleId={styleId}
+                theme={themeById(themeId)}
+                dropStyle={dropStyle}
+              />
             </div>
           </div>
 
@@ -546,6 +564,23 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
                     >
                       Artwork
                     </button>
+                  </div>
+                  <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--color-dim)]">
+                    Drop effect
+                  </div>
+                  <div className="grid grid-cols-10 gap-1 px-1.5">
+                    {Array.from({ length: DROP_VARIANTS }, (_, i) => i + 1).map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => pickDrop(n)}
+                        title={`Drop variant ${n}`}
+                        className={`rounded-lg py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                          n === dropStyle ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
