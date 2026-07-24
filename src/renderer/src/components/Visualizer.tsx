@@ -107,6 +107,9 @@ export function Visualizer({
     let loud = 0.85 // frozen-during-break estimate of the loud-section bass level
     let breakFrames = 0
     let dropPending = false
+    let dropConfirm = false
+    let confirmPeak = 0
+    let confirmWait = 0
     let drop = 0
     let framesPlaying = 0
     let wasPlaying = false
@@ -177,6 +180,7 @@ export function Visualizer({
           framesPlaying = 0
           breakFrames = 0
           dropPending = false
+          dropConfirm = false
         }
         wasPlaying = frame.playing
         const settling = framesPlaying < 15
@@ -186,6 +190,7 @@ export function Visualizer({
           drop = 0
           breakFrames = 0
           dropPending = false
+          dropConfirm = false
           framesPlaying = 0
         } else {
           framesPlaying++
@@ -214,16 +219,32 @@ export function Visualizer({
           // reaches its own recovery threshold) can't misfire.
           bassSlow += (frame.bass - bassSlow) * 0.25
           if (bassSlow > loud) loud += (bassSlow - loud) * 0.08
-          else if (breakFrames === 0 && !dropPending) loud += (bassSlow - loud) * 0.003
+          else if (breakFrames === 0 && !dropPending && !dropConfirm) loud += (bassSlow - loud) * 0.003
           if (bassSlow < loud * 0.6) {
             breakFrames++
           } else {
             if (breakFrames > 25 && framesPlaying > 40) dropPending = true
             breakFrames = 0
           }
+          // The recovery isn't instant: the bass climbs to an intermediate plateau,
+          // holds a beat, then makes a final jump to the top. Firing when it first
+          // crosses the full level lands a beat early, on the climb. So once it
+          // reaches full, track the recovery to its peak and fire when it stops
+          // rising - the actual impact. A sharp slam peaks at once and fires
+          // immediately; the wait cap keeps it from hanging if it never turns down.
           if (dropPending && bassSlow > loud * 0.92) {
-            drop = 1
             dropPending = false
+            dropConfirm = true
+            confirmPeak = bassSlow
+            confirmWait = 0
+          }
+          if (dropConfirm) {
+            confirmWait++
+            if (bassSlow > confirmPeak) confirmPeak = bassSlow
+            else if (bassSlow < confirmPeak - 0.008 || confirmWait > 40) {
+              drop = 1
+              dropConfirm = false
+            }
           }
         }
         drop *= 0.9
