@@ -224,28 +224,61 @@
       id: 'twin-bars',
       name: 'Twin Bars',
       family: 'Bars',
-      blurb: 'Two spectra facing each other across a gap.',
+      keeper: true,
+      blurb: 'Bars standing on polished chrome, with their reflection falling away beneath.',
       init: (s) => bands(s, 44),
       draw(ctx, W, H, d, o, s) {
         upd(s, d, o)
         const slot = W / s.n
         const bw = slot * 0.62
-        const gap = H * 0.06
-        const maxH = (H - gap) / 2
+        const floorY = H * 0.54 // the mirror plane, slightly below centre
+        const maxH = floorY * 0.92
+        const reflectMax = H - floorY
+
+        // The polished surface itself: a sheen that brightens toward the plane,
+        // so the bars read as standing ON something rather than floating.
+        const sheen = ctx.createLinearGradient(0, floorY, 0, H)
+        sheen.addColorStop(0, 'rgba(255,255,255,0.10)')
+        sheen.addColorStop(0.35, 'rgba(255,255,255,0.02)')
+        sheen.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = sheen
+        ctx.fillRect(0, floorY, W, H - floorY)
+
         for (let i = 0; i < s.n; i++) {
           const v = V.clamp(s.v[i], 0, 1)
-          const h = Math.max(o.dpr, v * maxH * 0.92)
+          const h = Math.max(o.dpr, v * maxH)
           const x = i * slot + (slot - bw) / 2
-          ctx.fillStyle = V.paletteAt(o.palette, i / (s.n - 1))
+          const col = V.paletteAt(o.palette, i / (s.n - 1))
+
+          // upright bar
+          ctx.fillStyle = col
           ctx.beginPath()
-          ctx.roundRect(x, H / 2 - gap / 2 - h, bw, h, [bw / 2, bw / 2, 0, 0])
+          ctx.roundRect(x, floorY - h, bw, h, [bw / 2, bw / 2, 0, 0])
           ctx.fill()
-          ctx.globalAlpha = 0.45
-          ctx.beginPath()
-          ctx.roundRect(x, H / 2 + gap / 2, bw, h, [0, 0, bw / 2, bw / 2])
-          ctx.fill()
-          ctx.globalAlpha = 1
+
+          // reflection: same bar, mirrored, fading out with distance from the
+          // surface. A flat semi-transparent copy looks like a second bar; the
+          // falloff is what makes it read as a mirror.
+          const rh = Math.min(h, reflectMax)
+          if (rh > 1) {
+            const g = ctx.createLinearGradient(0, floorY, 0, floorY + rh)
+            g.addColorStop(0, V.paletteAt(o.palette, i / (s.n - 1), 0.5))
+            g.addColorStop(0.4, V.paletteAt(o.palette, i / (s.n - 1), 0.14))
+            g.addColorStop(1, V.paletteAt(o.palette, i / (s.n - 1), 0))
+            ctx.fillStyle = g
+            ctx.beginPath()
+            ctx.roundRect(x, floorY, bw, rh, [0, 0, bw / 2, bw / 2])
+            ctx.fill()
+          }
         }
+
+        // bright contact line along the plane, the giveaway of a mirror finish
+        const line = ctx.createLinearGradient(0, 0, W, 0)
+        line.addColorStop(0, V.paletteAt(o.palette, 0, 0.5))
+        line.addColorStop(0.5, V.paletteAt(o.palette, 0.5, 0.65))
+        line.addColorStop(1, V.paletteAt(o.palette, 1, 0.5))
+        ctx.fillStyle = line
+        ctx.fillRect(0, floorY - o.dpr / 2, W, Math.max(1, o.dpr))
       }
     },
 
