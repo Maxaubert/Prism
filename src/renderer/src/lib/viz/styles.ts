@@ -168,7 +168,9 @@ const DROP_MAXAGE: Record<number, number> = { 8: 1.55 }
 const easeOut = (x: number): number => 1 - (1 - x) * (1 - x)
 
 /** Draw one drop burst. cx/cy is the centre, R the inner-ring radius, minD the
- *  frame's short side. `age` is 0->1 (or beyond for kind 8). */
+ *  frame's short side. `age` is 0->1 (or beyond for kind 8). `p` is the power:
+ *  ~0.5 for the per-beat pulse, 1 for a full drop - it scales brightness and,
+ *  for the outward effects, how far they reach. */
 function drawDropBurst(
   ctx: CanvasRenderingContext2D,
   W: number,
@@ -179,18 +181,20 @@ function drawDropBurst(
   R: number,
   o: VizOpts,
   kind: number,
-  age: number
+  age: number,
+  p: number
 ): void {
   const a = clamp(age, 0, 1)
   const fade = 1 - a
   const col = o.accent
+  const sz = 0.55 + 0.45 * p // how far the outward variants travel
   ctx.save()
   ctx.lineCap = 'round'
   switch (kind) {
     case 1: {
       // Shockwave: one bright ring races outward.
-      const r = minD * (0.12 + easeOut(a) * 1.0)
-      ctx.strokeStyle = rgba(col, fade * 0.9)
+      const r = minD * (0.12 + easeOut(a) * 1.0 * sz)
+      ctx.strokeStyle = rgba(col, fade * 0.9 * p)
       ctx.lineWidth = Math.max(1, minD * 0.02 * fade)
       ctx.beginPath()
       ctx.arc(cx, cy, r, 0, Math.PI * 2)
@@ -199,7 +203,7 @@ function drawDropBurst(
     }
     case 2: {
       // Flash: the whole frame washes with the accent and fades.
-      ctx.fillStyle = rgba(col, fade * fade * 0.4)
+      ctx.fillStyle = rgba(col, fade * fade * 0.4 * p)
       ctx.fillRect(0, 0, W, H)
       break
     }
@@ -207,8 +211,8 @@ function drawDropBurst(
       // Core fill: a bright disc swells to fill the inner circle, then fades.
       const rad = R * easeOut(a)
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, rad))
-      g.addColorStop(0, rgba(col, fade * 0.85))
-      g.addColorStop(0.7, rgba(col, fade * 0.5))
+      g.addColorStop(0, rgba(col, fade * 0.85 * p))
+      g.addColorStop(0.7, rgba(col, fade * 0.5 * p))
       g.addColorStop(1, rgba(col, 0))
       ctx.fillStyle = g
       ctx.beginPath()
@@ -219,8 +223,8 @@ function drawDropBurst(
     case 4: {
       // Nova: bright needles shoot out past the rays and retract.
       const N = 36
-      const reach = R + minD * 0.34 * Math.sin(a * Math.PI)
-      ctx.strokeStyle = rgba(col, fade * 0.9)
+      const reach = R + minD * 0.34 * sz * Math.sin(a * Math.PI)
+      ctx.strokeStyle = rgba(col, fade * 0.9 * p)
       ctx.lineWidth = Math.max(1, minD * 0.006)
       for (let k = 0; k < N; k++) {
         const ang = (k / N) * Math.PI * 2
@@ -237,7 +241,7 @@ function drawDropBurst(
       // Implosion: a ring collapses inward from the rim to the centre.
       const r = minD * 1.1 * (1 - easeOut(a))
       const bright = Math.sin(a * Math.PI) // peaks mid-collapse
-      ctx.strokeStyle = rgba(col, clamp(bright, 0, 1) * 0.95)
+      ctx.strokeStyle = rgba(col, clamp(bright, 0, 1) * 0.95 * p)
       ctx.lineWidth = Math.max(1, minD * 0.006 + minD * 0.02 * a)
       ctx.beginPath()
       ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2)
@@ -246,10 +250,10 @@ function drawDropBurst(
     }
     case 6: {
       // Bloom: a soft glow blooms out through the ring and beyond.
-      const rad = R * (0.5 + easeOut(a) * 2.2)
+      const rad = R * (0.5 + easeOut(a) * 2.2 * sz)
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
-      g.addColorStop(0, rgba(col, fade * 0.55))
-      g.addColorStop(0.5, rgba(col, fade * 0.22))
+      g.addColorStop(0, rgba(col, fade * 0.55 * p))
+      g.addColorStop(0.5, rgba(col, fade * 0.22 * p))
       g.addColorStop(1, rgba(col, 0))
       ctx.fillStyle = g
       ctx.beginPath()
@@ -260,8 +264,8 @@ function drawDropBurst(
     case 7: {
       // Double ring: two shockwaves at different speeds.
       for (const [mul, w] of [[1.0, 0.02], [0.62, 0.013]] as const) {
-        const r = minD * (0.12 + easeOut(a) * mul)
-        ctx.strokeStyle = rgba(col, fade * 0.85)
+        const r = minD * (0.12 + easeOut(a) * mul * sz)
+        ctx.strokeStyle = rgba(col, fade * 0.85 * p)
         ctx.lineWidth = Math.max(1, minD * w * fade)
         ctx.beginPath()
         ctx.arc(cx, cy, r, 0, Math.PI * 2)
@@ -274,8 +278,8 @@ function drawDropBurst(
       for (const off of [0, 0.28, 0.56]) {
         const ra = age - off
         if (ra <= 0 || ra > 1) continue
-        const r = minD * (0.12 + easeOut(ra) * 0.95)
-        ctx.strokeStyle = rgba(col, (1 - ra) * 0.8)
+        const r = minD * (0.12 + easeOut(ra) * 0.95 * sz)
+        ctx.strokeStyle = rgba(col, (1 - ra) * 0.8 * p)
         ctx.lineWidth = Math.max(1, minD * 0.012 * (1 - ra))
         ctx.beginPath()
         ctx.arc(cx, cy, r, 0, Math.PI * 2)
@@ -289,16 +293,16 @@ function drawDropBurst(
       ctx.arc(cx, cy, R, 0, Math.PI * 2)
       ctx.clip()
       const h = R * 2 * easeOut(a)
-      ctx.fillStyle = rgba(col, fade * 0.6)
+      ctx.fillStyle = rgba(col, fade * 0.6 * p)
       ctx.fillRect(cx - R, cy + R - h, R * 2, h)
       break
     }
     case 10: {
       // Starburst: sharp spikes stab outward from the rim and pull back.
       const N = 12
-      const len = minD * 0.3 * Math.sin(a * Math.PI)
+      const len = minD * 0.3 * sz * Math.sin(a * Math.PI)
       const half = minD * 0.02 * (1 - a)
-      ctx.fillStyle = rgba(col, (1 - a * 0.5) * 0.85)
+      ctx.fillStyle = rgba(col, (1 - a * 0.5) * 0.85 * p)
       for (let k = 0; k < N; k++) {
         const ang = (k / N) * Math.PI * 2
         const ca = Math.cos(ang)
@@ -567,10 +571,9 @@ export const VIZ_STYLES: VizStyle[] = [
       // Slightly less coupling than before (3 passes), so individual bars keep a
       // touch more of their own movement instead of fully melting together.
       const bands = makeRingBands(HALF, 0.55, 3)
-      const rings: Array<{ r: number; life: number }> = []
-      // Active drop bursts. A drop pushes one of the current variant (o.dropStyle);
-      // each advances its own age and is drawn by drawDropBurst.
-      const bursts: Array<{ kind: number; age: number }> = []
+      // The selected variant IS the ring's pulse: a modest burst fires on every
+      // beat ("all spots"), and a full-power one on a drop. `power` scales each.
+      const bursts: Array<{ kind: number; age: number; power: number }> = []
       let armed = true
       let dropArmed = true
       let flash = 0 // decaying core flare, spikes on a drop
@@ -580,44 +583,32 @@ export const VIZ_STYLES: VizStyle[] = [
         // Sized to fill the frame. Anything much smaller reads as a spinner.
         const minD = Math.min(W, H)
         const R = minD * 0.25
+        const kind = o.dropStyle ?? DEFAULT_DROP_STYLE
 
         if (d.beat > 0.5 && armed) {
-          rings.push({ r: minD * 0.3, life: 1 })
+          bursts.push({ kind, age: 0, power: 0.5 })
           armed = false
         }
         if (d.beat < 0.22) armed = true
-        // A drop fires the selected burst variant plus a core flare, so the moment
-        // the track slams back reads as an event, not another kick.
+        // A drop fires a full-power burst plus a core flare, so the moment the
+        // track slams back reads as an event, not just another beat pulse.
         if (d.drop > 0.5 && dropArmed) {
-          bursts.push({ kind: o.dropStyle ?? DEFAULT_DROP_STYLE, age: 0 })
+          bursts.push({ kind, age: 0, power: 1 })
           flash = 1
           dropArmed = false
         }
         if (d.drop < 0.2) dropArmed = true
         flash *= 0.9
-        if (rings.length > 20) rings.splice(0, rings.length - 20)
+        if (bursts.length > 24) bursts.splice(0, bursts.length - 24)
 
         bands.update(d, o)
 
         // Background-covering bursts (flash / bloom) render behind the ring; the
         // rest pop on top after the rays and orb are drawn.
         for (const b of bursts) {
-          if (b.kind === 2 || b.kind === 6) drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age)
-        }
-
-        for (let i = rings.length - 1; i >= 0; i--) {
-          const ring = rings[i]
-          ring.r += minD * 0.008 + minD * 0.007 * ring.life
-          ring.life -= 0.009
-          if (ring.life <= 0 || ring.r > minD * 1.15) {
-            rings.splice(i, 1)
-            continue
+          if (b.kind === 2 || b.kind === 6) {
+            drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age, b.power)
           }
-          ctx.beginPath()
-          ctx.arc(cx, cy, ring.r, 0, Math.PI * 2)
-          ctx.strokeStyle = rgba(o.accent, clamp(ring.life * 0.7, 0, 1))
-          ctx.lineWidth = Math.max(1, minD * 0.009 * ring.life)
-          ctx.stroke()
         }
 
         const tipMax = minD * 0.48
@@ -666,7 +657,9 @@ export const VIZ_STYLES: VizStyle[] = [
         // top of the ring, then every burst advances and old ones are culled.
         for (let i = bursts.length - 1; i >= 0; i--) {
           const b = bursts[i]
-          if (b.kind !== 2 && b.kind !== 6) drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age)
+          if (b.kind !== 2 && b.kind !== 6) {
+            drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age, b.power)
+          }
           b.age += DROP_SPEED[b.kind] ?? 0.025
           if (b.age > (DROP_MAXAGE[b.kind] ?? 1)) bursts.splice(i, 1)
         }
