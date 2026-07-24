@@ -110,6 +110,7 @@ export function Visualizer({
     let dropConfirm = false
     let confirmPeak = 0
     let confirmWait = 0
+    let fireIn = 0 // countdown: land the shockwave on the slam, not a hair ahead
     let drop = 0
     let framesPlaying = 0
     let wasPlaying = false
@@ -181,6 +182,7 @@ export function Visualizer({
           breakFrames = 0
           dropPending = false
           dropConfirm = false
+          fireIn = 0
         }
         wasPlaying = frame.playing
         const settling = framesPlaying < 15
@@ -191,6 +193,7 @@ export function Visualizer({
           breakFrames = 0
           dropPending = false
           dropConfirm = false
+          fireIn = 0
           framesPlaying = 0
         } else {
           framesPlaying++
@@ -242,9 +245,16 @@ export function Visualizer({
             confirmWait++
             if (bassSlow > confirmPeak) confirmPeak = bassSlow
             else if (bassSlow < confirmPeak - 0.008 || confirmWait > 40) {
-              drop = 1
+              // Detected the recovery peak. The smoothed bass peaks ~0.3s before
+              // the audible slam lands, so hold the shockwave that long to sit it
+              // on the drop rather than a hair ahead. Tune the frame count here.
+              fireIn = 20
               dropConfirm = false
             }
+          }
+          if (fireIn > 0) {
+            fireIn--
+            if (fireIn === 0) drop = 1
           }
         }
         drop *= 0.9
