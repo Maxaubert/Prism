@@ -1,24 +1,30 @@
-import { useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
 import { VIZ_STYLES, DEFAULT_STYLE_ID } from '../lib/viz/styles'
 
-// The audio player: cover tile + track name up top, the chosen visualizer as the
-// centerpiece, and the shared Transport at the bottom. The <audio> element is
-// hidden and crossorigin so the visualizer's AnalyserNode can read its samples
-// (see the corsEnabled fsmedia scheme in main).
+// The audio player: the chosen visualizer fills the window, with a gear menu for
+// picking a style and shaping how it sits. The filename stays in the title bar
+// rather than on the glass. The <audio> element is hidden and crossorigin so the
+// visualizer's AnalyserNode can read its samples (see fsmedia in main).
 
 const STYLE_KEY = 'prism.viz.style'
 const WIDTH_KEY = 'prism.viz.width'
-const LAYOUT_KEY = 'prism.viz.layout'
 const LOGO_KEY = 'prism.viz.logo'
+const HEIGHT_KEY = 'prism.viz.height'
+const POS_KEY = 'prism.viz.pos'
 
-// Fill runs the visualizer edge to edge and flush with the transport; band keeps
-// it to a strip, which suits the styles that read better small.
-const LAYOUT_LABELS: Array<[string, string]> = [
-  ['fill', 'Fill'],
-  ['band', 'Band']
+// Some styles read better spanning the glass, others want to sit in a band.
+const WIDTHS: Record<string, string> = {
+  full: 'w-full',
+  wide: 'w-full max-w-5xl',
+  compact: 'w-full max-w-2xl'
+}
+const WIDTH_LABELS: Array<[string, string]> = [
+  ['full', 'Full'],
+  ['wide', 'Wide'],
+  ['compact', 'Compact']
 ]
 
 function Logo(): JSX.Element {
@@ -29,17 +35,10 @@ function Logo(): JSX.Element {
   )
 }
 
-// Some styles read better spanning the glass, others want to sit in a band.
-const WIDTHS: Record<string, string> = {
-  full: 'w-full',
-  wide: 'w-full max-w-5xl',
-  compact: 'w-full max-w-2xl'
+function num(key: string, fallback: number): number {
+  const v = Number(localStorage.getItem(key))
+  return Number.isFinite(v) && v > 0 ? v : fallback
 }
-const WIDTH_LABELS: Array<[string, string]> = [
-  ['full', 'Full width'],
-  ['wide', 'Wide'],
-  ['compact', 'Compact']
-]
 
 // Some MP3s report duration Infinity until a seek forces Chromium to compute it,
 // which leaves the scrubber stuck; nudge to the end and back once on load.
@@ -72,33 +71,35 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`
   })
 
-  // Chosen visualizer, remembered across sessions.
   const [styleId, setStyleId] = useState<string>(
     () => localStorage.getItem(STYLE_KEY) || DEFAULT_STYLE_ID
   )
   const [width, setWidth] = useState<string>(() => localStorage.getItem(WIDTH_KEY) || 'full')
+  const [logo, setLogo] = useState<boolean>(() => localStorage.getItem(LOGO_KEY) === '1')
+  const [height, setHeight] = useState<number>(() => num(HEIGHT_KEY, 100)) // % of the stage
+  const [pos, setPos] = useState<number>(() => num(POS_KEY, 50)) // % from the top
   const [menuOpen, setMenuOpen] = useState(false)
-  const pickStyle = (id: string): void => {
+  const listRef = useRef<HTMLDivElement>(null)
+
+  const applyStyle = useCallback((id: string) => {
     setStyleId(id)
     localStorage.setItem(STYLE_KEY, id)
-    setMenuOpen(false)
+  }, [])
+  const setNum = (key: string, set: (n: number) => void) => (v: number) => {
+    set(v)
+    localStorage.setItem(key, String(v))
   }
   const pickWidth = (w: string): void => {
     setWidth(w)
     localStorage.setItem(WIDTH_KEY, w)
   }
-  const [layout, setLayout] = useState<string>(() => localStorage.getItem(LAYOUT_KEY) || 'fill')
-  const pickLayout = (l: string): void => {
-    setLayout(l)
-    localStorage.setItem(LAYOUT_KEY, l)
-  }
-  const [logo, setLogo] = useState<boolean>(() => localStorage.getItem(LOGO_KEY) === '1')
   const toggleLogo = (): void => {
     setLogo((x) => {
       localStorage.setItem(LOGO_KEY, x ? '0' : '1')
       return !x
     })
   }
+
   // Click-away and Escape close the menu.
   useEffect(() => {
     if (!menuOpen) return
@@ -116,6 +117,54 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
     }
   }, [menuOpen])
 
+  // While the menu is open the arrow keys walk the style list and apply each one
+  // as you go, so styles can be compared quickly. Capture phase + stopPropagation
+  // keeps the media hook from also treating them as volume.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      e.preventDefault()
+      e.stopPropagation()
+      const i = VIZ_STYLES.findIndex((s) => s.id === styleId)
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const next = VIZ_STYLES[(i + step + VIZ_STYLES.length) % VIZ_STYLES.length]
+      applyStyle(next.id)
+      listRef.current
+        ?.querySelector(`[data-style="${next.id}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [menuOpen, styleId, applyStyle])
+
+  const slider = (
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    onChange: (n: number) => void,
+    suffix = '%'
+  ): JSX.Element => (
+    <div className="px-2.5 py-1.5">
+      <div className="mb-1 flex justify-between text-[11px] text-[var(--color-dim)]">
+        <span>{label}</span>
+        <span className="tabular-nums">
+          {Math.round(value)}
+          {suffix}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-1 w-full cursor-pointer accent-[var(--color-accent-hi)]"
+      />
+    </div>
+  )
+
   return (
     <div className="relative flex h-full w-full flex-col bg-[#0d0f14]">
       <audio
@@ -129,39 +178,41 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
       />
 
       {c.error ? (
-        <div className="grid flex-1 place-items-center p-8 text-center text-sm text-[#c9ccd6]">{c.error}</div>
+        <div className="grid flex-1 place-items-center p-8 text-center text-sm text-[#c9ccd6]">
+          {c.error}
+        </div>
       ) : (
         <>
-          {/* No filename here: the title bar already carries it, and repeating it
-              under the artwork only crowds the display. */}
-          {layout === 'fill' ? (
-            <div className="relative flex min-h-0 flex-1 justify-center">
-              <div className={`h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
-                <Visualizer media={mediaEl} styleId={styleId} />
-              </div>
-              {logo && (
-                // Floats over a full-bleed visualizer, held high so it clears
-                // the bottom-anchored styles.
-                <div className="pointer-events-none absolute inset-x-0 top-[16%] flex justify-center">
-                  <Logo />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-9">
-              {logo && <Logo />}
-              <div className={`h-44 ${WIDTHS[width] ?? WIDTHS.full}`}>
+          <div className="relative min-h-0 flex-1">
+            {/* Height and vertical position are driven from the gear, so the band
+                can be sized and placed without touching any style's code. */}
+            <div
+              className="absolute left-1/2"
+              style={{
+                width: '100%',
+                height: `${height}%`,
+                top: `${pos}%`,
+                transform: 'translate(-50%, -50%)'
+              }}
+            >
+              <div className={`mx-auto h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
                 <Visualizer media={mediaEl} styleId={styleId} />
               </div>
             </div>
-          )}
 
-          {/* settings gear: pick the visualizer style */}
+            {logo && (
+              <div className="pointer-events-none absolute inset-x-0 top-[15%] flex justify-center">
+                <Logo />
+              </div>
+            )}
+          </div>
+
+          {/* settings gear */}
           <div data-viz-menu className="absolute right-3 top-3 z-10">
             <button
               onClick={() => setMenuOpen((x) => !x)}
-              title="Visualizer style"
-              aria-label="Visualizer style"
+              title="Visualizer settings"
+              aria-label="Visualizer settings"
               aria-expanded={menuOpen}
               className="grid h-9 w-9 place-items-center rounded-full text-[var(--color-dim)] transition hover:bg-white/10 hover:text-white"
             >
@@ -172,63 +223,57 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
             </button>
 
             {menuOpen && (
-              <div className="absolute right-0 mt-2 max-h-[60vh] w-60 overflow-y-auto rounded-xl border border-white/10 bg-[#171a23] p-1.5 shadow-2xl">
-                <div className="px-2.5 py-1.5 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
-                  Visualizer
-                </div>
-                {VIZ_STYLES.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => pickStyle(s.id)}
-                    className={`block w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[.07] ${
-                      s.id === styleId ? 'bg-[var(--color-accent)]/25' : ''
-                    }`}
-                  >
-                    <div className="text-[13px] font-semibold text-[#e9ecf5]">{s.name}</div>
-                    <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-dim)]">{s.blurb}</div>
-                  </button>
-                ))}
-
-                <div className="mt-1 border-t border-white/10 px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
-                  Layout
-                </div>
-                <div className="flex gap-1 px-1.5 pb-1">
-                  {LAYOUT_LABELS.map(([l, label]) => (
-                    <button
-                      key={l}
-                      onClick={() => pickLayout(l)}
-                      className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                        l === layout ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                  <button
-                    onClick={toggleLogo}
-                    className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                      logo ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
-                    }`}
-                  >
-                    Artwork
-                  </button>
+              <div className="absolute right-0 mt-2 flex max-h-[76vh] w-64 flex-col rounded-xl border border-white/10 bg-[#171a23] shadow-2xl">
+                <div className="flex items-baseline justify-between px-3 pb-1 pt-2.5">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
+                    Visualizer
+                  </span>
+                  <span className="text-[10px] text-[var(--color-dim)]">↑ ↓ to browse</span>
                 </div>
 
-                <div className="mt-1 border-t border-white/10 px-2.5 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
-                  Width
-                </div>
-                <div className="flex gap-1 px-1.5 pb-1">
-                  {WIDTH_LABELS.map(([w, label]) => (
+                <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-1.5">
+                  {VIZ_STYLES.map((s) => (
                     <button
-                      key={w}
-                      onClick={() => pickWidth(w)}
-                      className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                        w === width ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                      key={s.id}
+                      data-style={s.id}
+                      onClick={() => applyStyle(s.id)}
+                      className={`block w-full rounded-lg px-2.5 py-2 text-left transition hover:bg-white/[.07] ${
+                        s.id === styleId ? 'bg-[var(--color-accent)]/25' : ''
                       }`}
                     >
-                      {label}
+                      <div className="text-[13px] font-semibold text-[#e9ecf5]">{s.name}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-dim)]">
+                        {s.blurb}
+                      </div>
                     </button>
                   ))}
+                </div>
+
+                <div className="shrink-0 border-t border-white/10 pb-1.5">
+                  {slider('Height', height, 12, 100, setNum(HEIGHT_KEY, setHeight))}
+                  {slider('Vertical position', pos, 0, 100, setNum(POS_KEY, setPos))}
+                  <div className="px-2.5 pb-1 pt-1 text-[11px] text-[var(--color-dim)]">Width</div>
+                  <div className="flex gap-1 px-1.5">
+                    {WIDTH_LABELS.map(([w, label]) => (
+                      <button
+                        key={w}
+                        onClick={() => pickWidth(w)}
+                        className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                          w === width ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={toggleLogo}
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
+                        logo ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                      }`}
+                    >
+                      Artwork
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

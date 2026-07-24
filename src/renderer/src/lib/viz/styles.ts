@@ -482,7 +482,9 @@ export const VIZ_STYLES: VizStyle[] = [
     name: 'Bass Ripples',
     blurb: 'Rings fire on every kick and spread through a spectrum halo.',
     create() {
-      const n = 72
+      // Dense and fine, matching the old Filesmith ring: a sparse ring of thick
+      // rays reads as a loading spinner rather than a spectrum.
+      const n = 190
       const ranges = bandRanges(n)
       const v = new Float32Array(n)
       const pk = new Float32Array(n).fill(0.09)
@@ -522,7 +524,7 @@ export const VIZ_STYLES: VizStyle[] = [
 
         const R = minD * 0.26
         ctx.lineCap = 'round'
-        ctx.lineWidth = Math.max(1.6, minD * 0.011)
+        ctx.lineWidth = Math.max(1.2, minD * 0.0045)
         for (let i = 0; i < n; i++) {
           const a = (i / n) * Math.PI * 2 - Math.PI / 2
           const len = (0.025 + v[i] * 0.21) * minD
@@ -550,7 +552,7 @@ export const VIZ_STYLES: VizStyle[] = [
     name: 'Radial Ring',
     blurb: 'A big spectrum ring, mirrored so lows meet at the bottom.',
     create() {
-      const half = 84
+      const half = 136 // 272 rays once mirrored, as dense as Filesmith's ring
       const ranges = bandRanges(half)
       const v = new Float32Array(half)
       const pk = new Float32Array(half).fill(0.09)
@@ -577,7 +579,7 @@ export const VIZ_STYLES: VizStyle[] = [
 
         const total = half * 2
         ctx.lineCap = 'round'
-        ctx.lineWidth = Math.max(1.5, minD * 0.0095)
+        ctx.lineWidth = Math.max(1.2, minD * 0.004)
         for (let j = 0; j < total; j++) {
           const m = j < half ? j : total - 1 - j
           const a = Math.PI / 2 + ((j + 0.5) / total) * Math.PI * 2
