@@ -66,6 +66,7 @@ export function analyzeDrops(buffer: AudioBuffer, target = 12): number[] {
   const fps = sr / hop
   const preWin = Math.floor(4 * fps) // build-up look-back
   const minSpace = Math.floor(5 * fps) // don't fire two drops closer than this
+  const postN = Math.floor(2 * fps) // sustain look-ahead
   // energy = whichever of sub-bass / overall loudness is higher; a drop can slam
   // either the low end or the whole mix back in.
   const cands: Array<{ t: number; score: number }> = []
@@ -75,13 +76,23 @@ export function analyzeDrops(buffer: AudioBuffer, target = 12): number[] {
     const e = Math.max(sub[f], loud[f])
     if (e < 0.4) wasLow = true
     if (wasLow && e > 0.65 && f - lastF > minSpace) {
+      wasLow = false
+      // How far energy was pulled down before the slam (the build-up depth).
       let mn = 1
       for (let j = Math.max(0, f - preWin); j < f; j++) {
         const ej = Math.max(sub[j], loud[j])
         if (ej < mn) mn = ej
       }
-      cands.push({ t: f / fps, score: e - mn })
-      wasLow = false
+      // Sustain: a real drop leads into a *held* loud section; a fill or one-off
+      // hit spikes then falls straight back. This is the main precision filter -
+      // it's what separates the true drops from the false ones (a look-ahead only
+      // possible because we analyse offline).
+      const pn = Math.min(frames, f + postN)
+      let post = 0
+      for (let j = f; j < pn; j++) post += Math.max(sub[j], loud[j])
+      post /= Math.max(1, pn - f)
+      if (post < 0.7) continue
+      cands.push({ t: f / fps, score: (e - mn) * post })
       lastF = f
     }
   }
