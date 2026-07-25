@@ -700,18 +700,19 @@ export const VIZ_STYLES: VizStyle[] = [
 
         bands.update(d, o)
 
-        // Combo: a centre bloom that pumps with the bass drum. It snaps up to the
-        // current bass level (and the kick transient) on every hit and decays
-        // fast between, so it visibly thumps to the beat, and swells hard on a
-        // bass drop. Drawn behind the rays so the ring sits over it.
+        // Combo: a centre bloom that thumps to the bass drum. Driven only by the
+        // kick transient (d.beat) - not the bass level, so it doesn't track the
+        // bassline/melody - and smoothed with a fast attack and slow release so it
+        // pulses gently rather than jittering. Swells on a bass drop. Drawn behind
+        // the rays so the ring sits over it.
         if (combo) {
-          const kick = Math.max(d.bass, d.beat) // bass presence + kick transient
-          bassBloom = Math.max(bassBloom * 0.78, kick)
-          const amt = clamp(bassBloom * 1.25 + d.drop * 0.5, 0, 1.4)
+          const target = d.beat
+          bassBloom += (target - bassBloom) * (target > bassBloom ? 0.4 : 0.08)
+          const amt = clamp(bassBloom + d.drop * 0.7, 0, 1.2)
           if (amt > 0.01) {
-            const rad = R * (0.15 + amt * 1.25)
+            const rad = R * (0.32 + amt * 0.85)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
-            const al = clamp(amt * 0.9, 0, 1)
+            const al = clamp(amt * 0.8, 0, 1)
             grad.addColorStop(0, rgba(o.accent, al))
             grad.addColorStop(0.4, rgba(o.accent, al * 0.5))
             grad.addColorStop(1, rgba(o.accent, 0))
