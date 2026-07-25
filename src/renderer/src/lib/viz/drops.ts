@@ -70,44 +70,52 @@ export function analyzeDrops(buffer: AudioBuffer, target = 12): number[] {
 
   // Two kinds of drop onset feed the candidate list:
   //  E: combined energy (sub-bass or loudness) is pulled low then slams back.
-  //  B: sub-bass specifically cuts out then reappears - a classic drop even when
-  //     the mids/highs never dropped, which E alone would miss (it keys on the
-  //     max of the two). Bass out-then-back is one of the strongest drop signals.
-  const raw: number[] = []
+  //  B: sub-bass DEEPLY and sustainedly cuts out (bass truly gone, not just the
+  //     dip between two kicks) then reappears - one of the strongest drop cues,
+  //     and it catches drops where the mids/highs never dropped (which E misses,
+  //     since E keys on the max of the two).
+  const raw: Array<{ f: number; src: 'E' | 'B' }> = []
   let eLow = true
   for (let f = 0; f < frames; f++) {
     const e = Math.max(sub[f], loud[f])
     if (e < 0.4) eLow = true
     if (eLow && e > 0.65) {
       eLow = false
-      raw.push(f)
+      raw.push({ f, src: 'E' })
     }
   }
-  let subLow = true
+  let deep = false
+  let cut = 0
   for (let f = 0; f < frames; f++) {
-    if (sub[f] < 0.35) subLow = true
-    if (subLow && sub[f] > 0.7) {
-      subLow = false
-      raw.push(f)
+    if (sub[f] < 0.2) {
+      cut++
+      if (cut > 12) deep = true // ~0.2s of real silence in the low end
+    } else {
+      cut = 0
+    }
+    if (deep && sub[f] > 0.7) {
+      deep = false
+      raw.push({ f, src: 'B' })
     }
   }
-  raw.sort((a, b) => a - b)
+  raw.sort((p, q) => p.f - q.f)
 
   const cands: Array<{ t: number; score: number }> = []
   let lastF = -1e9
-  let prev = -1
-  for (const f of raw) {
-    if (f === prev) continue // same frame from both sources
-    prev = f
+  let prevF = -1
+  for (const { f, src } of raw) {
+    if (f === prevF) continue // same frame from both sources
+    prevF = f
     if (f - lastF < minSpace) continue
     // Sustain: a real drop holds a loud section after the slam; a fill or one-off
-    // hit spikes then falls straight back. The main precision filter - a
-    // look-ahead only possible because we analyse offline.
+    // hit spikes then falls straight back. The main precision filter (a look-ahead
+    // only possible offline). A deep bass cut-out is already high-confidence, so it
+    // passes a looser bar; the general energy detector must sustain harder.
     const pn = Math.min(frames, f + postN)
     let post = 0
     for (let j = f; j < pn; j++) post += Math.max(sub[j], loud[j])
     post /= Math.max(1, pn - f)
-    if (post < 0.68) continue
+    if (post < (src === 'B' ? 0.6 : 0.68)) continue
     // Build depth on whichever dipped more - combined energy or sub-bass - so a
     // bass cut-out is scored on the bass drop, not the (unchanged) overall level.
     let minE = 1
