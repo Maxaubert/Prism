@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
 import { styleById } from '../lib/viz/styles'
+import { analyzeDrops } from '../lib/viz/drops'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
@@ -40,6 +41,8 @@ export function Visualizer({
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  // Drop timestamps (seconds) from the offline analysis of the current file.
+  const dropTimesRef = useRef<number[]>([])
   // The draw loop reads the current style + theme + drop variant through refs so
   // switching any of them does not tear down and restart the loop. Synced in
   // effects, since writing to a ref during render is not allowed.
@@ -59,6 +62,36 @@ export function Visualizer({
   useEffect(() => {
     previewRef.current = previewBurst
   }, [previewBurst])
+
+  // Analyse the file for drops in the background while it plays. Decoding +
+  // analysis take a second or two; until then dropTimes is empty and no drop
+  // rings fire, which is fine (a drop in the first couple seconds is just the
+  // track starting). Re-runs whenever the element loads new media.
+  useEffect(() => {
+    if (!media) return
+    let cancelled = false
+    const run = (): void => {
+      dropTimesRef.current = []
+      const url = media.currentSrc || media.src
+      if (!url) return
+      void (async () => {
+        try {
+          const resp = await fetch(url)
+          const bytes = await resp.arrayBuffer()
+          const audio = await getAudioContext().decodeAudioData(bytes)
+          if (!cancelled) dropTimesRef.current = analyzeDrops(audio)
+        } catch {
+          /* leave empty - no drop rings for this file */
+        }
+      })()
+    }
+    run()
+    media.addEventListener('loadeddata', run)
+    return () => {
+      cancelled = true
+      media.removeEventListener('loadeddata', run)
+    }
+  }, [media])
 
   // Wire the element into the graph, and keep the context resumed while it plays.
   useEffect(() => {
@@ -114,18 +147,10 @@ export function Visualizer({
     let raf = 0
     let bassAvg = 0
     let beat = 0
-    // Drop detection (see below): tracks a break-then-slam, not every kick.
-    let bassSlow = 0
-    let loud = 0.85 // frozen-during-break estimate of the loud-section bass level
-    let breakFrames = 0
-    let dropPending = false
-    let dropConfirm = false
-    let confirmPeak = 0
-    let confirmWait = 0
-    let fireIn = 0 // countdown: land the shockwave on the slam, not a hair ahead
+    // Drops come from the offline analysis (dropTimesRef): we fire when playback
+    // crosses a pre-computed drop timestamp, then let the pulse decay.
     let drop = 0
-    let framesPlaying = 0
-    let wasPlaying = false
+    let lastTime = 0
     let draw: DrawFn | null = null
     let builtFor = ''
     let builtW = 0
@@ -182,93 +207,28 @@ export function Visualizer({
         }
         frame.level = clamp(Math.sqrt(sum / (time.length / 2)) * 1.6, 0, 1)
 
-        // Pausing zeroes the analyser, so on resume the bass jumps from silence
-        // and any detector that compares against a stale average reads a false
-        // hit. On the transition into playing we prime the running means to the
-        // current level and open a short settle window; while paused both pulses
-        // are forced to zero so nothing fires.
-        if (frame.playing && !wasPlaying) {
-          bassAvg = frame.bass
-          bassSlow = frame.bass
-          framesPlaying = 0
-          breakFrames = 0
-          dropPending = false
-          dropConfirm = false
-          fireIn = 0
-        }
-        wasPlaying = frame.playing
-        const settling = framesPlaying < 15
-
-        if (!frame.playing) {
-          beat = 0
-          drop = 0
-          breakFrames = 0
-          dropPending = false
-          dropConfirm = false
-          fireIn = 0
-          framesPlaying = 0
-        } else {
-          framesPlaying++
-          // Transient detector: instantaneous bass against its slow mean. During
-          // the settle window we pin the mean to the current bass so the ramp-in
-          // can't spike a kick.
+        // A light bass-transient (kept for any style that wants a beat pulse).
+        if (frame.playing) {
           bassAvg = bassAvg * 0.96 + frame.bass * 0.04
-          if (settling) {
-            bassAvg = frame.bass
-            beat = 0
-          } else {
-            beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
-          }
+          beat = Math.max(beat * 0.9, clamp((frame.bass - bassAvg * 1.22) * 3.4, 0, 1))
+        } else {
+          beat = 0
+        }
 
-          // Drop detector: a proper drop is the mix breaking down (bass falls away
-          // for a sustained beat or two) then slamming back to full - not every
-          // kick, and not a quiet-section swell.
-          //
-          // `loud` tracks the loud-section bass level: it rises fast, decays
-          // slowly, and is frozen while a break is in progress or armed, so the
-          // recovery threshold reflects the level the mix had *before* it broke.
-          // A drop fires when the bass climbs back to that full level (the impact)
-          // - not partway up the build-in, where an earlier plateau would trip an
-          // absolute threshold a beat too early. Everything is relative to `loud`,
-          // so it adapts to any track's loudness and a quiet intro (which never
-          // reaches its own recovery threshold) can't misfire.
-          bassSlow += (frame.bass - bassSlow) * 0.25
-          if (bassSlow > loud) loud += (bassSlow - loud) * 0.08
-          else if (breakFrames === 0 && !dropPending && !dropConfirm) loud += (bassSlow - loud) * 0.003
-          if (bassSlow < loud * 0.6) {
-            breakFrames++
-          } else {
-            if (breakFrames > 25 && framesPlaying > 40) dropPending = true
-            breakFrames = 0
-          }
-          // The recovery isn't instant: the bass climbs to an intermediate plateau,
-          // holds a beat, then makes a final jump to the top. Firing when it first
-          // crosses the full level lands a beat early, on the climb. So once it
-          // reaches full, track the recovery to its peak and fire when it stops
-          // rising - the actual impact. A sharp slam peaks at once and fires
-          // immediately; the wait cap keeps it from hanging if it never turns down.
-          if (dropPending && bassSlow > loud * 0.92) {
-            dropPending = false
-            dropConfirm = true
-            confirmPeak = bassSlow
-            confirmWait = 0
-          }
-          if (dropConfirm) {
-            confirmWait++
-            if (bassSlow > confirmPeak) confirmPeak = bassSlow
-            else if (bassSlow < confirmPeak - 0.008 || confirmWait > 40) {
-              // Detected the recovery peak. The smoothed bass peaks ~0.3s before
-              // the audible slam lands, so hold the shockwave that long to sit it
-              // on the drop rather than a hair ahead. Tune the frame count here.
-              fireIn = 20
-              dropConfirm = false
+        // Drops: fire when normal forward playback crosses a pre-computed drop
+        // timestamp. The small-advance guard means a seek (a big jump in
+        // currentTime) doesn't fire every drop it skips over.
+        const ct = media ? media.currentTime : 0
+        if (frame.playing && ct > lastTime && ct - lastTime < 1) {
+          const dts = dropTimesRef.current
+          for (let i = 0; i < dts.length; i++) {
+            if (dts[i] > lastTime && dts[i] <= ct) {
+              drop = 1
+              break
             }
           }
-          if (fireIn > 0) {
-            fireIn--
-            if (fireIn === 0) drop = 1
-          }
         }
+        lastTime = ct
         drop *= 0.9
         frame.beat = beat
         frame.drop = drop

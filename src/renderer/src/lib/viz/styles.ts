@@ -654,11 +654,7 @@ export const VIZ_STYLES: VizStyle[] = [
       // The selected variant IS the ring's pulse: a modest burst fires on every
       // beat ("all spots"), and a full-power one on a drop. `power` scales each.
       const bursts: Array<{ kind: number; age: number; power: number }> = []
-      let lastRing = -1e9 // ms of the last ring fire, for the refractory window
-      let loudSm = 0 // smoothed overall loudness (d.level) for drop detection
-      let loudMax = 1e-6 // slow-decay running peak of the loudness
-      let loudWasLow = true // loudness dipped into a break, armed for the slam
-      let warmup = 0 // frames played, so the detector settles before firing
+      let dropArmed = true // rearms between drops so one drop fires one ring
       let flash = 0 // decaying core flare, spikes on a drop
       let bassBloom = 0 // combo variant: bass-reactive centre glow
       let bassRef = 0 // slow sub-bass baseline for the kick detector (all variants)
@@ -692,34 +688,15 @@ export const VIZ_STYLES: VizStyle[] = [
         const present = clamp((sub - 0.62) / 0.25, 0, 1)
         const kick = rise * present
 
-        // The ring fires on a drop, and only a drop. Two complementary detectors
-        // share one refractory (so a drop makes a single ring):
-        //  - overall-loudness break->slam (d.level): the full mix cuts out then
-        //    slams back. Linear RMS shows this even when bass stayed up and the
-        //    dB-scaled bands hide it (that is how Djiro's 1:00 drop was missed).
-        //  - the bass break->slam (d.drop from the analyser): the low end slams
-        //    back after a bass breakdown.
-        // Measured: Djiro catches all four drops (0:24, 1:00, 1:36, 2:01) in ~7
-        // fires; Bangarang, a sustained wall with few real breaks, fires ~3.
-        if (d.playing) warmup++
-        else {
-          warmup = 0
-          loudWasLow = true
-        }
-        loudSm += (d.level - loudSm) * 0.1
-        loudMax = Math.max(loudSm, loudMax * 0.9995)
-        if (loudSm < loudMax * 0.3) loudWasLow = true
-        let dropNow = false
-        if (loudWasLow && loudSm > loudMax * 0.78) {
-          dropNow = true
-          loudWasLow = false
-        }
-        if (d.drop > 0.5) dropNow = true
-        if (dropNow && warmup > 120 && d.t - lastRing > 4000) {
+        // The ring fires on a drop, and only a drop. d.drop comes from the offline
+        // analysis (analyzeDrops): playback crossing a pre-computed drop timestamp.
+        // One ring per drop, rearmed once the pulse falls.
+        if (d.drop > 0.5 && dropArmed) {
           bursts.push({ kind, age: 0, power: 1 })
           flash = 1
-          lastRing = d.t
+          dropArmed = false
         }
+        if (d.drop < 0.2) dropArmed = true
         // Click-to-preview: when the nonce changes, fire one full-power burst of
         // the current variant so it can be seen on demand (even while paused).
         const preview = o.previewBurst ?? 0
