@@ -38,6 +38,9 @@ export interface VizOpts {
   cycle?: number | null
   /** Which drop-burst variant the Halo ring fires on a drop (1-10). */
   dropStyle?: number
+  /** A monotonically increasing nonce; when it changes, the ring fires one
+   *  full-power preview burst of the current variant (for click-to-preview). */
+  previewBurst?: number
 }
 
 /** A colour theme, applied on top of any style. The style provides the shape;

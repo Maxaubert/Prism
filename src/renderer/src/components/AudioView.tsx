@@ -204,6 +204,7 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   const [height, setHeight] = useState<number>(() => num(HEIGHT_KEY, 88)) // % of the stage
   const [pos, setPos] = useState<number>(() => num(POS_KEY, 50)) // % from the top
   const [dropStyle, setDropStyle] = useState<number>(() => num(DROP_KEY, DEFAULT_DROP_STYLE))
+  const [previewBurst, setPreviewBurst] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -222,6 +223,8 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   const pickDrop = (n: number): void => {
     setDropStyle(n)
     localStorage.setItem(DROP_KEY, String(n))
+    // fire a one-off preview so the effect plays the moment its button is clicked
+    setPreviewBurst((x) => x + 1)
   }
   const toggleLogo = (): void => {
     setLogo((x) => {
@@ -400,6 +403,7 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
                 styleId={styleId}
                 theme={themeById(themeId)}
                 dropStyle={dropStyle}
+                previewBurst={previewBurst}
               />
             </div>
           </div>

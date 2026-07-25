@@ -29,12 +29,14 @@ export function Visualizer({
   media,
   styleId,
   theme,
-  dropStyle
+  dropStyle,
+  previewBurst
 }: {
   media: HTMLMediaElement | null
   styleId: string
   theme: VizTheme
   dropStyle: number
+  previewBurst: number
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -44,6 +46,7 @@ export function Visualizer({
   const styleRef = useRef(styleId)
   const themeRef = useRef(theme)
   const dropStyleRef = useRef(dropStyle)
+  const previewRef = useRef(previewBurst)
   useEffect(() => {
     styleRef.current = styleId
   }, [styleId])
@@ -53,6 +56,9 @@ export function Visualizer({
   useEffect(() => {
     dropStyleRef.current = dropStyle
   }, [dropStyle])
+  useEffect(() => {
+    previewRef.current = previewBurst
+  }, [previewBurst])
 
   // Wire the element into the graph, and keep the context resumed while it plays.
   useEffect(() => {
@@ -275,6 +281,7 @@ export function Visualizer({
         opts.vgrad = th.vgrad ?? null
         opts.cycle = th.cycle ?? null
         opts.dropStyle = dropStyleRef.current
+        opts.previewBurst = previewRef.current
         opts.dpr = dpr
 
         const style2 = styleById(styleRef.current)
