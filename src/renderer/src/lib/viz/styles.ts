@@ -658,7 +658,7 @@ export const VIZ_STYLES: VizStyle[] = [
       let dropArmed = true
       let flash = 0 // decaying core flare, spikes on a drop
       let bassBloom = 0 // combo variant: bass-reactive centre glow
-      let bassRef = 0 // combo variant: slow bass baseline for kick detection
+      let bassRef = 0 // slow sub-bass baseline for the kick detector (all variants)
       let lastPreview: number | undefined // fire a burst whenever this nonce changes
       return (ctx, W, H, d, o) => {
         const cx = W / 2
@@ -672,11 +672,29 @@ export const VIZ_STYLES: VizStyle[] = [
         const combo = selected === COMBO_DROP_STYLE
         const kind = combo ? 1 : selected
 
-        if (d.beat > 0.5 && armed) {
-          bursts.push({ kind, age: 0, power: 0.5 })
+        // Kick detector: a sharp rise in sub-bass (~40-95 Hz, where the drum lives)
+        // gated by an absolute presence floor. The ring fires on real drum hits
+        // only - the old broad bass transient (d.beat) tripped on guitar strings
+        // and filtered build-up noise, firing rings constantly. Sub-bass has almost
+        // no guitar energy, and a build/sweep before a drop has no sub-bass either,
+        // so this stays quiet through both.
+        const binHz = d.sampleRate / 2048
+        const slo = Math.max(1, Math.round(40 / binHz))
+        const shi = Math.max(slo, Math.round(95 / binHz))
+        let sub = 0
+        for (let b = slo; b <= shi; b++) sub += d.freq[b]
+        sub = sub / (shi - slo + 1) / 255
+        bassRef += (sub - bassRef) * 0.04
+        const rise = clamp((sub - bassRef) * 5, 0, 1)
+        const present = clamp((sub - 0.62) / 0.25, 0, 1)
+        const kick = rise * present
+
+        // Fire the per-beat ring on a kick, scaled by how hard it hits.
+        if (kick > 0.35 && armed) {
+          bursts.push({ kind, age: 0, power: clamp(0.35 + kick * 0.5, 0, 0.9) })
           armed = false
         }
-        if (d.beat < 0.22) armed = true
+        if (kick < 0.15) armed = true
         // A drop fires a full-power burst plus a core flare, so the moment the
         // track slams back reads as an event, not just another beat pulse.
         if (d.drop > 0.5 && dropArmed) {
@@ -701,30 +719,12 @@ export const VIZ_STYLES: VizStyle[] = [
 
         bands.update(d, o)
 
-        // Combo: a centre bloom that thumps to the bass drum. It has its own kick
-        // detector - a sharp rise in bass above a slow baseline - which isolates
-        // the drum hit and ignores the sustained bassline (that would read as
-        // melody). d.beat saturates in busy sections, so this is more reliable.
-        // A fast attack / slow release smooths it into a gentle thump; it swells
-        // on a bass drop. Drawn behind the rays so the ring sits over it.
+        // Combo: a centre bloom that thumps to the bass drum, driven by the same
+        // sub-bass kick detector as the ring (above), so it too ignores guitar and
+        // build-up noise. A slow attack / slow release smooths it into a gentle
+        // thump; it swells on a bass drop. Drawn behind the rays so the ring sits
+        // over it.
         if (combo) {
-          // Look only at sub-bass (~40-95 Hz) where the kick drum lives. The
-          // analyser is dB-scaled, so quiet intro sub-bass still reads ~0.33 and a
-          // pure rise-detector fires on its wobble. So also require an absolute
-          // presence floor: the intro never pushes sub-bass past ~0.55, but a real
-          // kick slams it near 1. rise gives the per-hit thump; presence gates out
-          // the guitar intro entirely.
-          const binHz = d.sampleRate / 2048
-          const lo = Math.max(1, Math.round(40 / binHz))
-          const hi = Math.max(lo, Math.round(95 / binHz))
-          let sub = 0
-          for (let b = lo; b <= hi; b++) sub += d.freq[b]
-          sub = sub / (hi - lo + 1) / 255
-          bassRef += (sub - bassRef) * 0.04
-          const rise = clamp((sub - bassRef) * 5, 0, 1)
-          const present = clamp((sub - 0.62) / 0.25, 0, 1)
-          const kick = rise * present
-          // Slower attack (was 0.6) so it's less twitchy.
           bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.3 : 0.09)
           const raw = clamp(bassBloom + d.drop * 0.7, 0, 1)
           // Compress the register: a gamma curve lifts the small hits (less subtle
