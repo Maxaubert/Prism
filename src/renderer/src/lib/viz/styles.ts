@@ -708,8 +708,19 @@ export const VIZ_STYLES: VizStyle[] = [
         // A fast attack / slow release smooths it into a gentle thump; it swells
         // on a bass drop. Drawn behind the rays so the ring sits over it.
         if (combo) {
-          bassRef += (d.bass - bassRef) * 0.04
-          const kick = clamp((d.bass - bassRef) * 4.5, 0, 1)
+          // Look only at sub-bass (~40-95 Hz) where the kick drum lives; guitar
+          // notes sit higher, so their energy here is small. Also gate to
+          // bass-dominant hits so a mid-heavy guitar note can't trigger it.
+          const binHz = d.sampleRate / 2048
+          const lo = Math.max(1, Math.round(40 / binHz))
+          const hi = Math.max(lo, Math.round(95 / binHz))
+          let sub = 0
+          for (let b = lo; b <= hi; b++) sub += d.freq[b]
+          sub = sub / (hi - lo + 1) / 255
+          bassRef += (sub - bassRef) * 0.04
+          const rise = clamp((sub - bassRef) * 5, 0, 1)
+          const bassy = clamp(1 - (d.mid - d.bass) * 2, 0, 1) // 0 when mids dominate
+          const kick = rise * bassy
           bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.6 : 0.12)
           const amt = clamp(bassBloom * 1.05 + d.drop * 0.7, 0, 1.3)
           if (amt > 0.01) {
