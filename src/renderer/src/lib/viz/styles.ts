@@ -239,9 +239,10 @@ function drawDropBurst(
   const TAU = Math.PI * 2
   switch (kind) {
     case 1: {
-      // Shockwave (the original): a crisp ring races out, thinning and fading.
+      // Shockwave: a crisp ring races out from the halo rim (not the centre),
+      // thinning and fading as it goes.
       const e = easeOutQuart(a)
-      const r = minD * (0.12 + e * 1.0 * sz)
+      const r = R + e * minD * 0.9 * sz
       const fade = 1 - a
       ctx.strokeStyle = rgba(col, fade * 0.9 * p)
       ctx.lineWidth = Math.max(1, minD * 0.02 * fade)
@@ -699,16 +700,18 @@ export const VIZ_STYLES: VizStyle[] = [
 
         bands.update(d, o)
 
-        // Combo: a centre bloom that reacts to bass - it pulses subtly with every
-        // drum/bass hit (d.beat) and swells hard on a bass drop (d.drop), decaying
-        // between. Drawn behind the rays so the ring sits over it.
+        // Combo: a centre bloom that pumps with the bass drum. It snaps up to the
+        // current bass level (and the kick transient) on every hit and decays
+        // fast between, so it visibly thumps to the beat, and swells hard on a
+        // bass drop. Drawn behind the rays so the ring sits over it.
         if (combo) {
-          bassBloom = Math.max(bassBloom * 0.9, d.beat * 0.55 + d.drop * 1.0)
-          const amt = clamp(bassBloom, 0, 1.25)
+          const kick = Math.max(d.bass, d.beat) // bass presence + kick transient
+          bassBloom = Math.max(bassBloom * 0.78, kick)
+          const amt = clamp(bassBloom * 1.25 + d.drop * 0.5, 0, 1.4)
           if (amt > 0.01) {
-            const rad = R * (0.28 + amt * 0.95)
+            const rad = R * (0.15 + amt * 1.25)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
-            const al = amt * 0.8
+            const al = clamp(amt * 0.9, 0, 1)
             grad.addColorStop(0, rgba(o.accent, al))
             grad.addColorStop(0.4, rgba(o.accent, al * 0.5))
             grad.addColorStop(1, rgba(o.accent, 0))
