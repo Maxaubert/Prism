@@ -158,12 +158,14 @@ const P_ICE = ['#eafcff', '#8fd6ff', '#3f6dff']
 export const DROP_VARIANTS = 10
 export const DEFAULT_DROP_STYLE = 1
 
-// How fast each variant advances (per frame) and how long it lives (max age).
+// How fast each variant advances (per frame). All live one unit (age 0->1).
+// 1 shockwave, 2 fill, 3 core bloom, 4 nova, 5 implosion, 6 halo, 7 sweep,
+// 8 pulse, 9 starburst, 10 ignite.
 const DROP_SPEED: Record<number, number> = {
-  1: 0.02, 2: 0.05, 3: 0.026, 4: 0.035, 5: 0.022,
-  6: 0.028, 7: 0.02, 8: 0.016, 9: 0.03, 10: 0.04
+  1: 0.02, 2: 0.03, 3: 0.026, 4: 0.035, 5: 0.022,
+  6: 0.03, 7: 0.02, 8: 0.045, 9: 0.03, 10: 0.045
 }
-const DROP_MAXAGE: Record<number, number> = { 8: 1.55 }
+const DROP_MAXAGE: Record<number, number> = {}
 
 const easeOutQuart = (x: number): number => 1 - Math.pow(1 - x, 4)
 const easeOutCubic = (x: number): number => 1 - Math.pow(1 - x, 3)
@@ -214,8 +216,6 @@ function glowRing(
  *  rather than a hard shape switching on and off. */
 function drawDropBurst(
   ctx: CanvasRenderingContext2D,
-  W: number,
-  H: number,
   cx: number,
   cy: number,
   minD: number,
@@ -233,32 +233,37 @@ function drawDropBurst(
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
+  const TAU = Math.PI * 2
   switch (kind) {
     case 1: {
-      // Shockwave: a luminous ring races out, band thinning and dimming as it
-      // grows, a soft wake trailing the bright leading edge.
+      // Shockwave (the original): a crisp ring races out, thinning and fading.
       const e = easeOutQuart(a)
       const r = minD * (0.12 + e * 1.0 * sz)
-      const band = minD * (0.02 + 0.05 * (1 - a))
-      glowRing(ctx, cx, cy, r, band, col, (1 - a) * (1 - a) * 0.9 * p)
+      const fade = 1 - a
+      ctx.strokeStyle = rgba(col, fade * 0.9 * p)
+      ctx.lineWidth = Math.max(1, minD * 0.02 * fade)
+      ctx.beginPath()
+      ctx.arc(cx, cy, r, 0, TAU)
+      ctx.stroke()
       break
     }
     case 2: {
-      // Flash: a soft full-field bloom swells from the centre and clears - a
-      // wash of light, not a flat rectangle of colour.
-      const rad = Math.hypot(W, H) * 0.6
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
-      const al = g * 0.5 * p
+      // Fill: a solid disc floods out from the centre to the ring, then fades.
+      const rad = R * easeOutQuart(clamp(a * 1.5, 0, 1))
+      const edge = minD * 0.02
+      const grad = ctx.createRadialGradient(cx, cy, Math.max(0, rad - edge), cx, cy, rad + edge)
+      const al = (1 - a) * 0.6 * p
       grad.addColorStop(0, rgba(col, al))
-      grad.addColorStop(0.5, rgba(col, al * 0.5))
+      grad.addColorStop(0.7, rgba(col, al))
       grad.addColorStop(1, rgba(col, 0))
       ctx.fillStyle = grad
-      ctx.fillRect(0, 0, W, H)
+      ctx.beginPath()
+      ctx.arc(cx, cy, rad + edge, 0, TAU)
+      ctx.fill()
       break
     }
     case 3: {
-      // Core bloom: a hot orb ignites at the centre, swells past the inner ring
-      // with a soft halo, then fades - a heartbeat of light.
+      // Core bloom: a hot orb ignites at the centre and swells to a soft glow.
       const rad = R * (0.2 + easeOutCubic(a) * 1.15)
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, rad))
       const al = g * 0.95 * p
@@ -268,18 +273,17 @@ function drawDropBurst(
       grad.addColorStop(1, rgba(col, 0))
       ctx.fillStyle = grad
       ctx.beginPath()
-      ctx.arc(cx, cy, Math.max(1, rad), 0, Math.PI * 2)
+      ctx.arc(cx, cy, Math.max(1, rad), 0, TAU)
       ctx.fill()
       break
     }
     case 4: {
-      // Nova: tapered beams lance out past the rays and draw back, each a
-      // gradient that is hot at the rim and fades to nothing at the tip.
+      // Nova: tapered beams lance out radially past the rays and draw back.
       const N = 32
       const reach = R + minD * 0.36 * sz * Math.sin(easeOutCubic(a) * Math.PI)
       ctx.lineWidth = Math.max(1, minD * 0.007)
       for (let k = 0; k < N; k++) {
-        const ang = (k / N) * Math.PI * 2
+        const ang = (k / N) * TAU
         const ca = Math.cos(ang)
         const sa = Math.sin(ang)
         const x0 = cx + ca * R
@@ -298,8 +302,7 @@ function drawDropBurst(
       break
     }
     case 5: {
-      // Implosion: a luminous ring rushes inward and detonates - a bright bloom
-      // blossoms at the centre the instant it arrives.
+      // Implosion: a ring rushes inward and detonates at the centre.
       if (a < 0.72) {
         const e = easeOutCubic(a / 0.72)
         const r = minD * 0.62 * (1 - e)
@@ -314,69 +317,54 @@ function drawDropBurst(
         grad.addColorStop(1, rgba(col, 0))
         ctx.fillStyle = grad
         ctx.beginPath()
-        ctx.arc(cx, cy, Math.max(1, rad), 0, Math.PI * 2)
+        ctx.arc(cx, cy, Math.max(1, rad), 0, TAU)
         ctx.fill()
       }
       break
     }
     case 6: {
-      // Bloom: a wide, soft aura swells out through the ring and dissolves.
-      const rad = R * (0.6 + easeOutCubic(a) * 2.4 * sz)
-      const grad = ctx.createRadialGradient(cx, cy, rad * 0.2, cx, cy, rad)
-      const al = (1 - a) * 0.5 * p
-      grad.addColorStop(0, rgba(col, al * 0.7))
-      grad.addColorStop(0.55, rgba(col, al * 0.35))
-      grad.addColorStop(1, rgba(col, 0))
-      ctx.fillStyle = grad
-      ctx.beginPath()
-      ctx.arc(cx, cy, rad, 0, Math.PI * 2)
-      ctx.fill()
+      // Halo: the ring itself flares - a bright soft aura pulses in place on the
+      // rim and fades, without travelling.
+      glowRing(ctx, cx, cy, R * 1.04, minD * (0.015 + 0.02 * g), col, g * 0.95 * p)
       break
     }
     case 7: {
-      // Twin rings: a bright leader and a softer chaser expand together, offset
-      // in time so they read as one weighted pulse with depth.
-      const lead = easeOutQuart(a)
-      const chase = easeOutQuart(clamp(a - 0.12, 0, 1))
-      glowRing(ctx, cx, cy, minD * (0.12 + lead * 1.0 * sz), minD * 0.03, col, (1 - a) * (1 - a) * 0.9 * p)
-      glowRing(ctx, cx, cy, minD * (0.1 + chase * 0.72 * sz), minD * 0.02, col, (1 - a) * (1 - a) * 0.55 * p)
-      break
-    }
-    case 8: {
-      // Ripple: three luminous rings roll out in quick succession, each fading
-      // to a soft wake - water struck by a stone.
-      for (const off of [0, 0.26, 0.52]) {
-        const ra = age - off
-        if (ra <= 0 || ra > 1) continue
-        const e = easeOutQuart(ra)
-        glowRing(ctx, cx, cy, minD * (0.12 + e * 0.95 * sz), minD * (0.014 + 0.03 * (1 - ra)), col, (1 - ra) * (1 - ra) * 0.8 * p)
+      // Sweep: a bright comet-arc races once around the ring and trails off.
+      const head = a * TAU * 1.05
+      const tail = Math.PI * 0.6
+      const segs = 26
+      ctx.lineWidth = Math.max(1, minD * 0.02)
+      for (let s = 0; s < segs; s++) {
+        const f = s / segs
+        const a0 = head - f * tail
+        ctx.strokeStyle = rgba(col, (1 - f) * (1 - f) * (1 - a) * 0.95 * p)
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, a0 - tail / segs - 0.01, a0)
+        ctx.stroke()
       }
       break
     }
-    case 9: {
-      // Tide: the inner circle floods with light from the bottom, a bright
-      // meniscus at the rising surface, then drains away.
-      ctx.beginPath()
-      ctx.arc(cx, cy, R, 0, Math.PI * 2)
-      ctx.clip()
-      const level = cy + R - R * 2 * easeOutCubic(a)
-      const grad = ctx.createLinearGradient(0, level - minD * 0.06, 0, cy + R)
-      const al = (1 - a * 0.7) * 0.6 * p
-      grad.addColorStop(0, rgba(col, 0))
-      grad.addColorStop(0.18, rgba(col, al))
-      grad.addColorStop(1, rgba(col, al * 0.35))
+    case 8: {
+      // Pulse: a bright core disc throbs once at the centre - a heartbeat.
+      const rad = R * (0.16 + g * 0.5)
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, rad))
+      const al = g * 0.95 * p
+      grad.addColorStop(0, rgba(col, al))
+      grad.addColorStop(0.6, rgba(col, al * 0.4))
+      grad.addColorStop(1, rgba(col, 0))
       ctx.fillStyle = grad
-      ctx.fillRect(cx - R, level - minD * 0.06, R * 2, cy + R - level + minD * 0.06)
+      ctx.beginPath()
+      ctx.arc(cx, cy, Math.max(1, rad), 0, TAU)
+      ctx.fill()
       break
     }
-    case 10: {
-      // Starburst: tapered blades of light stab out from the rim and retract,
-      // each a soft gradient wedge rather than a hard triangle.
+    case 9: {
+      // Starburst: sharp tapered blades stab out radially and retract.
       const N = 12
       const len = minD * 0.32 * sz * Math.sin(easeOutCubic(a) * Math.PI)
-      const wide = minD * 0.026 * (1 - a * 0.4)
+      const wide = minD * 0.022 * (1 - a * 0.4)
       for (let k = 0; k < N; k++) {
-        const ang = (k / N) * Math.PI * 2
+        const ang = (k / N) * TAU
         const ca = Math.cos(ang)
         const sa = Math.sin(ang)
         const px = -sa
@@ -396,6 +384,14 @@ function drawDropBurst(
         ctx.closePath()
         ctx.fill()
       }
+      break
+    }
+    case 10: {
+      // Ignite: the ring discharges - a bright band flares just past the rim and
+      // fades fast, a short sharp burst rather than a travelling wave.
+      const e = easeOutQuart(a)
+      const r = R * (1.0 + e * 0.4 * sz)
+      glowRing(ctx, cx, cy, r, minD * 0.03 * (1 - a * 0.5), col, (1 - a) * (1 - a) * 0.95 * p)
       break
     }
   }
@@ -694,11 +690,11 @@ export const VIZ_STYLES: VizStyle[] = [
 
         bands.update(d, o)
 
-        // Background-covering bursts (flash / bloom) render behind the ring; the
-        // rest pop on top after the rays and orb are drawn.
+        // Centre-area fills (fill / core bloom / pulse) render behind the rays so
+        // the ring sits over them; the outward effects pop on top after the orb.
         for (const b of bursts) {
-          if (b.kind === 2 || b.kind === 6) {
-            drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age, b.power)
+          if (b.kind === 2 || b.kind === 3 || b.kind === 8) {
+            drawDropBurst(ctx, cx, cy, minD, R, o, b.kind, b.age, b.power)
           }
         }
 
@@ -748,8 +744,8 @@ export const VIZ_STYLES: VizStyle[] = [
         // top of the ring, then every burst advances and old ones are culled.
         for (let i = bursts.length - 1; i >= 0; i--) {
           const b = bursts[i]
-          if (b.kind !== 2 && b.kind !== 6) {
-            drawDropBurst(ctx, W, H, cx, cy, minD, R, o, b.kind, b.age, b.power)
+          if (b.kind !== 2 && b.kind !== 3 && b.kind !== 8) {
+            drawDropBurst(ctx, cx, cy, minD, R, o, b.kind, b.age, b.power)
           }
           b.age += DROP_SPEED[b.kind] ?? 0.025
           if (b.age > (DROP_MAXAGE[b.kind] ?? 1)) bursts.splice(i, 1)
