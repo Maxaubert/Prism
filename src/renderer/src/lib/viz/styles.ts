@@ -155,8 +155,11 @@ const P_ICE = ['#eafcff', '#8fd6ff', '#3f6dff']
 // the per-kind speed below, and the draw switch turns age into the visual. The
 // numbers here are what the gear panel's 1-10 row selects.
 
-export const DROP_VARIANTS = 10
+export const DROP_VARIANTS = 11
 export const DEFAULT_DROP_STYLE = 1
+// The combo variant: the shockwave (1) on beats/drops PLUS a continuous
+// bass-reactive centre bloom - handled specially in the ripples style.
+export const COMBO_DROP_STYLE = 11
 
 // How fast each variant advances (per frame). All live one unit (age 0->1).
 // 1 shockwave, 2 fill, 3 core bloom, 4 nova, 5 implosion, 6 halo, 7 sweep,
@@ -653,6 +656,7 @@ export const VIZ_STYLES: VizStyle[] = [
       let armed = true
       let dropArmed = true
       let flash = 0 // decaying core flare, spikes on a drop
+      let bassBloom = 0 // combo variant: bass-reactive centre glow
       let lastPreview: number | undefined // fire a burst whenever this nonce changes
       return (ctx, W, H, d, o) => {
         const cx = W / 2
@@ -660,7 +664,11 @@ export const VIZ_STYLES: VizStyle[] = [
         // Sized to fill the frame. Anything much smaller reads as a spinner.
         const minD = Math.min(W, H)
         const R = minD * 0.25
-        const kind = o.dropStyle ?? DEFAULT_DROP_STYLE
+        const selected = o.dropStyle ?? DEFAULT_DROP_STYLE
+        // The combo variant pairs the shockwave (fired as discrete bursts, kind 1)
+        // with a continuous bass-reactive centre bloom drawn below.
+        const combo = selected === COMBO_DROP_STYLE
+        const kind = combo ? 1 : selected
 
         if (d.beat > 0.5 && armed) {
           bursts.push({ kind, age: 0, power: 0.5 })
@@ -683,12 +691,36 @@ export const VIZ_STYLES: VizStyle[] = [
         } else if (preview !== lastPreview) {
           bursts.push({ kind, age: 0, power: 1 })
           flash = 1
+          if (combo) bassBloom = 0.8 // show the bass bloom on preview too
           lastPreview = preview
         }
         flash *= 0.9
         if (bursts.length > 24) bursts.splice(0, bursts.length - 24)
 
         bands.update(d, o)
+
+        // Combo: a centre bloom that reacts to bass - it pulses subtly with every
+        // drum/bass hit (d.beat) and swells hard on a bass drop (d.drop), decaying
+        // between. Drawn behind the rays so the ring sits over it.
+        if (combo) {
+          bassBloom = Math.max(bassBloom * 0.9, d.beat * 0.55 + d.drop * 1.0)
+          const amt = clamp(bassBloom, 0, 1.25)
+          if (amt > 0.01) {
+            const rad = R * (0.28 + amt * 0.95)
+            const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
+            const al = amt * 0.8
+            grad.addColorStop(0, rgba(o.accent, al))
+            grad.addColorStop(0.4, rgba(o.accent, al * 0.5))
+            grad.addColorStop(1, rgba(o.accent, 0))
+            ctx.save()
+            ctx.globalCompositeOperation = 'lighter'
+            ctx.fillStyle = grad
+            ctx.beginPath()
+            ctx.arc(cx, cy, rad, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.restore()
+          }
+        }
 
         // Centre-area fills (fill / core bloom / pulse) render behind the rays so
         // the ring sits over them; the outward effects pop on top after the orb.

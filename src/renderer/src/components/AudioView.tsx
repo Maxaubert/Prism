@@ -572,7 +572,7 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
                   <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--color-dim)]">
                     Drop effect
                   </div>
-                  <div className="grid grid-cols-10 gap-1 px-1.5">
+                  <div className="grid grid-cols-11 gap-1 px-1.5">
                     {Array.from({ length: DROP_VARIANTS }, (_, i) => i + 1).map((n) => (
                       <button
                         key={n}
