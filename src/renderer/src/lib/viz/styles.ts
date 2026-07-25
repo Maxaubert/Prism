@@ -708,9 +708,12 @@ export const VIZ_STYLES: VizStyle[] = [
         // A fast attack / slow release smooths it into a gentle thump; it swells
         // on a bass drop. Drawn behind the rays so the ring sits over it.
         if (combo) {
-          // Look only at sub-bass (~40-95 Hz) where the kick drum lives; guitar
-          // notes sit higher, so their energy here is small. Also gate to
-          // bass-dominant hits so a mid-heavy guitar note can't trigger it.
+          // Look only at sub-bass (~40-95 Hz) where the kick drum lives. The
+          // analyser is dB-scaled, so quiet intro sub-bass still reads ~0.33 and a
+          // pure rise-detector fires on its wobble. So also require an absolute
+          // presence floor: the intro never pushes sub-bass past ~0.55, but a real
+          // kick slams it near 1. rise gives the per-hit thump; presence gates out
+          // the guitar intro entirely.
           const binHz = d.sampleRate / 2048
           const lo = Math.max(1, Math.round(40 / binHz))
           const hi = Math.max(lo, Math.round(95 / binHz))
@@ -719,8 +722,8 @@ export const VIZ_STYLES: VizStyle[] = [
           sub = sub / (hi - lo + 1) / 255
           bassRef += (sub - bassRef) * 0.04
           const rise = clamp((sub - bassRef) * 5, 0, 1)
-          const bassy = clamp(1 - (d.mid - d.bass) * 2, 0, 1) // 0 when mids dominate
-          const kick = rise * bassy
+          const present = clamp((sub - 0.62) / 0.25, 0, 1)
+          const kick = rise * present
           bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.6 : 0.12)
           const amt = clamp(bassBloom * 1.05 + d.drop * 0.7, 0, 1.3)
           if (amt > 0.01) {
