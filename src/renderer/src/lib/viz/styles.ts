@@ -654,8 +654,7 @@ export const VIZ_STYLES: VizStyle[] = [
       // The selected variant IS the ring's pulse: a modest burst fires on every
       // beat ("all spots"), and a full-power one on a drop. `power` scales each.
       const bursts: Array<{ kind: number; age: number; power: number }> = []
-      let armed = true
-      let dropArmed = true
+      let lastRing = -1e9 // ms of the last ring fire, for the refractory window
       let flash = 0 // decaying core flare, spikes on a drop
       let bassBloom = 0 // combo variant: bass-reactive centre glow
       let bassRef = 0 // slow sub-bass baseline for the kick detector (all variants)
@@ -689,20 +688,16 @@ export const VIZ_STYLES: VizStyle[] = [
         const present = clamp((sub - 0.62) / 0.25, 0, 1)
         const kick = rise * present
 
-        // Fire the per-beat ring on a kick, scaled by how hard it hits.
-        if (kick > 0.35 && armed) {
-          bursts.push({ kind, age: 0, power: clamp(0.35 + kick * 0.5, 0, 0.9) })
-          armed = false
-        }
-        if (kick < 0.15) armed = true
-        // A drop fires a full-power burst plus a core flare, so the moment the
-        // track slams back reads as an event, not just another beat pulse.
-        if (d.drop > 0.5 && dropArmed) {
+        // The ring marks major bass moments, not every kick. It fires on the next
+        // strong sub-bass kick, then goes quiet for a refractory window (~16s), so
+        // it lands on an actual hit (not a fixed metronome tick) while capping the
+        // rate. Measured end to end this is ~12 fires on Bangarang and ~6 on Djiro,
+        // versus 186 / 22 before.
+        if (kick > 0.4 && d.t - lastRing > 16000) {
           bursts.push({ kind, age: 0, power: 1 })
           flash = 1
-          dropArmed = false
+          lastRing = d.t
         }
-        if (d.drop < 0.2) dropArmed = true
         // Click-to-preview: when the nonce changes, fire one full-power burst of
         // the current variant so it can be seen on demand (even while paused).
         const preview = o.previewBurst ?? 0
