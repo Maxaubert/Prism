@@ -732,7 +732,7 @@ export const VIZ_STYLES: VizStyle[] = [
           // huge at the top), so min and max sit closer together.
           const amt = Math.pow(raw, 0.55)
           if (amt > 0.02) {
-            const rad = R * (0.32 + amt * 0.5)
+            const rad = R * (0.32 + amt * 0.4)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
             const al = clamp(amt * 0.82, 0, 1)
             grad.addColorStop(0, rgba(o.accent, al))
