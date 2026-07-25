@@ -724,12 +724,17 @@ export const VIZ_STYLES: VizStyle[] = [
           const rise = clamp((sub - bassRef) * 5, 0, 1)
           const present = clamp((sub - 0.62) / 0.25, 0, 1)
           const kick = rise * present
-          bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.6 : 0.12)
-          const amt = clamp(bassBloom * 1.05 + d.drop * 0.7, 0, 1.3)
-          if (amt > 0.01) {
-            const rad = R * (0.3 + amt * 0.8)
+          // Slower attack (was 0.6) so it's less twitchy.
+          bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.3 : 0.09)
+          const raw = clamp(bassBloom + d.drop * 0.7, 0, 1)
+          // Compress the register: a gamma curve lifts the small hits (less subtle
+          // at the bottom) and the tighter size range caps the peak (a lot less
+          // huge at the top), so min and max sit closer together.
+          const amt = Math.pow(raw, 0.55)
+          if (amt > 0.02) {
+            const rad = R * (0.32 + amt * 0.5)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
-            const al = clamp(amt * 0.8, 0, 1)
+            const al = clamp(amt * 0.82, 0, 1)
             grad.addColorStop(0, rgba(o.accent, al))
             grad.addColorStop(0.4, rgba(o.accent, al * 0.5))
             grad.addColorStop(1, rgba(o.accent, 0))
