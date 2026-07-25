@@ -658,6 +658,7 @@ export const VIZ_STYLES: VizStyle[] = [
       let dropArmed = true
       let flash = 0 // decaying core flare, spikes on a drop
       let bassBloom = 0 // combo variant: bass-reactive centre glow
+      let bassRef = 0 // combo variant: slow bass baseline for kick detection
       let lastPreview: number | undefined // fire a burst whenever this nonce changes
       return (ctx, W, H, d, o) => {
         const cx = W / 2
@@ -700,17 +701,19 @@ export const VIZ_STYLES: VizStyle[] = [
 
         bands.update(d, o)
 
-        // Combo: a centre bloom that thumps to the bass drum. Driven only by the
-        // kick transient (d.beat) - not the bass level, so it doesn't track the
-        // bassline/melody - and smoothed with a fast attack and slow release so it
-        // pulses gently rather than jittering. Swells on a bass drop. Drawn behind
-        // the rays so the ring sits over it.
+        // Combo: a centre bloom that thumps to the bass drum. It has its own kick
+        // detector - a sharp rise in bass above a slow baseline - which isolates
+        // the drum hit and ignores the sustained bassline (that would read as
+        // melody). d.beat saturates in busy sections, so this is more reliable.
+        // A fast attack / slow release smooths it into a gentle thump; it swells
+        // on a bass drop. Drawn behind the rays so the ring sits over it.
         if (combo) {
-          const target = d.beat
-          bassBloom += (target - bassBloom) * (target > bassBloom ? 0.4 : 0.08)
-          const amt = clamp(bassBloom + d.drop * 0.7, 0, 1.2)
+          bassRef += (d.bass - bassRef) * 0.04
+          const kick = clamp((d.bass - bassRef) * 4.5, 0, 1)
+          bassBloom += (kick - bassBloom) * (kick > bassBloom ? 0.6 : 0.12)
+          const amt = clamp(bassBloom * 1.05 + d.drop * 0.7, 0, 1.3)
           if (amt > 0.01) {
-            const rad = R * (0.32 + amt * 0.85)
+            const rad = R * (0.3 + amt * 0.8)
             const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad)
             const al = clamp(amt * 0.8, 0, 1)
             grad.addColorStop(0, rgba(o.accent, al))
