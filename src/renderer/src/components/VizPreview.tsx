@@ -10,32 +10,33 @@ import { styleById } from '../lib/viz/styles'
 
 const WARMUP = 100 // frames rendered to settle the image, then it holds
 
-// A lively, music-like spectrum + waveform. The key is that every band oscillates
-// at its OWN rate (desynced), so when the image freezes the bands land at
-// scattered heights instead of all equal - the bar styles adaptively normalise
-// each band to its own recent peak, so a uniform input would read as one flat
-// bar. A static spatial contour (deep valleys) adds contrast for the styles that
-// don't normalise. No audio, no analyser.
-function synth(freq: Uint8Array, time: Uint8Array, t: number): void {
+// A fixed, music-like spectrum with clear peaks and deep valleys. Many bar styles
+// normalise each band to its own recent peak, so a plain steady input reads as one
+// flat bar (every band saturates its own scale). To beat that we drive every band
+// HIGH for the first frames (setting a high adaptive peak per band), then settle
+// to the varied spectrum - so at the frozen frame each band sits at a different
+// fraction of its peak and the heights genuinely vary. `f` is the frame index.
+function synth(freq: Uint8Array, time: Uint8Array, f: number): void {
   const n = freq.length
+  const burst = f < 16 // early loud frames prime each band's peak
   for (let i = 0; i < n; i++) {
     const norm = i / n
     const env = Math.pow(1 - norm, 0.7) // gentle overall roll-off
-    // per-band oscillation whose temporal frequency varies with i -> bands drift
-    // out of phase and freeze at different points in their cycle.
-    const osc = 0.5 + 0.5 * Math.sin(t * (0.0016 + 0.000055 * i) + i * 0.9)
-    // static spectral contour: peaks and deep valleys across the band.
-    const contour = Math.pow(0.5 + 0.5 * Math.sin(i * 0.3) * Math.cos(i * 0.11 + 0.7), 2)
-    let v = env * (0.18 + 0.82 * contour) * (0.35 + 0.65 * osc)
-    if (norm < 0.12) v += 0.5 * (0.55 + 0.45 * Math.sin(t * 0.005)) // pumping bass
-    freq[i] = clamp(Math.round(v * 255 * 1.3), 0, 255)
+    // A pseudo-random static contour (layered primes) with sharpened valleys, so
+    // neighbouring bands differ and any crop window shows peaks and dips.
+    const c =
+      0.42 * Math.sin(i * 0.5 + 0.5) +
+      0.3 * Math.sin(i * 0.23 + 2.0) +
+      0.28 * Math.sin(i * 0.11 + 4.0)
+    const contour = Math.pow(clamp(0.5 + 0.5 * c, 0, 1), 1.6)
+    const bass = norm < 0.12 ? 0.4 : 0
+    const steady = env * (contour + bass)
+    const v = burst ? env * 0.95 : steady
+    freq[i] = clamp(Math.round(v * 255 * 1.35), 0, 255)
   }
   for (let i = 0; i < time.length; i++) {
-    const s =
-      0.55 * Math.sin(i * 0.05 + t * 0.02) +
-      0.3 * Math.sin(i * 0.021 + t * 0.006) +
-      0.15 * Math.sin(i * 0.13 + t * 0.03)
-    time[i] = clamp(Math.round(128 + 82 * s), 0, 255)
+    const s = 0.5 * Math.sin(i * 0.05) + 0.3 * Math.sin(i * 0.021 + 1.5) + 0.2 * Math.sin(i * 0.13 + 3)
+    time[i] = clamp(Math.round(128 + 80 * s), 0, 255)
   }
 }
 
@@ -114,7 +115,7 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       // Warm up over a few synthetic frames, then stop on the last one.
       for (let f = 0; f <= WARMUP; f++) {
         const t = f * 16
-        synth(freq, time, t)
+        synth(freq, time, f)
         if (ampScale !== 1) for (let i = 0; i < freq.length; i++) freq[i] = freq[i] * ampScale
         frame.t = t
         frame.playing = true
