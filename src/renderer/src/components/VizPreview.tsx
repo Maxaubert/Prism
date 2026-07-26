@@ -84,11 +84,12 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       }
       const radial = RADIAL.has(styleId)
       // Whole-frame styles are supersampled (crisp thin lines when downscaled);
-      // bar styles are rendered wide and cropped so bars read thick and few.
-      const ss = radial ? 2 : 1
-      // The ring packs ~150 rays; at thumbnail size long rays merge into a solid
-      // ball, so shorten them to keep a delicate ring outline.
-      const ampScale = styleId === 'ripples' ? 0.5 : 1
+      // bar styles are rendered wide and cropped so bars read thick and few. The
+      // ring packs ~150 rays, so supersample it harder: the rays downscale THINNER
+      // than their spacing, leaving gaps between them (a ring of distinct spikes,
+      // not a filled disc).
+      const ss = radial ? (styleId === 'ripples' ? 4 : 2) : 1
+      const ampScale = styleId === 'ripples' ? 0.65 : 1
       const OW = radial ? W * ss : Math.round(W * ZOOM)
       const OH = H * ss
       if (off.width !== OW || off.height !== OH) {
