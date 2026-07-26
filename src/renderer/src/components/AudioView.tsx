@@ -152,7 +152,17 @@ function forceDuration(e: SyntheticEvent<HTMLMediaElement>): void {
   }
 }
 
-export function AudioView({ url, name }: { url: string; name: string }): JSX.Element {
+export function AudioView({
+  url,
+  name,
+  fullscreen,
+  onToggleFullscreen
+}: {
+  url: string
+  name: string
+  fullscreen: boolean
+  onToggleFullscreen: () => void
+}): JSX.Element {
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -161,7 +171,21 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
     audioRef.current = el
     setMediaEl(el)
   }
+
+  // In fullscreen the transport + gear auto-hide like a video player: they slide
+  // away after a moment of no mouse movement and return on the next move. In
+  // windowed mode they stay put.
+  const [chromeOn, setChromeOn] = useState(true)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showChrome = useCallback(() => {
+    setChromeOn(true)
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    if (fullscreen) hideTimer.current = setTimeout(() => setChromeOn(false), 2600)
+  }, [fullscreen])
+
   const c = useMediaControls(audioRef, {
+    onFullscreen: onToggleFullscreen,
+    onActivity: showChrome,
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`
   })
 
@@ -207,6 +231,20 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   const [previewBurst, setPreviewBurst] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+
+  // Entering fullscreen (with the menu closed) arms the auto-hide; leaving it, or
+  // opening the menu, clears the timer. Chrome is always shown windowed or with
+  // the menu open (see chromeVisible below), so the effect never setStates.
+  useEffect(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    if (fullscreen && !menuOpen) {
+      hideTimer.current = setTimeout(() => setChromeOn(false), 2600)
+    }
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    }
+  }, [fullscreen, menuOpen])
+  const chromeVisible = !fullscreen || menuOpen || chromeOn
 
   const applyStyle = useCallback((id: string) => {
     setStyleId(id)
@@ -366,7 +404,11 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
   )
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#0d0f14]">
+    <div
+      className="relative h-full w-full overflow-hidden bg-[#0d0f14]"
+      onMouseMove={showChrome}
+      style={{ cursor: chromeVisible ? undefined : 'none' }}
+    >
       <audio
         ref={setMedia}
         src={url}
@@ -414,8 +456,13 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
             </div>
           )}
 
-          {/* settings gear */}
-          <div data-viz-menu className="absolute right-3 top-3 z-20">
+          {/* settings gear (fades with the chrome in fullscreen) */}
+          <div
+            data-viz-menu
+            className={`absolute right-3 top-3 z-20 transition-opacity duration-300 ${
+              chromeVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          >
             <button
               onClick={() => setMenuOpen((x) => !x)}
               title="Visualizer settings"
@@ -591,8 +638,13 @@ export function AudioView({ url, name }: { url: string; name: string }): JSX.Ele
             )}
           </div>
 
-          {/* transport overlays the bottom edge of the visualizer */}
-          <div className="absolute inset-x-0 bottom-0 z-10 border-t border-white/[.06] bg-[#12141b] px-4 py-3">
+          {/* transport overlays the bottom edge; in fullscreen it slides out of
+              view when the chrome auto-hides, like a video player's controls */}
+          <div
+            className={`absolute inset-x-0 bottom-0 z-10 border-t border-white/[.06] bg-[#12141b] px-4 py-3 transition-transform duration-300 ${
+              chromeVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
             <Transport c={c} />
           </div>
         </>

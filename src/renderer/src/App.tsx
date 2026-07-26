@@ -39,7 +39,15 @@ function TextViewer({ path }: { path: string }): JSX.Element {
   )
 }
 
-function Viewer({ file, onToggleFullscreen }: { file: ViewerFile; onToggleFullscreen: () => void }): JSX.Element {
+function Viewer({
+  file,
+  onToggleFullscreen,
+  fullscreen
+}: {
+  file: ViewerFile
+  onToggleFullscreen: () => void
+  fullscreen: boolean
+}): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
@@ -47,7 +55,7 @@ function Viewer({ file, onToggleFullscreen }: { file: ViewerFile; onToggleFullsc
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} name={file.name} />
+      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} />
     case 'pdf':
       return <embed src={url} type="application/pdf" className="h-full w-full" />
     case 'text':
@@ -113,7 +121,10 @@ export default function App(): JSX.Element {
   // where the player owns them for seeking.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
+      if (e.key === 'F11') {
+        e.preventDefault()
+        window.prism.setFullscreen(!fullscreen)
+      } else if (e.key === 'Escape') {
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
@@ -158,7 +169,7 @@ export default function App(): JSX.Element {
           dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
         }`}
       >
-        {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} /> : <EmptyState onOpen={browse} />}
+        {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} /> : <EmptyState onOpen={browse} />}
         {/* Fullscreen is for watching, not browsing — keep the frame clean.
             Paging still works there via PageUp/PageDown (and ←/→ for images). */}
         {file && many && !fullscreen && (
