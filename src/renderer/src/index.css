@@ -6,6 +6,10 @@
   --color-accent: #5b5bd6;
   --color-accent-hi: #7b7bf0;
   --color-panel: #16181f;
+  /* The transport's played-progress colour. Its own axis from the visualizer
+     theme: defaults to the accent, overridden per-player when the user picks a
+     progress-bar colour in Settings. */
+  --color-bar: var(--color-accent-hi);
 }
 
 :root {

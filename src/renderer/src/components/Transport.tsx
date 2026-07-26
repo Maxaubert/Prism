@@ -10,8 +10,9 @@ import type { TransportStyle } from '../lib/transport'
 // a speed menu. `extra` slots a view-specific control on the right (the video
 // player passes its fullscreen button). `peaks` feeds the waveform shapes.
 //
-// Accent comes from the --color-accent-hi token, so a theme can recolour every
-// player at once.
+// The played progress fill uses the --color-bar token (its own axis, set per
+// player from the Settings progress-bar colour); the controls use
+// --color-accent-hi.
 
 type ScrubLook =
   | { kind: 'line'; h: number; glow?: boolean; top?: boolean }
@@ -81,8 +82,8 @@ function Scrubber({
           >
             <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-accent-hi)]"
-              style={{ width: `${pct}%`, boxShadow: look.glow ? '0 0 9px var(--color-accent-hi)' : undefined }}
+              className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-bar)]"
+              style={{ width: `${pct}%`, boxShadow: look.glow ? '0 0 9px var(--color-bar)' : undefined }}
             />
           </div>
           <div
@@ -100,7 +101,7 @@ function Scrubber({
               className="flex-1 rounded-[1px]"
               style={{
                 height: `${(look.bold ? 22 : 16) * p + (look.bold ? 8 : 5)}px`,
-                background: (i / arr.length) * 100 <= pct ? 'var(--color-accent-hi)' : 'rgba(255,255,255,.2)'
+                background: (i / arr.length) * 100 <= pct ? 'var(--color-bar)' : 'rgba(255,255,255,.2)'
               }}
             />
           ))}
@@ -113,7 +114,7 @@ function Scrubber({
             <div
               key={i}
               className="h-1.5 flex-1 rounded-[2px]"
-              style={{ background: (i / SEG.length) * 100 <= pct ? 'var(--color-accent-hi)' : 'rgba(255,255,255,.14)' }}
+              style={{ background: (i / SEG.length) * 100 <= pct ? 'var(--color-bar)' : 'rgba(255,255,255,.14)' }}
             />
           ))}
         </div>

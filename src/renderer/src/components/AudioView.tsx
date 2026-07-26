@@ -1,87 +1,37 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type JSX, type SyntheticEvent } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
+import { THEMES, themeById, DROP_VARIANTS, DEFAULT_THEME_ID } from '../lib/viz/styles'
 import {
-  DEFAULT_STYLE_ID,
-  THEMES,
-  DEFAULT_THEME_ID,
-  themeById,
-  DROP_VARIANTS,
-  DEFAULT_DROP_STYLE
-} from '../lib/viz/styles'
-
-// The bar SHAPE comes from the preset (settled). The COLOUR is a separate axis:
-// the list is a colour picker, applied on top of whatever shape is showing.
+  useViz,
+  visibleThemes as visibleThemesOf,
+  WIDTHS,
+  WIDTH_LABELS,
+  barCss,
+  setTheme,
+  setHeight,
+  setPos,
+  setWidth,
+  setLogo,
+  setDrop,
+  firePreview,
+  applyPreset,
+  savePreset,
+  deletePreset,
+  resetPresets,
+  removeTheme,
+  restoreThemes,
+  type Preset
+} from '../lib/vizStore'
 
 // The audio player: the chosen visualizer fills the window, with a gear menu for
-// picking a style and shaping how it sits. The filename stays in the title bar
-// rather than on the glass. The <audio> element is hidden and crossorigin so the
-// visualizer's AnalyserNode can read its samples (see fsmedia in main).
-
-const STYLE_KEY = 'prism.viz.style'
-const THEME_KEY = 'prism.viz.theme'
-const WIDTH_KEY = 'prism.viz.width'
-const LOGO_KEY = 'prism.viz.logo'
-const HEIGHT_KEY = 'prism.viz.height'
-const POS_KEY = 'prism.viz.pos'
-const DROP_KEY = 'prism.viz.drop'
-
-// Some styles read better spanning the glass, others want to sit in a band.
-const WIDTHS: Record<string, string> = {
-  full: 'w-full',
-  wide: 'w-full max-w-5xl',
-  compact: 'w-full max-w-2xl'
-}
-const WIDTH_LABELS: Array<[string, string]> = [
-  ['full', 'Full'],
-  ['wide', 'Wide'],
-  ['compact', 'Compact']
-]
-
-// Curated looks: a style plus the framing that suits it. Picking one sets every
-// control at once, and the controls stay free afterwards.
-//
-// These ship as the starting set, but the list is editable at runtime and kept
-// in localStorage, so the shipping selection can be authored in the app itself.
-// "Copy JSON" in the menu exports whatever you end up with.
-interface Preset {
-  id: string
-  name: string
-  style: string
-  height: number
-  pos: number
-  width: string
-  logo: boolean
-  /** Colour theme; older presets without it fall back to Brand. */
-  theme?: string
-}
-const PRESETS_KEY = 'prism.viz.presets'
-const PRESETS_SEED_KEY = 'prism.viz.presetsSeed'
-// Bump when DEFAULT_PRESETS changes and the new set should replace what users
-// (and this dev box) already have stored. End users only ever seed once.
-const PRESETS_SEED = 8
-
-// With the visualizer filling the whole viewer, pos 50 is genuinely the nav-line
-// centre, so mirrored/centred styles all sit at 50. The two grounded styles sit
-// low on purpose (bars rise from the transport). Halo is trimmed a little so the
-// ring clears the transport overlay at the bottom.
-const DEFAULT_PRESETS: Preset[] = [
-  { id: 'halo', name: 'Halo', style: 'ripples', height: 88, pos: 50, width: 'full', logo: false, theme: 'glow' },
-  { id: 'flow', name: 'Flow', style: 'liquid', height: 95, pos: 50, width: 'full', logo: false },
-  { id: 'outline', name: 'Outline', style: 'outline-bars', height: 53, pos: 73, width: 'full', logo: false },
-  { id: 'caps', name: 'Caps', style: 'mirror-caps', height: 41, pos: 50, width: 'full', logo: false },
-  { id: 'frame', name: 'Frame', style: 'mirror-outline', height: 44, pos: 50, width: 'full', logo: false },
-  { id: 'wall', name: 'Wall', style: 'clean-wall', height: 56, pos: 72, width: 'full', logo: false },
-  { id: 'linebars', name: 'Line Bars', style: 'needles', height: 44, pos: 50, width: 'full', logo: false },
-  { id: 'mirrorbars', name: 'Mirror Bars', style: 'chrome-bars', height: 51, pos: 50, width: 'full', logo: false },
-  { id: 'bars', name: 'Bars', style: 'solid-bars', height: 53, pos: 73, width: 'full', logo: false },
-  { id: 'wall2', name: 'Wall 2', style: 'segments', height: 56, pos: 72, width: 'full', logo: false },
-  { id: 'barscircle', name: 'Round', style: 'outline-round', height: 56, pos: 72, width: 'full', logo: false },
-  { id: 'barscirclefull', name: 'Round Solid', style: 'solid-round', height: 56, pos: 72, width: 'full', logo: false }
-]
+// picking a style and shaping how it sits. All the style state lives in the shared
+// vizStore, so this gear panel and the app Settings window stay in sync. The
+// filename stays in the title bar rather than on the glass. The <audio> element is
+// hidden and crossorigin so the visualizer's AnalyserNode can read its samples.
 
 function Logo(): JSX.Element {
   return (
@@ -89,51 +39,6 @@ function Logo(): JSX.Element {
       ♪
     </div>
   )
-}
-
-function num(key: string, fallback: number): number {
-  const v = Number(localStorage.getItem(key))
-  return Number.isFinite(v) && v > 0 ? v : fallback
-}
-
-// Themes the user has hidden from the picker while curating. Persisted so I can
-// read the list back and delete those from the code.
-const REMOVED_KEY = 'prism.viz.removedThemes'
-function loadRemoved(): Set<string> {
-  try {
-    const raw = localStorage.getItem(REMOVED_KEY)
-    if (raw) {
-      // Keep only ids that still exist; once a removal has been baked into the
-      // code the theme is gone, so drop it from the set rather than showing a
-      // stale count.
-      const live = new Set(THEMES.map((t) => t.id))
-      const kept = (JSON.parse(raw) as string[]).filter((id) => live.has(id))
-      localStorage.setItem(REMOVED_KEY, JSON.stringify(kept))
-      return new Set(kept)
-    }
-  } catch {
-    /* ignore */
-  }
-  return new Set()
-}
-
-function loadPresets(): Preset[] {
-  // A newer seed replaces whatever is stored, so an updated shipped set actually
-  // reaches people who already have an older one saved.
-  if (Number(localStorage.getItem(PRESETS_SEED_KEY)) !== PRESETS_SEED) {
-    localStorage.setItem(PRESETS_KEY, JSON.stringify(DEFAULT_PRESETS))
-    localStorage.setItem(PRESETS_SEED_KEY, String(PRESETS_SEED))
-    return DEFAULT_PRESETS
-  }
-  try {
-    const raw = localStorage.getItem(PRESETS_KEY)
-    if (!raw) return DEFAULT_PRESETS
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed) && parsed.every((p) => p && p.id && p.name && p.style)) return parsed
-  } catch {
-    /* corrupt or hand-edited; fall back to the shipped set */
-  }
-  return DEFAULT_PRESETS
 }
 
 // Some MP3s report duration Infinity until a seek forces Chromium to compute it,
@@ -167,8 +72,10 @@ export function AudioView({
   onToggleFullscreen: () => void
   transportStyle: TransportStyle
 }): JSX.Element {
+  const v = useViz()
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
+  const bar = barCss(v.bar)
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -195,48 +102,12 @@ export function AudioView({
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`
   })
 
-  const [styleId, setStyleId] = useState<string>(
-    () => localStorage.getItem(STYLE_KEY) || DEFAULT_STYLE_ID
-  )
-  const [themeId, setThemeId] = useState<string>(
-    () => localStorage.getItem(THEME_KEY) || DEFAULT_THEME_ID
-  )
-  const applyTheme = useCallback((id: string) => {
-    setThemeId(id)
-    localStorage.setItem(THEME_KEY, id)
-  }, [])
-
-  // Curation: hide themes from the picker; the list is kept so I can trim the code.
-  const [removed, setRemoved] = useState<Set<string>>(loadRemoved)
-  const visibleThemes = THEMES.filter((t) => !removed.has(t.id))
-  const removeTheme = (id: string): void => {
-    setRemoved((prev) => {
-      const next = new Set(prev).add(id)
-      localStorage.setItem(REMOVED_KEY, JSON.stringify([...next]))
-      console.log('[removed themes]', [...next].join(', '))
-      return next
-    })
-    // If we just hid the active theme, jump to the next surviving one.
-    if (id === themeId) {
-      const next = THEMES.find((t) => t.id !== id && !removed.has(t.id))
-      if (next) applyTheme(next.id)
-    }
-  }
-  const restoreThemes = (): void => {
-    localStorage.removeItem(REMOVED_KEY)
-    setRemoved(new Set())
-  }
-  const copyRemoved = (): void => {
-    void navigator.clipboard.writeText([...removed].join(', '))
-  }
-  const [width, setWidth] = useState<string>(() => localStorage.getItem(WIDTH_KEY) || 'full')
-  const [logo, setLogo] = useState<boolean>(() => localStorage.getItem(LOGO_KEY) === '1')
-  const [height, setHeight] = useState<number>(() => num(HEIGHT_KEY, 88)) // % of the stage
-  const [pos, setPos] = useState<number>(() => num(POS_KEY, 50)) // % from the top
-  const [dropStyle, setDropStyle] = useState<number>(() => num(DROP_KEY, DEFAULT_DROP_STYLE))
-  const [previewBurst, setPreviewBurst] = useState(0)
+  // Curation UI state that stays local to this panel.
   const [menuOpen, setMenuOpen] = useState(false)
+  const [presetName, setPresetName] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const themes = visibleThemesOf()
+  const removedCount = v.removed.length
 
   // Entering fullscreen (with the menu closed) arms the auto-hide; leaving it, or
   // opening the menu, clears the timer. Chrome is always shown windowed or with
@@ -252,93 +123,26 @@ export function AudioView({
   }, [fullscreen, menuOpen])
   const chromeVisible = !fullscreen || menuOpen || chromeOn
 
-  const applyStyle = useCallback((id: string) => {
-    setStyleId(id)
-    localStorage.setItem(STYLE_KEY, id)
-  }, [])
-  const setNum = (key: string, set: (n: number) => void) => (v: number) => {
-    set(v)
-    localStorage.setItem(key, String(v))
-  }
-  const pickWidth = (w: string): void => {
-    setWidth(w)
-    localStorage.setItem(WIDTH_KEY, w)
-  }
   const pickDrop = (n: number): void => {
-    setDropStyle(n)
-    localStorage.setItem(DROP_KEY, String(n))
-    // fire a one-off preview so the effect plays the moment its button is clicked
-    setPreviewBurst((x) => x + 1)
+    setDrop(n)
+    firePreview() // play the effect once, the moment its button is clicked
   }
-  const toggleLogo = (): void => {
-    setLogo((x) => {
-      localStorage.setItem(LOGO_KEY, x ? '0' : '1')
-      return !x
-    })
-  }
-  const [presets, setPresets] = useState<Preset[]>(loadPresets)
-  const [presetName, setPresetName] = useState('')
-  const savePresets = (list: Preset[]): void => {
-    setPresets(list)
-    localStorage.setItem(PRESETS_KEY, JSON.stringify(list))
-  }
-  /** Save the current settings under `presetName`. An existing name is
-   *  overwritten in place, keeping its position in the row. */
   const saveCurrent = (): void => {
-    const name = presetName.trim()
-    if (!name) return
-    const entry: Preset = {
-      id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      name,
-      style: styleId,
-      height,
-      pos,
-      width,
-      logo,
-      theme: themeId
-    }
-    const i = presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase())
-    if (i >= 0) {
-      const next = presets.slice()
-      next[i] = { ...entry, id: presets[i].id }
-      savePresets(next)
-    } else {
-      savePresets([...presets, entry])
-    }
+    savePreset(presetName)
     setPresetName('')
   }
-  const deletePreset = (id: string): void => savePresets(presets.filter((p) => p.id !== id))
-  const copyPresets = (): void => {
-    void navigator.clipboard.writeText(JSON.stringify(presets, null, 2))
-  }
-  const resetPresets = (): void => {
-    localStorage.removeItem(PRESETS_KEY)
-    setPresets(DEFAULT_PRESETS)
-  }
 
-  const applyPreset = (p: Preset): void => {
-    applyStyle(p.style)
-    applyTheme(p.theme ?? DEFAULT_THEME_ID)
-    setHeight(p.height)
-    localStorage.setItem(HEIGHT_KEY, String(p.height))
-    setPos(p.pos)
-    localStorage.setItem(POS_KEY, String(p.pos))
-    setWidth(p.width)
-    localStorage.setItem(WIDTH_KEY, p.width)
-    setLogo(p.logo)
-    localStorage.setItem(LOGO_KEY, p.logo ? '1' : '0')
-  }
-  const activePreset = presets.find(
+  const activePreset = v.presets.find(
     (p) =>
-      p.style === styleId &&
-      p.height === height &&
-      p.pos === pos &&
-      p.width === width &&
-      p.logo === logo &&
-      (p.theme ?? DEFAULT_THEME_ID) === themeId
+      p.style === v.style &&
+      p.height === v.height &&
+      p.pos === v.pos &&
+      p.width === v.width &&
+      p.logo === v.logo &&
+      (p.theme ?? DEFAULT_THEME_ID) === v.theme
   )
   // Typing over a saved name means "save over that one".
-  const overwriting = presets.find((p) => p.name.toLowerCase() === presetName.trim().toLowerCase())
+  const overwriting = v.presets.find((p) => p.name.toLowerCase() === presetName.trim().toLowerCase())
 
   // Click-away and Escape close the menu.
   useEffect(() => {
@@ -369,18 +173,18 @@ export function AudioView({
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return
       e.preventDefault()
       e.stopPropagation()
-      const list = visibleThemes.length ? visibleThemes : THEMES
-      const i = list.findIndex((t) => t.id === themeId)
+      const list = themes.length ? themes : THEMES
+      const i = list.findIndex((t) => t.id === v.theme)
       const step = e.key === 'ArrowDown' ? 1 : -1
       const next = list[(i + step + list.length) % list.length]
-      applyTheme(next.id)
+      setTheme(next.id)
       listRef.current
         ?.querySelector(`[data-style="${next.id}"]`)
         ?.scrollIntoView({ block: 'nearest' })
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [menuOpen, themeId, applyTheme, visibleThemes])
+  }, [menuOpen, v.theme, themes])
 
   const slider = (
     label: string,
@@ -440,23 +244,23 @@ export function AudioView({
             className="absolute left-1/2"
             style={{
               width: '100%',
-              height: `${height}%`,
-              top: `${pos}%`,
+              height: `${v.height}%`,
+              top: `${v.pos}%`,
               transform: 'translate(-50%, -50%)'
             }}
           >
-            <div className={`mx-auto h-full ${WIDTHS[width] ?? WIDTHS.full}`}>
+            <div className={`mx-auto h-full ${WIDTHS[v.width] ?? WIDTHS.full}`}>
               <Visualizer
                 media={mediaEl}
-                styleId={styleId}
-                theme={themeById(themeId)}
-                dropStyle={dropStyle}
-                previewBurst={previewBurst}
+                styleId={v.style}
+                theme={themeById(v.theme)}
+                dropStyle={v.drop}
+                previewBurst={v.preview}
               />
             </div>
           </div>
 
-          {logo && (
+          {v.logo && (
             <div className="pointer-events-none absolute inset-x-0 top-[15%] flex justify-center">
               <Logo />
             </div>
@@ -489,7 +293,11 @@ export function AudioView({
                     Presets
                   </span>
                   <span className="flex gap-2.5 text-[10px]">
-                    <button onClick={copyPresets} className="text-[var(--color-dim)] hover:text-white" title="Copy the whole list as JSON">
+                    <button
+                      onClick={() => void navigator.clipboard.writeText(JSON.stringify(v.presets, null, 2))}
+                      className="text-[var(--color-dim)] hover:text-white"
+                      title="Copy the whole list as JSON"
+                    >
                       Copy JSON
                     </button>
                     <button onClick={resetPresets} className="text-[var(--color-dim)] hover:text-white" title="Restore the shipped set">
@@ -499,7 +307,7 @@ export function AudioView({
                 </div>
 
                 <div className="flex flex-wrap gap-1 px-1.5 pb-1.5">
-                  {presets.map((p) => (
+                  {v.presets.map((p: Preset) => (
                     <span key={p.id} className="group/chip relative">
                       <button
                         onClick={() => applyPreset(p)}
@@ -547,13 +355,17 @@ export function AudioView({
 
                 <div className="flex items-baseline justify-between border-t border-white/10 px-3 pb-1 pt-2">
                   <span className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--color-dim)]">
-                    Colour · {visibleThemes.length}
+                    Colour · {themes.length}
                   </span>
                   <span className="flex items-baseline gap-2.5 text-[10px] text-[var(--color-dim)]">
-                    {removed.size > 0 && (
+                    {removedCount > 0 && (
                       <>
-                        <button onClick={copyRemoved} className="hover:text-white" title="Copy the removed names">
-                          Copy cut ({removed.size})
+                        <button
+                          onClick={() => void navigator.clipboard.writeText(v.removed.join(', '))}
+                          className="hover:text-white"
+                          title="Copy the removed names"
+                        >
+                          Copy cut ({removedCount})
                         </button>
                         <button onClick={restoreThemes} className="hover:text-white" title="Bring them all back">
                           Restore
@@ -565,13 +377,13 @@ export function AudioView({
                 </div>
 
                 <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-1.5">
-                  {visibleThemes.map((t) => (
+                  {themes.map((t) => (
                     <div key={t.id} className="group/theme relative">
                       <button
                         data-style={t.id}
-                        onClick={() => applyTheme(t.id)}
+                        onClick={() => setTheme(t.id)}
                         className={`flex w-full items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-8 text-left transition hover:bg-white/[.07] ${
-                          t.id === themeId ? 'bg-[var(--color-accent)]/25' : ''
+                          t.id === v.theme ? 'bg-[var(--color-accent)]/25' : ''
                         }`}
                       >
                         <span
@@ -598,33 +410,31 @@ export function AudioView({
                 </div>
 
                 <div className="shrink-0 border-t border-white/10 pb-1.5">
-                  {slider('Height', height, 12, 100, setNum(HEIGHT_KEY, setHeight))}
-                  {slider('Vertical position', pos, 0, 100, setNum(POS_KEY, setPos))}
+                  {slider('Height', v.height, 12, 100, setHeight)}
+                  {slider('Vertical position', v.pos, 0, 100, setPos)}
                   <div className="px-2.5 pb-1 pt-1 text-[11px] text-[var(--color-dim)]">Width</div>
                   <div className="flex gap-1 px-1.5">
                     {WIDTH_LABELS.map(([w, label]) => (
                       <button
                         key={w}
-                        onClick={() => pickWidth(w)}
+                        onClick={() => setWidth(w)}
                         className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                          w === width ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                          w === v.width ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
                         }`}
                       >
                         {label}
                       </button>
                     ))}
                     <button
-                      onClick={toggleLogo}
+                      onClick={() => setLogo(!v.logo)}
                       className={`flex-1 rounded-lg px-2 py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                        logo ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                        v.logo ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
                       }`}
                     >
                       Artwork
                     </button>
                   </div>
-                  <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--color-dim)]">
-                    Drop effect
-                  </div>
+                  <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--color-dim)]">Drop effect</div>
                   <div className="grid grid-cols-11 gap-1 px-1.5">
                     {Array.from({ length: DROP_VARIANTS }, (_, i) => i + 1).map((n) => (
                       <button
@@ -632,7 +442,7 @@ export function AudioView({
                         onClick={() => pickDrop(n)}
                         title={`Drop variant ${n}`}
                         className={`rounded-lg py-1.5 text-[11.5px] font-semibold transition hover:bg-white/[.07] ${
-                          n === dropStyle ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
+                          n === v.drop ? 'bg-[var(--color-accent)]/25 text-white' : 'text-[var(--color-dim)]'
                         }`}
                       >
                         {n}
@@ -645,11 +455,13 @@ export function AudioView({
           </div>
 
           {/* transport overlays the bottom edge; its shape comes from the chosen
-              style. In fullscreen it slides out of view when the chrome hides. */}
+              style, its progress colour from --color-bar. In fullscreen it slides
+              out of view when the chrome hides. */}
           <div
             className={`absolute inset-x-0 bottom-0 z-10 transition-transform duration-300 ${
               transportBg ? 'bg-[#12141b]' : ''
             } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
+            style={bar ? ({ '--color-bar': bar } as CSSProperties) : undefined}
           >
             <Transport c={c} style={transportStyle} peaks={peaks} />
           </div>
