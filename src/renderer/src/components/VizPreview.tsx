@@ -8,25 +8,34 @@ import { styleById } from '../lib/viz/styles'
 // animation. Reusing the real draw functions means a preview can never drift from
 // the actual visualizer. Re-renders on resize so it stays crisp.
 
-const WARMUP = 40 // frames rendered to settle the image, then it holds
+const WARMUP = 100 // frames rendered to settle the image, then it holds
 
-// A full, music-like spectrum + waveform so each style shows its characteristic
-// form (a strong bass end, spiky mids, a rolled-off top). No audio, no analyser —
-// tuned high enough that ring/liquid styles read as boldly as the bar ones.
+// A lively, music-like spectrum + waveform. The key is that every band oscillates
+// at its OWN rate (desynced), so when the image freezes the bands land at
+// scattered heights instead of all equal - the bar styles adaptively normalise
+// each band to its own recent peak, so a uniform input would read as one flat
+// bar. A static spatial contour (deep valleys) adds contrast for the styles that
+// don't normalise. No audio, no analyser.
 function synth(freq: Uint8Array, time: Uint8Array, t: number): void {
-  const beat = 0.7 + 0.3 * Math.sin(t * 0.0022)
   const n = freq.length
   for (let i = 0; i < n; i++) {
     const norm = i / n
-    const env = Math.pow(1 - norm, 1.1) // fuller across the band
-    const wob = 0.5 + 0.5 * Math.sin(t * 0.005 + i * 0.22) * Math.cos(t * 0.0021 + i * 0.07)
-    const spike = 0.28 * Math.max(0, Math.sin(i * 0.55 + t * 0.004)) // per-bin detail
-    const bass = norm < 0.14 ? 0.7 * beat : 0
-    freq[i] = clamp(Math.round((env * (0.45 + 0.55 * wob) + spike + bass) * 250), 0, 255)
+    const env = Math.pow(1 - norm, 0.7) // gentle overall roll-off
+    // per-band oscillation whose temporal frequency varies with i -> bands drift
+    // out of phase and freeze at different points in their cycle.
+    const osc = 0.5 + 0.5 * Math.sin(t * (0.0016 + 0.000055 * i) + i * 0.9)
+    // static spectral contour: peaks and deep valleys across the band.
+    const contour = Math.pow(0.5 + 0.5 * Math.sin(i * 0.3) * Math.cos(i * 0.11 + 0.7), 2)
+    let v = env * (0.18 + 0.82 * contour) * (0.35 + 0.65 * osc)
+    if (norm < 0.12) v += 0.5 * (0.55 + 0.45 * Math.sin(t * 0.005)) // pumping bass
+    freq[i] = clamp(Math.round(v * 255 * 1.3), 0, 255)
   }
-  const amp = 62 * (0.6 + 0.4 * beat)
   for (let i = 0; i < time.length; i++) {
-    time[i] = clamp(Math.round(128 + amp * Math.sin(t * 0.02 + i * 0.05) * Math.sin(t * 0.001 + i * 0.002)), 0, 255)
+    const s =
+      0.55 * Math.sin(i * 0.05 + t * 0.02) +
+      0.3 * Math.sin(i * 0.021 + t * 0.006) +
+      0.15 * Math.sin(i * 0.13 + t * 0.03)
+    time[i] = clamp(Math.round(128 + 82 * s), 0, 255)
   }
 }
 
@@ -40,10 +49,10 @@ function band(freq: Uint8Array, from: number, to: number): number {
   return c ? s / c / 255 : 0
 }
 
-// Radial ring styles need the whole square frame; everything else is a
-// left-to-right bar shape we can render wide and crop, so bars read thick and few
-// instead of the full fullscreen count crammed into a short box.
-const RADIAL = new Set(['ripples', 'outline-round', 'solid-round'])
+// These styles need the whole frame (radial rings, and the continuous liquid
+// band); everything else is a left-to-right bar shape we render wide and crop, so
+// bars read thick and few instead of the full fullscreen count crammed in.
+const RADIAL = new Set(['ripples', 'outline-round', 'solid-round', 'liquid'])
 const ZOOM = 2.6 // how much wider than the box a bar style is rendered before cropping
 
 export function VizPreview({ styleId, theme }: { styleId: string; theme: VizTheme }): JSX.Element {
