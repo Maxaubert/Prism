@@ -65,6 +65,7 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       t: 0, playing: true, sampleRate: 44100
     }
     const opts: VizOpts = { accent: theme.accent, palette: theme.palette, sensitivity: 1, dpr: 1 }
+    const smoothBuf = new Float32Array(freq.length) // scratch for the Caps blur
     // Off-screen canvas the style actually draws into (wider than the box for bar
     // styles), then the centre is cropped onto the visible canvas.
     const off = document.createElement('canvas')
@@ -111,6 +112,27 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
         const t = f * 16
         synth(freq, time)
         if (ampScale !== 1) for (let i = 0; i < freq.length; i++) freq[i] = freq[i] * ampScale
+        if (styleId === 'mirror-caps') {
+          // Caps couples neighbours into a smooth envelope, so a jagged spectrum
+          // reads as noise. Heavily blur it to a gentle hill of caps.
+          const R = 12
+          const N = freq.length
+          for (let pass = 0; pass < 3; pass++) {
+            for (let i = 0; i < N; i++) {
+              let s = 0
+              let c = 0
+              for (let k = -R; k <= R; k++) {
+                const j = i + k
+                if (j >= 0 && j < N) {
+                  s += freq[j]
+                  c++
+                }
+              }
+              smoothBuf[i] = s / c
+            }
+            for (let i = 0; i < N; i++) freq[i] = smoothBuf[i]
+          }
+        }
         frame.t = t
         frame.playing = true
         frame.bass = band(freq, 0, 40)
