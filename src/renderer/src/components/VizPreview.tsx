@@ -10,29 +10,23 @@ import { styleById } from '../lib/viz/styles'
 
 const WARMUP = 100 // frames rendered to settle the image, then it holds
 
-// A fixed, music-like spectrum with clear peaks and deep valleys. Many bar styles
-// normalise each band to its own recent peak, so a plain steady input reads as one
-// flat bar (every band saturates its own scale). To beat that we drive every band
-// HIGH for the first frames (setting a high adaptive peak per band), then settle
-// to the varied spectrum - so at the frozen frame each band sits at a different
-// fraction of its peak and the heights genuinely vary. `f` is the frame index.
-function synth(freq: Uint8Array, time: Uint8Array, f: number): void {
+// A fixed, music-like spectrum. The bars average freq over LOG-spaced bin ranges,
+// so the jaggedness has to live in log-frequency space or it averages away to a
+// flat row (varying per bin is invisible once each bar averages its range). We
+// build the contour from log(bin) so adjacent BARS land at different heights,
+// over a natural bass-heavy roll-off. Bar height is mostly absolute (see
+// makeBands), so this static spectrum reads as a lively, varied frame.
+function synth(freq: Uint8Array, time: Uint8Array): void {
   const n = freq.length
-  const burst = f < 16 // early loud frames prime each band's peak
   for (let i = 0; i < n; i++) {
-    const norm = i / n
-    const env = Math.pow(1 - norm, 0.7) // gentle overall roll-off
-    // A pseudo-random static contour (layered primes) with sharpened valleys, so
-    // neighbouring bands differ and any crop window shows peaks and dips.
-    const c =
-      0.42 * Math.sin(i * 0.5 + 0.5) +
-      0.3 * Math.sin(i * 0.23 + 2.0) +
-      0.28 * Math.sin(i * 0.11 + 4.0)
-    const contour = Math.pow(clamp(0.5 + 0.5 * c, 0, 1), 1.6)
-    const bass = norm < 0.12 ? 0.4 : 0
-    const steady = env * (contour + bass)
-    const v = burst ? env * 0.95 : steady
-    freq[i] = clamp(Math.round(v * 255 * 1.35), 0, 255)
+    const lb = Math.log(i + 3) // ~1.1 (bass) .. ~6.9 (treble)
+    // layered waves in log-frequency: distinct height per bar, not per bin.
+    const jag =
+      0.5 +
+      0.5 * (0.44 * Math.sin(lb * 3.3 + 0.5) + 0.32 * Math.sin(lb * 6.1 + 2.1) + 0.24 * Math.sin(lb * 9.4 + 4.0))
+    const env = Math.pow(1 - i / n, 0.55) // bass louder, tapering to treble
+    const v = clamp((0.3 + 0.7 * env) * clamp(jag, 0, 1), 0.02, 1)
+    freq[i] = clamp(Math.round(v * 255), 0, 255)
   }
   for (let i = 0; i < time.length; i++) {
     const s = 0.5 * Math.sin(i * 0.05) + 0.3 * Math.sin(i * 0.021 + 1.5) + 0.2 * Math.sin(i * 0.13 + 3)
@@ -115,7 +109,7 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       // Warm up over a few synthetic frames, then stop on the last one.
       for (let f = 0; f <= WARMUP; f++) {
         const t = f * 16
-        synth(freq, time, f)
+        synth(freq, time)
         if (ampScale !== 1) for (let i = 0; i < freq.length; i++) freq[i] = freq[i] * ampScale
         frame.t = t
         frame.playing = true
