@@ -292,7 +292,7 @@ const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon:
     id: 'visualizer',
     label: 'Visualizer',
     title: 'Visualizer',
-    desc: 'The audio visualizer style. Each preview is live.',
+    desc: 'The audio visualizer style. Each preview shows the real style.',
     icon: <Ico d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
   },
   {
