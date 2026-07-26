@@ -3,6 +3,8 @@ import type { OpenPayload, ViewerFile } from '@shared/types'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
+import { Settings } from './components/Settings'
+import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -11,7 +13,7 @@ import { ImageView } from './components/ImageView'
 
 const PLAYABLE = new Set(['video', 'audio'])
 
-function TopBar({ file, pos }: { file: ViewerFile | null; pos: string }): JSX.Element {
+function TopBar({ file, pos, onOpenSettings }: { file: ViewerFile | null; pos: string; onOpenSettings: () => void }): JSX.Element {
   const w = window.prism
   return (
     <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-white/[.06] bg-[#16181f] px-3 text-[13px]">
@@ -19,6 +21,12 @@ function TopBar({ file, pos }: { file: ViewerFile | null; pos: string }): JSX.El
       <span className="min-w-0 flex-1 truncate text-[var(--color-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--color-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
+        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10 hover:text-white" onClick={onOpenSettings} title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+          </svg>
+        </button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10" onClick={() => w.minimize()}>–</button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10" onClick={() => w.toggleMaximize()}>▢</button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-red-500/80 hover:text-white" onClick={() => w.close()}>✕</button>
@@ -42,20 +50,22 @@ function TextViewer({ path }: { path: string }): JSX.Element {
 function Viewer({
   file,
   onToggleFullscreen,
-  fullscreen
+  fullscreen,
+  transportStyle
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
   fullscreen: boolean
+  transportStyle: TransportStyle
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
-      return <VideoView url={url} onToggleFullscreen={onToggleFullscreen} />
+      return <VideoView url={url} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} />
+      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
     case 'pdf':
       return <embed src={url} type="application/pdf" className="h-full w-full" />
     case 'text':
@@ -94,6 +104,12 @@ export default function App(): JSX.Element {
   const [index, setIndex] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const pickTransport = useCallback((s: TransportStyle) => {
+    setTransportStyle(s)
+    localStorage.setItem(TRANSPORT_KEY, s)
+  }, [])
 
   const open = useCallback((p: OpenPayload | null) => {
     if (p && p.files.length) {
@@ -163,13 +179,13 @@ export default function App(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
-      {!fullscreen && <TopBar file={file} pos={pos} />}
+      {!fullscreen && <TopBar file={file} pos={pos} onOpenSettings={() => setSettingsOpen(true)} />}
       <div
         className={`group relative flex flex-1 items-center justify-center overflow-hidden ${
           dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
         }`}
       >
-        {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} /> : <EmptyState onOpen={browse} />}
+        {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
         {/* Fullscreen is for watching, not browsing — keep the frame clean.
             Paging still works there via PageUp/PageDown (and ←/→ for images). */}
         {file && many && !fullscreen && (
@@ -179,6 +195,12 @@ export default function App(): JSX.Element {
           </>
         )}
       </div>
+      <Settings
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        transportStyle={transportStyle}
+        onPickTransport={pickTransport}
+      />
     </div>
   )
 }

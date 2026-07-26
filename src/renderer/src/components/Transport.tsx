@@ -2,31 +2,51 @@ import { useRef, useState, type JSX, type ReactNode, type PointerEvent as ReactP
 import { formatTime } from '../lib/format'
 import { RATES, type MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
+import type { TransportStyle } from '../lib/transport'
 
-// The transport bar shared by every player: a buffered + played scrub bar with a
-// hover-time tooltip and draggable thumb, play/pause, a hover-expand volume
-// slider, the time readout, and a speed menu. `extra` slots a view-specific
-// control on the right (the video player passes its fullscreen button).
+// The transport bar shared by every player. One of ten shapes (chosen in
+// Settings) draws the same set of controls — a scrub bar with hover-time and
+// draggable thumb, play/pause, a hover-expand volume slider, the time readout and
+// a speed menu. `extra` slots a view-specific control on the right (the video
+// player passes its fullscreen button). `peaks` feeds the waveform shapes.
 //
-// It reads its accent from the --color-accent-hi CSS token, so a future theme can
-// recolour every player at once. This is one of the interchangeable chrome pieces.
+// Accent comes from the --color-accent-hi token, so a theme can recolour every
+// player at once.
 
-export function Transport({ c, extra }: { c: MediaControls; extra?: ReactNode }): JSX.Element {
+type ScrubLook =
+  | { kind: 'line'; h: number; glow?: boolean; top?: boolean }
+  | { kind: 'wave'; bold?: boolean }
+  | { kind: 'seg' }
+
+/** The seek surface: owns the drag/seek + hover-time, renders line / waveform /
+ *  segments. Placed differently by each style, but always the same behaviour. */
+function Scrubber({
+  c,
+  look,
+  peaks,
+  className = ''
+}: {
+  c: MediaControls
+  look: ScrubLook
+  peaks: number[]
+  className?: string
+}): JSX.Element {
   const barRef = useRef<HTMLDivElement>(null)
-  const [rateOpen, setRateOpen] = useState(false)
   const [hoverX, setHoverX] = useState<number | null>(null)
-  const { cur, dur, buffered, vol, muted, rate, playing } = c
+  const { cur, dur, buffered } = c
+  const pct = dur > 0 ? (cur / dur) * 100 : 0
+  const bufPct = dur > 0 ? (buffered / dur) * 100 : 0
 
-  const barFraction = (clientX: number): number => {
+  const frac = (clientX: number): number => {
     const el = barRef.current
     if (!el) return 0
     const r = el.getBoundingClientRect()
     return Math.max(0, Math.min(1, (clientX - r.left) / r.width))
   }
-  const onBarDown = (e: ReactPointerEvent): void => {
+  const onDown = (e: ReactPointerEvent): void => {
     e.currentTarget.setPointerCapture(e.pointerId)
-    c.seekTo(barFraction(e.clientX) * dur)
-    const move = (ev: PointerEvent): void => c.seekTo(barFraction(ev.clientX) * dur)
+    c.seekTo(frac(e.clientX) * dur)
+    const move = (ev: PointerEvent): void => c.seekTo(frac(ev.clientX) * dur)
     const up = (): void => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
@@ -35,90 +55,293 @@ export function Transport({ c, extra }: { c: MediaControls; extra?: ReactNode })
     window.addEventListener('pointerup', up)
   }
 
-  const pct = dur > 0 ? (cur / dur) * 100 : 0
-  const bufPct = dur > 0 ? (buffered / dur) * 100 : 0
+  const tooltip =
+    hoverX != null && dur > 0 ? (
+      <div
+        className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-white"
+        style={{ left: `${hoverX * 100}%` }}
+      >
+        {formatTime(hoverX * dur)}
+      </div>
+    ) : null
 
   return (
-    <div className="pointer-events-auto w-full">
-      {/* scrubber — full-bleed, sits as the top edge of the transport, with the
-          track pinned to the top so the whole bar can stay slim */}
-      <div
-        ref={barRef}
-        className="group/bar relative h-2.5 cursor-pointer"
-        onPointerDown={onBarDown}
-        onMouseMove={(e) => setHoverX(barFraction(e.clientX))}
-        onMouseLeave={() => setHoverX(null)}
-      >
-        <div className="absolute inset-x-0 top-0 h-[3px] rounded-full bg-white/25 transition-[height] group-hover/bar:h-[5px]">
-          <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
-          <div className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-accent-hi)]" style={{ width: `${pct}%` }} />
-        </div>
-        <div
-          className="absolute top-[1.5px] h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
-          style={{ left: `${pct}%` }}
-        />
-        {hoverX != null && dur > 0 && (
+    <div
+      ref={barRef}
+      className={`group/bar relative cursor-pointer ${className}`}
+      onPointerDown={onDown}
+      onMouseMove={(e) => setHoverX(frac(e.clientX))}
+      onMouseLeave={() => setHoverX(null)}
+    >
+      {look.kind === 'line' && (
+        <>
           <div
-            className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-white"
-            style={{ left: `${hoverX * 100}%` }}
+            className="absolute inset-x-0 rounded-full bg-white/25 transition-[height]"
+            style={look.top ? { top: 0, height: look.h } : { top: '50%', height: look.h, transform: 'translateY(-50%)' }}
           >
-            {formatTime(hoverX * dur)}
+            <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-accent-hi)]"
+              style={{ width: `${pct}%`, boxShadow: look.glow ? '0 0 9px var(--color-accent-hi)' : undefined }}
+            />
           </div>
-        )}
-      </div>
-
-      {/* buttons row */}
-      <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-white">
-        <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.togglePlay} title="Play/Pause (Space)">
-          {playing ? IconPause : IconPlay}
-        </button>
-
-        <div className="group/vol flex items-center gap-2">
-          <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.toggleMute} title="Mute (M)">
-            {muted || vol === 0 ? IconMute : IconVol}
-          </button>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={muted ? 0 : vol}
-            onChange={(e) => { c.setVol(Number(e.target.value)); if (muted) c.toggleMute() }}
-            className="h-1 w-0 cursor-pointer accent-[var(--color-accent-hi)] opacity-0 transition-all group-hover/vol:w-20 group-hover/vol:opacity-100"
+          <div
+            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
+            style={{ left: `${pct}%`, top: look.top ? look.h / 2 : '50%' }}
           />
+        </>
+      )}
+
+      {look.kind === 'wave' && (
+        <div className="flex h-full items-center gap-[2px]">
+          {(peaks.length ? peaks : FALLBACK_WAVE).map((p, i, arr) => (
+            <div
+              key={i}
+              className="flex-1 rounded-[1px]"
+              style={{
+                height: `${(look.bold ? 22 : 16) * p + (look.bold ? 8 : 5)}px`,
+                background: (i / arr.length) * 100 <= pct ? 'var(--color-accent-hi)' : 'rgba(255,255,255,.2)'
+              }}
+            />
+          ))}
         </div>
+      )}
 
-        <span className="tabular-nums text-[13px] text-[#d7dae1]">
-          {formatTime(cur)} <span className="text-white/40">/ {formatTime(dur)}</span>
-        </span>
-
-        <div className="flex-1" />
-
-        <div className="relative">
-          <button
-            className="rounded px-2 py-0.5 text-[13px] font-semibold hover:text-[var(--color-accent-hi)]"
-            onClick={() => setRateOpen((x) => !x)}
-            title="Playback speed"
-          >
-            {rate}×
-          </button>
-          {rateOpen && (
-            <div className="absolute bottom-8 right-0 flex flex-col rounded-lg bg-[#1b1e26] p-1 shadow-xl">
-              {RATES.map((r) => (
-                <button
-                  key={r}
-                  className={`rounded px-3 py-1 text-left text-[13px] hover:bg-white/10 ${r === rate ? 'text-[var(--color-accent-hi)]' : ''}`}
-                  onClick={() => { c.setRate(r); setRateOpen(false) }}
-                >
-                  {r}×
-                </button>
-              ))}
-            </div>
-          )}
+      {look.kind === 'seg' && (
+        <div className="flex h-full items-center gap-[3px]">
+          {SEG.map((_, i) => (
+            <div
+              key={i}
+              className="h-1.5 flex-1 rounded-[2px]"
+              style={{ background: (i / SEG.length) * 100 <= pct ? 'var(--color-accent-hi)' : 'rgba(255,255,255,.14)' }}
+            />
+          ))}
         </div>
+      )}
 
-        {extra}
-      </div>
+      {tooltip}
     </div>
   )
+}
+
+const SEG = Array.from({ length: 48 })
+// Shown by the waveform styles until the real peaks finish decoding.
+const FALLBACK_WAVE = Array.from({ length: 120 }, (_, i) => 0.35 + 0.5 * Math.abs(Math.sin(i * 0.5) * Math.cos(i * 0.17)))
+
+/* ---------- reusable control bits ---------- */
+
+function PlayBtn({ c, square }: { c: MediaControls; square?: boolean }): JSX.Element {
+  const glyph = c.playing ? IconPause : IconPlay
+  if (square)
+    return (
+      <button
+        className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--color-accent-hi)] text-[#12131a] hover:brightness-110"
+        onClick={c.togglePlay}
+        title="Play/Pause (Space)"
+      >
+        {glyph}
+      </button>
+    )
+  return (
+    <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.togglePlay} title="Play/Pause (Space)">
+      {glyph}
+    </button>
+  )
+}
+
+function VolHover({ c }: { c: MediaControls }): JSX.Element {
+  return (
+    <div className="group/vol flex items-center gap-2">
+      <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.toggleMute} title="Mute (M)">
+        {c.muted || c.vol === 0 ? IconMute : IconVol}
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={c.muted ? 0 : c.vol}
+        onChange={(e) => {
+          c.setVol(Number(e.target.value))
+          if (c.muted) c.toggleMute()
+        }}
+        className="h-1 w-0 cursor-pointer accent-[var(--color-accent-hi)] opacity-0 transition-all group-hover/vol:w-20 group-hover/vol:opacity-100"
+      />
+    </div>
+  )
+}
+
+function Time({ c, big }: { c: MediaControls; big?: boolean }): JSX.Element {
+  return (
+    <span className={`tabular-nums ${big ? 'text-[15px] font-semibold' : 'text-[13px]'} text-[#d7dae1]`}>
+      {formatTime(c.cur)} <span className="text-white/40">/ {formatTime(c.dur)}</span>
+    </span>
+  )
+}
+
+function Speed({ c }: { c: MediaControls }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        className="rounded px-2 py-0.5 text-[13px] font-semibold hover:text-[var(--color-accent-hi)]"
+        onClick={() => setOpen((x) => !x)}
+        title="Playback speed"
+      >
+        {c.rate}×
+      </button>
+      {open && (
+        <div className="absolute bottom-8 right-0 flex flex-col rounded-lg bg-[#1b1e26] p-1 shadow-xl">
+          {RATES.map((r) => (
+            <button
+              key={r}
+              className={`rounded px-3 py-1 text-left text-[13px] hover:bg-white/10 ${r === c.rate ? 'text-[var(--color-accent-hi)]' : ''}`}
+              onClick={() => {
+                c.setRate(r)
+                setOpen(false)
+              }}
+            >
+              {r}×
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ---------- the transport, composed per style ---------- */
+
+export function Transport({
+  c,
+  style,
+  peaks,
+  extra
+}: {
+  c: MediaControls
+  style: TransportStyle
+  peaks: number[]
+  extra?: ReactNode
+}): JSX.Element {
+  // The standard control row shared by most styles.
+  const stdRow = (
+    <div className="flex items-center gap-3 text-white">
+      <PlayBtn c={c} />
+      <VolHover c={c} />
+      <Time c={c} />
+      <div className="flex-1" />
+      <Speed c={c} />
+      {extra}
+    </div>
+  )
+  const boldRow = (
+    <div className="flex items-center gap-4 text-white">
+      <PlayBtn c={c} square />
+      <Time c={c} big />
+      <div className="flex-1" />
+      <VolHover c={c} />
+      <Speed c={c} />
+      {extra}
+    </div>
+  )
+
+  switch (style) {
+    case 'edge':
+      return (
+        <div className="pointer-events-auto w-full bg-gradient-to-t from-black/80 to-transparent px-4 pb-0 pt-10">
+          <div className="mb-3 px-0">{stdRow}</div>
+          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} className="h-[2px]" />
+        </div>
+      )
+
+    case 'pill':
+      return (
+        <div className="pointer-events-auto w-full px-4 pb-2.5 pt-2.5">
+          <Scrubber c={c} look={{ kind: 'line', h: 8, top: true }} peaks={peaks} className="mb-3 h-3" />
+          {stdRow}
+        </div>
+      )
+
+    case 'inline':
+      return (
+        <div className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-white">
+          <PlayBtn c={c} />
+          <span className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
+          <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} className="h-3.5 flex-1" />
+          <span className="tabular-nums text-[12.5px] text-white/50">{formatTime(c.dur)}</span>
+          <VolHover c={c} />
+          <Speed c={c} />
+          {extra}
+        </div>
+      )
+
+    case 'island':
+      return (
+        <div className="pointer-events-none flex w-full justify-center pb-4">
+          <div className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-white/10 bg-[#14161e]/75 px-4 py-2.5 text-white shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md">
+            <PlayBtn c={c} />
+            <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} className="h-3 w-40" />
+            <Time c={c} />
+            <Speed c={c} />
+            {extra}
+          </div>
+        </div>
+      )
+
+    case 'wave':
+      return (
+        <div className="pointer-events-auto w-full px-4 pb-2.5 pt-1.5">
+          <Scrubber c={c} look={{ kind: 'wave' }} peaks={peaks} className="mb-1.5 h-[38px]" />
+          {stdRow}
+        </div>
+      )
+
+    case 'outline':
+      return (
+        <div className="pointer-events-auto w-full bg-gradient-to-t from-[#0d0f14]/90 to-transparent px-4 pb-3.5 pt-8">
+          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} className="mb-3 h-[2px]" />
+          {stdRow}
+        </div>
+      )
+
+    case 'bold':
+      return (
+        <div className="pointer-events-auto w-full px-0 pb-0 pt-0">
+          <Scrubber c={c} look={{ kind: 'line', h: 5, top: true }} peaks={peaks} className="h-[5px]" />
+          <div className="px-4 pb-3.5 pt-3">{boldRow}</div>
+        </div>
+      )
+
+    case 'segments':
+      return (
+        <div className="pointer-events-auto w-full px-4 pb-2.5 pt-2.5">
+          <Scrubber c={c} look={{ kind: 'seg' }} peaks={peaks} className="mb-2.5 h-1.5" />
+          {stdRow}
+        </div>
+      )
+
+    case 'wavebold':
+      return (
+        <div className="pointer-events-auto w-full px-0 pt-1.5">
+          <Scrubber c={c} look={{ kind: 'wave', bold: true }} peaks={peaks} className="h-[50px] px-4" />
+          <div className="px-4 pb-3.5 pt-0.5">{boldRow}</div>
+        </div>
+      )
+
+    case 'slim':
+    default:
+      return (
+        <div className="pointer-events-auto w-full">
+          <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} className="h-2.5" />
+          <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-white">
+            <PlayBtn c={c} />
+            <VolHover c={c} />
+            <Time c={c} />
+            <div className="flex-1" />
+            <Speed c={c} />
+            {extra}
+          </div>
+        </div>
+      )
+  }
 }

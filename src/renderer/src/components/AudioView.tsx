@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
+import { useWaveform } from '../lib/useWaveform'
+import type { TransportStyle } from '../lib/transport'
 import {
   DEFAULT_STYLE_ID,
   THEMES,
@@ -156,13 +158,17 @@ export function AudioView({
   url,
   name,
   fullscreen,
-  onToggleFullscreen
+  onToggleFullscreen,
+  transportStyle
 }: {
   url: string
   name: string
   fullscreen: boolean
   onToggleFullscreen: () => void
+  transportStyle: TransportStyle
 }): JSX.Element {
+  const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -638,14 +644,14 @@ export function AudioView({
             )}
           </div>
 
-          {/* transport overlays the bottom edge; the scrub line is its top edge.
-              In fullscreen it slides out of view when the chrome auto-hides. */}
+          {/* transport overlays the bottom edge; its shape comes from the chosen
+              style. In fullscreen it slides out of view when the chrome hides. */}
           <div
-            className={`absolute inset-x-0 bottom-0 z-10 bg-[#12141b] transition-transform duration-300 ${
-              chromeVisible ? 'translate-y-0' : 'translate-y-full'
-            }`}
+            className={`absolute inset-x-0 bottom-0 z-10 transition-transform duration-300 ${
+              transportBg ? 'bg-[#12141b]' : ''
+            } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
           >
-            <Transport c={c} />
+            <Transport c={c} style={transportStyle} peaks={peaks} />
           </div>
         </>
       )}

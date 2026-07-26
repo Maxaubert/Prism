@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { IconFull, IconPause, IconPlay } from './icons'
+import { useWaveform } from '../lib/useWaveform'
+import type { TransportStyle } from '../lib/transport'
 
 // The video player: the shared media hook + Transport, on a black stage with a
 // video frame, an auto-hiding control overlay, click-to-play with a center flash,
@@ -10,12 +12,16 @@ import { IconFull, IconPause, IconPlay } from './icons'
 
 export function VideoView({
   url,
-  onToggleFullscreen
+  onToggleFullscreen,
+  transportStyle
 }: {
   url: string
   onToggleFullscreen: () => void
+  transportStyle: TransportStyle
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const solidBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const [chromeOn, setChromeOn] = useState(true)
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -85,12 +91,14 @@ export function VideoView({
 
       {/* auto-hiding control overlay */}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent pt-10 transition-opacity duration-200 ${
-          chromeOn ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-200 ${
+          solidBg ? 'bg-[#12141b]' : ''
+        } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
       >
         <Transport
           c={c}
+          style={transportStyle}
+          peaks={peaks}
           extra={
             <button
               className="grid place-items-center hover:text-[var(--color-accent-hi)]"

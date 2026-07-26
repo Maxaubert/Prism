@@ -2,6 +2,7 @@ import { useEffect, useRef, type JSX } from 'react'
 import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
+import { getAudioContext } from '../lib/audio'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
@@ -9,11 +10,6 @@ import { analyzeDrops } from '../lib/viz/drops'
 // A MediaElementSource can only ever be created once per element, so it is
 // cached; the AudioContext is shared for the window.
 
-let audioCtx: AudioContext | null = null
-function getAudioContext(): AudioContext {
-  audioCtx ??= new AudioContext()
-  return audioCtx
-}
 const sourceCache = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>()
 function getSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSourceNode {
   let s = sourceCache.get(el)
@@ -190,7 +186,7 @@ export function Visualizer({
           an.getByteFrequencyData(freq)
           an.getByteTimeDomainData(time)
         }
-        const sr = audioCtx ? audioCtx.sampleRate : 44100
+        const sr = getAudioContext().sampleRate
         const binHz = sr / 2048
         const bin = (hz: number): number => Math.max(1, Math.round(hz / binHz))
         frame.sampleRate = sr
