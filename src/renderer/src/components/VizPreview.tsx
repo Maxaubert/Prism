@@ -40,6 +40,12 @@ function band(freq: Uint8Array, from: number, to: number): number {
   return c ? s / c / 255 : 0
 }
 
+// Radial ring styles need the whole square frame; everything else is a
+// left-to-right bar shape we can render wide and crop, so bars read thick and few
+// instead of the full fullscreen count crammed into a short box.
+const RADIAL = new Set(['ripples', 'outline-round', 'solid-round'])
+const ZOOM = 2.6 // how much wider than the box a bar style is rendered before cropping
+
 export function VizPreview({ styleId, theme }: { styleId: string; theme: VizTheme }): JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -55,6 +61,11 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       t: 0, playing: true, sampleRate: 44100
     }
     const opts: VizOpts = { accent: theme.accent, palette: theme.palette, sensitivity: 1, dpr: 1 }
+    // Off-screen canvas the style actually draws into (wider than the box for bar
+    // styles), then the centre is cropped onto the visible canvas.
+    const off = document.createElement('canvas')
+    const octx = off.getContext('2d')
+    if (!octx) return
 
     const paint = (): void => {
       const rect = canvas.getBoundingClientRect()
@@ -66,9 +77,14 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
         canvas.width = W
         canvas.height = H
       }
+      const radial = RADIAL.has(styleId)
+      const OW = radial ? W : Math.round(W * ZOOM) // render width
+      if (off.width !== OW || off.height !== H) {
+        off.width = OW
+        off.height = H
+      }
       const style = styleById(styleId)
-      const draw: DrawFn = style.create(W, H)
-      ctx.clearRect(0, 0, W, H)
+      const draw: DrawFn = style.create(OW, H)
 
       opts.palette = theme.palette
       opts.accent = theme.accent
@@ -78,6 +94,7 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       opts.previewBurst = 0
       opts.dpr = dpr
 
+      octx.clearRect(0, 0, OW, H)
       // Warm up over a few synthetic frames, then stop on the last one.
       for (let f = 0; f <= WARMUP; f++) {
         const t = f * 16
@@ -92,24 +109,28 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
         frame.drop = 0
 
         if (style.trails) {
-          ctx.fillStyle = 'rgba(13,15,20,0.25)'
-          ctx.fillRect(0, 0, W, H)
+          octx.fillStyle = 'rgba(13,15,20,0.25)'
+          octx.fillRect(0, 0, OW, H)
         } else {
-          ctx.clearRect(0, 0, W, H)
+          octx.clearRect(0, 0, OW, H)
         }
-        ctx.save()
-        if (theme.alpha != null) ctx.globalAlpha = theme.alpha
-        if (theme.glow) {
-          ctx.shadowColor = theme.accent
-          ctx.shadowBlur = theme.glow * dpr
-        }
+        octx.save()
+        if (theme.alpha != null) octx.globalAlpha = theme.alpha
+        // No glow in previews: it blooms rings into a solid ball and washes out
+        // bar shapes. Colour/glow is chosen separately; the picker shows shape.
         try {
-          draw(ctx, W, H, frame, opts)
+          draw(octx, OW, H, frame, opts)
         } catch {
           break
         }
-        ctx.restore()
+        octx.restore()
       }
+
+      // Crop the centre of the (wider) render onto the visible canvas 1:1, so bars
+      // keep their thicker off-screen width instead of being scaled back down.
+      ctx.clearRect(0, 0, W, H)
+      const sx = Math.round((OW - W) / 2)
+      ctx.drawImage(off, sx, 0, W, H, 0, 0, W, H)
     }
 
     // Paint once laid out, and re-paint (still static) whenever the box resizes.

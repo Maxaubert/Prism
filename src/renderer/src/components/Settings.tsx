@@ -191,7 +191,7 @@ function VisualizerTab(): JSX.Element {
         const on = isActivePreset(p, v)
         return (
           <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-            <div className="h-[74px] w-full overflow-hidden rounded-md">
+            <div className="h-[104px] w-full overflow-hidden rounded-md">
               <VizPreview styleId={p.style} theme={themeById(p.theme ?? DEFAULT_THEME_ID)} />
             </div>
             <TileFooter name={p.name} on={on} />
