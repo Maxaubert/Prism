@@ -12,14 +12,15 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
   const acc = 'var(--color-accent-hi)'
   const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[#0e1016]'
   const dot = <span className="h-2 w-2 rounded-full bg-white/70" />
+  // Full-width waveform, like the real transport (bars flex to fill the card).
   const bars = (n: number, h: number, gap: string, bold = false): JSX.Element => (
-    <div className={`flex items-end ${gap}`}>
+    <div className={`flex w-full items-center ${gap}`}>
       {Array.from({ length: n }).map((_, i) => (
         <span
           key={i}
-          className="w-[3px] rounded-[1px]"
+          className="flex-1 rounded-[1px]"
           style={{
-            height: `${(bold ? h : h * 0.8) * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.7)))}px`,
+            height: `${(bold ? h : h * 0.85) * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.19)))}px`,
             background: i / n < 0.42 ? acc : 'rgba(255,255,255,.22)'
           }}
         />
@@ -51,7 +52,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
         </div>
       )
     case 'wave':
-      return <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}><div className="h-4">{bars(30, 16, 'gap-[1.5px]')}</div><div className="flex gap-1.5">{dot}{dot}</div></div>
+      return <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}><div className="h-4">{bars(52, 16, 'gap-[1.5px]')}</div><div className="flex gap-1.5">{dot}{dot}</div></div>
     case 'outline':
       return (
         <div className={box}>
@@ -77,9 +78,9 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       )
     case 'wavebold':
       return (
-        <div className={box}>
-          <div className="absolute inset-x-2 top-1.5 h-5">{bars(24, 20, 'gap-[2px]', true)}</div>
-          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--color-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
+        <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}>
+          <div className="h-5">{bars(40, 20, 'gap-[2px]', true)}</div>
+          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--color-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
         </div>
       )
     case 'slim':
