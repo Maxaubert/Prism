@@ -87,13 +87,20 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
         canvas.height = H
       }
       const radial = RADIAL.has(styleId)
-      const OW = radial ? W : Math.round(W * ZOOM) // render width
-      if (off.width !== OW || off.height !== H) {
+      // Whole-frame styles are supersampled (crisp thin lines when downscaled);
+      // bar styles are rendered wide and cropped so bars read thick and few.
+      const ss = radial ? 2 : 1
+      // The ring packs ~150 rays; at thumbnail size long rays merge into a solid
+      // ball, so shorten them to keep a delicate ring outline.
+      const ampScale = styleId === 'ripples' ? 0.5 : 1
+      const OW = radial ? W * ss : Math.round(W * ZOOM)
+      const OH = H * ss
+      if (off.width !== OW || off.height !== OH) {
         off.width = OW
-        off.height = H
+        off.height = OH
       }
       const style = styleById(styleId)
-      const draw: DrawFn = style.create(OW, H)
+      const draw: DrawFn = style.create(OW, OH)
 
       opts.palette = theme.palette
       opts.accent = theme.accent
@@ -103,11 +110,12 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       opts.previewBurst = 0
       opts.dpr = dpr
 
-      octx.clearRect(0, 0, OW, H)
+      octx.clearRect(0, 0, OW, OH)
       // Warm up over a few synthetic frames, then stop on the last one.
       for (let f = 0; f <= WARMUP; f++) {
         const t = f * 16
         synth(freq, time, t)
+        if (ampScale !== 1) for (let i = 0; i < freq.length; i++) freq[i] = freq[i] * ampScale
         frame.t = t
         frame.playing = true
         frame.bass = band(freq, 0, 40)
@@ -119,27 +127,34 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
 
         if (style.trails) {
           octx.fillStyle = 'rgba(13,15,20,0.25)'
-          octx.fillRect(0, 0, OW, H)
+          octx.fillRect(0, 0, OW, OH)
         } else {
-          octx.clearRect(0, 0, OW, H)
+          octx.clearRect(0, 0, OW, OH)
         }
         octx.save()
         if (theme.alpha != null) octx.globalAlpha = theme.alpha
         // No glow in previews: it blooms rings into a solid ball and washes out
         // bar shapes. Colour/glow is chosen separately; the picker shows shape.
         try {
-          draw(octx, OW, H, frame, opts)
+          draw(octx, OW, OH, frame, opts)
         } catch {
           break
         }
         octx.restore()
       }
 
-      // Crop the centre of the (wider) render onto the visible canvas 1:1, so bars
-      // keep their thicker off-screen width instead of being scaled back down.
       ctx.clearRect(0, 0, W, H)
-      const sx = Math.round((OW - W) / 2)
-      ctx.drawImage(off, sx, 0, W, H, 0, 0, W, H)
+      if (radial) {
+        // Downscale the supersampled render for crisp, thin lines.
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(off, 0, 0, OW, OH, 0, 0, W, H)
+      } else {
+        // Crop the centre of the wider render 1:1, so bars keep their thicker
+        // off-screen width instead of being scaled back down.
+        const sx = Math.round((OW - W) / 2)
+        ctx.drawImage(off, sx, 0, W, H, 0, 0, W, H)
+      }
     }
 
     // Paint once laid out, and re-paint (still static) whenever the box resizes.
