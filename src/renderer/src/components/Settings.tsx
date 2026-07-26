@@ -1,10 +1,10 @@
-import { useEffect, type JSX } from 'react'
-import { TRANSPORT_STYLES, type TransportStyle } from '../lib/transport'
+import { useEffect, useState, type JSX, type ReactNode } from 'react'
+import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 
-// The app-wide Settings window: a pop-up overlay opened from the title-bar gear.
-// It's built as a stack of sections so more style settings (visualizer style,
-// colour scheme, progress-bar colour, …) drop in over time. For now it houses the
-// progress-bar (transport) style picker.
+// The app-wide Settings window: a large pop-up with a left tab rail and a content
+// pane, so it reads like a real settings page and grows section by section. Today
+// the Progress bar (transport) tab is live; the others are placeheld for the
+// visualizer, colour, and app settings that land next.
 
 /** A small schematic of each transport style, so the picker previews the shape
  *  without spinning up a real player. */
@@ -12,7 +12,6 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
   const acc = 'var(--color-accent-hi)'
   const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[#0e1016]'
   const dot = <span className="h-2 w-2 rounded-full bg-white/70" />
-  // Full-width waveform, like the real transport (bars flex to fill the card).
   const bars = (n: number, h: number, gap: string, bold = false): JSX.Element => (
     <div className={`flex w-full items-center ${gap}`}>
       {Array.from({ length: n }).map((_, i) => (
@@ -89,6 +88,58 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
   }
 }
 
+/* ---------- tabs ---------- */
+
+type TabId = 'player' | 'visualizer' | 'colours' | 'about'
+
+const Ico = ({ d }: { d: string }): JSX.Element => (
+  <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d={d} />
+  </svg>
+)
+
+const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
+  {
+    id: 'player',
+    label: 'Progress bar',
+    title: 'Progress bar',
+    desc: "The look of the player's transport. Colour is a separate setting (coming soon).",
+    icon: <Ico d="M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
+  },
+  {
+    id: 'visualizer',
+    label: 'Visualizer',
+    title: 'Visualizer',
+    desc: 'Style, drop effect, and framing for the audio visualizer.',
+    icon: <Ico d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
+  },
+  {
+    id: 'colours',
+    label: 'Colours',
+    title: 'Colours',
+    desc: 'Accent, colour scheme, and the progress-bar colour.',
+    icon: <Ico d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18" />
+  },
+  {
+    id: 'about',
+    label: 'About',
+    title: 'About Prism',
+    desc: '',
+    icon: <Ico d="M12 8h.01M11 12h1v4h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z" />
+  }
+]
+
+function ComingSoon({ desc }: { desc: string }): JSX.Element {
+  return (
+    <div className="grid h-full min-h-[240px] place-items-center text-center">
+      <div>
+        <div className="text-[13px] font-semibold text-[var(--color-dim)]">Coming soon</div>
+        {desc && <p className="mx-auto mt-1 max-w-[42ch] text-[12.5px] text-[var(--color-dim2,#6b7080)]">{desc}</p>}
+      </div>
+    </div>
+  )
+}
+
 export function Settings({
   open,
   onClose,
@@ -100,6 +151,8 @@ export function Settings({
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
+  const [tab, setTab] = useState<TabId>('player')
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
@@ -113,51 +166,99 @@ export function Settings({
   }, [open, onClose])
 
   if (!open) return null
+  const active = TABS.find((t) => t.id === tab) ?? TABS[0]
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6 backdrop-blur-[1px]" onMouseDown={onClose}>
       <div
-        className="flex max-h-[82vh] w-full max-w-[600px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#171a23] shadow-2xl"
+        className="flex h-[min(720px,90vh)] w-[min(1040px,94vw)] overflow-hidden rounded-2xl border border-white/10 bg-[#12141b] shadow-[0_40px_120px_rgba(0,0,0,.6)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-white/[.07] px-5 py-3.5">
-          <h2 className="text-[15px] font-semibold text-white">Settings</h2>
-          <button
-            className="grid h-8 w-8 place-items-center rounded-lg text-[var(--color-dim)] hover:bg-white/10 hover:text-white"
-            onClick={onClose}
-            aria-label="Close settings"
-          >
-            ✕
-          </button>
-        </div>
+        {/* tab rail */}
+        <aside className="flex w-[216px] shrink-0 flex-col border-r border-white/[.06] bg-[#0e1016] p-3">
+          <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-white">Settings</div>
+          <nav className="flex flex-col gap-0.5">
+            {TABS.map((t) => {
+              const on = t.id === tab
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition ${
+                    on
+                      ? 'bg-[var(--color-accent)]/18 text-white'
+                      : 'text-[var(--color-dim)] hover:bg-white/[.05] hover:text-white'
+                  }`}
+                >
+                  <span className={on ? 'text-[var(--color-accent-hi)]' : ''}>{t.icon}</span>
+                  {t.label}
+                </button>
+              )
+            })}
+          </nav>
+          <div className="mt-auto px-2 pb-1 text-[11px] text-[var(--color-dim2,#6b7080)]">Prism</div>
+        </aside>
 
-        <div className="overflow-y-auto px-5 py-4">
-          <section>
-            <div className="mb-0.5 text-[13px] font-semibold text-white">Progress bar</div>
-            <p className="mb-3 text-[12px] text-[var(--color-dim)]">The look of the player's transport. Colour is a separate setting (coming soon).</p>
-            <div className="grid grid-cols-2 gap-2.5">
-              {TRANSPORT_STYLES.map((s) => {
-                const active = s.id === transportStyle
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => onPickTransport(s.id)}
-                    className={`flex flex-col gap-2 rounded-xl border p-2.5 text-left transition ${
-                      active
-                        ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
-                        : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
-                    }`}
-                  >
-                    <Mini id={s.id} />
-                    <div className="flex items-baseline justify-between">
-                      <span className={`text-[12.5px] font-semibold ${active ? 'text-white' : 'text-[#d7dae1]'}`}>{s.name}</span>
-                      {active && <span className="text-[10px] font-semibold text-[var(--color-accent-hi)]">Selected</span>}
-                    </div>
-                  </button>
-                )
-              })}
+        {/* content */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex items-start justify-between gap-4 border-b border-white/[.06] px-6 py-4">
+            <div className="min-w-0">
+              <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
+              {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
             </div>
-          </section>
+            <button
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-dim)] hover:bg-white/10 hover:text-white"
+              onClick={onClose}
+              aria-label="Close settings"
+            >
+              ✕
+            </button>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            {tab === 'player' ? (
+              <div className="flex flex-col gap-6">
+                {TRANSPORT_GROUPS.map((g) => {
+                  const items = TRANSPORT_STYLES.filter((s) => s.group === g)
+                  if (!items.length) return null
+                  return (
+                    <div key={g}>
+                      <div className="mb-2.5 text-[11px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim)]">{g}</div>
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {items.map((s) => {
+                          const on = s.id === transportStyle
+                          return (
+                            <button
+                              key={s.id}
+                              onClick={() => onPickTransport(s.id)}
+                              className={`flex flex-col gap-2 rounded-xl border p-2.5 text-left transition ${
+                                on
+                                  ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
+                                  : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
+                              }`}
+                            >
+                              <Mini id={s.id} />
+                              <div className="flex items-baseline justify-between">
+                                <span className={`text-[12.5px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{s.name}</span>
+                                {on && <span className="text-[10px] font-semibold text-[var(--color-accent-hi)]">Selected</span>}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : tab === 'about' ? (
+              <div className="max-w-[46ch] text-[13px] leading-relaxed text-[var(--color-dim)]">
+                <div className="mb-1 text-[15px] font-semibold text-white">Prism</div>
+                A sleek media viewer — audio visualizer, video, and images in one dark, chrome-light window.
+              </div>
+            ) : (
+              <ComingSoon desc={active.desc} />
+            )}
+          </div>
         </div>
       </div>
     </div>
