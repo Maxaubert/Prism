@@ -85,7 +85,7 @@ export function VideoView({
 
       {/* auto-hiding control overlay */}
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-4 pb-3 pt-10 transition-opacity duration-200 ${
+        className={`pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent pt-10 transition-opacity duration-200 ${
           chromeOn ? 'opacity-100' : 'opacity-0'
         }`}
       >

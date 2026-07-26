@@ -40,25 +40,26 @@ export function Transport({ c, extra }: { c: MediaControls; extra?: ReactNode })
 
   return (
     <div className="pointer-events-auto w-full">
-      {/* scrubber */}
+      {/* scrubber — full-bleed, sits as the top edge of the transport, with the
+          track pinned to the top so the whole bar can stay slim */}
       <div
         ref={barRef}
-        className="group/bar relative mb-2 h-4 cursor-pointer"
+        className="group/bar relative h-2.5 cursor-pointer"
         onPointerDown={onBarDown}
         onMouseMove={(e) => setHoverX(barFraction(e.clientX))}
         onMouseLeave={() => setHoverX(null)}
       >
-        <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-white/25 transition-[height] group-hover/bar:h-[5px]">
+        <div className="absolute inset-x-0 top-0 h-[3px] rounded-full bg-white/25 transition-[height] group-hover/bar:h-[5px]">
           <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
           <div className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-accent-hi)]" style={{ width: `${pct}%` }} />
         </div>
         <div
-          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
+          className="absolute top-[1.5px] h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
           style={{ left: `${pct}%` }}
         />
         {hoverX != null && dur > 0 && (
           <div
-            className="pointer-events-none absolute bottom-4 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-white"
+            className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-white"
             style={{ left: `${hoverX * 100}%` }}
           >
             {formatTime(hoverX * dur)}
@@ -67,7 +68,7 @@ export function Transport({ c, extra }: { c: MediaControls; extra?: ReactNode })
       </div>
 
       {/* buttons row */}
-      <div className="flex items-center gap-3 text-white">
+      <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-white">
         <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.togglePlay} title="Play/Pause (Space)">
           {playing ? IconPause : IconPlay}
         </button>

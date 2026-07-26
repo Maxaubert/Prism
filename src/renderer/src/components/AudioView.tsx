@@ -638,10 +638,10 @@ export function AudioView({
             )}
           </div>
 
-          {/* transport overlays the bottom edge; in fullscreen it slides out of
-              view when the chrome auto-hides, like a video player's controls */}
+          {/* transport overlays the bottom edge; the scrub line is its top edge.
+              In fullscreen it slides out of view when the chrome auto-hides. */}
           <div
-            className={`absolute inset-x-0 bottom-0 z-10 border-t border-white/[.06] bg-[#12141b] px-4 py-3 transition-transform duration-300 ${
+            className={`absolute inset-x-0 bottom-0 z-10 bg-[#12141b] transition-transform duration-300 ${
               chromeVisible ? 'translate-y-0' : 'translate-y-full'
             }`}
           >
