@@ -134,7 +134,6 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       // The ring packs ~150 rays, so supersample it harder: the rays downscale
       // thinner than their spacing, leaving gaps (a ring of spikes, not a disc).
       const ss = radial ? (styleId === 'ripples' ? 4 : 2) : 1
-      const ampScale = styleId === 'ripples' ? 0.65 : 1
       const OW = radial ? W * ss : Math.round(W * ZOOM)
       const OH = H * ss
       const off = document.createElement('canvas')
@@ -150,8 +149,17 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       const freq = new Uint8Array(1024)
       const time = new Uint8Array(2048).fill(128)
       synth(freq, time)
-      if (ampScale !== 1) for (let i = 0; i < freq.length; i++) freq[i] = freq[i] * ampScale
-      if (styleId === 'mirror-caps') blurCaps(freq, new Float32Array(freq.length))
+      if (styleId === 'ripples') {
+        // Cancel the ring's built-in treble tilt (its `1 + frac*TILT`, TILT 2.1,
+        // over a `pow(frac,1.5)` bin spread) so every ray comes out the SAME
+        // length - a clean, uniform ring instead of a scalloped one.
+        for (let b = 0; b < freq.length; b++) {
+          const frac = Math.min(1, Math.pow(Math.max(0, b - 2) / 430, 2 / 3))
+          freq[b] = clamp(Math.round(Math.pow(1 / (1 + frac * 2.1), 1 / 2.1) * 255), 0, 255)
+        }
+      } else if (styleId === 'mirror-caps') {
+        blurCaps(freq, new Float32Array(freq.length))
+      }
 
       const frame: AudioFrame = {
         freq, time, bass: band(freq, 0, 40), mid: band(freq, 40, 300), treble: band(freq, 300, 700),
