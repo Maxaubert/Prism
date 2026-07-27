@@ -182,11 +182,11 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
 
 function VisualizerTab(): JSX.Element {
   const v = useViz()
-  // Each style shows a live mini preview (the real draw function on synthetic
-  // motion), so the picker looks exactly like the visualizer it selects. Framing
-  // and drop-effect tuning live in the in-canvas gear panel, not here.
+  // Each style shows a simple schematic mockup of its shape. The cards have a
+  // minimum size and reflow into new rows as the window narrows, so a preview
+  // never shrinks below a readable size.
   return (
-    <div className="grid grid-cols-3 gap-2.5">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-2.5">
       {v.presets.map((p) => {
         const on = isActivePreset(p, v)
         return (

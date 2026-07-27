@@ -25,8 +25,19 @@ const bw = step * 0.62
 const cxOf = (i: number): number => X0 + (i + 0.5) * step
 
 // Which archetype each style id draws as.
-type Kind = 'bars' | 'outline' | 'mirror' | 'mirrorOutline' | 'caps' | 'lines' | 'grid' | 'wave' | 'ring'
-const KIND: Record<string, { kind: Kind; ring?: 'uniform' | 'thin' | 'thick' }> = {
+type Kind =
+  | 'bars'
+  | 'outline'
+  | 'mirror'
+  | 'mirrorOutline'
+  | 'caps'
+  | 'lines'
+  | 'grid'
+  | 'wave'
+  | 'ring'
+  | 'roundOutline'
+  | 'roundSolid'
+const KIND: Record<string, { kind: Kind }> = {
   'solid-bars': { kind: 'bars' },
   'outline-bars': { kind: 'outline' },
   'chrome-bars': { kind: 'mirror' },
@@ -36,9 +47,9 @@ const KIND: Record<string, { kind: Kind; ring?: 'uniform' | 'thin' | 'thick' }> 
   'clean-wall': { kind: 'grid' },
   segments: { kind: 'grid' },
   liquid: { kind: 'wave' },
-  ripples: { kind: 'ring', ring: 'uniform' },
-  'outline-round': { kind: 'ring', ring: 'thin' },
-  'solid-round': { kind: 'ring', ring: 'thick' }
+  ripples: { kind: 'ring' },
+  'outline-round': { kind: 'roundOutline' }, // "round" = rounded-top (capsule) bars
+  'solid-round': { kind: 'roundSolid' }
 }
 
 function bars(g: string, outline: boolean): JSX.Element[] {
@@ -55,6 +66,27 @@ function bars(g: string, outline: boolean): JSX.Element[] {
         fill={outline ? 'none' : g}
         stroke={outline ? g : 'none'}
         strokeWidth={outline ? 1.2 : 0}
+      />
+    )
+  })
+}
+
+// Bars with a semicircular (capsule) top and flat base — the "Round" styles.
+function roundedBars(g: string, outline: boolean): JSX.Element[] {
+  const r = bw / 2
+  return P.map((h, i) => {
+    const x = cxOf(i) - bw / 2
+    const hh = Math.max(bw + 1, h * MAXH)
+    const top = BASE - hh
+    const d = `M ${x} ${BASE} L ${x} ${top + r} A ${r} ${r} 0 0 1 ${x + bw} ${top + r} L ${x + bw} ${BASE} Z`
+    return (
+      <path
+        key={i}
+        d={d}
+        fill={outline ? 'none' : g}
+        stroke={outline ? g : 'none'}
+        strokeWidth={outline ? 1.3 : 0}
+        strokeLinejoin="round"
       />
     )
   })
@@ -128,15 +160,14 @@ function wave(g: string): JSX.Element {
   return <path d={d} fill={g} />
 }
 
-function ring(g: string, variant: 'uniform' | 'thin' | 'thick'): JSX.Element[] {
+function ring(g: string): JSX.Element[] {
   const NR = 46
   const cx = 60
   const cy = CY
   const rIn = 12
+  const len = 8.5 // uniform ray length (Halo)
   return Array.from({ length: NR }, (_, k) => {
     const ang = (k / NR) * Math.PI * 2 - Math.PI / 2
-    const h = variant === 'uniform' ? 0.7 : 0.35 + 0.65 * P[k % N]
-    const len = 4 + h * 7
     const c = Math.cos(ang)
     const s = Math.sin(ang)
     return (
@@ -147,8 +178,8 @@ function ring(g: string, variant: 'uniform' | 'thin' | 'thick'): JSX.Element[] {
         x2={cx + c * (rIn + len)}
         y2={cy + s * (rIn + len)}
         stroke={g}
-        strokeWidth={variant === 'thick' ? 1.9 : 1.1}
-        strokeLinecap={variant === 'thick' ? 'butt' : 'round'}
+        strokeWidth={1.1}
+        strokeLinecap="round"
       />
     )
   })
@@ -184,7 +215,13 @@ export function VizPreview({ styleId }: { styleId: string }): JSX.Element {
       content = wave(g)
       break
     case 'ring':
-      content = ring(g, spec.ring ?? 'uniform')
+      content = ring(g)
+      break
+    case 'roundOutline':
+      content = roundedBars(g, true)
+      break
+    case 'roundSolid':
+      content = roundedBars(g, false)
       break
     case 'bars':
     default:
