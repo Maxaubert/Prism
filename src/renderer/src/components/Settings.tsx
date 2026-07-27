@@ -7,11 +7,13 @@ import {
   visibleThemes,
   applyPreset,
   setTheme,
-  setBar,
   setGlow,
   setCycle,
   setMove,
-  BAR_COLORS,
+  setBarTheme,
+  setBarGlow,
+  setBarCycle,
+  setBarMove,
   type Preset,
   type VizState
 } from '../lib/vizStore'
@@ -158,6 +160,7 @@ function isActivePreset(p: Preset, v: VizState): boolean {
 /* ---------- tab bodies ---------- */
 
 function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: TransportStyle; onPickTransport: (s: TransportStyle) => void }): JSX.Element {
+  const v = useViz()
   return (
     <div className="flex flex-col gap-6">
       {TRANSPORT_GROUPS.map((g) => {
@@ -179,8 +182,17 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           </Section>
         )
       })}
-      <Section title="Colour" hint="the played-progress fill">
-        <BarColourPicker />
+      <Section title="Colour" hint="scheme + effects for the progress bar">
+        <ColourControls
+          selectedId={v.barTheme}
+          onPick={setBarTheme}
+          glow={v.barGlow}
+          cycle={v.barCycle}
+          move={v.barMove}
+          onGlow={setBarGlow}
+          onCycle={setBarCycle}
+          onMove={setBarMove}
+        />
       </Section>
     </div>
   )
@@ -208,13 +220,16 @@ function VisualizerTab(): JSX.Element {
         </div>
       </Section>
       <Section title="Colour" hint="scheme + effects; recolours every shape">
-        <div className="flex flex-col gap-4">
-          <SchemePicker />
-          <div>
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">Effects</div>
-            <EffectToggles />
-          </div>
-        </div>
+        <ColourControls
+          selectedId={v.theme}
+          onPick={setTheme}
+          glow={v.glow}
+          cycle={v.cycle}
+          move={v.move}
+          onGlow={setGlow}
+          onCycle={setCycle}
+          onMove={setMove}
+        />
       </Section>
     </div>
   )
@@ -227,19 +242,33 @@ function colourCategory(t: VizTheme): string {
 }
 const COLOUR_ORDER = ['Solid', 'Gradient']
 
-// The colour effects, applied on top of any scheme (they all combine).
-function EffectToggles(): JSX.Element {
-  const v = useViz()
-  const toggles: Array<{ id: string; label: string; on: boolean; set: (b: boolean) => void }> = [
-    { id: 'glow', label: 'Glow', on: v.glow, set: setGlow },
-    { id: 'cycle', label: 'Cycle', on: v.cycle, set: setCycle },
-    { id: 'move', label: 'Move', on: v.move, set: setMove }
+// The colour effects, applied on top of any scheme (they all combine). Reused for
+// the visualizer and the progress bar, each with its own values + setters.
+function EffectToggles({
+  glow,
+  cycle,
+  move,
+  onGlow,
+  onCycle,
+  onMove
+}: {
+  glow: boolean
+  cycle: boolean
+  move: boolean
+  onGlow: (b: boolean) => void
+  onCycle: (b: boolean) => void
+  onMove: (b: boolean) => void
+}): JSX.Element {
+  const toggles: Array<{ label: string; on: boolean; set: (b: boolean) => void }> = [
+    { label: 'Glow', on: glow, set: onGlow },
+    { label: 'Cycle', on: cycle, set: onCycle },
+    { label: 'Move', on: move, set: onMove }
   ]
   return (
     <div className="flex flex-wrap gap-2">
       {toggles.map((tg) => (
         <button
-          key={tg.id}
+          key={tg.label}
           onClick={() => tg.set(!tg.on)}
           aria-pressed={tg.on}
           className={`rounded-lg border px-3.5 py-1.5 text-[12.5px] font-semibold transition ${
@@ -290,9 +319,9 @@ function Swatches({
   )
 }
 
-// The visualizer colour scheme, split into Solid / Gradient.
-function SchemePicker(): JSX.Element {
-  const v = useViz()
+// A colour-scheme picker (Solid / Gradient), used for both the visualizer and the
+// progress bar with their own selection.
+function SchemePicker({ selectedId, onPick }: { selectedId: string; onPick: (id: string) => void }): JSX.Element {
   const themes = visibleThemes()
   return (
     <div className="flex flex-col gap-3">
@@ -308,8 +337,8 @@ function SchemePicker(): JSX.Element {
                 name: t.name,
                 fill: t.palette.length > 1 ? `linear-gradient(90deg, ${t.palette.join(', ')})` : t.palette[0]
               }))}
-              selectedId={v.theme}
-              onPick={setTheme}
+              selectedId={selectedId}
+              onPick={onPick}
             />
           </div>
         )
@@ -318,16 +347,34 @@ function SchemePicker(): JSX.Element {
   )
 }
 
-// The player's progress-bar colour (a single accent, incl. "Match theme"), as
-// the same filled swatches as the scheme picker.
-function BarColourPicker(): JSX.Element {
-  const v = useViz()
+// A colour scheme + effect toggles block, shared by the two Colour subsections.
+function ColourControls({
+  selectedId,
+  onPick,
+  glow,
+  cycle,
+  move,
+  onGlow,
+  onCycle,
+  onMove
+}: {
+  selectedId: string
+  onPick: (id: string) => void
+  glow: boolean
+  cycle: boolean
+  move: boolean
+  onGlow: (b: boolean) => void
+  onCycle: (b: boolean) => void
+  onMove: (b: boolean) => void
+}): JSX.Element {
   return (
-    <Swatches
-      items={BAR_COLORS.map((b) => ({ id: b.id, name: b.label, fill: b.value }))}
-      selectedId={v.bar}
-      onPick={setBar}
-    />
+    <div className="flex flex-col gap-4">
+      <SchemePicker selectedId={selectedId} onPick={onPick} />
+      <div>
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">Effects</div>
+        <EffectToggles glow={glow} cycle={cycle} move={move} onGlow={onGlow} onCycle={onCycle} onMove={onMove} />
+      </div>
+    </div>
   )
 }
 

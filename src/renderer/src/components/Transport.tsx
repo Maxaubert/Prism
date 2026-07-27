@@ -3,6 +3,7 @@ import { formatTime } from '../lib/format'
 import { RATES, type MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
 import type { TransportStyle } from '../lib/transport'
+import { paletteAt } from '../lib/viz/core'
 
 // The transport bar shared by every player. One of ten shapes (chosen in
 // Settings) draws the same set of controls — a scrub bar with hover-time and
@@ -10,9 +11,17 @@ import type { TransportStyle } from '../lib/transport'
 // a speed menu. `extra` slots a view-specific control on the right (the video
 // player passes its fullscreen button). `peaks` feeds the waveform shapes.
 //
-// The played progress fill uses the --color-bar token (its own axis, set per
-// player from the Settings progress-bar colour); the controls use
+// The played progress fill is coloured by its own scheme + effects (`bar`), the
+// same colour system as the visualizer but picked independently; the controls use
 // --color-accent-hi.
+
+/** The progress bar's colour scheme + effect toggles (picked in Settings). */
+export interface BarFx {
+  palette: string[]
+  glow: boolean
+  cycle: boolean
+  move: boolean
+}
 
 type ScrubLook =
   | { kind: 'line'; h: number; glow?: boolean; top?: boolean }
@@ -25,11 +34,13 @@ function Scrubber({
   c,
   look,
   peaks,
+  bar,
   className = ''
 }: {
   c: MediaControls
   look: ScrubLook
   peaks: number[]
+  bar: BarFx
   className?: string
 }): JSX.Element {
   const barRef = useRef<HTMLDivElement>(null)
@@ -37,6 +48,14 @@ function Scrubber({
   const { cur, dur, buffered } = c
   const pct = dur > 0 ? (cur / dur) * 100 : 0
   const bufPct = dur > 0 ? (buffered / dur) * 100 : 0
+
+  // Colour the played fill by the scheme + effects. Move scrolls a cyclic
+  // gradient; cycle rotates the hue (a CSS filter animation); glow adds bloom.
+  const grad = bar.palette.length > 1 ? `linear-gradient(90deg, ${(bar.move ? [...bar.palette, bar.palette[0]] : bar.palette).join(', ')})` : bar.palette[0]
+  const glowColor = bar.palette[bar.palette.length - 1]
+  const lineAnim = [bar.cycle && 'bar-hue 9s linear infinite', bar.move && 'bar-slide 6s linear infinite'].filter(Boolean).join(', ') || undefined
+  const groupAnim = bar.cycle ? 'bar-hue 9s linear infinite' : undefined
+  const barAt = (frac: number): string => paletteAt(bar.palette, frac)
 
   const frac = (clientX: number): number => {
     const el = barRef.current
@@ -82,8 +101,14 @@ function Scrubber({
           >
             <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-bar)]"
-              style={{ width: `${pct}%`, boxShadow: look.glow ? '0 0 9px var(--color-bar)' : undefined }}
+              className="absolute inset-y-0 left-0 rounded-full"
+              style={{
+                width: `${pct}%`,
+                background: grad,
+                backgroundSize: bar.move ? '200% 100%' : undefined,
+                boxShadow: bar.glow || look.glow ? `0 0 9px ${glowColor}` : undefined,
+                animation: lineAnim
+              }}
             />
           </div>
           <div
@@ -94,29 +119,38 @@ function Scrubber({
       )}
 
       {look.kind === 'wave' && (
-        <div className="flex h-full items-center gap-[2px]">
-          {(peaks.length ? peaks : FALLBACK_WAVE).map((p, i, arr) => (
-            <div
-              key={i}
-              className="flex-1 rounded-[1px]"
-              style={{
-                height: `${(look.bold ? 22 : 16) * p + (look.bold ? 8 : 5)}px`,
-                background: (i / arr.length) * 100 <= pct ? 'var(--color-bar)' : 'rgba(255,255,255,.2)'
-              }}
-            />
-          ))}
+        <div className="flex h-full items-center gap-[2px]" style={{ animation: groupAnim }}>
+          {(peaks.length ? peaks : FALLBACK_WAVE).map((p, i, arr) => {
+            const played = (i / arr.length) * 100 <= pct
+            const col = played ? barAt(i / arr.length) : 'rgba(255,255,255,.2)'
+            return (
+              <div
+                key={i}
+                className="flex-1 rounded-[1px]"
+                style={{
+                  height: `${(look.bold ? 22 : 16) * p + (look.bold ? 8 : 5)}px`,
+                  background: col,
+                  boxShadow: played && bar.glow ? `0 0 4px ${col}` : undefined
+                }}
+              />
+            )
+          })}
         </div>
       )}
 
       {look.kind === 'seg' && (
-        <div className="flex h-full items-center gap-[3px]">
-          {SEG.map((_, i) => (
-            <div
-              key={i}
-              className="h-1.5 flex-1 rounded-[2px]"
-              style={{ background: (i / SEG.length) * 100 <= pct ? 'var(--color-bar)' : 'rgba(255,255,255,.14)' }}
-            />
-          ))}
+        <div className="flex h-full items-center gap-[3px]" style={{ animation: groupAnim }}>
+          {SEG.map((_, i) => {
+            const lit = (i / SEG.length) * 100 <= pct
+            const col = lit ? barAt(i / SEG.length) : 'rgba(255,255,255,.14)'
+            return (
+              <div
+                key={i}
+                className="h-1.5 flex-1 rounded-[2px]"
+                style={{ background: col, boxShadow: lit && bar.glow ? `0 0 4px ${col}` : undefined }}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -217,11 +251,13 @@ export function Transport({
   c,
   style,
   peaks,
+  bar,
   extra
 }: {
   c: MediaControls
   style: TransportStyle
   peaks: number[]
+  bar: BarFx
   extra?: ReactNode
 }): JSX.Element {
   // The standard control row shared by most styles.
@@ -251,14 +287,14 @@ export function Transport({
       return (
         <div className="pointer-events-auto w-full bg-gradient-to-t from-black/80 to-transparent px-4 pb-0 pt-10">
           <div className="mb-3 px-0">{stdRow}</div>
-          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} className="h-[2px]" />
+          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} bar={bar} className="h-[2px]" />
         </div>
       )
 
     case 'pill':
       return (
         <div className="pointer-events-auto w-full px-4 pb-2.5 pt-2.5">
-          <Scrubber c={c} look={{ kind: 'line', h: 8, top: true }} peaks={peaks} className="mb-3 h-3" />
+          <Scrubber c={c} look={{ kind: 'line', h: 8, top: true }} peaks={peaks} bar={bar} className="mb-3 h-3" />
           {stdRow}
         </div>
       )
@@ -268,7 +304,7 @@ export function Transport({
         <div className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-white">
           <PlayBtn c={c} />
           <span className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
-          <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} className="h-3.5 flex-1" />
+          <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3.5 flex-1" />
           <span className="tabular-nums text-[12.5px] text-white/50">{formatTime(c.dur)}</span>
           <VolHover c={c} />
           <Speed c={c} />
@@ -281,7 +317,7 @@ export function Transport({
         <div className="pointer-events-none flex w-full justify-center pb-4">
           <div className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-white/10 bg-[#14161e]/75 px-4 py-2.5 text-white shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md">
             <PlayBtn c={c} />
-            <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} className="h-3 w-40" />
+            <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3 w-40" />
             <Time c={c} />
             <Speed c={c} />
             {extra}
@@ -292,7 +328,7 @@ export function Transport({
     case 'wave':
       return (
         <div className="pointer-events-auto w-full px-4 pb-2.5 pt-1.5">
-          <Scrubber c={c} look={{ kind: 'wave' }} peaks={peaks} className="mb-1.5 h-[38px]" />
+          <Scrubber c={c} look={{ kind: 'wave' }} peaks={peaks} bar={bar} className="mb-1.5 h-[38px]" />
           {stdRow}
         </div>
       )
@@ -300,7 +336,7 @@ export function Transport({
     case 'outline':
       return (
         <div className="pointer-events-auto w-full bg-gradient-to-t from-[#0d0f14]/90 to-transparent px-4 pb-3.5 pt-8">
-          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} className="mb-3 h-[2px]" />
+          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} bar={bar} className="mb-3 h-[2px]" />
           {stdRow}
         </div>
       )
@@ -308,7 +344,7 @@ export function Transport({
     case 'bold':
       return (
         <div className="pointer-events-auto w-full px-0 pb-0 pt-0">
-          <Scrubber c={c} look={{ kind: 'line', h: 5, top: true }} peaks={peaks} className="h-[5px]" />
+          <Scrubber c={c} look={{ kind: 'line', h: 5, top: true }} peaks={peaks} bar={bar} className="h-[5px]" />
           <div className="px-4 pb-3.5 pt-3">{boldRow}</div>
         </div>
       )
@@ -316,7 +352,7 @@ export function Transport({
     case 'segments':
       return (
         <div className="pointer-events-auto w-full px-4 pb-2.5 pt-2.5">
-          <Scrubber c={c} look={{ kind: 'seg' }} peaks={peaks} className="mb-2.5 h-1.5" />
+          <Scrubber c={c} look={{ kind: 'seg' }} peaks={peaks} bar={bar} className="mb-2.5 h-1.5" />
           {stdRow}
         </div>
       )
@@ -324,7 +360,7 @@ export function Transport({
     case 'wavebold':
       return (
         <div className="pointer-events-auto w-full px-0 pt-1.5">
-          <Scrubber c={c} look={{ kind: 'wave', bold: true }} peaks={peaks} className="h-[50px] px-4" />
+          <Scrubber c={c} look={{ kind: 'wave', bold: true }} peaks={peaks} bar={bar} className="h-[50px] px-4" />
           <div className="px-4 pb-3.5 pt-0.5">{boldRow}</div>
         </div>
       )
@@ -333,7 +369,7 @@ export function Transport({
     default:
       return (
         <div className="pointer-events-auto w-full">
-          <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} className="h-2.5" />
+          <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} bar={bar} className="h-2.5" />
           <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-white">
             <PlayBtn c={c} />
             <VolHover c={c} />

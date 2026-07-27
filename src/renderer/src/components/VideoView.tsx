@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { IconFull, IconPause, IconPlay } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { useViz, barCss } from '../lib/vizStore'
+import { useViz } from '../lib/vizStore'
+import { themeById } from '../lib/viz/styles'
 
 // The video player: the shared media hook + Transport, on a black stage with a
 // video frame, an auto-hiding control overlay, click-to-play with a center flash,
@@ -23,7 +24,8 @@ export function VideoView({
   const video = useRef<HTMLVideoElement>(null)
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const solidBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
-  const bar = barCss(useViz().bar)
+  const v = useViz()
+  const barFx = { palette: themeById(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   const [chromeOn, setChromeOn] = useState(true)
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -96,12 +98,12 @@ export function VideoView({
         className={`pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-200 ${
           solidBg ? 'bg-[#12141b]' : ''
         } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
-        style={bar ? ({ '--color-bar': bar } as CSSProperties) : undefined}
       >
         <Transport
           c={c}
           style={transportStyle}
           peaks={peaks}
+          bar={barFx}
           extra={
             <button
               className="grid place-items-center hover:text-[var(--color-accent-hi)]"

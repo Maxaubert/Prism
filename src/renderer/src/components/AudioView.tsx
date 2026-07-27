@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type JSX, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
@@ -10,7 +10,6 @@ import {
   visibleThemes as visibleThemesOf,
   WIDTHS,
   WIDTH_LABELS,
-  barCss,
   setTheme,
   setHeight,
   setPos,
@@ -75,7 +74,7 @@ export function AudioView({
   const v = useViz()
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
-  const bar = barCss(v.bar)
+  const barFx = { palette: themeById(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -458,15 +457,14 @@ export function AudioView({
           </div>
 
           {/* transport overlays the bottom edge; its shape comes from the chosen
-              style, its progress colour from --color-bar. In fullscreen it slides
-              out of view when the chrome hides. */}
+              style, its colour + effects from the progress-bar scheme. In
+              fullscreen it slides out of view when the chrome hides. */}
           <div
             className={`absolute inset-x-0 bottom-0 z-10 transition-transform duration-300 ${
               transportBg ? 'bg-[#12141b]' : ''
             } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
-            style={bar ? ({ '--color-bar': bar } as CSSProperties) : undefined}
           >
-            <Transport c={c} style={transportStyle} peaks={peaks} />
+            <Transport c={c} style={transportStyle} peaks={peaks} bar={barFx} />
           </div>
         </>
       )}

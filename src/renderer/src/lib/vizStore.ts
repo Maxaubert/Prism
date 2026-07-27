@@ -27,10 +27,13 @@ const K = {
   height: 'prism.viz.height',
   pos: 'prism.viz.pos',
   drop: 'prism.viz.drop',
-  bar: 'prism.viz.barColor',
   glow: 'prism.viz.glow',
   cycle: 'prism.viz.cycle',
   move: 'prism.viz.move',
+  barTheme: 'prism.viz.barTheme',
+  barGlow: 'prism.viz.barGlow',
+  barCycle: 'prism.viz.barCycle',
+  barMove: 'prism.viz.barMove',
   presets: 'prism.viz.presets',
   presetsSeed: 'prism.viz.presetsSeed',
   removed: 'prism.viz.removedThemes'
@@ -75,29 +78,9 @@ export const WIDTH_LABELS: Array<[string, string]> = [
   ['compact', 'Compact']
 ]
 
-// The progress-bar colour is its own axis, independent of the visualizer theme.
-// 'accent' tracks whatever the theme accent is; the rest are fixed swatches.
-export const BAR_COLORS: Array<{ id: string; label: string; value: string }> = [
-  { id: 'accent', label: 'Match theme', value: 'var(--color-accent-hi)' },
-  { id: 'white', label: 'White', value: '#eef1fb' },
-  { id: 'indigo', label: 'Indigo', value: '#7b7bf0' },
-  { id: 'violet', label: 'Violet', value: '#a855f7' },
-  { id: 'magenta', label: 'Magenta', value: '#e83fd0' },
-  { id: 'pink', label: 'Pink', value: '#ff5c9e' },
-  { id: 'coral', label: 'Coral', value: '#ff8a6a' },
-  { id: 'gold', label: 'Gold', value: '#ffb42c' },
-  { id: 'green', label: 'Green', value: '#22c55e' },
-  { id: 'teal', label: 'Teal', value: '#14b8a6' },
-  { id: 'cyan', label: 'Cyan', value: '#22d3ee' },
-  { id: 'sky', label: 'Sky', value: '#38bdf8' }
-]
-export const DEFAULT_BAR_COLOR = 'accent'
-
-/** The CSS value to feed `--color-bar`, or null for 'accent' (inherit the token). */
-export function barCss(id: string): string | null {
-  if (id === 'accent') return null
-  return BAR_COLORS.find((b) => b.id === id)?.value ?? null
-}
+// The progress bar picks from the SAME colour schemes as the visualizer, with its
+// own selection and its own effect toggles (independent of the visualizer's).
+export const DEFAULT_BAR_THEME = DEFAULT_THEME_ID
 
 export interface VizState {
   style: string
@@ -107,11 +90,15 @@ export interface VizState {
   width: string
   logo: boolean
   drop: number
-  bar: string
-  /** Colour effects, applied on top of the chosen scheme (all combine). */
+  /** Colour effects for the visualizer, applied on top of its scheme (all combine). */
   glow: boolean
   cycle: boolean
   move: boolean
+  /** The progress bar's own scheme + effects, independent of the visualizer. */
+  barTheme: string
+  barGlow: boolean
+  barCycle: boolean
+  barMove: boolean
   preview: number
   presets: Preset[]
   removed: string[]
@@ -166,10 +153,13 @@ let state: VizState = {
   width: localStorage.getItem(K.width) || 'full',
   logo: localStorage.getItem(K.logo) === '1',
   drop: num(K.drop, DEFAULT_DROP_STYLE),
-  bar: localStorage.getItem(K.bar) || DEFAULT_BAR_COLOR,
   glow: localStorage.getItem(K.glow) === '1',
   cycle: localStorage.getItem(K.cycle) === '1',
   move: localStorage.getItem(K.move) === '1',
+  barTheme: localStorage.getItem(K.barTheme) || DEFAULT_BAR_THEME,
+  barGlow: localStorage.getItem(K.barGlow) === '1',
+  barCycle: localStorage.getItem(K.barCycle) === '1',
+  barMove: localStorage.getItem(K.barMove) === '1',
   preview: 0,
   presets: loadPresets(),
   removed: loadRemoved()
@@ -214,10 +204,6 @@ export const setDrop = (n: number): void => {
   localStorage.setItem(K.drop, String(n))
   apply({ drop: n })
 }
-export const setBar = (id: string): void => {
-  localStorage.setItem(K.bar, id)
-  apply({ bar: id })
-}
 export const setGlow = (b: boolean): void => {
   localStorage.setItem(K.glow, b ? '1' : '0')
   apply({ glow: b })
@@ -229,6 +215,22 @@ export const setCycle = (b: boolean): void => {
 export const setMove = (b: boolean): void => {
   localStorage.setItem(K.move, b ? '1' : '0')
   apply({ move: b })
+}
+export const setBarTheme = (id: string): void => {
+  localStorage.setItem(K.barTheme, id)
+  apply({ barTheme: id })
+}
+export const setBarGlow = (b: boolean): void => {
+  localStorage.setItem(K.barGlow, b ? '1' : '0')
+  apply({ barGlow: b })
+}
+export const setBarCycle = (b: boolean): void => {
+  localStorage.setItem(K.barCycle, b ? '1' : '0')
+  apply({ barCycle: b })
+}
+export const setBarMove = (b: boolean): void => {
+  localStorage.setItem(K.barMove, b ? '1' : '0')
+  apply({ barMove: b })
 }
 /** Bump the preview counter so a drop effect plays once, right now. */
 export const firePreview = (): void => apply({ preview: state.preview + 1 })
