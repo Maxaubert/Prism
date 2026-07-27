@@ -135,7 +135,11 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       // The ring packs ~150 rays, so supersample it harder: the rays downscale
       // thinner than their spacing, leaving gaps (a ring of spikes, not a disc).
       const ss = radial ? (styleId === 'ripples' ? 4 : 2) : 1
-      const OW = W * ss // bars render native (ss=1); rings supersample
+      // Bar styles render at a FIXED reference width so bar thickness stays
+      // constant across window sizes: a narrow card shows fewer bars (cropped),
+      // a wide one stretches to fill - never a dense thicket of thin slivers.
+      const REF = 820
+      const OW = radial ? W * ss : REF
       const OH = H * ss
       const off = document.createElement('canvas')
       off.width = OW
@@ -193,7 +197,15 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
         ctx.clearRect(0, 0, W, H)
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
-        ctx.drawImage(off, 0, 0, OW, OH, 0, 0, W, H) // 1:1 for bars, downscale for rings
+        if (!radial && W <= OW) {
+          // Crop a centre window of the reference render 1:1 -> constant bar
+          // thickness, fewer bars on a narrow card.
+          ctx.drawImage(off, Math.round((OW - W) / 2), 0, W, H, 0, 0, W, H)
+        } else {
+          // Rings downscale their supersample; a card wider than the reference
+          // stretches the bars to fill.
+          ctx.drawImage(off, 0, 0, OW, OH, 0, 0, W, H)
+        }
       }
 
       let f = 0
