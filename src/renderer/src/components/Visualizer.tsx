@@ -27,18 +27,29 @@ export function Visualizer({
   styleId,
   theme,
   dropStyle,
-  previewBurst
+  previewBurst,
+  glow,
+  cycle,
+  move
 }: {
   media: HTMLMediaElement | null
   styleId: string
   theme: VizTheme
   dropStyle: number
   previewBurst: number
+  glow: boolean
+  cycle: boolean
+  move: boolean
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   // Drop timestamps (seconds) from the offline analysis of the current file.
   const dropTimesRef = useRef<number[]>([])
+  // Colour effect toggles, read live by the draw loop.
+  const fxRef = useRef({ glow, cycle, move })
+  useEffect(() => {
+    fxRef.current = { glow, cycle, move }
+  }, [glow, cycle, move])
   // The draw loop reads the current style + theme + drop variant through refs so
   // switching any of them does not tear down and restart the loop. Synced in
   // effects, since writing to a ref during render is not allowed.
@@ -235,8 +246,8 @@ export function Visualizer({
         opts.palette = th.palette
         opts.accent = th.accent
         opts.vgrad = th.vgrad ?? null
-        opts.cycle = th.cycle ?? null
-        opts.cycleMode = th.cycleMode ?? null
+        opts.cycle = fxRef.current.cycle
+        opts.move = fxRef.current.move
         opts.dropStyle = dropStyleRef.current
         opts.previewBurst = previewRef.current
         opts.dpr = dpr
@@ -251,9 +262,9 @@ export function Visualizer({
         if (draw) {
           ctx.save()
           if (th.alpha != null) ctx.globalAlpha = th.alpha
-          if (th.glow) {
+          if (fxRef.current.glow) {
             ctx.shadowColor = th.accent
-            ctx.shadowBlur = th.glow * dpr
+            ctx.shadowBlur = 12 * dpr
           }
           try {
             draw(ctx, W, H, frame, opts)

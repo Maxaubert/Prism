@@ -7,7 +7,6 @@ import {
   bandValue,
   clamp,
   makeBands,
-  paletteAt,
   bandColor,
   rgba,
   shape,
@@ -117,16 +116,14 @@ function outlineVariation(
           const x = i * slot + (slot - bw) / 2
           const y = base - h
           let col: string | CanvasGradient
-          if (o.cycle) {
-            col = bandColor(o, i / (n - 1), d.t)
-          } else if (o.vgrad) {
+          if (o.vgrad) {
             // Each bar carries the full top->bottom gradient over its own height.
             const g = ctx.createLinearGradient(0, y, 0, base)
             g.addColorStop(0, o.vgrad[0])
             g.addColorStop(1, o.vgrad[1])
             col = g
           } else {
-            col = paletteAt(o.palette, i / (n - 1))
+            col = bandColor(o, i / (n - 1), d.t)
           }
           drawBar(ctx, x, y, bw, h, col, o)
         }
@@ -628,7 +625,7 @@ export const VIZ_STYLES: VizStyle[] = [
         }
         ctx.lineTo(xAt(0), mid + hAt(0)) // close the bottom-left; the notch was here
         ctx.closePath()
-        if (o.cycle) {
+        if (o.cycle || o.move) {
           const gg = ctx.createLinearGradient(0, 0, W, 0)
           for (let s = 0; s <= 6; s++) gg.addColorStop(s / 6, bandColor(o, s / 6, d.t, 0.85))
           ctx.fillStyle = gg
@@ -851,68 +848,44 @@ export function styleById(id: string): VizStyle {
 
 
 // ------------------------------------------------------------------- themes
-// Colour + finish, applied on top of whichever shape a preset selected. Swaps
-// the palette and accent every style already reads, plus an optional global glow
-// or opacity handled by the Visualizer, so one theme recolours every shape.
+// Base COLOUR schemes only - a palette + accent. Finishes (glow) and animation
+// (cycle / move) are separate effect toggles the Visualizer applies on top, so
+// they combine with any scheme instead of being baked into their own entries.
 export const THEMES: VizTheme[] = [
+  // ---- gradients ----
   { id: 'brand', name: 'Brand', blurb: 'Indigo, violet and coral.', palette: P_BRAND, accent: '#7c74f0' },
-  { id: 'neon', name: 'Neon', blurb: 'Electric cyan to magenta, glowing.', palette: P_NEON, accent: '#9a5cff', glow: 12 },
-  { id: 'glow', name: 'Glow', blurb: 'Brand colours with a soft bloom.', palette: P_BRAND, accent: '#8a7cff', glow: 15 },
-  { id: 'gradient', name: 'Gradient', blurb: 'A full spectrum sweep.', palette: P_SPECTRUM, accent: '#9a6cff' },
+  { id: 'gradient', name: 'Spectrum', blurb: 'A full spectrum sweep.', palette: P_SPECTRUM, accent: '#9a6cff' },
   { id: 'rainbow', name: 'Rainbow', blurb: 'Every hue across the bars.', palette: ['#ff4d6d', '#ff9e2c', '#ffe14a', '#5cffa8', '#39c2ff', '#8a5cff'], accent: '#39c2ff' },
-  { id: 'gold', name: 'Gold', blurb: 'Warm yellow into amber.', palette: P_GOLD, accent: '#ffb42c' },
-  { id: 'ice', name: 'Ice', blurb: 'Pale blue into deep sky.', palette: P_ICE, accent: '#5aa0ff' },
-  { id: 'white', name: 'White', blurb: 'Clean monochrome white.', palette: ['#e9edf6', '#ffffff'], accent: '#ffffff' },
-
-  // ---- rich gradients ----
-  { id: 'fire', name: 'Fire', blurb: 'Yellow through orange into deep red.', palette: ['#ffe14a', '#ff8a1a', '#ff3535', '#c01418'], accent: '#ff6a1a', glow: 8 },
+  { id: 'neon', name: 'Neon', blurb: 'Electric cyan to magenta.', palette: P_NEON, accent: '#9a5cff' },
+  { id: 'aurora', name: 'Aurora', blurb: 'Teal, blue and violet.', palette: ['#5cffd0', '#39c2ff', '#8a5cff', '#ff6ac1'], accent: '#5cffd0' },
   { id: 'ocean', name: 'Ocean', blurb: 'Shallows to the deep blue.', palette: ['#9bf6ff', '#38aeff', '#3358d8'], accent: '#22a0ff' },
+  { id: 'ice', name: 'Ice', blurb: 'Pale blue into deep sky.', palette: P_ICE, accent: '#5aa0ff' },
   { id: 'forest', name: 'Forest', blurb: 'Fresh leaf into pine.', palette: ['#c6ff9e', '#3ec46a', '#1c9a4e'], accent: '#3ec46a' },
-  { id: 'toxic', name: 'Toxic', blurb: 'Acid yellow-green, glowing.', palette: ['#eaff6a', '#7dff2c', '#00c853'], accent: '#7dff2c', glow: 10 },
-  { id: 'matrix', name: 'Matrix', blurb: 'Terminal green on black.', palette: ['#39ff14', '#00b30a'], accent: '#39ff14', glow: 10 },
-  { id: 'aurora', name: 'Aurora', blurb: 'Northern-lights teal, blue and violet.', palette: ['#5cffd0', '#39c2ff', '#8a5cff', '#ff6ac1'], accent: '#5cffd0', glow: 8 },
-  { id: 'nebula', name: 'Nebula', blurb: 'Deep violet, magenta and amber.', palette: ['#8b3ff0', '#db2777', '#f59e0b'], accent: '#db2777' },
-  { id: 'ultraviolet', name: 'Ultraviolet', blurb: 'Lilac into deep purple.', palette: ['#e9d5ff', '#b56cff', '#8a3ff0'], accent: '#a855f7', glow: 8 },
-  { id: 'miami', name: 'Miami', blurb: 'Hot cyan and pink.', palette: ['#00e5ff', '#c026d3', '#ff2fd0'], accent: '#ff2fd0', glow: 8 },
+  { id: 'toxic', name: 'Toxic', blurb: 'Acid yellow-green.', palette: ['#eaff6a', '#7dff2c', '#00c853'], accent: '#7dff2c' },
+  { id: 'gold', name: 'Gold', blurb: 'Warm yellow into amber.', palette: P_GOLD, accent: '#ffb42c' },
+  { id: 'fire', name: 'Fire', blurb: 'Yellow through orange into deep red.', palette: ['#ffe14a', '#ff8a1a', '#ff3535', '#c01418'], accent: '#ff6a1a' },
+  { id: 'nebula', name: 'Nebula', blurb: 'Violet, magenta and amber.', palette: ['#8b3ff0', '#db2777', '#f59e0b'], accent: '#db2777' },
+  { id: 'ultraviolet', name: 'Ultraviolet', blurb: 'Lilac into deep purple.', palette: ['#e9d5ff', '#b56cff', '#8a3ff0'], accent: '#a855f7' },
+  { id: 'miami', name: 'Miami', blurb: 'Hot cyan and pink.', palette: ['#00e5ff', '#c026d3', '#ff2fd0'], accent: '#ff2fd0' },
   { id: 'candy', name: 'Candy', blurb: 'Cotton-candy blue and pink.', palette: ['#a0e9ff', '#c0a0ff', '#ffa0e0'], accent: '#ff9ee6' },
 
   // ---- solid colours ----
-  { id: 's-green', name: 'Green', blurb: 'Solid green.', palette: ['#22c55e'], accent: '#22c55e' },
-  { id: 's-teal', name: 'Teal', blurb: 'Solid teal.', palette: ['#14b8a6'], accent: '#14b8a6' },
-  { id: 's-cyan', name: 'Cyan', blurb: 'Solid cyan.', palette: ['#22d3ee'], accent: '#22d3ee' },
-  { id: 's-sky', name: 'Sky', blurb: 'Solid sky blue.', palette: ['#38bdf8'], accent: '#38bdf8' },
-  { id: 's-blue', name: 'Blue', blurb: 'Solid blue.', palette: ['#3b6dff'], accent: '#3b6dff' },
-  { id: 's-indigo', name: 'Indigo', blurb: 'Solid indigo.', palette: ['#6366f1'], accent: '#6366f1' },
-  { id: 's-violet', name: 'Violet', blurb: 'Solid violet.', palette: ['#8b5cf6'], accent: '#8b5cf6' },
-  { id: 's-purple', name: 'Purple', blurb: 'Solid purple.', palette: ['#a855f7'], accent: '#a855f7' },
-  { id: 's-magenta', name: 'Magenta', blurb: 'Solid magenta.', palette: ['#e83fd0'], accent: '#e83fd0' },
-  { id: 's-pink', name: 'Pink', blurb: 'Solid hot pink.', palette: ['#ff5c9e'], accent: '#ff5c9e' },
-  { id: 's-coral', name: 'Coral', blurb: 'Solid coral.', palette: ['#ff8a6a'], accent: '#ff8a6a' },
   { id: 's-crimson', name: 'Crimson', blurb: 'Solid crimson.', palette: ['#e01e4a'], accent: '#e01e4a' },
-
-  // ---- vertical gradients: each bar fades top -> bottom, both directions ----
-  { id: 'v-whiteblack', name: 'White → Black', blurb: 'White tips fading into the floor.', palette: ['#ffffff', '#2a2e3a'], accent: '#cfd4e0', vgrad: ['#ffffff', '#12141b'] },
-  { id: 'v-blackwhite', name: 'Black → White', blurb: 'Dark tips over a bright base.', palette: ['#2a2e3a', '#ffffff'], accent: '#cfd4e0', vgrad: ['#3a3f4d', '#ffffff'] },
-  { id: 'v-yellowred', name: 'Yellow → Red', blurb: 'Yellow tips over a red base.', palette: ['#ffe14a', '#ff2d2d'], accent: '#ff7a1a', vgrad: ['#ffe14a', '#ff2d2d'] },
-  { id: 'v-redyellow', name: 'Red → Yellow', blurb: 'Red tips over a yellow base.', palette: ['#ff2d2d', '#ffe14a'], accent: '#ff7a1a', vgrad: ['#ff2d2d', '#ffe14a'] },
-  { id: 'v-flame', name: 'Flame', blurb: 'White-hot tips down to deep red.', palette: ['#fff2b0', '#e01414'], accent: '#ff6a1a', vgrad: ['#fff2b0', '#c01212'] },
-  { id: 'v-cyanblue', name: 'Cyan → Blue', blurb: 'Cyan tips over deep blue.', palette: ['#8ff4ff', '#2f5cff'], accent: '#38aeff', vgrad: ['#8ff4ff', '#2f5cff'] },
-  { id: 'v-bluecyan', name: 'Blue → Cyan', blurb: 'Blue tips over cyan.', palette: ['#2f5cff', '#8ff4ff'], accent: '#38aeff', vgrad: ['#2f5cff', '#8ff4ff'] },
-  { id: 'v-teallime', name: 'Teal → Lime', blurb: 'Teal tips into lime.', palette: ['#0e9e8a', '#c0ff7a'], accent: '#3ec46a', vgrad: ['#12b89a', '#c0ff7a'] },
-  { id: 'v-pinkpurple', name: 'Pink → Purple', blurb: 'Pink tips fading to purple.', palette: ['#ff9ad8', '#7a3fe0'], accent: '#c05cff', vgrad: ['#ff9ad8', '#7a3fe0'] },
-  { id: 'v-purplepink', name: 'Purple → Pink', blurb: 'Purple tips fading to pink.', palette: ['#7a3fe0', '#ff9ad8'], accent: '#c05cff', vgrad: ['#8a4ff0', '#ff9ad8'] },
-  { id: 'v-orangemagenta', name: 'Orange → Magenta', blurb: 'Orange tips into magenta.', palette: ['#ff9e2c', '#e83fd0'], accent: '#ff6ac1', vgrad: ['#ff9e2c', '#e83fd0'] },
-  { id: 'v-redpurple', name: 'Red → Purple', blurb: 'Red tips into purple.', palette: ['#ff4d6d', '#8a3ff0'], accent: '#c05cff', vgrad: ['#ff4d6d', '#8a3ff0'] },
-
-  // ---- animated ----
-  { id: 'spectrum', name: 'Spectrum', blurb: 'The full hue wheel drifting across the visual.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#39c2ff', cycle: 0.03, cycleMode: 'rainbow' },
-  { id: 'aurora-flow', name: 'Aurora Flow', blurb: 'Teal, blue and violet sliding past each other.', palette: ['#5cffd0', '#39c2ff', '#8a5cff', '#ff6ac1'], accent: '#5cffd0', cycle: 0.00013, cycleMode: 'drift' },
-  { id: 'ice-flow', name: 'Ice Flow', blurb: 'Blue and white washing through.', palette: ['#ffffff', '#8fd0ff', '#2f6bff', '#8fd0ff'], accent: '#8fd0ff', cycle: 0.0001, cycleMode: 'drift' },
-  { id: 'ember-flow', name: 'Ember Flow', blurb: 'Yellow into orange into red, flowing.', palette: ['#ffe14a', '#ff8a1a', '#ff2d2d', '#ff8a1a'], accent: '#ff6a1a', cycle: 0.00012, cycleMode: 'drift' },
-  { id: 'duotone', name: 'Duotone', blurb: 'Two opposite colours rotating through the spectrum.', palette: ['#ff4d6d', '#39c2ff'], accent: '#ff4d6d', cycle: 0.03, cycleMode: 'duo' }
+  { id: 's-coral', name: 'Coral', blurb: 'Solid coral.', palette: ['#ff8a6a'], accent: '#ff8a6a' },
+  { id: 's-pink', name: 'Pink', blurb: 'Solid hot pink.', palette: ['#ff5c9e'], accent: '#ff5c9e' },
+  { id: 's-magenta', name: 'Magenta', blurb: 'Solid magenta.', palette: ['#e83fd0'], accent: '#e83fd0' },
+  { id: 's-purple', name: 'Purple', blurb: 'Solid purple.', palette: ['#a855f7'], accent: '#a855f7' },
+  { id: 's-violet', name: 'Violet', blurb: 'Solid violet.', palette: ['#8b5cf6'], accent: '#8b5cf6' },
+  { id: 's-indigo', name: 'Indigo', blurb: 'Solid indigo.', palette: ['#6366f1'], accent: '#6366f1' },
+  { id: 's-blue', name: 'Blue', blurb: 'Solid blue.', palette: ['#3b6dff'], accent: '#3b6dff' },
+  { id: 's-sky', name: 'Sky', blurb: 'Solid sky blue.', palette: ['#38bdf8'], accent: '#38bdf8' },
+  { id: 's-cyan', name: 'Cyan', blurb: 'Solid cyan.', palette: ['#22d3ee'], accent: '#22d3ee' },
+  { id: 's-teal', name: 'Teal', blurb: 'Solid teal.', palette: ['#14b8a6'], accent: '#14b8a6' },
+  { id: 's-green', name: 'Green', blurb: 'Solid green.', palette: ['#22c55e'], accent: '#22c55e' },
+  { id: 'white', name: 'White', blurb: 'Solid white.', palette: ['#eef2fb'], accent: '#ffffff' }
 ]
 
-export const DEFAULT_THEME_ID = 'glow'
+export const DEFAULT_THEME_ID = 'brand'
 
 export function themeById(id: string): VizTheme {
   return THEMES.find((t) => t.id === id) ?? THEMES[0]

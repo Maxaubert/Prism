@@ -28,6 +28,9 @@ const K = {
   pos: 'prism.viz.pos',
   drop: 'prism.viz.drop',
   bar: 'prism.viz.barColor',
+  glow: 'prism.viz.glow',
+  cycle: 'prism.viz.cycle',
+  move: 'prism.viz.move',
   presets: 'prism.viz.presets',
   presetsSeed: 'prism.viz.presetsSeed',
   removed: 'prism.viz.removedThemes'
@@ -35,7 +38,7 @@ const K = {
 
 // Bump when DEFAULT_PRESETS changes and the new set should replace what users
 // (and this dev box) already have stored. End users only ever seed once.
-const PRESETS_SEED = 9
+const PRESETS_SEED = 10
 
 // With the visualizer filling the whole viewer, pos 50 is genuinely the nav-line
 // centre, so mirrored/centred styles all sit at 50. The two grounded styles sit
@@ -45,7 +48,7 @@ const PRESETS_SEED = 9
 // then the outline/solid pair of capsule (Round) bars, then the mirrored family,
 // then needles, then the two grids.
 const DEFAULT_PRESETS: Preset[] = [
-  { id: 'halo', name: 'Halo', style: 'ripples', height: 88, pos: 50, width: 'full', logo: false, theme: 'glow' },
+  { id: 'halo', name: 'Halo', style: 'ripples', height: 88, pos: 50, width: 'full', logo: false, theme: 'brand' },
   { id: 'flow', name: 'Flow', style: 'liquid', height: 95, pos: 50, width: 'full', logo: false },
   { id: 'outline', name: 'Outline', style: 'outline-bars', height: 53, pos: 73, width: 'full', logo: false },
   { id: 'bars', name: 'Bars', style: 'solid-bars', height: 53, pos: 73, width: 'full', logo: false },
@@ -90,20 +93,6 @@ export const BAR_COLORS: Array<{ id: string; label: string; value: string }> = [
 ]
 export const DEFAULT_BAR_COLOR = 'accent'
 
-// Colour schemes grouped by hue family, so the picker splits similar colours into
-// sections instead of one long wall. Order within a group is display order; ids
-// not present here simply won't show (all current themes are covered).
-export const THEME_GROUPS: Array<[string, string[]]> = [
-  ['Signature', ['brand', 'glow', 'neon']],
-  ['Spectrum', ['gradient', 'rainbow', 'cycle', 'cycle-fast']],
-  ['Warm', ['gold', 'fire', 'v-yellowred', 'v-redyellow', 'v-flame']],
-  ['Cool', ['ice', 'ocean', 'aurora', 'v-cyanblue', 'v-bluecyan']],
-  ['Green', ['forest', 'toxic', 'matrix', 'v-teallime']],
-  ['Purple & pink', ['ultraviolet', 'nebula', 'miami', 'candy', 'v-pinkpurple', 'v-purplepink', 'v-redpurple', 'v-orangemagenta']],
-  ['Mono', ['white', 'v-whiteblack', 'v-blackwhite']],
-  ['Solids', ['s-green', 's-teal', 's-cyan', 's-sky', 's-blue', 's-indigo', 's-violet', 's-purple', 's-magenta', 's-pink', 's-coral', 's-crimson']]
-]
-
 /** The CSS value to feed `--color-bar`, or null for 'accent' (inherit the token). */
 export function barCss(id: string): string | null {
   if (id === 'accent') return null
@@ -119,6 +108,10 @@ export interface VizState {
   logo: boolean
   drop: number
   bar: string
+  /** Colour effects, applied on top of the chosen scheme (all combine). */
+  glow: boolean
+  cycle: boolean
+  move: boolean
   preview: number
   presets: Preset[]
   removed: string[]
@@ -174,6 +167,9 @@ let state: VizState = {
   logo: localStorage.getItem(K.logo) === '1',
   drop: num(K.drop, DEFAULT_DROP_STYLE),
   bar: localStorage.getItem(K.bar) || DEFAULT_BAR_COLOR,
+  glow: localStorage.getItem(K.glow) === '1',
+  cycle: localStorage.getItem(K.cycle) === '1',
+  move: localStorage.getItem(K.move) === '1',
   preview: 0,
   presets: loadPresets(),
   removed: loadRemoved()
@@ -221,6 +217,18 @@ export const setDrop = (n: number): void => {
 export const setBar = (id: string): void => {
   localStorage.setItem(K.bar, id)
   apply({ bar: id })
+}
+export const setGlow = (b: boolean): void => {
+  localStorage.setItem(K.glow, b ? '1' : '0')
+  apply({ glow: b })
+}
+export const setCycle = (b: boolean): void => {
+  localStorage.setItem(K.cycle, b ? '1' : '0')
+  apply({ cycle: b })
+}
+export const setMove = (b: boolean): void => {
+  localStorage.setItem(K.move, b ? '1' : '0')
+  apply({ move: b })
 }
 /** Bump the preview counter so a drop effect plays once, right now. */
 export const firePreview = (): void => apply({ preview: state.preview + 1 })

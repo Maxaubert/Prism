@@ -8,6 +8,9 @@ import {
   applyPreset,
   setTheme,
   setBar,
+  setGlow,
+  setCycle,
+  setMove,
   BAR_COLORS,
   type Preset,
   type VizState
@@ -204,26 +207,90 @@ function VisualizerTab(): JSX.Element {
           })}
         </div>
       </Section>
-      <Section title="Colour" hint="recolours every visualizer shape">
-        <SchemePicker />
+      <Section title="Colour" hint="scheme + effects; recolours every shape">
+        <div className="flex flex-col gap-4">
+          <SchemePicker />
+          <div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">Effects</div>
+            <EffectToggles />
+          </div>
+        </div>
       </Section>
     </div>
   )
 }
 
-// Group colour schemes by their EFFECT (how they behave), not by hue, so a user
-// can find "a moving gradient" or "a glowing one" directly.
+// Base schemes are just Solid or Gradient (simple -> complex); glow / cycle / move
+// are separate effect toggles rather than their own categories.
 function colourCategory(t: VizTheme): string {
-  if (t.cycle) return 'Moving'
-  if (t.vgrad) return 'Vertical gradients'
-  if (t.glow) return 'Glowing'
-  if (t.palette.length <= 1) return 'Solid colours'
-  return 'Gradients'
+  return t.palette.length <= 1 ? 'Solid' : 'Gradient'
 }
-const COLOUR_ORDER = ['Gradients', 'Solid colours', 'Vertical gradients', 'Glowing', 'Moving']
+const COLOUR_ORDER = ['Solid', 'Gradient']
 
-// The visualizer colour scheme: plain filled swatches (no labels) so the
-// gradients read clearly, grouped by effect. Compact so it sits below the style.
+// The colour effects, applied on top of any scheme (they all combine).
+function EffectToggles(): JSX.Element {
+  const v = useViz()
+  const toggles: Array<{ id: string; label: string; on: boolean; set: (b: boolean) => void }> = [
+    { id: 'glow', label: 'Glow', on: v.glow, set: setGlow },
+    { id: 'cycle', label: 'Cycle', on: v.cycle, set: setCycle },
+    { id: 'move', label: 'Move', on: v.move, set: setMove }
+  ]
+  return (
+    <div className="flex flex-wrap gap-2">
+      {toggles.map((tg) => (
+        <button
+          key={tg.id}
+          onClick={() => tg.set(!tg.on)}
+          aria-pressed={tg.on}
+          className={`rounded-lg border px-3.5 py-1.5 text-[12.5px] font-semibold transition ${
+            tg.on
+              ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/25 text-white'
+              : 'border-white/10 bg-white/[.02] text-[var(--color-dim)] hover:border-white/20 hover:text-white'
+          }`}
+        >
+          {tg.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// A grid of plain filled colour swatches (no labels; name on hover) - used for
+// both the visualizer scheme and the progress-bar colour so they match.
+function Swatches({
+  items,
+  selectedId,
+  onPick
+}: {
+  items: Array<{ id: string; name: string; fill: string }>
+  selectedId: string
+  onPick: (id: string) => void
+}): JSX.Element {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
+      {items.map((it) => {
+        const on = it.id === selectedId
+        return (
+          <button
+            key={it.id}
+            onClick={() => onPick(it.id)}
+            title={it.name}
+            aria-label={it.name}
+            aria-pressed={on}
+            className={`h-6 rounded-md transition ${
+              on
+                ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
+                : 'ring-1 ring-white/10 hover:ring-white/30'
+            }`}
+            style={{ background: it.fill }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+// The visualizer colour scheme, split into Solid / Gradient.
 function SchemePicker(): JSX.Element {
   const v = useViz()
   const themes = visibleThemes()
@@ -235,40 +302,15 @@ function SchemePicker(): JSX.Element {
         return (
           <div key={cat}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">{cat}</div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
-              {items.map((t) => {
-                const on = t.id === v.theme
-                // Moving swatches tile a cyclic gradient and slide by one tile for a
-                // seamless loop; the theme's own animation speed is separate.
-                const stops = t.cycle ? [...t.palette, t.palette[0]] : t.palette
-                const fill = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops[0]
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setTheme(t.id)}
-                    title={t.name}
-                    aria-label={t.name}
-                    aria-pressed={on}
-                    className={`relative h-6 overflow-hidden rounded-md transition ${
-                      on
-                        ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
-                        : 'ring-1 ring-white/10 hover:ring-white/30'
-                    }`}
-                    style={{ boxShadow: t.glow ? `0 0 12px ${t.accent}88` : undefined }}
-                  >
-                    {t.cycle ? (
-                      <span
-                        aria-hidden
-                        className="absolute inset-y-0 left-0 w-[200%]"
-                        style={{ backgroundImage: fill, backgroundSize: '50% 100%', animation: 'prism-slide 4.5s linear infinite' }}
-                      />
-                    ) : (
-                      <span aria-hidden className="absolute inset-0" style={{ background: fill }} />
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+            <Swatches
+              items={items.map((t) => ({
+                id: t.id,
+                name: t.name,
+                fill: t.palette.length > 1 ? `linear-gradient(90deg, ${t.palette.join(', ')})` : t.palette[0]
+              }))}
+              selectedId={v.theme}
+              onPick={setTheme}
+            />
           </div>
         )
       })}
@@ -276,29 +318,16 @@ function SchemePicker(): JSX.Element {
   )
 }
 
-// The player's progress-bar colour (a single accent, incl. "Match theme").
+// The player's progress-bar colour (a single accent, incl. "Match theme"), as
+// the same filled swatches as the scheme picker.
 function BarColourPicker(): JSX.Element {
   const v = useViz()
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-2">
-      {BAR_COLORS.map((b) => {
-        const on = b.id === v.bar
-        return (
-          <button
-            key={b.id}
-            onClick={() => setBar(b.id)}
-            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
-              on
-                ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
-                : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
-            }`}
-          >
-            <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-white/20" style={{ background: b.value }} />
-            <span className={`truncate text-[12px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{b.label}</span>
-          </button>
-        )
-      })}
-    </div>
+    <Swatches
+      items={BAR_COLORS.map((b) => ({ id: b.id, name: b.label, fill: b.value }))}
+      selectedId={v.bar}
+      onPick={setBar}
+    />
   )
 }
 

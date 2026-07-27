@@ -33,12 +33,10 @@ export interface VizOpts {
   /** When set, bar shapes fill each bar with a vertical top->bottom gradient
    *  ([topColor, bottomColor]) instead of a flat palette colour. */
   vgrad?: [string, string] | null
-  /** When set, colours animate over time; the number's meaning depends on
-   *  cycleMode (hue-deg/ms for rainbow/duo, palette-fraction/ms for drift). */
-  cycle?: number | null
-  /** How the animated colour moves: 'rainbow' (full hue wheel, ignores palette),
-   *  'drift' (the palette itself scrolls), 'duo' (two inverted tones cycling). */
-  cycleMode?: 'rainbow' | 'drift' | 'duo' | null
+  /** Effect toggles (combine freely): `cycle` rotates the whole palette's hue over
+   *  time; `move` scrolls the palette across the visual over time. */
+  cycle?: boolean
+  move?: boolean
   /** Which drop-burst variant the Halo ring fires on a drop (1-10). */
   dropStyle?: number
   /** A monotonically increasing nonce; when it changes, the ring fires one
@@ -60,9 +58,6 @@ export interface VizTheme {
   alpha?: number
   /** Vertical per-bar gradient [top, bottom]; overrides the flat palette on bars. */
   vgrad?: [string, string]
-  /** Animate the colour over time (see VizOpts.cycle / cycleMode). */
-  cycle?: number
-  cycleMode?: 'rainbow' | 'drift' | 'duo'
 }
 
 export type DrawFn = (
@@ -172,46 +167,80 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
-/** Sample the palette as a seamless LOOP (…last→first→…) at `pos`, wrapping. Used
- *  by the 'drift' animation so a gradient can scroll without a seam. */
-export function paletteCyclic(pal: string[], pos: number, alpha?: number): string {
+function lerpRgb(a: [number, number, number], b: [number, number, number], f: number): [number, number, number] {
+  return [Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f), Math.round(a[2] + (b[2] - a[2]) * f)]
+}
+
+/** RGB at palette position `t` (0..1), clamped. */
+function paletteRgb(pal: string[], t: number): [number, number, number] {
+  const segs = pal.length - 1
+  if (segs <= 0) return hexToRgb(pal[0])
+  const x = clamp(t, 0, 1) * segs
+  const i = Math.min(segs - 1, Math.floor(x))
+  return lerpRgb(hexToRgb(pal[i]), hexToRgb(pal[i + 1]), x - i)
+}
+
+/** RGB at palette position `pos`, wrapping (…last→first→…) so it can scroll seamlessly. */
+function paletteRgbCyclic(pal: string[], pos: number): [number, number, number] {
   const seg = pal.length
-  if (seg <= 1) return paletteAt(pal, 0, alpha)
+  if (seg <= 1) return hexToRgb(pal[0])
   let p = pos % 1
   if (p < 0) p += 1
   const x = p * seg
   const i = Math.floor(x) % seg
-  const f = x - Math.floor(x)
-  const a = hexToRgb(pal[i])
-  const b = hexToRgb(pal[(i + 1) % seg])
-  const r = Math.round(a[0] + (b[0] - a[0]) * f)
-  const g = Math.round(a[1] + (b[1] - a[1]) * f)
-  const bl = Math.round(a[2] + (b[2] - a[2]) * f)
-  return alpha == null ? `rgb(${r},${g},${bl})` : `rgba(${r},${g},${bl},${alpha})`
+  return lerpRgb(hexToRgb(pal[i]), hexToRgb(pal[(i + 1) % seg]), x - Math.floor(x))
 }
 
-/** Colour for a band at position `frac` (0..1), `t` = frame time in ms. When the
- *  theme animates, the colour moves per cycleMode; otherwise it samples the
- *  palette. Every style colours through this so animated themes work everywhere. */
-export function bandColor(o: VizOpts, frac: number, t: number, alpha?: number): string {
-  if (o.cycle) {
-    const a = alpha == null ? 1 : alpha
-    if (o.cycleMode === 'drift') {
-      // The theme's own palette scrolls across the bars over time.
-      return paletteCyclic(o.palette, frac + t * o.cycle, alpha)
-    }
-    if (o.cycleMode === 'duo') {
-      // Two inverted tones (half the wheel apart) whose hues rotate over time.
-      let hue = (t * o.cycle + frac * 180) % 360
-      if (hue < 0) hue += 360
-      return `hsla(${hue}, 80%, 60%, ${a})`
-    }
-    // rainbow: the full hue wheel, spread across the bars, rotating over time.
-    let hue = (t * o.cycle + frac * 320) % 360
-    if (hue < 0) hue += 360
-    return `hsla(${hue}, 85%, 62%, ${a})`
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255
+  g /= 255
+  b /= 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  if (max === min) return [0, 0, l]
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h: number
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0)
+  else if (max === g) h = (b - r) / d + 2
+  else h = (r - g) / d + 4
+  return [h * 60, s, l]
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  h = ((h % 360) + 360) % 360
+  if (s === 0) {
+    const v = Math.round(l * 255)
+    return [v, v, v]
   }
-  return paletteAt(o.palette, frac, alpha)
+  const c = (1 - Math.abs(2 * l - 1)) * s
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = l - c / 2
+  let rgb: [number, number, number]
+  if (h < 60) rgb = [c, x, 0]
+  else if (h < 120) rgb = [x, c, 0]
+  else if (h < 180) rgb = [0, c, x]
+  else if (h < 240) rgb = [0, x, c]
+  else if (h < 300) rgb = [x, 0, c]
+  else rgb = [c, 0, x]
+  return [Math.round((rgb[0] + m) * 255), Math.round((rgb[1] + m) * 255), Math.round((rgb[2] + m) * 255)]
+}
+
+const MOVE_SPEED = 0.00011 // palette-fractions per ms (spatial scroll)
+const CYCLE_SPEED = 0.03 // hue-degrees per ms (hue rotation)
+
+/** Colour for a band at position `frac` (0..1), `t` = frame time in ms. Applies the
+ *  active colour EFFECTS: `move` scrolls the palette, `cycle` rotates its hue.
+ *  With no effects it's just the palette. Every style colours through this, so the
+ *  effects work on all of them. */
+export function bandColor(o: VizOpts, frac: number, t: number, alpha?: number): string {
+  let rgb = o.move ? paletteRgbCyclic(o.palette, frac + t * MOVE_SPEED) : paletteRgb(o.palette, frac)
+  if (o.cycle) {
+    const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2])
+    rgb = hslToRgb(h + t * CYCLE_SPEED, s, l)
+  }
+  return alpha == null ? `rgb(${rgb[0]},${rgb[1]},${rgb[2]})` : `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`
 }
 
 /** A gradient sweeping the palette along an axis. */

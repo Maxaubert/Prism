@@ -256,6 +256,9 @@ export function AudioView({
                 theme={themeById(v.theme)}
                 dropStyle={v.drop}
                 previewBurst={v.preview}
+                glow={v.glow}
+                cycle={v.cycle}
+                move={v.move}
               />
             </div>
           </div>
