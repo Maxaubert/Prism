@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
-import { themeById, DEFAULT_THEME_ID } from '../lib/viz/styles'
+import { DEFAULT_THEME_ID } from '../lib/viz/styles'
 import type { VizTheme } from '../lib/viz/core'
 import {
   useViz,
@@ -191,8 +191,8 @@ function VisualizerTab(): JSX.Element {
         const on = isActivePreset(p, v)
         return (
           <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-            <div className="h-[104px] w-full overflow-hidden rounded-md">
-              <VizPreview styleId={p.style} theme={themeById(p.theme ?? DEFAULT_THEME_ID)} />
+            <div className="h-[104px] w-full overflow-hidden rounded-md bg-[#0d0f14]">
+              <VizPreview styleId={p.style} />
             </div>
             <TileFooter name={p.name} on={on} />
           </Tile>
@@ -308,7 +308,7 @@ const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon:
     id: 'visualizer',
     label: 'Visualizer',
     title: 'Visualizer',
-    desc: 'The audio visualizer style. Each preview shows the real style.',
+    desc: 'The audio visualizer style. Previews are simplified mockups of each shape.',
     icon: <Ico d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
   },
   {
