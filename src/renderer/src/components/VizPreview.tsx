@@ -52,6 +52,7 @@ const KIND: Record<string, { kind: Kind }> = {
   'solid-round': { kind: 'roundSolid' }
 }
 
+// Square-topped bars (Outline / Bars) - distinct from the capsule "Round" styles.
 function bars(g: string, outline: boolean): JSX.Element[] {
   return P.map((h, i) => {
     const hh = h * MAXH
@@ -62,7 +63,6 @@ function bars(g: string, outline: boolean): JSX.Element[] {
         y={BASE - hh}
         width={bw}
         height={hh}
-        rx="1.2"
         fill={outline ? 'none' : g}
         stroke={outline ? g : 'none'}
         strokeWidth={outline ? 1.2 : 0}

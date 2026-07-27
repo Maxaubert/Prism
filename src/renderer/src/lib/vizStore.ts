@@ -35,25 +35,28 @@ const K = {
 
 // Bump when DEFAULT_PRESETS changes and the new set should replace what users
 // (and this dev box) already have stored. End users only ever seed once.
-const PRESETS_SEED = 8
+const PRESETS_SEED = 9
 
 // With the visualizer filling the whole viewer, pos 50 is genuinely the nav-line
 // centre, so mirrored/centred styles all sit at 50. The two grounded styles sit
 // low on purpose (bars rise from the transport). Halo is trimmed a little so the
 // ring clears the transport overlay at the bottom.
+// Order groups related shapes side by side: the outline/solid pair of square bars,
+// then the outline/solid pair of capsule (Round) bars, then the mirrored family,
+// then needles, then the two grids.
 const DEFAULT_PRESETS: Preset[] = [
   { id: 'halo', name: 'Halo', style: 'ripples', height: 88, pos: 50, width: 'full', logo: false, theme: 'glow' },
   { id: 'flow', name: 'Flow', style: 'liquid', height: 95, pos: 50, width: 'full', logo: false },
   { id: 'outline', name: 'Outline', style: 'outline-bars', height: 53, pos: 73, width: 'full', logo: false },
-  { id: 'caps', name: 'Caps', style: 'mirror-caps', height: 41, pos: 50, width: 'full', logo: false },
-  { id: 'frame', name: 'Frame', style: 'mirror-outline', height: 44, pos: 50, width: 'full', logo: false },
-  { id: 'wall', name: 'Wall', style: 'clean-wall', height: 56, pos: 72, width: 'full', logo: false },
-  { id: 'linebars', name: 'Line Bars', style: 'needles', height: 44, pos: 50, width: 'full', logo: false },
-  { id: 'mirrorbars', name: 'Mirror Bars', style: 'chrome-bars', height: 51, pos: 50, width: 'full', logo: false },
   { id: 'bars', name: 'Bars', style: 'solid-bars', height: 53, pos: 73, width: 'full', logo: false },
-  { id: 'wall2', name: 'Wall 2', style: 'segments', height: 56, pos: 72, width: 'full', logo: false },
   { id: 'barscircle', name: 'Round', style: 'outline-round', height: 56, pos: 72, width: 'full', logo: false },
-  { id: 'barscirclefull', name: 'Round Solid', style: 'solid-round', height: 56, pos: 72, width: 'full', logo: false }
+  { id: 'barscirclefull', name: 'Round Solid', style: 'solid-round', height: 56, pos: 72, width: 'full', logo: false },
+  { id: 'frame', name: 'Frame', style: 'mirror-outline', height: 44, pos: 50, width: 'full', logo: false },
+  { id: 'mirrorbars', name: 'Mirror Bars', style: 'chrome-bars', height: 51, pos: 50, width: 'full', logo: false },
+  { id: 'caps', name: 'Caps', style: 'mirror-caps', height: 41, pos: 50, width: 'full', logo: false },
+  { id: 'linebars', name: 'Line Bars', style: 'needles', height: 44, pos: 50, width: 'full', logo: false },
+  { id: 'wall', name: 'Wall', style: 'clean-wall', height: 56, pos: 72, width: 'full', logo: false },
+  { id: 'wall2', name: 'Wall 2', style: 'segments', height: 56, pos: 72, width: 'full', logo: false }
 ]
 
 // Width presets for the stage; some styles read better spanning the glass, others
