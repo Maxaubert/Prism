@@ -33,6 +33,7 @@ type Kind =
   | 'caps'
   | 'lines'
   | 'grid'
+  | 'gridWide'
   | 'wave'
   | 'ring'
   | 'roundOutline'
@@ -45,7 +46,7 @@ const KIND: Record<string, { kind: Kind }> = {
   'mirror-caps': { kind: 'caps' },
   needles: { kind: 'lines' },
   'clean-wall': { kind: 'grid' },
-  segments: { kind: 'grid' },
+  segments: { kind: 'gridWide' },
   liquid: { kind: 'wave' },
   ripples: { kind: 'ring' },
   'outline-round': { kind: 'roundOutline' }, // "round" = rounded-top (capsule) bars
@@ -131,15 +132,22 @@ function lines(g: string): JSX.Element[] {
   })
 }
 
-function grid(g: string): JSX.Element[] {
+// A grid of cells forming bars. `cols`/`fill` set how many columns and how wide
+// the cells are, so Wall (fine) and Wall 2 (chunkier) read differently.
+function grid(g: string, cols: number, fill: number): JSX.Element[] {
   const ch = MAXH / 8
-  return P.flatMap((h, i) => {
-    const x = cxOf(i) - bw / 2
+  const stepC = SPAN / cols
+  const cw = stepC * fill
+  const out: JSX.Element[] = []
+  for (let i = 0; i < cols; i++) {
+    const h = P[Math.round((i / (cols - 1)) * (N - 1))]
+    const x = X0 + (i + 0.5) * stepC - cw / 2
     const cells = Math.max(1, Math.round(h * 7))
-    return Array.from({ length: cells }, (_, c) => (
-      <rect key={`${i}-${c}`} x={x} y={BASE - (c + 1) * ch + 0.9} width={bw} height={ch - 1.8} rx="0.8" fill={g} />
-    ))
-  })
+    for (let c = 0; c < cells; c++) {
+      out.push(<rect key={`${i}-${c}`} x={x} y={BASE - (c + 1) * ch + 0.9} width={cw} height={ch - 1.8} rx="0.8" fill={g} />)
+    }
+  }
+  return out
 }
 
 function wave(g: string): JSX.Element {
@@ -209,7 +217,10 @@ export function VizPreview({ styleId }: { styleId: string }): JSX.Element {
       content = lines(g)
       break
     case 'grid':
-      content = grid(g)
+      content = grid(g, 22, 0.62)
+      break
+    case 'gridWide':
+      content = grid(g, 15, 0.8)
       break
     case 'wave':
       content = wave(g)
