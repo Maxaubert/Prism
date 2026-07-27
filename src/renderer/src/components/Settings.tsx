@@ -176,28 +176,37 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           </Section>
         )
       })}
+      <Section title="Colour" hint="the played-progress fill">
+        <BarColourPicker />
+      </Section>
     </div>
   )
 }
 
 function VisualizerTab(): JSX.Element {
   const v = useViz()
-  // Each style shows a simple schematic mockup of its shape. The cards have a
-  // minimum size and reflow into new rows as the window narrows, so a preview
-  // never shrinks below a readable size.
+  // Style shows a simple schematic mockup of each shape (min-size cards that
+  // reflow), with the colour scheme in its own subsection below.
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-2.5">
-      {v.presets.map((p) => {
-        const on = isActivePreset(p, v)
-        return (
-          <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-            <div className="h-[104px] w-full overflow-hidden rounded-md bg-[#0d0f14]">
-              <VizPreview styleId={p.style} />
-            </div>
-            <TileFooter name={p.name} on={on} />
-          </Tile>
-        )
-      })}
+    <div className="flex flex-col gap-6">
+      <Section title="Style">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-2.5">
+          {v.presets.map((p) => {
+            const on = isActivePreset(p, v)
+            return (
+              <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
+                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[#0d0f14]">
+                  <VizPreview styleId={p.style} />
+                </div>
+                <TileFooter name={p.name} on={on} />
+              </Tile>
+            )
+          })}
+        </div>
+      </Section>
+      <Section title="Colour" hint="recolours every visualizer shape">
+        <SchemePicker />
+      </Section>
     </div>
   )
 }
@@ -213,27 +222,26 @@ function colourCategory(t: VizTheme): string {
 }
 const COLOUR_ORDER = ['Gradients', 'Solid colours', 'Vertical gradients', 'Glowing', 'Moving']
 
-function ColoursTab(): JSX.Element {
+// The visualizer colour scheme: plain filled swatches (no labels) so the
+// gradients read clearly, grouped by effect. Compact so it sits below the style.
+function SchemePicker(): JSX.Element {
   const v = useViz()
   const themes = visibleThemes()
   return (
-    <div className="flex flex-col gap-6">
-      {/* Colour schemes as plain filled swatches (no labels) so the gradients
-          read clearly, grouped by effect. */}
+    <div className="flex flex-col gap-3">
       {COLOUR_ORDER.map((cat) => {
         const items = themes.filter((t) => colourCategory(t) === cat)
         if (!items.length) return null
         return (
-          <Section key={cat} title={cat}>
-            <div className="grid grid-cols-4 gap-2.5 lg:grid-cols-5">
+          <div key={cat}>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">{cat}</div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
               {items.map((t) => {
                 const on = t.id === v.theme
-                // Moving swatches: a cyclic gradient (loops back to its first
-                // colour) so there's no seam, tiled twice and slid by one tile for
-                // a seamless loop. Faster themes scroll faster (Cycle vs Cycle Fast).
+                // Moving swatches tile a cyclic gradient and slide by one tile for a
+                // seamless loop; the theme's own animation speed is separate.
                 const stops = t.cycle ? [...t.palette, t.palette[0]] : t.palette
                 const fill = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops[0]
-                const dur = 4.5 // swatch scroll (the theme's own cycle speed is separate)
                 return (
                   <button
                     key={t.id}
@@ -241,18 +249,18 @@ function ColoursTab(): JSX.Element {
                     title={t.name}
                     aria-label={t.name}
                     aria-pressed={on}
-                    className={`relative h-12 overflow-hidden rounded-lg transition ${
+                    className={`relative h-6 overflow-hidden rounded-md transition ${
                       on
-                        ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-2 ring-offset-[#0d0f14]'
+                        ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
                         : 'ring-1 ring-white/10 hover:ring-white/30'
                     }`}
-                    style={{ boxShadow: t.glow ? `0 0 16px ${t.accent}88` : undefined }}
+                    style={{ boxShadow: t.glow ? `0 0 12px ${t.accent}88` : undefined }}
                   >
                     {t.cycle ? (
                       <span
                         aria-hidden
                         className="absolute inset-y-0 left-0 w-[200%]"
-                        style={{ backgroundImage: fill, backgroundSize: '50% 100%', animation: `prism-slide ${dur.toFixed(2)}s linear infinite` }}
+                        style={{ backgroundImage: fill, backgroundSize: '50% 100%', animation: 'prism-slide 4.5s linear infinite' }}
                       />
                     ) : (
                       <span aria-hidden className="absolute inset-0" style={{ background: fill }} />
@@ -261,41 +269,42 @@ function ColoursTab(): JSX.Element {
                 )
               })}
             </div>
-          </Section>
+          </div>
         )
       })}
+    </div>
+  )
+}
 
-      <Section title="Progress bar colour" hint="the player's played-progress fill">
-        <div className="grid grid-cols-4 gap-2.5">
-          {BAR_COLORS.map((b) => {
-            const on = b.id === v.bar
-            return (
-              <button
-                key={b.id}
-                onClick={() => setBar(b.id)}
-                className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
-                  on
-                    ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
-                    : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
-                }`}
-              >
-                <span
-                  className="h-4 w-4 shrink-0 rounded-full ring-1 ring-white/20"
-                  style={{ background: b.value }}
-                />
-                <span className={`truncate text-[12.5px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{b.label}</span>
-              </button>
-            )
-          })}
-        </div>
-      </Section>
+// The player's progress-bar colour (a single accent, incl. "Match theme").
+function BarColourPicker(): JSX.Element {
+  const v = useViz()
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(124px,1fr))] gap-2">
+      {BAR_COLORS.map((b) => {
+        const on = b.id === v.bar
+        return (
+          <button
+            key={b.id}
+            onClick={() => setBar(b.id)}
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition ${
+              on
+                ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
+                : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
+            }`}
+          >
+            <span className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-white/20" style={{ background: b.value }} />
+            <span className={`truncate text-[12px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{b.label}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'player' | 'visualizer' | 'colours' | 'about'
+type TabId = 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -308,22 +317,15 @@ const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon:
     id: 'player',
     label: 'Progress bar',
     title: 'Progress bar',
-    desc: "The shape of the player's transport. Its colour lives under Colours.",
+    desc: "The player's transport - its shape and colour.",
     icon: <Ico d="M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
   },
   {
     id: 'visualizer',
     label: 'Visualizer',
     title: 'Visualizer',
-    desc: 'The audio visualizer style. Previews are simplified mockups of each shape.',
+    desc: 'The audio visualizer style and colour. Previews are simplified mockups.',
     icon: <Ico d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
-  },
-  {
-    id: 'colours',
-    label: 'Colours',
-    title: 'Colours',
-    desc: 'The visualizer colour scheme and the progress-bar colour.',
-    icon: <Ico d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18" />
   },
   {
     id: 'about',
@@ -411,8 +413,6 @@ export function Settings({
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
-            ) : tab === 'colours' ? (
-              <ColoursTab />
             ) : (
               <div className="max-w-[46ch] text-[13px] leading-relaxed text-[var(--color-dim)]">
                 <div className="mb-1 text-[15px] font-semibold text-white">Prism</div>
