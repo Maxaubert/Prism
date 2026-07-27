@@ -228,10 +228,12 @@ function ColoursTab(): JSX.Element {
             <div className="grid grid-cols-4 gap-2.5 lg:grid-cols-5">
               {items.map((t) => {
                 const on = t.id === v.theme
-                // Moving swatches tile+scroll, so loop the palette back to its
-                // first colour — otherwise the wrap (last -> first) is a harsh seam.
+                // Moving swatches: a cyclic gradient (loops back to its first
+                // colour) so there's no seam, tiled twice and slid by one tile for
+                // a seamless loop. Faster themes scroll faster (Cycle vs Cycle Fast).
                 const stops = t.cycle ? [...t.palette, t.palette[0]] : t.palette
                 const fill = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops[0]
+                const dur = t.cycle ? (3.6 * 0.03) / t.cycle : 0
                 return (
                   <button
                     key={t.id}
@@ -239,18 +241,23 @@ function ColoursTab(): JSX.Element {
                     title={t.name}
                     aria-label={t.name}
                     aria-pressed={on}
-                    className={`h-12 rounded-lg transition ${
+                    className={`relative h-12 overflow-hidden rounded-lg transition ${
                       on
                         ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-2 ring-offset-[#0d0f14]'
                         : 'ring-1 ring-white/10 hover:ring-white/30'
                     }`}
-                    style={{
-                      background: fill,
-                      backgroundSize: t.cycle ? '220% 100%' : undefined,
-                      animation: t.cycle ? 'prism-hue 3s linear infinite' : undefined,
-                      boxShadow: t.glow ? `0 0 16px ${t.accent}88` : undefined
-                    }}
-                  />
+                    style={{ boxShadow: t.glow ? `0 0 16px ${t.accent}88` : undefined }}
+                  >
+                    {t.cycle ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 w-[200%]"
+                        style={{ backgroundImage: fill, backgroundSize: '50% 100%', animation: `prism-slide ${dur.toFixed(2)}s linear infinite` }}
+                      />
+                    ) : (
+                      <span aria-hidden className="absolute inset-0" style={{ background: fill }} />
+                    )}
+                  </button>
                 )
               })}
             </div>

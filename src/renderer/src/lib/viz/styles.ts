@@ -8,6 +8,7 @@ import {
   clamp,
   makeBands,
   paletteAt,
+  bandColor,
   rgba,
   shape,
   sweep,
@@ -480,7 +481,7 @@ export const VIZ_STYLES: VizStyle[] = [
           peak[i] = Math.max(peak[i] - 0.022, v)
           const off = Math.max(o.dpr, peak[i] * reach)
           const x = i * slot + (slot - bw) / 2
-          const col = paletteAt(o.palette, i / (n - 1))
+          const col = bandColor(o, i / (n - 1), d.t)
           ctx.fillStyle = col
           ctx.beginPath()
           ctx.roundRect(x, mid - off, bw, 3 * o.dpr, 1.5 * o.dpr)
@@ -488,7 +489,7 @@ export const VIZ_STYLES: VizStyle[] = [
           ctx.beginPath()
           ctx.roundRect(x, mid + off - 3 * o.dpr, bw, 3 * o.dpr, 1.5 * o.dpr)
           ctx.fill()
-          ctx.fillStyle = paletteAt(o.palette, i / (n - 1), 0.12)
+          ctx.fillStyle = bandColor(o, i / (n - 1), d.t, 0.12)
           ctx.fillRect(x, mid - off, bw, off * 2)
         }
       }
@@ -513,7 +514,7 @@ export const VIZ_STYLES: VizStyle[] = [
           const v = clamp(b.values[i], 0, 1)
           const h = Math.max(2 * o.dpr, v * reach)
           const x = i * slot + (slot - bw) / 2
-          ctx.strokeStyle = paletteAt(o.palette, i / (n - 1))
+          ctx.strokeStyle = bandColor(o, i / (n - 1), d.t)
           ctx.strokeRect(x, mid - h, bw, h * 2)
         }
         ctx.fillStyle = 'rgba(255,255,255,0.07)'
@@ -541,14 +542,14 @@ export const VIZ_STYLES: VizStyle[] = [
           const h = Math.max(o.dpr, v * reach)
           const x = i * slot + (slot - bw) / 2
           const t = i / (n - 1)
-          ctx.fillStyle = paletteAt(o.palette, t)
+          ctx.fillStyle = bandColor(o, t, d.t)
           ctx.beginPath()
           ctx.roundRect(x, mid - h, bw, h, [bw / 2, bw / 2, 0, 0])
           ctx.fill()
           const g = ctx.createLinearGradient(0, mid, 0, mid + h)
-          g.addColorStop(0, paletteAt(o.palette, t, 0.5))
-          g.addColorStop(0.4, paletteAt(o.palette, t, 0.14))
-          g.addColorStop(1, paletteAt(o.palette, t, 0))
+          g.addColorStop(0, bandColor(o, t, d.t, 0.5))
+          g.addColorStop(0.4, bandColor(o, t, d.t, 0.14))
+          g.addColorStop(1, bandColor(o, t, d.t, 0))
           ctx.fillStyle = g
           ctx.beginPath()
           ctx.roundRect(x, mid, bw, h, [0, 0, bw / 2, bw / 2])
@@ -576,7 +577,7 @@ export const VIZ_STYLES: VizStyle[] = [
           const v = clamp(b.values[i], 0, 1)
           const h = Math.max(o.dpr, v * H * 0.42)
           const x = ((i + 0.5) / n) * W
-          ctx.strokeStyle = paletteAt(o.palette, i / (n - 1), 0.35 + v * 0.65)
+          ctx.strokeStyle = bandColor(o, i / (n - 1), d.t, 0.35 + v * 0.65)
           ctx.beginPath()
           ctx.moveTo(x, mid - h)
           ctx.lineTo(x, mid + h)
@@ -630,7 +631,13 @@ export const VIZ_STYLES: VizStyle[] = [
         }
         ctx.lineTo(xAt(0), mid + hAt(0)) // close the bottom-left; the notch was here
         ctx.closePath()
-        ctx.fillStyle = sweep(ctx, 0, 0, W, 0, o.palette, 0.85)
+        if (o.cycle) {
+          const gg = ctx.createLinearGradient(0, 0, W, 0)
+          for (let s = 0; s <= 6; s++) gg.addColorStop(s / 6, bandColor(o, s / 6, d.t, 0.85))
+          ctx.fillStyle = gg
+        } else {
+          ctx.fillStyle = sweep(ctx, 0, 0, W, 0, o.palette, 0.85)
+        }
         ctx.fill()
       }
     }
@@ -762,7 +769,7 @@ export const VIZ_STYLES: VizStyle[] = [
           if (tip > tipMax) tip = tipMax
           const ca = Math.cos(a)
           const sa = Math.sin(a)
-          ctx.strokeStyle = paletteAt(o.palette, m / (HALF - 1))
+          ctx.strokeStyle = bandColor(o, m / (HALF - 1), d.t)
           ctx.beginPath()
           ctx.moveTo(cx + ca * R, cy + sa * R)
           ctx.lineTo(cx + ca * tip, cy + sa * tip)
@@ -830,7 +837,7 @@ export const VIZ_STYLES: VizStyle[] = [
           for (let j = 0; j < rows; j++) {
             const frac = clamp(lit - j, 0, 1)
             if (frac <= 0.02) continue // no dark grid left showing through
-            ctx.fillStyle = paletteAt(o.palette, j / (rows - 1), 0.25 + frac * 0.75)
+            ctx.fillStyle = bandColor(o, j / (rows - 1), d.t, 0.25 + frac * 0.75)
             ctx.fillRect(i * cw + cw * 0.18, H - (j + 1) * ch + ch * 0.18, cw * 0.64, ch * 0.64)
           }
         }

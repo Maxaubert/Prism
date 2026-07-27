@@ -168,6 +168,19 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
+/** Colour for a band at position `frac` (0..1). When the theme cycles, the hue
+ *  drifts over time (`t` = frame time in ms) so the whole spectrum rotates;
+ *  otherwise it just samples the palette. Every style should colour through this
+ *  so the animated themes work everywhere, not only on the plain bars. */
+export function bandColor(o: VizOpts, frac: number, t: number, alpha?: number): string {
+  if (o.cycle) {
+    let hue = (t * o.cycle + frac * 320) % 360
+    if (hue < 0) hue += 360
+    return `hsla(${hue}, 85%, 62%, ${alpha == null ? 1 : alpha})`
+  }
+  return paletteAt(o.palette, frac, alpha)
+}
+
 /** A gradient sweeping the palette along an axis. */
 export function sweep(
   ctx: CanvasRenderingContext2D,

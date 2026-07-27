@@ -16,10 +16,12 @@
   color-scheme: dark;
 }
 
-/* Drifting gradient for the "Moving" colour-scheme swatches in Settings. */
-@keyframes prism-hue {
+/* Seamless scroll for the "Moving" colour-scheme swatches: the inner strip holds
+   two identical cyclic-gradient tiles and slides by exactly one tile, so the loop
+   is invisible. */
+@keyframes prism-slide {
   to {
-    background-position: 220% 0;
+    transform: translateX(-50%);
   }
 }
 
