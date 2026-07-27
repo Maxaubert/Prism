@@ -228,7 +228,10 @@ function ColoursTab(): JSX.Element {
             <div className="grid grid-cols-4 gap-2.5 lg:grid-cols-5">
               {items.map((t) => {
                 const on = t.id === v.theme
-                const fill = t.palette.length > 1 ? `linear-gradient(90deg, ${t.palette.join(', ')})` : t.palette[0]
+                // Moving swatches tile+scroll, so loop the palette back to its
+                // first colour — otherwise the wrap (last -> first) is a harsh seam.
+                const stops = t.cycle ? [...t.palette, t.palette[0]] : t.palette
+                const fill = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops[0]
                 return (
                   <button
                     key={t.id}

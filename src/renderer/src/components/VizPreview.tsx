@@ -67,10 +67,11 @@ function blurCaps(freq: Uint8Array, buf: Float32Array): void {
   }
 }
 
-// These styles need the whole frame (radial rings, and the continuous liquid
-// band); everything else is a left-to-right bar shape we render wide and crop.
+// Radial rings and the continuous liquid band are supersampled for crisp lines;
+// bar styles render natively at the card size, so every bar fills the width and
+// the preview scales with the window (like the real fullscreen visualizer)
+// instead of showing a fixed, sparse slice.
 const RADIAL = new Set(['ripples', 'outline-round', 'solid-round', 'liquid'])
-const ZOOM = 2.6 // how much wider than the box a bar style is rendered before cropping
 
 // ---- shared render scheduler: keeps the UI responsive ----
 // Each job renders a slice of one preview and returns true when it's done. The
@@ -134,7 +135,7 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       // The ring packs ~150 rays, so supersample it harder: the rays downscale
       // thinner than their spacing, leaving gaps (a ring of spikes, not a disc).
       const ss = radial ? (styleId === 'ripples' ? 4 : 2) : 1
-      const OW = radial ? W * ss : Math.round(W * ZOOM)
+      const OW = W * ss // bars render native (ss=1); rings supersample
       const OH = H * ss
       const off = document.createElement('canvas')
       off.width = OW
@@ -143,7 +144,6 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       if (!octx) return
       const style = styleById(styleId)
       const draw: DrawFn = style.create(OW, OH)
-      const sx = Math.round((OW - W) / 2)
 
       // The spectrum is static, so build it ONCE (not per warm-up frame).
       const freq = new Uint8Array(1024)
@@ -191,13 +191,9 @@ export function VizPreview({ styleId, theme }: { styleId: string; theme: VizThem
       }
       const composite = (): void => {
         ctx.clearRect(0, 0, W, H)
-        if (radial) {
-          ctx.imageSmoothingEnabled = true
-          ctx.imageSmoothingQuality = 'high'
-          ctx.drawImage(off, 0, 0, OW, OH, 0, 0, W, H)
-        } else {
-          ctx.drawImage(off, sx, 0, W, H, 0, 0, W, H) // crop the centre 1:1
-        }
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(off, 0, 0, OW, OH, 0, 0, W, H) // 1:1 for bars, downscale for rings
       }
 
       let f = 0
