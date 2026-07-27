@@ -236,6 +236,7 @@ export function Visualizer({
         opts.accent = th.accent
         opts.vgrad = th.vgrad ?? null
         opts.cycle = th.cycle ?? null
+        opts.cycleMode = th.cycleMode ?? null
         opts.dropStyle = dropStyleRef.current
         opts.previewBurst = previewRef.current
         opts.dpr = dpr

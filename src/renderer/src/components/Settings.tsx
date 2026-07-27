@@ -233,7 +233,7 @@ function ColoursTab(): JSX.Element {
                 // a seamless loop. Faster themes scroll faster (Cycle vs Cycle Fast).
                 const stops = t.cycle ? [...t.palette, t.palette[0]] : t.palette
                 const fill = stops.length > 1 ? `linear-gradient(90deg, ${stops.join(', ')})` : stops[0]
-                const dur = t.cycle ? (3.6 * 0.03) / t.cycle : 0
+                const dur = 4.5 // swatch scroll (the theme's own cycle speed is separate)
                 return (
                   <button
                     key={t.id}

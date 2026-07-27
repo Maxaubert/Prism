@@ -33,9 +33,12 @@ export interface VizOpts {
   /** When set, bar shapes fill each bar with a vertical top->bottom gradient
    *  ([topColor, bottomColor]) instead of a flat palette colour. */
   vgrad?: [string, string] | null
-  /** When set, bars cycle through the full hue wheel over time; the number is
-   *  hue-degrees per millisecond. */
+  /** When set, colours animate over time; the number's meaning depends on
+   *  cycleMode (hue-deg/ms for rainbow/duo, palette-fraction/ms for drift). */
   cycle?: number | null
+  /** How the animated colour moves: 'rainbow' (full hue wheel, ignores palette),
+   *  'drift' (the palette itself scrolls), 'duo' (two inverted tones cycling). */
+  cycleMode?: 'rainbow' | 'drift' | 'duo' | null
   /** Which drop-burst variant the Halo ring fires on a drop (1-10). */
   dropStyle?: number
   /** A monotonically increasing nonce; when it changes, the ring fires one
@@ -57,8 +60,9 @@ export interface VizTheme {
   alpha?: number
   /** Vertical per-bar gradient [top, bottom]; overrides the flat palette on bars. */
   vgrad?: [string, string]
-  /** Cycle hue over time, hue-degrees per ms (an animated rainbow). */
+  /** Animate the colour over time (see VizOpts.cycle / cycleMode). */
   cycle?: number
+  cycleMode?: 'rainbow' | 'drift' | 'duo'
 }
 
 export type DrawFn = (
@@ -168,15 +172,44 @@ export function rgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
-/** Colour for a band at position `frac` (0..1). When the theme cycles, the hue
- *  drifts over time (`t` = frame time in ms) so the whole spectrum rotates;
- *  otherwise it just samples the palette. Every style should colour through this
- *  so the animated themes work everywhere, not only on the plain bars. */
+/** Sample the palette as a seamless LOOP (…last→first→…) at `pos`, wrapping. Used
+ *  by the 'drift' animation so a gradient can scroll without a seam. */
+export function paletteCyclic(pal: string[], pos: number, alpha?: number): string {
+  const seg = pal.length
+  if (seg <= 1) return paletteAt(pal, 0, alpha)
+  let p = pos % 1
+  if (p < 0) p += 1
+  const x = p * seg
+  const i = Math.floor(x) % seg
+  const f = x - Math.floor(x)
+  const a = hexToRgb(pal[i])
+  const b = hexToRgb(pal[(i + 1) % seg])
+  const r = Math.round(a[0] + (b[0] - a[0]) * f)
+  const g = Math.round(a[1] + (b[1] - a[1]) * f)
+  const bl = Math.round(a[2] + (b[2] - a[2]) * f)
+  return alpha == null ? `rgb(${r},${g},${bl})` : `rgba(${r},${g},${bl},${alpha})`
+}
+
+/** Colour for a band at position `frac` (0..1), `t` = frame time in ms. When the
+ *  theme animates, the colour moves per cycleMode; otherwise it samples the
+ *  palette. Every style colours through this so animated themes work everywhere. */
 export function bandColor(o: VizOpts, frac: number, t: number, alpha?: number): string {
   if (o.cycle) {
+    const a = alpha == null ? 1 : alpha
+    if (o.cycleMode === 'drift') {
+      // The theme's own palette scrolls across the bars over time.
+      return paletteCyclic(o.palette, frac + t * o.cycle, alpha)
+    }
+    if (o.cycleMode === 'duo') {
+      // Two inverted tones (half the wheel apart) whose hues rotate over time.
+      let hue = (t * o.cycle + frac * 180) % 360
+      if (hue < 0) hue += 360
+      return `hsla(${hue}, 80%, 60%, ${a})`
+    }
+    // rainbow: the full hue wheel, spread across the bars, rotating over time.
     let hue = (t * o.cycle + frac * 320) % 360
     if (hue < 0) hue += 360
-    return `hsla(${hue}, 85%, 62%, ${alpha == null ? 1 : alpha})`
+    return `hsla(${hue}, 85%, 62%, ${a})`
   }
   return paletteAt(o.palette, frac, alpha)
 }

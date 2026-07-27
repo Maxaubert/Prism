@@ -118,10 +118,7 @@ function outlineVariation(
           const y = base - h
           let col: string | CanvasGradient
           if (o.cycle) {
-            // Whole spectrum, rotating over time; each bar offset along the wheel.
-            let hue = (d.t * o.cycle + (i / n) * 320) % 360
-            if (hue < 0) hue += 360
-            col = `hsl(${hue}, 85%, 62%)`
+            col = bandColor(o, i / (n - 1), d.t)
           } else if (o.vgrad) {
             // Each bar carries the full top->bottom gradient over its own height.
             const g = ctx.createLinearGradient(0, y, 0, base)
@@ -908,8 +905,11 @@ export const THEMES: VizTheme[] = [
   { id: 'v-redpurple', name: 'Red → Purple', blurb: 'Red tips into purple.', palette: ['#ff4d6d', '#8a3ff0'], accent: '#c05cff', vgrad: ['#ff4d6d', '#8a3ff0'] },
 
   // ---- animated ----
-  { id: 'cycle', name: 'Cycle', blurb: 'Every hue, drifting across the bars over time.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#39c2ff', cycle: 0.03 },
-  { id: 'cycle-fast', name: 'Cycle Fast', blurb: 'The rainbow cycle, spun up.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#ff6ac1', cycle: 0.09 }
+  { id: 'spectrum', name: 'Spectrum', blurb: 'The full hue wheel drifting across the visual.', palette: ['#ff4d6d', '#ffd24a', '#5cff9e', '#39c2ff', '#8a5cff'], accent: '#39c2ff', cycle: 0.03, cycleMode: 'rainbow' },
+  { id: 'aurora-flow', name: 'Aurora Flow', blurb: 'Teal, blue and violet sliding past each other.', palette: ['#5cffd0', '#39c2ff', '#8a5cff', '#ff6ac1'], accent: '#5cffd0', cycle: 0.00013, cycleMode: 'drift' },
+  { id: 'ice-flow', name: 'Ice Flow', blurb: 'Blue and white washing through.', palette: ['#ffffff', '#8fd0ff', '#2f6bff', '#8fd0ff'], accent: '#8fd0ff', cycle: 0.0001, cycleMode: 'drift' },
+  { id: 'ember-flow', name: 'Ember Flow', blurb: 'Yellow into orange into red, flowing.', palette: ['#ffe14a', '#ff8a1a', '#ff2d2d', '#ff8a1a'], accent: '#ff6a1a', cycle: 0.00012, cycleMode: 'drift' },
+  { id: 'duotone', name: 'Duotone', blurb: 'Two opposite colours rotating through the spectrum.', palette: ['#ff4d6d', '#39c2ff'], accent: '#ff4d6d', cycle: 0.03, cycleMode: 'duo' }
 ]
 
 export const DEFAULT_THEME_ID = 'glow'
