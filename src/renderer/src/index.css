@@ -16,6 +16,13 @@
   color-scheme: dark;
 }
 
+/* Drifting gradient for the "Moving" colour-scheme swatches in Settings. */
+@keyframes prism-hue {
+  to {
+    background-position: 220% 0;
+  }
+}
+
 html,
 body,
 #root {

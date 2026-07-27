@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { themeById, DEFAULT_THEME_ID } from '../lib/viz/styles'
+import type { VizTheme } from '../lib/viz/core'
 import {
   useViz,
   visibleThemes,
@@ -8,7 +9,6 @@ import {
   setTheme,
   setBar,
   BAR_COLORS,
-  THEME_GROUPS,
   type Preset,
   type VizState
 } from '../lib/vizStore'
@@ -202,39 +202,52 @@ function VisualizerTab(): JSX.Element {
   )
 }
 
+// Group colour schemes by their EFFECT (how they behave), not by hue, so a user
+// can find "a moving gradient" or "a glowing one" directly.
+function colourCategory(t: VizTheme): string {
+  if (t.cycle) return 'Moving'
+  if (t.vgrad) return 'Vertical gradients'
+  if (t.glow) return 'Glowing'
+  if (t.palette.length <= 1) return 'Solid colours'
+  return 'Gradients'
+}
+const COLOUR_ORDER = ['Gradients', 'Solid colours', 'Vertical gradients', 'Glowing', 'Moving']
+
 function ColoursTab(): JSX.Element {
   const v = useViz()
-  const visible = new Set(visibleThemes().map((t) => t.id))
+  const themes = visibleThemes()
   return (
     <div className="flex flex-col gap-6">
-      {/* Colour schemes, split into hue-family groups. */}
-      {THEME_GROUPS.map(([label, ids]) => {
-        const items = ids.filter((id) => visible.has(id)).map((id) => themeById(id))
+      {/* Colour schemes as plain filled swatches (no labels) so the gradients
+          read clearly, grouped by effect. */}
+      {COLOUR_ORDER.map((cat) => {
+        const items = themes.filter((t) => colourCategory(t) === cat)
         if (!items.length) return null
         return (
-          <Section key={label} title={label}>
-            <div className="grid grid-cols-3 gap-2.5">
+          <Section key={cat} title={cat}>
+            <div className="grid grid-cols-4 gap-2.5 lg:grid-cols-5">
               {items.map((t) => {
                 const on = t.id === v.theme
+                const fill = t.palette.length > 1 ? `linear-gradient(90deg, ${t.palette.join(', ')})` : t.palette[0]
                 return (
                   <button
                     key={t.id}
                     onClick={() => setTheme(t.id)}
-                    className={`flex items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                    title={t.name}
+                    aria-label={t.name}
+                    aria-pressed={on}
+                    className={`h-12 rounded-lg transition ${
                       on
-                        ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
-                        : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
+                        ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-2 ring-offset-[#0d0f14]'
+                        : 'ring-1 ring-white/10 hover:ring-white/30'
                     }`}
-                  >
-                    <span className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className="h-6 w-6 shrink-0 rounded-full"
-                        style={{ background: `linear-gradient(135deg, ${t.palette[0]}, ${t.palette[t.palette.length - 1]})` }}
-                      />
-                      <span className={`truncate text-[12.5px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{t.name}</span>
-                    </span>
-                    {on && <span className="shrink-0 text-[10px] font-semibold text-[var(--color-accent-hi)]">Selected</span>}
-                  </button>
+                    style={{
+                      background: fill,
+                      backgroundSize: t.cycle ? '220% 100%' : undefined,
+                      animation: t.cycle ? 'prism-hue 3s linear infinite' : undefined,
+                      boxShadow: t.glow ? `0 0 16px ${t.accent}88` : undefined
+                    }}
+                  />
                 )
               })}
             </div>
@@ -340,13 +353,10 @@ export function Settings({
   const active = TABS.find((t) => t.id === tab) ?? TABS[0]
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6 backdrop-blur-[1px]" onMouseDown={onClose}>
-      <div
-        className="flex h-[min(720px,90vh)] w-[min(1040px,94vw)] overflow-hidden rounded-2xl border border-white/10 bg-[#12141b] shadow-[0_40px_120px_rgba(0,0,0,.6)]"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {/* tab rail */}
-        <aside className="flex w-[216px] shrink-0 flex-col border-r border-white/[.06] bg-[#0e1016] p-3">
+    // A full-window settings page (sits below the 36px title bar), not a popup.
+    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[#0d0f14]">
+      {/* tab rail */}
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-white/[.06] bg-[#0e1016] p-3">
           <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-white">Settings</div>
           <nav className="flex flex-col gap-0.5">
             {TABS.map((t) => {
@@ -402,6 +412,5 @@ export function Settings({
           </div>
         </div>
       </div>
-    </div>
   )
 }
