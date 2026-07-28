@@ -21,6 +21,21 @@
   }
 }
 
+/* The image viewer's loading spinner. It stays invisible briefly so quick loads
+   never flash it, then fades in. CSS rather than a JS timer so it can't be delayed
+   by main-thread work. The timings matter: measured end-to-end load for a large
+   image is ~200ms (dominated by the fetch, not the decode), so a longer delay
+   would mean the spinner never appears at all on exactly the files that need it. */
+@keyframes prism-delayed-in {
+  to {
+    opacity: 1;
+  }
+}
+.delayed-loader {
+  opacity: 0;
+  animation: prism-delayed-in 90ms ease-out 80ms forwards;
+}
+
 /* Progress-bar colour effects. `cycle` rotates the hue; `move` scrolls a
    (cyclic) gradient. */
 @keyframes bar-hue {

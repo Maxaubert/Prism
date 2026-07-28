@@ -1,6 +1,7 @@
-import { app, protocol, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, protocol, shell, BrowserWindow, ipcMain, dialog, utilityProcess } from 'electron'
 import { basename, dirname, extname, join, resolve } from 'path'
 import { createReadStream, existsSync, readdirSync, statSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { Readable } from 'stream'
 import { fileKind, isViewable } from '@shared/fileKind'
 import type { OpenPayload, ViewerFile } from '@shared/types'
@@ -32,22 +33,118 @@ const MIME: Record<string, string> = {
 }
 const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'application/octet-stream'
 
+// HEIC/HEIF stills are not decodable by Chromium, so we transcode them to JPEG in
+// the main process (pure-JS libheif, no native binary) and serve that instead. A
+// small cache keeps us from re-decoding on every request (preloads + the renderer
+// image cache both hit this). Keyed by path + mtime so an edited file re-decodes.
+const HEIC_EXTS = new Set(['.heic', '.heif'])
+const heicCache = new Map<string, Buffer>()
+const HEIC_CACHE_MAX = 6
+
+// The decode itself happens in a utility process (see heicWorker.ts). Measured: a
+// 3MB iPhone HEIC takes ~2s, and doing that inline froze the entire window, since
+// the main process owns the window message loop on Windows.
+let heicProc: Electron.UtilityProcess | null = null
+let heicSeq = 0
+const heicPending = new Map<number, { resolve: (b: Buffer) => void; reject: (e: Error) => void }>()
+
+function heicWorker(): Electron.UtilityProcess {
+  if (heicProc) return heicProc
+  const proc = utilityProcess.fork(join(__dirname, 'heicWorker.js'))
+  proc.on('message', (m: { id: number; ok: boolean; data?: Uint8Array; error?: string }) => {
+    const p = heicPending.get(m.id)
+    if (!p) return
+    heicPending.delete(m.id)
+    if (m.ok && m.data) p.resolve(Buffer.from(m.data))
+    else p.reject(new Error(m.error ?? 'heic decode failed'))
+  })
+  proc.on('exit', () => {
+    heicProc = null
+    for (const p of heicPending.values()) p.reject(new Error('heic worker exited'))
+    heicPending.clear()
+  })
+  heicProc = proc
+  return proc
+}
+
+async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
+  const key = `${filePath}|${mtimeMs}`
+  const hit = heicCache.get(key)
+  if (hit) {
+    heicCache.delete(key)
+    heicCache.set(key, hit) // LRU touch
+    return hit
+  }
+  const id = ++heicSeq
+  const buf = await new Promise<Buffer>((resolve, reject) => {
+    heicPending.set(id, { resolve, reject })
+    heicWorker().postMessage({ id, path: filePath })
+  })
+  heicCache.set(key, buf)
+  if (heicCache.size > HEIC_CACHE_MAX) {
+    const oldest = heicCache.keys().next().value
+    if (oldest) heicCache.delete(oldest)
+  }
+  return buf
+}
+
 // Serve a local file honouring Range requests (206), so media can seek. Mirrors
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
-function serveMedia(request: Request): Response {
+async function serveMedia(request: Request): Promise<Response> {
   let filePath: string
   try {
     filePath = decodeURIComponent(new URL(request.url).pathname).slice(1)
   } catch {
     return new Response(null, { status: 400 })
   }
-  let size: number
+  let st: ReturnType<typeof statSync>
   try {
-    size = statSync(filePath).size
+    st = statSync(filePath)
   } catch {
     return new Response(null, { status: 404 })
   }
+
+  const ext = extname(filePath).toLowerCase()
+  if (HEIC_EXTS.has(ext)) {
+    try {
+      const jpeg = await heicToJpeg(filePath, st.mtimeMs)
+      return new Response(jpeg, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': String(jpeg.length),
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch {
+      return new Response(null, { status: 415 }) // couldn't decode this HEIC
+    }
+  }
+
+  const size = st.size
   const type = mimeFor(filePath)
+
+  // Small images are consumed whole by the renderer and never issue Range requests,
+  // so hand back one buffer instead of a stream — measured, the stream plumbing (not
+  // the decode) dominated their load time. The cap is deliberately low: a single
+  // large buffer crosses the process boundary as one IPC message, and tracing a
+  // 40 MB image showed a 1.2s "Receive mojo message" stall in the renderer. Bigger
+  // files stream, arriving in chunks that never block.
+  if (type.startsWith('image/') && size <= 8 * 1024 * 1024) {
+    try {
+      const buf = await readFile(filePath)
+      return new Response(buf, {
+        status: 200,
+        headers: {
+          'Content-Type': type,
+          'Content-Length': String(buf.length),
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch {
+      return new Response(null, { status: 404 })
+    }
+  }
   const open = (opts?: { start: number; end: number }): NodeJS.ReadableStream => {
     const s = createReadStream(filePath, opts)
     s.on('error', () => s.destroy())
@@ -88,7 +185,13 @@ function serveMedia(request: Request): Response {
 
 function toViewerFile(p: string): ViewerFile {
   const ext = extname(p).toLowerCase()
-  return { path: p, name: basename(p), ext, kind: fileKind(ext) }
+  let size = 0
+  try {
+    size = statSync(p).size
+  } catch {
+    /* unreadable; leave 0 so the renderer just treats it as unknown */
+  }
+  return { path: p, name: basename(p), ext, kind: fileKind(ext), size }
 }
 
 /** Build the open payload for a path: the folder's viewable siblings + the index

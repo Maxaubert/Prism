@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
 import { IconFull } from './icons'
+import { loadImage, type LoadedImage } from '../lib/imageLoader'
+
+// Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
+// measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
+// (so the loading spinner never appeared and navigation appeared to hang).
+// createImageBitmap does the same work entirely off-thread, so such images are
+// decoded to a display-sized bitmap and shown on a canvas instead.
+const CANVAS_PATH_PIXELS = 40_000_000
+// Longest edge of that bitmap. Sharp at a step or two of zoom while staying cheap
+// to rasterize: measured, 4096 cost ~550ms of raster on display, 2560 ~200ms.
+const MAX_EDGE = 2560
+
 
 // The image viewer: fit-to-window by default, wheel zoom toward the cursor, drag
 // to pan, rotate, reset, and fullscreen. Remounted per file by the app (key=path),
@@ -24,6 +36,60 @@ export function ImageView({
   const [rot, setRot] = useState(0)
   const [panning, setPanning] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [img, setImg] = useState<LoadedImage | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const huge = !!img && img.width * img.height > CANVAS_PATH_PIXELS
+
+  // The viewer is remounted per file (keyed by path), so state starts fresh here;
+  // no synchronous resets needed. All updates below fire asynchronously.
+  useEffect(() => {
+    let alive = true
+    loadImage(url)
+      .then((r) => alive && setImg(r))
+      .catch(() => alive && setFailed(true))
+    return () => {
+      alive = false
+    }
+  }, [url])
+
+  // Very large images: decode off the main thread, downscaled, straight into the
+  // canvas. Keeps the UI responsive (and the spinner painting) throughout.
+  useEffect(() => {
+    if (!img || !huge) return
+    let alive = true
+    let bitmap: ImageBitmap | null = null
+    const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height))
+    createImageBitmap(img.blob, {
+      resizeWidth: Math.max(1, Math.round(img.width * scale)),
+      resizeHeight: Math.max(1, Math.round(img.height * scale)),
+      resizeQuality: 'high'
+    })
+      .then((bmp) => {
+        bitmap = bmp
+        const c = canvasRef.current
+        if (!alive || !c) {
+          bmp.close()
+          return
+        }
+        c.width = bmp.width
+        c.height = bmp.height
+        // bitmaprenderer hands the bitmap over without copying it.
+        const ctx = c.getContext('bitmaprenderer')
+        if (ctx) {
+          ctx.transferFromImageBitmap(bmp)
+        } else {
+          c.getContext('2d')?.drawImage(bmp, 0, 0)
+          bmp.close()
+        }
+        setLoaded(true)
+      })
+      .catch(() => alive && setFailed(true))
+    return () => {
+      alive = false
+      bitmap?.close()
+    }
+  }, [img, huge])
 
   const reset = useCallback(() => {
     setZoom(1)
@@ -118,23 +184,52 @@ export function ImageView({
           This image can’t be displayed (unsupported format or corrupt file).
         </div>
       ) : (
-        <img
-          src={url}
-          alt={name}
-          draggable={false}
-          onError={() => setFailed(true)}
-          onMouseDown={onImgDown}
-          onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
-          style={{
-            transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
-            cursor,
-            transition: panning ? 'none' : 'transform .12s ease-out'
-          }}
-          // Fit the stage in both directions (same reason as the video): max-w/max-h
-          // cap at intrinsic size, which left images smaller than the window sitting
-          // tiny in the middle of the screen. Zoom still scales up from this fit.
-          className="h-full w-full object-contain"
-        />
+        <>
+          {/* Buffering spinner. Mounted for the whole load; the `delayed-loader`
+              class keeps it invisible for the first ~260ms (CSS, so it survives a
+              main-thread stall from a huge decode) and fades it in after that. */}
+          {!loaded && (
+            <div className="delayed-loader pointer-events-none absolute inset-0 grid place-items-center">
+              <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/15 border-t-[var(--color-accent-hi)]" />
+            </div>
+          )}
+          {/* Fit the stage in both directions (same reason as the video): max-w/max-h
+              cap at intrinsic size, which left images smaller than the window sitting
+              tiny in the middle of the screen. Zoom still scales up from this fit. */}
+          {img && huge && (
+            <canvas
+              ref={canvasRef}
+              onMouseDown={onImgDown}
+              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
+              style={{
+                transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
+                cursor,
+                opacity: loaded ? 1 : 0,
+                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
+              }}
+              className="h-full w-full object-contain"
+            />
+          )}
+          {img && !huge && (
+            <img
+              src={img.objectUrl}
+              alt={name}
+              draggable={false}
+              decoding="async"
+              onLoad={() => setLoaded(true)}
+              onError={() => setFailed(true)}
+              onMouseDown={onImgDown}
+              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
+              style={{
+                transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
+                cursor,
+                opacity: loaded ? 1 : 0,
+                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
+              }}
+              className="h-full w-full object-contain"
+            />
+          )}
+        </>
       )}
 
       {/* control cluster, appears on hover */}

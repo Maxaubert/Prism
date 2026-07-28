@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { OpenPayload, ViewerFile } from '@shared/types'
+import { preloadImage } from './lib/imageLoader'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
@@ -12,6 +13,7 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 // get their own phase. All viewers eventually come from prism-core.
 
 const PLAYABLE = new Set(['video', 'audio'])
+const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 
 function TopBar({ file, pos, onOpenSettings }: { file: ViewerFile | null; pos: string; onOpenSettings: () => void }): JSX.Element {
   const w = window.prism
@@ -102,6 +104,10 @@ function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
 export default function App(): JSX.Element {
   const [payload, setPayload] = useState<OpenPayload | null>(null)
   const [index, setIndex] = useState(0)
+  // Whether the user has started paging through the folder in this session. A
+  // freshly opened audio/video keeps the arrow keys for seeking; once you've
+  // navigated, arrows keep paging even when they land on a playable file.
+  const [hasNavigated, setHasNavigated] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
@@ -115,6 +121,7 @@ export default function App(): JSX.Element {
     if (p && p.files.length) {
       setPayload(p)
       setIndex(Math.max(0, Math.min(p.files.length - 1, p.index)))
+      setHasNavigated(false) // a fresh open starts in "opened directly" mode
     }
   }, [])
 
@@ -126,17 +133,26 @@ export default function App(): JSX.Element {
   const go = useCallback(
     (delta: number) => {
       if (!payload) return
-      setIndex((i) => Math.max(0, Math.min(payload.files.length - 1, i + delta)))
+      const next = Math.max(0, Math.min(payload.files.length - 1, index + delta))
+      if (next === index) return // already at the edge; not a navigation
+      setIndex(next)
+      setHasNavigated(true)
     },
-    [payload]
+    [payload, index]
   )
 
   const file = payload?.files[index] ?? null
 
-  // App-level keys. Arrow keys navigate the folder EXCEPT for playable media,
-  // where the player owns them for seeking.
+  // App-level keys, in the capture phase so this runs before the player's own
+  // (bubble-phase) key listener. Arrow keys page through the folder, except a
+  // freshly opened audio/video owns them for seeking (the player handles them).
+  // The moment the user starts navigating — paging, or arrowing through
+  // non-playable files — arrows keep navigating even on playable files; we then
+  // claim the key (preventDefault) so the player yields it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      const el = e.target as HTMLElement | null
+      const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
@@ -145,14 +161,42 @@ export default function App(): JSX.Element {
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
       else if (e.key === 'PageUp') go(-1)
-      else if (!file || !PLAYABLE.has(file.kind)) {
-        if (e.key === 'ArrowRight') go(1)
-        else if (e.key === 'ArrowLeft') go(-1)
+      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
+        const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
+        if (!playerOwnsArrows) {
+          e.preventDefault() // player checks defaultPrevented and yields
+          go(e.key === 'ArrowRight' ? 1 : -1)
+        }
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [file, fullscreen, go])
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [file, fullscreen, go, hasNavigated])
+
+  // Warm the immediate neighbours (images only) so arrowing to them is instant.
+  // The shared image cache holds them (and enforces the memory policy), so we just
+  // fire the requests; ±1 is enough to make stepping feel seamless. Very large
+  // files are skipped: warming one costs more (memory, decode jank) than it saves.
+  useEffect(() => {
+    if (!payload) return
+    // Wait for idle before warming neighbours. Load time is dominated by reading
+    // the file, so firing these immediately makes two big neighbours compete with
+    // the image the user is actually waiting for.
+    const start = (): void => {
+      for (const d of [-1, 1]) {
+        const n = payload.files[index + d]
+        if (n && n.kind === 'image' && n.size <= PRELOAD_MAX_BYTES) {
+          preloadImage(window.prism.mediaUrl(n.path))
+        }
+      }
+    }
+    if (typeof requestIdleCallback === 'function') {
+      const id = requestIdleCallback(start, { timeout: 1500 })
+      return () => cancelIdleCallback(id)
+    }
+    const t = setTimeout(start, 400)
+    return () => clearTimeout(t)
+  }, [payload, index])
 
   // Drag-and-drop (path via webUtils, since Electron removed File.path).
   useEffect(() => {

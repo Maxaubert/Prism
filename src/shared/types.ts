@@ -6,6 +6,9 @@ export interface ViewerFile {
   name: string
   ext: string // lowercased, leading dot
   kind: FileKind
+  /** Bytes on disk; 0 if it couldn't be stat'ed. Used to skip preloading files
+   *  so large that warming them would cost more than it saves. */
+  size: number
 }
 
 /** What main hands the renderer when a file is opened: the folder's viewable

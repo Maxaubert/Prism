@@ -19,6 +19,7 @@
     "package": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
+    "heic-convert": "^2.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
