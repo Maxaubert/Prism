@@ -72,3 +72,14 @@ body {
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Someone who asked the OS for less motion gets state changes, not journeys. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

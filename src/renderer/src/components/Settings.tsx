@@ -542,18 +542,11 @@ export function Settings({
 
         {/* content */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-start justify-between gap-4 border-b border-white/[.06] px-6 py-4">
-            <div className="min-w-0">
-              <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
-              {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
-            </div>
-            <button
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-dim)] hover:bg-white/10 hover:text-white"
-              onClick={onClose}
-              aria-label="Close settings"
-            >
-              ✕
-            </button>
+          {/* No close button: the cog that opened this closes it, and Escape works
+              too. One control, one place. */}
+          <header className="border-b border-white/[.06] px-6 py-4">
+            <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
+            {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">

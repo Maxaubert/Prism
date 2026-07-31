@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import type { DirListing, FileKind } from '@shared/types'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
 
@@ -21,6 +21,20 @@ const TINT: Record<FileKind, string> = {
   other: '#8d93a1'
 }
 const FOLDER_TINT = '#9aa0f0'
+
+// Panel width: dragged from the edge, remembered, and bounded so it can't be
+// squeezed into uselessness or grow to swallow the media.
+const WIDTH_KEY = 'prism.sidebar.width'
+const MIN_W = 170
+const MAX_W = 520
+const DEFAULT_W = 260
+
+const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
+
+function loadWidth(): number {
+  const v = Number(localStorage.getItem(WIDTH_KEY))
+  return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
+}
 
 function Chevron({ open }: { open: boolean }): JSX.Element {
   return (
@@ -152,12 +166,20 @@ function Folder({
         <FolderIcon color={FOLDER_TINT} />
         <span className="truncate">{name}</span>
       </button>
-      {open &&
-        (listing ? (
-          <Rows listing={listing} depth={depth + 1} state={state} onToggle={onToggle} onOpenFile={onOpenFile} currentPath={currentPath} />
-        ) : (
-          <Note text="loading…" depth={depth + 1} />
-        ))}
+      {/* Children stay mounted once loaded and the row track collapses to 0fr, so
+          opening and closing a folder slides instead of snapping. */}
+      {listing ? (
+        <div
+          className="grid transition-[grid-template-rows] duration-[160ms] ease-out [transition-timing-function:cubic-bezier(.23,1,.32,1)]"
+          style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+        >
+          <div className="overflow-hidden">
+            <Rows listing={listing} depth={depth + 1} state={state} onToggle={onToggle} onOpenFile={onOpenFile} currentPath={currentPath} />
+          </div>
+        </div>
+      ) : (
+        open && <Note text="loading…" depth={depth + 1} />
+      )}
     </li>
   )
 }
@@ -220,16 +242,62 @@ interface TreeState {
 }
 
 export function Sidebar({
+  open,
   root,
   currentPath,
   onOpenFile
 }: {
+  open: boolean
   root: string
   currentPath: string | null
   onOpenFile: (p: string) => void
 }): JSX.Element {
   const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
   const [revealed, setRevealed] = useState<string | null>(null)
+  const [width, setWidth] = useState(loadWidth)
+  // While dragging, the panel must track the pointer exactly: any transition
+  // would make the edge lag behind the cursor.
+  const [dragging, setDragging] = useState(false)
+  const panel = useRef<HTMLElement>(null)
+
+  const resize = useCallback((next: number) => {
+    const w = clampWidth(next)
+    setWidth(w)
+    localStorage.setItem(WIDTH_KEY, String(w))
+  }, [])
+
+  const onHandleDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      setDragging(true)
+    },
+    []
+  )
+
+  const onHandleMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging || !panel.current) return
+      resize(e.clientX - panel.current.getBoundingClientRect().left)
+    },
+    [dragging, resize]
+  )
+
+  const onHandleUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    setDragging(false)
+  }, [])
+
+  // Arrow keys move the edge too, so the panel isn't mouse-only.
+  const onHandleKey = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'ArrowLeft') resize(width - 16)
+      else if (e.key === 'ArrowRight') resize(width + 16)
+      else return
+      e.preventDefault()
+    },
+    [resize, width]
+  )
 
   // Reveal: when the open file changes, expand every folder between the root and
   // it. Adjusting state during render (rather than in an effect) keeps a folder
@@ -271,21 +339,59 @@ export function Sidebar({
   const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
 
   return (
-    <aside className="flex h-full w-[260px] shrink-0 flex-col border-r border-white/[.06] bg-[#0e1016]">
-      <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--color-dim)]">
-        <span className="truncate" title={root}>
-          {rootName}
-        </span>
+    // The panel stays mounted and collapses to zero width, so opening and closing
+    // slides. Its contents keep the full width throughout (the outer box just
+    // clips), which keeps the rows from reflowing on every frame of the slide.
+    <aside
+      ref={panel}
+      inert={!open}
+      aria-hidden={!open}
+      style={{ width: open ? width : 0 }}
+      className={`relative h-full shrink-0 overflow-hidden bg-[#0e1016] ${
+        dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
+      }`}
+    >
+      <div className="flex h-full flex-col border-r border-white/[.06]" style={{ width }}>
+        <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--color-dim)]">
+          <span className="truncate" title={root}>
+            {rootName}
+          </span>
+        </div>
+        {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {rootListing ? (
+            <ul role="tree" aria-label="Folder contents" className="list-none">
+              <Rows listing={rootListing} depth={0} state={state} onToggle={toggle} onOpenFile={onOpenFile} currentPath={currentPath} />
+            </ul>
+          ) : (
+            <Note text="loading…" depth={0} />
+          )}
+        </div>
       </div>
-      {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {rootListing ? (
-          <ul role="tree" aria-label="Folder contents" className="list-none">
-            <Rows listing={rootListing} depth={0} state={state} onToggle={toggle} onOpenFile={onOpenFile} currentPath={currentPath} />
-          </ul>
-        ) : (
-          <Note text="loading…" depth={0} />
-        )}
+
+      {/* Drag the edge to resize; double-click snaps back to the default. The hit
+          area is wider than the line it draws, so it's grabbable without hunting. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize file tree"
+        aria-valuenow={width}
+        aria-valuemin={MIN_W}
+        aria-valuemax={MAX_W}
+        tabIndex={open ? 0 : -1}
+        onPointerDown={onHandleDown}
+        onPointerMove={onHandleMove}
+        onPointerUp={onHandleUp}
+        onPointerCancel={onHandleUp}
+        onDoubleClick={() => resize(DEFAULT_W)}
+        onKeyDown={onHandleKey}
+        className="no-drag group absolute inset-y-0 right-0 z-10 w-2 translate-x-1/2 cursor-col-resize focus-visible:outline-none"
+      >
+        <span
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--color-accent-hi)] group-focus-visible:bg-[var(--color-accent-hi)] ${
+            dragging ? 'bg-[var(--color-accent-hi)]' : 'bg-transparent'
+          }`}
+        />
       </div>
     </aside>
   )

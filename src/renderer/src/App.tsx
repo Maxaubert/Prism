@@ -21,13 +21,15 @@ const SIDEBAR_KEY = 'prism.sidebar'
 function TopBar({
   file,
   pos,
-  onOpenSettings,
+  settingsOpen,
+  onToggleSettings,
   sidebar,
   onToggleSidebar
 }: {
   file: ViewerFile | null
   pos: string
-  onOpenSettings: () => void
+  settingsOpen: boolean
+  onToggleSettings: () => void
   sidebar: boolean
   onToggleSidebar: () => void
 }): JSX.Element {
@@ -52,7 +54,15 @@ function TopBar({
       <span className="min-w-0 flex-1 truncate text-[var(--color-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--color-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10 hover:text-white" onClick={onOpenSettings} title="Settings" aria-label="Settings">
+        <button
+          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+            settingsOpen ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)] hover:text-white'
+          }`}
+          onClick={onToggleSettings}
+          title="Settings"
+          aria-label="Settings"
+          aria-pressed={settingsOpen}
+        >
           <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
             <circle cx="12" cy="12" r="3.2" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
@@ -210,6 +220,10 @@ export default function App(): JSX.Element {
         e.preventDefault()
         toggleSidebar()
       } else if (e.key === 'Escape') {
+        // Settings owns Escape while it's open (its own handler closes it).
+        // Without this, the window would shut instead: both listeners are on
+        // window in the capture phase, and this one was registered first.
+        if (settingsOpen) return
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
@@ -224,7 +238,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, toggleSidebar])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, toggleSidebar])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -275,15 +289,23 @@ export default function App(): JSX.Element {
   const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
-  const showTree = sidebar && !fullscreen && !!raw
-
+  // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
     <div className="flex h-full flex-col">
       {!fullscreen && (
-        <TopBar file={file} pos={pos} onOpenSettings={() => setSettingsOpen(true)} sidebar={sidebar} onToggleSidebar={toggleSidebar} />
+        <TopBar
+          file={file}
+          pos={pos}
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((v) => !v)}
+          sidebar={sidebar}
+          onToggleSidebar={toggleSidebar}
+        />
       )}
       <div className="flex min-h-0 flex-1">
-        {showTree && <Sidebar root={raw!.root} currentPath={file?.path ?? null} onOpenFile={openFromTree} />}
+        {raw && !fullscreen && (
+          <Sidebar open={sidebar} root={raw.root} currentPath={file?.path ?? null} onOpenFile={openFromTree} />
+        )}
         <div
           className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
             dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
