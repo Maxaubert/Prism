@@ -8,6 +8,7 @@ export interface MenuItem {
   label: string
   hint?: string
   danger?: boolean
+  icon?: JSX.Element
   onPick: () => void
 }
 
@@ -64,7 +65,9 @@ export function ContextMenu({
         ref={box}
         role="menu"
         style={{ left: pos.x, top: pos.y }}
-        className="pointer-events-auto absolute min-w-[150px] rounded-[3px] border border-white/10 bg-[#14161c] py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
+        // Hairline: square, bordered, ruled between items. No inner padding, so
+        // each row spans the full width and the rules read as structure.
+        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-white/[.12] bg-[#101319] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
       >
         {items.map((it) => (
           <button
@@ -74,13 +77,16 @@ export function ContextMenu({
               it.onPick()
               onClose()
             }}
-            className={`flex h-[24px] w-full items-center justify-between gap-8 px-2.5 text-left text-[12px] transition-colors ${
+            className={`flex h-[28px] w-full items-center justify-between gap-8 border-t border-white/[.07] px-[11px] text-left text-[12px] transition-colors first:border-t-0 ${
               it.danger
                 ? 'text-[#d97b84] hover:bg-[#b4353f]/20 hover:text-[#f0a4ab]'
-                : 'text-[#c8ccd6] hover:bg-white/[.07] hover:text-white'
+                : 'text-[#c8ccd6] hover:bg-white/[.05] hover:text-white'
             }`}
           >
-            {it.label}
+            <span className="flex items-center gap-2">
+              {it.icon}
+              {it.label}
+            </span>
             {it.hint && <span className="text-[10.5px] tracking-wide text-[var(--color-dim2,#5f6474)]">{it.hint}</span>}
           </button>
         ))}

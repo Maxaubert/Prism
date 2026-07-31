@@ -38,6 +38,13 @@ interface Menu {
   isFolder: boolean
 }
 
+/** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
+const MenuIcon = ({ d }: { d: string }): JSX.Element => (
+  <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="opacity-80" aria-hidden>
+    <path d={d} />
+  </svg>
+)
+
 export function Sidebar({
   open,
   root,
@@ -245,8 +252,14 @@ export function Sidebar({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { label: 'Rename', hint: 'F2', onPick: () => setEditing(menu.path) },
-            { label: 'Delete', hint: 'Del', danger: true, onPick: () => onDelete(menu.path, menu.name, menu.isFolder) }
+            { label: 'Rename', hint: 'F2', icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />, onPick: () => setEditing(menu.path) },
+            {
+              label: 'Delete',
+              hint: 'Del',
+              danger: true,
+              icon: <MenuIcon d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />,
+              onPick: () => onDelete(menu.path, menu.name, menu.isFolder)
+            }
           ]}
         />
       )}
