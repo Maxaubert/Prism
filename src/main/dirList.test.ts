@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { tmpdir } from 'os'
-import { isInsideRoot, listDir } from './dirList'
+import { isInsideRoot, isRoot, listDir } from './dirList'
 
 // A real temp folder, since both functions are about the filesystem.
 function fixture(): string {
@@ -78,5 +78,20 @@ describe('listDir', () => {
 
   it('does not flag a readable folder', () => {
     expect(listDir(root).unreadable).toBeUndefined()
+  })
+})
+
+describe('isRoot', () => {
+  const root = fixture()
+
+  it('is true for the root, however it is spelled', () => {
+    expect(isRoot(root, root)).toBe(true)
+    expect(isRoot(root, root + sep)).toBe(true)
+    if (process.platform === 'win32') expect(isRoot(root, root.toUpperCase())).toBe(true)
+  })
+
+  it('is false for anything inside it', () => {
+    expect(isRoot(root, join(root, 'sub'))).toBe(false)
+    expect(isRoot(root, join(root, 'b.jpg'))).toBe(false)
   })
 })

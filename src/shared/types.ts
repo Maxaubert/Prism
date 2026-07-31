@@ -26,6 +26,20 @@ export interface DirListing {
   unreadable?: boolean
 }
 
+/** What to do when a rename runs into a name that's already taken. 'ask' changes
+ *  nothing and reports back, so the choice can be put to the user. */
+export type OnClash = 'ask' | 'overwrite' | 'keep-both'
+
+export type RenameResult =
+  | { ok: true; path: string }
+  | {
+      ok: false
+      reason: 'invalid' | 'clash' | 'missing' | 'failed'
+      message?: string
+      /** For a clash: the name "keep both" would use, e.g. "photo (2).jpg". */
+      suggestion?: string
+    }
+
 /** What main hands the renderer when a file is opened: the folder's viewable
  * files, the index of the one that was actually opened, and the session root
  * (the folder Prism was opened in) that the sidebar tree is bounded by. */

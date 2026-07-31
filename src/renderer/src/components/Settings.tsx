@@ -19,6 +19,7 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
+import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -250,6 +251,7 @@ function Dropdown({
 
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
+  const size = useTreeSize()
   return (
     <div className="max-w-[680px] border-t border-white/[.07]">
       <Row
@@ -258,6 +260,9 @@ function GeneralTab(): JSX.Element {
         desc="Which sibling files the arrow keys step through. The one you opened is always included."
       >
         <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+      </Row>
+      <Row id="tree-size" label="File tree text" desc="Type size in the sidebar. Rows grow with it.">
+        <Dropdown id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
       </Row>
     </div>
   )
@@ -542,18 +547,11 @@ export function Settings({
 
         {/* content */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-start justify-between gap-4 border-b border-white/[.06] px-6 py-4">
-            <div className="min-w-0">
-              <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
-              {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
-            </div>
-            <button
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-dim)] hover:bg-white/10 hover:text-white"
-              onClick={onClose}
-              aria-label="Close settings"
-            >
-              ✕
-            </button>
+          {/* No close button: the cog that opened this closes it, and Escape works
+              too. One control, one place. */}
+          <header className="border-b border-white/[.06] px-6 py-4">
+            <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
+            {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
