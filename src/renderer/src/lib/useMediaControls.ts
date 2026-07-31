@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type RefObject, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -7,6 +7,14 @@ import { useCallback, useEffect, useState, type RefObject, type SyntheticEvent }
 
 export const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 const VOL_KEY = 'prism.volume'
+
+// Resume-position: long media reopens where you left off; short clips (music
+// videos, songs) always restart so you hear them whole. Position is saved per
+// file url and cleared once you reach the end.
+const RESUME_PREFIX = 'prism.resume.'
+const RESUME_MIN_DURATION = 600 // seconds (10 minutes)
+const RESUME_END_PAD = 5 // don't resume/save within this many seconds of the end
+const RESUME_SAVE_STEP = 5 // save at most once per this many seconds of movement
 
 export interface MediaBindings {
   onPlay: () => void
@@ -46,12 +54,19 @@ interface Options {
   /** Called on any keyboard transport action (e.g. to re-show video chrome). */
   onActivity?: () => void
   errorMsg?: string
+  /** Stable per-file key (the media url). Enables resume-position for media
+   *  longer than RESUME_MIN_DURATION. Omit to disable. */
+  resumeKey?: string
 }
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v))
 
 export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: Options = {}): MediaControls {
-  const { onFullscreen, onPlayChange, onActivity, errorMsg } = opts
+  const { onFullscreen, onPlayChange, onActivity, errorMsg, resumeKey } = opts
+  // Resume-position bookkeeping. This hook is remounted per file (the viewer is
+  // keyed by path), so these refs start fresh for each media element.
+  const resumedRef = useRef(false)
+  const lastSavedRef = useRef(0)
   const [playing, setPlaying] = useState(false)
   const [cur, setCur] = useState(0)
   const [dur, setDur] = useState(0)
@@ -102,14 +117,17 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   )
   const seekBy = useCallback((d: number) => seekTo((ref.current?.currentTime ?? 0) + d), [seekTo, ref])
 
-  // Keyboard transport. The app-level handler skips arrows for playable media, so
-  // the player owns ←/→ (seek) and the rest of the standard media shortcuts.
+  // Keyboard transport. The app-level handler (capture phase) owns ←/→ while the
+  // user is paging through a folder and calls preventDefault; here we honour that
+  // by yielding any key it already claimed. Otherwise the player owns ←/→ (seek)
+  // and the rest of the standard media shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       // Never swallow keys meant for a text field: space would toggle playback
       // instead of typing a space, and the letter shortcuts would fire too.
       const el = e.target as HTMLElement | null
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+      if (e.defaultPrevented) return // the app claimed this key (folder paging)
       const act = (): void => onActivity?.()
       switch (e.key) {
         case ' ':
@@ -145,8 +163,33 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       setPlaying(false)
       onPlayChange?.(false)
     },
-    onTimeUpdate: (e) => setCur(e.currentTarget.currentTime),
-    onDurationChange: (e) => setDur(e.currentTarget.duration),
+    onTimeUpdate: (e) => {
+      const m = e.currentTarget
+      setCur(m.currentTime)
+      // Persist position for long media, throttled; clear it near the end so the
+      // file restarts next time instead of resuming at ~100%.
+      if (resumeKey && Number.isFinite(m.duration) && m.duration > RESUME_MIN_DURATION) {
+        if (m.currentTime > m.duration - RESUME_END_PAD) {
+          localStorage.removeItem(RESUME_PREFIX + resumeKey)
+        } else if (Math.abs(m.currentTime - lastSavedRef.current) >= RESUME_SAVE_STEP) {
+          lastSavedRef.current = m.currentTime
+          localStorage.setItem(RESUME_PREFIX + resumeKey, String(Math.floor(m.currentTime)))
+        }
+      }
+    },
+    onDurationChange: (e) => {
+      const m = e.currentTarget
+      setDur(m.duration)
+      // Once we know the duration, seek a long file to its saved position (once).
+      if (!resumedRef.current && resumeKey && Number.isFinite(m.duration) && m.duration > RESUME_MIN_DURATION) {
+        resumedRef.current = true
+        const saved = Number(localStorage.getItem(RESUME_PREFIX + resumeKey))
+        if (saved > 0 && saved < m.duration - RESUME_END_PAD) {
+          m.currentTime = saved
+          setCur(saved)
+        }
+      }
+    },
     onProgress: (e) => {
       const m = e.currentTarget
       if (m.buffered.length) setBuffered(m.buffered.end(m.buffered.length - 1))

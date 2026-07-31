@@ -7,7 +7,15 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: { alias: { '@shared': resolve('src/shared') } },
-    build: { rollupOptions: { input: { index: resolve(__dirname, 'src/main/index.ts') } } }
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Forked as a utility process so HEIC decoding never blocks the main one.
+          heicWorker: resolve(__dirname, 'src/main/heicWorker.ts')
+        }
+      }
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

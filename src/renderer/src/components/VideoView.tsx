@@ -28,6 +28,10 @@ export function VideoView({
   const barFx = { palette: themeById(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   const [chromeOn, setChromeOn] = useState(true)
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
+  // Whether playback has ever begun. Videos autoplay, so the resting play icon
+  // should only appear once the user pauses a started video — never during the
+  // brief pre-autoplay moment (which otherwise flashes on every navigation).
+  const [started, setStarted] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const showChrome = useCallback(() => {
@@ -41,8 +45,16 @@ export function VideoView({
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
-    onPlayChange: (playing) => (playing ? showChrome() : setChromeOn(true)),
-    errorMsg: 'This video can’t be played (unsupported codec or corrupt file).'
+    onPlayChange: (playing) => {
+      if (playing) {
+        setStarted(true)
+        showChrome()
+      } else {
+        setChromeOn(true)
+      }
+    },
+    errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
+    resumeKey: url
   })
 
   useEffect(() => {
@@ -78,8 +90,9 @@ export function VideoView({
         {...c.bind}
       />
 
-      {/* center play/pause flash + the resting play affordance when paused */}
-      {(flash || (!c.playing && !c.error)) && (
+      {/* center play/pause flash + the resting play affordance, but only once a
+          video has started (so autoplay startup + navigation don't flash it) */}
+      {(flash || (started && !c.playing && !c.error)) && (
         <div className="pointer-events-none absolute grid place-items-center">
           <div className="grid h-20 w-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
             <div className="scale-[1.6]">{c.playing ? IconPause : IconPlay}</div>
