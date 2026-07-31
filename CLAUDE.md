@@ -20,7 +20,8 @@ library manager, not an editor.
 Dark, quiet viewer chrome so the media is the star: near-black frameless window, a single
 indigo accent (`#5b5bd6`), minimal controls that fade when not needed. The Prism monogram +
 indigo tie it to the Filesmith family without copying its light utility look. Don't add a
-light theme, a sidebar library, or editing tools without an explicit decision.
+light theme or editing tools without an explicit decision. The file-tree sidebar (2026-07-31)
+was such a decision: a navigation panel bounded by the folder Prism opened in, not a library.
 
 ## Scope
 
@@ -33,7 +34,10 @@ light theme, a sidebar library, or editing tools without an explicit decision.
 - **Video** player: play / pause / seek / volume / speed / fullscreen, frame-step.
 - **Audio** player: play / seek / volume / speed, a live circular visualizer, cover art.
 - **PDF / document** viewer: Chromium PDF; plain text, source code, and markdown.
-- **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys).
+- **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
+  with a scope setting (all / media vs documents / one file type) in Settings → General.
+- **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
+  expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).

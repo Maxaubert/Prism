@@ -1,10 +1,10 @@
 import { app, protocol, shell, BrowserWindow, ipcMain, dialog, utilityProcess } from 'electron'
-import { basename, dirname, extname, join, resolve } from 'path'
-import { createReadStream, existsSync, readdirSync, statSync } from 'fs'
+import { dirname, extname, join, resolve } from 'path'
+import { createReadStream, existsSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { Readable } from 'stream'
-import { fileKind, isViewable } from '@shared/fileKind'
-import type { OpenPayload, ViewerFile } from '@shared/types'
+import { isInsideRoot, listDir, toViewerFile } from './dirList'
+import type { DirListing, OpenPayload } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -183,40 +183,24 @@ async function serveMedia(request: Request): Promise<Response> {
   })
 }
 
-function toViewerFile(p: string): ViewerFile {
-  const ext = extname(p).toLowerCase()
-  let size = 0
-  try {
-    size = statSync(p).size
-  } catch {
-    /* unreadable; leave 0 so the renderer just treats it as unknown */
-  }
-  return { path: p, name: basename(p), ext, kind: fileKind(ext), size }
-}
+// The folder Prism was opened in. The sidebar tree is bounded by it and every
+// directory request is checked against it, so the renderer can never walk out.
+// Only an open from outside (launch argv, handoff, dialog, drag) moves it.
+let sessionRoot = ''
 
-/** Build the open payload for a path: the folder's viewable siblings + the index
- * of the opened file (so the renderer can arrow through them). */
-function buildPayload(p: string): OpenPayload | null {
+/** Build the open payload for a path: the folder's viewable siblings, the index
+ * of the opened file (so the renderer can arrow through them), and the session
+ * root. `reroot` is set for opens that come from outside the app. */
+function buildPayload(p: string, reroot: boolean): OpenPayload | null {
   if (!existsSync(p)) return null
-  try {
-    const dir = dirname(p)
-    const files = readdirSync(dir)
-      .map((n) => join(dir, n))
-      .filter((f) => {
-        try {
-          return statSync(f).isFile() && isViewable(extname(f))
-        } catch {
-          return false
-        }
-      })
-      .map(toViewerFile)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
-    const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
-    if (idx < 0) return { files: [toViewerFile(p)], index: 0 } // opened file not viewable-listed; show it alone
-    return { files, index: idx }
-  } catch {
-    return { files: [toViewerFile(p)], index: 0 }
-  }
+  const dir = dirname(p)
+  if (reroot || !sessionRoot) sessionRoot = dir
+  const files = listDir(dir).files
+  const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
+  // An opened file the tree wouldn't list (an unknown extension) still shows,
+  // alone: you asked for this file, so you get it.
+  if (idx < 0) return { files: [toViewerFile(p)], index: 0, root: sessionRoot }
+  return { files, index: idx, root: sessionRoot }
 }
 
 /** The file path an OS "open" passed us, if any (last argv entry that's a file). */
@@ -237,7 +221,7 @@ let mainWindow: BrowserWindow | null = null
 let pendingOpen: string | null = null
 
 function sendOpen(p: string): void {
-  const payload = buildPayload(p)
+  const payload = buildPayload(p, true) // came from outside: it becomes the root
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
 }
 
@@ -296,9 +280,17 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await dialog.showOpenDialog({ properties: ['openFile'] })
       if (r.canceled || !r.filePaths.length) return null
-      return buildPayload(r.filePaths[0])
+      return buildPayload(r.filePaths[0], true)
     })
-    ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
+    ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p, true))
+    // A click in the sidebar tree. Inside the root only, and it leaves the root
+    // alone: the tree you clicked from stays the tree you're in.
+    ipcMain.handle('open:within', (_e, p: string): OpenPayload | null =>
+      isInsideRoot(sessionRoot, p) ? buildPayload(p, false) : null
+    )
+    ipcMain.handle('dir:list', (_e, p: string): DirListing | null =>
+      isInsideRoot(sessionRoot, p) ? listDir(p) : null
+    )
     ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')

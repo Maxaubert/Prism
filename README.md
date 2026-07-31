@@ -25,6 +25,9 @@ never shipped: one small app that opens everything and looks good doing it.
 - **Audio** — play with a live circular visualizer and cover art.
 - **PDF & documents** — flip through pages; text, code, and markdown too.
 - **Folder-aware** — open one file, then use the arrow keys to move through its neighbours.
+  Choose whether the arrows stay within media, within documents, or one file type (Settings → General).
+- **File tree** (`Ctrl+B`) — a collapsible panel of the folder you opened in: expand subfolders,
+  click any file to view it. It never reaches above that folder.
 - **Opens from Explorer** — opt in to make Prism the default viewer for the file types you choose.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
