@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
-import type { OpenPayload, ViewerFile } from '@shared/types'
+import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
 import { VideoView } from './components/VideoView'
@@ -7,6 +7,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
+import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -18,16 +19,24 @@ const PLAYABLE = new Set(['video', 'audio'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
 
+/** A question Prism has to put to the user before (or instead of) touching a file. */
+type Ask =
+  | { kind: 'delete'; path: string; name: string; isFolder: boolean }
+  | { kind: 'clash'; path: string; name: string; suggestion: string }
+  | { kind: 'failed'; message: string }
+
 function TopBar({
   file,
   pos,
-  onOpenSettings,
+  settingsOpen,
+  onToggleSettings,
   sidebar,
   onToggleSidebar
 }: {
   file: ViewerFile | null
   pos: string
-  onOpenSettings: () => void
+  settingsOpen: boolean
+  onToggleSettings: () => void
   sidebar: boolean
   onToggleSidebar: () => void
 }): JSX.Element {
@@ -52,7 +61,15 @@ function TopBar({
       <span className="min-w-0 flex-1 truncate text-[var(--color-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--color-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10 hover:text-white" onClick={onOpenSettings} title="Settings" aria-label="Settings">
+        <button
+          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+            settingsOpen ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)] hover:text-white'
+          }`}
+          onClick={onToggleSettings}
+          title="Settings"
+          aria-label="Settings"
+          aria-pressed={settingsOpen}
+        >
           <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
             <circle cx="12" cy="12" r="3.2" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
@@ -173,6 +190,7 @@ export default function App(): JSX.Element {
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openFromTree = useCallback((p: string) => void window.prism.openWithin(p).then(open), [open])
+
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
   // The visible list: the siblings that belong with the open file under the
@@ -193,6 +211,71 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
 
+  /* ---------- file operations ---------- */
+
+  // Renaming and deleting are the only things Prism does that change your files,
+  // so both are confirmable and neither destroys anything: an overwritten or
+  // deleted file goes to the Recycle Bin.
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [ask, setAsk] = useState<Ask | null>(null)
+
+  /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
+   *  folder moves everything under it, including possibly the open file. */
+  const within = (p: string, parent: string): boolean => {
+    const a = p.toLowerCase()
+    const b = parent.toLowerCase()
+    return a === b || a.startsWith(b + String.fromCharCode(92)) || a.startsWith(b + '/')
+  }
+
+  const reopen = useCallback(
+    (p: string) => void window.prism.openWithin(p).then((payload) => payload && open(payload)),
+    [open]
+  )
+
+  const runRename = useCallback(
+    async (path: string, name: string, onClash: OnClash): Promise<void> => {
+      const r = await window.prism.renameFile(path, name, onClash)
+      if (!r.ok) {
+        if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
+        else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
+        return
+      }
+      setAsk(null)
+      setRefreshKey((n) => n + 1)
+      // Follow whatever is on screen: it may have been the thing renamed, or a
+      // file inside the folder that was, in which case its path just moved.
+      const cur = file?.path
+      if (!cur) return
+      if (within(cur, path)) reopen(r.path + cur.slice(path.length))
+      else reopen(cur)
+    },
+    [file, reopen]
+  )
+
+  const runDelete = useCallback(
+    async (path: string): Promise<void> => {
+      setAsk(null)
+      const ok = await window.prism.trashFile(path)
+      if (!ok) {
+        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
+        return
+      }
+      setRefreshKey((n) => n + 1)
+      const cur = file?.path
+      if (!cur || !within(cur, path)) {
+        if (cur) reopen(cur)
+        return
+      }
+      // What we were looking at is gone. Step to the nearest surviving neighbour,
+      // skipping anything that lived inside the same folder.
+      const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
+      const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
+      if (next) reopen(next.path)
+      else setRaw(null)
+    },
+    [file, reopen, view]
+  )
+
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
   // freshly opened audio/video owns them for seeking (the player handles them).
@@ -210,6 +293,10 @@ export default function App(): JSX.Element {
         e.preventDefault()
         toggleSidebar()
       } else if (e.key === 'Escape') {
+        // Settings owns Escape while it's open (its own handler closes it).
+        // Without this, the window would shut instead: both listeners are on
+        // window in the capture phase, and this one was registered first.
+        if (settingsOpen) return
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
@@ -224,7 +311,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, toggleSidebar])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, toggleSidebar])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -275,15 +362,31 @@ export default function App(): JSX.Element {
   const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
-  const showTree = sidebar && !fullscreen && !!raw
-
+  // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
     <div className="flex h-full flex-col">
       {!fullscreen && (
-        <TopBar file={file} pos={pos} onOpenSettings={() => setSettingsOpen(true)} sidebar={sidebar} onToggleSidebar={toggleSidebar} />
+        <TopBar
+          file={file}
+          pos={pos}
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((v) => !v)}
+          sidebar={sidebar}
+          onToggleSidebar={toggleSidebar}
+        />
       )}
       <div className="flex min-h-0 flex-1">
-        {showTree && <Sidebar root={raw!.root} currentPath={file?.path ?? null} onOpenFile={openFromTree} />}
+        {raw && !fullscreen && (
+          <Sidebar
+            open={sidebar}
+            root={raw.root}
+            currentPath={file?.path ?? null}
+            refreshKey={refreshKey}
+            onOpenFile={openFromTree}
+            onRename={(p, name) => void runRename(p, name, 'ask')}
+            onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
+          />
+        )}
         <div
           className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
             dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
@@ -305,6 +408,49 @@ export default function App(): JSX.Element {
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
       />
+
+      {ask?.kind === 'delete' && (
+        <Dialog
+          title="Move to the Recycle Bin?"
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where Windows can put it back.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'clash' && (
+        <Dialog
+          title="That name is taken"
+          body={
+            <>
+              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping both saves yours as{' '}
+              <span className="text-[#d7dae1]">{ask.suggestion}</span>; replacing it sends the old one to the Recycle Bin.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
+            { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'failed' && (
+        <Dialog
+          title="That didn't work"
+          body={ask.message}
+          onCancel={() => setAsk(null)}
+          choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
+        />
+      )}
     </div>
   )
 }

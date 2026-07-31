@@ -3,8 +3,9 @@ import { dirname, extname, join, resolve } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { Readable } from 'stream'
-import { isInsideRoot, listDir, toViewerFile } from './dirList'
-import type { DirListing, OpenPayload } from '@shared/types'
+import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
+import { renameFile } from './fileOps'
+import type { DirListing, OnClash, OpenPayload, RenameResult } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -291,6 +292,28 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('dir:list', (_e, p: string): DirListing | null =>
       isInsideRoot(sessionRoot, p) ? listDir(p) : null
     )
+    // File operations. Inside the root only, and nothing is ever destroyed: an
+    // overwritten or deleted file goes to the Recycle Bin.
+    // The root itself is off limits: renaming or binning the folder the tree is
+    // rooted in would pull the ground out from under the window.
+    const editable = (p: string): boolean => isInsideRoot(sessionRoot, p) && !isRoot(sessionRoot, p)
+
+    ipcMain.handle(
+      'file:rename',
+      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> =>
+        editable(p)
+          ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
+          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+    )
+    ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
+      if (!editable(p)) return false
+      try {
+        await shell.trashItem(p)
+        return true
+      } catch {
+        return false
+      }
+    })
     ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')
