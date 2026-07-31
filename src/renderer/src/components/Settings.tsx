@@ -18,6 +18,7 @@ import {
   type VizState
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
+import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -194,6 +195,70 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           onMove={setBarMove}
         />
       </Section>
+    </div>
+  )
+}
+
+/* ---------- general ---------- */
+
+// General is a plain list of settings: one row each, name + explanation on the
+// left, its control on the right. No group headings - the tab header already
+// says what this page is, and a heading per row reads as two settings.
+
+function Row({ id, label, desc, children }: { id: string; label: string; desc?: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-8 border-b border-white/[.07] py-3.5">
+      <div className="min-w-0">
+        <label htmlFor={id} className="text-[13px] font-semibold text-white">
+          {label}
+        </label>
+        {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--color-dim)]">{desc}</p>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/** A dark native select - keyboard and screen-reader behaviour for free, and
+ *  Chromium renders its popup dark because :root sets color-scheme. */
+function Dropdown({
+  id,
+  value,
+  onChange,
+  options
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ id: string; name: string }>
+}): JSX.Element {
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="shrink-0 rounded-lg border border-white/[.12] bg-white/[.06] px-2.5 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:border-white/25 focus-visible:border-[var(--color-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/45"
+    >
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function GeneralTab(): JSX.Element {
+  const scope = useNavScope()
+  return (
+    <div className="max-w-[680px] border-t border-white/[.07]">
+      <Row
+        id="nav-scope"
+        label="Folder navigation"
+        desc="Which sibling files the arrow keys step through. The one you opened is always included."
+      >
+        <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+      </Row>
     </div>
   )
 }
@@ -380,7 +445,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'player' | 'visualizer' | 'about'
+type TabId = 'general' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -389,6 +454,13 @@ const Ico = ({ d }: { d: string }): JSX.Element => (
 )
 
 const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
+  {
+    id: 'general',
+    label: 'General',
+    title: 'General',
+    desc: 'How Prism behaves when you open a file.',
+    icon: <Ico d="M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
+  },
   {
     id: 'player',
     label: 'Progress bar',
@@ -423,7 +495,7 @@ export function Settings({
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
-  const [tab, setTab] = useState<TabId>('player')
+  const [tab, setTab] = useState<TabId>('general')
 
   useEffect(() => {
     if (!open) return
@@ -485,7 +557,9 @@ export function Settings({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === 'player' ? (
+            {tab === 'general' ? (
+              <GeneralTab />
+            ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
