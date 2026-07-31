@@ -6,8 +6,21 @@ import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
 // first time a folder is opened and are cached after that; main refuses anything
 // outside the root, so there is no way up and no ".." row.
 
-const ROW = 'flex w-full items-center gap-1.5 rounded-md py-[5px] pr-2 text-left text-[12.5px] transition-colors'
+const ROW = 'flex h-[26px] w-full items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] transition-colors'
 const INDENT = 13 // px per depth, matched to the chevron column
+const PANEL = '#0e1016' // the panel colour, used to knock detail out of filled glyphs
+
+// A muted colour per kind, so a long list sorts itself by eye before you read a
+// single name. Low saturation on purpose: the media is the star, not the tree.
+const TINT: Record<FileKind, string> = {
+  image: '#6fb2a8',
+  video: '#8f8ae0',
+  audio: '#d3a06a',
+  pdf: '#cf7f88',
+  text: '#8d93a1',
+  other: '#8d93a1'
+}
+const FOLDER_TINT = '#9aa0f0'
 
 function Chevron({ open }: { open: boolean }): JSX.Element {
   return (
@@ -28,28 +41,72 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
   )
 }
 
-/** A quiet glyph per kind, so the eye can sort a long list without reading it. */
-function KindIcon({ kind }: { kind: FileKind }): JSX.Element {
-  const d: Record<FileKind, string> = {
-    image: 'M4 5h16v14H4zM4 15l4.5-4.5L13 15l3-3 4 4',
-    video: 'M4 6h16v12H4zM10 9.5l5 2.5-5 2.5z',
-    audio: 'M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Zm10-2a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z',
-    pdf: 'M6 3h8l4 4v14H6zM14 3v4h4',
-    text: 'M6 3h8l4 4v14H6zM14 3v4h4M9 13h6M9 16.5h6',
-    other: 'M6 3h8l4 4v14H6zM14 3v4h4'
-  }
+function Glyph({ children, color }: { children: JSX.Element; color: string }): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" className="shrink-0" aria-hidden>
-      <path d={d[kind]} />
+    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
+      {children}
     </svg>
   )
 }
 
-function FolderIcon(): JSX.Element {
+/** Filled glyph per kind. Detail is knocked out in the panel colour rather than
+ *  drawn as strokes, so the shape still reads as a photo or a page at 14px. */
+function KindIcon({ kind, color }: { kind: FileKind; color: string }): JSX.Element {
+  const ko = { fill: PANEL, fillOpacity: 0.85 }
+  switch (kind) {
+    case 'image':
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M3.5 5h17v14h-17z" />
+            <path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" {...ko} />
+            <circle cx="8.4" cy="9.2" r="1.7" {...ko} />
+          </>
+        </Glyph>
+      )
+    case 'video':
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M3.5 5h17v14h-17z" />
+            <path d="M10 9.2l5.6 2.8L10 14.8z" {...ko} />
+          </>
+        </Glyph>
+      )
+    case 'audio':
+      return (
+        <Glyph color={color}>
+          <path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z" />
+        </Glyph>
+      )
+    case 'pdf':
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M6 2.5h7.5L19 8v13.5H6z" />
+            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
+            <path d="M8.6 15.5h6.8v3.2H8.6z" {...ko} />
+          </>
+        </Glyph>
+      )
+    default:
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M6 2.5h7.5L19 8v13.5H6z" />
+            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
+            <path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z" {...ko} />
+          </>
+        </Glyph>
+      )
+  }
+}
+
+function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" className="shrink-0" aria-hidden>
-      <path d="M3 6h6l2 2.5h10V19H3z" />
-    </svg>
+    <Glyph color={color}>
+      <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
+    </Glyph>
   )
 }
 
@@ -92,7 +149,7 @@ function Folder({
         style={{ paddingLeft: 4 + depth * INDENT }}
       >
         <Chevron open={open} />
-        <span className="text-[var(--color-dim)]"><FolderIcon /></span>
+        <FolderIcon color={FOLDER_TINT} />
         <span className="truncate">{name}</span>
       </button>
       {open &&
@@ -122,8 +179,11 @@ function Rows({
 }): JSX.Element {
   if (listing.unreadable) return <Note text="can't read this folder" depth={depth} />
   if (!listing.folders.length && !listing.files.length) return <Note text="empty" depth={depth} />
+  // A hairline dropped from the parent's chevron, so deep nesting stays legible.
+  const guide = depth > 0 ? 4 + (depth - 1) * INDENT + 6 : -1
   return (
-    <ul role="group" className="list-none">
+    <ul role="group" className="relative list-none">
+      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-white/[.07]" style={{ left: guide }} aria-hidden />}
       {listing.folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} state={state} onToggle={onToggle} onOpenFile={onOpenFile} currentPath={currentPath} />
       ))}
@@ -138,14 +198,12 @@ function Rows({
               title={f.name}
               className={`${ROW} ${
                 on
-                  ? 'bg-[var(--color-accent)]/25 font-medium text-white'
+                  ? 'bg-[var(--color-accent)] font-medium text-white'
                   : 'text-[#b9bdc8] hover:bg-white/[.06] hover:text-white'
               }`}
               style={{ paddingLeft: 4 + depth * INDENT + 13 + 6 }}
             >
-              <span className={on ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)]'}>
-                <KindIcon kind={f.kind} />
-              </span>
+              <KindIcon kind={f.kind} color={on ? '#ffffff' : TINT[f.kind]} />
               <span className="truncate">{f.name}</span>
             </button>
           </li>
@@ -219,7 +277,8 @@ export function Sidebar({
           {rootName}
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
+      {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {rootListing ? (
           <ul role="tree" aria-label="Folder contents" className="list-none">
             <Rows listing={rootListing} depth={0} state={state} onToggle={toggle} onOpenFile={onOpenFile} currentPath={currentPath} />
