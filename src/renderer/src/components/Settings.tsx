@@ -201,18 +201,9 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
 
 /* ---------- general ---------- */
 
-// General reads like a normal settings page: a titled group of rows, each row a
-// name + explanation on the left and its control on the right, hairline between.
-
-function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }): JSX.Element {
-  return (
-    <section className="max-w-[720px]">
-      <h3 className="text-[15px] font-semibold text-white">{title}</h3>
-      {hint && <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--color-dim)]">{hint}</p>}
-      <div className="mt-3.5 border-t border-white/[.07]">{children}</div>
-    </section>
-  )
-}
+// General is a plain list of settings: one row each, name + explanation on the
+// left, its control on the right. No group headings - the tab header already
+// says what this page is, and a heading per row reads as two settings.
 
 function Row({ id, label, desc, children }: { id: string; label: string; desc?: string; children: ReactNode }): JSX.Element {
   return (
@@ -259,16 +250,16 @@ function Dropdown({
 
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
-  const current = NAV_SCOPES.find((s) => s.id === scope) ?? NAV_SCOPES[0]
   return (
-    <Group title="Folder navigation" hint="Which sibling files the arrow keys step through after you open one.">
-      <Row id="nav-scope" label="Scope" desc={current.desc}>
+    <div className="max-w-[680px] border-t border-white/[.07]">
+      <Row
+        id="nav-scope"
+        label="Folder navigation"
+        desc="Which sibling files the arrow keys step through. The one you opened is always included."
+      >
         <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
       </Row>
-      <p className="pt-3.5 text-[12px] leading-relaxed text-[var(--color-dim)]">
-        The file you opened is always in the list, whatever the scope.
-      </p>
-    </Group>
+    </div>
   )
 }
 
