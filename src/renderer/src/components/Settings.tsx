@@ -19,6 +19,7 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
+import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -250,6 +251,7 @@ function Dropdown({
 
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
+  const size = useTreeSize()
   return (
     <div className="max-w-[680px] border-t border-white/[.07]">
       <Row
@@ -258,6 +260,9 @@ function GeneralTab(): JSX.Element {
         desc="Which sibling files the arrow keys step through. The one you opened is always included."
       >
         <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+      </Row>
+      <Row id="tree-size" label="File tree text" desc="Type size in the sidebar. Rows grow with it.">
+        <Dropdown id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
       </Row>
     </div>
   )

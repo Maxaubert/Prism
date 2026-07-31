@@ -1,26 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import type { DirListing, FileKind } from '@shared/types'
+import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
+import type { DirListing } from '@shared/types'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
+import { useTreeSize } from '../lib/treePrefs'
+import { ContextMenu } from './ContextMenu'
+import { Rows } from './TreeRows'
+import { TreeProvider } from '../lib/treeContext'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
 // outside the root, so there is no way up and no ".." row.
-
-const ROW = 'flex h-[26px] w-full items-center gap-1.5 rounded-md pr-2 text-left text-[12.5px] transition-colors'
-const INDENT = 13 // px per depth, matched to the chevron column
-const PANEL = '#0e1016' // the panel colour, used to knock detail out of filled glyphs
-
-// A muted colour per kind, so a long list sorts itself by eye before you read a
-// single name. Low saturation on purpose: the media is the star, not the tree.
-const TINT: Record<FileKind, string> = {
-  image: '#6fb2a8',
-  video: '#8f8ae0',
-  audio: '#d3a06a',
-  pdf: '#cf7f88',
-  text: '#8d93a1',
-  other: '#8d93a1'
-}
-const FOLDER_TINT = '#9aa0f0'
 
 // Panel width: dragged from the edge, remembered, and bounded so it can't be
 // squeezed into uselessness or grow to swallow the media.
@@ -36,267 +24,61 @@ function loadWidth(): number {
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
 }
 
-function Chevron({ open }: { open: boolean }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={13}
-      height={13}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`shrink-0 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-      aria-hidden
-    >
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  )
-}
-
-function Glyph({ children, color }: { children: JSX.Element; color: string }): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
-      {children}
-    </svg>
-  )
-}
-
-/** Filled glyph per kind. Detail is knocked out in the panel colour rather than
- *  drawn as strokes, so the shape still reads as a photo or a page at 14px. */
-function KindIcon({ kind, color }: { kind: FileKind; color: string }): JSX.Element {
-  const ko = { fill: PANEL, fillOpacity: 0.85 }
-  switch (kind) {
-    case 'image':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" {...ko} />
-            <circle cx="8.4" cy="9.2" r="1.7" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'video':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M10 9.2l5.6 2.8L10 14.8z" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'audio':
-      return (
-        <Glyph color={color}>
-          <path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z" />
-        </Glyph>
-      )
-    case 'pdf':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 15.5h6.8v3.2H8.6z" {...ko} />
-          </>
-        </Glyph>
-      )
-    default:
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z" {...ko} />
-          </>
-        </Glyph>
-      )
-  }
-}
-
-function FolderIcon({ color }: { color: string }): JSX.Element {
-  return (
-    <Glyph color={color}>
-      <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-    </Glyph>
-  )
-}
-
-/** A muted, unclickable row: "empty", "can't read", "loading". */
-function Note({ text, depth }: { text: string; depth: number }): JSX.Element {
-  return (
-    <div className="py-[5px] text-[11.5px] italic text-[var(--color-dim2,#6b7080)]" style={{ paddingLeft: 8 + depth * INDENT + 16 }}>
-      {text}
-    </div>
-  )
-}
-
-function Folder({
-  path,
-  name,
-  depth,
-  state,
-  onToggle,
-  onOpenFile,
-  currentPath
-}: {
-  path: string
-  name: string
-  depth: number
-  state: TreeState
-  onToggle: (p: string) => void
-  onOpenFile: (p: string) => void
-  currentPath: string | null
-}): JSX.Element {
-  const open = state.expanded.has(path)
-  const listing = state.children[path]
-  return (
-    <li role="none">
-      <button
-        role="treeitem"
-        aria-expanded={open}
-        onClick={() => onToggle(path)}
-        title={name}
-        className={`${ROW} text-[#c4c8d2] hover:bg-white/[.06] hover:text-white`}
-        style={{ paddingLeft: 4 + depth * INDENT }}
-      >
-        <Chevron open={open} />
-        <FolderIcon color={FOLDER_TINT} />
-        <span className="truncate">{name}</span>
-      </button>
-      {/* Children stay mounted once loaded and the row track collapses to 0fr, so
-          opening and closing a folder slides instead of snapping. */}
-      {listing ? (
-        <div
-          className="grid transition-[grid-template-rows] duration-[160ms] ease-out [transition-timing-function:cubic-bezier(.23,1,.32,1)]"
-          style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
-        >
-          <div className="overflow-hidden">
-            <Rows listing={listing} depth={depth + 1} state={state} onToggle={onToggle} onOpenFile={onOpenFile} currentPath={currentPath} />
-          </div>
-        </div>
-      ) : (
-        open && <Note text="loading…" depth={depth + 1} />
-      )}
-    </li>
-  )
-}
-
-function Rows({
-  listing,
-  depth,
-  state,
-  onToggle,
-  onOpenFile,
-  currentPath
-}: {
-  listing: DirListing
-  depth: number
-  state: TreeState
-  onToggle: (p: string) => void
-  onOpenFile: (p: string) => void
-  currentPath: string | null
-}): JSX.Element {
-  if (listing.unreadable) return <Note text="can't read this folder" depth={depth} />
-  if (!listing.folders.length && !listing.files.length) return <Note text="empty" depth={depth} />
-  // A hairline dropped from the parent's chevron, so deep nesting stays legible.
-  const guide = depth > 0 ? 4 + (depth - 1) * INDENT + 6 : -1
-  return (
-    <ul role="group" className="relative list-none">
-      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-white/[.07]" style={{ left: guide }} aria-hidden />}
-      {listing.folders.map((f) => (
-        <Folder key={f.path} path={f.path} name={f.name} depth={depth} state={state} onToggle={onToggle} onOpenFile={onOpenFile} currentPath={currentPath} />
-      ))}
-      {listing.files.map((f) => {
-        const on = !!currentPath && f.path.toLowerCase() === currentPath.toLowerCase()
-        return (
-          <li key={f.path} role="none">
-            <button
-              role="treeitem"
-              aria-selected={on}
-              onClick={() => onOpenFile(f.path)}
-              title={f.name}
-              className={`${ROW} ${
-                on
-                  ? 'bg-[var(--color-accent)] font-medium text-white'
-                  : 'text-[#b9bdc8] hover:bg-white/[.06] hover:text-white'
-              }`}
-              style={{ paddingLeft: 4 + depth * INDENT + 13 + 6 }}
-            >
-              <KindIcon kind={f.kind} color={on ? '#ffffff' : TINT[f.kind]} />
-              <span className="truncate">{f.name}</span>
-            </button>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
 interface TreeState {
   expanded: Set<string>
   /** path -> its children, once loaded. Absent means "not loaded yet". */
   children: Record<string, DirListing>
 }
 
+interface Menu {
+  x: number
+  y: number
+  path: string
+  name: string
+}
+
 export function Sidebar({
   open,
   root,
   currentPath,
-  onOpenFile
+  refreshKey,
+  onOpenFile,
+  onRename,
+  onDelete
 }: {
   open: boolean
   root: string
   currentPath: string | null
-  onOpenFile: (p: string) => void
+  /** Bumped by App after a rename or delete, to re-read the folders on screen. */
+  refreshKey: number
+  onOpenFile: (path: string) => void
+  onRename: (path: string, name: string) => void
+  onDelete: (path: string, name: string) => void
 }): JSX.Element {
   const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
   const [revealed, setRevealed] = useState<string | null>(null)
   const [width, setWidth] = useState(loadWidth)
-  // While dragging, the panel must track the pointer exactly: any transition
-  // would make the edge lag behind the cursor.
   const [dragging, setDragging] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
   const panel = useRef<HTMLElement>(null)
+  const size = useTreeSize()
 
-  const resize = useCallback((next: number) => {
-    const w = clampWidth(next)
-    setWidth(w)
-    localStorage.setItem(WIDTH_KEY, String(w))
+  /* ---------- loading ---------- */
+
+  /** Load a folder's children once, then keep them. A refusal (outside the root)
+   *  is cached as unreadable so the row says so instead of spinning forever. */
+  const load = useCallback(async (p: string, force = false): Promise<void> => {
+    const listing = (await window.prism.listDir(p)) ?? { folders: [], files: [], unreadable: true }
+    setState((s) => (s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }))
   }, [])
 
-  const onHandleDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      e.currentTarget.setPointerCapture(e.pointerId)
-      setDragging(true)
+  const toggle = useCallback(
+    (p: string) => {
+      setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
+      void load(p)
     },
-    []
-  )
-
-  const onHandleMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragging || !panel.current) return
-      resize(e.clientX - panel.current.getBoundingClientRect().left)
-    },
-    [dragging, resize]
-  )
-
-  const onHandleUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.releasePointerCapture(e.pointerId)
-    setDragging(false)
-  }, [])
-
-  // Arrow keys move the edge too, so the panel isn't mouse-only.
-  const onHandleKey = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === 'ArrowLeft') resize(width - 16)
-      else if (e.key === 'ArrowRight') resize(width + 16)
-      else return
-      e.preventDefault()
-    },
-    [resize, width]
+    [load]
   )
 
   // Reveal: when the open file changes, expand every folder between the root and
@@ -314,26 +96,71 @@ export function Sidebar({
     }
   }
 
-  /** Load a folder's children once, then keep them. A refusal (outside the root)
-   *  is cached as unreadable so the row says so instead of spinning forever. */
-  const load = useCallback(async (p: string): Promise<void> => {
-    const listing = (await window.prism.listDir(p)) ?? { folders: [], files: [], unreadable: true }
-    setState((s) => (s.children[p] ? s : { ...s, children: { ...s.children, [p]: listing } }))
-  }, [])
-
-  const toggle = useCallback(
-    (p: string) => {
-      setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
-      void load(p)
-    },
-    [load]
-  )
-
   // Fetch what the reveal just opened (the root included, on first paint).
   useEffect(() => {
     const chain = currentPath ? ancestorChain(root, currentPath) : []
     ;[root, ...chain].forEach((p) => void load(p))
   }, [root, currentPath, load])
+
+  // A file changed on disk: re-read every folder we're showing, so the row that
+  // was renamed or removed matches reality.
+  useEffect(() => {
+    if (!refreshKey) return
+    Object.keys(state.children).forEach((p) => void load(p, true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the bump alone; re-running per cache change would loop
+  }, [refreshKey])
+
+  /* ---------- resizing ---------- */
+
+  const resize = useCallback((next: number) => {
+    const w = clampWidth(next)
+    setWidth(w)
+    localStorage.setItem(WIDTH_KEY, String(w))
+  }, [])
+
+  const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDragging(true)
+  }, [])
+
+  const onHandleMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging || !panel.current) return
+      resize(e.clientX - panel.current.getBoundingClientRect().left)
+    },
+    [dragging, resize]
+  )
+
+  const onHandleUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    setDragging(false)
+  }, [])
+
+  const onHandleKey = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'ArrowLeft') resize(width - 16)
+      else if (e.key === 'ArrowRight') resize(width + 16)
+      else return
+      e.preventDefault()
+    },
+    [resize, width]
+  )
+
+  /* ---------- row actions ---------- */
+
+  const onMenu = useCallback((e: MouseEvent, path: string, name: string) => {
+    e.preventDefault()
+    setMenu({ x: e.clientX, y: e.clientY, path, name })
+  }, [])
+
+  const submitRename = useCallback(
+    (path: string, name: string) => {
+      setEditing(null)
+      onRename(path, name)
+    },
+    [onRename]
+  )
 
   const rootListing = state.children[root]
   const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
@@ -359,13 +186,30 @@ export function Sidebar({
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {rootListing ? (
-            <ul role="tree" aria-label="Folder contents" className="list-none">
-              <Rows listing={rootListing} depth={0} state={state} onToggle={toggle} onOpenFile={onOpenFile} currentPath={currentPath} />
-            </ul>
-          ) : (
-            <Note text="loading…" depth={0} />
-          )}
+          <TreeProvider
+            value={{
+              expanded: state.expanded,
+              children: state.children,
+              currentPath,
+              size,
+              editing,
+              onToggle: toggle,
+              onOpenFile,
+              onStartRename: setEditing,
+              onSubmitRename: submitRename,
+              onCancelRename: () => setEditing(null),
+              onDelete,
+              onMenu
+            }}
+          >
+            {rootListing ? (
+              <ul role="tree" aria-label="Folder contents" className="list-none">
+                <Rows listing={rootListing} depth={0} />
+              </ul>
+            ) : (
+              <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--color-dim2,#6b7080)]">loading…</div>
+            )}
+          </TreeProvider>
         </div>
       </div>
 
@@ -393,6 +237,18 @@ export function Sidebar({
           }`}
         />
       </div>
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: 'Rename', hint: 'F2', onPick: () => setEditing(menu.path) },
+            { label: 'Delete', hint: 'Del', danger: true, onPick: () => onDelete(menu.path, menu.name) }
+          ]}
+        />
+      )}
     </aside>
   )
 }

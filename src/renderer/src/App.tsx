@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
-import type { OpenPayload, ViewerFile } from '@shared/types'
+import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
 import { VideoView } from './components/VideoView'
@@ -7,6 +7,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
+import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -17,6 +18,12 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 const PLAYABLE = new Set(['video', 'audio'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
+
+/** A question Prism has to put to the user before (or instead of) touching a file. */
+type Ask =
+  | { kind: 'delete'; path: string; name: string }
+  | { kind: 'clash'; path: string; name: string; suggestion: string }
+  | { kind: 'failed'; message: string }
 
 function TopBar({
   file,
@@ -183,6 +190,7 @@ export default function App(): JSX.Element {
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openFromTree = useCallback((p: string) => void window.prism.openWithin(p).then(open), [open])
+
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
   // The visible list: the siblings that belong with the open file under the
@@ -202,6 +210,65 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+
+  /* ---------- file operations ---------- */
+
+  // Renaming and deleting are the only things Prism does that change your files,
+  // so both are confirmable and neither destroys anything: an overwritten or
+  // deleted file goes to the Recycle Bin.
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [ask, setAsk] = useState<Ask | null>(null)
+
+  /** Re-read the tree, and re-open whatever is on screen so the paging list and
+   *  the title bar match the new names. */
+  const refresh = useCallback(
+    (focus?: string) => {
+      setRefreshKey((n) => n + 1)
+      const target = focus ?? file?.path
+      if (target) void window.prism.openWithin(target).then((p) => p && open(p))
+    },
+    [file, open]
+  )
+
+  const runRename = useCallback(
+    async (path: string, name: string, onClash: OnClash): Promise<void> => {
+      const r = await window.prism.renameFile(path, name, onClash)
+      if (r.ok) {
+        setAsk(null)
+        refresh(r.path)
+        return
+      }
+      if (r.reason === 'clash') {
+        setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
+        return
+      }
+      setAsk({ kind: 'failed', message: r.message ?? "That file couldn't be renamed." })
+    },
+    [refresh]
+  )
+
+  const runDelete = useCallback(
+    async (path: string): Promise<void> => {
+      setAsk(null)
+      const ok = await window.prism.trashFile(path)
+      if (!ok) {
+        setAsk({ kind: 'failed', message: "That file couldn't be moved to the Recycle Bin." })
+        return
+      }
+      // If the open file just went, step to a neighbour rather than showing a gap.
+      const gone = !!file && file.path.toLowerCase() === path.toLowerCase()
+      const next = gone ? view?.files[view.index + 1] ?? view?.files[view.index - 1] : undefined
+      setRefreshKey((n) => n + 1)
+      if (gone) {
+        if (next) void window.prism.openWithin(next.path).then((p) => p && open(p))
+        else setRaw(null)
+      } else {
+        refresh()
+      }
+    },
+    [file, open, refresh, view]
+  )
+
 
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
@@ -304,7 +371,15 @@ export default function App(): JSX.Element {
       )}
       <div className="flex min-h-0 flex-1">
         {raw && !fullscreen && (
-          <Sidebar open={sidebar} root={raw.root} currentPath={file?.path ?? null} onOpenFile={openFromTree} />
+          <Sidebar
+            open={sidebar}
+            root={raw.root}
+            currentPath={file?.path ?? null}
+            refreshKey={refreshKey}
+            onOpenFile={openFromTree}
+            onRename={(p, name) => void runRename(p, name, 'ask')}
+            onDelete={(path, name) => setAsk({ kind: 'delete', path, name })}
+          />
         )}
         <div
           className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
@@ -327,6 +402,49 @@ export default function App(): JSX.Element {
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
       />
+
+      {ask?.kind === 'delete' && (
+        <Dialog
+          title="Move to the Recycle Bin?"
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where Windows can put it back.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'clash' && (
+        <Dialog
+          title="That name is taken"
+          body={
+            <>
+              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping both saves yours as{' '}
+              <span className="text-[#d7dae1]">{ask.suggestion}</span>; replacing it sends the old one to the Recycle Bin.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
+            { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'failed' && (
+        <Dialog
+          title="That didn't work"
+          body={ask.message}
+          onCancel={() => setAsk(null)}
+          choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
+        />
+      )}
     </div>
   )
 }
