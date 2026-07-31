@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { OpenPayload } from '@shared/types'
+import type { DirListing, OpenPayload } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -12,6 +12,11 @@ const api = {
   openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:dialog'),
   /** Build a payload for a dropped/known path (drag-and-drop). */
   openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:path', path),
+  /** Open a file the sidebar tree lists. Inside the session root only, and the
+   *  root is left alone (unlike openPath, which re-roots). */
+  openWithin: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:within', path),
+  /** Children of a folder for the sidebar tree; null if outside the root. */
+  listDir: (path: string): Promise<DirListing | null> => ipcRenderer.invoke('dir:list', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<string | null> => ipcRenderer.invoke('file:text', path),
   /** Absolute path of a dropped File (Electron removed File.path). */

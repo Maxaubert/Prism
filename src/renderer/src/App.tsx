@@ -6,6 +6,7 @@ import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { Settings } from './components/Settings'
+import { Sidebar } from './components/Sidebar'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -15,11 +16,38 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 
 const PLAYABLE = new Set(['video', 'audio'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
+const SIDEBAR_KEY = 'prism.sidebar'
 
-function TopBar({ file, pos, onOpenSettings }: { file: ViewerFile | null; pos: string; onOpenSettings: () => void }): JSX.Element {
+function TopBar({
+  file,
+  pos,
+  onOpenSettings,
+  sidebar,
+  onToggleSidebar
+}: {
+  file: ViewerFile | null
+  pos: string
+  onOpenSettings: () => void
+  sidebar: boolean
+  onToggleSidebar: () => void
+}): JSX.Element {
   const w = window.prism
   return (
     <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-white/[.06] bg-[#16181f] px-3 text-[13px]">
+      <button
+        className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+          sidebar ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)] hover:text-white'
+        }`}
+        onClick={onToggleSidebar}
+        title="Files (Ctrl+B)"
+        aria-label="Toggle file tree"
+        aria-pressed={sidebar}
+      >
+        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M9 4v16" />
+        </svg>
+      </button>
       <span className="font-semibold text-[#d6a1f0]">Prism</span>
       <span className="min-w-0 flex-1 truncate text-[var(--color-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--color-dim)]">{pos}</span>}
@@ -117,6 +145,14 @@ export default function App(): JSX.Element {
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The file tree. Off on a fresh install: the media is the point.
+  const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
+  const toggleSidebar = useCallback(() => {
+    setSidebar((on) => {
+      localStorage.setItem(SIDEBAR_KEY, on ? '0' : '1')
+      return !on
+    })
+  }, [])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
@@ -134,6 +170,9 @@ export default function App(): JSX.Element {
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
+  // A click in the tree: the folder it lives in becomes the paging list, the
+  // root stays where it was, so the tree doesn't move under you.
+  const openFromTree = useCallback((p: string) => void window.prism.openWithin(p).then(open), [open])
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
   // The visible list: the siblings that belong with the open file under the
@@ -167,6 +206,9 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
+      } else if ((e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
+        e.preventDefault()
+        toggleSidebar()
       } else if (e.key === 'Escape') {
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
@@ -182,7 +224,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated])
+  }, [file, fullscreen, go, hasNavigated, toggleSidebar])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -232,23 +274,30 @@ export default function App(): JSX.Element {
   const many = (view?.files.length ?? 0) > 1
   const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
+  // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
+  const showTree = sidebar && !fullscreen && !!raw
+
   return (
     <div className="flex h-full flex-col">
-      {!fullscreen && <TopBar file={file} pos={pos} onOpenSettings={() => setSettingsOpen(true)} />}
-      <div
-        className={`group relative flex flex-1 items-center justify-center overflow-hidden ${
-          dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
-        }`}
-      >
-        {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
-        {/* Fullscreen is for watching, not browsing — keep the frame clean.
-            Paging still works there via PageUp/PageDown (and ←/→ for images). */}
-        {file && many && !fullscreen && (
-          <>
-            <NavArrow dir="l" onClick={() => go(-1)} />
-            <NavArrow dir="r" onClick={() => go(1)} />
-          </>
-        )}
+      {!fullscreen && (
+        <TopBar file={file} pos={pos} onOpenSettings={() => setSettingsOpen(true)} sidebar={sidebar} onToggleSidebar={toggleSidebar} />
+      )}
+      <div className="flex min-h-0 flex-1">
+        {showTree && <Sidebar root={raw!.root} currentPath={file?.path ?? null} onOpenFile={openFromTree} />}
+        <div
+          className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
+            dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
+          }`}
+        >
+          {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
+          {/* Paging still works in fullscreen via PageUp/PageDown (and ←/→ for images). */}
+          {file && many && !fullscreen && (
+            <>
+              <NavArrow dir="l" onClick={() => go(-1)} />
+              <NavArrow dir="r" onClick={() => go(1)} />
+            </>
+          )}
+        </div>
       </div>
       <Settings
         open={settingsOpen}

@@ -11,9 +11,26 @@ export interface ViewerFile {
   size: number
 }
 
+/** A subfolder, as the sidebar tree sees it. */
+export interface DirEntry {
+  path: string
+  name: string
+}
+
+/** One directory's listable contents: subfolders, then viewable files.
+ *  `unreadable` marks a folder we could not open, so the tree can say so
+ *  instead of showing it as empty. */
+export interface DirListing {
+  folders: DirEntry[]
+  files: ViewerFile[]
+  unreadable?: boolean
+}
+
 /** What main hands the renderer when a file is opened: the folder's viewable
- * files plus the index of the one that was actually opened. */
+ * files, the index of the one that was actually opened, and the session root
+ * (the folder Prism was opened in) that the sidebar tree is bounded by. */
 export interface OpenPayload {
   files: ViewerFile[]
   index: number
+  root: string
 }
