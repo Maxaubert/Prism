@@ -18,8 +18,7 @@ import {
   type VizState
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
-import { NAV_SCOPES, scopeKinds, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
-import type { FileKind } from '@shared/types'
+import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -202,59 +201,74 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
 
 /* ---------- general ---------- */
 
-const KIND_LABEL: Record<FileKind, string> = {
-  image: 'Images',
-  video: 'Video',
-  audio: 'Audio',
-  pdf: 'PDF',
-  text: 'Text',
-  other: 'Other'
+// General reads like a normal settings page: a titled group of rows, each row a
+// name + explanation on the left and its control on the right, hairline between.
+
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }): JSX.Element {
+  return (
+    <section className="max-w-[720px]">
+      <h3 className="text-[15px] font-semibold text-white">{title}</h3>
+      {hint && <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--color-dim)]">{hint}</p>}
+      <div className="mt-3.5 border-t border-white/[.07]">{children}</div>
+    </section>
+  )
 }
 
-/** "photo.jpg → Images · Video · Audio": what the arrows step through when you
- *  open a `from` file under `scope`. */
-function ScopeRow({ from, name, scope }: { from: FileKind; name: string; scope: NavScope }): JSX.Element {
+function Row({ id, label, desc, children }: { id: string; label: string; desc?: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="flex items-center gap-1.5 text-[11px]">
-      <span className="shrink-0 rounded bg-white/[.07] px-1.5 py-0.5 font-medium text-[#d7dae1]">{name}</span>
-      <span className="shrink-0 text-[var(--color-dim2,#6b7080)]">›</span>
-      <div className="flex flex-wrap gap-1">
-        {scopeKinds(from, scope).map((k) => (
-          <span key={k} className="rounded bg-[var(--color-accent)]/20 px-1.5 py-0.5 text-[var(--color-accent-hi)]">
-            {KIND_LABEL[k]}
-          </span>
-        ))}
+    <div className="flex items-center justify-between gap-8 border-b border-white/[.07] py-3.5">
+      <div className="min-w-0">
+        <label htmlFor={id} className="text-[13px] font-semibold text-white">
+          {label}
+        </label>
+        {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--color-dim)]">{desc}</p>}
       </div>
+      {children}
     </div>
+  )
+}
+
+/** A dark native select - keyboard and screen-reader behaviour for free, and
+ *  Chromium renders its popup dark because :root sets color-scheme. */
+function Dropdown({
+  id,
+  value,
+  onChange,
+  options
+}: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ id: string; name: string }>
+}): JSX.Element {
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="shrink-0 rounded-lg border border-white/[.12] bg-white/[.06] px-2.5 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:border-white/25 focus-visible:border-[var(--color-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/45"
+    >
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   )
 }
 
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
+  const current = NAV_SCOPES.find((s) => s.id === scope) ?? NAV_SCOPES[0]
   return (
-    <div className="flex flex-col gap-6">
-      <Section title="Folder navigation" hint="which siblings the arrow keys page through">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-2.5">
-          {NAV_SCOPES.map((s) => {
-            const on = s.id === scope
-            return (
-              <Tile key={s.id} on={on} onClick={() => setNavScope(s.id)}>
-                <div className="flex w-full flex-col gap-1.5 rounded-md bg-[#0d0f14] p-2.5">
-                  <ScopeRow from="image" name="photo.jpg" scope={s.id} />
-                  <ScopeRow from="pdf" name="report.pdf" scope={s.id} />
-                </div>
-                <TileFooter name={s.name} on={on} />
-                <span className="text-[11.5px] leading-snug text-[var(--color-dim)]">{s.desc}</span>
-              </Tile>
-            )
-          })}
-        </div>
-      </Section>
-      <p className="max-w-[62ch] text-[12px] leading-relaxed text-[var(--color-dim)]">
-        The file you opened is always in the list, whatever the scope. Switching scope keeps it on
-        screen and just changes what sits either side of it.
+    <Group title="Folder navigation" hint="Which sibling files the arrow keys step through after you open one.">
+      <Row id="nav-scope" label="Scope" desc={current.desc}>
+        <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+      </Row>
+      <p className="pt-3.5 text-[12px] leading-relaxed text-[var(--color-dim)]">
+        The file you opened is always in the list, whatever the scope.
       </p>
-    </div>
+    </Group>
   )
 }
 

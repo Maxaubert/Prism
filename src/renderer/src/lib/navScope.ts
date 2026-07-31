@@ -26,15 +26,6 @@ const GROUP: Record<FileKind, string> = {
   other: 'other'
 }
 
-/** The kinds shown alongside `kind` under `scope` - used by Settings to preview
- *  what each mode lists. */
-export function scopeKinds(kind: FileKind, scope: NavScope): FileKind[] {
-  const all: FileKind[] = ['image', 'video', 'audio', 'pdf', 'text']
-  if (scope === 'all') return all
-  if (scope === 'type') return [kind]
-  return all.filter((k) => GROUP[k] === GROUP[kind])
-}
-
 /**
  * Narrow a folder listing to the files that belong with the opened one.
  * Returns the filtered list plus the position of that same file within it, so
