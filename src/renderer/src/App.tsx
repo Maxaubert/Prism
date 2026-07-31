@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
+import { scopeFiles, useNavScope } from './lib/navScope'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
@@ -102,8 +103,12 @@ function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
 }
 
 export default function App(): JSX.Element {
-  const [payload, setPayload] = useState<OpenPayload | null>(null)
-  const [index, setIndex] = useState(0)
+  // `raw` is every viewable sibling main found; `rawIndex` points at the file on
+  // screen. The list the user actually pages through is derived from those two
+  // plus the navigation scope, so changing the scope re-derives around the
+  // current file instead of moving off it.
+  const [raw, setRaw] = useState<OpenPayload | null>(null)
+  const [rawIndex, setRawIndex] = useState(0)
   // Whether the user has started paging through the folder in this session. A
   // freshly opened audio/video keeps the arrow keys for seeking; once you've
   // navigated, arrows keep paging even when they land on a playable file.
@@ -119,8 +124,8 @@ export default function App(): JSX.Element {
 
   const open = useCallback((p: OpenPayload | null) => {
     if (p && p.files.length) {
-      setPayload(p)
-      setIndex(Math.max(0, Math.min(p.files.length - 1, p.index)))
+      setRaw(p)
+      setRawIndex(Math.max(0, Math.min(p.files.length - 1, p.index)))
       setHasNavigated(false) // a fresh open starts in "opened directly" mode
     }
   }, [])
@@ -130,18 +135,24 @@ export default function App(): JSX.Element {
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
+
+  // The visible list: the siblings that belong with the open file under the
+  // current scope, and its position among them.
+  const scope = useNavScope()
+  const view = useMemo(() => (raw ? scopeFiles(raw.files, rawIndex, scope) : null), [raw, rawIndex, scope])
+
   const go = useCallback(
     (delta: number) => {
-      if (!payload) return
-      const next = Math.max(0, Math.min(payload.files.length - 1, index + delta))
-      if (next === index) return // already at the edge; not a navigation
-      setIndex(next)
+      if (!raw || !view) return
+      const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
+      if (next === view.index) return // already at the edge; not a navigation
+      setRawIndex(raw.files.indexOf(view.files[next]))
       setHasNavigated(true)
     },
-    [payload, index]
+    [raw, view]
   )
 
-  const file = payload?.files[index] ?? null
+  const file = view?.files[view.index] ?? null
 
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
@@ -178,13 +189,13 @@ export default function App(): JSX.Element {
   // fire the requests; ±1 is enough to make stepping feel seamless. Very large
   // files are skipped: warming one costs more (memory, decode jank) than it saves.
   useEffect(() => {
-    if (!payload) return
+    if (!view) return
     // Wait for idle before warming neighbours. Load time is dominated by reading
     // the file, so firing these immediately makes two big neighbours compete with
     // the image the user is actually waiting for.
     const start = (): void => {
       for (const d of [-1, 1]) {
-        const n = payload.files[index + d]
+        const n = view.files[view.index + d]
         if (n && n.kind === 'image' && n.size <= PRELOAD_MAX_BYTES) {
           preloadImage(window.prism.mediaUrl(n.path))
         }
@@ -196,7 +207,7 @@ export default function App(): JSX.Element {
     }
     const t = setTimeout(start, 400)
     return () => clearTimeout(t)
-  }, [payload, index])
+  }, [view])
 
   // Drag-and-drop (path via webUtils, since Electron removed File.path).
   useEffect(() => {
@@ -218,8 +229,8 @@ export default function App(): JSX.Element {
     }
   }, [open])
 
-  const many = (payload?.files.length ?? 0) > 1
-  const pos = many ? `${index + 1} / ${payload!.files.length}` : ''
+  const many = (view?.files.length ?? 0) > 1
+  const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   return (
     <div className="flex h-full flex-col">

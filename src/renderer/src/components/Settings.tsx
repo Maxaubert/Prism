@@ -18,6 +18,8 @@ import {
   type VizState
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
+import { NAV_SCOPES, scopeKinds, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
+import type { FileKind } from '@shared/types'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -194,6 +196,64 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           onMove={setBarMove}
         />
       </Section>
+    </div>
+  )
+}
+
+/* ---------- navigation ---------- */
+
+const KIND_LABEL: Record<FileKind, string> = {
+  image: 'Images',
+  video: 'Video',
+  audio: 'Audio',
+  pdf: 'PDF',
+  text: 'Text',
+  other: 'Other'
+}
+
+/** "photo.jpg → Images · Video · Audio": what the arrows step through when you
+ *  open a `from` file under `scope`. */
+function ScopeRow({ from, name, scope }: { from: FileKind; name: string; scope: NavScope }): JSX.Element {
+  return (
+    <div className="flex items-center gap-1.5 text-[11px]">
+      <span className="shrink-0 rounded bg-white/[.07] px-1.5 py-0.5 font-medium text-[#d7dae1]">{name}</span>
+      <span className="shrink-0 text-[var(--color-dim2,#6b7080)]">›</span>
+      <div className="flex flex-wrap gap-1">
+        {scopeKinds(from, scope).map((k) => (
+          <span key={k} className="rounded bg-[var(--color-accent)]/20 px-1.5 py-0.5 text-[var(--color-accent-hi)]">
+            {KIND_LABEL[k]}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function NavigationTab(): JSX.Element {
+  const scope = useNavScope()
+  return (
+    <div className="flex flex-col gap-6">
+      <Section title="Scope" hint="which siblings the arrow keys page through">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-2.5">
+          {NAV_SCOPES.map((s) => {
+            const on = s.id === scope
+            return (
+              <Tile key={s.id} on={on} onClick={() => setNavScope(s.id)}>
+                <div className="flex w-full flex-col gap-1.5 rounded-md bg-[#0d0f14] p-2.5">
+                  <ScopeRow from="image" name="photo.jpg" scope={s.id} />
+                  <ScopeRow from="pdf" name="report.pdf" scope={s.id} />
+                </div>
+                <TileFooter name={s.name} on={on} />
+                <span className="text-[11.5px] leading-snug text-[var(--color-dim)]">{s.desc}</span>
+              </Tile>
+            )
+          })}
+        </div>
+      </Section>
+      <p className="max-w-[62ch] text-[12px] leading-relaxed text-[var(--color-dim)]">
+        The file you opened is always in the list, whatever the scope. Switching scope keeps it on
+        screen and just changes what sits either side of it.
+      </p>
     </div>
   )
 }
@@ -380,7 +440,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'player' | 'visualizer' | 'about'
+type TabId = 'navigation' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -389,6 +449,13 @@ const Ico = ({ d }: { d: string }): JSX.Element => (
 )
 
 const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
+  {
+    id: 'navigation',
+    label: 'Navigation',
+    title: 'Navigation',
+    desc: 'What the arrow keys page through when you open a file in a folder.',
+    icon: <Ico d="M5 12h14M13 6l6 6-6 6" />
+  },
   {
     id: 'player',
     label: 'Progress bar',
@@ -423,7 +490,7 @@ export function Settings({
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
-  const [tab, setTab] = useState<TabId>('player')
+  const [tab, setTab] = useState<TabId>('navigation')
 
   useEffect(() => {
     if (!open) return
@@ -485,7 +552,9 @@ export function Settings({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === 'player' ? (
+            {tab === 'navigation' ? (
+              <NavigationTab />
+            ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
