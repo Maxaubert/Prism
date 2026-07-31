@@ -38,10 +38,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   with a scope setting (all / media vs documents / one file type) in Settings → General.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
-- **Rename + delete from the tree** (F2 / Delete / right-click, files only, decided 2026-08-01).
+- **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
   The only writes Prism performs. Nothing is destroyed: deleting and overwriting both go via the
   Recycle Bin, a taken name asks (cancel / replace / keep both), and names are validated first.
-  Anything further (move, copy, new folder, multi-select) is a fresh decision, not a natural next step.
+  The session root itself can never be renamed or binned. Anything further (move, copy, new folder,
+  multi-select) is a fresh decision, not a natural next step.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).

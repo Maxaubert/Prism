@@ -21,7 +21,7 @@ const SIDEBAR_KEY = 'prism.sidebar'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
 type Ask =
-  | { kind: 'delete'; path: string; name: string }
+  | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
 
@@ -219,32 +219,37 @@ export default function App(): JSX.Element {
   const [refreshKey, setRefreshKey] = useState(0)
   const [ask, setAsk] = useState<Ask | null>(null)
 
-  /** Re-read the tree, and re-open whatever is on screen so the paging list and
-   *  the title bar match the new names. */
-  const refresh = useCallback(
-    (focus?: string) => {
-      setRefreshKey((n) => n + 1)
-      const target = focus ?? file?.path
-      if (target) void window.prism.openWithin(target).then((p) => p && open(p))
-    },
-    [file, open]
+  /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
+   *  folder moves everything under it, including possibly the open file. */
+  const within = (p: string, parent: string): boolean => {
+    const a = p.toLowerCase()
+    const b = parent.toLowerCase()
+    return a === b || a.startsWith(b + String.fromCharCode(92)) || a.startsWith(b + '/')
+  }
+
+  const reopen = useCallback(
+    (p: string) => void window.prism.openWithin(p).then((payload) => payload && open(payload)),
+    [open]
   )
 
   const runRename = useCallback(
     async (path: string, name: string, onClash: OnClash): Promise<void> => {
       const r = await window.prism.renameFile(path, name, onClash)
-      if (r.ok) {
-        setAsk(null)
-        refresh(r.path)
+      if (!r.ok) {
+        if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
+        else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
         return
       }
-      if (r.reason === 'clash') {
-        setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
-        return
-      }
-      setAsk({ kind: 'failed', message: r.message ?? "That file couldn't be renamed." })
+      setAsk(null)
+      setRefreshKey((n) => n + 1)
+      // Follow whatever is on screen: it may have been the thing renamed, or a
+      // file inside the folder that was, in which case its path just moved.
+      const cur = file?.path
+      if (!cur) return
+      if (within(cur, path)) reopen(r.path + cur.slice(path.length))
+      else reopen(cur)
     },
-    [refresh]
+    [file, reopen]
   )
 
   const runDelete = useCallback(
@@ -252,23 +257,24 @@ export default function App(): JSX.Element {
       setAsk(null)
       const ok = await window.prism.trashFile(path)
       if (!ok) {
-        setAsk({ kind: 'failed', message: "That file couldn't be moved to the Recycle Bin." })
+        setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
         return
       }
-      // If the open file just went, step to a neighbour rather than showing a gap.
-      const gone = !!file && file.path.toLowerCase() === path.toLowerCase()
-      const next = gone ? view?.files[view.index + 1] ?? view?.files[view.index - 1] : undefined
       setRefreshKey((n) => n + 1)
-      if (gone) {
-        if (next) void window.prism.openWithin(next.path).then((p) => p && open(p))
-        else setRaw(null)
-      } else {
-        refresh()
+      const cur = file?.path
+      if (!cur || !within(cur, path)) {
+        if (cur) reopen(cur)
+        return
       }
+      // What we were looking at is gone. Step to the nearest surviving neighbour,
+      // skipping anything that lived inside the same folder.
+      const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
+      const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
+      if (next) reopen(next.path)
+      else setRaw(null)
     },
-    [file, open, refresh, view]
+    [file, reopen, view]
   )
-
 
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
@@ -378,7 +384,7 @@ export default function App(): JSX.Element {
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
             onRename={(p, name) => void runRename(p, name, 'ask')}
-            onDelete={(path, name) => setAsk({ kind: 'delete', path, name })}
+            onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
           />
         )}
         <div

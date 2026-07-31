@@ -13,11 +13,14 @@ export interface MenuItem {
 export function ContextMenu({
   x,
   y,
+  label,
   items,
   onClose
 }: {
   x: number
   y: number
+  /** What the menu is acting on, so the choices have a subject. */
+  label?: string
   items: MenuItem[]
   onClose: () => void
 }): JSX.Element {
@@ -52,8 +55,13 @@ export function ContextMenu({
         role="menu"
         style={{ left: pos.x, top: pos.y }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="absolute min-w-[168px] rounded-lg border border-white/10 bg-[#1b1e26] p-1 shadow-[0_18px_50px_rgba(0,0,0,.6)]"
+        className="absolute min-w-[172px] rounded border border-white/[.09] bg-[#15171d] py-1 shadow-[0_14px_40px_rgba(0,0,0,.55)]"
       >
+        {label && (
+          <div className="truncate border-b border-white/[.06] px-3 pb-1.5 pt-0.5 text-[11px] text-[var(--color-dim2,#6b7080)]">
+            {label}
+          </div>
+        )}
         {items.map((it) => (
           <button
             key={it.label}
@@ -62,8 +70,8 @@ export function ContextMenu({
               it.onPick()
               onClose()
             }}
-            className={`flex w-full items-center justify-between gap-6 rounded-md px-2.5 py-1.5 text-left text-[12.5px] transition-colors ${
-              it.danger ? 'text-[#e78d95] hover:bg-[#b4353f]/25 hover:text-white' : 'text-[#d7dae1] hover:bg-white/[.08] hover:text-white'
+            className={`flex h-[26px] w-full items-center justify-between gap-6 px-3 text-left text-[12.5px] transition-colors ${
+              it.danger ? 'text-[#e0868f] hover:bg-[#b4353f] hover:text-white' : 'text-[#d7dae1] hover:bg-[var(--color-accent)] hover:text-white'
             }`}
           >
             {it.label}

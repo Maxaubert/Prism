@@ -112,6 +112,27 @@ function FolderIcon({ color }: { color: string }): JSX.Element {
   )
 }
 
+/**
+ * The row's name. A tooltip only appears when the name is actually clipped:
+ * repeating a label you can already read in full is noise, and the tooltip is
+ * here to recover what the panel width took away.
+ */
+function Label({ name }: { name: string }): JSX.Element {
+  const [clipped, setClipped] = useState(false)
+  return (
+    <span
+      className="truncate"
+      title={clipped ? name : undefined}
+      onPointerEnter={(e) => {
+        const el = e.currentTarget
+        setClipped(el.scrollWidth > el.clientWidth)
+      }}
+    >
+      {name}
+    </span>
+  )
+}
+
 /** A muted, unclickable row: "empty", "can't read", "loading". */
 function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
   return (
@@ -180,18 +201,37 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
   const pad = 4 + depth * t.size.indent
   return (
     <li role="none">
-      <button
-        role="treeitem"
-        aria-expanded={open}
-        onClick={() => t.onToggle(path)}
-        title={name}
-        className="flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-[#c4c8d2] transition-colors hover:bg-white/[.06] hover:text-white"
-        style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
-      >
-        <Chevron open={open} />
-        <FolderIcon color={FOLDER_TINT} />
-        <span className="truncate">{name}</span>
-      </button>
+      {t.editing === path ? (
+        <RenameRow
+          name={name}
+          pad={pad - 19}
+          size={t.size}
+          onSubmit={(v) => t.onSubmitRename(path, v)}
+          onCancel={t.onCancelRename}
+        />
+      ) : (
+        <button
+          role="treeitem"
+          aria-expanded={open}
+          onClick={() => t.onToggle(path)}
+          onContextMenu={(e) => t.onMenu(e, path, name, true)}
+          onKeyDown={(e) => {
+            if (e.key === 'F2') {
+              e.preventDefault()
+              t.onStartRename(path)
+            } else if (e.key === 'Delete') {
+              e.preventDefault()
+              t.onDelete(path, name, true)
+            }
+          }}
+          className="flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-[#c4c8d2] transition-colors hover:bg-white/[.06] hover:text-white"
+          style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
+        >
+          <Chevron open={open} />
+          <FolderIcon color={FOLDER_TINT} />
+          <Label name={name} />
+        </button>
+      )}
       {/* Children stay mounted once loaded and the row track collapses to 0fr, so
           opening and closing a folder slides instead of snapping. */}
       {listing ? (
@@ -244,24 +284,23 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               onClick={() => t.onOpenFile(f.path)}
-              onContextMenu={(e) => t.onMenu(e, f.path, f.name)}
+              onContextMenu={(e) => t.onMenu(e, f.path, f.name, false)}
               onKeyDown={(e) => {
                 if (e.key === 'F2') {
                   e.preventDefault()
                   t.onStartRename(f.path)
                 } else if (e.key === 'Delete') {
                   e.preventDefault()
-                  t.onDelete(f.path, f.name)
+                  t.onDelete(f.path, f.name, false)
                 }
               }}
-              title={f.name}
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors ${
                 on ? 'bg-[var(--color-accent)] font-medium text-white' : 'text-[#b9bdc8] hover:bg-white/[.06] hover:text-white'
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
             >
               <KindIcon kind={f.kind} color={on ? '#ffffff' : TINT[f.kind]} />
-              <span className="truncate">{f.name}</span>
+              <Label name={f.name} />
             </button>
           </li>
         )

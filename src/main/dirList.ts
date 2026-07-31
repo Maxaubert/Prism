@@ -38,6 +38,11 @@ export function isInsideRoot(root: string, p: string): boolean {
   return t === r || t.startsWith(r.endsWith(sep) ? r : r + sep)
 }
 
+/** True when `p` is the root itself, which nothing is allowed to rename or bin. */
+export function isRoot(root: string, p: string): boolean {
+  return !!root && !!p && canonical(root) === canonical(p)
+}
+
 /** One file as the renderer sees it. Size is 0 when it can't be stat'ed. */
 export function toViewerFile(p: string): ViewerFile {
   const ext = extname(p).toLowerCase()

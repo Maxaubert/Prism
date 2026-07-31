@@ -35,6 +35,7 @@ interface Menu {
   y: number
   path: string
   name: string
+  isFolder: boolean
 }
 
 export function Sidebar({
@@ -53,7 +54,7 @@ export function Sidebar({
   refreshKey: number
   onOpenFile: (path: string) => void
   onRename: (path: string, name: string) => void
-  onDelete: (path: string, name: string) => void
+  onDelete: (path: string, name: string, isFolder: boolean) => void
 }): JSX.Element {
   const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
   const [revealed, setRevealed] = useState<string | null>(null)
@@ -149,9 +150,9 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  const onMenu = useCallback((e: MouseEvent, path: string, name: string) => {
+  const onMenu = useCallback((e: MouseEvent, path: string, name: string, isFolder: boolean) => {
     e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, path, name })
+    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder })
   }, [])
 
   const submitRename = useCallback(
@@ -242,10 +243,11 @@ export function Sidebar({
         <ContextMenu
           x={menu.x}
           y={menu.y}
+          label={menu.name}
           onClose={() => setMenu(null)}
           items={[
             { label: 'Rename', hint: 'F2', onPick: () => setEditing(menu.path) },
-            { label: 'Delete', hint: 'Del', danger: true, onPick: () => onDelete(menu.path, menu.name) }
+            { label: 'Delete', hint: 'Del', danger: true, onPick: () => onDelete(menu.path, menu.name, menu.isFolder) }
           ]}
         />
       )}

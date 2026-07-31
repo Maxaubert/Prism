@@ -3,7 +3,7 @@ import { dirname, extname, join, resolve } from 'path'
 import { createReadStream, existsSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { Readable } from 'stream'
-import { isInsideRoot, listDir, toViewerFile } from './dirList'
+import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
 import { renameFile } from './fileOps'
 import type { DirListing, OnClash, OpenPayload, RenameResult } from '@shared/types'
 
@@ -294,15 +294,19 @@ if (!app.requestSingleInstanceLock()) {
     )
     // File operations. Inside the root only, and nothing is ever destroyed: an
     // overwritten or deleted file goes to the Recycle Bin.
+    // The root itself is off limits: renaming or binning the folder the tree is
+    // rooted in would pull the ground out from under the window.
+    const editable = (p: string): boolean => isInsideRoot(sessionRoot, p) && !isRoot(sessionRoot, p)
+
     ipcMain.handle(
       'file:rename',
       async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> =>
-        isInsideRoot(sessionRoot, p)
+        editable(p)
           ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
-          : { ok: false, reason: 'failed', message: 'That file is outside this folder.' }
+          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
     )
     ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
-      if (!isInsideRoot(sessionRoot, p)) return false
+      if (!editable(p)) return false
       try {
         await shell.trashItem(p)
         return true
