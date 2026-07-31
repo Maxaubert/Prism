@@ -43,9 +43,9 @@ Verify: `npm run typecheck` and `npm run lint` clean.
 
 ## Task 4 — Settings tab
 
-- `TabId` gains `'navigation'`; a `NAVIGATION` entry leads the `TABS` array with
-  its own icon.
-- `NavigationTab`: one `Section` ("Scope"), a tile per `NAV_SCOPES` entry with a
+- `TabId` gains `'general'`; a General entry leads the `TABS` array with its own
+  icon.
+- `GeneralTab`: one `Section` ("Folder navigation"), a tile per `NAV_SCOPES` entry with a
   small schematic (a row of kind chips showing what the list holds) and the
   description, reusing `Tile` / `TileFooter`.
 

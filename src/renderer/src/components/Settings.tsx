@@ -200,7 +200,7 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
   )
 }
 
-/* ---------- navigation ---------- */
+/* ---------- general ---------- */
 
 const KIND_LABEL: Record<FileKind, string> = {
   image: 'Images',
@@ -229,11 +229,11 @@ function ScopeRow({ from, name, scope }: { from: FileKind; name: string; scope: 
   )
 }
 
-function NavigationTab(): JSX.Element {
+function GeneralTab(): JSX.Element {
   const scope = useNavScope()
   return (
     <div className="flex flex-col gap-6">
-      <Section title="Scope" hint="which siblings the arrow keys page through">
+      <Section title="Folder navigation" hint="which siblings the arrow keys page through">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-2.5">
           {NAV_SCOPES.map((s) => {
             const on = s.id === scope
@@ -440,7 +440,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'navigation' | 'player' | 'visualizer' | 'about'
+type TabId = 'general' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -450,11 +450,11 @@ const Ico = ({ d }: { d: string }): JSX.Element => (
 
 const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
   {
-    id: 'navigation',
-    label: 'Navigation',
-    title: 'Navigation',
-    desc: 'What the arrow keys page through when you open a file in a folder.',
-    icon: <Ico d="M5 12h14M13 6l6 6-6 6" />
+    id: 'general',
+    label: 'General',
+    title: 'General',
+    desc: 'How Prism behaves when you open a file.',
+    icon: <Ico d="M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
   },
   {
     id: 'player',
@@ -490,7 +490,7 @@ export function Settings({
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
-  const [tab, setTab] = useState<TabId>('navigation')
+  const [tab, setTab] = useState<TabId>('general')
 
   useEffect(() => {
     if (!open) return
@@ -552,8 +552,8 @@ export function Settings({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === 'navigation' ? (
-              <NavigationTab />
+            {tab === 'general' ? (
+              <GeneralTab />
             ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (

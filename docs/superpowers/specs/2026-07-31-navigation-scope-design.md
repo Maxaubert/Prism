@@ -81,10 +81,11 @@ list around the file already on screen for free.
 
 ### Changed: `src/renderer/src/components/Settings.tsx`
 
-A **Navigation** tab in the existing rail, above Progress bar, using the same
-`Section` / `Tile` / `TileFooter` shell as the other pickers: three tiles, each a
-small schematic of what the list holds under that mode, with a one-line
-description.
+A **General** tab in the existing rail, above Progress bar, holding a "Folder
+navigation" section and using the same `Section` / `Tile` / `TileFooter` shell as
+the other pickers: three tiles, each a small schematic of what the list holds
+under that mode, with a one-line description. General is where later app-wide
+behaviour settings land; scope is simply its first entry.
 
 ## Testing
 
