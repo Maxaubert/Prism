@@ -243,7 +243,6 @@ export function Sidebar({
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          label={menu.name}
           onClose={() => setMenu(null)}
           items={[
             { label: 'Rename', hint: 'F2', onPick: () => setEditing(menu.path) },
