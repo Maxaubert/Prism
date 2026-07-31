@@ -42,18 +42,29 @@ export function ContextMenu({
         onClose()
       }
     }
+    // Dismiss on any press outside the menu, but let that press through to
+    // whatever it landed on: clicking a file while the menu is open should open
+    // that file, not cost you a second click.
+    const onDown = (e: PointerEvent): void => {
+      if (!box.current?.contains(e.target as Node)) onClose()
+    }
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('blur', onClose)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('blur', onClose)
+    }
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-40" onMouseDown={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+    <div className="fixed inset-0 z-40 pointer-events-none">
       <div
         ref={box}
         role="menu"
         style={{ left: pos.x, top: pos.y }}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="absolute min-w-[150px] rounded-[3px] border border-white/10 bg-[#14161c] py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
+        className="pointer-events-auto absolute min-w-[150px] rounded-[3px] border border-white/10 bg-[#14161c] py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
       >
         {items.map((it) => (
           <button
