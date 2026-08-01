@@ -69,8 +69,8 @@
      you can see straight away how much of the wallpaper each material lets in. */
   .mini { position: relative; height: 128px; border-radius: 8px; overflow: hidden; padding: 9px 10px; }
   .mini .frame { position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-  .mini .bar { position: relative; height: 14px; display: flex; align-items: center; gap: 3px; padding: 0 5px; overflow: hidden; }
-  .mini .dot { position: relative; width: 4px; height: 4px; border-radius: 1px; flex: none; }
+  .mini .bar { position: relative; height: 9px; display: flex; align-items: center; gap: 2.5px; padding: 0 4px; overflow: hidden; }
+  .mini .dot { position: relative; width: 2.5px; height: 2.5px; border-radius: 1px; flex: none; }
   .mini .body { position: relative; flex: 1; display: flex; min-height: 0; }
   .mini .side { position: relative; width: 36%; padding: 5px 4px; display: flex; flex-direction: column; overflow: hidden; }
   .mini .line { position: relative; border-radius: 2px; flex: none; }
@@ -264,11 +264,10 @@ function mini(st) {
         <div class="bar" style="background:${title};${filt}">
           ${grain}
           <span class="dot" style="background:${a[0]}"></span>
-          <span style="position:relative;font-family:${FONT_STACK[st.font]};font-size:5px;line-height:1;font-weight:700;color:${rgba(st.text,.92)};letter-spacing:.01em">Prism</span>
-          <span class="line" style="width:26%;height:2.5px;background:${rgba(dim,.65)}"></span>
+          <span class="line" style="width:34%;height:2px;background:${rgba(st.text,.5)}"></span>
           <span style="position:relative;flex:1"></span>
-          <span class="dot" style="width:3px;height:3px;background:${rgba(dim,.75)}"></span>
-          <span class="dot" style="width:3px;height:3px;background:${rgba(dim,.75)}"></span>
+          <span class="dot" style="background:${rgba(dim,.7)}"></span>
+          <span class="dot" style="background:${rgba(dim,.7)}"></span>
         </div>
         <div class="body">
           <div class="side" style="background:${side};${filt};gap:${rows[0] - 2}px">${grain}${tree}</div>
