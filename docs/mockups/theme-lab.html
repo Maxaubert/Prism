@@ -281,61 +281,45 @@ const TRANSPORTS = ['slim','pill','bold','edge','outline','inline','island','wav
 const VIZ = ['bars','outline-bars','round','round-solid','mirror','halo']
 const KIND_TINT = { image:'#6fb2a8', video:'#8f8ae0', audio:'#d3a06a', pdf:'#cf7f88', text:'#8d93a1', folder:'#9aa0f0' }
 
-/* ---------- styles: each bundles everything ---------- */
-const STYLES = {
-  'Prism now': { material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4',
-    iconMode:'kind', icon:'#8a8e99', accentScheme:'s-indigo', glow:false, cycle:false, move:false,
-    font:'system', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'6',
-    selMode:'solid', transport:'slim', viz:'bars', wall:'night' },
-  'Slate': { material:'gradient', bg:'#0f1218', side:'#12141b', title:'#191d26', text:'#e6e9f0',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'ocean', glow:false, cycle:false, move:true,
-    font:'segoe', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'7',
-    selMode:'tint', transport:'pill', viz:'round', wall:'night' },
-  'Mica': { material:'mica', bg:'#141720', side:'#171a21', title:'#1c2029', text:'#eef0f4',
-    iconMode:'custom', icon:'#9aa0f0', accentScheme:'brand', glow:false, cycle:false, move:false,
-    font:'system', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'8',
-    selMode:'tint', transport:'slim', viz:'bars', wall:'dunes' },
-  'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
-    iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', glow:true, cycle:false, move:true,
-    font:'system', size:'12.5', corners:'14', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'10',
-    selMode:'tint', transport:'island', viz:'halo', wall:'forest' },
-  'Cupertino': { material:'apple', bg:'#191b22', side:'#1c1e26', title:'#22242c', text:'#f2f4f8',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-blue', glow:false, cycle:false, move:false,
-    font:'system', size:'13.5', corners:'14', borders:'none', hoverMode:'light', hover:'#ffffff', hoverStr:'9',
-    selMode:'solid', transport:'island', viz:'round-solid', wall:'dunes' },
-  'Void': { material:'oled', bg:'#000000', side:'#000000', title:'#000000', text:'#e8eaf0',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-violet', glow:true, cycle:false, move:false,
-    font:'segoe', size:'12', corners:'2', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'8',
-    selMode:'text', transport:'edge', viz:'outline-bars', wall:'none' },
-  'Ember': { material:'tinted', bg:'#191720', side:'#1c1a22', title:'#231f28', text:'#f0e7dc',
-    iconMode:'custom', icon:'#d3a06a', accentScheme:'gold', glow:true, cycle:false, move:true,
-    font:'calibri', size:'13.5', corners:'8', borders:'hairline', hoverMode:'accent', hover:'#d08a3e', hoverStr:'14',
-    selMode:'tint', transport:'wave', viz:'mirror', wall:'dunes' },
-  'Acrylic': { material:'acrylic', bg:'#101420', side:'#141821', title:'#1a1f2b', text:'#eceef5',
-    iconMode:'accent', icon:'#8b5cf6', accentScheme:'nebula', glow:false, cycle:true, move:true,
-    font:'system', size:'12.5', corners:'14', borders:'none', hoverMode:'accent', hover:'#8b5cf6', hoverStr:'12',
-    selMode:'solid', transport:'wavebold', viz:'round', wall:'night' },
-  'Terminal': { material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9',
-    iconMode:'accent', icon:'#3f9d54', accentScheme:'s-green', glow:true, cycle:false, move:false,
-    font:'mono', size:'12', corners:'2', borders:'strong', hoverMode:'accent', hover:'#3f9d54', hoverStr:'12',
-    selMode:'text', transport:'segments', viz:'outline-bars', wall:'none' },
-  'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', glow:false, cycle:false, move:false,
-    font:'georgia', size:'13.5', corners:'8', borders:'none', hoverMode:'light', hover:'#ffffff', hoverStr:'7',
-    selMode:'tint', transport:'inline', viz:'mirror', wall:'forest' }
+/* ---------- styles ---------- */
+// A style is only the look: material, colours, font and shape of the frame.
+// Everything else below is a fixed default the style has no opinion about, so
+// switching styles never moves your hover, your progress bar or your visualizer.
+const STYLE_KEYS = ['material','bg','side','title','text','iconMode','icon','accentScheme','font','size','corners','borders']
+
+const DEFAULTS = {
+  glow: false, cycle: false, move: false,          // accent effects: off
+  hoverMode: 'light', hover: '#ffffff', hoverStr: '6',
+  selMode: 'solid',
+  transport: 'slim', viz: 'bars',
+  wall: 'night'                                    // preview backdrop only
 }
 
-const KEYS = Object.keys(STYLES['Prism now']).filter((k) => k !== 'wall')
+const STYLES = {
+  'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
+    iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', font:'system', size:'12.5', corners:'14', borders:'hairline' },
+  'Terminal': { material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9',
+    iconMode:'accent', icon:'#3f9d54', accentScheme:'s-green', font:'mono', size:'12', corners:'2', borders:'strong' },
+  'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', font:'georgia', size:'13.5', corners:'8', borders:'none' }
+}
+
+const KEYS = STYLE_KEYS
 const SAVED_KEY = 'prism.lab.saved'
 const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
 let saved = loadSaved()
 
-let styleName = 'Prism now'
-let S = { ...STYLES[styleName] }
+let styleName = 'Glasshouse'
+let S = { ...DEFAULTS, ...STYLES[styleName] }
 let view = 'image'
 let pending = null // a style switch waiting on the modified dialog
 
 const bundleFor = (n) => STYLES[n] ?? saved[n]
+/** Take a style's keys, leave everything else (hover, shapes, effects) alone. */
+const applyStyle = (n) => {
+  const b = bundleFor(n)
+  if (b) STYLE_KEYS.forEach((k) => { if (b[k] !== undefined) S[k] = b[k] })
+}
 const modified = () => { const b = bundleFor(styleName); return !b || KEYS.some((k) => S[k] !== b[k]) }
 
 /* ---------- painting the app ---------- */
@@ -456,9 +440,10 @@ function render() {
   if (!liveDrag) renderRail()
   document.getElementById('recipe').textContent =
     `style=${styleName}${modified()?'*':''} material=${S.material} bg=${S.bg} sidebar=${S.side} titlebar=${S.title} ` +
-    `text=${S.text} icons=${S.iconMode}${S.iconMode==='custom'?':'+S.icon:''} accent=${S.accentScheme}` +
-    `${S.glow?'+glow':''}${S.cycle?'+cycle':''}${S.move?'+move':''} hover=${S.hoverMode}@${S.hoverStr}% selected=${S.selMode} ` +
-    `font=${S.font}/${S.size} corners=${S.corners} edges=${S.borders} bar=${S.transport} viz=${S.viz}`
+    `text=${S.text} icons=${S.iconMode}${S.iconMode==='custom'?':'+S.icon:''} accent=${S.accentScheme} ` +
+    `font=${S.font}/${S.size} corners=${S.corners} edges=${S.borders}` +
+    `   ·   not saved: effects=${[S.glow&&'glow',S.cycle&&'cycle',S.move&&'move'].filter(Boolean).join('+')||'off'} ` +
+    `hover=${S.hoverMode}@${S.hoverStr}% selected=${S.selMode} bar=${S.transport} viz=${S.viz}`
 }
 
 /* ---------- the control rail ---------- */
@@ -573,6 +558,11 @@ function renderRail() {
       <div class="axis"><span class="label">Accent — progress bar, visualizer, selection</span>
         <div class="schemes">${SCHEMES.map(s =>
           `<button class="scheme" data-scheme="${s.id}" title="${s.name}" aria-pressed="${String(S.accentScheme===s.id)}" style="background:${paint(s.palette)}"></button>`).join('')}</div></div>
+    </div>
+
+    <div class="group">
+      <h2>Not part of a style</h2>
+      <p style="margin:-4px 0 10px;font-size:11px;color:#5f6474">Every style leaves these alone, so switching styles never moves them. Effects are off by default.</p>
       <div class="axis"><span class="label">Accent effects (progress bar + visualizer only)</span>
         <div class="opts">
           <button class="opt" data-toggle="glow" aria-pressed="${String(S.glow)}">Glow</button>
@@ -583,10 +573,6 @@ function renderRail() {
       <div class="axis"><span class="label">Hover</span>${opts('hoverMode',[['light','Light wash'],['accent','Accent tint'],['custom','Custom']])}</div>
       ${S.hoverMode === 'custom' ? colourRow('hover','Hover colour', ['#ffffff','#5b5bd6','#37b6a6','#d08a3e','#c2557a']) : ''}
       <div class="axis"><span class="label">Hover strength</span><input type="range" data-range="hoverStr" min="2" max="30" value="${S.hoverStr}" /></div>
-    </div>
-
-    <div class="group">
-      <h2>Shapes</h2>
       <div class="axis"><span class="label">Progress bar</span>${opts('transport', TRANSPORTS.map(t=>[t,t]))}</div>
       <div class="axis"><span class="label">Visualizer</span>${opts('viz', VIZ.map(v=>[v,v]))}</div>
       <div class="axis"><span class="label">Viewer shows</span>
@@ -635,7 +621,7 @@ function askName() {
 
 function exportAll() {
   const all = { ...saved }
-  if (!all[styleName]) all[styleName] = { ...S }
+  if (!all[styleName]) all[styleName] = Object.fromEntries(STYLE_KEYS.map((k) => [k, S[k]]))
   const out = JSON.stringify(
     Object.entries(all).map(([name, v]) => ({ name, ...Object.fromEntries(KEYS.map((k) => [k, v[k]])) })),
     null, 2
@@ -654,7 +640,7 @@ function exportAll() {
     </div>`
 }
 function saveAs(name) {
-  saved = { ...saved, [name]: { ...S } }
+  saved = { ...saved, [name]: Object.fromEntries(STYLE_KEYS.map((k) => [k, S[k]])) }
   localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
 }
 
@@ -671,7 +657,7 @@ document.addEventListener('click', (e) => {
     }
     const next = pending
     closeDialog()
-    styleName = next; S = { ...bundleFor(next) }; render()
+    styleName = next; applyStyle(next); render()
     return
   }
   const style = t.closest('[data-style]')
@@ -679,7 +665,7 @@ document.addEventListener('click', (e) => {
     const next = style.dataset.style
     if (next === styleName) return
     if (modified()) askAbout(next)
-    else { styleName = next; S = { ...bundleFor(next) }; render() }
+    else { styleName = next; applyStyle(next); render() }
     return
   }
   const d2 = t.closest('[data-dlg2]')
@@ -700,14 +686,14 @@ document.addEventListener('click', (e) => {
   const act = t.closest('[data-act]')
   if (act) {
     const a = act.dataset.act
-    if (a === 'revert') { S = { ...bundleFor(styleName) }; render() }
+    if (a === 'revert') { applyStyle(styleName); render() }
     else if (a === 'save') askName()
     else if (a === 'export') exportAll()
     else if (a === 'delete') {
       const next = Object.keys(STYLES)[0]
       delete saved[styleName]
       localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
-      styleName = next; S = { ...bundleFor(next) }; render()
+      styleName = next; applyStyle(next); render()
     }
     return
   }
