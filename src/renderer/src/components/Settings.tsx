@@ -20,7 +20,7 @@ import {
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
-import { setMode, setStyle, stylesFor, useMode, useStyle, mix, rgba, type Mode, type Style } from '../lib/theme'
+import { FONTS, setMode, setStyle, stylesFor, useMode, useStyle, mix, rgba, type Mode, type Style } from '../lib/theme'
 import { THEMES } from '../lib/viz/styles'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
@@ -618,7 +618,14 @@ export function Settings({
 
   return (
     // A full-window settings page (sits below the 36px title bar), not a popup.
-    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]">
+    // Settings keeps the system font whatever the style says. A style's
+    // typeface belongs to the app you're looking at; letting it set the type in
+    // here means picking a mono or a serif style resizes the settings page
+    // itself, and the cards you're choosing between move as you read them.
+    <div
+      className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]"
+      style={{ fontFamily: FONTS.system.stack, fontSize: '13px' }}
+    >
       {/* tab rail */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-3">
           <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
