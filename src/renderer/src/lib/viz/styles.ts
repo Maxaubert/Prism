@@ -882,7 +882,36 @@ export const THEMES: VizTheme[] = [
   { id: 's-cyan', name: 'Cyan', blurb: 'Solid cyan.', palette: ['#22d3ee'], accent: '#22d3ee' },
   { id: 's-teal', name: 'Teal', blurb: 'Solid teal.', palette: ['#14b8a6'], accent: '#14b8a6' },
   { id: 's-green', name: 'Green', blurb: 'Solid green.', palette: ['#22c55e'], accent: '#22c55e' },
-  { id: 'white', name: 'White', blurb: 'Solid white.', palette: ['#eef2fb'], accent: '#ffffff' }
+  { id: 'white', name: 'White', blurb: 'Solid white.', palette: ['#eef2fb'], accent: '#ffffff' },
+
+  // ---- deep and muted ----
+  // The set above is high-key: right for a visualizer in full flight, loud on a
+  // progress bar and shouted on a selected row.
+  { id: 'dusk', name: 'Dusk', blurb: 'Bruised violet into rose.', palette: ['#3b3663', '#6b4a6e', '#a3596b'], accent: '#8a5f74' },
+  { id: 'nightfall', name: 'Nightfall', blurb: 'Midnight into deep violet.', palette: ['#111a3a', '#2b2a6b', '#4a3f8f'], accent: '#4a3f8f' },
+  { id: 'deepsea', name: 'Deep sea', blurb: 'Harbour blue into teal.', palette: ['#0b3d5c', '#12657f', '#1f8f8a'], accent: '#12657f' },
+  { id: 'slateblue', name: 'Slate blue', blurb: 'Cold blue-grey.', palette: ['#243b53', '#3e5c76', '#5d7fa3'], accent: '#3e5c76' },
+  { id: 'mossline', name: 'Moss', blurb: 'Pine into fresh moss.', palette: ['#1c3f2e', '#2f6b46', '#5d9c5a'], accent: '#2f6b46' },
+  { id: 'emberdark', name: 'Ember', blurb: 'Banked coals.', palette: ['#7f1d1d', '#b45309', '#d97706'], accent: '#b45309' },
+  { id: 'copper', name: 'Copper', blurb: 'Oxidised metal.', palette: ['#5c2c1a', '#8c4a2f', '#c07c4a'], accent: '#8c4a2f' },
+  { id: 'winegrad', name: 'Wine', blurb: 'Port into claret.', palette: ['#4a1042', '#7c2352', '#a83a5b'], accent: '#7c2352' },
+
+  { id: 'd-indigo', name: 'Deep indigo', blurb: 'Solid deep indigo.', palette: ['#3730a3'], accent: '#3730a3' },
+  { id: 'd-navy', name: 'Navy', blurb: 'Solid navy.', palette: ['#1e3a8a'], accent: '#1e3a8a' },
+  { id: 'd-slate', name: 'Slate', blurb: 'Solid slate.', palette: ['#475569'], accent: '#475569' },
+  { id: 'd-steel', name: 'Steel', blurb: 'Solid steel blue.', palette: ['#3f5570'], accent: '#3f5570' },
+  { id: 'd-teal', name: 'Deep teal', blurb: 'Solid deep teal.', palette: ['#0f766e'], accent: '#0f766e' },
+  { id: 'd-pine', name: 'Pine', blurb: 'Solid pine.', palette: ['#166534'], accent: '#166534' },
+  { id: 'd-moss', name: 'Moss', blurb: 'Solid moss.', palette: ['#4d7c0f'], accent: '#4d7c0f' },
+  { id: 'd-olive', name: 'Olive', blurb: 'Solid olive.', palette: ['#6b7238'], accent: '#6b7238' },
+  { id: 'd-bronze', name: 'Bronze', blurb: 'Solid bronze.', palette: ['#92400e'], accent: '#92400e' },
+  { id: 'd-rust', name: 'Rust', blurb: 'Solid rust.', palette: ['#9a3412'], accent: '#9a3412' },
+  { id: 'd-brick', name: 'Brick', blurb: 'Solid brick.', palette: ['#7f1d1d'], accent: '#7f1d1d' },
+  { id: 'd-wine', name: 'Wine', blurb: 'Solid wine.', palette: ['#831843'], accent: '#831843' },
+  { id: 'd-plum', name: 'Plum', blurb: 'Solid plum.', palette: ['#6b21a8'], accent: '#6b21a8' },
+  { id: 'd-mauve', name: 'Mauve', blurb: 'Solid mauve.', palette: ['#7e5a75'], accent: '#7e5a75' },
+  { id: 'd-sand', name: 'Sand', blurb: 'Solid sand.', palette: ['#a1885f'], accent: '#a1885f' },
+  { id: 'd-ink', name: 'Ink', blurb: 'Solid ink blue.', palette: ['#2c3e50'], accent: '#2c3e50' }
 ]
 
 export const DEFAULT_THEME_ID = 'brand'

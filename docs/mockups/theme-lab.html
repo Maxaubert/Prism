@@ -342,38 +342,19 @@ const DEFAULTS = {
   glow: false, cycle: false, move: false,          // accent effects: off
   hoverMode: 'light', hover: '#ffffff', hoverStr: '6',
   selMode: 'solid',
-  transport: 'slim', viz: 'bars',
+  transport: 'slim', viz: 'halo',
   wall: 'night'                                    // preview backdrop only
 }
 
 const STYLES = {
-  'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
-    iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', font:'system', size:'12.5', corners:'14', borders:'hairline' },
-  'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', font:'georgia', size:'13.5', corners:'8', borders:'none' },
-
-  // Examples to judge. Deliberately spread across material, temperature and
-  // typeface rather than ten variations of one idea.
+  // The shipped dark set. Graphite is Prism's default; Indigo is the original
+  // look, kept under its own name. Light styles are next.
   'Graphite': { material:'solid', bg:'#101215', side:'#141719', title:'#1a1d21', text:'#e3e6ea',
     iconMode:'dim', icon:'#868d96', accentScheme:'d-steel', font:'segoe', size:'12.5', corners:'2', borders:'hairline' },
-  'Nocturne': { material:'gradient', bg:'#0a0e1c', side:'#0e1324', title:'#141a30', text:'#dfe4f2',
-    iconMode:'custom', icon:'#6f7bb5', accentScheme:'nightfall', font:'system', size:'12.5', corners:'8', borders:'hairline' },
   'Driftwood': { material:'tinted', bg:'#16130f', side:'#1a1713', title:'#221d17', text:'#ece2d2',
     iconMode:'custom', icon:'#a1885f', accentScheme:'copper', font:'calibri', size:'13.5', corners:'8', borders:'hairline' },
-  'Pinewood': { material:'solid', bg:'#0b120e', side:'#0e1611', title:'#131d17', text:'#dbe7dd',
-    iconMode:'custom', icon:'#5d9c5a', accentScheme:'d-pine', font:'trebuchet', size:'12.5', corners:'8', borders:'hairline' },
-  'Ink': { material:'solid', bg:'#0c1016', side:'#0f141b', title:'#151b24', text:'#e6eaf0',
-    iconMode:'custom', icon:'#6b8299', accentScheme:'d-ink', font:'georgia', size:'13.5', corners:'2', borders:'strong' },
-  'Harbour': { material:'glass', bg:'#0a1219', side:'#0d161e', title:'#111d26', text:'#e2edf2',
-    iconMode:'custom', icon:'#4e8ba3', accentScheme:'deepsea', font:'system', size:'12.5', corners:'14', borders:'hairline' },
-  'Vellum': { material:'mica', bg:'#17151a', side:'#1b191f', title:'#221f27', text:'#ece7e0',
-    iconMode:'dim', icon:'#8f8a86', accentScheme:'d-mauve', font:'calibri', size:'13.5', corners:'8', borders:'none' },
-  'Cinder': { material:'oled', bg:'#000000', side:'#000000', title:'#050505', text:'#e9e4dd',
-    iconMode:'custom', icon:'#b45309', accentScheme:'emberdark', font:'bahnschrift', size:'12.5', corners:'2', borders:'hairline' },
-  'Foundry': { material:'acrylic', bg:'#101319', side:'#13171e', title:'#191e27', text:'#e4e7ec',
-    iconMode:'accent', icon:'#8a8e99', accentScheme:'d-olive', font:'bahnschrift', size:'12.5', corners:'8', borders:'none' },
-  'Aubergine': { material:'tinted', bg:'#140f17', side:'#18121c', title:'#1f1724', text:'#eee4f0',
-    iconMode:'custom', icon:'#a07ab0', accentScheme:'d-plum', font:'system', size:'12.5', corners:'14', borders:'hairline' }
+  'Indigo': { material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4',
+    iconMode:'kind', icon:'#8a8e99', accentScheme:'brand', font:'system', size:'12.5', corners:'8', borders:'hairline' }
 }
 
 const KEYS = STYLE_KEYS
@@ -381,8 +362,8 @@ const SAVED_KEY = 'prism.lab.saved'
 const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
 let saved = loadSaved()
 
-let styleName = Object.keys(saved)[0] ?? 'Glasshouse'
-let S = { ...DEFAULTS, ...(saved[styleName] ?? STYLES[styleName] ?? STYLES['Glasshouse']) }
+let styleName = Object.keys(saved)[0] ?? 'Graphite'
+let S = { ...DEFAULTS, ...(saved[styleName] ?? STYLES[styleName] ?? STYLES['Graphite']) }
 let view = 'image'
 let pending = null // a style switch waiting on the modified dialog
 

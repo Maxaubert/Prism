@@ -1,0 +1,288 @@
+import { useSyncExternalStore } from 'react'
+import { THEMES } from './viz/styles'
+import { setBarTheme, setTheme } from './vizStore'
+
+// The app's look, as one named style. A style owns the material, the six colour
+// roles, the font and the shape of the frame - and nothing else: hover, the
+// progress bar, the visualizer and the accent effects are the user's, so
+// switching styles never moves them.
+//
+// Everything is published as CSS custom properties on :root, so components read
+// `var(--p-side)` rather than knowing which style is on.
+
+export type Mode = 'dark' | 'light'
+export type Material = 'solid' | 'gradient' | 'tinted' | 'oled'
+export type IconMode = 'kind' | 'text' | 'dim' | 'accent' | 'custom'
+
+export interface Style {
+  id: string
+  name: string
+  blurb: string
+  mode: Mode
+  material: Material
+  /** Surfaces: the viewer canvas, the tree panel, the title bar. */
+  bg: string
+  side: string
+  title: string
+  text: string
+  iconMode: IconMode
+  icon: string
+  /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
+  accent: string
+  font: FontId
+  size: '12' | '12.5' | '13.5'
+  corners: '2' | '8' | '14'
+  borders: 'hairline' | 'none' | 'strong'
+}
+
+export type FontId = 'system' | 'segoe' | 'bahnschrift' | 'calibri' | 'trebuchet' | 'verdana' | 'georgia' | 'mono'
+
+export const FONTS: Record<FontId, { name: string; stack: string }> = {
+  system: { name: 'System', stack: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+  segoe: { name: 'Segoe UI', stack: '"Segoe UI", system-ui, sans-serif' },
+  bahnschrift: { name: 'Bahnschrift', stack: 'Bahnschrift, "DIN Alternate", system-ui, sans-serif' },
+  calibri: { name: 'Calibri', stack: 'Calibri, Candara, system-ui, sans-serif' },
+  trebuchet: { name: 'Trebuchet', stack: '"Trebuchet MS", system-ui, sans-serif' },
+  verdana: { name: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
+  georgia: { name: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
+  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' }
+}
+
+export const STYLES: Style[] = [
+  {
+    id: 'graphite',
+    name: 'Graphite',
+    blurb: 'Neutral and square. The default.',
+    mode: 'dark',
+    material: 'solid',
+    bg: '#101215',
+    side: '#141719',
+    title: '#1a1d21',
+    text: '#e3e6ea',
+    iconMode: 'dim',
+    icon: '#868d96',
+    accent: 'd-steel',
+    font: 'segoe',
+    size: '12.5',
+    corners: '2',
+    borders: 'hairline'
+  },
+  {
+    id: 'driftwood',
+    name: 'Driftwood',
+    blurb: 'Warm, tinted, roomy.',
+    mode: 'dark',
+    material: 'tinted',
+    bg: '#16130f',
+    side: '#1a1713',
+    title: '#221d17',
+    text: '#ece2d2',
+    iconMode: 'custom',
+    icon: '#a1885f',
+    accent: 'copper',
+    font: 'calibri',
+    size: '13.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'indigo',
+    name: 'Indigo',
+    blurb: "Prism's original look.",
+    mode: 'dark',
+    material: 'solid',
+    bg: '#0d0f14',
+    side: '#0e1016',
+    title: '#16181f',
+    text: '#eef0f4',
+    iconMode: 'kind',
+    icon: '#8a8e99',
+    accent: 'brand',
+    font: 'system',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
+  }
+]
+
+export const DEFAULT_STYLE = 'graphite'
+
+/* ---------- colour maths ---------- */
+
+const hex2rgb = (h: string): number[] => {
+  const s = h.replace('#', '')
+  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+const rgb2hex = (c: number[]): string =>
+  '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+export const mix = (a: string, b: string, t: number): string => {
+  const A = hex2rgb(a)
+  const B = hex2rgb(b)
+  return rgb2hex(A.map((v, i) => v + (B[i] - v) * t))
+}
+const lighten = (c: string, t: number): string => mix(c, '#ffffff', t)
+export const rgba = (c: string, a: number): string => {
+  const [r, g, b] = hex2rgb(c)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = hex2rgb(hex).map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+function contrast(a: string, b: string): number {
+  const l1 = luminance(a)
+  const l2 = luminance(b)
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/**
+ * Ink or paper on `bg`. White is the default and only loses when black is
+ * clearly better: on mid-tones the two land within a few percent of each other,
+ * and flipping to black there reads as a mistake even when the numbers
+ * marginally favour it.
+ */
+export const readableOn = (bg: string): string =>
+  contrast(bg, '#0b0d12') >= contrast(bg, '#ffffff') * 1.4 ? '#0b0d12' : '#ffffff'
+
+/* ---------- applying a style ---------- */
+
+const accentOf = (id: string): string[] => THEMES.find((t) => t.id === id)?.palette ?? ['#5b5bd6']
+
+function paint(style: Style): void {
+  const r = document.documentElement.style
+  const palette = accentOf(style.accent)
+  const accent = palette[0]
+
+  let bg = style.bg
+  let side = style.side
+  let title = style.title
+  if (style.material === 'gradient') {
+    side = `linear-gradient(180deg, ${lighten(style.side, 0.06)}, ${style.side})`
+    title = `linear-gradient(180deg, ${lighten(style.title, 0.07)}, ${style.title})`
+  } else if (style.material === 'tinted') {
+    bg = mix(style.bg, accent, 0.07)
+    side = mix(style.side, accent, 0.1)
+    title = mix(style.title, accent, 0.12)
+  }
+
+  const divider =
+    style.borders === 'none'
+      ? 'transparent'
+      : style.borders === 'strong'
+        ? rgba('#ffffff', 0.16)
+        : rgba('#ffffff', 0.07)
+
+  const icon =
+    style.iconMode === 'text'
+      ? style.text
+      : style.iconMode === 'accent'
+        ? accent
+        : style.iconMode === 'custom'
+          ? style.icon
+          : mix(style.text, style.side, 0.45)
+
+  const set = (k: string, v: string): void => r.setProperty(k, v)
+  set('--p-bg', bg)
+  set('--p-side', side)
+  set('--p-side-flat', style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side)
+  set('--p-title', title)
+  set('--p-text', style.text)
+  set('--p-text-soft', mix(style.text, style.side, 0.22))
+  set('--p-dim', mix(style.text, style.side, 0.45))
+  set('--p-dim2', mix(style.text, style.side, 0.62))
+  set('--p-accent', accent)
+  set('--p-accent-hi', lighten(accent, 0.25))
+  set('--p-on-accent', readableOn(accent))
+  set('--p-icon', icon)
+  set('--p-hover', rgba('#ffffff', 0.06))
+  set('--p-divider', divider)
+  set('--p-radius', style.corners + 'px')
+  set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
+  set('--p-font', FONTS[style.font].stack)
+  set('--p-size', style.size + 'px')
+  set('--p-row', (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px')
+  set('--p-indent', (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px')
+  document.documentElement.dataset.icons = style.iconMode
+}
+
+/* ---------- the store ---------- */
+
+const KEY = 'prism.style'
+const MODE_KEY = 'prism.mode'
+
+const byId = (id: string): Style => STYLES.find((s) => s.id === id) ?? STYLES[0]
+
+function load(): string {
+  try {
+    const v = localStorage.getItem(KEY)
+    return STYLES.some((s) => s.id === v) ? (v as string) : DEFAULT_STYLE
+  } catch {
+    return DEFAULT_STYLE
+  }
+}
+function loadMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'light' ? 'light' : 'dark'
+  } catch {
+    return 'dark'
+  }
+}
+
+let current = load()
+let mode: Mode = loadMode()
+const listeners = new Set<() => void>()
+const emit = (): void => listeners.forEach((l) => l())
+
+/** Switch style. The accent also becomes the progress bar's and the
+ *  visualizer's colour, so the app doesn't disagree with itself. */
+export function setStyle(id: string): void {
+  const style = byId(id)
+  current = style.id
+  localStorage.setItem(KEY, style.id)
+  paint(style)
+  setTheme(style.accent)
+  setBarTheme(style.accent)
+  emit()
+}
+
+/** Dark or light. Light styles land in a later pass; until then this records
+ *  the preference and the dark set stays on screen. */
+export function setMode(m: Mode): void {
+  mode = m
+  localStorage.setItem(MODE_KEY, m)
+  const first = STYLES.find((s) => s.mode === m)
+  if (first) setStyle(first.id)
+  else emit()
+}
+
+export function useStyle(): Style {
+  const id = useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    () => current
+  )
+  return byId(id)
+}
+
+export function useMode(): Mode {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    () => mode
+  )
+}
+
+export const stylesFor = (m: Mode): Style[] => STYLES.filter((s) => s.mode === m)
+
+// Paint before first render so nothing flashes the wrong colour.
+paint(byId(current))

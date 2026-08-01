@@ -56,11 +56,35 @@ body,
   margin: 0;
 }
 
+/* Fallbacks only: theme.ts paints the real values onto :root before first render
+   and repaints them whenever the style changes. */
+:root {
+  --p-bg: #101215;
+  --p-side: #141719;
+  --p-side-flat: #141719;
+  --p-title: #1a1d21;
+  --p-text: #e3e6ea;
+  --p-text-soft: #c7ccd3;
+  --p-dim: #868d96;
+  --p-dim2: #6b7280;
+  --p-accent: #3f5570;
+  --p-accent-hi: #6a7f99;
+  --p-on-accent: #ffffff;
+  --p-icon: #868d96;
+  --p-hover: rgba(255, 255, 255, 0.06);
+  --p-divider: rgba(255, 255, 255, 0.07);
+  --p-radius: 2px;
+  --p-radius-sm: 2px;
+  --p-font: 'Segoe UI', system-ui, sans-serif;
+  --p-size: 12.5px;
+  --p-row: 26px;
+  --p-indent: 13px;
+}
+
 body {
-  background: #111318;
-  color: var(--color-ink);
-  font-family:
-    -apple-system, 'Segoe UI', system-ui, sans-serif;
+  background: var(--p-bg);
+  color: var(--p-text);
+  font-family: var(--p-font);
   overflow: hidden;
   user-select: none;
 }
