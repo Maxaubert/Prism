@@ -113,6 +113,7 @@
   .row.sel { background: var(--sel-bg); color: var(--sel-text); font-weight: 550; }
   .row.kid { padding-left: 22px; }
   .tag { margin-left: auto; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); opacity: .75; }
+  .row.sel .tag { color: var(--sel-text); opacity: .8; }
 
   .viewer { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; overflow: hidden; }
   .plate { width: min(64%,360px); aspect-ratio: 3/2; border-radius: calc(var(--radius)*.7); background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); box-shadow: 0 12px 40px rgba(0,0,0,.45); }
@@ -243,6 +244,28 @@ const SCHEMES = [
 const scheme = (id) => SCHEMES.find(s => s.id === id) ?? SCHEMES[0]
 const paint = (p) => p.length > 1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
 
+// WCAG relative luminance, so "is this light or dark" is measured rather than
+// guessed: a mint accent needs black text, a deep indigo needs white.
+function luminance(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+function contrast(a, b) {
+  const l1 = luminance(a), l2 = luminance(b)
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
+  return (hi + 0.05) / (lo + 0.05)
+}
+/**
+ * Ink or paper on `bg`. White is the default and only loses when black is
+ * clearly better: on mid-tone colours the two are within a few percent of each
+ * other, and flipping to black there reads as a mistake even when the numbers
+ * marginally favour it.
+ */
+const readableOn = (bg) => (contrast(bg, '#0b0d12') >= contrast(bg, '#ffffff') * 1.4 ? '#0b0d12' : '#ffffff')
+
 function hex2hsv(hex) {
   const [r, g, b] = hex2rgb(hex).map((v) => v / 255)
   const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
@@ -371,7 +394,12 @@ function render() {
   r.setProperty('--hover', rgba(hoverCol, Number(S.hoverStr)/100))
   r.setProperty('--track', rgba(S.text, .16))
   r.setProperty('--sel-bg', S.selMode === 'solid' ? accentSolid : S.selMode === 'tint' ? rgba(accentSolid,.26) : 'transparent')
-  r.setProperty('--sel-text', S.selMode === 'text' ? lighten(accentSolid,.3) : '#ffffff')
+  // On a solid accent the label sits ON the colour, so it has to be measured
+  // against it. A tint is translucent over the panel, so normal text still wins.
+  r.setProperty('--sel-text',
+    S.selMode === 'text' ? lighten(accentSolid, .3)
+    : S.selMode === 'solid' ? readableOn(accentSolid)
+    : S.text)
   document.getElementById('stage').dataset.wall = S.wall
 
   // tree
@@ -386,20 +414,29 @@ function render() {
     { name:'lisbon-fado.mp3', kind:'audio' },
     { name:'itinerary.pdf', kind:'pdf' }
   ]
-  const KO = ' fill="#000" fill-opacity=".45"'
-  const GLYPH = {
-    folder:'<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>',
-    image:'<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"'+KO+'/><circle cx="8.4" cy="9.2" r="1.7"'+KO+'/>',
-    video:'<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"'+KO+'/>',
-    audio:'<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>',
-    pdf:'<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"'+KO+'/>',
-    text:'<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"'+KO+'/>'
+  // The detail inside a glyph is knocked out in whatever sits behind it. On a
+  // selected row that's the accent, not the panel: knocking out in black there
+  // turns a dark glyph into a solid block.
+  const glyph = (kind, ko) => {
+    const k = ` fill="${ko}" fill-opacity=".55"`
+    switch (kind) {
+      case 'folder': return '<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>'
+      case 'image': return '<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"' + k + '/><circle cx="8.4" cy="9.2" r="1.7"' + k + '/>'
+      case 'video': return '<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"' + k + '/>'
+      case 'audio': return '<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>'
+      case 'pdf': return '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"' + k + '/>'
+      default: return '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"' + k + '/>'
+    }
   }
+
   document.getElementById('tree').innerHTML = TREE.map((n) => {
     const cls = ['row', n.kid?'kid':'', n.sel?'sel':'', n.hovered?'hovered':''].filter(Boolean).join(' ')
-    const col = S.iconMode === 'kind' ? KIND_TINT[n.kind] : 'var(--icon)'
+    const onAccent = n.sel && S.selMode === 'solid'
+    const col = onAccent ? readableOn(accentSolid)
+      : S.iconMode === 'kind' ? KIND_TINT[n.kind] : 'var(--icon)'
+    const ko = onAccent ? accentSolid : S.side
     const tag = n.hovered ? '<span class="tag">hover</span>' : n.sel ? '<span class="tag">open</span>' : ''
-    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${GLYPH[n.kind]}</svg>${n.name}${tag}</div>`
+    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${glyph(n.kind, ko)}</svg>${n.name}${tag}</div>`
   }).join('')
 
   // viewer: the picture, or the visualizer when there's audio playing
