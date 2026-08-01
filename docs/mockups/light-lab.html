@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism light style lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 20px 30px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 14px; color: #8a8e99; font-size: 12.5px; }
+
+  .lab { display: grid; grid-template-columns: 330px minmax(0,1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1080px) { .lab { grid-template-columns: 1fr; } }
+  .rail { max-height: calc(100vh - 84px); overflow-y: auto; padding-right: 8px; }
+  .rail::-webkit-scrollbar { width: 6px; }
+  .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
+
+  .group { border-top: 1px solid rgba(255,255,255,.07); padding-top: 12px; margin-top: 14px; }
+  .group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .group > h2 {
+    margin: 0 0 9px; font-size: 11px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: #6b7080;
+  }
+  .axis { margin-bottom: 11px; }
+  .axis > .label { display: block; margin-bottom: 4px; color: #7d8291; font-size: 11px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .opt, .preset {
+    border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.02); color: #8a8e99;
+    border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 11.5px; cursor: pointer;
+    transition: border-color .14s, color .14s, background .14s;
+  }
+  .opt:hover, .preset:hover { border-color: rgba(255,255,255,.24); color: #eef0f4; }
+  .opt[aria-pressed="true"], .preset[aria-pressed="true"] { border-color: #7b7bf0; background: rgba(91,91,214,.2); color: #fff; }
+  .preset { border-radius: 999px; padding: 5px 11px; font-size: 12px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .preset.saved { border-style: dashed; }
+
+  .modified {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 11.5px; color: #d3a06a;
+  }
+  .modified button {
+    border: 1px solid rgba(211,160,106,.4); background: rgba(211,160,106,.12); color: #e8c79b;
+    border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+
+  .colour { display: flex; align-items: center; gap: 8px; }
+  .colour input[type="color"] { width: 30px; height: 25px; padding: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: none; cursor: pointer; }
+  .colour code { flex: 1; font: 500 11.5px/1 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #b9bdc8; text-transform: uppercase; }
+  .sws { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .sw { width: 19px; height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); cursor: pointer; padding: 0; }
+  .sw:hover { outline: 2px solid rgba(255,255,255,.3); outline-offset: 1px; }
+  .sw[aria-pressed="true"] { outline: 2px solid #7b7bf0; outline-offset: 1px; }
+  .schemes { display: grid; grid-template-columns: repeat(auto-fill,minmax(46px,1fr)); gap: 4px; }
+  .scheme { height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.12); cursor: pointer; padding: 0; }
+  .scheme[aria-pressed="true"] { outline: 2px solid #7b7bf0; outline-offset: 1px; }
+  input[type="range"] { width: 100%; accent-color: #7b7bf0; }
+
+  /* A picker of our own: the native colour dialog only reports its value when it
+     closes, so dragging in it tells you nothing until you're done. */
+  .swbtn { width: 30px; height: 25px; border-radius: 6px; border: 1px solid rgba(255,255,255,.22); cursor: pointer; padding: 0; }
+  .picker { margin-top: 8px; padding: 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: #12141a; }
+  .sv { position: relative; height: 96px; border-radius: 6px; cursor: crosshair; touch-action: none; }
+  .hue { position: relative; height: 12px; margin-top: 9px; border-radius: 999px; cursor: ew-resize; touch-action: none;
+         background: linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00); }
+  .knob { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+          border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.55); pointer-events: none; }
+  .hue .knob { top: 50%; }
+  .pickrow { display: flex; gap: 6px; margin-top: 9px; }
+  .hex { flex: 1; min-width: 0; padding: 4px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.14);
+         background: #0d0f14; color: #fff; font: 500 11.5px/1.4 "Cascadia Mono", Consolas, ui-monospace, monospace; text-transform: uppercase; }
+  .check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #c8ccd6; cursor: pointer; }
+  .check input { accent-color: #7b7bf0; }
+
+  /* ---------- stage ---------- */
+  .stage { position: relative; border-radius: 14px; overflow: hidden; padding: 24px; display: grid; place-items: center; }
+  .stage[data-wall="dunes"] { background: linear-gradient(160deg,#c98f5a,#8d5a3c 40%,#3b2a33 75%,#1a1620); }
+  .stage[data-wall="forest"] { background: linear-gradient(160deg,#3f6f5c,#26463f 45%,#16232a 80%,#0d1418); }
+  .stage[data-wall="night"] { background: linear-gradient(160deg,#2b3358,#4b3a6b 35%,#7c4a63 60%,#241d2e 88%); }
+  .stage[data-wall="none"] { background: linear-gradient(160deg,#d8dde6,#aab3c2); }
+
+  #app {
+    width: 100%; max-width: 940px; height: 552px; display: flex; flex-direction: column; overflow: hidden;
+    border-radius: var(--radius); border: var(--frame-border); box-shadow: 0 30px 80px rgba(0,0,0,.55);
+    font-family: var(--font); color: var(--text);
+    background: var(--bg); backdrop-filter: var(--bg-filter);
+  }
+  .titlebar {
+    display: flex; align-items: center; gap: 10px; flex: none; height: 36px; padding: 0 11px;
+    font-size: calc(var(--size) + .5px); background: var(--title); backdrop-filter: var(--title-filter);
+    border-bottom: var(--divider); color: var(--dim);
+  }
+  .brand { color: var(--brand); font-weight: 650; letter-spacing: -.01em; }
+  .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icobtn { display: grid; place-items: center; width: 27px; height: 23px; border: 0; border-radius: calc(var(--radius)/3); background: none; color: var(--icon); cursor: pointer; }
+  .icobtn:hover { background: var(--hover); color: var(--text); }
+  .icobtn.on { color: var(--accent-solid); }
+  .icobtn svg { width: 15px; height: 15px; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+  .side { width: 226px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--side); backdrop-filter: var(--side-filter); border-right: var(--divider); }
+  .side .head { height: 30px; display: flex; align-items: center; padding: 0 12px; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--dim); }
+  .tree { flex: 1; padding: 0 6px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; border-radius: calc(var(--radius)/2.4); font-size: var(--size); color: var(--text-soft); white-space: nowrap; }
+  .row .gl { width: 14px; height: 14px; flex: none; }
+  .row.hovered { background: var(--hover); color: var(--text); }
+  .row.sel { background: var(--sel-bg); color: var(--sel-text); font-weight: 550; }
+  .row.kid { padding-left: 22px; }
+  .tag { margin-left: auto; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); opacity: .75; }
+  .row.sel .tag { color: var(--sel-text); opacity: .8; }
+
+  .viewer { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; overflow: hidden; }
+  .plate { width: min(64%,360px); aspect-ratio: 3/2; border-radius: calc(var(--radius)*.7); background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); box-shadow: 0 12px 40px rgba(0,0,0,.45); }
+
+  /* the accent, as the visualizer and the progress bar use it */
+  .accentfill { background: var(--accent); background-size: 200% 100%; }
+  .glow { filter: drop-shadow(0 0 6px var(--accent-solid)); }
+  .cycle { animation: hue 6s linear infinite; }
+  .move { animation: slide 3.4s linear infinite; }
+  @keyframes hue { to { filter: hue-rotate(360deg); } }
+  @keyframes slide { to { background-position: 200% 0; } }
+
+  .viz { position: absolute; inset: auto 0 96px 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 120px; padding: 0 26px; }
+  .viz i { flex: 1; max-width: 9px; border-radius: 2px; }
+  .viz.round i { border-radius: 999px; }
+  .viz.outline i { background: none !important; border: 1.5px solid; border-bottom: 0; }
+  .viz.mirror { align-items: center; }
+  .ring { width: 190px; height: 190px; border-radius: 50%; border: 12px solid; }
+
+  .transport { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; color: var(--dim); font-size: calc(var(--size) - .5px); }
+  .tp-inner { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: calc(var(--radius)*.6); background: var(--title); backdrop-filter: var(--title-filter); border: var(--divider-line); }
+  .tp-plain { display: flex; align-items: center; gap: 10px; }
+  .bar { flex: 1; border-radius: 999px; background: var(--track); position: relative; overflow: hidden; }
+  .bar > span { position: absolute; inset: 0 42% 0 0; border-radius: 999px; }
+  .segs { flex: 1; display: flex; gap: 3px; }
+  .segs i { flex: 1; height: 6px; border-radius: 2px; background: var(--track); }
+  .wavebars { flex: 1; display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+  .wavebars i { flex: 1; border-radius: 1px; }
+  .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--icon); opacity: .8; flex: none; }
+  .sq { width: 18px; height: 18px; border-radius: 3px; background: var(--accent); flex: none; }
+
+  .note { margin-top: 9px; color: #6b7080; font-size: 11.5px; text-align: center; }
+  .recipe { display: flex; align-items: center; gap: 12px; margin-top: 14px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.02); padding: 11px 13px; }
+  .recipe code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #cfd3dd; font: 500 12px/1.6 "Cascadia Mono", Consolas, ui-monospace, monospace; }
+  .recipe button { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #eef0f4; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+
+  /* the "you've modified this style" dialog */
+  .scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0,0,0,.55); }
+  .dlg { width: 100%; max-width: 430px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: #16181f; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); }
+  .dlg h2 { margin: 0; font-size: 14.5px; font-weight: 600; }
+  .dlg p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; color: #8a8e99; }
+  .dlg input[type="text"] { width: 100%; margin-top: 12px; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: #0d0f14; color: #fff; font: inherit; font-size: 12.5px; }
+  .dlg .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .dlg button { border: 0; border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .b-ghost { border: 1px solid rgba(255,255,255,.12) !important; background: rgba(255,255,255,.04); color: #d7dae1; }
+  .b-warn { background: #8a5a2a; color: #fff; }
+  .b-primary { background: #5b5bd6; color: #fff; }
+  @media (prefers-reduced-motion: reduce) { .cycle, .move { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<h1>Light style lab</h1>
+<p class="sub">Four new light styles to judge. The four already in the app are not here - these are the additions.</p>
+
+<div class="lab">
+  <div class="rail" id="rail"></div>
+
+  <div>
+    <div class="stage" id="stage">
+      <div id="app">
+        <div class="titlebar">
+          <button class="icobtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+          <span class="brand">Prism</span>
+          <span class="grow" id="nowname">IMG_0421.jpg</span>
+          <span>7 / 24</span>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="body">
+          <div class="side">
+            <div class="head">Trip 2026</div>
+            <div class="tree" id="tree"></div>
+          </div>
+          <div class="viewer" id="viewer"></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">One row is pinned to its hover state, one is selected. Switch the viewer to Audio to judge the accent on the visualizer.</p>
+
+    <div class="recipe">
+      <code id="recipe"></code>
+      <button id="copy" type="button">Copy recipe</button>
+    </div>
+  </div>
+</div>
+
+<div id="dialog"></div>
+
+<script>
+/* ---------- colour helpers ---------- */
+const hex2rgb = (h) => { const s = h.replace('#',''); const n = parseInt(s.length===3?s.split('').map(c=>c+c).join(''):s,16); return [(n>>16)&255,(n>>8)&255,n&255] }
+const rgb2hex = ([r,g,b]) => '#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')
+const mix = (a,b,t) => { const A=hex2rgb(a),B=hex2rgb(b); return rgb2hex(A.map((v,i)=>v+(B[i]-v)*t)) }
+const lighten = (c,t) => mix(c,'#ffffff',t)
+const darken = (c,t) => mix(c,'#000000',t)
+const rgba = (c,a) => { const [r,g,b]=hex2rgb(c); return `rgba(${r},${g},${b},${a})` }
+
+/* ---------- Prism's real accent schemes ---------- */
+const SCHEMES = [
+  { id:'brand', name:'Brand', palette:['#5b5bd6','#9a6cff','#ff9a8b'] },
+  { id:'gradient', name:'Spectrum', palette:['#8a5cff','#ff6ac1','#ffd36a','#5cffd0','#5c9cff'] },
+  { id:'rainbow', name:'Rainbow', palette:['#ff4d6d','#ff9e2c','#ffe14a','#5cffa8','#39c2ff','#8a5cff'] },
+  { id:'neon', name:'Neon', palette:['#18e0ff','#8a5cff','#ff3df0'] },
+  { id:'aurora', name:'Aurora', palette:['#5cffd0','#39c2ff','#8a5cff','#ff6ac1'] },
+  { id:'ocean', name:'Ocean', palette:['#9bf6ff','#38aeff','#3358d8'] },
+  { id:'ice', name:'Ice', palette:['#eafcff','#8fd6ff','#3f6dff'] },
+  { id:'forest', name:'Forest', palette:['#c6ff9e','#3ec46a','#1c9a4e'] },
+  { id:'gold', name:'Gold', palette:['#fff3a0','#ffd24a','#ff9e2c'] },
+  { id:'fire', name:'Fire', palette:['#ffe14a','#ff8a1a','#ff3535','#c01418'] },
+  { id:'nebula', name:'Nebula', palette:['#8b3ff0','#db2777','#f59e0b'] },
+  { id:'ultraviolet', name:'Ultraviolet', palette:['#e9d5ff','#b56cff','#8a3ff0'] },
+  { id:'miami', name:'Miami', palette:['#00e5ff','#c026d3','#ff2fd0'] },
+  { id:'candy', name:'Candy', palette:['#a0e9ff','#c0a0ff','#ffa0e0'] },
+  { id:'s-indigo', name:'Indigo', palette:['#6366f1'] },
+  { id:'s-violet', name:'Violet', palette:['#8b5cf6'] },
+  { id:'s-blue', name:'Blue', palette:['#3b6dff'] },
+  { id:'s-sky', name:'Sky', palette:['#38bdf8'] },
+  { id:'s-teal', name:'Teal', palette:['#14b8a6'] },
+  { id:'s-green', name:'Green', palette:['#22c55e'] },
+  { id:'s-pink', name:'Pink', palette:['#ff5c9e'] },
+  { id:'s-coral', name:'Coral', palette:['#ff8a6a'] },
+  { id:'s-crimson', name:'Crimson', palette:['#e01e4a'] },
+  { id:'white', name:'White', palette:['#eef2fb'] },
+
+  // Deep and muted. The set above is all high-key, which suits a visualizer in
+  // full flight but shouts on a progress bar and a selected row.
+  { id:'dusk', name:'Dusk', palette:['#3b3663','#6b4a6e','#a3596b'] },
+  { id:'nightfall', name:'Nightfall', palette:['#111a3a','#2b2a6b','#4a3f8f'] },
+  { id:'deepsea', name:'Deep sea', palette:['#0b3d5c','#12657f','#1f8f8a'] },
+  { id:'slateblue', name:'Slate blue', palette:['#243b53','#3e5c76','#5d7fa3'] },
+  { id:'mossline', name:'Moss', palette:['#1c3f2e','#2f6b46','#5d9c5a'] },
+  { id:'emberdark', name:'Ember', palette:['#7f1d1d','#b45309','#d97706'] },
+  { id:'copper', name:'Copper', palette:['#5c2c1a','#8c4a2f','#c07c4a'] },
+  { id:'winegrad', name:'Wine', palette:['#4a1042','#7c2352','#a83a5b'] },
+
+  { id:'d-indigo', name:'Deep indigo', palette:['#3730a3'] },
+  { id:'d-navy', name:'Navy', palette:['#1e3a8a'] },
+  { id:'d-slate', name:'Slate', palette:['#475569'] },
+  { id:'d-steel', name:'Steel', palette:['#3f5570'] },
+  { id:'d-teal', name:'Deep teal', palette:['#0f766e'] },
+  { id:'d-pine', name:'Pine', palette:['#166534'] },
+  { id:'d-moss', name:'Moss', palette:['#4d7c0f'] },
+  { id:'d-olive', name:'Olive', palette:['#6b7238'] },
+  { id:'d-bronze', name:'Bronze', palette:['#92400e'] },
+  { id:'d-rust', name:'Rust', palette:['#9a3412'] },
+  { id:'d-brick', name:'Brick', palette:['#7f1d1d'] },
+  { id:'d-wine', name:'Wine', palette:['#831843'] },
+  { id:'d-plum', name:'Plum', palette:['#6b21a8'] },
+  { id:'d-mauve', name:'Mauve', palette:['#7e5a75'] },
+  { id:'d-sand', name:'Sand', palette:['#a1885f'] },
+  { id:'d-ink', name:'Ink', palette:['#2c3e50'] }
+]
+const scheme = (id) => SCHEMES.find(s => s.id === id) ?? SCHEMES[0]
+const paint = (p) => p.length > 1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
+
+// WCAG relative luminance, so "is this light or dark" is measured rather than
+// guessed: a mint accent needs black text, a deep indigo needs white.
+function luminance(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+function contrast(a, b) {
+  const l1 = luminance(a), l2 = luminance(b)
+  const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]
+  return (hi + 0.05) / (lo + 0.05)
+}
+/**
+ * Ink or paper on `bg`. White is the default and only loses when black is
+ * clearly better: on mid-tone colours the two are within a few percent of each
+ * other, and flipping to black there reads as a mistake even when the numbers
+ * marginally favour it.
+ */
+const readableOn = (bg) => (contrast(bg, '#0b0d12') >= contrast(bg, '#ffffff') * 1.4 ? '#0b0d12' : '#ffffff')
+
+/** Dim toward the surface by `amount`, backing off to keep `min` contrast. */
+function dimmed(text, surface, amount, min) {
+  let t = amount, c = mix(text, surface, t)
+  while (t > 0 && contrast(c, surface) < min) { t = Math.max(0, t - 0.05); c = mix(text, surface, t) }
+  return c
+}
+/** Deepen the accent until a label on it clears AA. */
+function selectionBg(accent) {
+  const ink = readableOn(accent)
+  if (contrast(ink, accent) >= 4.5) return accent
+  const towards = ink === '#ffffff' ? '#000000' : '#ffffff'
+  for (let t = 0.04; t <= 0.6; t += 0.04) {
+    const bg = mix(accent, towards, t)
+    if (contrast(ink, bg) >= 4.5) return bg
+  }
+  return mix(accent, towards, 0.6)
+}
+
+function hex2hsv(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => v / 255)
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  let h = 0
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  return { h, s: max ? d / max : 0, v: max }
+}
+function hsv2hex(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))) * 255 }
+  return rgb2hex([f(5), f(3), f(1)])
+}
+
+// Which colour row has its picker open, and the hue/sat/val being dragged.
+const PICKER = { key: null, h: 0, s: 0, v: 0 }
+// True while a knob is under the pointer: the preview keeps repainting, but the
+// rail must not re-render or the element being dragged would vanish mid-drag.
+let liveDrag = false
+
+const FONTS = {
+  system: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  segoe: '"Segoe UI", system-ui, sans-serif',
+  bahnschrift: 'Bahnschrift, "DIN Alternate", system-ui, sans-serif',
+  calibri: 'Calibri, Candara, system-ui, sans-serif',
+  trebuchet: '"Trebuchet MS", system-ui, sans-serif',
+  verdana: 'Verdana, Geneva, sans-serif',
+  georgia: 'Georgia, "Times New Roman", serif',
+  mono: '"Cascadia Mono", Consolas, ui-monospace, monospace'
+}
+const TRANSPORTS = ['slim','pill','bold','edge','outline','inline','island','wave','wavebold','segments']
+const VIZ = ['bars','outline-bars','round','round-solid','mirror','halo']
+const KIND_TINT = { image:'#6fb2a8', video:'#8f8ae0', audio:'#d3a06a', pdf:'#cf7f88', text:'#8d93a1', folder:'#9aa0f0' }
+
+/* ---------- styles ---------- */
+// A style is only the look: material, colours, font and shape of the frame.
+// Everything else below is a fixed default the style has no opinion about, so
+// switching styles never moves your hover, your progress bar or your visualizer.
+const STYLE_KEYS = ['material','bg','side','title','text','iconMode','icon','accentScheme','font','size','corners','borders']
+
+const DEFAULTS = {
+  glow: false, cycle: false, move: false,          // accent effects: off
+  hoverMode: 'custom', hover: '#000000', hoverStr: '7',
+  selMode: 'solid',
+  transport: 'slim', viz: 'halo',
+  wall: 'none'                                    // preview backdrop only
+}
+
+const STYLES = {
+  // Four candidates, deliberately not four whites: one cool, one warm, one that
+  // isn't white at all, and one with colour in the paper.
+  'Porcelain': { material:'solid', bg:'#fbfbfd', side:'#f1f3f7', title:'#e8ebf1', text:'#161922',
+    iconMode:'kind', icon:'#5b6472', accentScheme:'prism', font:'system', size:'12.5', corners:'14', borders:'hairline' },
+  'Newsprint': { material:'solid', bg:'#f7f4ee', side:'#efeae1', title:'#e6e0d4', text:'#14120f',
+    iconMode:'dim', icon:'#6b6459', accentScheme:'d-brick', font:'georgia', size:'12.5', corners:'2', borders:'strong' },
+  'Overcast': { material:'solid', bg:'#e6e9ed', side:'#dde1e7', title:'#d3d8df', text:'#1a1f26',
+    iconMode:'custom', icon:'#4a5666', accentScheme:'d-steel', font:'segoe', size:'12.5', corners:'8', borders:'hairline' },
+  'Sage': { material:'tinted', bg:'#f4f7f2', side:'#eaf0e7', title:'#e0e8dc', text:'#182018',
+    iconMode:'custom', icon:'#4f6b4c', accentScheme:'d-teal', font:'trebuchet', size:'12.5', corners:'8', borders:'none' }
+}
+
+const KEYS = STYLE_KEYS
+const SAVED_KEY = 'prism.lab.saved.light'
+const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
+let saved = loadSaved()
+
+let styleName = Object.keys(saved)[0] ?? 'Porcelain'
+let S = { ...DEFAULTS, ...(saved[styleName] ?? STYLES[styleName] ?? STYLES['Porcelain']) }
+let view = 'image'
+let pending = null // a style switch waiting on the modified dialog
+
+const bundleFor = (n) => saved[n] ?? STYLES[n]
+/** Take a style's keys, leave everything else (hover, shapes, effects) alone. */
+const applyStyle = (n) => {
+  const b = bundleFor(n)
+  if (b) STYLE_KEYS.forEach((k) => { if (b[k] !== undefined) S[k] = b[k] })
+}
+const modified = () => { const b = bundleFor(styleName); return !b || KEYS.some((k) => S[k] !== b[k]) }
+
+/* ---------- painting the app ---------- */
+function render() {
+  const r = document.documentElement.style
+  const m = S.material
+  const sch = scheme(S.accentScheme)
+  const accentPaint = paint(sch.palette)
+  const accentSolid = sch.palette[0]
+
+  let bg = S.bg, side = S.side, title = S.title
+  let bgF = 'none', sideF = 'none', titleF = 'none'
+  let frame = '1px solid ' + rgba('#ffffff', .08)
+
+  if (m === 'gradient') {
+    bg = `radial-gradient(120% 90% at 50% 0%, ${rgba(accentSolid,.13)}, transparent 62%), ${S.bg}`
+    side = `linear-gradient(180deg, ${lighten(S.side,.06)}, ${S.side})`
+    title = `linear-gradient(180deg, ${lighten(S.title,.07)}, ${S.title})`
+  } else if (m === 'glass') {
+    bg = rgba(S.bg,.32); side = rgba(S.side,.42); title = rgba(S.title,.5)
+    bgF = 'blur(26px) saturate(1.2)'; sideF = 'blur(20px) saturate(1.3)'; titleF = sideF
+  } else if (m === 'mica') {
+    bg = rgba(S.bg,.9); side = rgba(S.side,.84); title = rgba(S.title,.86)
+    bgF = sideF = titleF = 'blur(48px) saturate(1.1)'
+  } else if (m === 'acrylic') {
+    bg = rgba(S.bg,.72); side = rgba(S.side,.62); title = rgba(S.title,.66)
+    bgF = sideF = titleF = 'blur(34px) saturate(1.6) brightness(1.05)'
+  } else if (m === 'apple') {
+    bg = rgba(S.bg,.82); side = rgba(lighten(S.side,.04),.58); title = rgba(lighten(S.title,.06),.6)
+    bgF = 'blur(18px) saturate(1.4)'; sideF = 'blur(28px) saturate(1.9)'; titleF = sideF
+    frame = '1px solid ' + rgba('#ffffff', .16)
+  } else if (m === 'tinted') {
+    bg = mix(S.bg, accentSolid, .07); side = mix(S.side, accentSolid, .1); title = mix(S.title, accentSolid, .12)
+  }
+
+  const divider = S.borders === 'none' ? '0 solid transparent'
+    : S.borders === 'strong' ? '1px solid ' + rgba('#ffffff', .16)
+    : '1px solid ' + rgba('#ffffff', .07)
+  const hoverCol = S.hoverMode === 'accent' ? accentSolid : S.hoverMode === 'custom' ? S.hover : '#ffffff'
+  const icon = S.iconMode === 'text' ? S.text : S.iconMode === 'accent' ? accentSolid
+    : S.iconMode === 'custom' ? S.icon : mix(S.text, S.side, .45)
+
+  r.setProperty('--font', FONTS[S.font]); r.setProperty('--size', S.size + 'px'); r.setProperty('--radius', S.corners + 'px')
+  r.setProperty('--bg', bg); r.setProperty('--side', side); r.setProperty('--title', title)
+  r.setProperty('--bg-filter', bgF); r.setProperty('--side-filter', sideF); r.setProperty('--title-filter', titleF)
+  r.setProperty('--frame-border', frame); r.setProperty('--divider', divider)
+  r.setProperty('--divider-line', S.borders === 'none' ? '1px solid ' + rgba('#ffffff',.06) : divider)
+  r.setProperty('--text', S.text)
+  r.setProperty('--text-soft', dimmed(S.text, S.side, .14, 7))
+  r.setProperty('--dim', dimmed(S.text, S.side, .38, 4.5))
+  r.setProperty('--accent', accentPaint); r.setProperty('--accent-solid', accentSolid)
+  r.setProperty('--brand', mix(accentSolid, '#000000', .12)); r.setProperty('--icon', icon)
+  r.setProperty('--hover', rgba(hoverCol, Number(S.hoverStr)/100))
+  r.setProperty('--track', rgba(S.text, .16))
+  const selBg = selectionBg(accentSolid)
+  r.setProperty('--sel-bg', S.selMode === 'solid' ? selBg : S.selMode === 'tint' ? rgba(accentSolid,.26) : 'transparent')
+  // On a solid accent the label sits ON the colour, so it has to be measured
+  // against it. A tint is translucent over the panel, so normal text still wins.
+  r.setProperty('--sel-text',
+    S.selMode === 'text' ? mix(accentSolid, '#000000', .2)
+    : S.selMode === 'solid' ? readableOn(selBg)
+    : S.text)
+  document.getElementById('stage').dataset.wall = S.wall
+
+  // tree
+  const TREE = [
+    { name:'Day 1 — Lisbon', kind:'folder' },
+    { name:'IMG_0418.jpg', kind:'image', kid:true },
+    { name:'IMG_0421.jpg', kind:'image', kid:true, hovered:true },
+    { name:'IMG_0422.jpg', kind:'image', kid:true, sel:true },
+    { name:'tram-ride.mp4', kind:'video', kid:true },
+    { name:'street-notes.md', kind:'text', kid:true },
+    { name:'Scans', kind:'folder' },
+    { name:'lisbon-fado.mp3', kind:'audio' },
+    { name:'itinerary.pdf', kind:'pdf' }
+  ]
+  // The detail inside a glyph is knocked out in whatever sits behind it. On a
+  // selected row that's the accent, not the panel: knocking out in black there
+  // turns a dark glyph into a solid block.
+  const glyph = (kind, ko) => {
+    const k = ` fill="${ko}" fill-opacity=".55"`
+    switch (kind) {
+      case 'folder': return '<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>'
+      case 'image': return '<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"' + k + '/><circle cx="8.4" cy="9.2" r="1.7"' + k + '/>'
+      case 'video': return '<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"' + k + '/>'
+      case 'audio': return '<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>'
+      case 'pdf': return '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"' + k + '/>'
+      default: return '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"' + k + '/>'
+    }
+  }
+
+  document.getElementById('tree').innerHTML = TREE.map((n) => {
+    const cls = ['row', n.kid?'kid':'', n.sel?'sel':'', n.hovered?'hovered':''].filter(Boolean).join(' ')
+    const onAccent = n.sel && S.selMode === 'solid'
+    const tint = (k) => mix(KIND_TINT[k], '#000000', .42)
+    const col = onAccent ? readableOn(selBg)
+      : S.iconMode === 'kind' ? tint(n.kind) : 'var(--icon)'
+    const ko = onAccent ? selBg : S.side
+    const tag = n.hovered ? '<span class="tag">hover</span>' : n.sel ? '<span class="tag">open</span>' : ''
+    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${glyph(n.kind, ko)}</svg>${n.name}${tag}</div>`
+  }).join('')
+
+  // viewer: the picture, or the visualizer when there's audio playing
+  const fx = ['accentfill', S.glow?'glow':'', S.cycle?'cycle':'', S.move?'move':''].filter(Boolean).join(' ')
+  const bars = (n, cls) => Array.from({length:n}, (_,i) => {
+    const h = 18 + Math.abs(Math.sin(i*0.7) * Math.cos(i*0.21)) * 78
+    return `<i class="${cls}" style="height:${h}%"></i>`
+  }).join('')
+  document.getElementById('nowname').textContent = view === 'audio' ? 'lisbon-fado.mp3' : 'IMG_0421.jpg'
+  const vizHtml =
+    view !== 'audio' ? '<div class="plate"></div>'
+    : S.viz === 'halo' ? `<div class="ring ${fx}" style="border-image:${paint(scheme(S.accentScheme).palette)} 1; border-color:${accentSolid}"></div>`
+    : S.viz === 'outline-bars' ? `<div class="viz outline" style="color:${accentSolid}">${bars(40,'')}</div>`
+    : S.viz === 'round' ? `<div class="viz round">${bars(34, fx)}</div>`
+    : S.viz === 'round-solid' ? `<div class="viz round">${bars(26, fx)}</div>`
+    : S.viz === 'mirror' ? `<div class="viz mirror">${bars(44, fx)}</div>`
+    : `<div class="viz">${bars(40, fx)}</div>`
+
+  // the transport, in the shape the style asks for
+  const t = S.transport
+  const label = (l) => `<span>${l}</span>`
+  const barOf = (h) => `<div class="bar" style="height:${h}px"><span class="${fx}"></span></div>`
+  let tp
+  if (t === 'segments') tp = `<div class="tp-plain">${label('0:41')}<div class="segs">${Array.from({length:26},(_,i)=>`<i class="${i<11?fx:''}"></i>`).join('')}</div>${label('3:12')}</div>`
+  else if (t === 'wave' || t === 'wavebold') tp = `<div class="tp-plain">${label('0:41')}<div class="wavebars" style="height:${t==='wavebold'?28:20}px">${bars(56, fx)}</div>${label('3:12')}</div>`
+  else if (t === 'island') tp = `<div class="tp-inner" style="max-width:340px;margin:0 auto;border-radius:999px"><span class="dot"></span>${barOf(3)}${label('3:12')}</div>`
+  else if (t === 'inline') tp = `<div class="tp-plain"><span class="dot"></span>${label('0:41')}${barOf(3)}${label('3:12')}<span class="dot"></span></div>`
+  else if (t === 'bold') tp = `<div class="tp-plain"><span class="sq"></span>${label('0:41')}${barOf(6)}${label('3:12')}</div>`
+  else if (t === 'pill') tp = `<div class="tp-plain">${label('0:41')}${barOf(8)}${label('3:12')}</div>`
+  else if (t === 'edge') tp = `<div class="tp-plain" style="padding-bottom:2px">${label('0:41')}${barOf(2)}${label('3:12')}</div>`
+  else if (t === 'outline') tp = `<div class="tp-plain">${label('0:41')}${barOf(2)}${label('3:12')}</div>`
+  else tp = `<div class="tp-plain">${label('0:41')}${barOf(3)}${label('3:12')}</div>`
+
+  document.getElementById('viewer').innerHTML = vizHtml + `<div class="transport">${tp}</div>`
+
+  if (!liveDrag) renderRail()
+  document.getElementById('recipe').textContent =
+    `style=${styleName}${modified()?'*':''} material=${S.material} bg=${S.bg} sidebar=${S.side} titlebar=${S.title} ` +
+    `text=${S.text} icons=${S.iconMode}${S.iconMode==='custom'?':'+S.icon:''} accent=${S.accentScheme} ` +
+    `font=${S.font}/${S.size} corners=${S.corners} edges=${S.borders}` +
+    `   ·   not saved: effects=${[S.glow&&'glow',S.cycle&&'cycle',S.move&&'move'].filter(Boolean).join('+')||'off'} ` +
+    `hover=${S.hoverMode}@${S.hoverStr}% selected=${S.selMode} bar=${S.transport} viz=${S.viz}`
+}
+
+/* ---------- the control rail ---------- */
+function opts(key, list) {
+  return `<div class="opts">${list.map(([v,l]) => `<button class="opt" data-k="${key}" data-v="${v}" aria-pressed="${String(S[key]===v)}">${l}</button>`).join('')}</div>`
+}
+function pickerHtml(key) {
+  return `<div class="picker" data-picker="${key}">
+    <div class="sv" data-sv style="background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${PICKER.h} 100% 50%))">
+      <span class="knob" data-svknob style="left:${PICKER.s * 100}%;top:${(1 - PICKER.v) * 100}%"></span>
+    </div>
+    <div class="hue" data-hue><span class="knob" data-hueknob style="left:${(PICKER.h / 360) * 100}%"></span></div>
+    <div class="pickrow">
+      <input class="hex" data-hex="${key}" value="${S[key]}" spellcheck="false" maxlength="7" />
+      <button class="opt" data-closepicker>Done</button>
+    </div>
+  </div>`
+}
+
+function colourRow(key, label, swatches) {
+  const open = PICKER.key === key
+  return `<div class="axis"><span class="label">${label}</span>
+    <div class="colour">
+      <button class="swbtn" data-open="${key}" style="background:${S[key]}" title="Pick a colour"></button>
+      <input class="hex" data-hex="${key}" value="${S[key]}" spellcheck="false" maxlength="7" />
+    </div>
+    <div class="sws">${swatches.map(s=>`<button class="sw" data-set="${key}" data-v="${s}" style="background:${s}" title="${s}" aria-pressed="${String(S[key].toLowerCase()===s.toLowerCase())}"></button>`).join('')}</div>
+    ${open ? pickerHtml(key) : ''}</div>`
+}
+
+/** Move the knobs and the swatch by hand, since the rail isn't being rebuilt. */
+function syncPicker(key, hex) {
+  const row = document.querySelector(`.picker[data-picker="${key}"]`)
+  if (row) {
+    row.querySelector('[data-svknob]').style.left = PICKER.s * 100 + '%'
+    row.querySelector('[data-svknob]').style.top = (1 - PICKER.v) * 100 + '%'
+    row.querySelector('[data-hueknob]').style.left = (PICKER.h / 360) * 100 + '%'
+    row.querySelector('.sv').style.background =
+      `linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${PICKER.h} 100% 50%))`
+  }
+  const btn = document.querySelector(`[data-open="${key}"]`)
+  if (btn) btn.style.background = hex
+}
+
+/** Repaint everything the drag affects without rebuilding the rail. */
+function liveSet(key, hex) {
+  S[key] = hex
+  syncPicker(key, hex)
+  document.querySelectorAll(`[data-hex="${key}"]`).forEach((i) => { i.value = hex })
+  render()
+}
+
+/** Track the pointer across the whole window, so the drag survives leaving the box. */
+function startDrag(kind, el, key, e) {
+  liveDrag = true
+  const box = el.getBoundingClientRect()
+  const apply = (ev) => {
+    const x = Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width))
+    if (kind === 'hue') PICKER.h = x * 360
+    else {
+      PICKER.s = x
+      PICKER.v = 1 - Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height))
+    }
+    liveSet(key, hsv2hex(PICKER.h, PICKER.s, PICKER.v))
+  }
+  const stop = () => {
+    liveDrag = false
+    window.removeEventListener('pointermove', apply)
+    window.removeEventListener('pointerup', stop)
+    render()
+  }
+  window.addEventListener('pointermove', apply)
+  window.addEventListener('pointerup', stop)
+  apply(e)
+}
+
+function renderRail() {
+  const names = [...Object.keys(saved), ...Object.keys(STYLES).filter((n) => !saved[n])]
+  document.getElementById('rail').innerHTML = `
+    <div class="group">
+      <h2>Style</h2>
+      <div class="presets">${names.map(n =>
+        `<button class="preset ${saved[n]?'saved':''}" data-style="${n}" aria-pressed="${String(n===styleName)}">${n}</button>`).join('')}</div>
+      ${modified() ? `<div class="modified">Modified <button data-act="revert">Revert</button></div>` : ''}
+      <div class="opts" style="margin-top:8px">
+        <button class="opt" data-act="save">Save as preset…</button>
+        ${saved[styleName] ? `<button class="opt" data-act="delete">Delete “${styleName}”</button>` : ''}
+        <button class="opt" data-act="export">Export all…</button>
+      </div>
+      <div class="axis" style="margin-top:10px"><span class="label">Material</span>
+        ${opts('material', [['solid','Solid'],['gradient','Gradient'],['glass','Glass'],['mica','Mica'],['acrylic','Acrylic'],['apple','Apple'],['oled','OLED'],['tinted','Accent-tinted']])}</div>
+      <div class="axis"><span class="label">Corners</span>${opts('corners',[['2','Square'],['8','Soft'],['14','Round']])}</div>
+      <div class="axis"><span class="label">Edges</span>${opts('borders',[['hairline','Hairline'],['none','None'],['strong','Defined']])}</div>
+      <div class="axis"><span class="label">Preview backdrop <em style="font-style:normal;color:#5f6474">(your desktop, not saved)</em></span>${opts('wall',[['night','Night'],['dunes','Dunes'],['forest','Forest'],['none','None']])}</div>
+    </div>
+
+    <div class="group">
+      <h2>Font</h2>
+      <div class="axis">${opts('font',[['system','System'],['segoe','Segoe UI'],['bahnschrift','Bahnschrift'],['calibri','Calibri'],['trebuchet','Trebuchet'],['verdana','Verdana'],['georgia','Georgia'],['mono','Mono']])}</div>
+      <div class="axis"><span class="label">Size</span>${opts('size',[['12','Small'],['12.5','Default'],['13.5','Large']])}</div>
+    </div>
+
+    <div class="group">
+      <h2>Colours</h2>
+      ${colourRow('bg','Background', ['#0d0f14','#000000','#12141b','#191b22','#0b0f14','#141319'])}
+      ${colourRow('side','Sidebar', ['#0e1016','#000000','#12141b','#1c1e26','#0d1117','#17161c'])}
+      ${colourRow('title','Title bar', ['#16181f','#000000','#191d26','#22242c','#11161d','#1d1b23'])}
+      ${colourRow('text','Text', ['#eef0f4','#ffffff','#d7dae1','#e8e1d4','#d7e0d9','#c8ccd6'])}
+      <div class="axis"><span class="label">Icons</span>
+        ${opts('iconMode',[['kind','Kind tints'],['text','Follow text'],['dim','Muted'],['accent','Accent'],['custom','Custom']])}</div>
+      ${S.iconMode === 'custom' ? colourRow('icon','Icon colour', ['#8a8e99','#9aa0f0','#6fb2a8','#d3a06a','#ffffff']) : ''}
+      <div class="axis"><span class="label">Accent — progress bar, visualizer, selection</span>
+        <div class="schemes">${SCHEMES.map(s =>
+          `<button class="scheme" data-scheme="${s.id}" title="${s.name}" aria-pressed="${String(S.accentScheme===s.id)}" style="background:${paint(s.palette)}"></button>`).join('')}</div></div>
+    </div>
+
+    <div class="group">
+      <h2>Not part of a style</h2>
+      <p style="margin:-4px 0 10px;font-size:11px;color:#5f6474">Every style leaves these alone, so switching styles never moves them. Effects are off by default.</p>
+      <div class="axis"><span class="label">Accent effects (progress bar + visualizer only)</span>
+        <div class="opts">
+          <button class="opt" data-toggle="glow" aria-pressed="${String(S.glow)}">Glow</button>
+          <button class="opt" data-toggle="cycle" aria-pressed="${String(S.cycle)}">Cycle</button>
+          <button class="opt" data-toggle="move" aria-pressed="${String(S.move)}">Move</button>
+        </div></div>
+      <div class="axis"><span class="label">Selected row</span>${opts('selMode',[['solid','Solid accent'],['tint','Accent tint'],['text','Accent text']])}</div>
+      <div class="axis"><span class="label">Hover</span>${opts('hoverMode',[['light','Light wash'],['accent','Accent tint'],['custom','Custom']])}</div>
+      ${S.hoverMode === 'custom' ? colourRow('hover','Hover colour', ['#ffffff','#5b5bd6','#37b6a6','#d08a3e','#c2557a']) : ''}
+      <div class="axis"><span class="label">Hover strength</span><input type="range" data-range="hoverStr" min="2" max="30" value="${S.hoverStr}" /></div>
+      <div class="axis"><span class="label">Progress bar</span>${opts('transport', TRANSPORTS.map(t=>[t,t]))}</div>
+      <div class="axis"><span class="label">Visualizer</span>${opts('viz', VIZ.map(v=>[v,v]))}</div>
+      <div class="axis"><span class="label">Viewer shows</span>
+        <div class="opts">
+          <button class="opt" data-view="image" aria-pressed="${String(view==='image')}">Image</button>
+          <button class="opt" data-view="audio" aria-pressed="${String(view==='audio')}">Audio</button>
+        </div></div>
+    </div>`
+}
+
+/* ---------- the modified-style dialog ---------- */
+function askAbout(next) {
+  pending = next
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg">
+        <h2>You've changed ${styleName}</h2>
+        <p>Switching to ${next} discards those changes. Save them as a preset first and you can come back to them.</p>
+        <input type="text" id="pname" placeholder="${styleName} (mine)" />
+        <div class="acts">
+          <button class="b-ghost" data-dlg="cancel">Cancel</button>
+          <button class="b-warn" data-dlg="discard">Discard and switch</button>
+          <button class="b-primary" data-dlg="save">Save and switch</button>
+        </div>
+      </div>
+    </div>`
+  document.getElementById('pname').focus()
+}
+const closeDialog = () => { pending = null; document.getElementById('dialog').innerHTML = '' }
+
+function askName() {
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg">
+        <h2>Save this style</h2>
+        <p>It joins the row above and stays there. Everything except the preview backdrop is saved.</p>
+        <input type="text" id="pname" placeholder="${styleName}${saved[styleName] ? '' : ' (mine)'}" />
+        <div class="acts">
+          <button class="b-ghost" data-dlg2="cancel">Cancel</button>
+          <button class="b-primary" data-dlg2="ok">Save</button>
+        </div>
+      </div>
+    </div>`
+  document.getElementById('pname').focus()
+}
+
+function exportAll() {
+  const all = { ...saved }
+  if (!all[styleName]) all[styleName] = Object.fromEntries(STYLE_KEYS.map((k) => [k, S[k]]))
+  const out = JSON.stringify(
+    Object.entries(all).map(([name, v]) => ({ name, ...Object.fromEntries(KEYS.map((k) => [k, v[k]])) })),
+    null, 2
+  )
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg" style="max-width:620px">
+        <h2>Your styles</h2>
+        <p>Every saved style, in full. Copy this and hand it over - no reading colours off a screenshot.</p>
+        <textarea readonly style="width:100%;height:260px;margin-top:12px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#0d0f14;color:#cfd3dd;font:500 11.5px/1.5 'Cascadia Mono',Consolas,ui-monospace,monospace;resize:vertical">${out.replace(/</g,'&lt;')}</textarea>
+        <div class="acts">
+          <button class="b-ghost" data-dlg2="cancel">Close</button>
+          <button class="b-primary" data-dlg2="copy">Copy</button>
+        </div>
+      </div>
+    </div>`
+}
+function saveAs(name) {
+  saved = { ...saved, [name]: Object.fromEntries(STYLE_KEYS.map((k) => [k, S[k]])) }
+  localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click', (e) => {
+  const t = e.target
+  const dlg = t.closest('[data-dlg]')
+  if (dlg) {
+    const act = dlg.dataset.dlg
+    if (act === 'cancel') { closeDialog(); return }
+    if (act === 'save') {
+      const input = document.getElementById('pname')
+      saveAs((input.value || input.placeholder).trim())
+    }
+    const next = pending
+    closeDialog()
+    styleName = next; applyStyle(next); render()
+    return
+  }
+  const style = t.closest('[data-style]')
+  if (style) {
+    const next = style.dataset.style
+    if (next === styleName) return
+    if (modified()) askAbout(next)
+    else { styleName = next; applyStyle(next); render() }
+    return
+  }
+  const d2 = t.closest('[data-dlg2]')
+  if (d2) {
+    const a = d2.dataset.dlg2
+    if (a === 'ok') {
+      const input = document.getElementById('pname')
+      const name = (input.value || input.placeholder).trim()
+      saveAs(name); styleName = name
+    } else if (a === 'copy') {
+      void navigator.clipboard.writeText(document.querySelector('.dlg textarea').value)
+      d2.textContent = 'Copied'
+      return
+    }
+    closeDialog(); render()
+    return
+  }
+  const act = t.closest('[data-act]')
+  if (act) {
+    const a = act.dataset.act
+    if (a === 'revert') { applyStyle(styleName); render() }
+    else if (a === 'save') askName()
+    else if (a === 'export') exportAll()
+    else if (a === 'delete') {
+      const next = Object.keys(STYLES)[0]
+      delete saved[styleName]
+      localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+      styleName = next; applyStyle(next); render()
+    }
+    return
+  }
+  const opt = t.closest('[data-k]')
+  if (opt) { S[opt.dataset.k] = opt.dataset.v; render(); return }
+  const open = t.closest('[data-open]')
+  if (open) {
+    const key = open.dataset.open
+    if (PICKER.key === key) PICKER.key = null
+    else { PICKER.key = key; Object.assign(PICKER, hex2hsv(S[key])) }
+    render()
+    return
+  }
+  if (t.closest('[data-closepicker]')) { PICKER.key = null; render(); return }
+  const sw = t.closest('[data-set]')
+  if (sw) {
+    S[sw.dataset.set] = sw.dataset.v
+    if (PICKER.key === sw.dataset.set) Object.assign(PICKER, hex2hsv(sw.dataset.v))
+    render()
+    return
+  }
+  const sc = t.closest('[data-scheme]')
+  if (sc) { S.accentScheme = sc.dataset.scheme; render(); return }
+  const tg = t.closest('[data-toggle]')
+  if (tg) { S[tg.dataset.toggle] = !S[tg.dataset.toggle]; render(); return }
+  const vw = t.closest('[data-view]')
+  if (vw) { view = vw.dataset.view; render() }
+})
+
+document.addEventListener('pointerdown', (e) => {
+  const sv = e.target.closest('[data-sv]')
+  const hue = e.target.closest('[data-hue]')
+  if (!sv && !hue) return
+  const key = e.target.closest('[data-picker]').dataset.picker
+  e.preventDefault()
+  startDrag(sv ? 'sv' : 'hue', sv ?? hue, key, e)
+})
+
+document.addEventListener('input', (e) => {
+  const hex = e.target.dataset.hex
+  if (hex) {
+    // Type as you like; it only lands when it's a real colour.
+    let v = e.target.value.trim()
+    if (v && v[0] !== '#') v = '#' + v
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) return
+    S[hex] = v
+    if (PICKER.key === hex) Object.assign(PICKER, hex2hsv(v))
+    // Repaint the app, but leave the rail alone: rebuilding it would replace the
+    // very input being typed into and throw away the caret.
+    liveDrag = true
+    render()
+    liveDrag = false
+    syncPicker(hex, v)
+    return
+  }
+  if (e.target.dataset.range) { S[e.target.dataset.range] = e.target.value; render() }
+})
+
+document.getElementById('copy').addEventListener('click', async (e) => {
+  await navigator.clipboard.writeText(document.getElementById('recipe').textContent)
+  e.target.textContent = 'Copied'
+  setTimeout(() => { e.target.textContent = 'Copy recipe' }, 1400)
+})
+
+render()
+</script>
+</body>
+</html>
