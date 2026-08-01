@@ -13,7 +13,7 @@
     -webkit-font-smoothing: antialiased;
   }
   h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
-  .sub { margin: 0 0 6px; color: #8a8e99; font-size: 12.5px; max-width: 78ch; }
+  .sub { margin: 0 0 6px; color: #8a8e99; font-size: 12.5px; max-width: 82ch; }
   .bar { display: flex; align-items: center; gap: 8px; margin: 14px 0 18px; }
   .btn {
     border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
@@ -21,12 +21,9 @@
   }
   .btn:hover { border-color: rgba(255,255,255,.25); color: #fff; }
 
-  .wall { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+  .wall { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(580px, 1fr)); }
   .case { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; overflow: hidden; background: #0c0e12; }
-  .case > header {
-    display: flex; align-items: baseline; gap: 10px; padding: 11px 14px;
-    border-bottom: 1px solid rgba(255,255,255,.06);
-  }
+  .case > header { display: flex; align-items: baseline; gap: 10px; padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.06); }
   .case h2 { margin: 0; font-size: 13.5px; font-weight: 650; }
   .case .note { flex: 1; color: #6b7080; font-size: 11.5px; }
   .swap {
@@ -39,31 +36,32 @@
   .win {
     --bg: #101215; --side: #141719; --title: #1a1d21; --text: #e3e6ea; --soft: #c3c8ce;
     --dim: #8d949d; --dim2: #6f7681; --line: rgba(255,255,255,.08); --hover: rgba(255,255,255,.06);
-    --accent: #3f5570; --accent-hi: #7d99b8; --stage: #171a1e; --on-accent: #fff;
-    height: 380px; display: flex; overflow: hidden; border-radius: 10px;
+    --accent: #3f5570; --accent-hi: #7d99b8; --stage: #171a1e;
+    height: 400px; display: flex; overflow: hidden; border-radius: 10px;
     background: var(--bg); color: var(--text); border: 1px solid var(--line);
     font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   }
   .win[data-mode="light"] {
     --bg: #fbfbfc; --side: #eceef1; --title: #e1e3e8; --text: #1b1d21; --soft: #3a3d43;
     --dim: #61656d; --dim2: #7b8089; --line: rgba(0,0,0,.1); --hover: rgba(0,0,0,.05);
-    --accent: #2f6fed; --accent-hi: #1f56c4; --stage: #e6e8ec; --on-accent: #fff;
+    --accent: #2f6fed; --accent-hi: #1f56c4; --stage: #e6e8ec;
   }
   .win * { box-sizing: border-box; }
 
-  /* structural pieces the layouts compose */
-  .rail { width: 172px; flex: none; padding: 12px 10px; background: var(--side); border-right: 1px solid var(--line); }
-  .rail.icons { width: 56px; padding: 12px 8px; }
-  .rail.wide { width: 226px; }
+  .rail { width: 176px; flex: none; padding: 12px 10px; background: var(--side); border-right: 1px solid var(--line); }
+  .rail.icons { width: 54px; padding: 12px 7px; }
+  .rail.wide { width: 232px; }
   .rail.right { border-right: 0; border-left: 1px solid var(--line); }
   .navtitle { padding: 4px 8px 10px; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
   .nav { display: flex; flex-direction: column; gap: 2px; }
   .nav b {
     display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px;
-    font-size: 12.5px; font-weight: 500; color: var(--dim); cursor: default;
+    font-size: 12.5px; font-weight: 500; color: var(--dim); cursor: pointer;
   }
+  .nav b:hover { background: var(--hover); color: var(--text); }
   .nav b.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); font-weight: 600; }
-  .nav b i { width: 15px; height: 15px; border-radius: 4px; background: currentColor; opacity: .55; flex: none; }
+  .nav b i { width: 15px; height: 15px; flex: none; display: block; opacity: .75; }
+  .nav b i svg { width: 15px; height: 15px; display: block; }
   .nav b.on i { opacity: 1; color: var(--accent-hi); }
   .nav small { display: block; font-size: 10.5px; color: var(--dim2); font-weight: 400; }
   .nav.icons b { justify-content: center; padding: 8px 0; }
@@ -79,24 +77,20 @@
   .body.tight { padding: 10px 12px; }
 
   .tabs { display: flex; gap: 4px; padding: 10px 18px 0; }
-  .tabs b {
-    padding: 6px 12px; border-radius: 8px 8px 0 0; font-size: 12.5px; color: var(--dim);
-    border-bottom: 2px solid transparent; cursor: default;
-  }
+  .tabs b { padding: 6px 12px; border-radius: 8px 8px 0 0; font-size: 12.5px; color: var(--dim); border-bottom: 2px solid transparent; cursor: pointer; }
+  .tabs b:hover { color: var(--text); }
   .tabs b.on { color: var(--text); border-bottom-color: var(--accent-hi); font-weight: 600; }
   .seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); gap: 2px; }
-  .seg b { padding: 5px 13px; border-radius: 999px; font-size: 12px; color: var(--dim); cursor: default; }
+  .seg b { padding: 5px 13px; border-radius: 999px; font-size: 12px; color: var(--dim); cursor: pointer; }
   .seg b.on { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 
-  .label {
-    font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2);
-    margin-bottom: 8px;
-  }
+  .label { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2); margin-bottom: 8px; }
   .label.sentence { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--dim); }
-  .label.big { font-size: 14px; font-weight: 650; letter-spacing: -.01em; text-transform: none; color: var(--text); }
+  .label.big { font-size: 14px; font-weight: 650; letter-spacing: -.01em; text-transform: none; color: var(--text); margin-bottom: 8px; }
 
   .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
   .cards.two { grid-template-columns: repeat(2, 1fr); }
+  .cards.six { grid-template-columns: repeat(3, 1fr); }
   .card2 { border: 1px solid var(--line); border-radius: 9px; padding: 7px; background: var(--hover); }
   .card2.on { border-color: var(--accent-hi); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .card2 .mini { height: 54px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; background: var(--stage); }
@@ -113,25 +107,38 @@
   .card2 .cap b { font-size: 11.5px; font-weight: 600; }
   .card2 .cap span { font-size: 9.5px; color: var(--accent-hi); font-weight: 600; }
 
+  /* the shape schematics, so Visualizer and Progress bar aren't empty */
+  .schem { height: 46px; border-radius: 6px; background: var(--stage); display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 7px 8px; }
+  .schem i { flex: 1; max-width: 5px; border-radius: 1px; background: var(--accent-hi); }
+  .schem.line { align-items: center; }
+  .schem.line u { flex: 1; height: 3px; border-radius: 3px; background: var(--dim2); opacity: .5; position: relative; }
+  .schem.line u::before { content: ""; position: absolute; inset: 0 55% 0 0; border-radius: 3px; background: var(--accent-hi); }
+
   .row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .row:last-child { border-bottom: 0; }
   .row .l b { display: block; font-size: 12.5px; font-weight: 600; }
   .row .l span { font-size: 11.5px; color: var(--dim); }
-  .pick { border: 1px solid var(--line); background: var(--hover); border-radius: 7px; padding: 4px 9px; font-size: 11.5px; color: var(--text); }
-  .group { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--hover); margin-bottom: 12px; }
+  .pick { border: 1px solid var(--line); background: var(--hover); border-radius: 7px; padding: 4px 9px; font-size: 11.5px; color: var(--text); white-space: nowrap; }
+  .group { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--hover); }
   .search { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--hover); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--dim); }
-  .index { width: 130px; flex: none; padding: 14px 12px; border-left: 1px solid var(--line); }
-  .index b { display: block; font-size: 11px; color: var(--dim); padding: 4px 0; }
+  .index { width: 132px; flex: none; padding: 14px 12px; border-left: 1px solid var(--line); }
+  .index b { display: block; font-size: 11px; color: var(--dim); padding: 4px 0; cursor: pointer; }
   .index b.on { color: var(--text); font-weight: 600; }
-  .preview { width: 150px; flex: none; border-left: 1px solid var(--line); padding: 12px; background: var(--side); }
+  .preview { width: 152px; flex: none; border-left: 1px solid var(--line); padding: 12px; background: var(--side); }
   .scrolly { height: 100%; overflow: hidden; }
   .stack { display: flex; flex-direction: column; gap: 14px; }
+  .roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+  .role { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 9px; background: var(--hover); }
+  .role i { width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--line); flex: none; }
+  .role b { font-size: 11.5px; font-weight: 600; }
+  .strip { display: flex; gap: 4px; flex-wrap: wrap; }
+  .strip i { width: 34px; height: 18px; border-radius: 5px; display: block; }
 </style>
 </head>
 <body>
 
 <h1>Settings layouts</h1>
-<p class="sub">Twelve arrangements of the same content: the style cards, two setting rows, the same nav. What changes is the frame around them and the type. Each switches independently.</p>
+<p class="sub">Twelve arrangements of the same content. Click the nav in any one to move between Style, Colours, Visualizer, Progress bar and General, and switch it light or dark: a layout that holds three cards can still fall apart on a page of rows.</p>
 <div class="bar">
   <button class="btn" data-all="dark">All dark</button>
   <button class="btn" data-all="light">All light</button>
@@ -140,175 +147,223 @@
 <div class="wall" id="wall"></div>
 
 <script>
-/* ---------- shared content blocks ---------- */
+/* ---------- icons ---------- */
+const ICON = {
+  style: 'M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+  colours: 'M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01',
+  viz: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z',
+  bar: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+  general: 'M12 8h.01M11 12h1v4h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z'
+}
+const svg = (k) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="' + ICON[k] + '"/></svg>'
+
 const NAV = [
-  ['Style', 'Material and colour'],
-  ['Colours', 'Six roles'],
-  ['Visualizer', 'Shape'],
-  ['Progress bar', 'Shape'],
-  ['General', 'Behaviour']
+  { key: 'style', name: 'Style', sub: 'Material and colour' },
+  { key: 'colours', name: 'Colours', sub: 'Six roles' },
+  { key: 'viz', name: 'Visualizer', sub: 'Shape' },
+  { key: 'bar', name: 'Progress bar', sub: 'Shape' },
+  { key: 'general', name: 'General', sub: 'Behaviour' }
 ]
 
-const card = (name, on, tag) => `
-  <div class="card2 ${on ? 'on' : ''}">
-    <div class="mini">
-      <div class="t"><i></i><u></u></div>
-      <div class="b">
-        <div class="s"><span></span><span class="a"></span><span></span><span></span></div>
-        <div class="v"><em></em></div>
-      </div>
-    </div>
-    <div class="cap"><b>${name}</b>${on ? `<span>${tag ?? 'Selected'}</span>` : ''}</div>
-  </div>`
+/* ---------- content ---------- */
+const card = (name, on, tag) =>
+  '<div class="card2 ' + (on ? 'on' : '') + '">' +
+    '<div class="mini">' +
+      '<div class="t"><i></i><u></u></div>' +
+      '<div class="b">' +
+        '<div class="s"><span></span><span class="a"></span><span></span><span></span></div>' +
+        '<div class="v"><em></em></div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="cap"><b>' + name + '</b>' + (on ? '<span>' + (tag || 'Selected') + '</span>' : '') + '</div>' +
+  '</div>'
 
-const cards = (n = 3, cls = '') => `<div class="cards ${cls}">${
-  ['Graphite', 'Driftwood', 'Prism', 'Paper', 'Linen', 'Frost'].slice(0, n)
-    .map((s, i) => card(s, i === 0)).join('')
-}</div>`
+const STYLE_NAMES = ['Graphite', 'Driftwood', 'Prism', 'Paper', 'Linen', 'Frost']
+const cards = (n, cls) => '<div class="cards ' + (cls || '') + '">' +
+  STYLE_NAMES.slice(0, n || 3).map((s, i) => card(s, i === 0)).join('') + '</div>'
 
-const rows = () => `
-  <div class="row"><div class="l"><b>Font</b><span>Used everywhere in the app.</span></div><span class="pick">System ⌄</span></div>
-  <div class="row"><div class="l"><b>Text size</b><span>Applies to the tree and the chrome.</span></div><span class="pick">Default ⌄</span></div>`
+const shape = (name, on, bars) =>
+  '<div class="card2 ' + (on ? 'on' : '') + '">' +
+    (bars
+      ? '<div class="schem">' + Array.from({ length: 18 }, (_, i) =>
+          '<i style="height:' + (25 + Math.abs(Math.sin(i * 0.8) * Math.cos(i * 0.3)) * 70) + '%"></i>').join('') + '</div>'
+      : '<div class="schem line"><u></u></div>') +
+    '<div class="cap"><b>' + name + '</b>' + (on ? '<span>Selected</span>' : '') + '</div>' +
+  '</div>'
 
-const nav = (cls = '', subs = false) => `
-  <div class="nav ${cls}">${NAV.map(([n, s], i) =>
-    `<b class="${i === 0 ? 'on' : ''}"><i></i>${cls.includes('icons') ? '' : n}${subs && !cls.includes('icons') ? `<small>${s}</small>` : ''}</b>`).join('')}</div>`
+const shapes = (names, bars) => '<div class="cards">' +
+  names.map((n, i) => shape(n, i === 0, bars)).join('') + '</div>'
 
-/* ---------- the twelve ---------- */
+const row = (name, desc, control) =>
+  '<div class="row"><div class="l"><b>' + name + '</b><span>' + desc + '</span></div>' + control + '</div>'
+const pick = (v) => '<span class="pick">' + v + ' &#8964;</span>'
+const chips = (list, on) => '<span style="display:flex;gap:4px">' + list.map((c) =>
+  '<span class="pick"' + (c === on ? ' style="border-color:var(--accent-hi)"' : '') + '>' + c + '</span>').join('') + '</span>'
+
+const ROLES = [['Background', '#101215'], ['Sidebar', '#141719'], ['Title bar', '#1a1d21'], ['Text', '#e3e6ea']]
+const STRIP = ['#5b5bd6', '#2f6fed', '#0f766e', '#166534', '#92400e', '#7f1d1d', '#831843', '#6b21a8', '#475569', '#3f5570']
+
+const BODY = {
+  style: (lbl) => lbl('Styles') + cards(3),
+  colours: (lbl) =>
+    lbl('Surfaces and type') +
+    '<div class="roles">' + ROLES.map(([n, c]) =>
+      '<div class="role"><i style="background:' + c + '"></i><b>' + n + '</b></div>').join('') + '</div>' +
+    lbl('Accent') +
+    '<div class="strip">' + STRIP.map((c, i) =>
+      '<i style="background:' + c + (i === 1 ? ';outline:2px solid var(--accent-hi);outline-offset:1px' : '') + '"></i>').join('') + '</div>',
+  viz: (lbl) => lbl('Shape') + shapes(['Halo', 'Bars', 'Mirror'], true),
+  bar: (lbl) => lbl('Shape') + shapes(['Slim', 'Pill', 'Segments'], false),
+  general: (lbl) =>
+    lbl('Behaviour') +
+    row('Folder navigation', 'Which sibling files the arrow keys step through.', pick('Media / Documents')) +
+    row('File tree text', 'Type size in the sidebar. Rows grow with it.', pick('Default')) +
+    row('Sidebar roominess', 'Row height and indentation.', chips(['Tight', 'Default', 'Roomy'], 'Default'))
+}
+
+const HEAD = {
+  style: ['Style', 'How Prism looks. Each card is the main window in that style.'],
+  colours: ['Colours', 'Six roles. Only the accent takes a gradient.'],
+  viz: ['Visualizer', 'The shape of the audio visualizer.'],
+  bar: ['Progress bar', 'The transport&#39;s shape.'],
+  general: ['General', 'How Prism behaves when you open a file.']
+}
+
+/* ---------- frames ---------- */
+const navList = (id, tab, cls, subs) =>
+  '<div class="nav ' + (cls || '') + '">' + NAV.map((n) =>
+    '<b class="' + (n.key === tab ? 'on' : '') + '" data-nav="' + id + '|' + n.key + '" title="' + n.name + '">' +
+      '<i>' + svg(n.key) + '</i>' +
+      ((cls || '').indexOf('icons') >= 0 ? '' : n.name) +
+      (subs && (cls || '').indexOf('icons') < 0 ? '<small>' + n.sub + '</small>' : '') +
+    '</b>').join('') + '</div>'
+
+const tabsRow = (id, tab) => '<div class="tabs">' + NAV.map((n) =>
+  '<b class="' + (n.key === tab ? 'on' : '') + '" data-nav="' + id + '|' + n.key + '">' + n.name + '</b>').join('') + '</div>'
+
+const segRow = (id, tab) => '<div class="seg">' + NAV.slice(0, 4).map((n) =>
+  '<b class="' + (n.key === tab ? 'on' : '') + '" data-nav="' + id + '|' + n.key + '">' + n.name + '</b>').join('') + '</div>'
+
+const upper = (s) => '<div class="label">' + s + '</div>'
+const sentence = (s) => '<div class="label sentence">' + s + '</div>'
+const big = (s) => '<div class="label big">' + s + '</div>'
+const none = () => ''
+
 const LAYOUTS = [
   { id: 'rail', name: 'Rail', note: 'What Prism has now: icon + label rail, titled pane',
-    html: () => `
-      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
-      <div class="pane">
-        <div class="head"><h3>Style</h3><p>How Prism looks. Each card is the main window in that style.</p></div>
-        <div class="body"><div class="label">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail"><div class="navtitle">Settings</div>' + navList('rail', t) + '</aside>' +
+      '<div class="pane"><div class="head"><h3>' + HEAD[t][0] + '</h3><p>' + HEAD[t][1] + '</p></div>' +
+      '<div class="body">' + BODY[t](upper) + '</div></div>' },
 
   { id: 'rail-sub', name: 'Rail with subtitles', note: 'Each nav item says what it holds',
-    html: () => `
-      <aside class="rail wide"><div class="navtitle">Settings</div>${nav('', true)}</aside>
-      <div class="pane">
-        <div class="head"><h3>Style</h3><p>Material, colour, font and frame.</p></div>
-        <div class="body"><div class="label sentence">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail wide"><div class="navtitle">Settings</div>' + navList('rail-sub', t, '', true) + '</aside>' +
+      '<div class="pane"><div class="head"><h3>' + HEAD[t][0] + '</h3><p>' + HEAD[t][1] + '</p></div>' +
+      '<div class="body">' + BODY[t](sentence) + '</div></div>' },
 
   { id: 'icons', name: 'Icon rail', note: 'Nav collapses to glyphs; the content gets the room',
-    html: () => `
-      <aside class="rail icons">${nav('icons')}</aside>
-      <div class="pane">
-        <div class="head"><h3>Style</h3><p>How Prism looks.</p></div>
-        <div class="body"><div class="label">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail icons">' + navList('icons', t, 'icons') + '</aside>' +
+      '<div class="pane"><div class="head"><h3>' + HEAD[t][0] + '</h3><p>' + HEAD[t][1] + '</p></div>' +
+      '<div class="body">' + BODY[t](upper) + '</div></div>' },
 
   { id: 'tabs', name: 'Top tabs', note: 'No rail at all; tabs under the title',
-    html: () => `
-      <div class="pane">
-        <div class="head plain big" style="padding-bottom:6px"><h3>Settings</h3></div>
-        <div class="tabs">${NAV.map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</div>
-        <div class="body" style="border-top:1px solid var(--line)"><div class="label">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<div class="pane"><div class="head plain big" style="padding-bottom:6px"><h3>Settings</h3></div>' +
+      tabsRow('tabs', t) +
+      '<div class="body" style="border-top:1px solid var(--line)">' + BODY[t](upper) + '</div></div>' },
 
   { id: 'segment', name: 'Segmented', note: 'A pill control, centred, macOS-ish',
-    html: () => `
-      <div class="pane">
-        <div class="head plain" style="display:flex;justify-content:center;padding:12px">
-          <div class="seg">${NAV.slice(0, 4).map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</div>
-        </div>
-        <div class="body roomy"><div class="label sentence">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<div class="pane"><div class="head plain" style="display:flex;justify-content:center;padding:12px">' + segRow('segment', t) + '</div>' +
+      '<div class="body roomy">' + BODY[t](sentence) + '</div></div>' },
 
   { id: 'twocol', name: 'Rail + live preview', note: 'The window you are theming, always on screen',
-    html: () => `
-      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
-      <div class="pane">
-        <div class="head"><h3>Style</h3></div>
-        <div class="body"><div class="label">Styles</div>${cards(2, 'two')}</div>
-      </div>
-      <aside class="preview">
-        <div class="label" style="margin-bottom:6px">Preview</div>
-        ${card('Graphite', true, 'Live')}
-      </aside>` },
+    html: (t) =>
+      '<aside class="rail"><div class="navtitle">Settings</div>' + navList('twocol', t) + '</aside>' +
+      '<div class="pane"><div class="head"><h3>' + HEAD[t][0] + '</h3></div>' +
+      '<div class="body">' + (t === 'style' ? sentence('Styles') + cards(2, 'two') : BODY[t](sentence)) + '</div></div>' +
+      '<aside class="preview"><div class="label" style="margin-bottom:6px">Preview</div>' + card('Graphite', true, 'Live') + '</aside>' },
 
   { id: 'scroll', name: 'One page, index', note: 'No tabs: everything stacked, index on the right',
-    html: () => `
-      <div class="pane">
-        <div class="head big"><h3>Settings</h3><p>Everything on one page.</p></div>
-        <div class="body scrolly">
-          <div class="stack">
-            <div><div class="label big">Style</div>${cards()}</div>
-            <div><div class="label big">Type</div>${rows()}</div>
-          </div>
-        </div>
-      </div>
-      <aside class="index">${NAV.map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</aside>` },
+    html: (t) =>
+      '<div class="pane"><div class="head big"><h3>Settings</h3><p>Everything on one page.</p></div>' +
+      '<div class="body scrolly"><div class="stack">' +
+        '<div>' + big(HEAD[t][0]) + BODY[t](none) + '</div>' +
+        '<div>' + big(t === 'general' ? 'Style' : 'General') + (t === 'general' ? BODY.style : BODY.general)(none) + '</div>' +
+      '</div></div></div>' +
+      '<aside class="index">' + NAV.map((n) =>
+        '<b class="' + (n.key === t ? 'on' : '') + '" data-nav="scroll|' + n.key + '">' + n.name + '</b>').join('') + '</aside>' },
 
   { id: 'groups', name: 'Grouped cards', note: 'Each section a panel on the page',
-    html: () => `
-      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
-      <div class="pane">
-        <div class="head plain big"><h3>Style</h3></div>
-        <div class="body">
-          <div class="group"><div class="label sentence">Styles</div>${cards()}</div>
-          <div class="group" style="margin-bottom:0"><div class="label sentence">Type</div>${rows()}</div>
-        </div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail"><div class="navtitle">Settings</div>' + navList('groups', t) + '</aside>' +
+      '<div class="pane"><div class="head plain big"><h3>' + HEAD[t][0] + '</h3></div>' +
+      '<div class="body"><div class="group">' + BODY[t](sentence) + '</div></div></div>' },
 
   { id: 'search', name: 'Search first', note: 'A filter at the top; nav becomes secondary',
-    html: () => `
-      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
-      <div class="pane">
-        <div class="head" style="padding:10px 14px"><div class="search">⌕ Search settings</div></div>
-        <div class="body"><div class="label">Styles</div>${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail"><div class="navtitle">Settings</div>' + navList('search', t) + '</aside>' +
+      '<div class="pane"><div class="head" style="padding:10px 14px"><div class="search">&#8981; Search settings</div></div>' +
+      '<div class="body">' + BODY[t](upper) + '</div></div>' },
 
   { id: 'dense', name: 'Dense utility', note: 'Windows-11-ish: tighter type, more on screen',
-    html: () => `
-      <aside class="rail" style="width:150px"><div class="navtitle" style="font-size:12px">Settings</div>${nav()}</aside>
-      <div class="pane">
-        <div class="head" style="padding:9px 12px"><h3 style="font-size:13px">Style</h3></div>
-        <div class="body tight"><div class="label" style="font-size:9.5px">Styles</div>${cards()}${rows()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail" style="width:150px"><div class="navtitle" style="font-size:12px">Settings</div>' + navList('dense', t) + '</aside>' +
+      '<div class="pane"><div class="head" style="padding:9px 12px"><h3 style="font-size:13px">' + HEAD[t][0] + '</h3></div>' +
+      '<div class="body tight">' + BODY[t](upper) + '</div></div>' },
 
   { id: 'hero', name: 'Editorial', note: 'Big heading, generous margins, quiet nav',
-    html: () => `
-      <aside class="rail" style="background:transparent;border-right:0">${nav()}</aside>
-      <div class="pane">
-        <div class="head plain big" style="padding:22px 26px 8px"><h3 style="font-size:24px">Style</h3><p style="font-size:12.5px;max-width:44ch">Material, colour, font and frame. Your shapes and effects are left alone.</p></div>
-        <div class="body roomy" style="padding-top:8px">${cards()}</div>
-      </div>` },
+    html: (t) =>
+      '<aside class="rail" style="background:transparent;border-right:0">' + navList('hero', t) + '</aside>' +
+      '<div class="pane"><div class="head plain big" style="padding:22px 26px 8px">' +
+      '<h3 style="font-size:24px">' + HEAD[t][0] + '</h3><p style="font-size:12.5px;max-width:44ch">' + HEAD[t][1] + '</p></div>' +
+      '<div class="body roomy" style="padding-top:8px">' + BODY[t](none) + '</div></div>' },
 
   { id: 'rightrail', name: 'Rail on the right', note: 'Content leads, nav sits where the scrollbar does',
-    html: () => `
-      <div class="pane">
-        <div class="head"><h3>Style</h3><p>How Prism looks.</p></div>
-        <div class="body"><div class="label">Styles</div>${cards()}</div>
-      </div>
-      <aside class="rail right"><div class="navtitle">Settings</div>${nav()}</aside>` }
+    html: (t) =>
+      '<div class="pane"><div class="head"><h3>' + HEAD[t][0] + '</h3><p>' + HEAD[t][1] + '</p></div>' +
+      '<div class="body">' + BODY[t](upper) + '</div></div>' +
+      '<aside class="rail right"><div class="navtitle">Settings</div>' + navList('rightrail', t) + '</aside>' }
 ]
 
 /* ---------- render ---------- */
-document.getElementById('wall').innerHTML = LAYOUTS.map((l) => `
-  <section class="case">
-    <header>
-      <h2>${l.name}</h2>
-      <span class="note">${l.note}</span>
-      <button class="swap" data-swap="${l.id}">Light</button>
-    </header>
-    <div class="stage"><div class="win" data-mode="dark" data-win="${l.id}">${l.html()}</div></div>
-  </section>`).join('')
+const state = {}
+LAYOUTS.forEach((l) => { state[l.id] = { tab: 'style', mode: 'dark' } })
+
+function paint(id) {
+  const l = LAYOUTS.find((x) => x.id === id)
+  const win = document.querySelector('[data-win="' + id + '"]')
+  win.dataset.mode = state[id].mode
+  win.innerHTML = l.html(state[id].tab)
+}
+
+document.getElementById('wall').innerHTML = LAYOUTS.map((l) =>
+  '<section class="case"><header><h2>' + l.name + '</h2><span class="note">' + l.note + '</span>' +
+  '<button class="swap" data-swap="' + l.id + '">Light</button></header>' +
+  '<div class="stage"><div class="win" data-mode="dark" data-win="' + l.id + '"></div></div></section>').join('')
+LAYOUTS.forEach((l) => paint(l.id))
 
 document.addEventListener('click', (e) => {
+  const nav = e.target.closest('[data-nav]')
+  if (nav) {
+    const parts = nav.dataset.nav.split('|')
+    state[parts[0]].tab = parts[1]
+    paint(parts[0])
+    return
+  }
   const one = e.target.closest('[data-swap]')
   if (one) {
-    const win = document.querySelector(`[data-win="${one.dataset.swap}"]`)
-    const next = win.dataset.mode === 'dark' ? 'light' : 'dark'
-    win.dataset.mode = next
-    one.textContent = next === 'dark' ? 'Light' : 'Dark'
+    const id = one.dataset.swap
+    state[id].mode = state[id].mode === 'dark' ? 'light' : 'dark'
+    one.textContent = state[id].mode === 'dark' ? 'Light' : 'Dark'
+    paint(id)
     return
   }
   const all = e.target.closest('[data-all]')
   if (all) {
-    document.querySelectorAll('[data-win]').forEach((w) => { w.dataset.mode = all.dataset.all })
+    LAYOUTS.forEach((l) => { state[l.id].mode = all.dataset.all; paint(l.id) })
     document.querySelectorAll('[data-swap]').forEach((b) => { b.textContent = all.dataset.all === 'dark' ? 'Light' : 'Dark' })
   }
 })
