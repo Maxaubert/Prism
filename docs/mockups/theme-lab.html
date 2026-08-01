@@ -239,7 +239,35 @@ const SCHEMES = [
   { id:'s-pink', name:'Pink', palette:['#ff5c9e'] },
   { id:'s-coral', name:'Coral', palette:['#ff8a6a'] },
   { id:'s-crimson', name:'Crimson', palette:['#e01e4a'] },
-  { id:'white', name:'White', palette:['#eef2fb'] }
+  { id:'white', name:'White', palette:['#eef2fb'] },
+
+  // Deep and muted. The set above is all high-key, which suits a visualizer in
+  // full flight but shouts on a progress bar and a selected row.
+  { id:'dusk', name:'Dusk', palette:['#3b3663','#6b4a6e','#a3596b'] },
+  { id:'nightfall', name:'Nightfall', palette:['#111a3a','#2b2a6b','#4a3f8f'] },
+  { id:'deepsea', name:'Deep sea', palette:['#0b3d5c','#12657f','#1f8f8a'] },
+  { id:'slateblue', name:'Slate blue', palette:['#243b53','#3e5c76','#5d7fa3'] },
+  { id:'mossline', name:'Moss', palette:['#1c3f2e','#2f6b46','#5d9c5a'] },
+  { id:'emberdark', name:'Ember', palette:['#7f1d1d','#b45309','#d97706'] },
+  { id:'copper', name:'Copper', palette:['#5c2c1a','#8c4a2f','#c07c4a'] },
+  { id:'winegrad', name:'Wine', palette:['#4a1042','#7c2352','#a83a5b'] },
+
+  { id:'d-indigo', name:'Deep indigo', palette:['#3730a3'] },
+  { id:'d-navy', name:'Navy', palette:['#1e3a8a'] },
+  { id:'d-slate', name:'Slate', palette:['#475569'] },
+  { id:'d-steel', name:'Steel', palette:['#3f5570'] },
+  { id:'d-teal', name:'Deep teal', palette:['#0f766e'] },
+  { id:'d-pine', name:'Pine', palette:['#166534'] },
+  { id:'d-moss', name:'Moss', palette:['#4d7c0f'] },
+  { id:'d-olive', name:'Olive', palette:['#6b7238'] },
+  { id:'d-bronze', name:'Bronze', palette:['#92400e'] },
+  { id:'d-rust', name:'Rust', palette:['#9a3412'] },
+  { id:'d-brick', name:'Brick', palette:['#7f1d1d'] },
+  { id:'d-wine', name:'Wine', palette:['#831843'] },
+  { id:'d-plum', name:'Plum', palette:['#6b21a8'] },
+  { id:'d-mauve', name:'Mauve', palette:['#7e5a75'] },
+  { id:'d-sand', name:'Sand', palette:['#a1885f'] },
+  { id:'d-ink', name:'Ink', palette:['#2c3e50'] }
 ]
 const scheme = (id) => SCHEMES.find(s => s.id === id) ?? SCHEMES[0]
 const paint = (p) => p.length > 1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
@@ -322,7 +350,30 @@ const STYLES = {
   'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
     iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', font:'system', size:'12.5', corners:'14', borders:'hairline' },
   'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
-    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', font:'georgia', size:'13.5', corners:'8', borders:'none' }
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', font:'georgia', size:'13.5', corners:'8', borders:'none' },
+
+  // Examples to judge. Deliberately spread across material, temperature and
+  // typeface rather than ten variations of one idea.
+  'Graphite': { material:'solid', bg:'#101215', side:'#141719', title:'#1a1d21', text:'#e3e6ea',
+    iconMode:'dim', icon:'#868d96', accentScheme:'d-steel', font:'segoe', size:'12.5', corners:'2', borders:'hairline' },
+  'Nocturne': { material:'gradient', bg:'#0a0e1c', side:'#0e1324', title:'#141a30', text:'#dfe4f2',
+    iconMode:'custom', icon:'#6f7bb5', accentScheme:'nightfall', font:'system', size:'12.5', corners:'8', borders:'hairline' },
+  'Driftwood': { material:'tinted', bg:'#16130f', side:'#1a1713', title:'#221d17', text:'#ece2d2',
+    iconMode:'custom', icon:'#a1885f', accentScheme:'copper', font:'calibri', size:'13.5', corners:'8', borders:'hairline' },
+  'Pinewood': { material:'solid', bg:'#0b120e', side:'#0e1611', title:'#131d17', text:'#dbe7dd',
+    iconMode:'custom', icon:'#5d9c5a', accentScheme:'d-pine', font:'trebuchet', size:'12.5', corners:'8', borders:'hairline' },
+  'Ink': { material:'solid', bg:'#0c1016', side:'#0f141b', title:'#151b24', text:'#e6eaf0',
+    iconMode:'custom', icon:'#6b8299', accentScheme:'d-ink', font:'georgia', size:'13.5', corners:'2', borders:'strong' },
+  'Harbour': { material:'glass', bg:'#0a1219', side:'#0d161e', title:'#111d26', text:'#e2edf2',
+    iconMode:'custom', icon:'#4e8ba3', accentScheme:'deepsea', font:'system', size:'12.5', corners:'14', borders:'hairline' },
+  'Vellum': { material:'mica', bg:'#17151a', side:'#1b191f', title:'#221f27', text:'#ece7e0',
+    iconMode:'dim', icon:'#8f8a86', accentScheme:'d-mauve', font:'calibri', size:'13.5', corners:'8', borders:'none' },
+  'Cinder': { material:'oled', bg:'#000000', side:'#000000', title:'#050505', text:'#e9e4dd',
+    iconMode:'custom', icon:'#b45309', accentScheme:'emberdark', font:'bahnschrift', size:'12.5', corners:'2', borders:'hairline' },
+  'Foundry': { material:'acrylic', bg:'#101319', side:'#13171e', title:'#191e27', text:'#e4e7ec',
+    iconMode:'accent', icon:'#8a8e99', accentScheme:'d-olive', font:'bahnschrift', size:'12.5', corners:'8', borders:'none' },
+  'Aubergine': { material:'tinted', bg:'#140f17', side:'#18121c', title:'#1f1724', text:'#eee4f0',
+    iconMode:'custom', icon:'#a07ab0', accentScheme:'d-plum', font:'system', size:'12.5', corners:'14', borders:'hairline' }
 }
 
 const KEYS = STYLE_KEYS
