@@ -65,18 +65,25 @@
   .card[aria-pressed="true"] .foot b { color: #fff; }
   .card .foot em { font-style: normal; font-size: 10px; font-weight: 600; color: var(--accent-hi); }
 
-  /* the miniature of the main window that sits on every style card */
-  .mini { position: relative; height: 120px; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-  .mini .wall { position: absolute; inset: 0; }
-  .mini .bar { position: relative; height: 13px; display: flex; align-items: center; gap: 3px; padding: 0 5px; }
-  .mini .dot { width: 4px; height: 4px; border-radius: 1px; }
+  /* The miniature: the window FLOATS on the wallpaper, inset on every side, so
+     you can see straight away how much of the wallpaper each material lets in. */
+  .mini { position: relative; height: 128px; border-radius: 8px; overflow: hidden; padding: 9px 10px; }
+  .mini .frame { position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+  .mini .bar { position: relative; height: 14px; display: flex; align-items: center; gap: 3px; padding: 0 5px; overflow: hidden; }
+  .mini .dot { position: relative; width: 4px; height: 4px; border-radius: 1px; flex: none; }
   .mini .body { position: relative; flex: 1; display: flex; min-height: 0; }
-  .mini .side { width: 34%; padding: 5px 4px; display: flex; flex-direction: column; gap: 3px; }
-  .mini .line { height: 4px; border-radius: 2px; }
-  .mini .view { flex: 1; position: relative; display: grid; place-items: center; }
-  .mini .plate { width: 62%; height: 46%; border-radius: 3px; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
-  .mini .prog { position: absolute; left: 8px; right: 8px; bottom: 7px; height: 2.5px; border-radius: 2px; }
+  .mini .side { position: relative; width: 36%; padding: 5px 4px; display: flex; flex-direction: column; overflow: hidden; }
+  .mini .line { position: relative; border-radius: 2px; flex: none; }
+  .mini .view { flex: 1; position: relative; display: grid; place-items: center; overflow: hidden; }
+  .mini .plate { position: relative; width: 62%; height: 44%; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
+  .mini .prog { position: absolute; left: 7px; right: 7px; bottom: 6px; height: 2.5px; border-radius: 2px; }
   .mini .prog i { display: block; height: 100%; width: 44%; border-radius: 2px; }
+  .card .foot i { font-style: normal; font-size: 10px; color: #6b7080; }
+  .mat {
+    display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05);
+    font-size: 9.5px; font-weight: 600; letter-spacing: .04em; color: #b9bdc8; text-transform: uppercase;
+  }
 
   /* schematics for the shape grids */
   .schem { height: 62px; border-radius: 7px; background: #0b0d12; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 8px 10px; }
@@ -165,23 +172,35 @@ const SCHEMES = [
 const scheme = (id) => SCHEMES.find(s=>s.id===id) ?? SCHEMES[0]
 
 const STYLES = [
-  { id:'now', name:'Prism', blurb:'Solid, quiet', material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4', accent:'s-indigo', wall:'night', font:'System' },
-  { id:'slate', name:'Slate', blurb:'Gradient wash', material:'gradient', bg:'#0f1218', side:'#12141b', title:'#191d26', text:'#e6e9f0', accent:'ocean', wall:'night', font:'Segoe UI' },
-  { id:'mica', name:'Mica', blurb:'Windows 11 tint', material:'mica', bg:'#141720', side:'#171a21', title:'#1c2029', text:'#eef0f4', accent:'brand', wall:'dunes', font:'System' },
-  { id:'glass', name:'Glasshouse', blurb:'Blurred, see-through', material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2', accent:'aurora', wall:'forest', font:'System' },
-  { id:'apple', name:'Cupertino', blurb:'Soft, rounded, roomy', material:'apple', bg:'#191b22', side:'#1c1e26', title:'#22242c', text:'#f2f4f8', accent:'s-blue', wall:'dunes', font:'System' },
-  { id:'oled', name:'Void', blurb:'True black', material:'oled', bg:'#000000', side:'#000000', title:'#000000', text:'#e8eaf0', accent:'s-violet', wall:'none', font:'Segoe UI' },
-  { id:'ember', name:'Ember', blurb:'Warm, tinted', material:'tinted', bg:'#191720', side:'#1c1a22', title:'#231f28', text:'#f0e7dc', accent:'gold', wall:'dunes', font:'Calibri' },
-  { id:'acrylic', name:'Acrylic', blurb:'Frosted and lively', material:'acrylic', bg:'#101420', side:'#141821', title:'#1a1f2b', text:'#eceef5', accent:'nebula', wall:'night', font:'System' },
-  { id:'terminal', name:'Terminal', blurb:'Square, mono', material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9', accent:'s-green', wall:'none', font:'Mono' },
-  { id:'paper', name:'Paperback', blurb:'Warm grey, serif', material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4', accent:'s-coral', wall:'forest', font:'Georgia' }
+  { id:'now', name:'Prism', blurb:'Solid, quiet', material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4', accent:'s-indigo', wall:'night', font:'System', room:'Default', borders:'hairline' },
+  { id:'slate', name:'Slate', blurb:'Gradient wash', material:'gradient', bg:'#0f1218', side:'#12141b', title:'#191d26', text:'#e6e9f0', accent:'ocean', wall:'night', font:'Segoe UI', room:'Default', borders:'hairline' },
+  { id:'mica', name:'Mica', blurb:'Windows 11 tint', material:'mica', bg:'#141720', side:'#171a21', title:'#1c2029', text:'#eef0f4', accent:'brand', wall:'dunes', font:'System', room:'Default', borders:'hairline' },
+  { id:'glass', name:'Glasshouse', blurb:'Blurred, see-through', material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2', accent:'aurora', wall:'forest', font:'System', room:'Default', borders:'hairline' },
+  { id:'apple', name:'Cupertino', blurb:'Soft, rounded, roomy', material:'apple', bg:'#191b22', side:'#1c1e26', title:'#22242c', text:'#f2f4f8', accent:'s-blue', wall:'dunes', font:'System', room:'Default', borders:'hairline' },
+  { id:'oled', name:'Void', blurb:'True black', material:'oled', bg:'#000000', side:'#000000', title:'#000000', text:'#e8eaf0', accent:'s-violet', wall:'none', font:'Segoe UI', room:'Tight', borders:'hairline' },
+  { id:'ember', name:'Ember', blurb:'Warm, tinted', material:'tinted', bg:'#191720', side:'#1c1a22', title:'#231f28', text:'#f0e7dc', accent:'gold', wall:'dunes', font:'Calibri', room:'Roomy', borders:'hairline' },
+  { id:'acrylic', name:'Acrylic', blurb:'Frosted and lively', material:'acrylic', bg:'#101420', side:'#141821', title:'#1a1f2b', text:'#eceef5', accent:'nebula', wall:'night', font:'System', room:'Default', borders:'hairline' },
+  { id:'terminal', name:'Terminal', blurb:'Square, mono', material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9', accent:'s-green', wall:'none', font:'Mono', room:'Tight', borders:'strong' },
+  { id:'paper', name:'Paperback', blurb:'Warm grey, serif', material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4', accent:'s-coral', wall:'forest', font:'Georgia', room:'Roomy', borders:'none' }
 ]
 
+const FONT_STACK = {
+  'System': '"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif',
+  'Segoe UI': '"Segoe UI",system-ui,sans-serif',
+  'Bahnschrift': 'Bahnschrift,system-ui,sans-serif',
+  'Calibri': 'Calibri,Candara,system-ui,sans-serif',
+  'Trebuchet': '"Trebuchet MS",system-ui,sans-serif',
+  'Verdana': 'Verdana,Geneva,sans-serif',
+  'Georgia': 'Georgia,serif',
+  'Mono': '"Cascadia Mono",Consolas,ui-monospace,monospace'
+}
+let WALLPAPER = 'night'
+
 const WALL = {
-  night: 'linear-gradient(160deg,#2b3358,#4b3a6b 35%,#7c4a63 60%,#241d2e 88%)',
-  dunes: 'linear-gradient(160deg,#c98f5a,#8d5a3c 40%,#3b2a33 75%,#1a1620)',
-  forest: 'linear-gradient(160deg,#3f6f5c,#26463f 45%,#16232a 80%,#0d1418)',
-  none: '#05060a'
+  night: 'radial-gradient(60% 70% at 18% 22%, #6d5cff 0%, transparent 60%), radial-gradient(55% 60% at 82% 78%, #ff5c9e 0%, transparent 58%), linear-gradient(160deg,#2b3358,#241d2e)',
+  dunes: 'radial-gradient(55% 65% at 22% 25%, #ffd08a 0%, transparent 62%), radial-gradient(60% 60% at 80% 75%, #b8453a 0%, transparent 58%), linear-gradient(160deg,#c98f5a,#2a1c22)',
+  forest: 'radial-gradient(55% 60% at 20% 20%, #7ee6b0 0%, transparent 60%), radial-gradient(60% 60% at 80% 80%, #2b7fa8 0%, transparent 58%), linear-gradient(160deg,#3f6f5c,#0d1418)',
+  none: 'linear-gradient(160deg,#14161d,#05060a)'
 }
 
 const BARS = [
@@ -204,38 +223,59 @@ const S = {
 }
 
 /* ---------- miniature of the main window, per style ---------- */
+// Every card sits on the SAME wallpaper, and the window floats inset on it, so
+// the only thing that differs between cards is the material itself.
+const NOISE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E\")"
+
+const MATERIAL = {
+  solid:    { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque' },
+  gradient: { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque, shaded' },
+  glass:    { alpha: .34,  blur: 7,  sat: 1.3, note: 'see-through' },
+  mica:     { alpha: .86,  blur: 16, sat: 1.1, note: 'a hint of wallpaper' },
+  acrylic:  { alpha: .55,  blur: 9,  sat: 1.7, note: 'frosted + grain' },
+  apple:    { alpha: .5,   blur: 12, sat: 1.9, note: 'deep translucency' },
+  oled:     { alpha: 1,    blur: 0,  sat: 1,   note: 'true black' },
+  tinted:   { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque, accent-tinted' }
+}
+
 function mini(st) {
   const a = scheme(st.accent).palette
-  const glassy = ['glass','mica','acrylic','apple'].includes(st.material)
-  const alpha = st.material === 'glass' ? .45 : st.material === 'acrylic' ? .62 : st.material === 'apple' ? .6 : .85
-  const surf = (c) => glassy ? rgba(c, alpha) : c
-  const grad = st.material === 'gradient'
-  const tint = st.material === 'tinted'
-  const side = grad ? `linear-gradient(180deg, ${lighten(st.side,.07)}, ${st.side})` : tint ? mix(st.side, a[0], .1) : surf(st.side)
-  const title = grad ? `linear-gradient(180deg, ${lighten(st.title,.08)}, ${st.title})` : tint ? mix(st.title, a[0], .12) : surf(st.title)
-  const bg = tint ? mix(st.bg, a[0], .07) : surf(st.bg)
-  const blur = glassy ? 'backdrop-filter: blur(10px) saturate(1.3);' : ''
+  const M = MATERIAL[st.material]
+  const surf = (c, k = 1) => M.alpha >= 1 ? c : rgba(c, Math.min(1, M.alpha * k))
+  const grad = st.material === 'gradient', tint = st.material === 'tinted'
+  const side = grad ? `linear-gradient(180deg, ${lighten(st.side,.08)}, ${st.side})` : tint ? mix(st.side, a[0], .12) : surf(st.side)
+  const title = grad ? `linear-gradient(180deg, ${lighten(st.title,.1)}, ${st.title})` : tint ? mix(st.title, a[0], .15) : surf(st.title, 1.1)
+  const bg = tint ? mix(st.bg, a[0], .08) : surf(st.bg, .92)
+  const filt = M.blur ? `backdrop-filter: blur(${M.blur}px) saturate(${M.sat});` : ''
+  const grain = st.material === 'acrylic' ? `<span style="position:absolute;inset:0;background-image:${NOISE};opacity:.16;mix-blend-mode:overlay"></span>` : ''
   const dim = mix(st.text, st.side, .5)
+  const rad = st.material === 'apple' ? 9 : st.material === 'oled' || st.id === 'terminal' ? 2 : 6
+  const edge = st.material === 'apple' ? rgba('#ffffff', .22) : st.borders === 'none' ? 'transparent' : rgba('#ffffff', .1)
+  const rows = st.room === 'Roomy' ? [7, 5] : st.room === 'Tight' ? [4, 7] : [5, 6]
+
+  const row = (w, col, h) => `<span class="line" style="width:${w}%;height:${h}px;background:${col}"></span>`
+  const tree = Array.from({ length: rows[1] }, (_, i) =>
+    row(58 + ((i * 37) % 34), i === 2 ? paint(a) : rgba(st.text, i === 1 ? .55 : .3), rows[0] - 1)
+  ).join('')
+
   return `
-    <div class="mini">
-      <div class="wall" style="background:${WALL[st.wall]}"></div>
-      <div class="bar" style="background:${title};${blur}">
-        <span class="dot" style="background:${a[0]}"></span>
-        <span class="line" style="flex:1;background:${rgba(dim,.5)}"></span>
-        <span class="dot" style="background:${rgba(dim,.7)}"></span>
-        <span class="dot" style="background:${rgba(dim,.7)}"></span>
-      </div>
-      <div class="body">
-        <div class="side" style="background:${side};${blur}">
-          <span class="line" style="width:60%;background:${rgba(dim,.55)}"></span>
-          <span class="line" style="width:82%;background:${rgba(st.text,.5)}"></span>
-          <span class="line" style="width:74%;background:${paint(a)};"></span>
-          <span class="line" style="width:88%;background:${rgba(st.text,.32)}"></span>
-          <span class="line" style="width:66%;background:${rgba(st.text,.32)}"></span>
+    <div class="mini" style="background:${WALL[WALLPAPER]}">
+      <div class="frame" style="border-radius:${rad}px;border:1px solid ${edge};box-shadow:0 6px 18px rgba(0,0,0,.45)">
+        <div class="bar" style="background:${title};${filt}">
+          ${grain}
+          <span class="dot" style="background:${a[0]}"></span>
+          <span style="position:relative;font-family:${FONT_STACK[st.font]};font-size:6.5px;font-weight:700;color:${st.text};letter-spacing:.02em">Prism</span>
+          <span style="position:relative;flex:1"></span>
+          <span class="dot" style="background:${rgba(dim,.8)}"></span>
+          <span class="dot" style="background:${rgba(dim,.8)}"></span>
         </div>
-        <div class="view" style="background:${bg};${blur}">
-          <div class="plate"></div>
-          <div class="prog" style="background:${rgba(st.text,.18)}"><i style="background:${paint(a)}"></i></div>
+        <div class="body">
+          <div class="side" style="background:${side};${filt};gap:${rows[0] - 2}px">${grain}${tree}</div>
+          <div class="view" style="background:${bg};${filt}">
+            ${grain}
+            <div class="plate" style="border-radius:${Math.max(2, rad - 2)}px"></div>
+            <div class="prog" style="background:${rgba(st.text,.18)}"><i style="background:${paint(a)}"></i></div>
+          </div>
         </div>
       </div>
     </div>`
@@ -300,11 +340,17 @@ const card = (on, inner, name, note) =>
 function content() {
   if (S.tab === 'style') return `
     <div class="sect">
-      <div class="h">Styles <span>each card is the main window in that style</span></div>
+      <div class="h">Styles <span>the same wallpaper behind every card, so only the material differs</span></div>
+      <div class="chips" style="margin-bottom:10px">
+        ${['night','dunes','forest','none'].map(w=>`<button class="chip" data-wall="${w}" aria-pressed="${String(WALLPAPER===w)}">${w[0].toUpperCase()+w.slice(1)}</button>`).join('')}
+      </div>
       <div class="grid">${STYLES.map(st =>
         `<button class="card" data-style="${st.id}" aria-pressed="${String(S.style===st.id)}">
            ${mini(st)}
-           <div class="foot"><b>${st.name}</b>${S.style===st.id?'<em>Selected</em>':`<span style="font-size:10.5px;color:#6b7080">${st.blurb}</span>`}</div>
+           <div class="foot">
+             <b>${st.name}<span class="mat">${st.material}</span></b>
+             ${S.style===st.id?'<em>Selected</em>':`<i>${MATERIAL[st.material].note}</i>`}
+           </div>
          </button>`).join('')}</div>
     </div>
     <div class="sect">
@@ -387,6 +433,7 @@ function render() {
 
 document.addEventListener('click', (e) => {
   const tab = e.target.closest('[data-tab]');       if (tab) { S.tab = tab.dataset.tab; return render() }
+  const wall = e.target.closest('[data-wall]');     if (wall) { WALLPAPER = wall.dataset.wall; return render() }
   const st = e.target.closest('[data-style]')
   if (st) {
     S.style = st.dataset.style
