@@ -12,6 +12,9 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
-    environment: 'node'
+    environment: 'node',
+    // The renderer's stores read localStorage at import time; the setup gives
+    // them one so their pure logic can be tested without a browser.
+    setupFiles: ['./vitest.setup.ts']
   }
 })
