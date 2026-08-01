@@ -38,20 +38,20 @@ export interface Style {
 export type FontId = 'system' | 'segoe' | 'bahnschrift' | 'calibri' | 'trebuchet' | 'verdana' | 'georgia' | 'mono'
 
 /**
- * `adjust` corrects for x-height, not taste. Every style ships at the same point
- * size, but Calibri sets visibly smaller than Segoe at that size and Verdana
- * visibly larger, so a style that changed typeface looked like a style that
- * changed size. The factor evens out the apparent size.
+ * One size for every style, literally. An x-height correction was tried here and
+ * removed: scaling the size so that different typefaces *looked* equal moved the
+ * chrome around them, which is worse than two fonts setting slightly
+ * differently.
  */
-export const FONTS: Record<FontId, { name: string; stack: string; adjust: number }> = {
-  system: { name: 'System', stack: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif', adjust: 1 },
-  segoe: { name: 'Segoe UI', stack: '"Segoe UI", system-ui, sans-serif', adjust: 1 },
-  bahnschrift: { name: 'Bahnschrift', stack: 'Bahnschrift, "DIN Alternate", system-ui, sans-serif', adjust: 1.05 },
-  calibri: { name: 'Calibri', stack: 'Calibri, Candara, system-ui, sans-serif', adjust: 1.08 },
-  trebuchet: { name: 'Trebuchet', stack: '"Trebuchet MS", system-ui, sans-serif', adjust: 1.02 },
-  verdana: { name: 'Verdana', stack: 'Verdana, Geneva, sans-serif', adjust: 0.94 },
-  georgia: { name: 'Georgia', stack: 'Georgia, "Times New Roman", serif', adjust: 1.02 },
-  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace', adjust: 0.96 }
+export const FONTS: Record<FontId, { name: string; stack: string }> = {
+  system: { name: 'System', stack: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+  segoe: { name: 'Segoe UI', stack: '"Segoe UI", system-ui, sans-serif' },
+  bahnschrift: { name: 'Bahnschrift', stack: 'Bahnschrift, "DIN Alternate", system-ui, sans-serif' },
+  calibri: { name: 'Calibri', stack: 'Calibri, Candara, system-ui, sans-serif' },
+  trebuchet: { name: 'Trebuchet', stack: '"Trebuchet MS", system-ui, sans-serif' },
+  verdana: { name: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
+  georgia: { name: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
+  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' }
 }
 
 export const STYLES: Style[] = [
@@ -456,7 +456,7 @@ function paint(style: Style): void {
   set('--p-radius', style.corners + 'px')
   set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
   set('--p-font', FONTS[style.font].stack)
-  set('--p-size', (Number(style.size) * FONTS[style.font].adjust).toFixed(2) + 'px')
+  set('--p-size', style.size + 'px')
   set('--p-row', (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px')
   set('--p-indent', (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px')
   document.documentElement.dataset.icons = style.iconMode
