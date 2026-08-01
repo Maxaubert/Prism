@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism theme lab</title>
+<style>
+  /* ---------- the lab's own chrome (deliberately neutral) ---------- */
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 22px 22px 34px;
+    background: #08090d;
+    color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 16px; color: #8a8e99; font-size: 12.5px; }
+
+  .lab { display: grid; grid-template-columns: 316px minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1040px) { .lab { grid-template-columns: 1fr; } }
+
+  .rail { max-height: calc(100vh - 90px); overflow-y: auto; padding-right: 6px; }
+  .rail::-webkit-scrollbar { width: 6px; }
+  .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
+
+  .axis { margin-bottom: 13px; }
+  .axis > .label {
+    display: block; margin-bottom: 5px;
+    color: #6b7080; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  }
+  .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .opt, .preset {
+    border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.02); color: #8a8e99;
+    border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 11.5px; cursor: pointer;
+    transition: border-color .14s, color .14s, background .14s;
+  }
+  .opt:hover, .preset:hover { border-color: rgba(255,255,255,.24); color: #eef0f4; }
+  .opt[aria-pressed="true"], .preset[aria-pressed="true"] {
+    border-color: #7b7bf0; background: rgba(91,91,214,.2); color: #fff;
+  }
+  .preset { border-radius: 999px; padding: 5px 11px; font-size: 12px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+
+  /* colour rows */
+  .colour { display: flex; align-items: center; gap: 8px; }
+  .colour input[type="color"] {
+    width: 30px; height: 26px; padding: 0; border: 1px solid rgba(255,255,255,.14);
+    border-radius: 6px; background: none; cursor: pointer;
+  }
+  .colour code {
+    flex: 1; font: 500 11.5px/1 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #b9bdc8;
+    text-transform: uppercase;
+  }
+  .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .sw { width: 20px; height: 20px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); cursor: pointer; padding: 0; }
+  .sw:hover { outline: 2px solid rgba(255,255,255,.35); outline-offset: 1px; }
+  input[type="range"] { width: 100%; accent-color: #7b7bf0; }
+
+  /* ---------- the stage ---------- */
+  .stage {
+    position: relative; min-width: 0; border-radius: 14px; overflow: hidden;
+    padding: 26px; display: grid; place-items: center;
+  }
+  /* Something has to sit behind the window or glass and mica have nothing to do. */
+  .stage[data-wall="dunes"] { background: linear-gradient(160deg,#c98f5a,#8d5a3c 40%,#3b2a33 75%,#1a1620); }
+  .stage[data-wall="forest"] { background: linear-gradient(160deg,#3f6f5c,#26463f 45%,#16232a 80%,#0d1418); }
+  .stage[data-wall="night"] { background: linear-gradient(160deg,#2b3358,#4b3a6b 35%,#7c4a63 60%,#241d2e 88%); }
+  .stage[data-wall="none"] { background: #05060a; }
+
+  /* ---------- the app under test ---------- */
+  #app {
+    width: 100%; max-width: 940px; height: 560px;
+    display: flex; flex-direction: column; overflow: hidden;
+    border-radius: var(--radius);
+    border: var(--frame-border);
+    box-shadow: 0 30px 80px rgba(0,0,0,.55);
+    font-family: var(--font);
+    color: var(--text);
+    background: var(--viewer-bg);
+    backdrop-filter: var(--viewer-filter);
+  }
+
+  .titlebar {
+    display: flex; align-items: center; gap: 11px; flex: none;
+    height: 36px; padding: 0 11px;
+    font-size: calc(var(--size) + 0.5px);
+    background: var(--chrome-bg);
+    backdrop-filter: var(--chrome-filter);
+    border-bottom: var(--divider);
+    color: var(--dim);
+  }
+  .brand { color: var(--brand); font-weight: 650; letter-spacing: -.01em; }
+  .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .icobtn {
+    display: grid; place-items: center; width: 28px; height: 24px; border: 0; border-radius: calc(var(--radius) / 3);
+    background: none; color: var(--icon); cursor: pointer;
+  }
+  .icobtn:hover { background: var(--hover); color: var(--text); }
+  .icobtn.on { color: var(--accent); }
+  .icobtn svg { width: 15px; height: 15px; }
+
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  .side {
+    width: 232px; flex: none; display: flex; flex-direction: column; min-height: 0;
+    background: var(--panel-bg);
+    backdrop-filter: var(--panel-filter);
+    border-right: var(--divider);
+  }
+  .side .head {
+    height: 30px; display: flex; align-items: center; padding: 0 12px; flex: none;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--dim);
+  }
+  .tree { flex: 1; padding: 0 6px; overflow: hidden; }
+  .row {
+    display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px;
+    border-radius: calc(var(--radius) / 2.4);
+    font-size: var(--size); color: var(--text-soft); white-space: nowrap; cursor: default;
+  }
+  .row .gl { width: 14px; height: 14px; flex: none; }
+  .row:hover { background: var(--hover); color: var(--text); }
+  .row.hovered { background: var(--hover); color: var(--text); }
+  .row.sel { background: var(--sel-bg); color: var(--sel-text); font-weight: 550; }
+  .row.kid { padding-left: 22px; }
+  .tag {
+    margin-left: auto; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dim); opacity: .8;
+  }
+
+  .viewer { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; }
+  .plate {
+    width: min(66%, 380px); aspect-ratio: 3/2; border-radius: calc(var(--radius) * 0.7);
+    background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63);
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .transport {
+    position: absolute; left: 14px; right: 14px; bottom: 12px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 11px; border-radius: calc(var(--radius) * 0.6);
+    background: var(--chrome-bg); backdrop-filter: var(--chrome-filter);
+    border: var(--divider-line);
+    font-size: calc(var(--size) - 0.5px); color: var(--dim);
+  }
+  .bar { flex: 1; height: 3px; border-radius: 3px; background: var(--track); position: relative; }
+  .bar::before { content: ""; position: absolute; inset: 0 58% 0 0; border-radius: 3px; background: var(--accent); }
+
+  .note { margin-top: 10px; color: #6b7080; font-size: 11.5px; text-align: center; }
+
+  .recipe {
+    display: flex; align-items: center; gap: 12px; margin-top: 16px;
+    border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.02); padding: 11px 13px;
+  }
+  .recipe code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #cfd3dd;
+    font: 500 12px/1.6 "Cascadia Mono", Consolas, ui-monospace, monospace; }
+  .recipe button { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #eef0f4;
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<h1>Theme lab</h1>
+<p class="sub">Ten starting points, then change anything. One row is held in its hover state so you can judge it without chasing the cursor.</p>
+
+<div class="lab">
+  <div class="rail">
+    <div class="presets" id="presets"></div>
+    <div id="axes"></div>
+  </div>
+
+  <div>
+    <div class="stage" id="stage">
+      <div id="app">
+        <div class="titlebar">
+          <button class="icobtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+          <span class="brand">Prism</span>
+          <span class="grow">IMG_0421.jpg</span>
+          <span>7 / 24</span>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
+          <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+
+        <div class="body">
+          <div class="side">
+            <div class="head">Trip 2026</div>
+            <div class="tree" id="tree"></div>
+          </div>
+          <div class="viewer">
+            <div class="plate"></div>
+            <div class="transport">
+              <span>0:41</span>
+              <div class="bar"></div>
+              <span>3:12</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The second file row is pinned to its hover state; the third is selected.</p>
+
+    <div class="recipe">
+      <code id="recipe"></code>
+      <button id="copy" type="button">Copy recipe</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------- colour helpers ---------- */
+
+const hex2rgb = (h) => {
+  const s = h.replace('#', '')
+  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+const rgb2hex = ([r, g, b]) => '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+/** Mix two colours: t=0 keeps a, t=1 becomes b. */
+const mix = (a, b, t) => {
+  const A = hex2rgb(a), B = hex2rgb(b)
+  return rgb2hex(A.map((v, i) => v + (B[i] - v) * t))
+}
+const lighten = (c, t) => mix(c, '#ffffff', t)
+const darken = (c, t) => mix(c, '#000000', t)
+const rgba = (c, a) => { const [r, g, b] = hex2rgb(c); return `rgba(${r},${g},${b},${a})` }
+
+/* ---------- what can be changed ---------- */
+
+const FONTS = {
+  system: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  segoe: '"Segoe UI", system-ui, sans-serif',
+  bahnschrift: 'Bahnschrift, "DIN Alternate", system-ui, sans-serif',
+  calibri: 'Calibri, Candara, system-ui, sans-serif',
+  trebuchet: '"Trebuchet MS", system-ui, sans-serif',
+  verdana: 'Verdana, Geneva, sans-serif',
+  georgia: 'Georgia, "Times New Roman", serif',
+  mono: '"Cascadia Mono", Consolas, ui-monospace, monospace'
+}
+
+const AXES = [
+  { key: 'material', label: 'Material', opts: [
+    ['solid', 'Solid'], ['gradient', 'Gradient'], ['glass', 'Glass'], ['mica', 'Mica'],
+    ['acrylic', 'Acrylic'], ['apple', 'Apple'], ['oled', 'OLED'], ['tinted', 'Accent-tinted']
+  ]},
+  { key: 'font', label: 'Font', opts: [
+    ['system', 'System'], ['segoe', 'Segoe UI'], ['bahnschrift', 'Bahnschrift'], ['calibri', 'Calibri'],
+    ['trebuchet', 'Trebuchet'], ['verdana', 'Verdana'], ['georgia', 'Georgia'], ['mono', 'Mono']
+  ]},
+  { key: 'size', label: 'Text size', opts: [['12', 'Small'], ['12.5', 'Default'], ['13.5', 'Large']] },
+  { key: 'iconMode', label: 'Icons', opts: [['kind', 'Kind tints'], ['text', 'Follow text'], ['dim', 'Muted'], ['accent', 'Accent'], ['custom', 'Custom']] },
+  { key: 'hoverMode', label: 'Hover', opts: [['light', 'Light wash'], ['accent', 'Accent tint'], ['custom', 'Custom']] },
+  { key: 'selMode', label: 'Selected row', opts: [['solid', 'Solid accent'], ['tint', 'Accent tint'], ['text', 'Accent text']] },
+  { key: 'corners', label: 'Corners', opts: [['2', 'Square'], ['8', 'Soft'], ['14', 'Round']] },
+  { key: 'borders', label: 'Edges', opts: [['hairline', 'Hairline'], ['none', 'None'], ['strong', 'Defined']] },
+  { key: 'wall', label: 'Behind the window', opts: [['night', 'Night'], ['dunes', 'Dunes'], ['forest', 'Forest'], ['none', 'None']] }
+]
+
+const COLOUR_AXES = [
+  { key: 'base', label: 'Surface', swatches: ['#0e1016', '#12141b', '#1a1d24', '#000000', '#171a21', '#101418', '#1c1a22', '#0f1418'] },
+  { key: 'accent', label: 'Accent', swatches: ['#5b5bd6', '#7b7bf0', '#4f8cff', '#37b6a6', '#d08a3e', '#c2557a', '#8b5cf6', '#3f9d54'] },
+  { key: 'text', label: 'Text', swatches: ['#eef0f4', '#ffffff', '#d7dae1', '#c8ccd6', '#e8e1d4', '#dbe6f0', '#b9bdc8'] },
+  { key: 'icon', label: 'Icon (custom)', swatches: ['#8a8e99', '#7b7bf0', '#9aa0f0', '#6fb2a8', '#d3a06a', '#ffffff'] },
+  { key: 'hover', label: 'Hover (custom)', swatches: ['#ffffff', '#5b5bd6', '#7b7bf0', '#37b6a6', '#c2557a'] }
+]
+
+const PRESETS = {
+  'Prism now': { material:'solid', base:'#0e1016', accent:'#5b5bd6', text:'#eef0f4', icon:'#8a8e99', hover:'#ffffff',
+    font:'system', size:'12.5', iconMode:'kind', hoverMode:'light', selMode:'solid', corners:'8', borders:'hairline', wall:'night', hoverStr:'6' },
+  'Slate': { material:'gradient', base:'#12141b', accent:'#4f8cff', text:'#e6e9f0', icon:'#8a8e99', hover:'#ffffff',
+    font:'segoe', size:'12.5', iconMode:'dim', hoverMode:'light', selMode:'tint', corners:'8', borders:'hairline', wall:'night', hoverStr:'7' },
+  'Mica': { material:'mica', base:'#171a21', accent:'#7b7bf0', text:'#eef0f4', icon:'#9aa0f0', hover:'#ffffff',
+    font:'system', size:'12.5', iconMode:'custom', hoverMode:'light', selMode:'tint', corners:'8', borders:'hairline', wall:'dunes', hoverStr:'8' },
+  'Glasshouse': { material:'glass', base:'#101418', accent:'#37b6a6', text:'#eaf1f2', icon:'#6fb2a8', hover:'#ffffff',
+    font:'system', size:'12.5', iconMode:'custom', hoverMode:'light', selMode:'tint', corners:'14', borders:'hairline', wall:'forest', hoverStr:'10' },
+  'Cupertino': { material:'apple', base:'#1c1e26', accent:'#4f8cff', text:'#f2f4f8', icon:'#8a8e99', hover:'#ffffff',
+    font:'system', size:'13.5', iconMode:'dim', hoverMode:'light', selMode:'solid', corners:'14', borders:'none', wall:'dunes', hoverStr:'9' },
+  'Void': { material:'oled', base:'#000000', accent:'#7b7bf0', text:'#e8eaf0', icon:'#8a8e99', hover:'#ffffff',
+    font:'segoe', size:'12', iconMode:'dim', hoverMode:'light', selMode:'text', corners:'2', borders:'hairline', wall:'none', hoverStr:'8' },
+  'Ember': { material:'tinted', base:'#1c1a22', accent:'#d08a3e', text:'#f0e7dc', icon:'#d3a06a', hover:'#d08a3e',
+    font:'calibri', size:'13.5', iconMode:'custom', hoverMode:'accent', selMode:'tint', corners:'8', borders:'hairline', wall:'dunes', hoverStr:'14' },
+  'Acrylic': { material:'acrylic', base:'#141821', accent:'#8b5cf6', text:'#eceef5', icon:'#8b5cf6', hover:'#8b5cf6',
+    font:'system', size:'12.5', iconMode:'accent', hoverMode:'accent', selMode:'solid', corners:'14', borders:'none', wall:'night', hoverStr:'12' },
+  'Terminal': { material:'solid', base:'#0d1117', accent:'#3f9d54', text:'#d7e0d9', icon:'#3f9d54', hover:'#3f9d54',
+    font:'mono', size:'12', iconMode:'accent', hoverMode:'accent', selMode:'text', corners:'2', borders:'strong', wall:'none', hoverStr:'12' },
+  'Paperback': { material:'solid', base:'#17161c', accent:'#c2557a', text:'#e8e1d4', icon:'#8a8e99', hover:'#ffffff',
+    font:'georgia', size:'13.5', iconMode:'dim', hoverMode:'light', selMode:'tint', corners:'8', borders:'none', wall:'forest', hoverStr:'7' }
+}
+
+let S = { ...PRESETS['Prism now'] }
+
+/* ---------- painting ---------- */
+
+const TREE = [
+  { name: 'Day 1 — Lisbon', kind: 'folder' },
+  { name: 'IMG_0418.jpg', kind: 'image', kid: true },
+  { name: 'IMG_0421.jpg', kind: 'image', kid: true, hovered: true },
+  { name: 'IMG_0422.jpg', kind: 'image', kid: true, sel: true },
+  { name: 'tram-ride.mp4', kind: 'video', kid: true },
+  { name: 'street-notes.md', kind: 'text', kid: true },
+  { name: 'Scans', kind: 'folder' },
+  { name: 'cover.jpg', kind: 'image' },
+  { name: 'itinerary.pdf', kind: 'pdf' },
+  { name: 'lisbon-fado.mp3', kind: 'audio' }
+]
+
+const KO = ' fill="#000" fill-opacity=".45"'
+const GLYPH = {
+  folder: '<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>',
+  image: '<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"' + KO + '/><circle cx="8.4" cy="9.2" r="1.7"' + KO + '/>',
+  video: '<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"' + KO + '/>',
+  audio: '<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>',
+  pdf: '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"' + KO + '/>',
+  text: '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"' + KO + '/>'
+}
+
+// The per-kind tints Prism ships with today, for the "Kind tints" icon mode.
+const KIND_TINT = { image: '#6fb2a8', video: '#8f8ae0', audio: '#d3a06a', pdf: '#cf7f88', text: '#8d93a1', folder: '#9aa0f0' }
+
+function paint() {
+  const r = document.documentElement.style
+  const base = S.base
+  const mat = S.material
+
+  // Surfaces, derived from the one base colour so a picker change moves the whole app.
+  let panel = base, chrome = lighten(base, .05), viewer = darken(base, .25)
+  let panelFilter = 'none', chromeFilter = 'none', viewerFilter = 'none'
+  let frameBorder = '1px solid ' + rgba('#ffffff', .08)
+
+  if (mat === 'gradient') {
+    panel = `linear-gradient(180deg, ${lighten(base, .06)}, ${base})`
+    chrome = `linear-gradient(180deg, ${lighten(base, .1)}, ${lighten(base, .03)})`
+    viewer = `radial-gradient(120% 90% at 50% 0%, ${rgba(S.accent, .14)}, transparent 62%), ${darken(base, .25)}`
+  } else if (mat === 'glass') {
+    panel = rgba(base, .42); chrome = rgba(base, .5); viewer = rgba(darken(base, .2), .3)
+    panelFilter = 'blur(20px) saturate(1.3)'; chromeFilter = panelFilter; viewerFilter = 'blur(26px) saturate(1.2)'
+  } else if (mat === 'mica') {
+    panel = rgba(base, .84); chrome = rgba(lighten(base, .05), .86); viewer = rgba(darken(base, .18), .9)
+    panelFilter = 'blur(48px) saturate(1.1)'; chromeFilter = panelFilter; viewerFilter = panelFilter
+  } else if (mat === 'acrylic') {
+    panel = rgba(base, .62); chrome = rgba(lighten(base, .06), .66); viewer = rgba(darken(base, .2), .72)
+    panelFilter = 'blur(34px) saturate(1.6) brightness(1.05)'; chromeFilter = panelFilter; viewerFilter = panelFilter
+  } else if (mat === 'apple') {
+    panel = rgba(lighten(base, .04), .58); chrome = rgba(lighten(base, .08), .6); viewer = rgba(darken(base, .12), .82)
+    panelFilter = 'blur(28px) saturate(1.9)'; chromeFilter = panelFilter; viewerFilter = 'blur(18px) saturate(1.4)'
+    frameBorder = '1px solid ' + rgba('#ffffff', .16)
+  } else if (mat === 'oled') {
+    panel = '#000000'; chrome = '#000000'; viewer = '#000000'
+  } else if (mat === 'tinted') {
+    panel = mix(base, S.accent, .1); chrome = mix(lighten(base, .05), S.accent, .14); viewer = mix(darken(base, .2), S.accent, .06)
+  }
+
+  const divider =
+    S.borders === 'none' ? '0 solid transparent'
+    : S.borders === 'strong' ? '1px solid ' + rgba('#ffffff', .16)
+    : '1px solid ' + rgba('#ffffff', .07)
+
+  const hoverColour = S.hoverMode === 'accent' ? S.accent : S.hoverMode === 'custom' ? S.hover : '#ffffff'
+  const icon = S.iconMode === 'text' ? S.text : S.iconMode === 'accent' ? S.accent
+    : S.iconMode === 'custom' ? S.icon : mix(S.text, base, .45)
+
+  r.setProperty('--font', FONTS[S.font])
+  r.setProperty('--size', S.size + 'px')
+  r.setProperty('--radius', S.corners + 'px')
+  r.setProperty('--panel-bg', panel)
+  r.setProperty('--chrome-bg', chrome)
+  r.setProperty('--viewer-bg', viewer)
+  r.setProperty('--panel-filter', panelFilter)
+  r.setProperty('--chrome-filter', chromeFilter)
+  r.setProperty('--viewer-filter', viewerFilter)
+  r.setProperty('--frame-border', frameBorder)
+  r.setProperty('--divider', divider)
+  r.setProperty('--divider-line', S.borders === 'none' ? '1px solid ' + rgba('#ffffff', .06) : divider)
+  r.setProperty('--text', S.text)
+  r.setProperty('--text-soft', mix(S.text, base, .22))
+  r.setProperty('--dim', mix(S.text, base, .45))
+  r.setProperty('--accent', S.accent)
+  r.setProperty('--brand', mat === 'oled' ? S.accent : lighten(S.accent, .35))
+  r.setProperty('--icon', icon)
+  r.setProperty('--hover', rgba(hoverColour, Number(S.hoverStr) / 100))
+  r.setProperty('--track', rgba(S.text, .16))
+  r.setProperty('--sel-bg', S.selMode === 'solid' ? S.accent : S.selMode === 'tint' ? rgba(S.accent, .26) : 'transparent')
+  r.setProperty('--sel-text', S.selMode === 'text' ? lighten(S.accent, .3) : '#ffffff')
+
+  document.getElementById('stage').dataset.wall = S.wall
+
+  document.getElementById('tree').innerHTML = TREE.map((n) => {
+    const cls = ['row', n.kid ? 'kid' : '', n.sel ? 'sel' : '', n.hovered ? 'hovered' : ''].filter(Boolean).join(' ')
+    const col = S.iconMode === 'kind' ? KIND_TINT[n.kind] : 'var(--icon)'
+    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${GLYPH[n.kind]}</svg>${n.name}` +
+      (n.hovered ? '<span class="tag">hover</span>' : n.sel ? '<span class="tag">open</span>' : '') + '</div>'
+  }).join('')
+
+  // controls
+  document.querySelectorAll('.opt').forEach((b) => b.setAttribute('aria-pressed', String(S[b.dataset.axis] === b.dataset.value)))
+  COLOUR_AXES.forEach((c) => {
+    const input = document.querySelector(`input[data-colour="${c.key}"]`)
+    if (input) { input.value = S[c.key]; input.nextElementSibling.textContent = S[c.key] }
+  })
+  const match = Object.entries(PRESETS).find(([, p]) => Object.keys(p).every((k) => p[k] === S[k]))
+  document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-pressed', String(!!match && match[0] === b.dataset.preset)))
+
+  document.getElementById('recipe').textContent =
+    `material=${S.material} base=${S.base} accent=${S.accent} text=${S.text} icon=${S.iconMode}${S.iconMode === 'custom' ? ':' + S.icon : ''} ` +
+    `hover=${S.hoverMode}${S.hoverMode === 'custom' ? ':' + S.hover : ''}@${S.hoverStr}% selected=${S.selMode} font=${S.font} size=${S.size} corners=${S.corners} edges=${S.borders}`
+}
+
+/* ---------- controls ---------- */
+
+document.getElementById('presets').innerHTML = Object.keys(PRESETS)
+  .map((n) => `<button class="preset" data-preset="${n}">${n}</button>`).join('')
+
+document.getElementById('axes').innerHTML =
+  COLOUR_AXES.map((c) => `
+    <div class="axis">
+      <span class="label">${c.label}</span>
+      <div class="colour">
+        <input type="color" data-colour="${c.key}" value="${S[c.key]}" />
+        <code>${S[c.key]}</code>
+      </div>
+      <div class="swatches">
+        ${c.swatches.map((s) => `<button class="sw" data-set="${c.key}" data-value="${s}" style="background:${s}" title="${s}"></button>`).join('')}
+      </div>
+    </div>`).join('') +
+  `<div class="axis">
+     <span class="label">Hover strength</span>
+     <input type="range" id="hoverStr" min="2" max="30" value="${S.hoverStr}" />
+   </div>` +
+  AXES.map((a) => `
+    <div class="axis">
+      <span class="label">${a.label}</span>
+      <div class="opts">
+        ${a.opts.map(([v, l]) => `<button class="opt" data-axis="${a.key}" data-value="${v}">${l}</button>`).join('')}
+      </div>
+    </div>`).join('')
+
+document.addEventListener('click', (e) => {
+  const opt = e.target.closest('.opt')
+  if (opt) { S[opt.dataset.axis] = opt.dataset.value; paint(); return }
+  const sw = e.target.closest('.sw')
+  if (sw) { S[sw.dataset.set] = sw.dataset.value; paint(); return }
+  const pre = e.target.closest('.preset')
+  if (pre) { S = { ...PRESETS[pre.dataset.preset] }; document.getElementById('hoverStr').value = S.hoverStr; paint() }
+})
+
+document.addEventListener('input', (e) => {
+  if (e.target.dataset.colour) { S[e.target.dataset.colour] = e.target.value; paint() }
+  else if (e.target.id === 'hoverStr') { S.hoverStr = e.target.value; paint() }
+})
+
+document.getElementById('copy').addEventListener('click', async (e) => {
+  await navigator.clipboard.writeText(document.getElementById('recipe').textContent)
+  e.target.textContent = 'Copied'
+  setTimeout(() => { e.target.textContent = 'Copy recipe' }, 1400)
+})
+
+paint()
+</script>
+</body>
+</html>
