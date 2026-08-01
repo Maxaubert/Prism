@@ -94,14 +94,14 @@ export function VideoView({
           video has started (so autoplay startup + navigation don't flash it) */}
       {(flash || (started && !c.playing && !c.error)) && (
         <div className="pointer-events-none absolute grid place-items-center">
-          <div className="grid h-20 w-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-[var(--p-title)]/85 text-[var(--p-text)] backdrop-blur-sm">
             <div className="scale-[1.6]">{c.playing ? IconPause : IconPlay}</div>
           </div>
         </div>
       )}
 
       {c.error && (
-        <div className="absolute inset-0 grid place-items-center bg-black/80 p-8 text-center text-sm text-[#c9ccd6]">
+        <div className="absolute inset-0 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center text-sm text-[var(--p-text-soft)]">
           {c.error}
         </div>
       )}

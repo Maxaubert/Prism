@@ -49,7 +49,7 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-white/10 bg-[var(--p-title)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
+        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-title)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
       >
         <h2 className="text-[14.5px] font-semibold text-[var(--p-text)]">{title}</h2>
         {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]">{body}</div>}
@@ -61,7 +61,7 @@ export function Dialog({
               onClick={c.onPick}
               className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
                 c.danger
-                  ? 'bg-[#b4353f] text-white hover:brightness-110'
+                  ? 'bg-[#b4353f] text-[var(--p-on-accent)] hover:brightness-110'
                   : c.primary
                     ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
                     : 'border border-[color:var(--p-divider)] bg-[var(--p-hover)] text-[var(--p-text-soft)] hover:text-[var(--p-text)]'

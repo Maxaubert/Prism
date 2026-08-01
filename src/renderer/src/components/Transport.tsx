@@ -78,7 +78,7 @@ function Scrubber({
   const tooltip =
     hoverX != null && dur > 0 ? (
       <div
-        className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-white"
+        className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded bg-black/85 px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--p-text)]"
         style={{ left: `${hoverX * 100}%` }}
       >
         {formatTime(hoverX * dur)}
@@ -96,10 +96,10 @@ function Scrubber({
       {look.kind === 'line' && (
         <>
           <div
-            className="absolute inset-x-0 rounded-full bg-white/25 transition-[height]"
+            className="absolute inset-x-0 rounded-full bg-[var(--p-divider)] transition-[height]"
             style={look.top ? { top: 0, height: look.h } : { top: '50%', height: look.h, transform: 'translateY(-50%)' }}
           >
-            <div className="absolute inset-y-0 left-0 rounded-full bg-white/25" style={{ width: `${bufPct}%` }} />
+            <div className="absolute inset-y-0 left-0 rounded-full bg-[var(--p-divider)]" style={{ width: `${bufPct}%` }} />
             <div
               className="absolute inset-y-0 left-0 rounded-full"
               style={{
@@ -170,7 +170,7 @@ function PlayBtn({ c, square }: { c: MediaControls; square?: boolean }): JSX.Ele
   if (square)
     return (
       <button
-        className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--color-accent-hi)] text-[#12131a] hover:brightness-110"
+        className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--color-accent-hi)] text-[var(--p-on-accent)] hover:brightness-110"
         onClick={c.togglePlay}
         title="Play/Pause (Space)"
       >
@@ -209,7 +209,7 @@ function VolHover({ c }: { c: MediaControls }): JSX.Element {
 function Time({ c, big }: { c: MediaControls; big?: boolean }): JSX.Element {
   return (
     <span className={`tabular-nums ${big ? 'text-[15px] font-semibold' : 'text-[13px]'} text-[#d7dae1]`}>
-      {formatTime(c.cur)} <span className="text-white/40">/ {formatTime(c.dur)}</span>
+      {formatTime(c.cur)} <span className="text-[var(--p-text)]/40">/ {formatTime(c.dur)}</span>
     </span>
   )
 }
@@ -230,7 +230,7 @@ function Speed({ c }: { c: MediaControls }): JSX.Element {
           {RATES.map((r) => (
             <button
               key={r}
-              className={`rounded px-3 py-1 text-left text-[13px] hover:bg-white/10 ${r === c.rate ? 'text-[var(--color-accent-hi)]' : ''}`}
+              className={`rounded px-3 py-1 text-left text-[13px] hover:bg-[var(--p-hover)] ${r === c.rate ? 'text-[var(--color-accent-hi)]' : ''}`}
               onClick={() => {
                 c.setRate(r)
                 setOpen(false)
@@ -262,7 +262,7 @@ export function Transport({
 }): JSX.Element {
   // The standard control row shared by most styles.
   const stdRow = (
-    <div className="flex items-center gap-3 text-white">
+    <div className="flex items-center gap-3 text-[var(--p-text)]">
       <PlayBtn c={c} />
       <VolHover c={c} />
       <Time c={c} />
@@ -272,7 +272,7 @@ export function Transport({
     </div>
   )
   const boldRow = (
-    <div className="flex items-center gap-4 text-white">
+    <div className="flex items-center gap-4 text-[var(--p-text)]">
       <PlayBtn c={c} square />
       <Time c={c} big />
       <div className="flex-1" />
@@ -301,11 +301,11 @@ export function Transport({
 
     case 'inline':
       return (
-        <div className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-white">
+        <div className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-[var(--p-text)]">
           <PlayBtn c={c} />
           <span className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
           <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3.5 flex-1" />
-          <span className="tabular-nums text-[12.5px] text-white/50">{formatTime(c.dur)}</span>
+          <span className="tabular-nums text-[12.5px] text-[var(--p-text)]/50">{formatTime(c.dur)}</span>
           <VolHover c={c} />
           <Speed c={c} />
           {extra}
@@ -315,7 +315,7 @@ export function Transport({
     case 'island':
       return (
         <div className="pointer-events-none flex w-full justify-center pb-4">
-          <div className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-white/10 bg-[#14161e]/75 px-4 py-2.5 text-white shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md">
+          <div className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-[color:var(--p-divider)] bg-[#14161e]/75 px-4 py-2.5 text-[var(--p-text)] shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md">
             <PlayBtn c={c} />
             <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3 w-40" />
             <Time c={c} />
@@ -370,7 +370,7 @@ export function Transport({
       return (
         <div className="pointer-events-auto w-full">
           <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} bar={bar} className="h-2.5" />
-          <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-white">
+          <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-[var(--p-text)]">
             <PlayBtn c={c} />
             <VolHover c={c} />
             <Time c={c} />

@@ -14,7 +14,7 @@ import { useViz, WIDTHS } from '../lib/vizStore'
 
 function Logo(): JSX.Element {
   return (
-    <div className="grid h-28 w-28 shrink-0 place-items-center rounded-3xl bg-gradient-to-br from-[#5b5bd6] via-[#9a6cff] to-[#ff9a8b] text-5xl text-white shadow-[0_12px_40px_rgba(120,90,255,0.35)]">
+    <div className="grid h-28 w-28 shrink-0 place-items-center rounded-3xl bg-gradient-to-br from-[#5b5bd6] via-[#9a6cff] to-[#ff9a8b] text-5xl text-[var(--p-text)] shadow-[0_12px_40px_rgba(120,90,255,0.35)]">
       ♪
     </div>
   )

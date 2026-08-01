@@ -70,6 +70,13 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     }
   })
 
+  it('gives the little previews a stage that reads', () => {
+    // Schematics are drawn in the accent's own colours, so the box behind them
+    // has to differ from the card, in either mode.
+    expect(contrast(t['--p-preview'], t['--p-bg'])).toBeGreaterThan(1.08)
+    expect(contrast(t['--p-accent-hi'], t['--p-preview'])).toBeGreaterThanOrEqual(2.9)
+  })
+
   it('separates the panel from the viewer', () => {
     // Not a rule, a sanity check: the two surfaces shouldn't be identical
     // unless the style means it (true black).

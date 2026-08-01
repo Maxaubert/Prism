@@ -77,7 +77,7 @@ function TopBar({
         </button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.minimize()}>–</button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.toggleMaximize()}>▢</button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-white" onClick={() => w.close()}>✕</button>
+        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]" onClick={() => w.close()}>✕</button>
       </div>
     </div>
   )
@@ -127,7 +127,7 @@ function NavArrow({ dir, onClick }: { dir: 'l' | 'r'; onClick: () => void }): JS
   return (
     <button
       onClick={onClick}
-      className={`no-drag absolute top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur-sm transition-opacity hover:bg-black/60 group-hover:opacity-100 ${dir === 'l' ? 'left-3' : 'right-3'}`}
+      className={`no-drag absolute top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-[var(--p-text)] opacity-0 backdrop-blur-sm transition-opacity hover:bg-black/60 group-hover:opacity-100 ${dir === 'l' ? 'left-3' : 'right-3'}`}
     >
       {dir === 'l' ? '‹' : '›'}
     </button>
