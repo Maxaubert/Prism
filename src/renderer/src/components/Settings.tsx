@@ -552,6 +552,13 @@ const Ico = ({ d }: { d: string }): JSX.Element => (
 
 const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
   {
+    id: 'style',
+    label: 'Style',
+    title: 'Style',
+    desc: 'How Prism looks. Each card is the main window in that style.',
+    icon: <Ico d="M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01" />
+  },
+  {
     id: 'general',
     label: 'General',
     title: 'General',

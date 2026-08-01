@@ -233,7 +233,11 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 400,
     show: false,
-    frame: false,
+    // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
+    // frameless window, which is why a translucent style came out as a hole in
+    // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
+    // the custom title bar still draws over it.
+    titleBarStyle: 'hidden',
     backgroundColor: '#111318',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
   })
