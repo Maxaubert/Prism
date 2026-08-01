@@ -911,7 +911,10 @@ export const THEMES: VizTheme[] = [
   { id: 'd-plum', name: 'Plum', blurb: 'Solid plum.', palette: ['#6b21a8'], accent: '#6b21a8' },
   { id: 'd-mauve', name: 'Mauve', blurb: 'Solid mauve.', palette: ['#7e5a75'], accent: '#7e5a75' },
   { id: 'd-sand', name: 'Sand', blurb: 'Solid sand.', palette: ['#a1885f'], accent: '#a1885f' },
-  { id: 'd-ink', name: 'Ink', blurb: 'Solid ink blue.', palette: ['#2c3e50'], accent: '#2c3e50' }
+  { id: 'd-ink', name: 'Ink', blurb: 'Solid ink blue.', palette: ['#2c3e50'], accent: '#2c3e50' },
+
+  // Prism's own: a true blue, not the indigo-violet it used to lean on.
+  { id: 'prism', name: 'Prism blue', blurb: 'Prism blue into sky.', palette: ['#2f6fed', '#4d9dff'], accent: '#2f6fed' }
 ]
 
 export const DEFAULT_THEME_ID = 'brand'

@@ -86,9 +86,9 @@ export const STYLES: Style[] = [
     borders: 'hairline'
   },
   {
-    id: 'indigo',
-    name: 'Indigo',
-    blurb: "Prism's original look.",
+    id: 'prism',
+    name: 'Prism',
+    blurb: 'The original look, in blue.',
     mode: 'dark',
     material: 'solid',
     bg: '#0d0f14',
@@ -97,7 +97,7 @@ export const STYLES: Style[] = [
     text: '#eef0f4',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 'brand',
+    accent: 'prism',
     font: 'system',
     size: '12.5',
     corners: '8',
@@ -286,3 +286,12 @@ export const stylesFor = (m: Mode): Style[] => STYLES.filter((s) => s.mode === m
 
 // Paint before first render so nothing flashes the wrong colour.
 paint(byId(current))
+
+// On a fresh install the visualizer and the progress bar have no colour of their
+// own yet, so they take the style's accent. Once you've picked one, it stands.
+try {
+  if (!localStorage.getItem('prism.viz.theme')) setTheme(byId(current).accent)
+  if (!localStorage.getItem('prism.viz.barTheme')) setBarTheme(byId(current).accent)
+} catch {
+  /* no storage: the defaults in vizStore stand */
+}
