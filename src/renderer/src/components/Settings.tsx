@@ -115,9 +115,9 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }): JSX.Element {
   return (
     <div>
-      <div className="mb-2.5 flex items-baseline gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">{title}</span>
-        {hint && <span className="text-[11px] text-[var(--p-dim2)]">{hint}</span>}
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">{title}</span>
+        {hint && <span className="text-[10.5px] text-[var(--p-dim2)]">{hint}</span>}
       </div>
       {children}
     </div>
@@ -129,7 +129,7 @@ function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; chi
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col gap-2 rounded-xl border p-2.5 text-left transition ${
+      className={`flex flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
         on
           ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/12'
           : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
@@ -166,13 +166,13 @@ function isActivePreset(p: Preset, v: VizState): boolean {
 function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: TransportStyle; onPickTransport: (s: TransportStyle) => void }): JSX.Element {
   const v = useViz()
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {TRANSPORT_GROUPS.map((g) => {
         const items = TRANSPORT_STYLES.filter((s) => s.group === g)
         if (!items.length) return null
         return (
           <Section key={g} title={g}>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-4 gap-2">
               {items.map((s) => {
                 const on = s.id === transportStyle
                 return (
@@ -248,7 +248,7 @@ function StyleTab(): JSX.Element {
   const mode = useMode()
   const list = stylesFor(mode)
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <Section title="Mode" hint="dark and light have their own styles">
         <div className="flex gap-2">
           {(['dark', 'light'] as Mode[]).map((m) => (
@@ -270,7 +270,7 @@ function StyleTab(): JSX.Element {
 
       <Section title="Style" hint="material, colours, font and frame; your shapes and effects are left alone">
         {list.length ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(212px,1fr))] gap-2.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(196px,1fr))] gap-2">
             {list.map((st) => {
               const on = st.id === style.id
               return (
@@ -300,7 +300,7 @@ function StyleTab(): JSX.Element {
 
 function Row({ id, label, desc, children }: { id: string; label: string; desc?: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-8 border-b border-white/[.07] py-3.5">
+    <div className="flex items-center justify-between gap-8 border-b border-[color:var(--p-divider)] py-2.5">
       <div className="min-w-0">
         <label htmlFor={id} className="text-[13px] font-semibold text-[var(--p-text)]">
           {label}
@@ -345,7 +345,7 @@ function GeneralTab(): JSX.Element {
   const scope = useNavScope()
   const size = useTreeSize()
   return (
-    <div className="max-w-[680px] border-t border-white/[.07]">
+    <div className="max-w-[680px] border-t border-[color:var(--p-divider)]">
       <Row
         id="nav-scope"
         label="Folder navigation"
@@ -365,9 +365,9 @@ function VisualizerTab(): JSX.Element {
   // Style shows a simple schematic mockup of each shape (min-size cards that
   // reflow), with the colour scheme in its own subsection below.
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <Section title="Style">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-2.5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(212px,1fr))] gap-2">
           {v.presets.map((p) => {
             const on = isActivePreset(p, v)
             return (
@@ -458,7 +458,7 @@ function Swatches({
   onPick: (id: string) => void
 }): JSX.Element {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-1.5">
       {items.map((it) => {
         const on = it.id === selectedId
         return (
@@ -624,11 +624,11 @@ export function Settings({
     // itself, and the cards you're choosing between move as you read them.
     <div
       className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]"
-      style={{ fontFamily: FONTS.system.stack, fontSize: '13px' }}
+      style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
       {/* tab rail */}
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-3">
-          <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
+      <aside className="flex w-[164px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-2">
+          <div className="px-2 pb-2 pt-1 text-[12.5px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
           <nav className="flex flex-col gap-0.5">
             {TABS.map((t) => {
               const on = t.id === tab
@@ -636,7 +636,7 @@ export function Settings({
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition ${
+                  className={`flex items-center gap-2 rounded-[var(--p-radius-sm)] px-2 py-[5px] text-left text-[12px] font-medium transition ${
                     on
                       ? 'bg-[var(--p-accent)]/18 text-[var(--p-text)]'
                       : 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
@@ -648,19 +648,19 @@ export function Settings({
               )
             })}
           </nav>
-          <div className="mt-auto px-2 pb-1 text-[11px] text-[var(--p-dim2)]">Prism</div>
+          <div className="mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)]">Prism</div>
         </aside>
 
         {/* content */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* No close button: the cog that opened this closes it, and Escape works
               too. One control, one place. */}
-          <header className="border-b border-[color:var(--p-divider)] px-6 py-4">
-            <h2 className="text-[16px] font-semibold text-[var(--p-text)]">{active.title}</h2>
-            {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--p-dim)]">{active.desc}</p>}
+          <header className="border-b border-[color:var(--p-divider)] px-4 py-2.5">
+            <h2 className="text-[13.5px] font-semibold text-[var(--p-text)]">{active.title}</h2>
+            {active.desc && <p className="mt-px truncate text-[11.5px] text-[var(--p-dim)]">{active.desc}</p>}
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             {tab === 'style' ? (
               <StyleTab />
             ) : tab === 'general' ? (
