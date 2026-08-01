@@ -3,34 +3,32 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Prism theme lab</title>
+<title>Prism style lab</title>
 <style>
-  /* ---------- the lab's own chrome (deliberately neutral) ---------- */
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
-    margin: 0;
-    padding: 22px 22px 34px;
-    background: #08090d;
-    color: #eef0f4;
+    margin: 0; padding: 20px 20px 30px; background: #08090d; color: #eef0f4;
     font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
-  .sub { margin: 0 0 16px; color: #8a8e99; font-size: 12.5px; }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 14px; color: #8a8e99; font-size: 12.5px; }
 
-  .lab { display: grid; grid-template-columns: 316px minmax(0, 1fr); gap: 20px; align-items: start; }
-  @media (max-width: 1040px) { .lab { grid-template-columns: 1fr; } }
-
-  .rail { max-height: calc(100vh - 90px); overflow-y: auto; padding-right: 6px; }
+  .lab { display: grid; grid-template-columns: 330px minmax(0,1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1080px) { .lab { grid-template-columns: 1fr; } }
+  .rail { max-height: calc(100vh - 84px); overflow-y: auto; padding-right: 8px; }
   .rail::-webkit-scrollbar { width: 6px; }
   .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
 
-  .axis { margin-bottom: 13px; }
-  .axis > .label {
-    display: block; margin-bottom: 5px;
-    color: #6b7080; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  .group { border-top: 1px solid rgba(255,255,255,.07); padding-top: 12px; margin-top: 14px; }
+  .group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+  .group > h2 {
+    margin: 0 0 9px; font-size: 11px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: #6b7080;
   }
+  .axis { margin-bottom: 11px; }
+  .axis > .label { display: block; margin-bottom: 4px; color: #7d8291; font-size: 11px; }
   .opts { display: flex; flex-wrap: wrap; gap: 4px; }
   .opt, .preset {
     border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.02); color: #8a8e99;
@@ -38,138 +36,126 @@
     transition: border-color .14s, color .14s, background .14s;
   }
   .opt:hover, .preset:hover { border-color: rgba(255,255,255,.24); color: #eef0f4; }
-  .opt[aria-pressed="true"], .preset[aria-pressed="true"] {
-    border-color: #7b7bf0; background: rgba(91,91,214,.2); color: #fff;
-  }
+  .opt[aria-pressed="true"], .preset[aria-pressed="true"] { border-color: #7b7bf0; background: rgba(91,91,214,.2); color: #fff; }
   .preset { border-radius: 999px; padding: 5px 11px; font-size: 12px; }
-  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .preset.saved { border-style: dashed; }
 
-  /* colour rows */
+  .modified {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 11.5px; color: #d3a06a;
+  }
+  .modified button {
+    border: 1px solid rgba(211,160,106,.4); background: rgba(211,160,106,.12); color: #e8c79b;
+    border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+
   .colour { display: flex; align-items: center; gap: 8px; }
-  .colour input[type="color"] {
-    width: 30px; height: 26px; padding: 0; border: 1px solid rgba(255,255,255,.14);
-    border-radius: 6px; background: none; cursor: pointer;
-  }
-  .colour code {
-    flex: 1; font: 500 11.5px/1 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #b9bdc8;
-    text-transform: uppercase;
-  }
-  .swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
-  .sw { width: 20px; height: 20px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); cursor: pointer; padding: 0; }
-  .sw:hover { outline: 2px solid rgba(255,255,255,.35); outline-offset: 1px; }
+  .colour input[type="color"] { width: 30px; height: 25px; padding: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: none; cursor: pointer; }
+  .colour code { flex: 1; font: 500 11.5px/1 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #b9bdc8; text-transform: uppercase; }
+  .sws { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .sw { width: 19px; height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); cursor: pointer; padding: 0; }
+  .sw:hover { outline: 2px solid rgba(255,255,255,.3); outline-offset: 1px; }
+  .sw[aria-pressed="true"] { outline: 2px solid #7b7bf0; outline-offset: 1px; }
+  .schemes { display: grid; grid-template-columns: repeat(auto-fill,minmax(46px,1fr)); gap: 4px; }
+  .scheme { height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.12); cursor: pointer; padding: 0; }
+  .scheme[aria-pressed="true"] { outline: 2px solid #7b7bf0; outline-offset: 1px; }
   input[type="range"] { width: 100%; accent-color: #7b7bf0; }
+  .check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #c8ccd6; cursor: pointer; }
+  .check input { accent-color: #7b7bf0; }
 
-  /* ---------- the stage ---------- */
-  .stage {
-    position: relative; min-width: 0; border-radius: 14px; overflow: hidden;
-    padding: 26px; display: grid; place-items: center;
-  }
-  /* Something has to sit behind the window or glass and mica have nothing to do. */
+  /* ---------- stage ---------- */
+  .stage { position: relative; border-radius: 14px; overflow: hidden; padding: 24px; display: grid; place-items: center; }
   .stage[data-wall="dunes"] { background: linear-gradient(160deg,#c98f5a,#8d5a3c 40%,#3b2a33 75%,#1a1620); }
   .stage[data-wall="forest"] { background: linear-gradient(160deg,#3f6f5c,#26463f 45%,#16232a 80%,#0d1418); }
   .stage[data-wall="night"] { background: linear-gradient(160deg,#2b3358,#4b3a6b 35%,#7c4a63 60%,#241d2e 88%); }
   .stage[data-wall="none"] { background: #05060a; }
 
-  /* ---------- the app under test ---------- */
   #app {
-    width: 100%; max-width: 940px; height: 560px;
-    display: flex; flex-direction: column; overflow: hidden;
-    border-radius: var(--radius);
-    border: var(--frame-border);
-    box-shadow: 0 30px 80px rgba(0,0,0,.55);
-    font-family: var(--font);
-    color: var(--text);
-    background: var(--viewer-bg);
-    backdrop-filter: var(--viewer-filter);
+    width: 100%; max-width: 940px; height: 552px; display: flex; flex-direction: column; overflow: hidden;
+    border-radius: var(--radius); border: var(--frame-border); box-shadow: 0 30px 80px rgba(0,0,0,.55);
+    font-family: var(--font); color: var(--text);
+    background: var(--bg); backdrop-filter: var(--bg-filter);
   }
-
   .titlebar {
-    display: flex; align-items: center; gap: 11px; flex: none;
-    height: 36px; padding: 0 11px;
-    font-size: calc(var(--size) + 0.5px);
-    background: var(--chrome-bg);
-    backdrop-filter: var(--chrome-filter);
-    border-bottom: var(--divider);
-    color: var(--dim);
+    display: flex; align-items: center; gap: 10px; flex: none; height: 36px; padding: 0 11px;
+    font-size: calc(var(--size) + .5px); background: var(--title); backdrop-filter: var(--title-filter);
+    border-bottom: var(--divider); color: var(--dim);
   }
   .brand { color: var(--brand); font-weight: 650; letter-spacing: -.01em; }
   .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icobtn {
-    display: grid; place-items: center; width: 28px; height: 24px; border: 0; border-radius: calc(var(--radius) / 3);
-    background: none; color: var(--icon); cursor: pointer;
-  }
+  .icobtn { display: grid; place-items: center; width: 27px; height: 23px; border: 0; border-radius: calc(var(--radius)/3); background: none; color: var(--icon); cursor: pointer; }
   .icobtn:hover { background: var(--hover); color: var(--text); }
-  .icobtn.on { color: var(--accent); }
+  .icobtn.on { color: var(--accent-solid); }
   .icobtn svg { width: 15px; height: 15px; }
 
   .body { flex: 1; display: flex; min-height: 0; }
-
-  .side {
-    width: 232px; flex: none; display: flex; flex-direction: column; min-height: 0;
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-filter);
-    border-right: var(--divider);
-  }
-  .side .head {
-    height: 30px; display: flex; align-items: center; padding: 0 12px; flex: none;
-    font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--dim);
-  }
+  .side { width: 226px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--side); backdrop-filter: var(--side-filter); border-right: var(--divider); }
+  .side .head { height: 30px; display: flex; align-items: center; padding: 0 12px; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; color: var(--dim); }
   .tree { flex: 1; padding: 0 6px; overflow: hidden; }
-  .row {
-    display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px;
-    border-radius: calc(var(--radius) / 2.4);
-    font-size: var(--size); color: var(--text-soft); white-space: nowrap; cursor: default;
-  }
+  .row { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px; border-radius: calc(var(--radius)/2.4); font-size: var(--size); color: var(--text-soft); white-space: nowrap; }
   .row .gl { width: 14px; height: 14px; flex: none; }
-  .row:hover { background: var(--hover); color: var(--text); }
   .row.hovered { background: var(--hover); color: var(--text); }
   .row.sel { background: var(--sel-bg); color: var(--sel-text); font-weight: 550; }
   .row.kid { padding-left: 22px; }
-  .tag {
-    margin-left: auto; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
-    color: var(--dim); opacity: .8;
-  }
+  .tag { margin-left: auto; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); opacity: .75; }
 
-  .viewer { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; }
-  .plate {
-    width: min(66%, 380px); aspect-ratio: 3/2; border-radius: calc(var(--radius) * 0.7);
-    background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63);
-    box-shadow: 0 12px 40px rgba(0,0,0,.45);
-  }
-  .transport {
-    position: absolute; left: 14px; right: 14px; bottom: 12px;
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 11px; border-radius: calc(var(--radius) * 0.6);
-    background: var(--chrome-bg); backdrop-filter: var(--chrome-filter);
-    border: var(--divider-line);
-    font-size: calc(var(--size) - 0.5px); color: var(--dim);
-  }
-  .bar { flex: 1; height: 3px; border-radius: 3px; background: var(--track); position: relative; }
-  .bar::before { content: ""; position: absolute; inset: 0 58% 0 0; border-radius: 3px; background: var(--accent); }
+  .viewer { flex: 1; min-width: 0; position: relative; display: grid; place-items: center; overflow: hidden; }
+  .plate { width: min(64%,360px); aspect-ratio: 3/2; border-radius: calc(var(--radius)*.7); background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); box-shadow: 0 12px 40px rgba(0,0,0,.45); }
 
-  .note { margin-top: 10px; color: #6b7080; font-size: 11.5px; text-align: center; }
+  /* the accent, as the visualizer and the progress bar use it */
+  .accentfill { background: var(--accent); background-size: 200% 100%; }
+  .glow { filter: drop-shadow(0 0 6px var(--accent-solid)); }
+  .cycle { animation: hue 6s linear infinite; }
+  .move { animation: slide 3.4s linear infinite; }
+  @keyframes hue { to { filter: hue-rotate(360deg); } }
+  @keyframes slide { to { background-position: 200% 0; } }
 
-  .recipe {
-    display: flex; align-items: center; gap: 12px; margin-top: 16px;
-    border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.02); padding: 11px 13px;
-  }
-  .recipe code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #cfd3dd;
-    font: 500 12px/1.6 "Cascadia Mono", Consolas, ui-monospace, monospace; }
-  .recipe button { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #eef0f4;
-    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  .viz { position: absolute; inset: auto 0 96px 0; display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 120px; padding: 0 26px; }
+  .viz i { flex: 1; max-width: 9px; border-radius: 2px; }
+  .viz.round i { border-radius: 999px; }
+  .viz.outline i { background: none !important; border: 1.5px solid; border-bottom: 0; }
+  .viz.mirror { align-items: center; }
+  .ring { width: 190px; height: 190px; border-radius: 50%; border: 12px solid; }
+
+  .transport { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; color: var(--dim); font-size: calc(var(--size) - .5px); }
+  .tp-inner { display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: calc(var(--radius)*.6); background: var(--title); backdrop-filter: var(--title-filter); border: var(--divider-line); }
+  .tp-plain { display: flex; align-items: center; gap: 10px; }
+  .bar { flex: 1; border-radius: 999px; background: var(--track); position: relative; overflow: hidden; }
+  .bar > span { position: absolute; inset: 0 42% 0 0; border-radius: 999px; }
+  .segs { flex: 1; display: flex; gap: 3px; }
+  .segs i { flex: 1; height: 6px; border-radius: 2px; background: var(--track); }
+  .wavebars { flex: 1; display: flex; align-items: flex-end; gap: 2px; height: 22px; }
+  .wavebars i { flex: 1; border-radius: 1px; }
+  .dot { width: 20px; height: 20px; border-radius: 50%; background: var(--icon); opacity: .8; flex: none; }
+  .sq { width: 18px; height: 18px; border-radius: 3px; background: var(--accent); flex: none; }
+
+  .note { margin-top: 9px; color: #6b7080; font-size: 11.5px; text-align: center; }
+  .recipe { display: flex; align-items: center; gap: 12px; margin-top: 14px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.02); padding: 11px 13px; }
+  .recipe code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #cfd3dd; font: 500 12px/1.6 "Cascadia Mono", Consolas, ui-monospace, monospace; }
+  .recipe button { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #eef0f4; border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+
+  /* the "you've modified this style" dialog */
+  .scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0,0,0,.55); }
+  .dlg { width: 100%; max-width: 430px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: #16181f; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); }
+  .dlg h2 { margin: 0; font-size: 14.5px; font-weight: 600; }
+  .dlg p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; color: #8a8e99; }
+  .dlg input[type="text"] { width: 100%; margin-top: 12px; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: #0d0f14; color: #fff; font: inherit; font-size: 12.5px; }
+  .dlg .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  .dlg button { border: 0; border-radius: 8px; padding: 6px 13px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .b-ghost { border: 1px solid rgba(255,255,255,.12) !important; background: rgba(255,255,255,.04); color: #d7dae1; }
+  .b-warn { background: #8a5a2a; color: #fff; }
+  .b-primary { background: #5b5bd6; color: #fff; }
+  @media (prefers-reduced-motion: reduce) { .cycle, .move { animation: none !important; } }
 </style>
 </head>
 <body>
 
-<h1>Theme lab</h1>
-<p class="sub">Ten starting points, then change anything. One row is held in its hover state so you can judge it without chasing the cursor.</p>
+<h1>Style lab</h1>
+<p class="sub">A style bundles the material, icons, font, colours and both shapes. Change anything after picking one and it's yours until you save or discard it.</p>
 
 <div class="lab">
-  <div class="rail">
-    <div class="presets" id="presets"></div>
-    <div id="axes"></div>
-  </div>
+  <div class="rail" id="rail"></div>
 
   <div>
     <div class="stage" id="stage">
@@ -177,31 +163,23 @@
         <div class="titlebar">
           <button class="icobtn on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
           <span class="brand">Prism</span>
-          <span class="grow">IMG_0421.jpg</span>
+          <span class="grow" id="nowname">IMG_0421.jpg</span>
           <span>7 / 24</span>
           <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
           <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg></button>
           <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg></button>
           <button class="icobtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
         </div>
-
         <div class="body">
           <div class="side">
             <div class="head">Trip 2026</div>
             <div class="tree" id="tree"></div>
           </div>
-          <div class="viewer">
-            <div class="plate"></div>
-            <div class="transport">
-              <span>0:41</span>
-              <div class="bar"></div>
-              <span>3:12</span>
-            </div>
-          </div>
+          <div class="viewer" id="viewer"></div>
         </div>
       </div>
     </div>
-    <p class="note">The second file row is pinned to its hover state; the third is selected.</p>
+    <p class="note">One row is pinned to its hover state, one is selected. Switch the viewer to Audio to judge the accent on the visualizer.</p>
 
     <div class="recipe">
       <code id="recipe"></code>
@@ -210,25 +188,46 @@
   </div>
 </div>
 
+<div id="dialog"></div>
+
 <script>
 /* ---------- colour helpers ---------- */
+const hex2rgb = (h) => { const s = h.replace('#',''); const n = parseInt(s.length===3?s.split('').map(c=>c+c).join(''):s,16); return [(n>>16)&255,(n>>8)&255,n&255] }
+const rgb2hex = ([r,g,b]) => '#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')
+const mix = (a,b,t) => { const A=hex2rgb(a),B=hex2rgb(b); return rgb2hex(A.map((v,i)=>v+(B[i]-v)*t)) }
+const lighten = (c,t) => mix(c,'#ffffff',t)
+const darken = (c,t) => mix(c,'#000000',t)
+const rgba = (c,a) => { const [r,g,b]=hex2rgb(c); return `rgba(${r},${g},${b},${a})` }
 
-const hex2rgb = (h) => {
-  const s = h.replace('#', '')
-  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-const rgb2hex = ([r, g, b]) => '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-/** Mix two colours: t=0 keeps a, t=1 becomes b. */
-const mix = (a, b, t) => {
-  const A = hex2rgb(a), B = hex2rgb(b)
-  return rgb2hex(A.map((v, i) => v + (B[i] - v) * t))
-}
-const lighten = (c, t) => mix(c, '#ffffff', t)
-const darken = (c, t) => mix(c, '#000000', t)
-const rgba = (c, a) => { const [r, g, b] = hex2rgb(c); return `rgba(${r},${g},${b},${a})` }
-
-/* ---------- what can be changed ---------- */
+/* ---------- Prism's real accent schemes ---------- */
+const SCHEMES = [
+  { id:'brand', name:'Brand', palette:['#5b5bd6','#9a6cff','#ff9a8b'] },
+  { id:'gradient', name:'Spectrum', palette:['#8a5cff','#ff6ac1','#ffd36a','#5cffd0','#5c9cff'] },
+  { id:'rainbow', name:'Rainbow', palette:['#ff4d6d','#ff9e2c','#ffe14a','#5cffa8','#39c2ff','#8a5cff'] },
+  { id:'neon', name:'Neon', palette:['#18e0ff','#8a5cff','#ff3df0'] },
+  { id:'aurora', name:'Aurora', palette:['#5cffd0','#39c2ff','#8a5cff','#ff6ac1'] },
+  { id:'ocean', name:'Ocean', palette:['#9bf6ff','#38aeff','#3358d8'] },
+  { id:'ice', name:'Ice', palette:['#eafcff','#8fd6ff','#3f6dff'] },
+  { id:'forest', name:'Forest', palette:['#c6ff9e','#3ec46a','#1c9a4e'] },
+  { id:'gold', name:'Gold', palette:['#fff3a0','#ffd24a','#ff9e2c'] },
+  { id:'fire', name:'Fire', palette:['#ffe14a','#ff8a1a','#ff3535','#c01418'] },
+  { id:'nebula', name:'Nebula', palette:['#8b3ff0','#db2777','#f59e0b'] },
+  { id:'ultraviolet', name:'Ultraviolet', palette:['#e9d5ff','#b56cff','#8a3ff0'] },
+  { id:'miami', name:'Miami', palette:['#00e5ff','#c026d3','#ff2fd0'] },
+  { id:'candy', name:'Candy', palette:['#a0e9ff','#c0a0ff','#ffa0e0'] },
+  { id:'s-indigo', name:'Indigo', palette:['#6366f1'] },
+  { id:'s-violet', name:'Violet', palette:['#8b5cf6'] },
+  { id:'s-blue', name:'Blue', palette:['#3b6dff'] },
+  { id:'s-sky', name:'Sky', palette:['#38bdf8'] },
+  { id:'s-teal', name:'Teal', palette:['#14b8a6'] },
+  { id:'s-green', name:'Green', palette:['#22c55e'] },
+  { id:'s-pink', name:'Pink', palette:['#ff5c9e'] },
+  { id:'s-coral', name:'Coral', palette:['#ff8a6a'] },
+  { id:'s-crimson', name:'Crimson', palette:['#e01e4a'] },
+  { id:'white', name:'White', palette:['#eef2fb'] }
+]
+const scheme = (id) => SCHEMES.find(s => s.id === id) ?? SCHEMES[0]
+const paint = (p) => p.length > 1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
 
 const FONTS = {
   system: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
@@ -240,215 +239,326 @@ const FONTS = {
   georgia: 'Georgia, "Times New Roman", serif',
   mono: '"Cascadia Mono", Consolas, ui-monospace, monospace'
 }
+const TRANSPORTS = ['slim','pill','bold','edge','outline','inline','island','wave','wavebold','segments']
+const VIZ = ['bars','outline-bars','round','round-solid','mirror','halo']
+const KIND_TINT = { image:'#6fb2a8', video:'#8f8ae0', audio:'#d3a06a', pdf:'#cf7f88', text:'#8d93a1', folder:'#9aa0f0' }
 
-const AXES = [
-  { key: 'material', label: 'Material', opts: [
-    ['solid', 'Solid'], ['gradient', 'Gradient'], ['glass', 'Glass'], ['mica', 'Mica'],
-    ['acrylic', 'Acrylic'], ['apple', 'Apple'], ['oled', 'OLED'], ['tinted', 'Accent-tinted']
-  ]},
-  { key: 'font', label: 'Font', opts: [
-    ['system', 'System'], ['segoe', 'Segoe UI'], ['bahnschrift', 'Bahnschrift'], ['calibri', 'Calibri'],
-    ['trebuchet', 'Trebuchet'], ['verdana', 'Verdana'], ['georgia', 'Georgia'], ['mono', 'Mono']
-  ]},
-  { key: 'size', label: 'Text size', opts: [['12', 'Small'], ['12.5', 'Default'], ['13.5', 'Large']] },
-  { key: 'iconMode', label: 'Icons', opts: [['kind', 'Kind tints'], ['text', 'Follow text'], ['dim', 'Muted'], ['accent', 'Accent'], ['custom', 'Custom']] },
-  { key: 'hoverMode', label: 'Hover', opts: [['light', 'Light wash'], ['accent', 'Accent tint'], ['custom', 'Custom']] },
-  { key: 'selMode', label: 'Selected row', opts: [['solid', 'Solid accent'], ['tint', 'Accent tint'], ['text', 'Accent text']] },
-  { key: 'corners', label: 'Corners', opts: [['2', 'Square'], ['8', 'Soft'], ['14', 'Round']] },
-  { key: 'borders', label: 'Edges', opts: [['hairline', 'Hairline'], ['none', 'None'], ['strong', 'Defined']] },
-  { key: 'wall', label: 'Behind the window', opts: [['night', 'Night'], ['dunes', 'Dunes'], ['forest', 'Forest'], ['none', 'None']] }
-]
-
-const COLOUR_AXES = [
-  { key: 'base', label: 'Surface', swatches: ['#0e1016', '#12141b', '#1a1d24', '#000000', '#171a21', '#101418', '#1c1a22', '#0f1418'] },
-  { key: 'accent', label: 'Accent', swatches: ['#5b5bd6', '#7b7bf0', '#4f8cff', '#37b6a6', '#d08a3e', '#c2557a', '#8b5cf6', '#3f9d54'] },
-  { key: 'text', label: 'Text', swatches: ['#eef0f4', '#ffffff', '#d7dae1', '#c8ccd6', '#e8e1d4', '#dbe6f0', '#b9bdc8'] },
-  { key: 'icon', label: 'Icon (custom)', swatches: ['#8a8e99', '#7b7bf0', '#9aa0f0', '#6fb2a8', '#d3a06a', '#ffffff'] },
-  { key: 'hover', label: 'Hover (custom)', swatches: ['#ffffff', '#5b5bd6', '#7b7bf0', '#37b6a6', '#c2557a'] }
-]
-
-const PRESETS = {
-  'Prism now': { material:'solid', base:'#0e1016', accent:'#5b5bd6', text:'#eef0f4', icon:'#8a8e99', hover:'#ffffff',
-    font:'system', size:'12.5', iconMode:'kind', hoverMode:'light', selMode:'solid', corners:'8', borders:'hairline', wall:'night', hoverStr:'6' },
-  'Slate': { material:'gradient', base:'#12141b', accent:'#4f8cff', text:'#e6e9f0', icon:'#8a8e99', hover:'#ffffff',
-    font:'segoe', size:'12.5', iconMode:'dim', hoverMode:'light', selMode:'tint', corners:'8', borders:'hairline', wall:'night', hoverStr:'7' },
-  'Mica': { material:'mica', base:'#171a21', accent:'#7b7bf0', text:'#eef0f4', icon:'#9aa0f0', hover:'#ffffff',
-    font:'system', size:'12.5', iconMode:'custom', hoverMode:'light', selMode:'tint', corners:'8', borders:'hairline', wall:'dunes', hoverStr:'8' },
-  'Glasshouse': { material:'glass', base:'#101418', accent:'#37b6a6', text:'#eaf1f2', icon:'#6fb2a8', hover:'#ffffff',
-    font:'system', size:'12.5', iconMode:'custom', hoverMode:'light', selMode:'tint', corners:'14', borders:'hairline', wall:'forest', hoverStr:'10' },
-  'Cupertino': { material:'apple', base:'#1c1e26', accent:'#4f8cff', text:'#f2f4f8', icon:'#8a8e99', hover:'#ffffff',
-    font:'system', size:'13.5', iconMode:'dim', hoverMode:'light', selMode:'solid', corners:'14', borders:'none', wall:'dunes', hoverStr:'9' },
-  'Void': { material:'oled', base:'#000000', accent:'#7b7bf0', text:'#e8eaf0', icon:'#8a8e99', hover:'#ffffff',
-    font:'segoe', size:'12', iconMode:'dim', hoverMode:'light', selMode:'text', corners:'2', borders:'hairline', wall:'none', hoverStr:'8' },
-  'Ember': { material:'tinted', base:'#1c1a22', accent:'#d08a3e', text:'#f0e7dc', icon:'#d3a06a', hover:'#d08a3e',
-    font:'calibri', size:'13.5', iconMode:'custom', hoverMode:'accent', selMode:'tint', corners:'8', borders:'hairline', wall:'dunes', hoverStr:'14' },
-  'Acrylic': { material:'acrylic', base:'#141821', accent:'#8b5cf6', text:'#eceef5', icon:'#8b5cf6', hover:'#8b5cf6',
-    font:'system', size:'12.5', iconMode:'accent', hoverMode:'accent', selMode:'solid', corners:'14', borders:'none', wall:'night', hoverStr:'12' },
-  'Terminal': { material:'solid', base:'#0d1117', accent:'#3f9d54', text:'#d7e0d9', icon:'#3f9d54', hover:'#3f9d54',
-    font:'mono', size:'12', iconMode:'accent', hoverMode:'accent', selMode:'text', corners:'2', borders:'strong', wall:'none', hoverStr:'12' },
-  'Paperback': { material:'solid', base:'#17161c', accent:'#c2557a', text:'#e8e1d4', icon:'#8a8e99', hover:'#ffffff',
-    font:'georgia', size:'13.5', iconMode:'dim', hoverMode:'light', selMode:'tint', corners:'8', borders:'none', wall:'forest', hoverStr:'7' }
+/* ---------- styles: each bundles everything ---------- */
+const STYLES = {
+  'Prism now': { material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4',
+    iconMode:'kind', icon:'#8a8e99', accentScheme:'s-indigo', glow:false, cycle:false, move:false,
+    font:'system', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'6',
+    selMode:'solid', transport:'slim', viz:'bars', wall:'night' },
+  'Slate': { material:'gradient', bg:'#0f1218', side:'#12141b', title:'#191d26', text:'#e6e9f0',
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'ocean', glow:false, cycle:false, move:true,
+    font:'segoe', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'7',
+    selMode:'tint', transport:'pill', viz:'round', wall:'night' },
+  'Mica': { material:'mica', bg:'#141720', side:'#171a21', title:'#1c2029', text:'#eef0f4',
+    iconMode:'custom', icon:'#9aa0f0', accentScheme:'brand', glow:false, cycle:false, move:false,
+    font:'system', size:'12.5', corners:'8', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'8',
+    selMode:'tint', transport:'slim', viz:'bars', wall:'dunes' },
+  'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
+    iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', glow:true, cycle:false, move:true,
+    font:'system', size:'12.5', corners:'14', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'10',
+    selMode:'tint', transport:'island', viz:'halo', wall:'forest' },
+  'Cupertino': { material:'apple', bg:'#191b22', side:'#1c1e26', title:'#22242c', text:'#f2f4f8',
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-blue', glow:false, cycle:false, move:false,
+    font:'system', size:'13.5', corners:'14', borders:'none', hoverMode:'light', hover:'#ffffff', hoverStr:'9',
+    selMode:'solid', transport:'island', viz:'round-solid', wall:'dunes' },
+  'Void': { material:'oled', bg:'#000000', side:'#000000', title:'#000000', text:'#e8eaf0',
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-violet', glow:true, cycle:false, move:false,
+    font:'segoe', size:'12', corners:'2', borders:'hairline', hoverMode:'light', hover:'#ffffff', hoverStr:'8',
+    selMode:'text', transport:'edge', viz:'outline-bars', wall:'none' },
+  'Ember': { material:'tinted', bg:'#191720', side:'#1c1a22', title:'#231f28', text:'#f0e7dc',
+    iconMode:'custom', icon:'#d3a06a', accentScheme:'gold', glow:true, cycle:false, move:true,
+    font:'calibri', size:'13.5', corners:'8', borders:'hairline', hoverMode:'accent', hover:'#d08a3e', hoverStr:'14',
+    selMode:'tint', transport:'wave', viz:'mirror', wall:'dunes' },
+  'Acrylic': { material:'acrylic', bg:'#101420', side:'#141821', title:'#1a1f2b', text:'#eceef5',
+    iconMode:'accent', icon:'#8b5cf6', accentScheme:'nebula', glow:false, cycle:true, move:true,
+    font:'system', size:'12.5', corners:'14', borders:'none', hoverMode:'accent', hover:'#8b5cf6', hoverStr:'12',
+    selMode:'solid', transport:'wavebold', viz:'round', wall:'night' },
+  'Terminal': { material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9',
+    iconMode:'accent', icon:'#3f9d54', accentScheme:'s-green', glow:true, cycle:false, move:false,
+    font:'mono', size:'12', corners:'2', borders:'strong', hoverMode:'accent', hover:'#3f9d54', hoverStr:'12',
+    selMode:'text', transport:'segments', viz:'outline-bars', wall:'none' },
+  'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
+    iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', glow:false, cycle:false, move:false,
+    font:'georgia', size:'13.5', corners:'8', borders:'none', hoverMode:'light', hover:'#ffffff', hoverStr:'7',
+    selMode:'tint', transport:'inline', viz:'mirror', wall:'forest' }
 }
 
-let S = { ...PRESETS['Prism now'] }
+const KEYS = Object.keys(STYLES['Prism now'])
+const SAVED_KEY = 'prism.lab.saved'
+const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
+let saved = loadSaved()
 
-/* ---------- painting ---------- */
+let styleName = 'Prism now'
+let S = { ...STYLES[styleName] }
+let view = 'image'
+let pending = null // a style switch waiting on the modified dialog
 
-const TREE = [
-  { name: 'Day 1 — Lisbon', kind: 'folder' },
-  { name: 'IMG_0418.jpg', kind: 'image', kid: true },
-  { name: 'IMG_0421.jpg', kind: 'image', kid: true, hovered: true },
-  { name: 'IMG_0422.jpg', kind: 'image', kid: true, sel: true },
-  { name: 'tram-ride.mp4', kind: 'video', kid: true },
-  { name: 'street-notes.md', kind: 'text', kid: true },
-  { name: 'Scans', kind: 'folder' },
-  { name: 'cover.jpg', kind: 'image' },
-  { name: 'itinerary.pdf', kind: 'pdf' },
-  { name: 'lisbon-fado.mp3', kind: 'audio' }
-]
+const bundleFor = (n) => STYLES[n] ?? saved[n]
+const modified = () => { const b = bundleFor(styleName); return !b || KEYS.some((k) => S[k] !== b[k]) }
 
-const KO = ' fill="#000" fill-opacity=".45"'
-const GLYPH = {
-  folder: '<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>',
-  image: '<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"' + KO + '/><circle cx="8.4" cy="9.2" r="1.7"' + KO + '/>',
-  video: '<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"' + KO + '/>',
-  audio: '<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>',
-  pdf: '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"' + KO + '/>',
-  text: '<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"' + KO + '/>'
-}
-
-// The per-kind tints Prism ships with today, for the "Kind tints" icon mode.
-const KIND_TINT = { image: '#6fb2a8', video: '#8f8ae0', audio: '#d3a06a', pdf: '#cf7f88', text: '#8d93a1', folder: '#9aa0f0' }
-
-function paint() {
+/* ---------- painting the app ---------- */
+function render() {
   const r = document.documentElement.style
-  const base = S.base
-  const mat = S.material
+  const m = S.material
+  const sch = scheme(S.accentScheme)
+  const accentPaint = paint(sch.palette)
+  const accentSolid = sch.palette[0]
 
-  // Surfaces, derived from the one base colour so a picker change moves the whole app.
-  let panel = base, chrome = lighten(base, .05), viewer = darken(base, .25)
-  let panelFilter = 'none', chromeFilter = 'none', viewerFilter = 'none'
-  let frameBorder = '1px solid ' + rgba('#ffffff', .08)
+  let bg = S.bg, side = S.side, title = S.title
+  let bgF = 'none', sideF = 'none', titleF = 'none'
+  let frame = '1px solid ' + rgba('#ffffff', .08)
 
-  if (mat === 'gradient') {
-    panel = `linear-gradient(180deg, ${lighten(base, .06)}, ${base})`
-    chrome = `linear-gradient(180deg, ${lighten(base, .1)}, ${lighten(base, .03)})`
-    viewer = `radial-gradient(120% 90% at 50% 0%, ${rgba(S.accent, .14)}, transparent 62%), ${darken(base, .25)}`
-  } else if (mat === 'glass') {
-    panel = rgba(base, .42); chrome = rgba(base, .5); viewer = rgba(darken(base, .2), .3)
-    panelFilter = 'blur(20px) saturate(1.3)'; chromeFilter = panelFilter; viewerFilter = 'blur(26px) saturate(1.2)'
-  } else if (mat === 'mica') {
-    panel = rgba(base, .84); chrome = rgba(lighten(base, .05), .86); viewer = rgba(darken(base, .18), .9)
-    panelFilter = 'blur(48px) saturate(1.1)'; chromeFilter = panelFilter; viewerFilter = panelFilter
-  } else if (mat === 'acrylic') {
-    panel = rgba(base, .62); chrome = rgba(lighten(base, .06), .66); viewer = rgba(darken(base, .2), .72)
-    panelFilter = 'blur(34px) saturate(1.6) brightness(1.05)'; chromeFilter = panelFilter; viewerFilter = panelFilter
-  } else if (mat === 'apple') {
-    panel = rgba(lighten(base, .04), .58); chrome = rgba(lighten(base, .08), .6); viewer = rgba(darken(base, .12), .82)
-    panelFilter = 'blur(28px) saturate(1.9)'; chromeFilter = panelFilter; viewerFilter = 'blur(18px) saturate(1.4)'
-    frameBorder = '1px solid ' + rgba('#ffffff', .16)
-  } else if (mat === 'oled') {
-    panel = '#000000'; chrome = '#000000'; viewer = '#000000'
-  } else if (mat === 'tinted') {
-    panel = mix(base, S.accent, .1); chrome = mix(lighten(base, .05), S.accent, .14); viewer = mix(darken(base, .2), S.accent, .06)
+  if (m === 'gradient') {
+    bg = `radial-gradient(120% 90% at 50% 0%, ${rgba(accentSolid,.13)}, transparent 62%), ${S.bg}`
+    side = `linear-gradient(180deg, ${lighten(S.side,.06)}, ${S.side})`
+    title = `linear-gradient(180deg, ${lighten(S.title,.07)}, ${S.title})`
+  } else if (m === 'glass') {
+    bg = rgba(S.bg,.32); side = rgba(S.side,.42); title = rgba(S.title,.5)
+    bgF = 'blur(26px) saturate(1.2)'; sideF = 'blur(20px) saturate(1.3)'; titleF = sideF
+  } else if (m === 'mica') {
+    bg = rgba(S.bg,.9); side = rgba(S.side,.84); title = rgba(S.title,.86)
+    bgF = sideF = titleF = 'blur(48px) saturate(1.1)'
+  } else if (m === 'acrylic') {
+    bg = rgba(S.bg,.72); side = rgba(S.side,.62); title = rgba(S.title,.66)
+    bgF = sideF = titleF = 'blur(34px) saturate(1.6) brightness(1.05)'
+  } else if (m === 'apple') {
+    bg = rgba(S.bg,.82); side = rgba(lighten(S.side,.04),.58); title = rgba(lighten(S.title,.06),.6)
+    bgF = 'blur(18px) saturate(1.4)'; sideF = 'blur(28px) saturate(1.9)'; titleF = sideF
+    frame = '1px solid ' + rgba('#ffffff', .16)
+  } else if (m === 'tinted') {
+    bg = mix(S.bg, accentSolid, .07); side = mix(S.side, accentSolid, .1); title = mix(S.title, accentSolid, .12)
   }
 
-  const divider =
-    S.borders === 'none' ? '0 solid transparent'
+  const divider = S.borders === 'none' ? '0 solid transparent'
     : S.borders === 'strong' ? '1px solid ' + rgba('#ffffff', .16)
     : '1px solid ' + rgba('#ffffff', .07)
+  const hoverCol = S.hoverMode === 'accent' ? accentSolid : S.hoverMode === 'custom' ? S.hover : '#ffffff'
+  const icon = S.iconMode === 'text' ? S.text : S.iconMode === 'accent' ? accentSolid
+    : S.iconMode === 'custom' ? S.icon : mix(S.text, S.side, .45)
 
-  const hoverColour = S.hoverMode === 'accent' ? S.accent : S.hoverMode === 'custom' ? S.hover : '#ffffff'
-  const icon = S.iconMode === 'text' ? S.text : S.iconMode === 'accent' ? S.accent
-    : S.iconMode === 'custom' ? S.icon : mix(S.text, base, .45)
-
-  r.setProperty('--font', FONTS[S.font])
-  r.setProperty('--size', S.size + 'px')
-  r.setProperty('--radius', S.corners + 'px')
-  r.setProperty('--panel-bg', panel)
-  r.setProperty('--chrome-bg', chrome)
-  r.setProperty('--viewer-bg', viewer)
-  r.setProperty('--panel-filter', panelFilter)
-  r.setProperty('--chrome-filter', chromeFilter)
-  r.setProperty('--viewer-filter', viewerFilter)
-  r.setProperty('--frame-border', frameBorder)
-  r.setProperty('--divider', divider)
-  r.setProperty('--divider-line', S.borders === 'none' ? '1px solid ' + rgba('#ffffff', .06) : divider)
-  r.setProperty('--text', S.text)
-  r.setProperty('--text-soft', mix(S.text, base, .22))
-  r.setProperty('--dim', mix(S.text, base, .45))
-  r.setProperty('--accent', S.accent)
-  r.setProperty('--brand', mat === 'oled' ? S.accent : lighten(S.accent, .35))
-  r.setProperty('--icon', icon)
-  r.setProperty('--hover', rgba(hoverColour, Number(S.hoverStr) / 100))
+  r.setProperty('--font', FONTS[S.font]); r.setProperty('--size', S.size + 'px'); r.setProperty('--radius', S.corners + 'px')
+  r.setProperty('--bg', bg); r.setProperty('--side', side); r.setProperty('--title', title)
+  r.setProperty('--bg-filter', bgF); r.setProperty('--side-filter', sideF); r.setProperty('--title-filter', titleF)
+  r.setProperty('--frame-border', frame); r.setProperty('--divider', divider)
+  r.setProperty('--divider-line', S.borders === 'none' ? '1px solid ' + rgba('#ffffff',.06) : divider)
+  r.setProperty('--text', S.text); r.setProperty('--text-soft', mix(S.text, S.side, .22)); r.setProperty('--dim', mix(S.text, S.side, .45))
+  r.setProperty('--accent', accentPaint); r.setProperty('--accent-solid', accentSolid)
+  r.setProperty('--brand', lighten(accentSolid, .3)); r.setProperty('--icon', icon)
+  r.setProperty('--hover', rgba(hoverCol, Number(S.hoverStr)/100))
   r.setProperty('--track', rgba(S.text, .16))
-  r.setProperty('--sel-bg', S.selMode === 'solid' ? S.accent : S.selMode === 'tint' ? rgba(S.accent, .26) : 'transparent')
-  r.setProperty('--sel-text', S.selMode === 'text' ? lighten(S.accent, .3) : '#ffffff')
-
+  r.setProperty('--sel-bg', S.selMode === 'solid' ? accentSolid : S.selMode === 'tint' ? rgba(accentSolid,.26) : 'transparent')
+  r.setProperty('--sel-text', S.selMode === 'text' ? lighten(accentSolid,.3) : '#ffffff')
   document.getElementById('stage').dataset.wall = S.wall
 
+  // tree
+  const TREE = [
+    { name:'Day 1 — Lisbon', kind:'folder' },
+    { name:'IMG_0418.jpg', kind:'image', kid:true },
+    { name:'IMG_0421.jpg', kind:'image', kid:true, hovered:true },
+    { name:'IMG_0422.jpg', kind:'image', kid:true, sel:true },
+    { name:'tram-ride.mp4', kind:'video', kid:true },
+    { name:'street-notes.md', kind:'text', kid:true },
+    { name:'Scans', kind:'folder' },
+    { name:'lisbon-fado.mp3', kind:'audio' },
+    { name:'itinerary.pdf', kind:'pdf' }
+  ]
+  const KO = ' fill="#000" fill-opacity=".45"'
+  const GLYPH = {
+    folder:'<path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z"/>',
+    image:'<path d="M3.5 5h17v14h-17z"/><path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z"'+KO+'/><circle cx="8.4" cy="9.2" r="1.7"'+KO+'/>',
+    video:'<path d="M3.5 5h17v14h-17z"/><path d="M10 9.2l5.6 2.8L10 14.8z"'+KO+'/>',
+    audio:'<path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z"/>',
+    pdf:'<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 15.5h6.8v3.2H8.6z"'+KO+'/>',
+    text:'<path d="M6 2.5h7.5L19 8v13.5H6z"/><path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z"'+KO+'/>'
+  }
   document.getElementById('tree').innerHTML = TREE.map((n) => {
-    const cls = ['row', n.kid ? 'kid' : '', n.sel ? 'sel' : '', n.hovered ? 'hovered' : ''].filter(Boolean).join(' ')
+    const cls = ['row', n.kid?'kid':'', n.sel?'sel':'', n.hovered?'hovered':''].filter(Boolean).join(' ')
     const col = S.iconMode === 'kind' ? KIND_TINT[n.kind] : 'var(--icon)'
-    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${GLYPH[n.kind]}</svg>${n.name}` +
-      (n.hovered ? '<span class="tag">hover</span>' : n.sel ? '<span class="tag">open</span>' : '') + '</div>'
+    const tag = n.hovered ? '<span class="tag">hover</span>' : n.sel ? '<span class="tag">open</span>' : ''
+    return `<div class="${cls}"><svg class="gl" viewBox="0 0 24 24" fill="${col}">${GLYPH[n.kind]}</svg>${n.name}${tag}</div>`
   }).join('')
 
-  // controls
-  document.querySelectorAll('.opt').forEach((b) => b.setAttribute('aria-pressed', String(S[b.dataset.axis] === b.dataset.value)))
-  COLOUR_AXES.forEach((c) => {
-    const input = document.querySelector(`input[data-colour="${c.key}"]`)
-    if (input) { input.value = S[c.key]; input.nextElementSibling.textContent = S[c.key] }
-  })
-  const match = Object.entries(PRESETS).find(([, p]) => Object.keys(p).every((k) => p[k] === S[k]))
-  document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-pressed', String(!!match && match[0] === b.dataset.preset)))
+  // viewer: the picture, or the visualizer when there's audio playing
+  const fx = ['accentfill', S.glow?'glow':'', S.cycle?'cycle':'', S.move?'move':''].filter(Boolean).join(' ')
+  const bars = (n, cls) => Array.from({length:n}, (_,i) => {
+    const h = 18 + Math.abs(Math.sin(i*0.7) * Math.cos(i*0.21)) * 78
+    return `<i class="${cls}" style="height:${h}%"></i>`
+  }).join('')
+  document.getElementById('nowname').textContent = view === 'audio' ? 'lisbon-fado.mp3' : 'IMG_0421.jpg'
+  const vizHtml =
+    view !== 'audio' ? '<div class="plate"></div>'
+    : S.viz === 'halo' ? `<div class="ring ${fx}" style="border-image:${paint(scheme(S.accentScheme).palette)} 1; border-color:${accentSolid}"></div>`
+    : S.viz === 'outline-bars' ? `<div class="viz outline" style="color:${accentSolid}">${bars(40,'')}</div>`
+    : S.viz === 'round' ? `<div class="viz round">${bars(34, fx)}</div>`
+    : S.viz === 'round-solid' ? `<div class="viz round">${bars(26, fx)}</div>`
+    : S.viz === 'mirror' ? `<div class="viz mirror">${bars(44, fx)}</div>`
+    : `<div class="viz">${bars(40, fx)}</div>`
 
+  // the transport, in the shape the style asks for
+  const t = S.transport
+  const label = (l) => `<span>${l}</span>`
+  const barOf = (h) => `<div class="bar" style="height:${h}px"><span class="${fx}"></span></div>`
+  let tp
+  if (t === 'segments') tp = `<div class="tp-plain">${label('0:41')}<div class="segs">${Array.from({length:26},(_,i)=>`<i class="${i<11?fx:''}"></i>`).join('')}</div>${label('3:12')}</div>`
+  else if (t === 'wave' || t === 'wavebold') tp = `<div class="tp-plain">${label('0:41')}<div class="wavebars" style="height:${t==='wavebold'?28:20}px">${bars(56, fx)}</div>${label('3:12')}</div>`
+  else if (t === 'island') tp = `<div class="tp-inner" style="max-width:340px;margin:0 auto;border-radius:999px"><span class="dot"></span>${barOf(3)}${label('3:12')}</div>`
+  else if (t === 'inline') tp = `<div class="tp-plain"><span class="dot"></span>${label('0:41')}${barOf(3)}${label('3:12')}<span class="dot"></span></div>`
+  else if (t === 'bold') tp = `<div class="tp-plain"><span class="sq"></span>${label('0:41')}${barOf(6)}${label('3:12')}</div>`
+  else if (t === 'pill') tp = `<div class="tp-plain">${label('0:41')}${barOf(8)}${label('3:12')}</div>`
+  else if (t === 'edge') tp = `<div class="tp-plain" style="padding-bottom:2px">${label('0:41')}${barOf(2)}${label('3:12')}</div>`
+  else if (t === 'outline') tp = `<div class="tp-plain">${label('0:41')}${barOf(2)}${label('3:12')}</div>`
+  else tp = `<div class="tp-plain">${label('0:41')}${barOf(3)}${label('3:12')}</div>`
+
+  document.getElementById('viewer').innerHTML = vizHtml + `<div class="transport">${tp}</div>`
+
+  renderRail()
   document.getElementById('recipe').textContent =
-    `material=${S.material} base=${S.base} accent=${S.accent} text=${S.text} icon=${S.iconMode}${S.iconMode === 'custom' ? ':' + S.icon : ''} ` +
-    `hover=${S.hoverMode}${S.hoverMode === 'custom' ? ':' + S.hover : ''}@${S.hoverStr}% selected=${S.selMode} font=${S.font} size=${S.size} corners=${S.corners} edges=${S.borders}`
+    `style=${styleName}${modified()?'*':''} material=${S.material} bg=${S.bg} sidebar=${S.side} titlebar=${S.title} ` +
+    `text=${S.text} icons=${S.iconMode}${S.iconMode==='custom'?':'+S.icon:''} accent=${S.accentScheme}` +
+    `${S.glow?'+glow':''}${S.cycle?'+cycle':''}${S.move?'+move':''} hover=${S.hoverMode}@${S.hoverStr}% selected=${S.selMode} ` +
+    `font=${S.font}/${S.size} corners=${S.corners} edges=${S.borders} bar=${S.transport} viz=${S.viz}`
 }
 
-/* ---------- controls ---------- */
+/* ---------- the control rail ---------- */
+function opts(key, list) {
+  return `<div class="opts">${list.map(([v,l]) => `<button class="opt" data-k="${key}" data-v="${v}" aria-pressed="${String(S[key]===v)}">${l}</button>`).join('')}</div>`
+}
+function colourRow(key, label, swatches) {
+  return `<div class="axis"><span class="label">${label}</span>
+    <div class="colour"><input type="color" data-c="${key}" value="${S[key]}" /><code>${S[key]}</code></div>
+    <div class="sws">${swatches.map(s=>`<button class="sw" data-set="${key}" data-v="${s}" style="background:${s}" title="${s}" aria-pressed="${String(S[key].toLowerCase()===s.toLowerCase())}"></button>`).join('')}</div></div>`
+}
 
-document.getElementById('presets').innerHTML = Object.keys(PRESETS)
-  .map((n) => `<button class="preset" data-preset="${n}">${n}</button>`).join('')
+function renderRail() {
+  const names = [...Object.keys(STYLES), ...Object.keys(saved)]
+  document.getElementById('rail').innerHTML = `
+    <div class="group">
+      <h2>Style</h2>
+      <div class="presets">${names.map(n =>
+        `<button class="preset ${saved[n]?'saved':''}" data-style="${n}" aria-pressed="${String(n===styleName)}">${n}</button>`).join('')}</div>
+      ${modified() ? `<div class="modified">Modified <button data-act="save">Save as preset…</button><button data-act="revert">Revert</button></div>` : ''}
+      <div class="axis" style="margin-top:10px"><span class="label">Material</span>
+        ${opts('material', [['solid','Solid'],['gradient','Gradient'],['glass','Glass'],['mica','Mica'],['acrylic','Acrylic'],['apple','Apple'],['oled','OLED'],['tinted','Accent-tinted']])}</div>
+      <div class="axis"><span class="label">Corners</span>${opts('corners',[['2','Square'],['8','Soft'],['14','Round']])}</div>
+      <div class="axis"><span class="label">Edges</span>${opts('borders',[['hairline','Hairline'],['none','None'],['strong','Defined']])}</div>
+      <div class="axis"><span class="label">Behind the window</span>${opts('wall',[['night','Night'],['dunes','Dunes'],['forest','Forest'],['none','None']])}</div>
+    </div>
 
-document.getElementById('axes').innerHTML =
-  COLOUR_AXES.map((c) => `
-    <div class="axis">
-      <span class="label">${c.label}</span>
-      <div class="colour">
-        <input type="color" data-colour="${c.key}" value="${S[c.key]}" />
-        <code>${S[c.key]}</code>
-      </div>
-      <div class="swatches">
-        ${c.swatches.map((s) => `<button class="sw" data-set="${c.key}" data-value="${s}" style="background:${s}" title="${s}"></button>`).join('')}
-      </div>
-    </div>`).join('') +
-  `<div class="axis">
-     <span class="label">Hover strength</span>
-     <input type="range" id="hoverStr" min="2" max="30" value="${S.hoverStr}" />
-   </div>` +
-  AXES.map((a) => `
-    <div class="axis">
-      <span class="label">${a.label}</span>
-      <div class="opts">
-        ${a.opts.map(([v, l]) => `<button class="opt" data-axis="${a.key}" data-value="${v}">${l}</button>`).join('')}
-      </div>
-    </div>`).join('')
+    <div class="group">
+      <h2>Font</h2>
+      <div class="axis">${opts('font',[['system','System'],['segoe','Segoe UI'],['bahnschrift','Bahnschrift'],['calibri','Calibri'],['trebuchet','Trebuchet'],['verdana','Verdana'],['georgia','Georgia'],['mono','Mono']])}</div>
+      <div class="axis"><span class="label">Size</span>${opts('size',[['12','Small'],['12.5','Default'],['13.5','Large']])}</div>
+    </div>
 
+    <div class="group">
+      <h2>Colours</h2>
+      ${colourRow('bg','Background', ['#0d0f14','#000000','#12141b','#191b22','#0b0f14','#141319'])}
+      ${colourRow('side','Sidebar', ['#0e1016','#000000','#12141b','#1c1e26','#0d1117','#17161c'])}
+      ${colourRow('title','Title bar', ['#16181f','#000000','#191d26','#22242c','#11161d','#1d1b23'])}
+      ${colourRow('text','Text', ['#eef0f4','#ffffff','#d7dae1','#e8e1d4','#d7e0d9','#c8ccd6'])}
+      <div class="axis"><span class="label">Icons</span>
+        ${opts('iconMode',[['kind','Kind tints'],['text','Follow text'],['dim','Muted'],['accent','Accent'],['custom','Custom']])}</div>
+      ${S.iconMode === 'custom' ? colourRow('icon','Icon colour', ['#8a8e99','#9aa0f0','#6fb2a8','#d3a06a','#ffffff']) : ''}
+      <div class="axis"><span class="label">Accent — progress bar, visualizer, selection</span>
+        <div class="schemes">${SCHEMES.map(s =>
+          `<button class="scheme" data-scheme="${s.id}" title="${s.name}" aria-pressed="${String(S.accentScheme===s.id)}" style="background:${paint(s.palette)}"></button>`).join('')}</div></div>
+      <div class="axis"><span class="label">Accent effects (progress bar + visualizer only)</span>
+        <div class="opts">
+          <button class="opt" data-toggle="glow" aria-pressed="${String(S.glow)}">Glow</button>
+          <button class="opt" data-toggle="cycle" aria-pressed="${String(S.cycle)}">Cycle</button>
+          <button class="opt" data-toggle="move" aria-pressed="${String(S.move)}">Move</button>
+        </div></div>
+      <div class="axis"><span class="label">Selected row</span>${opts('selMode',[['solid','Solid accent'],['tint','Accent tint'],['text','Accent text']])}</div>
+      <div class="axis"><span class="label">Hover</span>${opts('hoverMode',[['light','Light wash'],['accent','Accent tint'],['custom','Custom']])}</div>
+      ${S.hoverMode === 'custom' ? colourRow('hover','Hover colour', ['#ffffff','#5b5bd6','#37b6a6','#d08a3e','#c2557a']) : ''}
+      <div class="axis"><span class="label">Hover strength</span><input type="range" data-range="hoverStr" min="2" max="30" value="${S.hoverStr}" /></div>
+    </div>
+
+    <div class="group">
+      <h2>Shapes</h2>
+      <div class="axis"><span class="label">Progress bar</span>${opts('transport', TRANSPORTS.map(t=>[t,t]))}</div>
+      <div class="axis"><span class="label">Visualizer</span>${opts('viz', VIZ.map(v=>[v,v]))}</div>
+      <div class="axis"><span class="label">Viewer shows</span>
+        <div class="opts">
+          <button class="opt" data-view="image" aria-pressed="${String(view==='image')}">Image</button>
+          <button class="opt" data-view="audio" aria-pressed="${String(view==='audio')}">Audio</button>
+        </div></div>
+    </div>`
+}
+
+/* ---------- the modified-style dialog ---------- */
+function askAbout(next) {
+  pending = next
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg">
+        <h2>You've changed ${styleName}</h2>
+        <p>Switching to ${next} discards those changes. Save them as a preset first and you can come back to them.</p>
+        <input type="text" id="pname" placeholder="${styleName} (mine)" />
+        <div class="acts">
+          <button class="b-ghost" data-dlg="cancel">Cancel</button>
+          <button class="b-warn" data-dlg="discard">Discard and switch</button>
+          <button class="b-primary" data-dlg="save">Save and switch</button>
+        </div>
+      </div>
+    </div>`
+  document.getElementById('pname').focus()
+}
+const closeDialog = () => { pending = null; document.getElementById('dialog').innerHTML = '' }
+function saveAs(name) {
+  saved = { ...saved, [name]: { ...S } }
+  localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+}
+
+/* ---------- events ---------- */
 document.addEventListener('click', (e) => {
-  const opt = e.target.closest('.opt')
-  if (opt) { S[opt.dataset.axis] = opt.dataset.value; paint(); return }
-  const sw = e.target.closest('.sw')
-  if (sw) { S[sw.dataset.set] = sw.dataset.value; paint(); return }
-  const pre = e.target.closest('.preset')
-  if (pre) { S = { ...PRESETS[pre.dataset.preset] }; document.getElementById('hoverStr').value = S.hoverStr; paint() }
+  const t = e.target
+  const dlg = t.closest('[data-dlg]')
+  if (dlg) {
+    const act = dlg.dataset.dlg
+    if (act === 'cancel') { closeDialog(); return }
+    if (act === 'save') {
+      const input = document.getElementById('pname')
+      saveAs((input.value || input.placeholder).trim())
+    }
+    const next = pending
+    closeDialog()
+    styleName = next; S = { ...bundleFor(next) }; render()
+    return
+  }
+  const style = t.closest('[data-style]')
+  if (style) {
+    const next = style.dataset.style
+    if (next === styleName) return
+    if (modified()) askAbout(next)
+    else { styleName = next; S = { ...bundleFor(next) }; render() }
+    return
+  }
+  const act = t.closest('[data-act]')
+  if (act) {
+    if (act.dataset.act === 'revert') { S = { ...bundleFor(styleName) }; render() }
+    else askAbout(styleName)
+    return
+  }
+  const opt = t.closest('[data-k]')
+  if (opt) { S[opt.dataset.k] = opt.dataset.v; render(); return }
+  const sw = t.closest('[data-set]')
+  if (sw) { S[sw.dataset.set] = sw.dataset.v; render(); return }
+  const sc = t.closest('[data-scheme]')
+  if (sc) { S.accentScheme = sc.dataset.scheme; render(); return }
+  const tg = t.closest('[data-toggle]')
+  if (tg) { S[tg.dataset.toggle] = !S[tg.dataset.toggle]; render(); return }
+  const vw = t.closest('[data-view]')
+  if (vw) { view = vw.dataset.view; render() }
 })
 
 document.addEventListener('input', (e) => {
-  if (e.target.dataset.colour) { S[e.target.dataset.colour] = e.target.value; paint() }
-  else if (e.target.id === 'hoverStr') { S.hoverStr = e.target.value; paint() }
+  if (e.target.dataset.c) { S[e.target.dataset.c] = e.target.value; render() }
+  else if (e.target.dataset.range) { S[e.target.dataset.range] = e.target.value; render() }
 })
 
 document.getElementById('copy').addEventListener('click', async (e) => {
@@ -457,7 +567,7 @@ document.getElementById('copy').addEventListener('click', async (e) => {
   setTimeout(() => { e.target.textContent = 'Copy recipe' }, 1400)
 })
 
-paint()
+render()
 </script>
 </body>
 </html>
