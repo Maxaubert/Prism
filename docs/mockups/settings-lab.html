@@ -340,10 +340,7 @@ const card = (on, inner, name, note) =>
 function content() {
   if (S.tab === 'style') return `
     <div class="sect">
-      <div class="h">Styles <span>the same wallpaper behind every card, so only the material differs</span></div>
-      <div class="chips" style="margin-bottom:10px">
-        ${['night','dunes','forest','none'].map(w=>`<button class="chip" data-wall="${w}" aria-pressed="${String(WALLPAPER===w)}">${w[0].toUpperCase()+w.slice(1)}</button>`).join('')}
-      </div>
+      <div class="h">Styles <span>the same backdrop behind every card, so only the material differs</span></div>
       <div class="grid">${STYLES.map(st =>
         `<button class="card" data-style="${st.id}" aria-pressed="${String(S.style===st.id)}">
            ${mini(st)}
