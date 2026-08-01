@@ -353,6 +353,75 @@ function contrast(a: string, b: string): number {
 export const readableOn = (bg: string): string =>
   contrast(bg, '#0b0d12') >= contrast(bg, '#ffffff') * 1.4 ? '#0b0d12' : '#ffffff'
 
+/**
+ * Dim `text` towards `surface` as far as it can go while still clearing
+ * `target` contrast. Mixing by a fixed fraction is what produced grey-on-white:
+ * on a dark style it dims, on a light one it washes the text out.
+ */
+export function dimmed(text: string, surface: string, target: number): string {
+  let out = text
+  for (let t = 0.05; t <= 0.75; t += 0.05) {
+    const c = mix(text, surface, t)
+    if (contrast(c, surface) < target) break
+    out = c
+  }
+  return out
+}
+
+/**
+ * The accent, nudged until its label clears AA. A selected row is the one place
+ * text sits ON the accent, and some perfectly good accents land just short:
+ * indigo gives white 4.47:1. Deepen (or lighten) it a touch rather than ban the
+ * colour or ship text that fails.
+ */
+export function selectionBg(accent: string): string {
+  const ink = readableOn(accent)
+  const towards = ink === '#ffffff' ? '#000000' : '#ffffff'
+  if (contrast(ink, accent) >= 4.5) return accent
+  for (let t = 0.04; t <= 0.6; t += 0.04) {
+    const bg = mix(accent, towards, t)
+    if (contrast(ink, bg) >= 4.5) return bg
+  }
+  return mix(accent, towards, 0.6)
+}
+
+/** The per-kind tints, dark enough to read on a light surface. */
+export const KIND_TINTS: Record<string, string> = {
+  image: '#6fb2a8',
+  video: '#8f8ae0',
+  audio: '#d3a06a',
+  pdf: '#cf7f88',
+  text: '#8d93a1',
+  folder: '#9aa0f0'
+}
+
+/** Everything a style resolves to. Exported so the styles can be checked. */
+export function derive(style: Style): Record<string, string> {
+  const palette = accentOf(style.accent)
+  const accent = palette[0]
+  const side = style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side
+  const bg = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
+  const light = style.mode === 'light'
+  const kinds: Record<string, string> = {}
+  for (const [k, v] of Object.entries(KIND_TINTS)) {
+    // The tints were picked for a dark panel; on paper they need taking down.
+    kinds['--p-kind-' + k] = light ? mix(v, '#000000', 0.42) : v
+  }
+  return {
+    '--p-bg': bg,
+    '--p-side-flat': side,
+    '--p-text': style.text,
+    '--p-text-soft': dimmed(style.text, side, 7),
+    '--p-dim': dimmed(style.text, side, 4.5),
+    '--p-dim2': dimmed(style.text, side, 3.2),
+    '--p-accent': accent,
+    '--p-accent-hi': light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25),
+    '--p-sel-bg': selectionBg(accent),
+    '--p-on-accent': readableOn(selectionBg(accent)),
+    ...kinds
+  }
+}
+
 /* ---------- applying a style ---------- */
 
 const accentOf = (id: string): string[] => THEMES.find((t) => t.id === id)?.palette ?? ['#5b5bd6']
@@ -397,20 +466,16 @@ function paint(style: Style): void {
         ? accent
         : style.iconMode === 'custom'
           ? style.icon
-          : mix(style.text, style.side, 0.45)
+          : dimmed(style.text, style.side, 4.5)
 
   const set = (k: string, v: string): void => r.setProperty(k, v)
   set('--p-bg', bg)
   set('--p-side', side)
   set('--p-side-flat', style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side)
   set('--p-title', title)
-  set('--p-text', style.text)
-  set('--p-text-soft', mix(style.text, style.side, 0.22))
-  set('--p-dim', mix(style.text, style.side, 0.45))
-  set('--p-dim2', mix(style.text, style.side, 0.62))
-  set('--p-accent', accent)
-  set('--p-accent-hi', lighten(accent, 0.25))
-  set('--p-on-accent', readableOn(accent))
+  for (const [k, v] of Object.entries(derive(style))) {
+    if (k !== '--p-bg' && k !== '--p-side-flat') set(k, v)
+  }
   set('--p-icon', icon)
   set('--p-hover', rgba(ink, style.mode === 'light' ? 0.07 : 0.06))
   set('--p-divider', divider)
@@ -421,9 +486,12 @@ function paint(style: Style): void {
   set('--p-row', (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px')
   set('--p-indent', (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px')
   document.documentElement.dataset.icons = style.iconMode
+  document.documentElement.dataset.mode = style.mode
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
-  window.prism?.setWindowMaterial(translucent ? style.material : 'none')
+  if (typeof window !== 'undefined') {
+    window.prism?.setWindowMaterial(translucent ? style.material : 'none')
+  }
 }
 
 /* ---------- the store ---------- */
