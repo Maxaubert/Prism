@@ -51,20 +51,20 @@ export function Dialog({
         onMouseDown={(e) => e.stopPropagation()}
         className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-white/10 bg-[var(--p-title)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
       >
-        <h2 className="text-[14.5px] font-semibold text-white">{title}</h2>
-        {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-dim)]">{body}</div>}
+        <h2 className="text-[14.5px] font-semibold text-[var(--p-text)]">{title}</h2>
+        {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]">{body}</div>}
         <div className="mt-5 flex justify-end gap-2">
           {choices.map((c) => (
             <button
               key={c.label}
               data-primary={c.primary ? 'true' : undefined}
               onClick={c.onPick}
-              className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-hi)] ${
+              className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
                 c.danger
                   ? 'bg-[#b4353f] text-white hover:brightness-110'
                   : c.primary
-                    ? 'bg-[var(--color-accent)] text-white hover:brightness-110'
-                    : 'border border-white/12 bg-white/[.04] text-[#d7dae1] hover:border-white/25 hover:text-white'
+                    ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
+                    : 'border border-[color:var(--p-divider)] bg-[var(--p-hover)] text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
               }`}
             >
               {c.label}

@@ -79,6 +79,15 @@ body,
   --p-size: 12.5px;
   --p-row: 26px;
   --p-indent: 13px;
+
+  /* The original palette tokens, now aliases. The transport, the video and
+     image chrome and a few odds still reference these; pointing them at the
+     style means they follow it without every call site being rewritten. */
+  --color-ink: var(--p-text);
+  --color-dim: var(--p-dim);
+  --color-accent: var(--p-accent);
+  --color-accent-hi: var(--p-accent-hi);
+  --color-panel: var(--p-title);
 }
 
 body {

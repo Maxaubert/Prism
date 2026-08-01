@@ -47,7 +47,7 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
       strokeWidth="2.4"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`shrink-0 text-[var(--color-dim2,#6b7080)] transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+      className={`shrink-0 text-[var(--p-dim2)] transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
       aria-hidden
     >
       <path d="M9 6l6 6-6 6" />
@@ -148,7 +148,7 @@ function Label({ name }: { name: string }): JSX.Element {
 /** A muted, unclickable row: "empty", "can't read", "loading". */
 function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
   return (
-    <div className="py-[5px] text-[11.5px] italic text-[var(--color-dim2,#6b7080)]" style={{ paddingLeft: pad + 20 }}>
+    <div className="py-[5px] text-[11.5px] italic text-[var(--p-dim2)]" style={{ paddingLeft: pad + 20 }}>
       {text}
     </div>
   )
@@ -197,7 +197,7 @@ function RenameRow({ name, pad, size, onSubmit, onCancel }: {
           if (e.key === 'Enter') finish(true)
           else if (e.key === 'Escape') finish(false)
         }}
-        className="w-full rounded border border-[var(--color-accent-hi)] bg-[#0a0c11] px-1.5 py-0.5 text-white outline-none"
+        className="w-full rounded border border-[var(--p-accent-hi)] bg-[var(--p-bg)] px-1.5 py-0.5 text-[var(--p-text)] outline-none"
         style={{ fontSize: size.font }}
       />
     </div>
@@ -236,7 +236,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
               t.onDelete(path, name, true)
             }
           }}
-          className="flex w-full items-center gap-1.5 rounded-md pr-2 text-left text-[#c4c8d2] transition-colors hover:bg-white/[.06] hover:text-white"
+          className="flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
           <Chevron open={open} />
@@ -271,7 +271,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const guide = depth > 0 ? 4 + (depth - 1) * t.size.indent + 6 : -1
   return (
     <ul role="group" className="relative list-none">
-      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-white/[.07]" style={{ left: guide }} aria-hidden />}
+      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-[var(--p-divider)]" style={{ left: guide }} aria-hidden />}
       {listing.folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} />
       ))}
@@ -307,7 +307,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 }
               }}
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors ${
-                on ? 'bg-[var(--color-accent)] font-medium text-white' : 'text-[#b9bdc8] hover:bg-white/[.06] hover:text-white'
+                on
+                  ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                  : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
             >
