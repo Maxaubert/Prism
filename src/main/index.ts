@@ -327,6 +327,19 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.on('window:close', () => mainWindow?.close())
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => mainWindow?.setFullScreen(!!on))
+    // Windows 11 composites acrylic and mica behind the window; CSS can't, since
+    // backdrop-filter only sees the app's own pixels. The window background has
+    // to go transparent for the material to show through.
+    ipcMain.on('window:material', (_e, material: string) => {
+      if (!mainWindow) return
+      try {
+        const m = material as 'none' | 'acrylic' | 'mica' | 'tabbed'
+        mainWindow.setBackgroundColor(m === 'none' ? '#111318' : '#00000000')
+        mainWindow.setBackgroundMaterial(m)
+      } catch {
+        /* older Windows, or an unsupported value: the solid background stands */
+      }
+    })
 
     createWindow()
     app.on('activate', () => {

@@ -364,7 +364,7 @@ export default function App(): JSX.Element {
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
-    <div className="flex h-full flex-col bg-[var(--p-bg)] text-[var(--p-text)]">
+    <div className="flex h-full flex-col bg-[var(--p-bg)] text-[var(--p-text)] [font-size:var(--p-size)]">
       {!fullscreen && (
         <TopBar
           file={file}
