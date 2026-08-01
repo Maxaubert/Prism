@@ -354,18 +354,20 @@ export const readableOn = (bg: string): string =>
   contrast(bg, '#0b0d12') >= contrast(bg, '#ffffff') * 1.4 ? '#0b0d12' : '#ffffff'
 
 /**
- * Dim `text` towards `surface` as far as it can go while still clearing
- * `target` contrast. Mixing by a fixed fraction is what produced grey-on-white:
- * on a dark style it dims, on a light one it washes the text out.
+ * Dim `text` towards `surface` by `amount`, backing off if that would drop below
+ * `min` contrast. The target is a floor, not a destination: walking all the way
+ * down to it is what left file names sitting on the legibility limit in pale
+ * grey. A fixed fraction alone doesn't work either, since the same fraction
+ * dims on a dark panel and washes out on a light one - hence both.
  */
-export function dimmed(text: string, surface: string, target: number): string {
-  let out = text
-  for (let t = 0.05; t <= 0.75; t += 0.05) {
-    const c = mix(text, surface, t)
-    if (contrast(c, surface) < target) break
-    out = c
+export function dimmed(text: string, surface: string, amount: number, min: number): string {
+  let t = amount
+  let c = mix(text, surface, t)
+  while (t > 0 && contrast(c, surface) < min) {
+    t = Math.max(0, t - 0.05)
+    c = mix(text, surface, t)
   }
-  return out
+  return c
 }
 
 /**
@@ -411,9 +413,11 @@ export function derive(style: Style): Record<string, string> {
     '--p-bg': bg,
     '--p-side-flat': side,
     '--p-text': style.text,
-    '--p-text-soft': dimmed(style.text, side, 7),
-    '--p-dim': dimmed(style.text, side, 4.5),
-    '--p-dim2': dimmed(style.text, side, 3.2),
+    // File names sit just off the text colour; labels a step back; hints
+    // quieter still, and none of them below their floor.
+    '--p-text-soft': dimmed(style.text, side, 0.14, 7),
+    '--p-dim': dimmed(style.text, side, 0.38, 4.5),
+    '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
     '--p-accent': accent,
     '--p-accent-hi': light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25),
     '--p-sel-bg': selectionBg(accent),
@@ -466,7 +470,7 @@ function paint(style: Style): void {
         ? accent
         : style.iconMode === 'custom'
           ? style.icon
-          : dimmed(style.text, style.side, 4.5)
+          : dimmed(style.text, style.side, 0.38, 4.5)
 
   const set = (k: string, v: string): void => r.setProperty(k, v)
   set('--p-bg', bg)

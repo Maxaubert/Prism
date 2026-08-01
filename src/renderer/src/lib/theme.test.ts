@@ -39,6 +39,12 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     expect(contrast(t['--p-dim2'], t['--p-side-flat'])).toBeGreaterThanOrEqual(3.1)
   })
 
+  it('keeps file names close to the text colour', () => {
+    // The floor is a limit, not a target: sitting on 7:1 is what made light
+    // styles look washed out.
+    expect(contrast(t['--p-text-soft'], t['--p-text'])).toBeLessThan(1.5)
+  })
+
   it('dims rather than brightens', () => {
     // Each tier should sit between the text and the panel, never past it.
     const order = [t['--p-text'], t['--p-text-soft'], t['--p-dim'], t['--p-dim2']]
