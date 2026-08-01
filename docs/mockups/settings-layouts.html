@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism settings layouts</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 22px 40px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 6px; color: #8a8e99; font-size: 12.5px; max-width: 78ch; }
+  .bar { display: flex; align-items: center; gap: 8px; margin: 14px 0 18px; }
+  .btn {
+    border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .btn:hover { border-color: rgba(255,255,255,.25); color: #fff; }
+
+  .wall { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); }
+  .case { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; overflow: hidden; background: #0c0e12; }
+  .case > header {
+    display: flex; align-items: baseline; gap: 10px; padding: 11px 14px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+  .case h2 { margin: 0; font-size: 13.5px; font-weight: 650; }
+  .case .note { flex: 1; color: #6b7080; font-size: 11.5px; }
+  .swap {
+    border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color: #b9bdc8;
+    border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+  .stage { padding: 14px; background: #06070a; }
+
+  /* ---------- the settings window under test ---------- */
+  .win {
+    --bg: #101215; --side: #141719; --title: #1a1d21; --text: #e3e6ea; --soft: #c3c8ce;
+    --dim: #8d949d; --dim2: #6f7681; --line: rgba(255,255,255,.08); --hover: rgba(255,255,255,.06);
+    --accent: #3f5570; --accent-hi: #7d99b8; --stage: #171a1e; --on-accent: #fff;
+    height: 380px; display: flex; overflow: hidden; border-radius: 10px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  .win[data-mode="light"] {
+    --bg: #fbfbfc; --side: #eceef1; --title: #e1e3e8; --text: #1b1d21; --soft: #3a3d43;
+    --dim: #61656d; --dim2: #7b8089; --line: rgba(0,0,0,.1); --hover: rgba(0,0,0,.05);
+    --accent: #2f6fed; --accent-hi: #1f56c4; --stage: #e6e8ec; --on-accent: #fff;
+  }
+  .win * { box-sizing: border-box; }
+
+  /* structural pieces the layouts compose */
+  .rail { width: 172px; flex: none; padding: 12px 10px; background: var(--side); border-right: 1px solid var(--line); }
+  .rail.icons { width: 56px; padding: 12px 8px; }
+  .rail.wide { width: 226px; }
+  .rail.right { border-right: 0; border-left: 1px solid var(--line); }
+  .navtitle { padding: 4px 8px 10px; font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav b {
+    display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px;
+    font-size: 12.5px; font-weight: 500; color: var(--dim); cursor: default;
+  }
+  .nav b.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); font-weight: 600; }
+  .nav b i { width: 15px; height: 15px; border-radius: 4px; background: currentColor; opacity: .55; flex: none; }
+  .nav b.on i { opacity: 1; color: var(--accent-hi); }
+  .nav small { display: block; font-size: 10.5px; color: var(--dim2); font-weight: 400; }
+  .nav.icons b { justify-content: center; padding: 8px 0; }
+
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .head { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .head.plain { border-bottom: 0; }
+  .head h3 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .head.big h3 { font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+  .head p { margin: 2px 0 0; font-size: 12px; color: var(--dim); }
+  .body { flex: 1; min-height: 0; overflow: hidden; padding: 14px 18px; }
+  .body.roomy { padding: 20px 26px; }
+  .body.tight { padding: 10px 12px; }
+
+  .tabs { display: flex; gap: 4px; padding: 10px 18px 0; }
+  .tabs b {
+    padding: 6px 12px; border-radius: 8px 8px 0 0; font-size: 12.5px; color: var(--dim);
+    border-bottom: 2px solid transparent; cursor: default;
+  }
+  .tabs b.on { color: var(--text); border-bottom-color: var(--accent-hi); font-weight: 600; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); gap: 2px; }
+  .seg b { padding: 5px 13px; border-radius: 999px; font-size: 12px; color: var(--dim); cursor: default; }
+  .seg b.on { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+
+  .label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2);
+    margin-bottom: 8px;
+  }
+  .label.sentence { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--dim); }
+  .label.big { font-size: 14px; font-weight: 650; letter-spacing: -.01em; text-transform: none; color: var(--text); }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+  .cards.two { grid-template-columns: repeat(2, 1fr); }
+  .card2 { border: 1px solid var(--line); border-radius: 9px; padding: 7px; background: var(--hover); }
+  .card2.on { border-color: var(--accent-hi); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .card2 .mini { height: 54px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; background: var(--stage); }
+  .card2 .mini .t { height: 8px; background: var(--title); display: flex; align-items: center; gap: 2px; padding: 0 3px; }
+  .card2 .mini .t i { width: 2px; height: 2px; border-radius: 1px; background: var(--accent); }
+  .card2 .mini .t u { flex: 1; height: 1.5px; background: var(--dim2); opacity: .6; }
+  .card2 .mini .b { flex: 1; display: flex; }
+  .card2 .mini .s { width: 34%; background: var(--side); padding: 3px; display: flex; flex-direction: column; gap: 2px; }
+  .card2 .mini .s span { height: 2px; border-radius: 1px; background: var(--dim2); opacity: .55; }
+  .card2 .mini .s span.a { background: var(--accent); opacity: 1; }
+  .card2 .mini .v { flex: 1; display: grid; place-items: center; background: var(--bg); }
+  .card2 .mini .v em { display: block; width: 58%; height: 44%; border-radius: 2px; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
+  .card2 .cap { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 2px 0; }
+  .card2 .cap b { font-size: 11.5px; font-weight: 600; }
+  .card2 .cap span { font-size: 9.5px; color: var(--accent-hi); font-weight: 600; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .l b { display: block; font-size: 12.5px; font-weight: 600; }
+  .row .l span { font-size: 11.5px; color: var(--dim); }
+  .pick { border: 1px solid var(--line); background: var(--hover); border-radius: 7px; padding: 4px 9px; font-size: 11.5px; color: var(--text); }
+  .group { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--hover); margin-bottom: 12px; }
+  .search { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--hover); border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--dim); }
+  .index { width: 130px; flex: none; padding: 14px 12px; border-left: 1px solid var(--line); }
+  .index b { display: block; font-size: 11px; color: var(--dim); padding: 4px 0; }
+  .index b.on { color: var(--text); font-weight: 600; }
+  .preview { width: 150px; flex: none; border-left: 1px solid var(--line); padding: 12px; background: var(--side); }
+  .scrolly { height: 100%; overflow: hidden; }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+</style>
+</head>
+<body>
+
+<h1>Settings layouts</h1>
+<p class="sub">Twelve arrangements of the same content: the style cards, two setting rows, the same nav. What changes is the frame around them and the type. Each switches independently.</p>
+<div class="bar">
+  <button class="btn" data-all="dark">All dark</button>
+  <button class="btn" data-all="light">All light</button>
+</div>
+
+<div class="wall" id="wall"></div>
+
+<script>
+/* ---------- shared content blocks ---------- */
+const NAV = [
+  ['Style', 'Material and colour'],
+  ['Colours', 'Six roles'],
+  ['Visualizer', 'Shape'],
+  ['Progress bar', 'Shape'],
+  ['General', 'Behaviour']
+]
+
+const card = (name, on, tag) => `
+  <div class="card2 ${on ? 'on' : ''}">
+    <div class="mini">
+      <div class="t"><i></i><u></u></div>
+      <div class="b">
+        <div class="s"><span></span><span class="a"></span><span></span><span></span></div>
+        <div class="v"><em></em></div>
+      </div>
+    </div>
+    <div class="cap"><b>${name}</b>${on ? `<span>${tag ?? 'Selected'}</span>` : ''}</div>
+  </div>`
+
+const cards = (n = 3, cls = '') => `<div class="cards ${cls}">${
+  ['Graphite', 'Driftwood', 'Prism', 'Paper', 'Linen', 'Frost'].slice(0, n)
+    .map((s, i) => card(s, i === 0)).join('')
+}</div>`
+
+const rows = () => `
+  <div class="row"><div class="l"><b>Font</b><span>Used everywhere in the app.</span></div><span class="pick">System ⌄</span></div>
+  <div class="row"><div class="l"><b>Text size</b><span>Applies to the tree and the chrome.</span></div><span class="pick">Default ⌄</span></div>`
+
+const nav = (cls = '', subs = false) => `
+  <div class="nav ${cls}">${NAV.map(([n, s], i) =>
+    `<b class="${i === 0 ? 'on' : ''}"><i></i>${cls.includes('icons') ? '' : n}${subs && !cls.includes('icons') ? `<small>${s}</small>` : ''}</b>`).join('')}</div>`
+
+/* ---------- the twelve ---------- */
+const LAYOUTS = [
+  { id: 'rail', name: 'Rail', note: 'What Prism has now: icon + label rail, titled pane',
+    html: () => `
+      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
+      <div class="pane">
+        <div class="head"><h3>Style</h3><p>How Prism looks. Each card is the main window in that style.</p></div>
+        <div class="body"><div class="label">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'rail-sub', name: 'Rail with subtitles', note: 'Each nav item says what it holds',
+    html: () => `
+      <aside class="rail wide"><div class="navtitle">Settings</div>${nav('', true)}</aside>
+      <div class="pane">
+        <div class="head"><h3>Style</h3><p>Material, colour, font and frame.</p></div>
+        <div class="body"><div class="label sentence">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'icons', name: 'Icon rail', note: 'Nav collapses to glyphs; the content gets the room',
+    html: () => `
+      <aside class="rail icons">${nav('icons')}</aside>
+      <div class="pane">
+        <div class="head"><h3>Style</h3><p>How Prism looks.</p></div>
+        <div class="body"><div class="label">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'tabs', name: 'Top tabs', note: 'No rail at all; tabs under the title',
+    html: () => `
+      <div class="pane">
+        <div class="head plain big" style="padding-bottom:6px"><h3>Settings</h3></div>
+        <div class="tabs">${NAV.map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</div>
+        <div class="body" style="border-top:1px solid var(--line)"><div class="label">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'segment', name: 'Segmented', note: 'A pill control, centred, macOS-ish',
+    html: () => `
+      <div class="pane">
+        <div class="head plain" style="display:flex;justify-content:center;padding:12px">
+          <div class="seg">${NAV.slice(0, 4).map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</div>
+        </div>
+        <div class="body roomy"><div class="label sentence">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'twocol', name: 'Rail + live preview', note: 'The window you are theming, always on screen',
+    html: () => `
+      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
+      <div class="pane">
+        <div class="head"><h3>Style</h3></div>
+        <div class="body"><div class="label">Styles</div>${cards(2, 'two')}</div>
+      </div>
+      <aside class="preview">
+        <div class="label" style="margin-bottom:6px">Preview</div>
+        ${card('Graphite', true, 'Live')}
+      </aside>` },
+
+  { id: 'scroll', name: 'One page, index', note: 'No tabs: everything stacked, index on the right',
+    html: () => `
+      <div class="pane">
+        <div class="head big"><h3>Settings</h3><p>Everything on one page.</p></div>
+        <div class="body scrolly">
+          <div class="stack">
+            <div><div class="label big">Style</div>${cards()}</div>
+            <div><div class="label big">Type</div>${rows()}</div>
+          </div>
+        </div>
+      </div>
+      <aside class="index">${NAV.map(([n], i) => `<b class="${i === 0 ? 'on' : ''}">${n}</b>`).join('')}</aside>` },
+
+  { id: 'groups', name: 'Grouped cards', note: 'Each section a panel on the page',
+    html: () => `
+      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
+      <div class="pane">
+        <div class="head plain big"><h3>Style</h3></div>
+        <div class="body">
+          <div class="group"><div class="label sentence">Styles</div>${cards()}</div>
+          <div class="group" style="margin-bottom:0"><div class="label sentence">Type</div>${rows()}</div>
+        </div>
+      </div>` },
+
+  { id: 'search', name: 'Search first', note: 'A filter at the top; nav becomes secondary',
+    html: () => `
+      <aside class="rail"><div class="navtitle">Settings</div>${nav()}</aside>
+      <div class="pane">
+        <div class="head" style="padding:10px 14px"><div class="search">⌕ Search settings</div></div>
+        <div class="body"><div class="label">Styles</div>${cards()}</div>
+      </div>` },
+
+  { id: 'dense', name: 'Dense utility', note: 'Windows-11-ish: tighter type, more on screen',
+    html: () => `
+      <aside class="rail" style="width:150px"><div class="navtitle" style="font-size:12px">Settings</div>${nav()}</aside>
+      <div class="pane">
+        <div class="head" style="padding:9px 12px"><h3 style="font-size:13px">Style</h3></div>
+        <div class="body tight"><div class="label" style="font-size:9.5px">Styles</div>${cards()}${rows()}</div>
+      </div>` },
+
+  { id: 'hero', name: 'Editorial', note: 'Big heading, generous margins, quiet nav',
+    html: () => `
+      <aside class="rail" style="background:transparent;border-right:0">${nav()}</aside>
+      <div class="pane">
+        <div class="head plain big" style="padding:22px 26px 8px"><h3 style="font-size:24px">Style</h3><p style="font-size:12.5px;max-width:44ch">Material, colour, font and frame. Your shapes and effects are left alone.</p></div>
+        <div class="body roomy" style="padding-top:8px">${cards()}</div>
+      </div>` },
+
+  { id: 'rightrail', name: 'Rail on the right', note: 'Content leads, nav sits where the scrollbar does',
+    html: () => `
+      <div class="pane">
+        <div class="head"><h3>Style</h3><p>How Prism looks.</p></div>
+        <div class="body"><div class="label">Styles</div>${cards()}</div>
+      </div>
+      <aside class="rail right"><div class="navtitle">Settings</div>${nav()}</aside>` }
+]
+
+/* ---------- render ---------- */
+document.getElementById('wall').innerHTML = LAYOUTS.map((l) => `
+  <section class="case">
+    <header>
+      <h2>${l.name}</h2>
+      <span class="note">${l.note}</span>
+      <button class="swap" data-swap="${l.id}">Light</button>
+    </header>
+    <div class="stage"><div class="win" data-mode="dark" data-win="${l.id}">${l.html()}</div></div>
+  </section>`).join('')
+
+document.addEventListener('click', (e) => {
+  const one = e.target.closest('[data-swap]')
+  if (one) {
+    const win = document.querySelector(`[data-win="${one.dataset.swap}"]`)
+    const next = win.dataset.mode === 'dark' ? 'light' : 'dark'
+    win.dataset.mode = next
+    one.textContent = next === 'dark' ? 'Light' : 'Dark'
+    return
+  }
+  const all = e.target.closest('[data-all]')
+  if (all) {
+    document.querySelectorAll('[data-win]').forEach((w) => { w.dataset.mode = all.dataset.all })
+    document.querySelectorAll('[data-swap]').forEach((b) => { b.textContent = all.dataset.all === 'dark' ? 'Light' : 'Dark' })
+  }
+})
+</script>
+</body>
+</html>
