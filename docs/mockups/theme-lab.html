@@ -287,7 +287,7 @@ const STYLES = {
     selMode:'tint', transport:'inline', viz:'mirror', wall:'forest' }
 }
 
-const KEYS = Object.keys(STYLES['Prism now'])
+const KEYS = Object.keys(STYLES['Prism now']).filter((k) => k !== 'wall')
 const SAVED_KEY = 'prism.lab.saved'
 const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
 let saved = loadSaved()
@@ -440,12 +440,17 @@ function renderRail() {
       <h2>Style</h2>
       <div class="presets">${names.map(n =>
         `<button class="preset ${saved[n]?'saved':''}" data-style="${n}" aria-pressed="${String(n===styleName)}">${n}</button>`).join('')}</div>
-      ${modified() ? `<div class="modified">Modified <button data-act="save">Save as preset…</button><button data-act="revert">Revert</button></div>` : ''}
+      ${modified() ? `<div class="modified">Modified <button data-act="revert">Revert</button></div>` : ''}
+      <div class="opts" style="margin-top:8px">
+        <button class="opt" data-act="save">Save as preset…</button>
+        ${saved[styleName] ? `<button class="opt" data-act="delete">Delete “${styleName}”</button>` : ''}
+        <button class="opt" data-act="export">Export all…</button>
+      </div>
       <div class="axis" style="margin-top:10px"><span class="label">Material</span>
         ${opts('material', [['solid','Solid'],['gradient','Gradient'],['glass','Glass'],['mica','Mica'],['acrylic','Acrylic'],['apple','Apple'],['oled','OLED'],['tinted','Accent-tinted']])}</div>
       <div class="axis"><span class="label">Corners</span>${opts('corners',[['2','Square'],['8','Soft'],['14','Round']])}</div>
       <div class="axis"><span class="label">Edges</span>${opts('borders',[['hairline','Hairline'],['none','None'],['strong','Defined']])}</div>
-      <div class="axis"><span class="label">Behind the window</span>${opts('wall',[['night','Night'],['dunes','Dunes'],['forest','Forest'],['none','None']])}</div>
+      <div class="axis"><span class="label">Preview backdrop <em style="font-style:normal;color:#5f6474">(your desktop, not saved)</em></span>${opts('wall',[['night','Night'],['dunes','Dunes'],['forest','Forest'],['none','None']])}</div>
     </div>
 
     <div class="group">
@@ -509,6 +514,43 @@ function askAbout(next) {
   document.getElementById('pname').focus()
 }
 const closeDialog = () => { pending = null; document.getElementById('dialog').innerHTML = '' }
+
+function askName() {
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg">
+        <h2>Save this style</h2>
+        <p>It joins the row above and stays there. Everything except the preview backdrop is saved.</p>
+        <input type="text" id="pname" placeholder="${styleName}${saved[styleName] ? '' : ' (mine)'}" />
+        <div class="acts">
+          <button class="b-ghost" data-dlg2="cancel">Cancel</button>
+          <button class="b-primary" data-dlg2="ok">Save</button>
+        </div>
+      </div>
+    </div>`
+  document.getElementById('pname').focus()
+}
+
+function exportAll() {
+  const all = { ...saved }
+  if (!all[styleName]) all[styleName] = { ...S }
+  const out = JSON.stringify(
+    Object.entries(all).map(([name, v]) => ({ name, ...Object.fromEntries(KEYS.map((k) => [k, v[k]])) })),
+    null, 2
+  )
+  document.getElementById('dialog').innerHTML = `
+    <div class="scrim">
+      <div class="dlg" style="max-width:620px">
+        <h2>Your styles</h2>
+        <p>Every saved style, in full. Copy this and hand it over - no reading colours off a screenshot.</p>
+        <textarea readonly style="width:100%;height:260px;margin-top:12px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:#0d0f14;color:#cfd3dd;font:500 11.5px/1.5 'Cascadia Mono',Consolas,ui-monospace,monospace;resize:vertical">${out.replace(/</g,'&lt;')}</textarea>
+        <div class="acts">
+          <button class="b-ghost" data-dlg2="cancel">Close</button>
+          <button class="b-primary" data-dlg2="copy">Copy</button>
+        </div>
+      </div>
+    </div>`
+}
 function saveAs(name) {
   saved = { ...saved, [name]: { ...S } }
   localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
@@ -538,10 +580,33 @@ document.addEventListener('click', (e) => {
     else { styleName = next; S = { ...bundleFor(next) }; render() }
     return
   }
+  const d2 = t.closest('[data-dlg2]')
+  if (d2) {
+    const a = d2.dataset.dlg2
+    if (a === 'ok') {
+      const input = document.getElementById('pname')
+      const name = (input.value || input.placeholder).trim()
+      saveAs(name); styleName = name
+    } else if (a === 'copy') {
+      void navigator.clipboard.writeText(document.querySelector('.dlg textarea').value)
+      d2.textContent = 'Copied'
+      return
+    }
+    closeDialog(); render()
+    return
+  }
   const act = t.closest('[data-act]')
   if (act) {
-    if (act.dataset.act === 'revert') { S = { ...bundleFor(styleName) }; render() }
-    else askAbout(styleName)
+    const a = act.dataset.act
+    if (a === 'revert') { S = { ...bundleFor(styleName) }; render() }
+    else if (a === 'save') askName()
+    else if (a === 'export') exportAll()
+    else if (a === 'delete') {
+      const next = Object.keys(STYLES)[0]
+      delete saved[styleName]
+      localStorage.setItem(SAVED_KEY, JSON.stringify(saved))
+      styleName = next; S = { ...bundleFor(next) }; render()
+    }
     return
   }
   const opt = t.closest('[data-k]')
