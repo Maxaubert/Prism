@@ -49,7 +49,7 @@ export function Dialog({
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-[420px] rounded-xl border border-white/10 bg-[#16181f] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
+        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-white/10 bg-[var(--p-title)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
       >
         <h2 className="text-[14.5px] font-semibold text-white">{title}</h2>
         {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--color-dim)]">{body}</div>}

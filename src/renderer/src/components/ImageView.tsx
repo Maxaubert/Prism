@@ -177,7 +177,7 @@ export function ImageView({
     <div
       ref={stageRef}
       onWheel={onWheel}
-      className="group relative flex h-full w-full items-center justify-center overflow-hidden bg-[#0d0f14]"
+      className="group relative flex h-full w-full items-center justify-center overflow-hidden bg-[var(--p-bg)]"
     >
       {failed ? (
         <div className="grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">

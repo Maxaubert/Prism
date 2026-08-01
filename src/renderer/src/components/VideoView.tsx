@@ -72,7 +72,7 @@ export function VideoView({
 
   return (
     <div
-      className="group relative flex h-full w-full items-center justify-center bg-black"
+      className="group relative flex h-full w-full items-center justify-center bg-[var(--p-bg)]"
       onMouseMove={showChrome}
       onMouseLeave={() => c.playing && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
@@ -109,7 +109,7 @@ export function VideoView({
       {/* auto-hiding control overlay */}
       <div
         className={`pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-200 ${
-          solidBg ? 'bg-[#12141b]' : ''
+          solidBg ? 'bg-[var(--p-title)]' : ''
         } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
       >
         <Transport
