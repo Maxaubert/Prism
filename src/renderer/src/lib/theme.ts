@@ -257,60 +257,6 @@ const LIGHT: Style[] = [
     borders: 'none'
   },
   {
-    id: 'frosted',
-    name: 'Frosted',
-    blurb: 'Acrylic over white, deep sea.',
-    mode: 'light',
-    material: 'acrylic',
-    bg: '#ffffff',
-    side: '#eef3f8',
-    title: '#e6edf5',
-    text: '#12161c',
-    iconMode: 'kind',
-    icon: '#5b6472',
-    accent: 'deepsea',
-    font: 'system',
-    size: '12.5',
-    corners: '14',
-    borders: 'none'
-  },
-  {
-    id: 'blueprint',
-    name: 'Blueprint',
-    blurb: 'A blue surface, navy and mono.',
-    mode: 'light',
-    material: 'solid',
-    bg: '#d9e6f4',
-    side: '#cadcef',
-    title: '#bad0e8',
-    text: '#0e2036',
-    iconMode: 'custom',
-    icon: '#2f5c8a',
-    accent: 'd-navy',
-    font: 'mono',
-    size: '12.5',
-    corners: '2',
-    borders: 'strong'
-  },
-  {
-    id: 'apricot',
-    name: 'Apricot',
-    blurb: 'Shaded peach, rust accent.',
-    mode: 'light',
-    material: 'gradient',
-    bg: '#fdf2e7',
-    side: '#fbe4cf',
-    title: '#f7d7ba',
-    text: '#3b2314',
-    iconMode: 'custom',
-    icon: '#a35a2a',
-    accent: 'd-rust',
-    font: 'calibri',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
-  },
-  {
     id: 'orchid',
     name: 'Orchid',
     blurb: 'Lilac, tinted by its own accent.',
@@ -327,24 +273,6 @@ const LIGHT: Style[] = [
     size: '12.5',
     corners: '14',
     borders: 'none'
-  },
-  {
-    id: 'meadow',
-    name: 'Meadow',
-    blurb: 'Soft green, pine accent.',
-    mode: 'light',
-    material: 'solid',
-    bg: '#f5f8f3',
-    side: '#ecf2e9',
-    title: '#e2ebde',
-    text: '#1a201a',
-    iconMode: 'custom',
-    icon: '#5c7a56',
-    accent: 'd-pine',
-    font: 'trebuchet',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
   }
 ]
 
@@ -451,6 +379,15 @@ export function derive(style: Style): Record<string, string> {
     // The tints were picked for a dark panel; on paper they need taking down.
     kinds['--p-kind-' + k] = light ? mix(v, '#000000', 0.42) : v
   }
+  // The accent, taken far enough from the surface to be seen on it. A deep
+  // copper or navy is invisible against its own panel otherwise, which is what
+  // made the schematics vanish.
+  const stage = mix(bg, style.text, light ? 0.12 : 0.1)
+  let hi = light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25)
+  for (let i = 0; i < 12 && contrast(hi, stage) < 3; i += 1) {
+    hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
+  }
+
   return {
     '--p-bg': bg,
     '--p-side-flat': side,
@@ -461,7 +398,10 @@ export function derive(style: Style): Record<string, string> {
     '--p-dim': dimmed(style.text, side, 0.38, 4.5),
     '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
     '--p-accent': accent,
-    '--p-accent-hi': light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25),
+    '--p-accent-hi': hi,
+    // A raised stage rather than a sunken one: a true-black style has nothing
+    // darker to go to, so this always steps towards the text colour.
+    '--p-preview': stage,
     '--p-sel-bg': selectionBg(accent),
     '--p-on-accent': readableOn(selectionBg(accent)),
     ...kinds
@@ -520,6 +460,8 @@ function paint(style: Style): void {
   set('--p-side-flat', style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side)
   set('--p-title', title)
   for (const [k, v] of Object.entries(derive(style))) {
+    // bg and side are painted above with their material applied; the rest
+    // (text tiers, accent, kind tints, the preview stage) publish as derived.
     if (k !== '--p-bg' && k !== '--p-side-flat') set(k, v)
   }
   set('--p-icon', icon)

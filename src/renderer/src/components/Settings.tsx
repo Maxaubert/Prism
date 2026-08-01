@@ -31,8 +31,8 @@ import { THEMES } from '../lib/viz/styles'
  *  without spinning up a real player. */
 function Mini({ id }: { id: TransportStyle }): JSX.Element {
   const acc = 'var(--p-accent-hi)'
-  const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[var(--p-side-flat)]'
-  const dot = <span className="h-2 w-2 rounded-full bg-white/70" />
+  const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[var(--p-preview)]'
+  const dot = <span className="h-2 w-2 rounded-full bg-[var(--p-dim)]" />
   const bars = (n: number, h: number, gap: string, bold = false): JSX.Element => (
     <div className={`flex w-full items-center ${gap}`}>
       {Array.from({ length: n }).map((_, i) => (
@@ -41,14 +41,14 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
           className="flex-1 rounded-[1px]"
           style={{
             height: `${(bold ? h : h * 0.85) * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.19)))}px`,
-            background: i / n < 0.42 ? acc : 'rgba(255,255,255,.22)'
+            background: i / n < 0.42 ? acc : 'var(--p-divider)'
           }}
         />
       ))}
     </div>
   )
   const line = (h: number, glow = false): JSX.Element => (
-    <div className="relative w-full rounded-full bg-white/20" style={{ height: h }}>
+    <div className="relative w-full rounded-full bg-[var(--p-divider)]" style={{ height: h }}>
       <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: '42%', background: acc, boxShadow: glow ? `0 0 6px ${acc}` : undefined }} />
     </div>
   )
@@ -57,7 +57,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
     case 'edge':
       return (
         <div className={box}>
-          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 text-white/70">{dot}<span className="text-[9px]">controls</span></div>
+          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 text-[var(--p-dim)]">{dot}<span className="text-[9px] text-[var(--p-dim)]">controls</span></div>
           <div className="absolute inset-x-0 bottom-0">{line(2, true)}</div>
         </div>
       )
@@ -68,7 +68,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
     case 'island':
       return (
         <div className={`${box} grid place-items-center`}>
-          <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[.06] px-2 py-1">{dot}<div className="w-14">{line(3)}</div></div>
+          <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2 py-1">{dot}<div className="w-14">{line(3)}</div></div>
         </div>
       )
     case 'wave':
@@ -78,7 +78,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
         <div className={box}>
           <div className="absolute inset-x-2 top-2">{line(2, true)}</div>
           <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full border border-white/70" /><span className="h-2.5 w-2.5 rounded-full border border-white/70" />
+            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-dim)]" /><span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-dim)]" />
           </div>
         </div>
       )
@@ -86,13 +86,13 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       return (
         <div className={box}>
           <div className="absolute inset-x-0 top-0">{line(4)}</div>
-          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
+          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span></div>
         </div>
       )
     case 'segments':
       return (
         <div className={`${box} flex flex-col justify-center gap-2 px-2`}>
-          <div className="flex gap-[3px]">{Array.from({ length: 16 }).map((_, i) => <span key={i} className="h-1.5 flex-1 rounded-[2px]" style={{ background: i < 7 ? acc : 'rgba(255,255,255,.14)' }} />)}</div>
+          <div className="flex gap-[3px]">{Array.from({ length: 16 }).map((_, i) => <span key={i} className="h-1.5 flex-1 rounded-[2px]" style={{ background: i < 7 ? acc : 'var(--p-divider)' }} />)}</div>
           <div className="flex gap-1.5">{dot}{dot}</div>
         </div>
       )
@@ -100,7 +100,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       return (
         <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}>
           <div className="h-5">{bars(40, 20, 'gap-[2px]', true)}</div>
-          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
+          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span></div>
         </div>
       )
     case 'slim':
@@ -132,7 +132,7 @@ function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       className={`flex flex-col gap-2 rounded-xl border p-2.5 text-left transition ${
         on
           ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/12'
-          : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:brightness-125'
+          : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
       }`}
     >
       {children}
@@ -219,7 +219,7 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
     <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
   )
   return (
-    <div className="flex h-[104px] flex-col overflow-hidden rounded-md" style={{ border: `1px solid ${rgba('#ffffff', 0.08)}` }}>
+    <div className="flex h-[104px] flex-col overflow-hidden rounded-md" style={{ border: '1px solid var(--p-divider)' }}>
       <div className="flex h-[9px] shrink-0 items-center gap-[3px] px-1.5" style={{ background: title }}>
         <span className="h-[2.5px] w-[2.5px] rounded-[1px]" style={{ background: accent }} />
         {line('30%', rgba(st.text, 0.5))}
@@ -302,7 +302,7 @@ function Row({ id, label, desc, children }: { id: string; label: string; desc?: 
   return (
     <div className="flex items-center justify-between gap-8 border-b border-white/[.07] py-3.5">
       <div className="min-w-0">
-        <label htmlFor={id} className="text-[13px] font-semibold text-white">
+        <label htmlFor={id} className="text-[13px] font-semibold text-[var(--p-text)]">
           {label}
         </label>
         {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--p-dim)]">{desc}</p>}
@@ -330,7 +330,7 @@ function Dropdown({
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="shrink-0 rounded-lg border border-white/[.12] bg-white/[.06] px-2.5 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:border-white/25 focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+      className="shrink-0 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2.5 py-1.5 text-[12.5px] font-medium text-[var(--p-text)] transition-colors hover:border-white/25 focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
     >
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -372,7 +372,7 @@ function VisualizerTab(): JSX.Element {
             const on = isActivePreset(p, v)
             return (
               <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[var(--p-bg)]">
+                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[var(--p-preview)]">
                   <VizPreview styleId={p.style} />
                 </div>
                 <TileFooter name={p.name} on={on} />

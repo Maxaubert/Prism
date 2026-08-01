@@ -190,7 +190,7 @@ export function ImageView({
               main-thread stall from a huge decode) and fades it in after that. */}
           {!loaded && (
             <div className="delayed-loader pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/15 border-t-[var(--color-accent-hi)]" />
+              <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
             </div>
           )}
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
@@ -234,7 +234,7 @@ export function ImageView({
 
       {/* control cluster, appears on hover */}
       {!failed && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-white opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
             {Math.round(zoom * 100)}%
