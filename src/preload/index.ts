@@ -40,6 +40,8 @@ const api = {
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
   close: (): void => ipcRenderer.send('window:close'),
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
+  /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'). */
+  setWindowMaterial: (material: string): void => ipcRenderer.send('window:material', material),
   onFullscreen: (cb: (on: boolean) => void): (() => void) => {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)

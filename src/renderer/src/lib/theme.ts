@@ -11,7 +11,7 @@ import { setBarTheme, setTheme } from './vizStore'
 // `var(--p-side)` rather than knowing which style is on.
 
 export type Mode = 'dark' | 'light'
-export type Material = 'solid' | 'gradient' | 'tinted' | 'oled'
+export type Material = 'solid' | 'gradient' | 'tinted' | 'oled' | 'acrylic' | 'mica'
 export type IconMode = 'kind' | 'text' | 'dim' | 'accent' | 'custom'
 
 export interface Style {
@@ -49,6 +49,96 @@ export const FONTS: Record<FontId, { name: string; stack: string }> = {
 }
 
 export const STYLES: Style[] = [
+  {
+    id: 'default',
+    name: 'Default',
+    blurb: 'Acrylic over true black, sky accent.',
+    mode: 'dark',
+    material: 'acrylic',
+    bg: '#000000',
+    side: '#141414',
+    title: '#141414',
+    text: '#eef0f4',
+    iconMode: 'kind',
+    icon: '#8a8e99',
+    accent: 's-sky',
+    font: 'system',
+    size: '13.5',
+    corners: '2',
+    borders: 'hairline'
+  },
+  {
+    id: 'acrylic-red',
+    name: 'Acryllic Red',
+    blurb: 'Acrylic, round, crimson.',
+    mode: 'dark',
+    material: 'acrylic',
+    bg: '#101420',
+    side: '#141821',
+    title: '#1a1f2b',
+    text: '#eceef5',
+    iconMode: 'accent',
+    icon: '#8b5cf6',
+    accent: 's-crimson',
+    font: 'system',
+    size: '12.5',
+    corners: '14',
+    borders: 'none'
+  },
+  {
+    id: 'new-ember',
+    name: 'New ember',
+    blurb: 'Warm tint, coral accent.',
+    mode: 'dark',
+    material: 'tinted',
+    bg: '#191720',
+    side: '#1c1a22',
+    title: '#231f28',
+    text: '#f0e7dc',
+    iconMode: 'custom',
+    icon: '#d3a06a',
+    accent: 's-coral',
+    font: 'calibri',
+    size: '13.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'new-void',
+    name: 'New void',
+    blurb: 'True black, no edges.',
+    mode: 'dark',
+    material: 'oled',
+    bg: '#000000',
+    side: '#000000',
+    title: '#000000',
+    text: '#e8eaf0',
+    iconMode: 'dim',
+    icon: '#8a8e99',
+    accent: 's-indigo',
+    font: 'segoe',
+    size: '12',
+    corners: '2',
+    borders: 'none'
+  },
+  {
+    id: 'terminal',
+    name: 'Terminal update',
+    blurb: 'Mono, green, square.',
+    mode: 'dark',
+    material: 'solid',
+    bg: '#0b0f14',
+    side: '#0d1117',
+    title: '#11161d',
+    text: '#d7e0d9',
+    iconMode: 'accent',
+    icon: '#3f9d54',
+    accent: 's-green',
+    font: 'mono',
+    size: '12',
+    corners: '2',
+    borders: 'none'
+  },
   {
     id: 'graphite',
     name: 'Graphite',
@@ -162,7 +252,15 @@ function paint(style: Style): void {
   let bg = style.bg
   let side = style.side
   let title = style.title
-  if (style.material === 'gradient') {
+  const translucent = style.material === 'acrylic' || style.material === 'mica'
+  if (translucent) {
+    // Windows composites the material behind the window; these surfaces sit on
+    // top of it, so they have to let it through.
+    const a = style.material === 'acrylic' ? 0.55 : 0.82
+    bg = rgba(style.bg, a * 0.75)
+    side = rgba(style.side, a)
+    title = rgba(style.title, a + 0.08)
+  } else if (style.material === 'gradient') {
     side = `linear-gradient(180deg, ${lighten(style.side, 0.06)}, ${style.side})`
     title = `linear-gradient(180deg, ${lighten(style.title, 0.07)}, ${style.title})`
   } else if (style.material === 'tinted') {
@@ -209,6 +307,9 @@ function paint(style: Style): void {
   set('--p-row', (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px')
   set('--p-indent', (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px')
   document.documentElement.dataset.icons = style.iconMode
+  // A translucent style needs the window itself to be transparent, which only
+  // the main process can arrange.
+  window.prism?.setWindowMaterial(translucent ? style.material : 'none')
 }
 
 /* ---------- the store ---------- */
