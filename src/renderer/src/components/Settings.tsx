@@ -20,6 +20,8 @@ import {
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
+import { setMode, setStyle, stylesFor, useMode, useStyle, mix, rgba, type Mode, type Style } from '../lib/theme'
+import { THEMES } from '../lib/viz/styles'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -195,6 +197,96 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           onCycle={setBarCycle}
           onMove={setBarMove}
         />
+      </Section>
+    </div>
+  )
+}
+
+/* ---------- style ---------- */
+
+/** A miniature of the main window in a given style: the card IS the preview. */
+function StyleMini({ st }: { st: Style }): JSX.Element {
+  const palette = THEMES.find((t) => t.id === st.accent)?.palette ?? ['#5b5bd6']
+  const accent = palette[0]
+  const paint = palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : accent
+  const tint = st.material === 'tinted'
+  const grad = st.material === 'gradient'
+  const side = tint ? mix(st.side, accent, 0.1) : grad ? `linear-gradient(180deg, ${mix(st.side, '#ffffff', 0.06)}, ${st.side})` : st.side
+  const title = tint ? mix(st.title, accent, 0.12) : st.title
+  const bg = tint ? mix(st.bg, accent, 0.07) : st.bg
+  const dim = mix(st.text, st.side, 0.5)
+  const line = (w: string, c: string): JSX.Element => (
+    <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
+  )
+  return (
+    <div className="flex h-[104px] flex-col overflow-hidden rounded-md" style={{ border: `1px solid ${rgba('#ffffff', 0.08)}` }}>
+      <div className="flex h-[9px] shrink-0 items-center gap-[3px] px-1.5" style={{ background: title }}>
+        <span className="h-[2.5px] w-[2.5px] rounded-[1px]" style={{ background: accent }} />
+        {line('30%', rgba(st.text, 0.5))}
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex w-[36%] flex-col gap-[3px] p-1.5" style={{ background: side }}>
+          {line('62%', rgba(dim, 0.6))}
+          {line('80%', rgba(st.text, 0.5))}
+          <span className="block h-[3px] rounded-[2px]" style={{ width: '72%', background: paint }} />
+          {line('86%', rgba(st.text, 0.3))}
+          {line('68%', rgba(st.text, 0.3))}
+        </div>
+        <div className="relative flex-1" style={{ background: bg }}>
+          <div className="absolute left-1/2 top-1/2 h-[46%] w-[62%] -translate-x-1/2 -translate-y-1/2 rounded-[3px] bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
+          <div className="absolute inset-x-2 bottom-1.5 h-[2.5px] rounded-[2px]" style={{ background: rgba(st.text, 0.18) }}>
+            <span className="block h-full w-[44%] rounded-[2px]" style={{ background: paint }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StyleTab(): JSX.Element {
+  const style = useStyle()
+  const mode = useMode()
+  const list = stylesFor(mode)
+  return (
+    <div className="flex flex-col gap-6">
+      <Section title="Mode" hint="light styles are still being drawn">
+        <div className="flex gap-2">
+          {(['dark', 'light'] as Mode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              aria-pressed={mode === m}
+              className={`rounded-lg border px-4 py-1.5 text-[12.5px] font-semibold capitalize transition ${
+                mode === m
+                  ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-white'
+                  : 'border-white/10 bg-white/[.02] text-[var(--color-dim)] hover:border-white/20 hover:text-white'
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Style" hint="material, colours, font and frame; your shapes and effects are left alone">
+        {list.length ? (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(212px,1fr))] gap-2.5">
+            {list.map((st) => {
+              const on = st.id === style.id
+              return (
+                <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
+                  <StyleMini st={st} />
+                  <TileFooter name={st.name} on={on} />
+                  <span className="text-[11.5px] leading-snug text-[var(--color-dim)]">{st.blurb}</span>
+                </Tile>
+              )
+            })}
+          </div>
+        ) : (
+          <p className="max-w-[52ch] text-[12.5px] leading-relaxed text-[var(--color-dim)]">
+            No light styles yet. The dark set stays on screen until they land.
+          </p>
+        )}
       </Section>
     </div>
   )
@@ -450,7 +542,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'general' | 'player' | 'visualizer' | 'about'
+type TabId = 'style' | 'general' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -500,7 +592,7 @@ export function Settings({
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
-  const [tab, setTab] = useState<TabId>('general')
+  const [tab, setTab] = useState<TabId>('style')
 
   useEffect(() => {
     if (!open) return
@@ -555,7 +647,9 @@ export function Settings({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-            {tab === 'general' ? (
+            {tab === 'style' ? (
+              <StyleTab />
+            ) : tab === 'general' ? (
               <GeneralTab />
             ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />

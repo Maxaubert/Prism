@@ -182,12 +182,12 @@ export function Sidebar({
       inert={!open}
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
-      className={`relative h-full shrink-0 overflow-hidden bg-[#0e1016] ${
+      className={`relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${
         dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
     >
-      <div className="flex h-full flex-col border-r border-white/[.06]" style={{ width }}>
-        <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--color-dim)]">
+      <div className="flex h-full flex-col border-r border-[var(--p-divider)]" style={{ width }}>
+        <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
           <span className="truncate" title={root}>
             {rootName}
           </span>
@@ -215,7 +215,7 @@ export function Sidebar({
                 <Rows listing={rootListing} depth={0} />
               </ul>
             ) : (
-              <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--color-dim2,#6b7080)]">loading…</div>
+              <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">loading…</div>
             )}
           </TreeProvider>
         </div>
@@ -240,8 +240,8 @@ export function Sidebar({
         className="no-drag group absolute inset-y-0 right-0 z-10 w-2 translate-x-1/2 cursor-col-resize focus-visible:outline-none"
       >
         <span
-          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--color-accent-hi)] group-focus-visible:bg-[var(--color-accent-hi)] ${
-            dragging ? 'bg-[var(--color-accent-hi)]' : 'bg-transparent'
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--p-accent-hi)] group-focus-visible:bg-[var(--p-accent-hi)] ${
+            dragging ? 'bg-[var(--p-accent-hi)]' : 'bg-transparent'
           }`}
         />
       </div>

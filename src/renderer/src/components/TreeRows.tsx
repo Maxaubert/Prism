@@ -6,7 +6,9 @@ import { useTree } from '../lib/treeContext'
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
 
-const PANEL = '#0e1016' // the panel colour, used to knock detail out of filled glyphs
+/** What sits behind a glyph, so its knocked-out detail matches. */
+const panelColour = (): string =>
+  getComputedStyle(document.documentElement).getPropertyValue('--p-side-flat').trim() || '#0e1016'
 
 // A muted colour per kind, so a long list sorts itself by eye before you read a
 // single name. Low saturation on purpose: the media is the star, not the tree.
@@ -19,6 +21,16 @@ const TINT: Record<FileKind, string> = {
   other: '#8d93a1'
 }
 const FOLDER_TINT = '#9aa0f0'
+
+const accentColour = (): string =>
+  getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
+
+/** Kind tints when the style asks for them, otherwise the style's icon colour. */
+function iconColour(kind: FileKind | 'folder'): string {
+  const mode = document.documentElement.dataset.icons
+  if (mode !== 'kind') return 'var(--p-icon)'
+  return kind === 'folder' ? FOLDER_TINT : TINT[kind]
+}
 
 type Size = (typeof TREE_SIZES)[number]
 
@@ -53,8 +65,8 @@ function Glyph({ children, color }: { children: JSX.Element; color: string }): J
 
 /** Filled glyph per kind. Detail is knocked out in the panel colour rather than
  *  drawn as strokes, so the shape still reads as a photo or a page at 14px. */
-function KindIcon({ kind, color }: { kind: FileKind; color: string }): JSX.Element {
-  const ko = { fill: PANEL, fillOpacity: 0.85 }
+function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color: string; ko?: string }): JSX.Element {
+  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
   switch (kind) {
     case 'image':
       return (
@@ -299,7 +311,11 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
             >
-              <KindIcon kind={f.kind} color={on ? '#ffffff' : TINT[f.kind]} />
+              <KindIcon
+                kind={f.kind}
+                color={on ? 'var(--p-on-accent)' : iconColour(f.kind)}
+                ko={on ? accentColour() : undefined}
+              />
               <Label name={f.name} />
             </button>
           </li>

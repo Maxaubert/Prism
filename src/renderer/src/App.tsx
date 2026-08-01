@@ -42,10 +42,10 @@ function TopBar({
 }): JSX.Element {
   const w = window.prism
   return (
-    <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-white/[.06] bg-[#16181f] px-3 text-[13px]">
+    <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
       <button
         className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-          sidebar ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)] hover:text-white'
+          sidebar ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
         }`}
         onClick={onToggleSidebar}
         title="Files (Ctrl+B)"
@@ -57,13 +57,13 @@ function TopBar({
           <path d="M9 4v16" />
         </svg>
       </button>
-      <span className="font-semibold text-[#d6a1f0]">Prism</span>
-      <span className="min-w-0 flex-1 truncate text-[var(--color-dim)]">{file ? file.name : ''}</span>
-      {pos && <span className="text-[var(--color-dim)]">{pos}</span>}
+      <span className="font-semibold text-[var(--p-accent-hi)]">Prism</span>
+      <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{file ? file.name : ''}</span>
+      {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
         <button
           className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-            settingsOpen ? 'text-[var(--color-accent-hi)]' : 'text-[var(--color-dim)] hover:text-white'
+            settingsOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
           }`}
           onClick={onToggleSettings}
           title="Settings"
@@ -75,9 +75,9 @@ function TopBar({
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
           </svg>
         </button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10" onClick={() => w.minimize()}>–</button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-white/10" onClick={() => w.toggleMaximize()}>▢</button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--color-dim)] hover:bg-red-500/80 hover:text-white" onClick={() => w.close()}>✕</button>
+        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.minimize()}>–</button>
+        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.toggleMaximize()}>▢</button>
+        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-white" onClick={() => w.close()}>✕</button>
       </div>
     </div>
   )
@@ -89,7 +89,7 @@ function TextViewer({ path }: { path: string }): JSX.Element {
     void window.prism.readText(path).then((t) => setText(t ?? '(could not read file)'))
   }, [path])
   return (
-    <pre className="h-full w-full overflow-auto bg-[#0d0f14] p-6 font-mono text-[13px] leading-relaxed text-[#d7dae1] select-text">
+    <pre className="h-full w-full overflow-auto bg-[var(--p-bg)] p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] select-text">
       {text}
     </pre>
   )
@@ -137,10 +137,10 @@ function NavArrow({ dir, onClick }: { dir: 'l' | 'r'; onClick: () => void }): JS
 function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--color-accent)]/20 text-3xl text-[var(--color-accent-hi)]">◇</div>
+      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--p-accent)]/20 text-3xl text-[var(--p-accent-hi)]">◇</div>
       <div className="text-lg font-semibold">Open a file to view it</div>
-      <div className="text-sm text-[var(--color-dim)]">Drop a file here, or</div>
-      <button className="no-drag rounded-xl bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110" onClick={onOpen}>
+      <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
+      <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
         Browse…
       </button>
     </div>
@@ -364,7 +364,7 @@ export default function App(): JSX.Element {
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-[var(--p-bg)] text-[var(--p-text)]">
       {!fullscreen && (
         <TopBar
           file={file}
@@ -389,7 +389,7 @@ export default function App(): JSX.Element {
         )}
         <div
           className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
-            dragging ? 'ring-2 ring-inset ring-[var(--color-accent)]' : ''
+            dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''
           }`}
         >
           {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
