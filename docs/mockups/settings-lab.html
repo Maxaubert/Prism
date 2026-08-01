@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism settings, redesigned</title>
+<style>
+  :root {
+    --ink: #eef0f4; --dim: #8a8e99; --dim2: #6b7080;
+    --accent: #5b5bd6; --accent-hi: #7b7bf0;
+    --panel: #0e1016; --chrome: #16181f;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px; background: #08090d; color: var(--ink);
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 16px; color: var(--dim); font-size: 12.5px; }
+
+  /* the settings window */
+  .win {
+    max-width: 1180px; height: 760px; margin: 0 auto; display: flex;
+    border: 1px solid rgba(255,255,255,.08); border-radius: 12px; overflow: hidden;
+    background: #0d0f14; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+  }
+  .rail { width: 210px; flex: none; display: flex; flex-direction: column; padding: 12px; background: var(--panel); border-right: 1px solid rgba(255,255,255,.06); }
+  .rail .title { padding: 6px 8px 12px; font-size: 15px; font-weight: 700; }
+  .tab {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 8px 10px; margin-bottom: 2px; border: 0; border-radius: 8px;
+    background: none; color: var(--dim); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  }
+  .tab:hover { background: rgba(255,255,255,.05); color: var(--ink); }
+  .tab[aria-pressed="true"] { background: rgba(91,91,214,.18); color: #fff; }
+  .tab svg { width: 16px; height: 16px; flex: none; }
+  .tab[aria-pressed="true"] svg { color: var(--accent-hi); }
+
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pane > header { padding: 16px 22px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .pane h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .pane header p { margin: 2px 0 0; font-size: 12.5px; color: var(--dim); }
+  .content { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 22px 26px; }
+  .content::-webkit-scrollbar { width: 8px; }
+  .content::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+
+  .sect { margin-bottom: 22px; }
+  .sect > .h {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2);
+  }
+  .sect > .h span { font-size: 11px; letter-spacing: 0; text-transform: none; color: #5f6474; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 12px; }
+  .card {
+    border: 1px solid rgba(255,255,255,.1); border-radius: 12px; padding: 8px; background: rgba(255,255,255,.02);
+    cursor: pointer; text-align: left; font: inherit; color: inherit; transition: border-color .14s, background .14s;
+  }
+  .card:hover { border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.05); }
+  .card[aria-pressed="true"] { border-color: var(--accent-hi); background: rgba(91,91,214,.12); }
+  .card .foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 7px 3px 1px; }
+  .card .foot b { font-size: 12.5px; font-weight: 600; }
+  .card[aria-pressed="true"] .foot b { color: #fff; }
+  .card .foot em { font-style: normal; font-size: 10px; font-weight: 600; color: var(--accent-hi); }
+
+  /* the miniature of the main window that sits on every style card */
+  .mini { position: relative; height: 120px; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+  .mini .wall { position: absolute; inset: 0; }
+  .mini .bar { position: relative; height: 13px; display: flex; align-items: center; gap: 3px; padding: 0 5px; }
+  .mini .dot { width: 4px; height: 4px; border-radius: 1px; }
+  .mini .body { position: relative; flex: 1; display: flex; min-height: 0; }
+  .mini .side { width: 34%; padding: 5px 4px; display: flex; flex-direction: column; gap: 3px; }
+  .mini .line { height: 4px; border-radius: 2px; }
+  .mini .view { flex: 1; position: relative; display: grid; place-items: center; }
+  .mini .plate { width: 62%; height: 46%; border-radius: 3px; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
+  .mini .prog { position: absolute; left: 8px; right: 8px; bottom: 7px; height: 2.5px; border-radius: 2px; }
+  .mini .prog i { display: block; height: 100%; width: 44%; border-radius: 2px; }
+
+  /* schematics for the shape grids */
+  .schem { height: 62px; border-radius: 7px; background: #0b0d12; display: flex; align-items: center; justify-content: center; gap: 3px; padding: 8px 10px; }
+  .schem .fill { background: var(--accent); }
+  .schem .track { background: rgba(255,255,255,.16); }
+
+  /* colour rows */
+  .roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
+  .role { border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 11px; background: rgba(255,255,255,.02); }
+  .role .n { font-size: 12.5px; font-weight: 600; }
+  .role .d { margin: 1px 0 8px; font-size: 11px; color: var(--dim); }
+  .role .pick { display: flex; align-items: center; gap: 8px; }
+  .role input[type="color"] { width: 30px; height: 25px; padding: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; background: none; cursor: pointer; }
+  .role code { font: 500 11.5px/1 "Cascadia Mono", Consolas, ui-monospace, monospace; color: #b9bdc8; text-transform: uppercase; }
+  .swline { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .sw { width: 19px; height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); cursor: pointer; padding: 0; }
+  .schemes { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px,1fr)); gap: 5px; }
+  .scheme { height: 22px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); cursor: pointer; padding: 0; }
+  .scheme[aria-pressed="true"] { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .row:first-of-type { border-top: 1px solid rgba(255,255,255,.07); }
+  .row .lab b { display: block; font-size: 13px; font-weight: 600; }
+  .row .lab span { font-size: 12px; color: var(--dim); }
+  select {
+    border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #fff;
+    border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12.5px;
+  }
+  .chips { display: flex; gap: 4px; }
+  .chip { border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.02); color: var(--dim);
+    border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .chip[aria-pressed="true"] { border-color: var(--accent-hi); background: rgba(91,91,214,.2); color: #fff; }
+  .note { margin: 14px 0 0; font-size: 11.5px; color: var(--dim2); }
+</style>
+</head>
+<body>
+
+<h1>Settings, redesigned</h1>
+<p class="sub">Four tabs. Style is a grid of whole-window miniatures; Visualizer and Progress bar keep their shape grids with the colour taken out; Colours owns every role in one place.</p>
+
+<div class="win">
+  <aside class="rail">
+    <div class="title">Settings</div>
+    <nav id="tabs"></nav>
+  </aside>
+  <div class="pane">
+    <header><h2 id="pane-title"></h2><p id="pane-desc"></p></header>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const hex2rgb = (h) => { const s=h.replace('#',''); const n=parseInt(s.length===3?s.split('').map(c=>c+c).join(''):s,16); return [(n>>16)&255,(n>>8)&255,n&255] }
+const rgb2hex = ([r,g,b]) => '#'+[r,g,b].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')
+const mix = (a,b,t) => { const A=hex2rgb(a),B=hex2rgb(b); return rgb2hex(A.map((v,i)=>v+(B[i]-v)*t)) }
+const lighten = (c,t)=>mix(c,'#ffffff',t), darken=(c,t)=>mix(c,'#000000',t)
+const rgba = (c,a) => { const [r,g,b]=hex2rgb(c); return `rgba(${r},${g},${b},${a})` }
+const paint = (p) => p.length>1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
+
+const SCHEMES = [
+  { id:'brand', name:'Brand', palette:['#5b5bd6','#9a6cff','#ff9a8b'] },
+  { id:'gradient', name:'Spectrum', palette:['#8a5cff','#ff6ac1','#ffd36a','#5cffd0','#5c9cff'] },
+  { id:'rainbow', name:'Rainbow', palette:['#ff4d6d','#ff9e2c','#ffe14a','#5cffa8','#39c2ff','#8a5cff'] },
+  { id:'neon', name:'Neon', palette:['#18e0ff','#8a5cff','#ff3df0'] },
+  { id:'aurora', name:'Aurora', palette:['#5cffd0','#39c2ff','#8a5cff','#ff6ac1'] },
+  { id:'ocean', name:'Ocean', palette:['#9bf6ff','#38aeff','#3358d8'] },
+  { id:'ice', name:'Ice', palette:['#eafcff','#8fd6ff','#3f6dff'] },
+  { id:'forest', name:'Forest', palette:['#c6ff9e','#3ec46a','#1c9a4e'] },
+  { id:'gold', name:'Gold', palette:['#fff3a0','#ffd24a','#ff9e2c'] },
+  { id:'fire', name:'Fire', palette:['#ffe14a','#ff8a1a','#ff3535','#c01418'] },
+  { id:'nebula', name:'Nebula', palette:['#8b3ff0','#db2777','#f59e0b'] },
+  { id:'miami', name:'Miami', palette:['#00e5ff','#c026d3','#ff2fd0'] },
+  { id:'s-indigo', name:'Indigo', palette:['#6366f1'] },
+  { id:'s-violet', name:'Violet', palette:['#8b5cf6'] },
+  { id:'s-blue', name:'Blue', palette:['#3b6dff'] },
+  { id:'s-teal', name:'Teal', palette:['#14b8a6'] },
+  { id:'s-green', name:'Green', palette:['#22c55e'] },
+  { id:'s-coral', name:'Coral', palette:['#ff8a6a'] },
+  { id:'s-crimson', name:'Crimson', palette:['#e01e4a'] },
+  { id:'white', name:'White', palette:['#eef2fb'] }
+]
+const scheme = (id) => SCHEMES.find(s=>s.id===id) ?? SCHEMES[0]
+
+const STYLES = [
+  { id:'now', name:'Prism', blurb:'Solid, quiet', material:'solid', bg:'#0d0f14', side:'#0e1016', title:'#16181f', text:'#eef0f4', accent:'s-indigo', wall:'night', font:'System' },
+  { id:'slate', name:'Slate', blurb:'Gradient wash', material:'gradient', bg:'#0f1218', side:'#12141b', title:'#191d26', text:'#e6e9f0', accent:'ocean', wall:'night', font:'Segoe UI' },
+  { id:'mica', name:'Mica', blurb:'Windows 11 tint', material:'mica', bg:'#141720', side:'#171a21', title:'#1c2029', text:'#eef0f4', accent:'brand', wall:'dunes', font:'System' },
+  { id:'glass', name:'Glasshouse', blurb:'Blurred, see-through', material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2', accent:'aurora', wall:'forest', font:'System' },
+  { id:'apple', name:'Cupertino', blurb:'Soft, rounded, roomy', material:'apple', bg:'#191b22', side:'#1c1e26', title:'#22242c', text:'#f2f4f8', accent:'s-blue', wall:'dunes', font:'System' },
+  { id:'oled', name:'Void', blurb:'True black', material:'oled', bg:'#000000', side:'#000000', title:'#000000', text:'#e8eaf0', accent:'s-violet', wall:'none', font:'Segoe UI' },
+  { id:'ember', name:'Ember', blurb:'Warm, tinted', material:'tinted', bg:'#191720', side:'#1c1a22', title:'#231f28', text:'#f0e7dc', accent:'gold', wall:'dunes', font:'Calibri' },
+  { id:'acrylic', name:'Acrylic', blurb:'Frosted and lively', material:'acrylic', bg:'#101420', side:'#141821', title:'#1a1f2b', text:'#eceef5', accent:'nebula', wall:'night', font:'System' },
+  { id:'terminal', name:'Terminal', blurb:'Square, mono', material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9', accent:'s-green', wall:'none', font:'Mono' },
+  { id:'paper', name:'Paperback', blurb:'Warm grey, serif', material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4', accent:'s-coral', wall:'forest', font:'Georgia' }
+]
+
+const WALL = {
+  night: 'linear-gradient(160deg,#2b3358,#4b3a6b 35%,#7c4a63 60%,#241d2e 88%)',
+  dunes: 'linear-gradient(160deg,#c98f5a,#8d5a3c 40%,#3b2a33 75%,#1a1620)',
+  forest: 'linear-gradient(160deg,#3f6f5c,#26463f 45%,#16232a 80%,#0d1418)',
+  none: '#05060a'
+}
+
+const BARS = [
+  ['slim','Slim','A thin line as the top edge'], ['pill','Soft pill','A thick rounded track'],
+  ['bold','Bold','Square button, thicker bar'], ['edge','Edge','A hairline at the very bottom'],
+  ['outline','Outline','Line-weight icons, glow rail'], ['inline','Inline','Everything on one row'],
+  ['island','Floating island','A rounded capsule'], ['wave','Waveform','The track as a waveform'],
+  ['wavebold','Waveform bold','Heavier waveform'], ['segments','Segments','Progress as lit ticks']
+]
+const VIZ = [
+  ['halo','Halo'], ['flow','Flow'], ['outline','Outline'], ['bars','Bars'], ['round','Round'],
+  ['roundsolid','Round Solid'], ['frame','Frame'], ['mirror','Mirror Bars'], ['caps','Caps'],
+  ['needles','Line Bars'], ['wall','Wall'], ['wall2','Wall 2']
+]
+
+const S = {
+  tab: 'style', style: 'now', accent: 's-indigo', glow: false, cycle: false, move: false,
+  bg: '#0d0f14', side: '#0e1016', title: '#16181f', text: '#eef0f4', icon: '#8a8e99',
+  iconMode: 'kind', font: 'System', size: 'Default', room: 'Default', bar: 'slim', viz: 'bars'
+}
+
+/* ---------- miniature of the main window, per style ---------- */
+function mini(st) {
+  const a = scheme(st.accent).palette
+  const glassy = ['glass','mica','acrylic','apple'].includes(st.material)
+  const alpha = st.material === 'glass' ? .45 : st.material === 'acrylic' ? .62 : st.material === 'apple' ? .6 : .85
+  const surf = (c) => glassy ? rgba(c, alpha) : c
+  const grad = st.material === 'gradient'
+  const tint = st.material === 'tinted'
+  const side = grad ? `linear-gradient(180deg, ${lighten(st.side,.07)}, ${st.side})` : tint ? mix(st.side, a[0], .1) : surf(st.side)
+  const title = grad ? `linear-gradient(180deg, ${lighten(st.title,.08)}, ${st.title})` : tint ? mix(st.title, a[0], .12) : surf(st.title)
+  const bg = tint ? mix(st.bg, a[0], .07) : surf(st.bg)
+  const blur = glassy ? 'backdrop-filter: blur(10px) saturate(1.3);' : ''
+  const dim = mix(st.text, st.side, .5)
+  return `
+    <div class="mini">
+      <div class="wall" style="background:${WALL[st.wall]}"></div>
+      <div class="bar" style="background:${title};${blur}">
+        <span class="dot" style="background:${a[0]}"></span>
+        <span class="line" style="flex:1;background:${rgba(dim,.5)}"></span>
+        <span class="dot" style="background:${rgba(dim,.7)}"></span>
+        <span class="dot" style="background:${rgba(dim,.7)}"></span>
+      </div>
+      <div class="body">
+        <div class="side" style="background:${side};${blur}">
+          <span class="line" style="width:60%;background:${rgba(dim,.55)}"></span>
+          <span class="line" style="width:82%;background:${rgba(st.text,.5)}"></span>
+          <span class="line" style="width:74%;background:${paint(a)};"></span>
+          <span class="line" style="width:88%;background:${rgba(st.text,.32)}"></span>
+          <span class="line" style="width:66%;background:${rgba(st.text,.32)}"></span>
+        </div>
+        <div class="view" style="background:${bg};${blur}">
+          <div class="plate"></div>
+          <div class="prog" style="background:${rgba(st.text,.18)}"><i style="background:${paint(a)}"></i></div>
+        </div>
+      </div>
+    </div>`
+}
+
+/* ---------- schematics ---------- */
+function barSchem(id) {
+  const fill = 'var(--accent)', track = 'rgba(255,255,255,.16)'
+  const line = (h, w = '100%') => `<span style="display:block;height:${h}px;width:${w};border-radius:9px;background:${track};position:relative"><i style="position:absolute;inset:0 56% 0 0;border-radius:9px;background:${fill}"></i></span>`
+  const dot = '<span style="width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.6)"></span>'
+  const wave = (n,h) => `<span style="display:flex;align-items:flex-end;gap:2px;height:${h}px;width:100%">${Array.from({length:n},(_,i)=>`<i style="flex:1;border-radius:1px;height:${25+Math.abs(Math.sin(i*.7)*Math.cos(i*.2))*75}%;background:${i/n<.5?fill:track}"></i>`).join('')}</span>`
+  const wrap = (inner, extra='') => `<div class="schem" style="flex-direction:column;align-items:stretch;gap:6px;${extra}">${inner}</div>`
+  switch (id) {
+    case 'pill': return wrap(line(8) + `<div style="display:flex;gap:6px">${dot}${dot}</div>`)
+    case 'bold': return wrap(line(5) + `<div style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:14px;border-radius:3px;background:${fill}"></span><span style="font-size:9px;color:#9aa0ad">0:41</span></div>`)
+    case 'edge': return wrap(`<div style="flex:1"></div>` + line(2))
+    case 'outline': return wrap(line(2) + `<div style="display:flex;gap:6px"><span style="width:10px;height:10px;border-radius:50%;border:1.4px solid rgba(255,255,255,.65)"></span><span style="width:10px;height:10px;border-radius:50%;border:1.4px solid rgba(255,255,255,.65)"></span></div>`)
+    case 'inline': return `<div class="schem">${dot}${line(3)}${dot}</div>`
+    case 'island': return `<div class="schem"><span style="display:flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05)">${dot}<span style="width:54px">${line(3)}</span></span></div>`
+    case 'wave': return wrap(wave(46,18) + `<div style="display:flex;gap:6px">${dot}${dot}</div>`)
+    case 'wavebold': return wrap(wave(30,24) + `<div style="display:flex;gap:6px;align-items:center"><span style="width:14px;height:14px;border-radius:3px;background:${fill}"></span></div>`)
+    case 'segments': return wrap(`<span style="display:flex;gap:3px">${Array.from({length:18},(_,i)=>`<i style="flex:1;height:6px;border-radius:2px;background:${i<8?fill:track}"></i>`).join('')}</span>` + `<div style="display:flex;gap:6px">${dot}${dot}</div>`)
+    default: return wrap(line(3) + `<div style="display:flex;gap:6px">${dot}${dot}</div>`)
+  }
+}
+function vizSchem(id) {
+  const a = paint(scheme(S.accent).palette)
+  const bars = (n, style) => `<span style="display:flex;align-items:${id==='mirror'||id==='caps'||id==='needles'?'center':'flex-end'};gap:2px;height:40px;width:100%">${Array.from({length:n},(_,i)=>{
+    const h = 20 + Math.abs(Math.sin(i*.8)*Math.cos(i*.21))*80
+    return `<i style="flex:1;height:${h}%;background:${a};${style}"></i>`
+  }).join('')}</span>`
+  if (id === 'halo') return `<div class="schem"><span style="width:40px;height:40px;border-radius:50%;border:6px solid transparent;background:${a} border-box;-webkit-mask:linear-gradient(#000 0 0) padding-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude"></span></div>`
+  if (id === 'flow') return `<div class="schem"><span style="width:100%;height:26px;border-radius:14px;background:${a};filter:blur(2px)"></span></div>`
+  if (id === 'outline') return `<div class="schem">${bars(26, 'background:none;border:1.4px solid #7b7bf0;border-bottom:0')}</div>`
+  if (id === 'round' || id === 'roundsolid') return `<div class="schem">${bars(id==='round'?22:16, 'border-radius:999px')}</div>`
+  if (id === 'frame') return `<div class="schem">${bars(30, 'background:none;border:1.2px solid #7b7bf0')}</div>`
+  if (id === 'caps') return `<div class="schem">${bars(26, 'border-radius:2px;max-height:60%')}</div>`
+  if (id === 'needles') return `<div class="schem">${bars(40, 'max-width:1.5px')}</div>`
+  if (id === 'wall' || id === 'wall2') return `<div class="schem">${bars(id==='wall'?18:24, 'border-radius:1px')}</div>`
+  return `<div class="schem">${bars(24, 'border-radius:2px')}</div>`
+}
+
+/* ---------- tabs ---------- */
+const TABS = [
+  ['style','Style','M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0'],
+  ['colours','Colours','M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01'],
+  ['viz','Visualizer','M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z'],
+  ['bar','Progress bar','M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0'],
+  ['general','General','M12 8h.01M11 12h1v4h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z']
+]
+const HEAD = {
+  style: ['Style', 'A style sets the material, icons, font, colours and both shapes. Change anything after and it stays yours.'],
+  colours: ['Colours', 'Six roles. Only the accent takes a gradient, because only the bar and the visualizer can carry one.'],
+  viz: ['Visualizer', 'The shape of the audio visualizer. Its colour lives in Colours.'],
+  bar: ['Progress bar', "The transport's shape. Its colour lives in Colours."],
+  general: ['General', 'How Prism behaves when you open a file.']
+}
+
+const card = (on, inner, name, note) =>
+  `<button class="card" aria-pressed="${on}">${inner}<div class="foot"><b>${name}</b>${on==='true'?'<em>Selected</em>':note?`<span style="font-size:10.5px;color:#6b7080">${note}</span>`:''}</div></button>`
+
+function content() {
+  if (S.tab === 'style') return `
+    <div class="sect">
+      <div class="h">Styles <span>each card is the main window in that style</span></div>
+      <div class="grid">${STYLES.map(st =>
+        `<button class="card" data-style="${st.id}" aria-pressed="${String(S.style===st.id)}">
+           ${mini(st)}
+           <div class="foot"><b>${st.name}</b>${S.style===st.id?'<em>Selected</em>':`<span style="font-size:10.5px;color:#6b7080">${st.blurb}</span>`}</div>
+         </button>`).join('')}</div>
+    </div>
+    <div class="sect">
+      <div class="h">Type and spacing <span>the style suggests these; you can overrule them</span></div>
+      <div class="row"><div class="lab"><b>Font</b><span>Used everywhere in the app.</span></div>
+        <select data-set="font">${['System','Segoe UI','Bahnschrift','Calibri','Trebuchet','Verdana','Georgia','Mono'].map(f=>`<option ${S.font===f?'selected':''}>${f}</option>`).join('')}</select></div>
+      <div class="row"><div class="lab"><b>Text size</b><span>Applies to the tree and the chrome.</span></div>
+        <div class="chips">${['Small','Default','Large'].map(v=>`<button class="chip" data-set="size" data-v="${v}" aria-pressed="${String(S.size===v)}">${v}</button>`).join('')}</div></div>
+      <div class="row"><div class="lab"><b>Sidebar roominess</b><span>Row height and indentation in the file tree.</span></div>
+        <div class="chips">${['Tight','Default','Roomy'].map(v=>`<button class="chip" data-set="room" data-v="${v}" aria-pressed="${String(S.room===v)}">${v}</button>`).join('')}</div></div>
+      <p class="note">Changing any of these marks the style as modified. You'll be asked before switching away.</p>
+    </div>`
+
+  if (S.tab === 'colours') {
+    const roles = [
+      ['bg','Background','Behind the media'],
+      ['side','Sidebar','The file tree panel'],
+      ['title','Title bar','Top strip and the transport'],
+      ['text','Text','All type'],
+      ['icon','Icons','Tree glyphs and buttons']
+    ]
+    const sws = {
+      bg:['#0d0f14','#000000','#12141b','#191b22','#141319'], side:['#0e1016','#000000','#12141b','#1c1e26','#17161c'],
+      title:['#16181f','#000000','#191d26','#22242c','#1d1b23'], text:['#eef0f4','#ffffff','#d7dae1','#e8e1d4','#c8ccd6'],
+      icon:['#8a8e99','#9aa0f0','#6fb2a8','#d3a06a','#ffffff']
+    }
+    return `
+      <div class="sect">
+        <div class="h">Surfaces and type</div>
+        <div class="roles">${roles.map(([k,n,d]) => `
+          <div class="role">
+            <div class="n">${n}</div><div class="d">${d}</div>
+            ${k==='icon' ? `<div class="chips" style="margin-bottom:8px">${['Kind tints','Text','Muted','Accent','Custom'].map(v=>`<button class="chip" data-set="iconMode" data-v="${v}" aria-pressed="${String(S.iconMode===v)}" style="font-size:11px;padding:3px 7px">${v}</button>`).join('')}</div>` : ''}
+            <div class="pick"><input type="color" value="${S[k]}" data-colour="${k}" /><code>${S[k]}</code></div>
+            <div class="swline">${sws[k].map(c=>`<button class="sw" data-set="${k}" data-v="${c}" style="background:${c}"></button>`).join('')}</div>
+          </div>`).join('')}</div>
+      </div>
+      <div class="sect">
+        <div class="h">Accent <span>progress bar, visualizer, selection - the only role that takes a gradient</span></div>
+        <div class="schemes">${SCHEMES.map(s=>`<button class="scheme" data-scheme="${s.id}" title="${s.name}" aria-pressed="${String(S.accent===s.id)}" style="background:${paint(s.palette)}"></button>`).join('')}</div>
+        <div class="row" style="margin-top:14px"><div class="lab"><b>Effects</b><span>Applied to the progress bar and visualizer only.</span></div>
+          <div class="chips">${['glow','cycle','move'].map(f=>`<button class="chip" data-toggle="${f}" aria-pressed="${String(S[f])}">${f[0].toUpperCase()+f.slice(1)}</button>`).join('')}</div></div>
+      </div>`
+  }
+
+  if (S.tab === 'viz') return `
+    <div class="sect"><div class="h">Shape</div>
+      <div class="grid">${VIZ.map(([id,name]) =>
+        `<button class="card" data-set="viz" data-v="${id}" aria-pressed="${String(S.viz===id)}">${vizSchem(id)}
+          <div class="foot"><b>${name}</b>${S.viz===id?'<em>Selected</em>':''}</div></button>`).join('')}</div>
+      <p class="note">Height, position and the logo toggle stay here too. Colour moved to the Colours tab.</p>
+    </div>`
+
+  if (S.tab === 'bar') return `
+    <div class="sect"><div class="h">Shape</div>
+      <div class="grid">${BARS.map(([id,name,blurb]) =>
+        `<button class="card" data-set="bar" data-v="${id}" aria-pressed="${String(S.bar===id)}">${barSchem(id)}
+          <div class="foot"><b>${name}</b>${S.bar===id?'<em>Selected</em>':`<span style="font-size:10.5px;color:#6b7080">${blurb}</span>`}</div></button>`).join('')}</div>
+      <p class="note">Colour and effects moved to the Colours tab, so the bar and the visualizer can't drift apart.</p>
+    </div>`
+
+  return `
+    <div class="sect">
+      <div class="row"><div class="lab"><b>Folder navigation</b><span>Which sibling files the arrow keys step through.</span></div>
+        <select><option>Media / Documents</option><option>All in one</option><option>Per file type</option></select></div>
+    </div>`
+}
+
+function render() {
+  document.getElementById('tabs').innerHTML = TABS.map(([id,label,d]) =>
+    `<button class="tab" data-tab="${id}" aria-pressed="${String(S.tab===id)}">
+       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>${label}
+     </button>`).join('')
+  const [t, d] = HEAD[S.tab]
+  document.getElementById('pane-title').textContent = t
+  document.getElementById('pane-desc').textContent = d
+  document.getElementById('content').innerHTML = content()
+  document.documentElement.style.setProperty('--accent', scheme(S.accent).palette[0])
+}
+
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-tab]');       if (tab) { S.tab = tab.dataset.tab; return render() }
+  const st = e.target.closest('[data-style]')
+  if (st) {
+    S.style = st.dataset.style
+    const found = STYLES.find(x => x.id === S.style)
+    Object.assign(S, { bg: found.bg, side: found.side, title: found.title, text: found.text, accent: found.accent, font: found.font })
+    return render()
+  }
+  const set = e.target.closest('[data-set]');       if (set) { S[set.dataset.set] = set.dataset.v; return render() }
+  const sc = e.target.closest('[data-scheme]');     if (sc) { S.accent = sc.dataset.scheme; return render() }
+  const tg = e.target.closest('[data-toggle]');     if (tg) { S[tg.dataset.toggle] = !S[tg.dataset.toggle]; return render() }
+})
+document.addEventListener('input', (e) => {
+  if (e.target.dataset.colour) { S[e.target.dataset.colour] = e.target.value; render() }
+})
+document.addEventListener('change', (e) => {
+  if (e.target.dataset.set) { S[e.target.dataset.set] = e.target.value; render() }
+})
+
+render()
+</script>
+</body>
+</html>
