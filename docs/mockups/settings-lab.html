@@ -197,9 +197,9 @@ const FONT_STACK = {
 let WALLPAPER = 'night'
 
 const WALL = {
-  night: 'radial-gradient(60% 70% at 18% 22%, #6d5cff 0%, transparent 60%), radial-gradient(55% 60% at 82% 78%, #ff5c9e 0%, transparent 58%), linear-gradient(160deg,#2b3358,#241d2e)',
-  dunes: 'radial-gradient(55% 65% at 22% 25%, #ffd08a 0%, transparent 62%), radial-gradient(60% 60% at 80% 75%, #b8453a 0%, transparent 58%), linear-gradient(160deg,#c98f5a,#2a1c22)',
-  forest: 'radial-gradient(55% 60% at 20% 20%, #7ee6b0 0%, transparent 60%), radial-gradient(60% 60% at 80% 80%, #2b7fa8 0%, transparent 58%), linear-gradient(160deg,#3f6f5c,#0d1418)',
+  night: 'radial-gradient(60% 70% at 18% 22%, #5648c9 0%, transparent 58%), radial-gradient(55% 60% at 82% 78%, #c04a7e 0%, transparent 55%), linear-gradient(160deg,#232a48,#1b1624)',
+  dunes: 'radial-gradient(55% 65% at 22% 25%, #d9ab72 0%, transparent 60%), radial-gradient(60% 60% at 80% 75%, #94382f 0%, transparent 55%), linear-gradient(160deg,#9c6e46,#241a1e)',
+  forest: 'radial-gradient(55% 60% at 20% 20%, #63bd93 0%, transparent 58%), radial-gradient(60% 60% at 80% 80%, #246a8b 0%, transparent 55%), linear-gradient(160deg,#33594a,#0d1418)',
   none: 'linear-gradient(160deg,#14161d,#05060a)'
 }
 
@@ -228,24 +228,24 @@ const S = {
 const NOISE = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E\")"
 
 const MATERIAL = {
-  solid:    { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque' },
-  gradient: { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque, shaded' },
-  glass:    { alpha: .34,  blur: 7,  sat: 1.3, note: 'see-through' },
-  mica:     { alpha: .86,  blur: 16, sat: 1.1, note: 'a hint of wallpaper' },
-  acrylic:  { alpha: .55,  blur: 9,  sat: 1.7, note: 'frosted + grain' },
-  apple:    { alpha: .5,   blur: 12, sat: 1.9, note: 'deep translucency' },
-  oled:     { alpha: 1,    blur: 0,  sat: 1,   note: 'true black' },
-  tinted:   { alpha: 1,    blur: 0,  sat: 1,   note: 'opaque, accent-tinted' }
+  solid:    { side: 1,   title: 1,   bg: 1,   blur: 0,  sat: 1,   note: 'opaque' },
+  gradient: { side: 1,   title: 1,   bg: 1,   blur: 0,  sat: 1,   note: 'opaque, shaded' },
+  glass:    { side: .42, title: .5,  bg: .32, blur: 8,  sat: 1.3, note: 'see-through' },
+  mica:     { side: .84, title: .86, bg: .9,  blur: 16, sat: 1.1, note: 'a hint of wallpaper' },
+  acrylic:  { side: .62, title: .66, bg: .72, blur: 10, sat: 1.6, note: 'frosted + grain' },
+  apple:    { side: .58, title: .6,  bg: .82, blur: 13, sat: 1.9, note: 'deep translucency' },
+  oled:     { side: 1,   title: 1,   bg: 1,   blur: 0,  sat: 1,   note: 'true black' },
+  tinted:   { side: 1,   title: 1,   bg: 1,   blur: 0,  sat: 1,   note: 'opaque, accent-tinted' }
 }
 
 function mini(st) {
   const a = scheme(st.accent).palette
   const M = MATERIAL[st.material]
-  const surf = (c, k = 1) => M.alpha >= 1 ? c : rgba(c, Math.min(1, M.alpha * k))
+  const surf = (c, part) => M[part] >= 1 ? c : rgba(c, M[part])
   const grad = st.material === 'gradient', tint = st.material === 'tinted'
-  const side = grad ? `linear-gradient(180deg, ${lighten(st.side,.08)}, ${st.side})` : tint ? mix(st.side, a[0], .12) : surf(st.side)
-  const title = grad ? `linear-gradient(180deg, ${lighten(st.title,.1)}, ${st.title})` : tint ? mix(st.title, a[0], .15) : surf(st.title, 1.1)
-  const bg = tint ? mix(st.bg, a[0], .08) : surf(st.bg, .92)
+  const side = grad ? `linear-gradient(180deg, ${lighten(st.side,.06)}, ${st.side})` : tint ? mix(st.side, a[0], .1) : surf(st.side, 'side')
+  const title = grad ? `linear-gradient(180deg, ${lighten(st.title,.07)}, ${st.title})` : tint ? mix(st.title, a[0], .12) : surf(st.title, 'title')
+  const bg = grad ? `radial-gradient(120% 90% at 50% 0%, ${rgba(a[0],.13)}, transparent 62%), ${st.bg}` : tint ? mix(st.bg, a[0], .07) : surf(st.bg, 'bg')
   const filt = M.blur ? `backdrop-filter: blur(${M.blur}px) saturate(${M.sat});` : ''
   const grain = st.material === 'acrylic' ? `<span style="position:absolute;inset:0;background-image:${NOISE};opacity:.16;mix-blend-mode:overlay"></span>` : ''
   const dim = mix(st.text, st.side, .5)
@@ -264,10 +264,11 @@ function mini(st) {
         <div class="bar" style="background:${title};${filt}">
           ${grain}
           <span class="dot" style="background:${a[0]}"></span>
-          <span style="position:relative;font-family:${FONT_STACK[st.font]};font-size:6.5px;font-weight:700;color:${st.text};letter-spacing:.02em">Prism</span>
+          <span style="position:relative;font-family:${FONT_STACK[st.font]};font-size:5px;line-height:1;font-weight:700;color:${rgba(st.text,.92)};letter-spacing:.01em">Prism</span>
+          <span class="line" style="width:26%;height:2.5px;background:${rgba(dim,.65)}"></span>
           <span style="position:relative;flex:1"></span>
-          <span class="dot" style="background:${rgba(dim,.8)}"></span>
-          <span class="dot" style="background:${rgba(dim,.8)}"></span>
+          <span class="dot" style="width:3px;height:3px;background:${rgba(dim,.75)}"></span>
+          <span class="dot" style="width:3px;height:3px;background:${rgba(dim,.75)}"></span>
         </div>
         <div class="body">
           <div class="side" style="background:${side};${filt};gap:${rows[0] - 2}px">${grain}${tree}</div>
