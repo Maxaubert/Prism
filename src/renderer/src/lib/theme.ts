@@ -205,12 +205,14 @@ const LIGHT: Style[] = [
   {
     id: 'paper',
     name: 'Paper',
-    blurb: 'Plain white, Prism blue.',
+    blurb: 'Plain white, Prism blue, no edges.',
     mode: 'light',
     material: 'solid',
-    bg: '#f7f7f8',
-    side: '#efeff1',
-    title: '#e7e8ea',
+    // No dividers: the three surfaces are stepped far enough apart to separate
+    // themselves, which is the whole point of a style with no edge lines.
+    bg: '#fbfbfc',
+    side: '#eceef1',
+    title: '#e1e3e8',
     text: '#1b1d21',
     iconMode: 'kind',
     icon: '#6b7280',
@@ -218,7 +220,7 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'hairline'
+    borders: 'none'
   },
   {
     id: 'linen',
