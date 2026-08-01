@@ -375,7 +375,10 @@ export default function App(): JSX.Element {
           onToggleSidebar={toggleSidebar}
         />
       )}
-      <div className="flex min-h-0 flex-1">
+      {/* Settings covers this area. Hiding it (rather than leaving it painted
+          underneath) is what lets a translucent style show its material through
+          the settings page; `invisible` keeps a playing video alive. */}
+      <div className={`flex min-h-0 flex-1 ${settingsOpen ? 'invisible' : ''}`}>
         {raw && !fullscreen && (
           <Sidebar
             open={sidebar}

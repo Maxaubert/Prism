@@ -30,8 +30,8 @@ import { THEMES } from '../lib/viz/styles'
 /** A small schematic of each transport style, so the picker previews the shape
  *  without spinning up a real player. */
 function Mini({ id }: { id: TransportStyle }): JSX.Element {
-  const acc = 'var(--color-accent-hi)'
-  const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[#0e1016]'
+  const acc = 'var(--p-accent-hi)'
+  const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[var(--p-side-flat)]'
   const dot = <span className="h-2 w-2 rounded-full bg-white/70" />
   const bars = (n: number, h: number, gap: string, bold = false): JSX.Element => (
     <div className={`flex w-full items-center ${gap}`}>
@@ -86,7 +86,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       return (
         <div className={box}>
           <div className="absolute inset-x-0 top-0">{line(4)}</div>
-          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--color-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
+          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
         </div>
       )
     case 'segments':
@@ -100,7 +100,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       return (
         <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}>
           <div className="h-5">{bars(40, 20, 'gap-[2px]', true)}</div>
-          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--color-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
+          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-white/80">0:41</span></div>
         </div>
       )
     case 'slim':
@@ -116,8 +116,8 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   return (
     <div>
       <div className="mb-2.5 flex items-baseline gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim)]">{title}</span>
-        {hint && <span className="text-[11px] text-[var(--color-dim2,#6b7080)]">{hint}</span>}
+        <span className="text-[11px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">{title}</span>
+        {hint && <span className="text-[11px] text-[var(--p-dim2)]">{hint}</span>}
       </div>
       {children}
     </div>
@@ -131,8 +131,8 @@ function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; chi
       onClick={onClick}
       className={`flex flex-col gap-2 rounded-xl border p-2.5 text-left transition ${
         on
-          ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/12'
-          : 'border-white/10 bg-white/[.02] hover:border-white/20 hover:bg-white/[.05]'
+          ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/12'
+          : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:brightness-125'
       }`}
     >
       {children}
@@ -143,8 +143,8 @@ function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 function TileFooter({ name, on }: { name: string; on: boolean }): JSX.Element {
   return (
     <div className="flex items-baseline justify-between">
-      <span className={`text-[12.5px] font-semibold ${on ? 'text-white' : 'text-[#d7dae1]'}`}>{name}</span>
-      {on && <span className="text-[10px] font-semibold text-[var(--color-accent-hi)]">Selected</span>}
+      <span className={`text-[12.5px] font-semibold ${on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)]'}`}>{name}</span>
+      {on && <span className="text-[10px] font-semibold text-[var(--p-accent-hi)]">Selected</span>}
     </div>
   )
 }
@@ -249,7 +249,7 @@ function StyleTab(): JSX.Element {
   const list = stylesFor(mode)
   return (
     <div className="flex flex-col gap-6">
-      <Section title="Mode" hint="light styles are still being drawn">
+      <Section title="Mode" hint="dark and light have their own styles">
         <div className="flex gap-2">
           {(['dark', 'light'] as Mode[]).map((m) => (
             <button
@@ -258,8 +258,8 @@ function StyleTab(): JSX.Element {
               aria-pressed={mode === m}
               className={`rounded-lg border px-4 py-1.5 text-[12.5px] font-semibold capitalize transition ${
                 mode === m
-                  ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-white'
-                  : 'border-white/10 bg-white/[.02] text-[var(--color-dim)] hover:border-white/20 hover:text-white'
+                  ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-[var(--p-text)]'
+                  : 'border-[color:var(--p-divider)] text-[var(--p-dim)] hover:text-[var(--p-text)]'
               }`}
             >
               {m}
@@ -277,14 +277,14 @@ function StyleTab(): JSX.Element {
                 <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
                   <StyleMini st={st} />
                   <TileFooter name={st.name} on={on} />
-                  <span className="text-[11.5px] leading-snug text-[var(--color-dim)]">{st.blurb}</span>
+                  <span className="text-[11.5px] leading-snug text-[var(--p-dim)]">{st.blurb}</span>
                 </Tile>
               )
             })}
           </div>
         ) : (
-          <p className="max-w-[52ch] text-[12.5px] leading-relaxed text-[var(--color-dim)]">
-            No light styles yet. The dark set stays on screen until they land.
+          <p className="max-w-[52ch] text-[12.5px] leading-relaxed text-[var(--p-dim)]">
+            Nothing here yet for this mode.
           </p>
         )}
       </Section>
@@ -305,7 +305,7 @@ function Row({ id, label, desc, children }: { id: string; label: string; desc?: 
         <label htmlFor={id} className="text-[13px] font-semibold text-white">
           {label}
         </label>
-        {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--color-dim)]">{desc}</p>}
+        {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--p-dim)]">{desc}</p>}
       </div>
       {children}
     </div>
@@ -330,7 +330,7 @@ function Dropdown({
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="shrink-0 rounded-lg border border-white/[.12] bg-white/[.06] px-2.5 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:border-white/25 focus-visible:border-[var(--color-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/45"
+      className="shrink-0 rounded-lg border border-white/[.12] bg-white/[.06] px-2.5 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:border-white/25 focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
     >
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -372,7 +372,7 @@ function VisualizerTab(): JSX.Element {
             const on = isActivePreset(p, v)
             return (
               <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[#0d0f14]">
+                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[var(--p-bg)]">
                   <VizPreview styleId={p.style} />
                 </div>
                 <TileFooter name={p.name} on={on} />
@@ -435,8 +435,8 @@ function EffectToggles({
           aria-pressed={tg.on}
           className={`rounded-lg border px-3.5 py-1.5 text-[12.5px] font-semibold transition ${
             tg.on
-              ? 'border-[var(--color-accent-hi)] bg-[var(--color-accent)]/25 text-white'
-              : 'border-white/10 bg-white/[.02] text-[var(--color-dim)] hover:border-white/20 hover:text-white'
+              ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-[var(--p-text)]'
+              : 'border-[color:var(--p-divider)] text-[var(--p-dim)] hover:text-[var(--p-text)]'
           }`}
         >
           {tg.label}
@@ -470,7 +470,7 @@ function Swatches({
             aria-pressed={on}
             className={`h-6 rounded-md transition ${
               on
-                ? 'ring-2 ring-[var(--color-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
+                ? 'ring-2 ring-[var(--p-accent-hi)] ring-offset-1 ring-offset-[#0d0f14]'
                 : 'ring-1 ring-white/10 hover:ring-white/30'
             }`}
             style={{ background: it.fill }}
@@ -492,7 +492,7 @@ function SchemePicker({ selectedId, onPick }: { selectedId: string; onPick: (id:
         if (!items.length) return null
         return (
           <div key={cat}>
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">{cat}</div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">{cat}</div>
             <Swatches
               items={items.map((t) => ({
                 id: t.id,
@@ -533,7 +533,7 @@ function ColourControls({
     <div className="flex flex-col gap-4">
       <SchemePicker selectedId={selectedId} onPick={onPick} />
       <div>
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--color-dim2,#6b7080)]">Effects</div>
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">Effects</div>
         <EffectToggles glow={glow} cycle={cycle} move={move} onGlow={onGlow} onCycle={onCycle} onMove={onMove} />
       </div>
     </div>
@@ -621,7 +621,7 @@ export function Settings({
     <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]">
       {/* tab rail */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-3">
-          <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-white">Settings</div>
+          <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
           <nav className="flex flex-col gap-0.5">
             {TABS.map((t) => {
               const on = t.id === tab
@@ -631,26 +631,26 @@ export function Settings({
                   onClick={() => setTab(t.id)}
                   className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition ${
                     on
-                      ? 'bg-[var(--color-accent)]/18 text-white'
-                      : 'text-[var(--color-dim)] hover:bg-white/[.05] hover:text-white'
+                      ? 'bg-[var(--p-accent)]/18 text-[var(--p-text)]'
+                      : 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
                   }`}
                 >
-                  <span className={on ? 'text-[var(--color-accent-hi)]' : ''}>{t.icon}</span>
+                  <span className={on ? 'text-[var(--p-accent-hi)]' : ''}>{t.icon}</span>
                   {t.label}
                 </button>
               )
             })}
           </nav>
-          <div className="mt-auto px-2 pb-1 text-[11px] text-[var(--color-dim2,#6b7080)]">Prism</div>
+          <div className="mt-auto px-2 pb-1 text-[11px] text-[var(--p-dim2)]">Prism</div>
         </aside>
 
         {/* content */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* No close button: the cog that opened this closes it, and Escape works
               too. One control, one place. */}
-          <header className="border-b border-white/[.06] px-6 py-4">
-            <h2 className="text-[16px] font-semibold text-white">{active.title}</h2>
-            {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--color-dim)]">{active.desc}</p>}
+          <header className="border-b border-[color:var(--p-divider)] px-6 py-4">
+            <h2 className="text-[16px] font-semibold text-[var(--p-text)]">{active.title}</h2>
+            {active.desc && <p className="mt-0.5 truncate text-[12.5px] text-[var(--p-dim)]">{active.desc}</p>}
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -663,7 +663,7 @@ export function Settings({
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
             ) : (
-              <div className="max-w-[46ch] text-[13px] leading-relaxed text-[var(--color-dim)]">
+              <div className="max-w-[46ch] text-[13px] leading-relaxed text-[var(--p-dim)]">
                 <div className="mb-1 text-[15px] font-semibold text-white">Prism</div>
                 A sleek media viewer — audio visualizer, video, and images in one dark, chrome-light window.
               </div>

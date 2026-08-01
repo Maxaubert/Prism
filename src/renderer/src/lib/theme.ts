@@ -63,7 +63,7 @@ export const STYLES: Style[] = [
     icon: '#8a8e99',
     accent: 's-sky',
     font: 'system',
-    size: '13.5',
+    size: '12.5',
     corners: '2',
     borders: 'hairline'
   },
@@ -99,7 +99,7 @@ export const STYLES: Style[] = [
     icon: '#d3a06a',
     accent: 's-coral',
     font: 'calibri',
-    size: '13.5',
+    size: '12.5',
     corners: '8',
     borders: 'hairline'
   },
@@ -117,7 +117,7 @@ export const STYLES: Style[] = [
     icon: '#8a8e99',
     accent: 's-indigo',
     font: 'segoe',
-    size: '12',
+    size: '12.5',
     corners: '2',
     borders: 'none'
   },
@@ -135,7 +135,7 @@ export const STYLES: Style[] = [
     icon: '#3f9d54',
     accent: 's-green',
     font: 'mono',
-    size: '12',
+    size: '12.5',
     corners: '2',
     borders: 'none'
   },
@@ -171,7 +171,7 @@ export const STYLES: Style[] = [
     icon: '#a1885f',
     accent: 'copper',
     font: 'calibri',
-    size: '13.5',
+    size: '12.5',
     corners: '8',
     borders: 'hairline'
   },
@@ -194,6 +194,119 @@ export const STYLES: Style[] = [
     borders: 'hairline'
   }
 ]
+
+const LIGHT: Style[] = [
+  {
+    id: 'paper',
+    name: 'Paper',
+    blurb: 'Plain white, Prism blue.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#f7f7f8',
+    side: '#efeff1',
+    title: '#e7e8ea',
+    text: '#1b1d21',
+    iconMode: 'kind',
+    icon: '#6b7280',
+    accent: 'prism',
+    font: 'system',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'ash',
+    name: 'Ash',
+    blurb: 'Neutral grey, square.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#eceef0',
+    side: '#e4e6e9',
+    title: '#dbdee2',
+    text: '#1c1f24',
+    iconMode: 'dim',
+    icon: '#6b7280',
+    accent: 'd-slate',
+    font: 'segoe',
+    size: '12.5',
+    corners: '2',
+    borders: 'hairline'
+  },
+  {
+    id: 'linen',
+    name: 'Linen',
+    blurb: 'Warm paper, bronze.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#f8f4ed',
+    side: '#f1ebe1',
+    title: '#e9e2d5',
+    text: '#241f18',
+    iconMode: 'custom',
+    icon: '#8a6d45',
+    accent: 'd-bronze',
+    font: 'calibri',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'frost',
+    name: 'Frost',
+    blurb: 'Cool white, deep teal.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#f4f8fb',
+    side: '#e9f0f6',
+    title: '#dfe8f1',
+    text: '#152029',
+    iconMode: 'custom',
+    icon: '#4a7d92',
+    accent: 'd-teal',
+    font: 'system',
+    size: '12.5',
+    corners: '14',
+    borders: 'none'
+  },
+  {
+    id: 'meadow',
+    name: 'Meadow',
+    blurb: 'Soft green, pine accent.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#f5f8f3',
+    side: '#ecf2e9',
+    title: '#e2ebde',
+    text: '#1a201a',
+    iconMode: 'custom',
+    icon: '#5c7a56',
+    accent: 'd-pine',
+    font: 'trebuchet',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'daylight',
+    name: 'Daylight',
+    blurb: 'Acrylic over white.',
+    mode: 'light',
+    material: 'acrylic',
+    bg: '#ffffff',
+    side: '#f4f4f6',
+    title: '#ededf0',
+    text: '#17191d',
+    iconMode: 'kind',
+    icon: '#6b7280',
+    accent: 's-sky',
+    font: 'system',
+    size: '12.5',
+    corners: '2',
+    borders: 'hairline'
+  }
+]
+
+STYLES.push(...LIGHT)
 
 export const DEFAULT_STYLE = 'graphite'
 
@@ -269,12 +382,13 @@ function paint(style: Style): void {
     title = mix(style.title, accent, 0.12)
   }
 
+  const ink = style.mode === 'light' ? '#000000' : '#ffffff'
   const divider =
     style.borders === 'none'
       ? 'transparent'
       : style.borders === 'strong'
-        ? rgba('#ffffff', 0.16)
-        : rgba('#ffffff', 0.07)
+        ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
+        : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
 
   const icon =
     style.iconMode === 'text'
@@ -298,7 +412,7 @@ function paint(style: Style): void {
   set('--p-accent-hi', lighten(accent, 0.25))
   set('--p-on-accent', readableOn(accent))
   set('--p-icon', icon)
-  set('--p-hover', rgba('#ffffff', 0.06))
+  set('--p-hover', rgba(ink, style.mode === 'light' ? 0.07 : 0.06))
   set('--p-divider', divider)
   set('--p-radius', style.corners + 'px')
   set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
