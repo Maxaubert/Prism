@@ -67,7 +67,7 @@ export function ContextMenu({
         style={{ left: pos.x, top: pos.y }}
         // Hairline: square, bordered, ruled between items. No inner padding, so
         // each row spans the full width and the rules read as structure.
-        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-white/[.12] bg-[var(--p-title)] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-title)] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
       >
         {items.map((it) => (
           <button
@@ -77,17 +77,17 @@ export function ContextMenu({
               it.onPick()
               onClose()
             }}
-            className={`flex h-[28px] w-full items-center justify-between gap-8 border-t border-white/[.07] px-[11px] text-left text-[12px] transition-colors first:border-t-0 ${
+            className={`flex h-[28px] w-full items-center justify-between gap-8 border-t border-[color:var(--p-divider)] px-[11px] text-left text-[12px] transition-colors first:border-t-0 ${
               it.danger
                 ? 'text-[#d97b84] hover:bg-[#b4353f]/20 hover:text-[#f0a4ab]'
-                : 'text-[#c8ccd6] hover:bg-white/[.05] hover:text-white'
+                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
             }`}
           >
             <span className="flex items-center gap-2">
               {it.icon}
               {it.label}
             </span>
-            {it.hint && <span className="text-[10.5px] tracking-wide text-[var(--color-dim2,#5f6474)]">{it.hint}</span>}
+            {it.hint && <span className="text-[10.5px] tracking-wide text-[var(--p-dim2)]">{it.hint}</span>}
           </button>
         ))}
       </div>
