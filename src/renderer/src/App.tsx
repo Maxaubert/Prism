@@ -289,7 +289,7 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
-      } else if ((e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
+      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
         e.preventDefault()
         toggleSidebar()
       } else if (e.key === 'Escape') {
