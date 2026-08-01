@@ -611,9 +611,9 @@ export function Settings({
 
   return (
     // A full-window settings page (sits below the 36px title bar), not a popup.
-    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[#0d0f14]">
+    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]">
       {/* tab rail */}
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-white/[.06] bg-[#0e1016] p-3">
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-3">
           <div className="px-2 pb-3 pt-1.5 text-[15px] font-bold tracking-tight text-white">Settings</div>
           <nav className="flex flex-col gap-0.5">
             {TABS.map((t) => {

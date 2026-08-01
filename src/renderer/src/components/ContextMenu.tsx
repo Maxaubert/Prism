@@ -67,7 +67,7 @@ export function ContextMenu({
         style={{ left: pos.x, top: pos.y }}
         // Hairline: square, bordered, ruled between items. No inner padding, so
         // each row spans the full width and the rules read as structure.
-        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-white/[.12] bg-[#101319] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-white/[.12] bg-[var(--p-title)] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
       >
         {items.map((it) => (
           <button

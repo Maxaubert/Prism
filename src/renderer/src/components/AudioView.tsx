@@ -97,7 +97,7 @@ export function AudioView({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden bg-[#0d0f14]"
+      className="relative h-full w-full overflow-hidden bg-[var(--p-bg)]"
       onMouseMove={showChrome}
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >
@@ -156,7 +156,7 @@ export function AudioView({
               fullscreen it slides out of view when the chrome hides. */}
           <div
             className={`absolute inset-x-0 bottom-0 z-10 transition-transform duration-300 ${
-              transportBg ? 'bg-[#12141b]' : ''
+              transportBg ? 'bg-[var(--p-title)]' : ''
             } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
           >
             <Transport c={c} style={transportStyle} peaks={peaks} bar={barFx} />
