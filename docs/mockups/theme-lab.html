@@ -298,8 +298,6 @@ const DEFAULTS = {
 const STYLES = {
   'Glasshouse': { material:'glass', bg:'#0d1114', side:'#101418', title:'#141a1e', text:'#eaf1f2',
     iconMode:'custom', icon:'#6fb2a8', accentScheme:'aurora', font:'system', size:'12.5', corners:'14', borders:'hairline' },
-  'Terminal': { material:'solid', bg:'#0b0f14', side:'#0d1117', title:'#11161d', text:'#d7e0d9',
-    iconMode:'accent', icon:'#3f9d54', accentScheme:'s-green', font:'mono', size:'12', corners:'2', borders:'strong' },
   'Paperback': { material:'solid', bg:'#141319', side:'#17161c', title:'#1d1b23', text:'#e8e1d4',
     iconMode:'dim', icon:'#8a8e99', accentScheme:'s-coral', font:'georgia', size:'13.5', corners:'8', borders:'none' }
 }
@@ -309,12 +307,12 @@ const SAVED_KEY = 'prism.lab.saved'
 const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY)) ?? {} } catch { return {} } }
 let saved = loadSaved()
 
-let styleName = 'Glasshouse'
-let S = { ...DEFAULTS, ...STYLES[styleName] }
+let styleName = Object.keys(saved)[0] ?? 'Glasshouse'
+let S = { ...DEFAULTS, ...(saved[styleName] ?? STYLES[styleName] ?? STYLES['Glasshouse']) }
 let view = 'image'
 let pending = null // a style switch waiting on the modified dialog
 
-const bundleFor = (n) => STYLES[n] ?? saved[n]
+const bundleFor = (n) => saved[n] ?? STYLES[n]
 /** Take a style's keys, leave everything else (hover, shapes, effects) alone. */
 const applyStyle = (n) => {
   const b = bundleFor(n)
@@ -521,7 +519,7 @@ function startDrag(kind, el, key, e) {
 }
 
 function renderRail() {
-  const names = [...Object.keys(STYLES), ...Object.keys(saved)]
+  const names = [...Object.keys(saved), ...Object.keys(STYLES).filter((n) => !saved[n])]
   document.getElementById('rail').innerHTML = `
     <div class="group">
       <h2>Style</h2>
