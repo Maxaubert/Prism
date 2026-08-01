@@ -61,6 +61,20 @@
   .scheme { height: 19px; border-radius: 5px; border: 1px solid rgba(255,255,255,.12); cursor: pointer; padding: 0; }
   .scheme[aria-pressed="true"] { outline: 2px solid #7b7bf0; outline-offset: 1px; }
   input[type="range"] { width: 100%; accent-color: #7b7bf0; }
+
+  /* A picker of our own: the native colour dialog only reports its value when it
+     closes, so dragging in it tells you nothing until you're done. */
+  .swbtn { width: 30px; height: 25px; border-radius: 6px; border: 1px solid rgba(255,255,255,.22); cursor: pointer; padding: 0; }
+  .picker { margin-top: 8px; padding: 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: #12141a; }
+  .sv { position: relative; height: 96px; border-radius: 6px; cursor: crosshair; touch-action: none; }
+  .hue { position: relative; height: 12px; margin-top: 9px; border-radius: 999px; cursor: ew-resize; touch-action: none;
+         background: linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00); }
+  .knob { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+          border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.55); pointer-events: none; }
+  .hue .knob { top: 50%; }
+  .pickrow { display: flex; gap: 6px; margin-top: 9px; }
+  .hex { flex: 1; min-width: 0; padding: 4px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.14);
+         background: #0d0f14; color: #fff; font: 500 11.5px/1.4 "Cascadia Mono", Consolas, ui-monospace, monospace; text-transform: uppercase; }
   .check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #c8ccd6; cursor: pointer; }
   .check input { accent-color: #7b7bf0; }
 
@@ -228,6 +242,30 @@ const SCHEMES = [
 ]
 const scheme = (id) => SCHEMES.find(s => s.id === id) ?? SCHEMES[0]
 const paint = (p) => p.length > 1 ? `linear-gradient(90deg, ${p.join(', ')}, ${p[0]})` : p[0]
+
+function hex2hsv(hex) {
+  const [r, g, b] = hex2rgb(hex).map((v) => v / 255)
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min
+  let h = 0
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  return { h, s: max ? d / max : 0, v: max }
+}
+function hsv2hex(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))) * 255 }
+  return rgb2hex([f(5), f(3), f(1)])
+}
+
+// Which colour row has its picker open, and the hue/sat/val being dragged.
+const PICKER = { key: null, h: 0, s: 0, v: 0 }
+// True while a knob is under the pointer: the preview keeps repainting, but the
+// rail must not re-render or the element being dragged would vanish mid-drag.
+let liveDrag = false
 
 const FONTS = {
   system: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
@@ -415,7 +453,7 @@ function render() {
 
   document.getElementById('viewer').innerHTML = vizHtml + `<div class="transport">${tp}</div>`
 
-  renderRail()
+  if (!liveDrag) renderRail()
   document.getElementById('recipe').textContent =
     `style=${styleName}${modified()?'*':''} material=${S.material} bg=${S.bg} sidebar=${S.side} titlebar=${S.title} ` +
     `text=${S.text} icons=${S.iconMode}${S.iconMode==='custom'?':'+S.icon:''} accent=${S.accentScheme}` +
@@ -427,10 +465,74 @@ function render() {
 function opts(key, list) {
   return `<div class="opts">${list.map(([v,l]) => `<button class="opt" data-k="${key}" data-v="${v}" aria-pressed="${String(S[key]===v)}">${l}</button>`).join('')}</div>`
 }
+function pickerHtml(key) {
+  return `<div class="picker" data-picker="${key}">
+    <div class="sv" data-sv style="background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${PICKER.h} 100% 50%))">
+      <span class="knob" data-svknob style="left:${PICKER.s * 100}%;top:${(1 - PICKER.v) * 100}%"></span>
+    </div>
+    <div class="hue" data-hue><span class="knob" data-hueknob style="left:${(PICKER.h / 360) * 100}%"></span></div>
+    <div class="pickrow">
+      <input class="hex" data-hex="${key}" value="${S[key]}" spellcheck="false" maxlength="7" />
+      <button class="opt" data-closepicker>Done</button>
+    </div>
+  </div>`
+}
+
 function colourRow(key, label, swatches) {
+  const open = PICKER.key === key
   return `<div class="axis"><span class="label">${label}</span>
-    <div class="colour"><input type="color" data-c="${key}" value="${S[key]}" /><code>${S[key]}</code></div>
-    <div class="sws">${swatches.map(s=>`<button class="sw" data-set="${key}" data-v="${s}" style="background:${s}" title="${s}" aria-pressed="${String(S[key].toLowerCase()===s.toLowerCase())}"></button>`).join('')}</div></div>`
+    <div class="colour">
+      <button class="swbtn" data-open="${key}" style="background:${S[key]}" title="Pick a colour"></button>
+      <input class="hex" data-hex="${key}" value="${S[key]}" spellcheck="false" maxlength="7" />
+    </div>
+    <div class="sws">${swatches.map(s=>`<button class="sw" data-set="${key}" data-v="${s}" style="background:${s}" title="${s}" aria-pressed="${String(S[key].toLowerCase()===s.toLowerCase())}"></button>`).join('')}</div>
+    ${open ? pickerHtml(key) : ''}</div>`
+}
+
+/** Move the knobs and the swatch by hand, since the rail isn't being rebuilt. */
+function syncPicker(key, hex) {
+  const row = document.querySelector(`.picker[data-picker="${key}"]`)
+  if (row) {
+    row.querySelector('[data-svknob]').style.left = PICKER.s * 100 + '%'
+    row.querySelector('[data-svknob]').style.top = (1 - PICKER.v) * 100 + '%'
+    row.querySelector('[data-hueknob]').style.left = (PICKER.h / 360) * 100 + '%'
+    row.querySelector('.sv').style.background =
+      `linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,hsl(${PICKER.h} 100% 50%))`
+  }
+  const btn = document.querySelector(`[data-open="${key}"]`)
+  if (btn) btn.style.background = hex
+}
+
+/** Repaint everything the drag affects without rebuilding the rail. */
+function liveSet(key, hex) {
+  S[key] = hex
+  syncPicker(key, hex)
+  document.querySelectorAll(`[data-hex="${key}"]`).forEach((i) => { i.value = hex })
+  render()
+}
+
+/** Track the pointer across the whole window, so the drag survives leaving the box. */
+function startDrag(kind, el, key, e) {
+  liveDrag = true
+  const box = el.getBoundingClientRect()
+  const apply = (ev) => {
+    const x = Math.min(1, Math.max(0, (ev.clientX - box.left) / box.width))
+    if (kind === 'hue') PICKER.h = x * 360
+    else {
+      PICKER.s = x
+      PICKER.v = 1 - Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height))
+    }
+    liveSet(key, hsv2hex(PICKER.h, PICKER.s, PICKER.v))
+  }
+  const stop = () => {
+    liveDrag = false
+    window.removeEventListener('pointermove', apply)
+    window.removeEventListener('pointerup', stop)
+    render()
+  }
+  window.addEventListener('pointermove', apply)
+  window.addEventListener('pointerup', stop)
+  apply(e)
 }
 
 function renderRail() {
@@ -611,8 +713,22 @@ document.addEventListener('click', (e) => {
   }
   const opt = t.closest('[data-k]')
   if (opt) { S[opt.dataset.k] = opt.dataset.v; render(); return }
+  const open = t.closest('[data-open]')
+  if (open) {
+    const key = open.dataset.open
+    if (PICKER.key === key) PICKER.key = null
+    else { PICKER.key = key; Object.assign(PICKER, hex2hsv(S[key])) }
+    render()
+    return
+  }
+  if (t.closest('[data-closepicker]')) { PICKER.key = null; render(); return }
   const sw = t.closest('[data-set]')
-  if (sw) { S[sw.dataset.set] = sw.dataset.v; render(); return }
+  if (sw) {
+    S[sw.dataset.set] = sw.dataset.v
+    if (PICKER.key === sw.dataset.set) Object.assign(PICKER, hex2hsv(sw.dataset.v))
+    render()
+    return
+  }
   const sc = t.closest('[data-scheme]')
   if (sc) { S.accentScheme = sc.dataset.scheme; render(); return }
   const tg = t.closest('[data-toggle]')
@@ -621,9 +737,33 @@ document.addEventListener('click', (e) => {
   if (vw) { view = vw.dataset.view; render() }
 })
 
+document.addEventListener('pointerdown', (e) => {
+  const sv = e.target.closest('[data-sv]')
+  const hue = e.target.closest('[data-hue]')
+  if (!sv && !hue) return
+  const key = e.target.closest('[data-picker]').dataset.picker
+  e.preventDefault()
+  startDrag(sv ? 'sv' : 'hue', sv ?? hue, key, e)
+})
+
 document.addEventListener('input', (e) => {
-  if (e.target.dataset.c) { S[e.target.dataset.c] = e.target.value; render() }
-  else if (e.target.dataset.range) { S[e.target.dataset.range] = e.target.value; render() }
+  const hex = e.target.dataset.hex
+  if (hex) {
+    // Type as you like; it only lands when it's a real colour.
+    let v = e.target.value.trim()
+    if (v && v[0] !== '#') v = '#' + v
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)) return
+    S[hex] = v
+    if (PICKER.key === hex) Object.assign(PICKER, hex2hsv(v))
+    // Repaint the app, but leave the rail alone: rebuilding it would replace the
+    // very input being typed into and throw away the caret.
+    liveDrag = true
+    render()
+    liveDrag = false
+    syncPicker(hex, v)
+    return
+  }
+  if (e.target.dataset.range) { S[e.target.dataset.range] = e.target.value; render() }
 })
 
 document.getElementById('copy').addEventListener('click', async (e) => {
