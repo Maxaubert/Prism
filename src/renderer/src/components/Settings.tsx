@@ -246,11 +246,13 @@ function Segmented<T extends string>({
   )
 }
 
-// Picker grids are sized, not counted: fixed-width columns that wrap. A
-// fractional grid stretched three cards across a wide window and squeezed six
-// into slivers, and the schematic inside each card went with it.
-const GRID = 'grid grid-cols-[repeat(auto-fill,268px)] gap-2.5'
-const GRID_SM = 'grid grid-cols-[repeat(auto-fill,224px)] gap-2.5'
+// Picker grids are sized, not counted: a fractional grid stretched three cards
+// across a wide window and squeezed six into slivers, and the schematic inside
+// each card went with it. But a hard width drops a whole column the moment it
+// no longer fits, so each card may shrink by a quarter first - the row gives a
+// little before it gives way.
+const GRID = 'grid grid-cols-[repeat(auto-fill,minmax(201px,268px))] gap-2.5'
+const GRID_SM = 'grid grid-cols-[repeat(auto-fill,minmax(168px,224px))] gap-2.5'
 
 /** A selectable tile — the shell every picker card shares. A div rather than a
  *  button so a card can carry its own controls (a preset's delete). */
@@ -703,7 +705,7 @@ function Swatches({
   onPick: (id: string) => void
 }): JSX.Element {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,74px)] gap-1.5">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(56px,74px))] gap-1.5">
       {items.map((it) => {
         const on = it.id === selectedId
         return (
