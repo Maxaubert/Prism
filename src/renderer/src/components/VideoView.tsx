@@ -72,7 +72,7 @@ export function VideoView({
 
   return (
     <div
-      className="group relative flex h-full w-full items-center justify-center bg-[var(--p-bg)]"
+      className="p-wash group relative flex h-full w-full items-center justify-center bg-[var(--p-bg)]"
       onMouseMove={showChrome}
       onMouseLeave={() => c.playing && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}

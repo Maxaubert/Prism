@@ -459,6 +459,9 @@ export const VIZ_STYLES: VizStyle[] = [
     id: 'mirror-caps',
     name: 'Mirror Caps',
     blurb: 'Peak caps hovering above and below the centre.',
+    // Two thin caps per band and nothing between them: without a panel to sit
+    // on, the shape reads as scattered dashes.
+    panel: true,
     create() {
       const n = 44
       const b = makeBands(n)
@@ -853,6 +856,7 @@ export function styleById(id: string): VizStyle {
 // they combine with any scheme instead of being baked into their own entries.
 export const THEMES: VizTheme[] = [
   // ---- gradients ----
+  { id: 'skyviolet', name: 'Sky violet', blurb: 'Sky into indigo.', palette: ['#38bdf8', '#6366f1'], accent: '#38bdf8' },
   { id: 'brand', name: 'Brand', blurb: 'Indigo, violet and coral.', palette: P_BRAND, accent: '#7c74f0' },
   { id: 'gradient', name: 'Spectrum', blurb: 'A full spectrum sweep.', palette: P_SPECTRUM, accent: '#9a6cff' },
   { id: 'rainbow', name: 'Rainbow', blurb: 'Every hue across the bars.', palette: ['#ff4d6d', '#ff9e2c', '#ffe14a', '#5cffa8', '#39c2ff', '#8a5cff'], accent: '#39c2ff' },

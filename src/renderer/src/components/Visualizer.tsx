@@ -20,7 +20,35 @@ function getSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSo
   return s
 }
 
-const BG = '#0d0f14'
+// The visualizer paints on the window, not on a slab of its own: the canvas is
+// transparent so a style's background (and its acrylic) shows through. Two
+// things still need a colour, and both come from the app's own background:
+// trails fade towards it, and the panel styles sit a shade off it.
+function appBackground(): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--p-bg').trim()
+  return /^#|^rgb/.test(v) ? v : '#0d0f14'
+}
+
+function rgbOf(colour: string): [number, number, number] {
+  if (colour.startsWith('#')) {
+    const s = colour.slice(1)
+    const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s.slice(0, 6), 16)
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  }
+  const m = colour.match(/[\d.]+/g)
+  return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [13, 15, 20]
+}
+
+/** A shade off the background: lighter on a dark window, darker on a light one,
+ *  so a panel separates itself whichever way round the style is. */
+function panelColour(bg: string): string {
+  const [r, g, b] = rgbOf(bg)
+  const light = (r * 0.299 + g * 0.587 + b * 0.114) / 255 > 0.5
+  const k = light ? -1 : 1
+  const step = light ? 16 : 20
+  const mix = (v: number): number => Math.max(0, Math.min(255, Math.round(v + k * step)))
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
+}
 
 export function Visualizer({
   media,
@@ -253,11 +281,18 @@ export function Visualizer({
         opts.dpr = dpr
 
         const style2 = styleById(styleRef.current)
+        const bg = appBackground()
         if (style2.trails) {
-          ctx.fillStyle = 'rgba(13,15,20,0.22)'
+          // Fade towards the window's own colour rather than a fixed dark.
+          const [r, g, b] = rgbOf(bg)
+          ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.22)`
           ctx.fillRect(0, 0, W, H)
         } else {
           ctx.clearRect(0, 0, W, H)
+          if (style2.panel) {
+            ctx.fillStyle = panelColour(bg)
+            ctx.fillRect(0, 0, W, H)
+          }
         }
         if (draw) {
           ctx.save()
@@ -281,5 +316,5 @@ export function Visualizer({
     return () => cancelAnimationFrame(raf)
   }, [media, theme.accent, theme.palette])
 
-  return <canvas ref={canvasRef} className="h-full w-full" style={{ background: BG }} />
+  return <canvas ref={canvasRef} className="h-full w-full" />
 }

@@ -36,6 +36,8 @@ export interface Style {
   /** Surface alpha for acrylic and mica. Lower lets more of the frost through;
    *  omitted, a style takes the default for its mode. */
   glass?: number
+  /** Two colours for the soft light behind the window. Omitted, there is none. */
+  wash?: [string, string]
   /** Saved by the user rather than shipped: it can be deleted. */
   custom?: boolean
   /** For a saved preset, the shipped style it grew out of. */
@@ -62,6 +64,26 @@ export const FONTS: Record<FontId, { name: string; stack: string }> = {
 }
 
 export const STYLES: Style[] = [
+  {
+    id: 'aurora',
+    name: 'Aurora',
+    blurb: 'Deep space with soft light behind it.',
+    mode: 'dark',
+    material: 'solid',
+    bg: '#0b0d12',
+    side: '#12151b',
+    title: '#14171e',
+    text: '#f2f4f8',
+    iconMode: 'kind',
+    icon: '#8a8e99',
+    accent: 'skyviolet',
+    font: 'system',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline',
+    // The light that gives the style its name: two soft glows, opposite corners.
+    wash: ['#38bdf8', '#6366f1']
+  },
   {
     id: 'default',
     name: 'Default',
@@ -254,7 +276,7 @@ const LIGHT: Style[] = [
 
 STYLES.push(...LIGHT)
 
-export const DEFAULT_STYLE = 'default'
+export const DEFAULT_STYLE = 'aurora'
 
 /* ---------- colour maths ---------- */
 
@@ -459,6 +481,15 @@ function paint(style: Style): void {
   set('--p-hover', rgba(ink, style.mode === 'light' ? 0.07 : 0.06))
   set('--p-divider', divider)
   set('--p-line', listLine)
+  // Painted by one layer behind the app. `none` is a valid background-image, so
+  // a style without a wash simply draws nothing.
+  set(
+    '--p-wash',
+    style.wash
+      ? `radial-gradient(46% 46% at 22% 24%, ${rgba(style.wash[0], 0.22)}, transparent 70%),` +
+        ` radial-gradient(42% 42% at 78% 76%, ${rgba(style.wash[1], 0.2)}, transparent 70%)`
+      : 'none'
+  )
   set('--p-radius', style.corners + 'px')
   set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
   set('--p-font', FONTS[style.font].stack)

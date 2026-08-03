@@ -132,3 +132,11 @@ body {
   width: 0;
   height: 0;
 }
+
+/* A style's own light: a soft wash painted on the surfaces that carry the app
+   background, above their colour and under everything they hold. Styles without
+   one set --p-wash to `none`, which is a valid background-image and draws
+   nothing. */
+.p-wash {
+  background-image: var(--p-wash);
+}
