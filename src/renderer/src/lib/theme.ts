@@ -68,20 +68,26 @@ export const STYLES: Style[] = [
   {
     id: 'aurora',
     name: 'Aurora',
-    blurb: 'Deep space with soft light behind it.',
+    blurb: 'Glass over deep space, with soft light behind it.',
     mode: 'dark',
-    material: 'solid',
+    material: 'acrylic',
+    // Glass and a wash together: the desktop comes through the surfaces, the
+    // accent glows over them. 0.6575 is 35 on the Acrylic slider.
+    glass: 0.6575,
     bg: '#0b0d12',
-    side: '#12151b',
-    title: '#14171e',
+    // One surface for the whole window. Turning the glass off shouldn't hand
+    // the panel a tone of its own - separation here is the material, or the
+    // Edges control, never a step in shade.
+    side: '#0b0d12',
+    title: '#0b0d12',
     text: '#f2f4f8',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 'skyviolet',
+    accent: 'prism',
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'hairline',
+    borders: 'none',
     // The light that gives the style its name: two soft glows, opposite corners,
     // in whatever the accent currently is.
     wash: true
@@ -98,11 +104,13 @@ export const STYLES: Style[] = [
     text: '#eef0f4',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 's-sky',
+    accent: 'prism',
     font: 'system',
     size: '12.5',
     corners: '2',
-    borders: 'hairline'
+    // Glass and edge lines together cut the window into panes; the material
+    // is what separates the surfaces here.
+    borders: 'none'
   },
   {
     id: 'acrylic-red',
@@ -216,6 +224,28 @@ const LIGHT: Style[] = [
     size: '12.5',
     corners: '8',
     borders: 'none'
+  },
+  {
+    id: 'daybreak',
+    name: 'Daybreak',
+    blurb: 'Aurora in daylight: glass, white, soft colour.',
+    mode: 'light',
+    material: 'acrylic',
+    // The light half of Aurora: the same two glows, the same accent, over white
+    // instead of near-black. No glass level of its own - it takes the one every
+    // light style takes, so it is as see-through as Paper.
+    bg: '#fbfcfe',
+    side: '#fbfcfe',
+    title: '#fbfcfe',
+    text: '#0f1319',
+    iconMode: 'kind',
+    icon: '#6b7280',
+    accent: 'prism',
+    font: 'system',
+    size: '12.5',
+    corners: '8',
+    borders: 'none',
+    wash: true
   },
   {
     id: 'linen',
@@ -371,7 +401,9 @@ export const KIND_TINTS: Record<string, string> = {
 export function derive(style: Style): Record<string, string> {
   const palette = accentOf(style.accent)
   const accent = palette[0]
-  const side = style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side
+  // The one surface, flat: panel and viewer are the same colour now, so the
+  // contrast maths reads it once.
+  const side = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
   const bg = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
   const light = style.mode === 'light'
   const kinds: Record<string, string> = {}
@@ -385,8 +417,11 @@ export function derive(style: Style): Record<string, string> {
   // Far enough from the card (a ~5% wash over the page) that the schematic on
   // it doesn't read as white-on-white.
   const stage = mix(bg, style.text, light ? 0.16 : 0.13)
-  let hi = light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25)
-  for (let i = 0; i < 12 && contrast(hi, stage) < 3; i += 1) {
+  // The accent, unless the accent can't be read where it is used. Shifting it by
+  // habit - lighter on dark, darker on light - meant one accent looked like two
+  // different colours depending on the mode it was wearing.
+  let hi = accent
+  for (let i = 0; i < 14 && contrast(hi, stage) < 3; i += 1) {
     hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
   }
 
@@ -437,26 +472,43 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   const palette = accentOf(style.accent)
   const accent = palette[0]
 
+  // One surface, whatever the material.
+  //
+  // A style used to carry three colours - viewer, panel, title bar - and the
+  // step between them was how the chrome separated itself. On glass that reads
+  // as three mismatched panes, and turning the glass off brought the step
+  // straight back, so the same window looked assembled from parts at 0% and
+  // seamless at 60%. The window is one surface at every level now, and what
+  // separates the panel from the viewer is the Edges control, or the material
+  // behind it - never a change of shade.
+  //
+  // `side` and `title` are kept on Style for the styles you have saved and for
+  // the schematics, which still draw a panel so a card reads as a window.
   let bg = style.bg
-  let side = style.side
-  let title = style.title
+  let side = style.bg
+  let title = style.bg
   const translucent = style.material === 'acrylic' || style.material === 'mica'
   if (translucent && !opaque) {
-    // Windows composites the material behind the window; these surfaces sit on
-    // top of it, so they have to let it through.
+    // Windows composites the material behind the window; the surfaces sit on
+    // top of it, so they have to let it through - all at the same alpha, or
+    // they read as panes butted together rather than one sheet.
+    //
+    // The number is what the old stack came to: the page and the app shell used
+    // to lay the window colour underneath every surface, and one coat of the
+    // bare alpha is far more see-through than three were.
     const a = style.glass ?? (style.material === 'acrylic' ? (style.mode === 'light' ? 0.5 : 0.55) : 0.82)
-    bg = rgba(style.bg, a * 0.75)
-    side = rgba(style.side, a)
-    // A style whose title bar is its sidebar colour should read as one surface,
-    // so it takes the sidebar's alpha too rather than a denser one.
-    title = rgba(style.title, style.title === style.side ? a : a + 0.08)
+    const glass = 1 - (1 - a * 0.75) ** 3
+    bg = rgba(style.bg, glass)
+    side = bg
+    title = bg
   } else if (style.material === 'gradient') {
-    side = `linear-gradient(180deg, ${lighten(style.side, 0.06)}, ${style.side})`
-    title = `linear-gradient(180deg, ${lighten(style.title, 0.07)}, ${style.title})`
+    const grad = `linear-gradient(180deg, ${lighten(style.bg, 0.06)}, ${style.bg})`
+    side = grad
+    title = grad
   } else if (style.material === 'tinted') {
     bg = mix(style.bg, accent, 0.07)
-    side = mix(style.side, accent, 0.1)
-    title = mix(style.title, accent, 0.12)
+    side = bg
+    title = bg
   }
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
@@ -478,20 +530,24 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
         ? accent
         : style.iconMode === 'custom'
           ? style.icon
-          : dimmed(style.text, style.side, 0.38, 4.5)
+          : dimmed(style.text, style.bg, 0.38, 4.5)
 
   // The wash comes from the accent, so picking a colour tints the whole window
   // with it. Lighter styles take less: the same alpha over white is a stain.
   const washA = palette[0]
   const washB = palette[1] ?? mix(palette[0], style.mode === 'light' ? '#000000' : '#ffffff', 0.35)
-  const washAlpha = style.mode === 'light' ? 0.14 : 0.22
+  // Light takes more, not less: the same alpha that reads as a glow on
+  // near-black barely lifts off white.
+  const washAlpha = style.mode === 'light' ? 0.28 : 0.22
 
   return {
     ...derive(style),
     // bg and side carry their material; the derived pair above is the flat one.
     '--p-bg': bg,
     '--p-side': side,
-    '--p-side-flat': style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side,
+    // The flat colour of that one surface: the tree and the contrast maths read
+    // it, and neither wants an rgba.
+    '--p-side-flat': style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg,
     '--p-title': title,
     '--p-icon': icon,
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
@@ -499,8 +555,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-line': listLine,
     // `none` is a valid background-image, so a style without a wash draws none.
     '--p-wash': style.wash
-      ? `radial-gradient(46% 46% at 22% 24%, ${rgba(washA, washAlpha)}, transparent 70%),` +
-        ` radial-gradient(42% 42% at 78% 76%, ${rgba(washB, washAlpha * 0.9)}, transparent 70%)`
+      ? `radial-gradient(58% 56% at 20% 22%, ${rgba(washA, washAlpha)}, transparent 72%),` +
+        ` radial-gradient(54% 52% at 80% 78%, ${rgba(washB, washAlpha * 0.9)}, transparent 72%)`
       : 'none',
     '--p-radius': style.corners + 'px',
     '--p-radius-sm': Math.max(2, Number(style.corners) - 2) + 'px',
@@ -538,6 +594,9 @@ export interface Overrides {
   /** How much frost, 0 (opaque) to 100 (glassiest). */
   acrylic?: number
   font?: FontId
+  /** The chrome's edge lines. On glass they are often the only thing still
+   *  cutting the window into pieces, so they are yours to turn off. */
+  borders?: Style['borders']
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -582,7 +641,7 @@ export const allStyles = (): Style[] => [...STYLES, ...presets]
 
 /** Are we looking at an edited style rather than a saved one? */
 export const isEdited = (): boolean =>
-  !!(draft.accent || draft.bg || draft.text || draft.font || draft.acrylic !== undefined)
+  !!(draft.accent || draft.bg || draft.text || draft.font || draft.borders || draft.acrylic !== undefined)
 
 function edited(s: Style): Style {
   if (!isEdited()) return s
@@ -591,7 +650,8 @@ function edited(s: Style): Style {
     accent: draft.accent ?? s.accent,
     bg: draft.bg ?? s.bg,
     text: draft.text ?? s.text,
-    font: draft.font ?? s.font
+    font: draft.font ?? s.font,
+    borders: draft.borders ?? s.borders
   }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
@@ -661,9 +721,9 @@ export function setStyle(id: string): void {
 }
 
 /** Change one colour role of what is on screen, or clear it with null. */
-export function setOverride(role: 'accent' | 'bg' | 'text' | 'font', value: string | null): void {
+export function setOverride(role: 'accent' | 'bg' | 'text' | 'font' | 'borders', value: string | null): void {
   const next: Overrides = { ...draft }
-  if (value) next[role] = value as FontId & string
+  if (value) next[role] = value as FontId & Style['borders'] & string
   else delete next[role]
   draft = next
   saveJson(DRAFT_KEY, draft)

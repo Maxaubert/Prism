@@ -92,7 +92,7 @@ body,
 }
 
 body {
-  background: var(--p-bg);
+  background: transparent;
   color: var(--p-text);
   font-family: var(--p-font);
   overflow: hidden;
@@ -139,6 +139,7 @@ body {
    nothing. */
 .p-wash {
   background-image: var(--p-wash);
+  background-attachment: fixed;
 }
 
 /* ---- first-run setup ---- */
