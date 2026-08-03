@@ -42,3 +42,40 @@ export function useTreeSize(): (typeof TREE_SIZES)[number] {
   )
   return TREE_SIZES.find((s) => s.id === id) ?? TREE_SIZES[1]
 }
+
+/* ---------- following the open file ---------- */
+
+// Whether the tree scrolls to keep the open file in view. Same store, same
+// listeners: one preference file for the sidebar's behaviour.
+
+const AUTO_KEY = 'prism.tree.autoscroll'
+
+function loadAuto(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+let autoScroll = loadAuto()
+
+export function setAutoScroll(on: boolean): void {
+  autoScroll = on
+  try {
+    localStorage.setItem(AUTO_KEY, on ? '1' : '0')
+  } catch {
+    /* no storage: it lasts the session */
+  }
+  listeners.forEach((l) => l())
+}
+
+export function useAutoScroll(): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    () => autoScroll
+  )
+}
