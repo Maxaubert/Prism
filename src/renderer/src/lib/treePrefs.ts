@@ -79,3 +79,44 @@ export function useAutoScroll(): boolean {
     () => autoScroll
   )
 }
+
+/* ---------- which side it lives on ---------- */
+
+export type TreeSide = 'left' | 'right'
+
+export const TREE_SIDES: Array<{ id: TreeSide; name: string }> = [
+  { id: 'left', name: 'Left' },
+  { id: 'right', name: 'Right' }
+]
+
+const SIDE_KEY = 'prism.tree.side'
+
+function loadSide(): TreeSide {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'right' ? 'right' : 'left'
+  } catch {
+    return 'left'
+  }
+}
+
+let side: TreeSide = loadSide()
+
+export function setTreeSide(s: TreeSide): void {
+  side = s
+  try {
+    localStorage.setItem(SIDE_KEY, s)
+  } catch {
+    /* no storage: it lasts the session */
+  }
+  listeners.forEach((l) => l())
+}
+
+export function useTreeSide(): TreeSide {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l)
+      return () => listeners.delete(l)
+    },
+    () => side
+  )
+}

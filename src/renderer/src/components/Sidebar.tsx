@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type { DirListing } from '@shared/types'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
-import { useAutoScroll, useTreeSize } from '../lib/treePrefs'
+import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { Rows } from './TreeRows'
 import { TreeProvider } from '../lib/treeContext'
@@ -113,6 +113,10 @@ export function Sidebar({
   const placed = useRef<string | null>(null)
   const size = useTreeSize()
   const autoScroll = useAutoScroll()
+  // On the right, everything that faces the media flips: the edge it draws, the
+  // handle you grab, and which way dragging makes it wider.
+  const side = useTreeSide()
+  const right = side === 'right'
 
   /* ---------- loading ---------- */
 
@@ -202,9 +206,10 @@ export function Sidebar({
   const onHandleMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!dragging || !panel.current) return
-      resize(e.clientX - panel.current.getBoundingClientRect().left)
+      const box = panel.current.getBoundingClientRect()
+      resize(right ? box.right - e.clientX : e.clientX - box.left)
     },
-    [dragging, resize]
+    [dragging, resize, right]
   )
 
   const onHandleUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -214,12 +219,13 @@ export function Sidebar({
 
   const onHandleKey = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === 'ArrowLeft') resize(width - 16)
-      else if (e.key === 'ArrowRight') resize(width + 16)
+      const wider = right ? 'ArrowLeft' : 'ArrowRight'
+      if (e.key === wider) resize(width + 16)
+      else if (e.key === (right ? 'ArrowRight' : 'ArrowLeft')) resize(width - 16)
       else return
       e.preventDefault()
     },
-    [resize, width]
+    [resize, width, right]
   )
 
   /* ---------- row actions ---------- */
@@ -253,7 +259,10 @@ export function Sidebar({
         dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
     >
-      <div className="flex h-full flex-col border-r border-[var(--p-divider)]" style={{ width }}>
+      <div
+        className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[var(--p-divider)]`}
+        style={{ width }}
+      >
         <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
           <span className="truncate" title={root}>
             {rootName}
@@ -307,7 +316,9 @@ export function Sidebar({
         onPointerCancel={onHandleUp}
         onDoubleClick={() => resize(DEFAULT_W)}
         onKeyDown={onHandleKey}
-        className="no-drag group absolute inset-y-0 right-0 z-10 w-2 translate-x-1/2 cursor-col-resize focus-visible:outline-none"
+        className={`no-drag group absolute inset-y-0 z-10 w-2 cursor-col-resize focus-visible:outline-none ${
+          right ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2'
+        }`}
       >
         <span
           className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--p-accent-hi)] group-focus-visible:bg-[var(--p-accent-hi)] ${
