@@ -19,11 +19,12 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
-import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
+import { setAutoScroll, setTreeSize, TREE_SIZES, useAutoScroll, useTreeSize, type TreeSize } from '../lib/treePrefs'
 import {
   FONTS,
   acrylicLevel,
   deletePreset,
+  paletteOf,
   savePreset,
   setAcrylic,
   setMode,
@@ -36,10 +37,10 @@ import {
   useStyles,
   mix,
   rgba,
+  type FontId,
   type Mode,
   type Style
 } from '../lib/theme'
-import { THEMES } from '../lib/viz/styles'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -343,7 +344,7 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
 
 /** A miniature of the main window in a given style: the card IS the preview. */
 function StyleMini({ st }: { st: Style }): JSX.Element {
-  const palette = THEMES.find((t) => t.id === st.accent)?.palette ?? ['#5b5bd6']
+  const palette = paletteOf(st.accent)
   const accent = palette[0]
   const paint = palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : accent
   const tint = st.material === 'tinted'
@@ -379,6 +380,10 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
     </div>
   )
 }
+
+const FONT_OPTIONS: Array<{ id: FontId; name: string }> = (
+  Object.keys(FONTS) as FontId[]
+).map((id) => ({ id, name: FONTS[id].name }))
 
 const MODE_OPTIONS: Array<{ id: Mode; name: string }> = [
   { id: 'dark', name: 'Dark' },
@@ -472,6 +477,14 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('text', null)}
             />
           </Pref>
+          <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
+            <Select
+              id="c-font"
+              value={style.font}
+              onChange={(v) => setOverride('font', v)}
+              options={FONT_OPTIONS}
+            />
+          </Pref>
           <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
             <div className="flex items-center gap-3">
               {edits.acrylic !== undefined && (
@@ -497,8 +510,22 @@ function StyleTab(): JSX.Element {
             </div>
           </Pref>
         </div>
-        <div className="mt-3 text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
-        <p className="mb-2 text-[11.5px] text-[var(--p-dim)]">Selection, progress bar and visualizer.</p>
+        <div className="mt-3 flex items-center justify-between gap-6">
+          <div>
+            <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
+            <p className="text-[11.5px] text-[var(--p-dim)]">Selection, progress bar and visualizer.</p>
+          </div>
+          {/* Always the colour that is actually on screen, whether it came from a
+              swatch or from here. */}
+          <ColourWell
+            id="c-accent"
+            value={paletteOf(style.accent)[0]}
+            custom={!!edits.accent}
+            onChange={(v) => setOverride('accent', v)}
+            onReset={() => setOverride('accent', null)}
+          />
+        </div>
+        <div className="h-2" />
         <Swatches
           items={visibleThemes().map((th) => ({
             id: th.id,
@@ -572,6 +599,7 @@ function Select({
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
   const size = useTreeSize()
+  const follow = useAutoScroll()
   const current = NAV_SCOPES.find((s) => s.id === scope)
   return (
     <div className={ROWS}>
@@ -580,6 +608,9 @@ function GeneralTab(): JSX.Element {
       </Pref>
       <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
         <Select id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
+      </Pref>
+      <Pref id="auto-scroll" label="Auto scroll" hint="The sidebar follows the file you are viewing.">
+        <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
       </Pref>
     </div>
   )
@@ -884,7 +915,7 @@ export function Settings({
             <h2 className="text-[21px] font-bold leading-none tracking-[-.022em] text-[var(--p-text)]">{active.title}</h2>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-2">
+          <div className="p-scroll min-h-0 flex-1 overflow-y-auto px-6 py-2">
             {tab === 'style' ? (
               <StyleTab />
             ) : tab === 'general' ? (

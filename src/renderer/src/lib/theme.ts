@@ -153,24 +153,6 @@ export const STYLES: Style[] = [
     borders: 'none'
   },
   {
-    id: 'graphite',
-    name: 'Graphite',
-    blurb: 'Neutral and square. The default.',
-    mode: 'dark',
-    material: 'solid',
-    bg: '#101215',
-    side: '#141719',
-    title: '#1a1d21',
-    text: '#e3e6ea',
-    iconMode: 'dim',
-    icon: '#868d96',
-    accent: 'd-steel',
-    font: 'segoe',
-    size: '12.5',
-    corners: '2',
-    borders: 'hairline'
-  },
-  {
     id: 'driftwood',
     name: 'Driftwood',
     blurb: 'Warm, tinted, roomy.',
@@ -184,24 +166,6 @@ export const STYLES: Style[] = [
     icon: '#a1885f',
     accent: 'copper',
     font: 'calibri',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
-  },
-  {
-    id: 'prism',
-    name: 'Prism',
-    blurb: 'The original look, in blue.',
-    mode: 'dark',
-    material: 'solid',
-    bg: '#0d0f14',
-    side: '#0e1016',
-    title: '#16181f',
-    text: '#eef0f4',
-    iconMode: 'kind',
-    icon: '#8a8e99',
-    accent: 'prism',
-    font: 'system',
     size: '12.5',
     corners: '8',
     borders: 'hairline'
@@ -290,7 +254,7 @@ const LIGHT: Style[] = [
 
 STYLES.push(...LIGHT)
 
-export const DEFAULT_STYLE = 'graphite'
+export const DEFAULT_STYLE = 'default'
 
 /* ---------- colour maths ---------- */
 
@@ -427,7 +391,11 @@ export function derive(style: Style): Record<string, string> {
 
 /* ---------- applying a style ---------- */
 
-const accentOf = (id: string): string[] => THEMES.find((t) => t.id === id)?.palette ?? ['#5b5bd6']
+/** The colours an accent stands for: a named scheme, or one hex of your own. */
+export const paletteOf = (accent: string): string[] =>
+  accent.startsWith('#') ? [accent] : (THEMES.find((t) => t.id === accent)?.palette ?? ['#5b5bd6'])
+
+const accentOf = paletteOf
 
 function paint(style: Style): void {
   const r = document.documentElement.style
@@ -519,6 +487,7 @@ export interface Overrides {
   text?: string
   /** How much frost, 0 (opaque) to 100 (glassiest). */
   acrylic?: number
+  font?: FontId
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -563,11 +532,17 @@ export const allStyles = (): Style[] => [...STYLES, ...presets]
 
 /** Are we looking at an edited style rather than a saved one? */
 export const isEdited = (): boolean =>
-  !!(draft.accent || draft.bg || draft.text || draft.acrylic !== undefined)
+  !!(draft.accent || draft.bg || draft.text || draft.font || draft.acrylic !== undefined)
 
 function edited(s: Style): Style {
   if (!isEdited()) return s
-  const out: Style = { ...s, accent: draft.accent ?? s.accent, bg: draft.bg ?? s.bg, text: draft.text ?? s.text }
+  const out: Style = {
+    ...s,
+    accent: draft.accent ?? s.accent,
+    bg: draft.bg ?? s.bg,
+    text: draft.text ?? s.text,
+    font: draft.font ?? s.font
+  }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
     // alpha the slider asks for.
@@ -618,7 +593,7 @@ let version = 0
 function apply(syncAccent = true): void {
   const style = edited(byId(current))
   paint(style)
-  if (syncAccent) {
+  if (syncAccent && !style.accent.startsWith('#')) {
     setTheme(style.accent)
     setBarTheme(style.accent)
   }
@@ -636,9 +611,9 @@ export function setStyle(id: string): void {
 }
 
 /** Change one colour role of what is on screen, or clear it with null. */
-export function setOverride(role: 'accent' | 'bg' | 'text', value: string | null): void {
+export function setOverride(role: 'accent' | 'bg' | 'text' | 'font', value: string | null): void {
   const next: Overrides = { ...draft }
-  if (value) next[role] = value
+  if (value) next[role] = value as FontId & string
   else delete next[role]
   draft = next
   saveJson(DRAFT_KEY, draft)

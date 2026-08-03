@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type { DirListing } from '@shared/types'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
-import { useTreeSize } from '../lib/treePrefs'
+import { useAutoScroll, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { Rows } from './TreeRows'
 import { TreeProvider } from '../lib/treeContext'
@@ -28,6 +28,42 @@ interface TreeState {
   expanded: Set<string>
   /** path -> its children, once loaded. Absent means "not loaded yet". */
   children: Record<string, DirListing>
+}
+
+/**
+ * Bring the open file into view inside the tree, keeping a few rows of context
+ * around it.
+ *
+ * Two behaviours, which is what makes it feel like following rather than
+ * snapping: a row that is somewhere on screen is only nudged, and only once it
+ * comes within `margin` of an edge - so paging through a folder from the top
+ * doesn't move the tree at all until the selection nears the bottom. A row that
+ * is off screen entirely (the sidebar was just opened on a file deep in a big
+ * folder) is placed near the top, with those few rows above it rather than
+ * pinned to the edge.
+ */
+function revealRow(box: HTMLElement, row: HTMLElement, smooth: boolean): void {
+  const height = box.clientHeight
+  if (!height) return
+  const boxRect = box.getBoundingClientRect()
+  const rowRect = row.getBoundingClientRect()
+  const top = rowRect.top - boxRect.top + box.scrollTop
+  const bottom = top + rowRect.height
+  // Three rows of context, but never so much that it swallows a short panel.
+  const margin = Math.min(Math.max(rowRect.height * 3, 40), height * 0.35)
+  const viewTop = box.scrollTop
+  const viewBottom = viewTop + height
+
+  let next: number
+  if (bottom <= viewTop || top >= viewBottom) next = top - margin
+  else if (top < viewTop + margin) next = top - margin
+  else if (bottom > viewBottom - margin) next = bottom - height + margin
+  else return
+
+  next = Math.max(0, Math.min(next, box.scrollHeight - height))
+  if (Math.abs(next - viewTop) < 1) return
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  box.scrollTo({ top: next, behavior: smooth && !still ? 'smooth' : 'auto' })
 }
 
 interface Menu {
@@ -70,7 +106,13 @@ export function Sidebar({
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const panel = useRef<HTMLElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  // The file the tree has already been positioned for. Scrolling away by hand
+  // doesn't clear it, so collapsing and reopening leaves the tree where you put
+  // it; only a new file asks to be found again.
+  const placed = useRef<string | null>(null)
   const size = useTreeSize()
+  const autoScroll = useAutoScroll()
 
   /* ---------- loading ---------- */
 
@@ -109,6 +151,31 @@ export function Sidebar({
     const chain = currentPath ? ancestorChain(root, currentPath) : []
     ;[root, ...chain].forEach((p) => void load(p))
   }, [root, currentPath, load])
+
+  // Follow the open file. While the panel is shut nothing moves, so the scroll
+  // it wakes up with is the one it went to sleep with; the reveal then happens
+  // on the way open, for a file it hasn't been positioned for yet.
+  useEffect(() => {
+    if (!autoScroll || !open || !currentPath) return
+    if (placed.current === currentPath) return
+    const box = scroller.current
+    if (!box) return
+    // The row may not exist yet: its folder can still be loading.
+    let frame = 0
+    let tries = 0
+    const attempt = (): void => {
+      const row = box.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')
+      if (!row) {
+        if (tries++ < 40) frame = requestAnimationFrame(attempt)
+        return
+      }
+      const first = placed.current === null
+      placed.current = currentPath
+      revealRow(box, row, !first)
+    }
+    attempt()
+    return () => cancelAnimationFrame(frame)
+  }, [autoScroll, open, currentPath, state.children])
 
   // A file changed on disk: re-read every folder we're showing, so the row that
   // was renamed or removed matches reality.
@@ -193,7 +260,10 @@ export function Sidebar({
           </span>
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={scroller}
+          className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           <TreeProvider
             value={{
               expanded: state.expanded,
