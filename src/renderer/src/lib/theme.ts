@@ -33,6 +33,13 @@ export interface Style {
   size: '12' | '12.5' | '13.5'
   corners: '2' | '8' | '14'
   borders: 'hairline' | 'none' | 'strong'
+  /** Surface alpha for acrylic and mica. Lower lets more of the frost through;
+   *  omitted, a style takes the default for its mode. */
+  glass?: number
+  /** Saved by the user rather than shipped: it can be deleted. */
+  custom?: boolean
+  /** For a saved preset, the shipped style it grew out of. */
+  base?: string
 }
 
 export type FontId = 'system' | 'segoe' | 'bahnschrift' | 'calibri' | 'trebuchet' | 'verdana' | 'georgia' | 'mono'
@@ -205,9 +212,9 @@ const LIGHT: Style[] = [
   {
     id: 'paper',
     name: 'Paper',
-    blurb: 'Plain white, Prism blue, no edges.',
+    blurb: 'Acrylic over white, Prism blue.',
     mode: 'light',
-    material: 'solid',
+    material: 'acrylic',
     // No dividers: the three surfaces are stepped far enough apart to separate
     // themselves, which is the whole point of a style with no edge lines.
     bg: '#fbfbfc',
@@ -243,12 +250,15 @@ const LIGHT: Style[] = [
   {
     id: 'frost',
     name: 'Frost',
-    blurb: 'Cool white, deep teal.',
+    blurb: 'Glass, cool white, deep teal.',
     mode: 'light',
-    material: 'solid',
+    material: 'acrylic',
+    // Frost is the glassiest of the set: more of the desktop comes through than
+    // Paper lets past.
+    glass: 0.4,
     bg: '#f4f8fb',
     side: '#e9f0f6',
-    title: '#dfe8f1',
+    title: '#e9f0f6',
     text: '#152029',
     iconMode: 'custom',
     icon: '#4a7d92',
@@ -384,7 +394,9 @@ export function derive(style: Style): Record<string, string> {
   // The accent, taken far enough from the surface to be seen on it. A deep
   // copper or navy is invisible against its own panel otherwise, which is what
   // made the schematics vanish.
-  const stage = mix(bg, style.text, light ? 0.12 : 0.1)
+  // Far enough from the card (a ~5% wash over the page) that the schematic on
+  // it doesn't read as white-on-white.
+  const stage = mix(bg, style.text, light ? 0.16 : 0.13)
   let hi = light ? mix(accent, '#000000', 0.15) : lighten(accent, 0.25)
   for (let i = 0; i < 12 && contrast(hi, stage) < 3; i += 1) {
     hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
@@ -404,6 +416,9 @@ export function derive(style: Style): Record<string, string> {
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
     '--p-preview': stage,
+    // The unfilled part of a progress bar, and any other inert track: it sits
+    // ON the stage, so a divider-strength grey disappears there.
+    '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
     '--p-sel-bg': selectionBg(accent),
     '--p-on-accent': readableOn(selectionBg(accent)),
     ...kinds
@@ -426,10 +441,12 @@ function paint(style: Style): void {
   if (translucent) {
     // Windows composites the material behind the window; these surfaces sit on
     // top of it, so they have to let it through.
-    const a = style.material === 'acrylic' ? 0.55 : 0.82
+    const a = style.glass ?? (style.material === 'acrylic' ? (style.mode === 'light' ? 0.5 : 0.55) : 0.82)
     bg = rgba(style.bg, a * 0.75)
     side = rgba(style.side, a)
-    title = rgba(style.title, a + 0.08)
+    // A style whose title bar is its sidebar colour should read as one surface,
+    // so it takes the sidebar's alpha too rather than a denser one.
+    title = rgba(style.title, style.title === style.side ? a : a + 0.08)
   } else if (style.material === 'gradient') {
     side = `linear-gradient(180deg, ${lighten(style.side, 0.06)}, ${style.side})`
     title = `linear-gradient(180deg, ${lighten(style.title, 0.07)}, ${style.title})`
@@ -446,6 +463,10 @@ function paint(style: Style): void {
       : style.borders === 'strong'
         ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
         : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
+
+  // A hairline that exists whatever the style says about edges. Settings lists
+  // need their rows separated even in a style that draws no chrome lines.
+  const listLine = rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
 
   const icon =
     style.iconMode === 'text'
@@ -469,6 +490,7 @@ function paint(style: Style): void {
   set('--p-icon', icon)
   set('--p-hover', rgba(ink, style.mode === 'light' ? 0.07 : 0.06))
   set('--p-divider', divider)
+  set('--p-line', listLine)
   set('--p-radius', style.corners + 'px')
   set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
   set('--p-font', FONTS[style.font].stack)
@@ -480,8 +502,79 @@ function paint(style: Style): void {
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
   if (typeof window !== 'undefined') {
-    window.prism?.setWindowMaterial(translucent ? style.material : 'none')
+    window.prism?.setWindowMaterial(translucent ? style.material : 'none', style.mode)
   }
+}
+
+/* ---------- edits, and saving them ---------- */
+
+// A style is a starting point, not a cage. Changing a colour puts the app in an
+// edited state: nothing in the picker is selected any more, because what you are
+// looking at is no longer any of the shipped styles. From there you either save
+// it as a preset of your own, or click a card to go back to it.
+export interface Overrides {
+  /** Id of a scheme in viz THEMES. */
+  accent?: string
+  bg?: string
+  text?: string
+  /** How much frost, 0 (opaque) to 100 (glassiest). */
+  acrylic?: number
+}
+
+// The surface alpha a style paints at, when it hasn't said otherwise.
+const defaultGlass = (s: Style): number =>
+  s.material === 'acrylic' ? (s.mode === 'light' ? 0.5 : 0.55) : 0.82
+
+// The slider's two ends, in surface alpha: opaque-ish glass to barely there.
+const GLASS_MAX = 0.85
+const GLASS_SPAN = 0.55
+
+/** Where a style sits on the acrylic slider, 0 for a style with no frost. */
+export function acrylicLevel(s: Style): number {
+  if (s.material !== 'acrylic' && s.material !== 'mica') return 0
+  const a = s.glass ?? defaultGlass(s)
+  return Math.round(Math.min(100, Math.max(0, ((GLASS_MAX - a) / GLASS_SPAN) * 100)))
+}
+
+const DRAFT_KEY = 'prism.style.draft'
+const PRESETS_KEY = 'prism.style.presets'
+
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* no storage: it lasts the session */
+  }
+}
+
+let presets: Style[] = loadJson<Style[]>(PRESETS_KEY, [])
+let draft: Overrides = loadJson<Overrides>(DRAFT_KEY, {})
+
+/** Shipped styles plus the user's saved presets. */
+export const allStyles = (): Style[] => [...STYLES, ...presets]
+
+/** Are we looking at an edited style rather than a saved one? */
+export const isEdited = (): boolean =>
+  !!(draft.accent || draft.bg || draft.text || draft.acrylic !== undefined)
+
+function edited(s: Style): Style {
+  if (!isEdited()) return s
+  const out: Style = { ...s, accent: draft.accent ?? s.accent, bg: draft.bg ?? s.bg, text: draft.text ?? s.text }
+  if (draft.acrylic !== undefined) {
+    // Zero frost is just a solid window; anything above it is acrylic at the
+    // alpha the slider asks for.
+    out.material = draft.acrylic <= 0 ? 'solid' : 'acrylic'
+    if (draft.acrylic > 0) out.glass = GLASS_MAX - (draft.acrylic / 100) * GLASS_SPAN
+  }
+  return out
 }
 
 /* ---------- the store ---------- */
@@ -489,12 +582,12 @@ function paint(style: Style): void {
 const KEY = 'prism.style'
 const MODE_KEY = 'prism.mode'
 
-const byId = (id: string): Style => STYLES.find((s) => s.id === id) ?? STYLES[0]
+const byId = (id: string): Style => allStyles().find((s) => s.id === id) ?? STYLES[0]
 
 function load(): string {
   try {
     const v = localStorage.getItem(KEY)
-    return STYLES.some((s) => s.id === v) ? (v as string) : DEFAULT_STYLE
+    return v ?? DEFAULT_STYLE
   } catch {
     return DEFAULT_STYLE
   }
@@ -508,57 +601,138 @@ function loadMode(): Mode {
 }
 
 let current = load()
+// A preset that has since been deleted leaves a dangling id; normalise it.
+current = allStyles().some((s) => s.id === current) ? current : DEFAULT_STYLE
 let mode: Mode = loadMode()
 const listeners = new Set<() => void>()
 const emit = (): void => listeners.forEach((l) => l())
+const subscribe = (l: () => void): (() => void) => {
+  listeners.add(l)
+  return () => listeners.delete(l)
+}
 
-/** Switch style. The accent also becomes the progress bar's and the
- *  visualizer's colour, so the app doesn't disagree with itself. */
-export function setStyle(id: string): void {
-  const style = byId(id)
-  current = style.id
-  localStorage.setItem(KEY, style.id)
+// The list changes when presets are saved or deleted; components watch this.
+let version = 0
+
+/** Repaint from whatever is current, and keep the bar and visualizer in step. */
+function apply(syncAccent = true): void {
+  const style = edited(byId(current))
   paint(style)
-  setTheme(style.accent)
-  setBarTheme(style.accent)
+  if (syncAccent) {
+    setTheme(style.accent)
+    setBarTheme(style.accent)
+  }
   emit()
 }
 
-/** Dark or light. Light styles land in a later pass; until then this records
- *  the preference and the dark set stays on screen. */
+/** Switch to a style, saved or shipped. Any unsaved edit is dropped - clicking
+ *  the card you started from is how you get back to it. */
+export function setStyle(id: string): void {
+  current = byId(id).id
+  draft = {}
+  saveJson(DRAFT_KEY, draft)
+  localStorage.setItem(KEY, current)
+  apply()
+}
+
+/** Change one colour role of what is on screen, or clear it with null. */
+export function setOverride(role: 'accent' | 'bg' | 'text', value: string | null): void {
+  const next: Overrides = { ...draft }
+  if (value) next[role] = value
+  else delete next[role]
+  draft = next
+  saveJson(DRAFT_KEY, draft)
+  apply()
+}
+
+/** How much of the desktop shows through, 0 to 100. */
+export function setAcrylic(level: number | null): void {
+  const next: Overrides = { ...draft }
+  if (level === null) delete next.acrylic
+  else next.acrylic = Math.round(level)
+  draft = next
+  saveJson(DRAFT_KEY, draft)
+  apply()
+}
+
+/** Keep the current edit as a preset of its own, and select it. */
+export function savePreset(): void {
+  const base = byId(current)
+  // Numbered in their own series rather than named after wherever they started:
+  // "Paper custom copy" says nothing about what it looks like now.
+  const taken = new Set(allStyles().map((s) => s.name.toLowerCase()))
+  let n = 1
+  while (taken.has(`custom theme ${n}`)) n += 1
+  const name = `Custom theme ${n}`
+  const preset: Style = {
+    ...edited(base),
+    id: 'custom-' + String(version) + '-' + String(presets.length + 1) + '-' + name.replace(/\W+/g, ''),
+    name,
+    custom: true,
+    base: base.custom ? base.base : base.id
+  }
+  presets = [...presets, preset]
+  saveJson(PRESETS_KEY, presets)
+  version += 1
+  setStyle(preset.id)
+}
+
+/** Remove one of the user's presets. Shipped styles can't be deleted. */
+export function deletePreset(id: string): void {
+  const gone = presets.find((s) => s.id === id)
+  if (!gone) return
+  presets = presets.filter((s) => s.id !== id)
+  saveJson(PRESETS_KEY, presets)
+  version += 1
+  if (current === id) {
+    // Land somewhere real: the style it grew out of, else the first in this mode.
+    const home = gone.base && byId(gone.base).id === gone.base ? gone.base : stylesFor(mode)[0]?.id
+    setStyle(home ?? DEFAULT_STYLE)
+  } else emit()
+}
+
+/** The edits sitting on top of the selected style. */
+export function useOverrides(): Overrides {
+  return useSyncExternalStore(subscribe, () => draft)
+}
+
+/** Dark or light. Each mode has its own styles, so switching picks the first. */
 export function setMode(m: Mode): void {
   mode = m
   localStorage.setItem(MODE_KEY, m)
-  const first = STYLES.find((s) => s.mode === m)
+  const first = allStyles().find((s) => s.mode === m)
   if (first) setStyle(first.id)
   else emit()
 }
 
+/** What is on screen: the selected style with any unsaved edits applied. */
 export function useStyle(): Style {
-  const id = useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => current
-  )
-  return byId(id)
+  useSyncExternalStore(subscribe, () => current)
+  useSyncExternalStore(subscribe, () => draft)
+  return edited(byId(current))
+}
+
+/** The id of the selected card, or null while the style is edited. */
+export function useSelectedId(): string | null {
+  useSyncExternalStore(subscribe, () => draft)
+  const id = useSyncExternalStore(subscribe, () => current)
+  return isEdited() ? null : id
 }
 
 export function useMode(): Mode {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => mode
-  )
+  return useSyncExternalStore(subscribe, () => mode)
 }
 
-export const stylesFor = (m: Mode): Style[] => STYLES.filter((s) => s.mode === m)
+/** The styles for a mode, shipped then saved. Re-reads when presets change. */
+export function useStyles(m: Mode): Style[] {
+  useSyncExternalStore(subscribe, () => version)
+  return stylesFor(m)
+}
+
+export const stylesFor = (m: Mode): Style[] => allStyles().filter((s) => s.mode === m)
 
 // Paint before first render so nothing flashes the wrong colour.
-paint(byId(current))
+paint(edited(byId(current)))
 
 // On a fresh install the visualizer and the progress bar have no colour of their
 // own yet, so they take the style's accent. Once you've picked one, it stands.

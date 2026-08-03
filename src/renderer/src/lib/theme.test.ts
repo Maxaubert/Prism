@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { derive, STYLES } from './theme'
+import { derive, mix, STYLES } from './theme'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel
@@ -75,6 +75,19 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     // has to differ from the card, in either mode.
     expect(contrast(t['--p-preview'], t['--p-bg'])).toBeGreaterThan(1.08)
     expect(contrast(t['--p-accent-hi'], t['--p-preview'])).toBeGreaterThanOrEqual(2.9)
+  })
+
+  it('keeps the schematic stage clear of the card it sits in', () => {
+    // The card is a ~6% wash of the text colour over the page; on a light style
+    // that put a white-ish stage on a white-ish card, and the schematic vanished.
+    const card = mix(t['--p-bg'], style.text, style.mode === 'light' ? 0.07 : 0.06)
+    expect(contrast(t['--p-preview'], card)).toBeGreaterThan(1.1)
+  })
+
+  it('draws inert tracks so they read on that stage', () => {
+    // The unfilled half of a progress bar. Not text, so it needn't hit 4.5, but
+    // it has to be plainly there.
+    expect(contrast(t['--p-track'], t['--p-preview'])).toBeGreaterThan(1.6)
   })
 
   it('separates the panel from the viewer', () => {
