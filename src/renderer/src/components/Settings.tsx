@@ -20,7 +20,25 @@ import {
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 import { setTreeSize, TREE_SIZES, useTreeSize, type TreeSize } from '../lib/treePrefs'
-import { FONTS, setMode, setStyle, stylesFor, useMode, useStyle, mix, rgba, type Mode, type Style } from '../lib/theme'
+import {
+  FONTS,
+  acrylicLevel,
+  deletePreset,
+  savePreset,
+  setAcrylic,
+  setMode,
+  setOverride,
+  setStyle,
+  useMode,
+  useOverrides,
+  useSelectedId,
+  useStyle,
+  useStyles,
+  mix,
+  rgba,
+  type Mode,
+  type Style
+} from '../lib/theme'
 import { THEMES } from '../lib/viz/styles'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
@@ -31,8 +49,9 @@ import { THEMES } from '../lib/viz/styles'
  *  without spinning up a real player. */
 function Mini({ id }: { id: TransportStyle }): JSX.Element {
   const acc = 'var(--p-accent-hi)'
-  const box = 'relative h-11 w-full overflow-hidden rounded-md bg-[var(--p-preview)]'
-  const dot = <span className="h-2 w-2 rounded-full bg-[var(--p-dim)]" />
+  const box =
+    'relative h-11 w-full overflow-hidden rounded-md border border-[color:var(--p-divider)] bg-[var(--p-preview)]'
+  const dot = <span className="h-2 w-2 rounded-full bg-[var(--p-track)]" />
   const bars = (n: number, h: number, gap: string, bold = false): JSX.Element => (
     <div className={`flex w-full items-center ${gap}`}>
       {Array.from({ length: n }).map((_, i) => (
@@ -41,14 +60,14 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
           className="flex-1 rounded-[1px]"
           style={{
             height: `${(bold ? h : h * 0.85) * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.7) * Math.cos(i * 0.19)))}px`,
-            background: i / n < 0.42 ? acc : 'var(--p-divider)'
+            background: i / n < 0.42 ? acc : 'var(--p-track)'
           }}
         />
       ))}
     </div>
   )
   const line = (h: number, glow = false): JSX.Element => (
-    <div className="relative w-full rounded-full bg-[var(--p-divider)]" style={{ height: h }}>
+    <div className="relative w-full rounded-full bg-[var(--p-track)]" style={{ height: h }}>
       <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: '42%', background: acc, boxShadow: glow ? `0 0 6px ${acc}` : undefined }} />
     </div>
   )
@@ -68,7 +87,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
     case 'island':
       return (
         <div className={`${box} grid place-items-center`}>
-          <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2 py-1">{dot}<div className="w-14">{line(3)}</div></div>
+          <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--p-track)] bg-[var(--p-hover)] px-2 py-1">{dot}<div className="w-14">{line(3)}</div></div>
         </div>
       )
     case 'wave':
@@ -78,7 +97,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
         <div className={box}>
           <div className="absolute inset-x-2 top-2">{line(2, true)}</div>
           <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-dim)]" /><span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-dim)]" />
+            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" /><span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" />
           </div>
         </div>
       )
@@ -92,7 +111,7 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
     case 'segments':
       return (
         <div className={`${box} flex flex-col justify-center gap-2 px-2`}>
-          <div className="flex gap-[3px]">{Array.from({ length: 16 }).map((_, i) => <span key={i} className="h-1.5 flex-1 rounded-[2px]" style={{ background: i < 7 ? acc : 'var(--p-divider)' }} />)}</div>
+          <div className="flex gap-[3px]">{Array.from({ length: 16 }).map((_, i) => <span key={i} className="h-1.5 flex-1 rounded-[2px]" style={{ background: i < 7 ? acc : 'var(--p-track)' }} />)}</div>
           <div className="flex gap-1.5">{dot}{dot}</div>
         </div>
       )
@@ -111,41 +130,159 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
 
 /* ---------- shared bits ---------- */
 
-/** A titled block within a tab. */
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }): JSX.Element {
+/** A titled block within a tab. One label, no explanation: if a section needs a
+ *  sentence to justify itself, it is in the wrong place. */
+function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }): JSX.Element {
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline gap-2">
+      <div className="mb-1.5 flex items-center justify-between gap-4">
         <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">{title}</span>
-        {hint && <span className="text-[10.5px] text-[var(--p-dim2)]">{hint}</span>}
+        {action}
       </div>
       {children}
     </div>
   )
 }
 
-/** A selectable tile — the shell every picker card shares. */
-function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }): JSX.Element {
+/** A real on/off switch: one control, one state, no pair of buttons to compare. */
+function Switch({ on, onChange, label }: { on: boolean; onChange: (b: boolean) => void; label: string }): JSX.Element {
   return (
     <button
-      onClick={onClick}
-      className={`flex flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
-        on
-          ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/12'
-          : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={`relative h-[20px] w-[36px] shrink-0 rounded-full transition-colors ${
+        on ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-track)]'
       }`}
     >
-      {children}
+      <span
+        className="absolute left-[2px] top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out"
+        style={{ transform: on ? 'translateX(16px)' : 'none' }}
+      />
     </button>
   )
 }
 
+/** A label with its switch, sized to sit beside others on one line. */
+function SwitchItem({ label, on, onChange }: { label: string; on: boolean; onChange: (b: boolean) => void }): JSX.Element {
+  return (
+    <label className="flex cursor-pointer items-center gap-2.5 text-[12.5px] font-medium text-[var(--p-text-soft)]">
+      {label}
+      <Switch on={on} onChange={onChange} label={label} />
+    </label>
+  )
+}
+
+/** A colour well that opens the system picker, with its hex and a way back. */
+function ColourWell({
+  id,
+  value,
+  custom,
+  onChange,
+  onReset
+}: {
+  id: string
+  value: string
+  custom: boolean
+  onChange: (v: string) => void
+  onReset: () => void
+}): JSX.Element {
+  return (
+    <div className="flex items-center gap-2.5">
+      {custom && (
+        <button onClick={onReset} className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline">
+          Reset
+        </button>
+      )}
+      <span className="font-mono text-[11.5px] uppercase text-[var(--p-dim)]">{value}</span>
+      <label
+        className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
+        style={{ background: value }}
+      >
+        <input
+          id={id}
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </label>
+    </div>
+  )
+}
+
+/** Two or three exclusive choices as one control rather than a row of buttons. */
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: Array<{ id: T; name: string }>
+}): JSX.Element {
+  return (
+    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-preview)] p-[3px]">
+      {options.map((o) => {
+        const on = o.id === value
+        return (
+          <button
+            key={o.id}
+            onClick={() => onChange(o.id)}
+            aria-pressed={on}
+            className={`rounded-full px-3 py-1 text-[11.5px] font-semibold capitalize transition ${
+              on
+                ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)]'
+                : 'text-[var(--p-dim)] hover:text-[var(--p-text)]'
+            }`}
+          >
+            {o.name}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Picker grids are sized, not counted: fixed-width columns that wrap. A
+// fractional grid stretched three cards across a wide window and squeezed six
+// into slivers, and the schematic inside each card went with it.
+const GRID = 'grid grid-cols-[repeat(auto-fill,268px)] gap-2.5'
+const GRID_SM = 'grid grid-cols-[repeat(auto-fill,224px)] gap-2.5'
+
+/** A selectable tile — the shell every picker card shares. A div rather than a
+ *  button so a card can carry its own controls (a preset's delete). */
+function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }): JSX.Element {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className={`group relative flex cursor-pointer flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
+        on
+          ? 'border-[var(--p-accent)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent)]'
+          : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
+      }`}
+    >
+      {children}
+    </div>
+  )
+}
+
+// The name, and nothing else: the ring already says which card is chosen, so a
+// "Selected" caption is the same fact written twice.
 function TileFooter({ name, on }: { name: string; on: boolean }): JSX.Element {
   return (
-    <div className="flex items-baseline justify-between">
-      <span className={`text-[12.5px] font-semibold ${on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)]'}`}>{name}</span>
-      {on && <span className="text-[10px] font-semibold text-[var(--p-accent-hi)]">Selected</span>}
-    </div>
+    <span className={`text-[12.5px] font-semibold ${on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)]'}`}>
+      {name}
+    </span>
   )
 }
 
@@ -172,7 +309,7 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
         if (!items.length) return null
         return (
           <Section key={g} title={g}>
-            <div className="grid grid-cols-4 gap-2">
+            <div className={GRID_SM}>
               {items.map((s) => {
                 const on = s.id === transportStyle
                 return (
@@ -186,7 +323,7 @@ function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: Transp
           </Section>
         )
       })}
-      <Section title="Colour" hint="scheme + effects for the progress bar">
+      <Section title="Colour">
         <ColourControls
           selectedId={v.barTheme}
           onPick={setBarTheme}
@@ -243,50 +380,134 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
   )
 }
 
+const MODE_OPTIONS: Array<{ id: Mode; name: string }> = [
+  { id: 'dark', name: 'Dark' },
+  { id: 'light', name: 'Light' }
+]
+
 function StyleTab(): JSX.Element {
   const style = useStyle()
   const mode = useMode()
-  const list = stylesFor(mode)
+  const edits = useOverrides()
+  const selected = useSelectedId()
+  const list = useStyles(mode)
+  const dirty = !!(edits.accent || edits.bg || edits.text || edits.acrylic !== undefined)
+  const glass = acrylicLevel(style)
   return (
-    <div className="flex flex-col gap-4">
-      <Section title="Mode" hint="dark and light have their own styles">
-        <div className="flex gap-2">
-          {(['dark', 'light'] as Mode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              aria-pressed={mode === m}
-              className={`rounded-lg border px-4 py-1.5 text-[12.5px] font-semibold capitalize transition ${
-                mode === m
-                  ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-[var(--p-text)]'
-                  : 'border-[color:var(--p-divider)] text-[var(--p-dim)] hover:text-[var(--p-text)]'
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-      </Section>
+    <div className="flex flex-col gap-5">
+      {/* Mode is a setting like any other, so it gets a row of its own rather
+          than a control tucked into the page header. */}
+      <div className={ROWS}>
+        <Pref id="mode" label="Mode" hint="Dark and light keep their own styles.">
+          <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
+        </Pref>
+      </div>
 
-      <Section title="Style" hint="material, colours, font and frame; your shapes and effects are left alone">
-        {list.length ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(196px,1fr))] gap-2">
-            {list.map((st) => {
-              const on = st.id === style.id
-              return (
-                <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
-                  <StyleMini st={st} />
-                  <TileFooter name={st.name} on={on} />
-                  <span className="text-[11.5px] leading-snug text-[var(--p-dim)]">{st.blurb}</span>
-                </Tile>
-              )
-            })}
-          </div>
-        ) : (
-          <p className="max-w-[52ch] text-[12.5px] leading-relaxed text-[var(--p-dim)]">
-            Nothing here yet for this mode.
-          </p>
-        )}
+      {/* Once a colour is changed nothing here is selected: what is on screen is
+          no longer any of these. Clicking one is how you go back to it. */}
+      <div className={GRID}>
+        {list.map((st) => {
+          const on = st.id === selected
+          return (
+            <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
+              <StyleMini st={st.id === style.id ? style : st} />
+              <div className="flex items-center justify-between gap-2">
+                <TileFooter name={st.name} on={on} />
+                {st.custom && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deletePreset(st.id)
+                    }}
+                    aria-label={`Delete ${st.name}`}
+                    title="Delete preset"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded-[var(--p-radius-sm)] text-[var(--p-dim2)] opacity-0 transition hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </Tile>
+          )
+        })}
+      </div>
+
+      {/* Colours live with the style they change, not in a tab of their own:
+          a style is a starting point you tune, and the cards above show it. */}
+      <Section
+        title="Colours"
+        // The button is only usable while there is an edit to save, but it keeps
+        // its space either way: a control that appears must not move the page.
+        action={
+          <button
+            onClick={savePreset}
+            aria-hidden={!dirty}
+            tabIndex={dirty ? 0 : -1}
+            className={`rounded-[var(--p-radius-sm)] border border-[var(--p-accent)] bg-[var(--p-accent)] px-3 py-1 text-[11.5px] font-semibold text-[var(--p-on-accent)] transition hover:brightness-110 ${
+              dirty ? '' : 'invisible'
+            }`}
+          >
+            Save as preset
+          </button>
+        }
+      >
+        <div className={ROWS}>
+          <Pref id="c-bg" label="Background" hint="The viewer behind your file.">
+            <ColourWell
+              id="c-bg"
+              value={style.bg}
+              custom={!!edits.bg}
+              onChange={(v) => setOverride('bg', v)}
+              onReset={() => setOverride('bg', null)}
+            />
+          </Pref>
+          <Pref id="c-text" label="Text" hint="File names, labels and readouts.">
+            <ColourWell
+              id="c-text"
+              value={style.text}
+              custom={!!edits.text}
+              onChange={(v) => setOverride('text', v)}
+              onReset={() => setOverride('text', null)}
+            />
+          </Pref>
+          <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
+            <div className="flex items-center gap-3">
+              {edits.acrylic !== undefined && (
+                <button
+                  onClick={() => setAcrylic(null)}
+                  className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
+                >
+                  Reset
+                </button>
+              )}
+              <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">{glass}%</span>
+              <input
+                id="c-glass"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={glass}
+                onChange={(e) => setAcrylic(Number(e.target.value))}
+                className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+                style={{ accentColor: 'var(--p-accent)' }}
+              />
+            </div>
+          </Pref>
+        </div>
+        <div className="mt-3 text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
+        <p className="mb-2 text-[11.5px] text-[var(--p-dim)]">Selection, progress bar and visualizer.</p>
+        <Swatches
+          items={visibleThemes().map((th) => ({
+            id: th.id,
+            name: th.name,
+            fill: th.palette.length > 1 ? `linear-gradient(90deg, ${th.palette.join(', ')})` : th.palette[0]
+          }))}
+          selectedId={style.accent}
+          onPick={(id) => setOverride('accent', id)}
+        />
       </Section>
     </div>
   )
@@ -294,27 +515,34 @@ function StyleTab(): JSX.Element {
 
 /* ---------- general ---------- */
 
-// General is a plain list of settings: one row each, name + explanation on the
-// left, its control on the right. No group headings - the tab header already
-// says what this page is, and a heading per row reads as two settings.
+// General is a plain list: one row per setting, name + one line of explanation
+// on the left, its control on the right, hairline between. No panels — the
+// page is short enough that grouping it would be ceremony.
 
-function Row({ id, label, desc, children }: { id: string; label: string; desc?: string; children: ReactNode }): JSX.Element {
+// A list of preference rows, hairline above and below each one. Full width: the
+// control sits at the right edge of the page, where the eye already is.
+const ROWS = 'border-t border-[color:var(--p-line)]'
+
+/** One setting: copy on the left, control on the right. The hint is one line —
+ *  it truncates rather than wraps, because a setting that needs a paragraph
+ *  needs a better name instead. */
+function Pref({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-8 border-b border-[color:var(--p-divider)] py-2.5">
+    <div className="flex items-center justify-between gap-8 border-b border-[color:var(--p-line)] py-2.5">
       <div className="min-w-0">
-        <label htmlFor={id} className="text-[13px] font-semibold text-[var(--p-text)]">
+        <label htmlFor={id} className="block text-[12.5px] font-semibold text-[var(--p-text)]">
           {label}
         </label>
-        {desc && <p className="mt-0.5 text-[12px] leading-snug text-[var(--p-dim)]">{desc}</p>}
+        {hint && <p className="mt-0.5 truncate text-[11.5px] text-[var(--p-dim)]">{hint}</p>}
       </div>
-      {children}
+      <div className="shrink-0">{children}</div>
     </div>
   )
 }
 
-/** A dark native select - keyboard and screen-reader behaviour for free, and
- *  Chromium renders its popup dark because :root sets color-scheme. */
-function Dropdown({
+/** A native select - keyboard and screen-reader behaviour for free, and Chromium
+ *  renders its popup in the right scheme because :root sets color-scheme. */
+function Select({
   id,
   value,
   onChange,
@@ -330,7 +558,7 @@ function Dropdown({
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="shrink-0 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2.5 py-1.5 text-[12.5px] font-medium text-[var(--p-text)] transition-colors hover:border-white/25 focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+      className="h-8 min-w-[168px] rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-preview)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-dim2)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
     >
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -344,18 +572,15 @@ function Dropdown({
 function GeneralTab(): JSX.Element {
   const scope = useNavScope()
   const size = useTreeSize()
+  const current = NAV_SCOPES.find((s) => s.id === scope)
   return (
-    <div className="max-w-[680px] border-t border-[color:var(--p-divider)]">
-      <Row
-        id="nav-scope"
-        label="Folder navigation"
-        desc="Which sibling files the arrow keys step through. The one you opened is always included."
-      >
-        <Dropdown id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
-      </Row>
-      <Row id="tree-size" label="File tree text" desc="Type size in the sidebar. Rows grow with it.">
-        <Dropdown id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
-      </Row>
+    <div className={ROWS}>
+      <Pref id="nav-scope" label="Navigation mode" hint={current?.hint}>
+        <Select id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+      </Pref>
+      <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
+        <Select id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
+      </Pref>
     </div>
   )
 }
@@ -367,12 +592,12 @@ function VisualizerTab(): JSX.Element {
   return (
     <div className="flex flex-col gap-4">
       <Section title="Style">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(212px,1fr))] gap-2">
+        <div className={GRID}>
           {v.presets.map((p) => {
             const on = isActivePreset(p, v)
             return (
               <Tile key={p.id} on={on} onClick={() => applyPreset(p)}>
-                <div className="h-[104px] w-full overflow-hidden rounded-md bg-[var(--p-preview)]">
+                <div className="h-[104px] w-full overflow-hidden rounded-md border border-[color:var(--p-divider)] bg-[var(--p-preview)]">
                   <VizPreview styleId={p.style} />
                 </div>
                 <TileFooter name={p.name} on={on} />
@@ -381,7 +606,7 @@ function VisualizerTab(): JSX.Element {
           })}
         </div>
       </Section>
-      <Section title="Colour" hint="scheme + effects; recolours every shape">
+      <Section title="Colour">
         <ColourControls
           selectedId={v.theme}
           onPick={setTheme}
@@ -427,20 +652,9 @@ function EffectToggles({
     { label: 'Move', on: move, set: onMove }
   ]
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
       {toggles.map((tg) => (
-        <button
-          key={tg.label}
-          onClick={() => tg.set(!tg.on)}
-          aria-pressed={tg.on}
-          className={`rounded-lg border px-3.5 py-1.5 text-[12.5px] font-semibold transition ${
-            tg.on
-              ? 'border-[var(--p-accent-hi)] bg-[var(--p-accent)]/25 text-[var(--p-text)]'
-              : 'border-[color:var(--p-divider)] text-[var(--p-dim)] hover:text-[var(--p-text)]'
-          }`}
-        >
-          {tg.label}
-        </button>
+        <SwitchItem key={tg.label} label={tg.label} on={tg.on} onChange={tg.set} />
       ))}
     </div>
   )
@@ -458,7 +672,7 @@ function Swatches({
   onPick: (id: string) => void
 }): JSX.Element {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-1.5">
+    <div className="grid grid-cols-[repeat(auto-fill,74px)] gap-1.5">
       {items.map((it) => {
         const on = it.id === selectedId
         return (
@@ -550,42 +764,44 @@ const Ico = ({ d }: { d: string }): JSX.Element => (
   </svg>
 )
 
-const TABS: Array<{ id: TabId; label: string; title: string; desc: string; icon: ReactNode }> = [
+const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> = [
   {
     id: 'style',
     label: 'Style',
     title: 'Style',
-    desc: 'How Prism looks. Each card is the main window in that style.',
     icon: <Ico d="M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01" />
   },
   {
     id: 'general',
     label: 'General',
     title: 'General',
-    desc: 'How Prism behaves when you open a file.',
     icon: <Ico d="M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
   },
   {
     id: 'player',
     label: 'Progress bar',
     title: 'Progress bar',
-    desc: "The player's transport - its shape and colour.",
     icon: <Ico d="M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
   },
   {
     id: 'visualizer',
     label: 'Visualizer',
     title: 'Visualizer',
-    desc: 'The audio visualizer style and colour. Previews are simplified mockups.',
     icon: <Ico d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z" />
   },
   {
     id: 'about',
     label: 'About',
     title: 'About Prism',
-    desc: '',
     icon: <Ico d="M12 8h.01M11 12h1v4h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z" />
   }
+]
+
+// The rail is grouped rather than one flat list: five entries split two ways
+// says more about where a setting lives than five in a row does.
+const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
+  { name: 'Look', tabs: ['style', 'visualizer', 'player'] },
+  { name: 'Behaviour', tabs: ['general', 'about'] }
 ]
 
 export function Settings({
@@ -600,6 +816,7 @@ export function Settings({
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
   const [tab, setTab] = useState<TabId>('style')
+  const size = useTreeSize()
 
   useEffect(() => {
     if (!open) return
@@ -623,31 +840,39 @@ export function Settings({
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-9 z-40 flex bg-[var(--p-bg)]"
+      className="fixed inset-x-0 bottom-0 top-9 z-40 bg-[var(--p-bg)]"
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
-      {/* tab rail */}
-      <aside className="flex w-[164px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-2">
-          <div className="px-2 pb-2 pt-1 text-[12.5px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
-          <nav className="flex flex-col gap-0.5">
-            {TABS.map((t) => {
-              const on = t.id === tab
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-2 rounded-[var(--p-radius-sm)] px-2 py-[5px] text-left text-[12px] font-medium transition ${
-                    on
-                      ? 'bg-[var(--p-accent)]/18 text-[var(--p-text)]'
-                      : 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
-                  }`}
-                >
-                  <span className={on ? 'text-[var(--p-accent-hi)]' : ''}>{t.icon}</span>
-                  {t.label}
-                </button>
-              )
-            })}
-          </nav>
+     <div className="flex h-full w-full" style={{ zoom: size.zoom }}>
+      {/* tab rail, grouped: what Prism looks like, then how it behaves */}
+      <aside className="flex w-[212px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-2.5">
+          <div className="px-2 pb-1 pt-1 text-[14px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
+          {RAIL_GROUPS.map((g) => (
+            <nav key={g.name} className="flex flex-col gap-0.5">
+              <div className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--p-dim2)]">
+                {g.name}
+              </div>
+              {g.tabs.map((id) => {
+                const t = TABS.find((x) => x.id === id)
+                if (!t) return null
+                const on = t.id === tab
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`flex items-center gap-2.5 rounded-[var(--p-radius-sm)] px-2.5 py-[7px] text-left text-[13px] transition ${
+                      on
+                        ? 'bg-[var(--p-sel-bg)] font-semibold text-[var(--p-on-accent)]'
+                        : 'font-medium text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+                    }`}
+                  >
+                    <span className={on ? 'opacity-90' : ''}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                )
+              })}
+            </nav>
+          ))}
           <div className="mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)]">Prism</div>
         </aside>
 
@@ -655,12 +880,11 @@ export function Settings({
         <div className="flex min-w-0 flex-1 flex-col">
           {/* No close button: the cog that opened this closes it, and Escape works
               too. One control, one place. */}
-          <header className="border-b border-[color:var(--p-divider)] px-4 py-2.5">
-            <h2 className="text-[13.5px] font-semibold text-[var(--p-text)]">{active.title}</h2>
-            {active.desc && <p className="mt-px truncate text-[11.5px] text-[var(--p-dim)]">{active.desc}</p>}
+          <header className="px-6 pb-3 pt-5">
+            <h2 className="text-[21px] font-bold leading-none tracking-[-.022em] text-[var(--p-text)]">{active.title}</h2>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-2">
             {tab === 'style' ? (
               <StyleTab />
             ) : tab === 'general' ? (
@@ -670,13 +894,13 @@ export function Settings({
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
             ) : (
-              <div className="max-w-[46ch] text-[13px] leading-relaxed text-[var(--p-dim)]">
-                <div className="mb-1 text-[15px] font-semibold text-white">Prism</div>
-                A sleek media viewer — audio visualizer, video, and images in one dark, chrome-light window.
-              </div>
+              <p className="max-w-[46ch] text-[12.5px] leading-relaxed text-[var(--p-dim)]">
+                A quick viewer for images, video, audio and documents.
+              </p>
             )}
           </div>
         </div>
       </div>
+    </div>
   )
 }

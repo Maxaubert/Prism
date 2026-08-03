@@ -73,6 +73,7 @@ body,
   --p-icon: #868d96;
   --p-hover: rgba(255, 255, 255, 0.06);
   --p-divider: rgba(255, 255, 255, 0.07);
+  --p-line: rgba(255, 255, 255, 0.09);
   --p-radius: 2px;
   --p-radius-sm: 2px;
   --p-font: 'Segoe UI', system-ui, sans-serif;

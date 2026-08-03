@@ -40,8 +40,10 @@ const api = {
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
   close: (): void => ipcRenderer.send('window:close'),
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
-  /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'). */
-  setWindowMaterial: (material: string): void => ipcRenderer.send('window:material', material),
+  /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'),
+   *  in the given mode: DWM tints its own blur, so it has to be told. */
+  setWindowMaterial: (material: string, mode: string): void =>
+    ipcRenderer.send('window:material', material, mode),
   onFullscreen: (cb: (on: boolean) => void): (() => void) => {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)

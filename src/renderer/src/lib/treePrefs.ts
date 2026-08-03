@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from 'react'
 
-// Look-and-feel preferences for the file tree that belong in Settings rather than
-// in the panel itself. Same tiny-store shape as navScope.
+// The app's type size: the file tree's rows and the settings page both follow it,
+// so one setting covers "make the text bigger". Same tiny-store shape as navScope.
 
 export type TreeSize = 'small' | 'default' | 'large'
 
-export const TREE_SIZES: Array<{ id: TreeSize; name: string; font: number; row: number; indent: number }> = [
-  { id: 'small', name: 'Small', font: 11.5, row: 22, indent: 11 },
-  { id: 'default', name: 'Default', font: 12.5, row: 26, indent: 13 },
-  { id: 'large', name: 'Large', font: 14, row: 31, indent: 15 }
+export const TREE_SIZES: Array<{ id: TreeSize; name: string; font: number; row: number; indent: number; zoom: number }> = [
+  { id: 'small', name: 'Small', font: 11.5, row: 22, indent: 11, zoom: 0.92 },
+  { id: 'default', name: 'Default', font: 12.5, row: 26, indent: 13, zoom: 1 },
+  { id: 'large', name: 'Large', font: 14, row: 31, indent: 15, zoom: 1.12 }
 ]
 
 const KEY = 'prism.tree.size'

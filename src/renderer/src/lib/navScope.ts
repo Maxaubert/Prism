@@ -9,10 +9,11 @@ export type NavScope = 'all' | 'group' | 'type'
 
 export const DEFAULT_NAV_SCOPE: NavScope = 'group'
 
-export const NAV_SCOPES: Array<{ id: NavScope; name: string; desc: string }> = [
-  { id: 'all', name: 'All in one', desc: 'Every file Prism can open, in one list.' },
-  { id: 'group', name: 'Media / Documents', desc: 'Open a photo and page through media; open a PDF and page through documents.' },
-  { id: 'type', name: 'Per file type', desc: 'Only the kind you opened - images with images, video with video.' }
+// One short line each: the hint sits on a single line in Settings.
+export const NAV_SCOPES: Array<{ id: NavScope; name: string; hint: string }> = [
+  { id: 'all', name: 'All in one', hint: 'Every file Prism can open, in one list.' },
+  { id: 'group', name: 'Media / Documents', hint: 'Media with media, documents with documents.' },
+  { id: 'type', name: 'Per file type', hint: 'Only the kind you opened.' }
 ]
 
 // The two families. 'other' is its own bucket so an unrecognised file can only
