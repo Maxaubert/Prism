@@ -852,8 +852,9 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
 // The rail is grouped rather than one flat list: five entries split two ways
 // says more about where a setting lives than five in a row does.
 const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
+  { name: 'Behaviour', tabs: ['general'] },
   { name: 'Look', tabs: ['style', 'visualizer', 'player'] },
-  { name: 'Behaviour', tabs: ['general', 'about'] }
+  { name: '', tabs: ['about'] }
 ]
 
 export function Settings({
@@ -901,9 +902,13 @@ export function Settings({
           <div className="px-2 pb-1 pt-1 text-[14px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
           {RAIL_GROUPS.map((g) => (
             <nav key={g.name} className="flex flex-col gap-0.5">
-              <div className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--p-dim2)]">
-                {g.name}
-              </div>
+              {g.name ? (
+                <div className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--p-dim2)]">
+                  {g.name}
+                </div>
+              ) : (
+                <div className="pt-3" />
+              )}
               {g.tabs.map((id) => {
                 const t = TABS.find((x) => x.id === id)
                 if (!t) return null
