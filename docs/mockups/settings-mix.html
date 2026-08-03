@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism settings mix &amp; match</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 24px 48px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 16px; color: #8a8e99; font-size: 12.5px; max-width: 90ch; }
+  h2.wallhead { margin: 34px 0 4px; font-size: 14px; font-weight: 650; }
+
+  .wrap { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; align-items: start; }
+  @media (max-width: 1080px) { .wrap { grid-template-columns: 1fr; } }
+
+  /* ---------- controls column ---------- */
+  .panel { border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: #0c0e12; padding: 14px; position: sticky; top: 24px; }
+  .axis { margin-bottom: 13px; }
+  .axis:last-child { margin-bottom: 0; }
+  .axis .label { display: block; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #6b7080; margin-bottom: 5px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .opt, .preset, .btn {
+    border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 11.5px; cursor: pointer; transition: .12s;
+  }
+  .opt:hover, .preset:hover, .btn:hover { border-color: rgba(255,255,255,.28); color: #fff; }
+  .opt[aria-pressed="true"], .preset[aria-pressed="true"] { background: #5b5bd6; border-color: #7b7bf0; color: #fff; font-weight: 600; }
+  .presets { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 16px; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  code.recipe {
+    display: block; margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: #06070a;
+    border: 1px solid rgba(255,255,255,.07); color: #8a8e99; font: 400 11px/1.6 ui-monospace, Consolas, monospace;
+    word-break: break-all; user-select: all;
+  }
+
+  /* ---------- stage ---------- */
+  .stage { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; background: #06070a; padding: 16px; }
+  .wall { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); margin-top: 10px; }
+  .case { border: 1px solid rgba(255,255,255,.08); border-radius: 12px; overflow: hidden; background: #0c0e12; }
+  .case > header { display: flex; align-items: baseline; gap: 9px; padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .case h3 { margin: 0; font-size: 12.5px; font-weight: 650; }
+  .case .note { flex: 1; color: #6b7080; font-size: 11px; }
+  .case .stage { border: 0; border-radius: 0; padding: 12px; }
+
+  /* ================= the settings window ================= */
+  .win {
+    --bg: #101215; --side: #141719; --title: #1a1d21; --text: #e3e6ea; --soft: #c3c8ce;
+    --dim: #8d949d; --dim2: #6f7681; --line: rgba(255,255,255,.09); --hover: rgba(255,255,255,.05);
+    --accent: #5b5bd6; --accent-hi: #8f8ff2; --stage: #191c21; --track: #3a3f47; --on-accent: #fff;
+    --r: 9px; --pad: 14px 18px; --gap: 9px;
+    display: flex; overflow: hidden; border-radius: 10px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  .win.big { height: 500px; }
+  .win.small { height: 372px; font-size: 13px; }
+  .win[data-mode="light"] {
+    --bg: #fbfbfc; --side: #edeef2; --title: #e2e4e9; --text: #17191d; --soft: #35383e;
+    --dim: #5c6068; --dim2: #767b84; --line: rgba(0,0,0,.11); --hover: rgba(0,0,0,.05);
+    --accent: #4f46e5; --accent-hi: #4338ca; --stage: #e9ebef; --track: #b8bcc4; --on-accent: #fff;
+  }
+  .win * { box-sizing: border-box; }
+  .win[data-corner="sharp"] { --r: 4px; }
+  .win[data-corner="round"] { --r: 14px; }
+  .win[data-density="compact"] { --pad: 10px 13px; --gap: 7px; font-size: 12.5px; }
+  .win[data-density="roomy"] { --pad: 20px 26px; --gap: 13px; }
+
+  /* ---- nav ---- */
+  .rail { width: 176px; flex: none; padding: 12px 10px; background: var(--side); border-right: 1px solid var(--line); overflow: hidden; }
+  .rail.icons { width: 52px; padding: 12px 6px; }
+  .rail.wide { width: 210px; }
+  .rail.right { border-right: 0; border-left: 1px solid var(--line); }
+  .rail.quiet { background: transparent; border-right: 0; }
+  .navtitle { padding: 2px 8px 11px; font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; }
+  .navgroup { padding: 11px 9px 4px; font-size: 9.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2); }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav b {
+    display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: calc(var(--r) - 2px);
+    font-size: 12.5px; font-weight: 500; color: var(--dim); cursor: pointer; border-left: 2px solid transparent;
+  }
+  .nav b:hover { background: var(--hover); color: var(--text); }
+  .nav b i { width: 15px; height: 15px; flex: none; display: block; opacity: .8; }
+  .nav b i svg { width: 15px; height: 15px; display: block; }
+  .nav b small { display: block; font-size: 10px; color: var(--dim2); font-weight: 400; }
+  .nav.icons b { justify-content: center; padding: 8px 0; border-left: 0; }
+
+  /* selected-state flavours, shared by nav items and cards */
+  .win[data-sel="tint"] .nav b.on { background: color-mix(in srgb, var(--accent) 17%, transparent); color: var(--text); font-weight: 600; }
+  .win[data-sel="tint"] .nav b.on i { color: var(--accent-hi); }
+  .win[data-sel="fill"] .nav b.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .win[data-sel="fill"] .nav b.on i, .win[data-sel="fill"] .nav b.on small { color: var(--on-accent); opacity: .85; }
+  .win[data-sel="outline"] .nav b.on { border: 1px solid var(--accent-hi); padding: 6px 8px; color: var(--text); font-weight: 600; }
+  .win[data-sel="outline"] .nav b.on i { color: var(--accent-hi); }
+  .win[data-sel="bar"] .nav b.on { border-left: 2px solid var(--accent-hi); border-radius: 0 calc(var(--r) - 2px) calc(var(--r) - 2px) 0; background: var(--hover); color: var(--text); font-weight: 600; }
+  .win[data-sel="bar"] .nav b.on i { color: var(--accent-hi); }
+
+  .tabs { display: flex; gap: 3px; padding: 8px 18px 0; border-bottom: 1px solid var(--line); }
+  .tabs b { padding: 6px 11px; border-radius: var(--r) var(--r) 0 0; font-size: 12.5px; color: var(--dim); border-bottom: 2px solid transparent; cursor: pointer; margin-bottom: -1px; }
+  .tabs b:hover { color: var(--text); }
+  .tabs b.on { color: var(--text); border-bottom-color: var(--accent-hi); font-weight: 600; }
+  .segnav { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--hover); gap: 2px; border: 1px solid var(--line); }
+  .segnav b { padding: 5px 12px; border-radius: 999px; font-size: 12px; color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .segnav b.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+  /* ---- pane ---- */
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .head { padding: var(--pad); border-bottom: 1px solid var(--line); }
+  .head.plain { border-bottom: 0; }
+  .head h3 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .head.slim h3 { font-size: 13px; }
+  .head.big h3 { font-size: 23px; font-weight: 700; letter-spacing: -.022em; }
+  .head p { margin: 3px 0 0; font-size: 12px; color: var(--dim); max-width: 52ch; }
+  .head.slim p { display: none; }
+  .body { flex: 1; min-height: 0; overflow: hidden; padding: var(--pad); }
+  .search { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--hover); border-radius: var(--r); padding: 6px 10px; font-size: 12px; color: var(--dim); }
+
+  .label { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim2); margin-bottom: 7px; }
+  .label.sentence { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--dim); }
+  .label.big { font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; text-transform: none; color: var(--text); margin-bottom: 9px; }
+
+  /* ---- style cards (the schematic is fixed; only the grid changes) ---- */
+  /* Sized, not counted: fixed-width columns that wrap, so a card is the same
+     size whatever the window width or how many styles exist. */
+  .cards { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, 186px); }
+  .cards.two { grid-template-columns: repeat(auto-fill, 244px); }
+  .cards.four { grid-template-columns: repeat(auto-fill, 138px); gap: 7px; }
+  .cards.list { grid-template-columns: 1fr; gap: 6px; }
+  .cards.gallery { grid-template-columns: repeat(auto-fill, 200px); gap: 16px; }
+  .cards.split { grid-template-columns: 268px repeat(auto-fill, 156px); }
+
+  .card2 { border: 1px solid var(--line); border-radius: var(--r); padding: 7px; background: var(--hover); cursor: pointer; }
+  .card2 .cap { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 6px 2px 0; }
+  .card2 .cap b { font-size: 11.5px; font-weight: 600; }
+  .card2 .cap em { display: block; font-style: normal; font-size: 10px; color: var(--dim2); }
+  .card2 .cap span { font-size: 9.5px; color: var(--accent-hi); font-weight: 700; }
+  .win[data-sel="tint"] .card2.on { border-color: var(--accent-hi); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .win[data-sel="fill"] .card2.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  .win[data-sel="outline"] .card2.on { border-color: var(--accent-hi); }
+  .win[data-sel="bar"] .card2.on { border-color: var(--line); border-left: 3px solid var(--accent-hi); }
+
+  .cards.gallery .card2 { border: 0; background: none; padding: 0; }
+  .cards.gallery .card2.on { box-shadow: none; border: 0; }
+  .cards.gallery .card2.on .mini { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+  .cards.list .card2 { display: flex; align-items: center; gap: 11px; padding: 7px 9px; }
+  .cards.list .card2 .mini { width: 76px; flex: none; height: 42px; }
+  .cards.list .card2 .schem { width: 76px; flex: none; height: 42px; }
+  .cards.list .card2 .cap { flex: 1; padding: 0; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .cards.split .card2:first-child .mini { height: 92px; }
+
+  /* the window schematic - unchanged across every layout */
+  .mini { height: 88px; border: 1px solid rgba(128,128,128,.22); border-radius: calc(var(--r) - 4px); overflow: hidden; display: flex; flex-direction: column; }
+  .cards.four .mini { height: 62px; }
+  .cards.gallery .mini { height: 96px; }
+  .cards.split .card2:first-child .mini { height: 124px; }
+  .mini .t { height: 9px; flex: none; display: flex; align-items: center; gap: 3px; padding: 0 5px; }
+  .mini .t i { width: 2.5px; height: 2.5px; border-radius: 1px; }
+  .mini .t u { height: 3px; width: 30%; border-radius: 2px; }
+  .mini .b { flex: 1; min-height: 0; display: flex; }
+  .mini .s { width: 36%; padding: 5px; display: flex; flex-direction: column; gap: 3px; }
+  .mini .s span { height: 3px; border-radius: 2px; display: block; }
+  .mini .v { flex: 1; position: relative; }
+  .mini .v em { position: absolute; left: 50%; top: 50%; width: 62%; height: 46%; transform: translate(-50%,-50%); border-radius: 3px; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
+  .mini .v u { position: absolute; left: 8px; right: 8px; bottom: 6px; height: 2.5px; border-radius: 2px; overflow: hidden; }
+  .mini .v u b { display: block; height: 100%; width: 44%; border-radius: 2px; }
+  .schem { height: 48px; border: 1px solid var(--line); border-radius: calc(var(--r) - 4px); background: var(--stage); display: flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 7px 8px; }
+  .schem i { flex: 1; max-width: 5px; border-radius: 1px; background: var(--accent-hi); }
+  .schem.line { align-items: center; }
+  .schem.line u { flex: 1; height: 3px; border-radius: 3px; background: var(--track); position: relative; }
+  .schem.line u::before { content: ""; position: absolute; inset: 0 55% 0 0; border-radius: 3px; background: var(--accent-hi); }
+
+  /* ---- colours tab ---- */
+  .roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+  .role { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: var(--r); padding: 7px 9px; background: var(--hover); }
+  .role i { width: 20px; height: 20px; border-radius: calc(var(--r) - 4px); border: 1px solid var(--line); flex: none; }
+  .role b { font-size: 11.5px; font-weight: 600; }
+  .strip { display: flex; gap: 4px; flex-wrap: wrap; }
+  .strip i { width: 34px; height: 18px; border-radius: calc(var(--r) - 4px); display: block; }
+
+  /* ================= general page shapes ================= */
+  .copy b { display: block; font-size: 12.5px; font-weight: 600; }
+  .copy span { display: block; font-size: 11.5px; line-height: 1.4; color: var(--dim); max-width: 46ch; }
+
+  .g-rows .pref { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .g-rows .pref:last-child { border-bottom: 0; }
+
+  .g-inset .grouped { border: 1px solid var(--line); border-radius: var(--r); background: var(--hover); overflow: hidden; margin-bottom: 12px; }
+  .g-inset .pref { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .g-inset .grouped .pref:first-child { border-top: 0; }
+
+  .g-cards .pref { border: 1px solid var(--line); border-radius: var(--r); background: var(--hover); padding: 10px 12px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+
+  .g-twocol { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 18px; }
+  .g-twocol .pref { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+
+  .g-table .pref { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  .g-table .copy b { font-size: 12px; }
+  .g-table .copy span { font-size: 11px; }
+
+  /* ================= controls ================= */
+  .pick { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--stage); border-radius: calc(var(--r) - 2px); padding: 5px 9px; font-size: 11.5px; color: var(--text); white-space: nowrap; }
+  .pick s { text-decoration: none; color: var(--dim2); font-size: 9px; }
+  .seg { display: inline-flex; padding: 2px; border-radius: 999px; background: var(--stage); border: 1px solid var(--line); gap: 2px; }
+  .seg b { padding: 4px 10px; border-radius: 999px; font-size: 11px; color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .seg b.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .radios { display: flex; gap: 11px; flex-wrap: wrap; justify-content: flex-end; }
+  .g-twocol .radios, .g-cards .radios { flex-direction: column; gap: 5px; justify-content: flex-start; }
+  .radios b { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 500; color: var(--dim); cursor: pointer; }
+  .radios b.on { color: var(--text); font-weight: 600; }
+  .radios i { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--track); flex: none; display: grid; place-items: center; }
+  .radios b.on i { border-color: var(--accent-hi); }
+  .radios b.on i::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-hi); }
+  .btns { display: inline-flex; gap: 5px; }
+  .btns b { border: 1px solid var(--line); background: var(--stage); border-radius: calc(var(--r) - 2px); padding: 4px 10px; font-size: 11px; color: var(--dim); cursor: pointer; }
+  .btns b.on { border-color: var(--accent-hi); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); font-weight: 600; }
+  .link { font-size: 11.5px; font-weight: 600; color: var(--accent-hi); cursor: pointer; white-space: nowrap; }
+  .link s { text-decoration: none; color: var(--dim2); font-weight: 400; }
+
+  .sw { width: 40px; height: 22px; border-radius: 999px; background: var(--track); padding: 2px; flex: none; display: block; position: relative; cursor: pointer; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: .18s cubic-bezier(.23,1,.32,1); }
+  .sw.on { background: var(--accent); }
+  .sw.on::after { transform: translateX(18px); }
+  .cb { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--track); flex: none; display: grid; place-items: center; cursor: pointer; }
+  .cb.on { background: var(--accent); border-color: var(--accent); }
+  .cb.on::after { content: ""; width: 8px; height: 4px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px,-1px); }
+  .toggle { border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; font-size: 11px; font-weight: 600; color: var(--dim); background: var(--stage); cursor: pointer; }
+  .toggle.on { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent-hi); color: var(--text); }
+  .cta { border: 1px solid var(--line); background: var(--stage); border-radius: calc(var(--r) - 2px); padding: 5px 11px; font-size: 11.5px; font-weight: 600; color: var(--text); cursor: pointer; }
+  .cta.accent { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+</style>
+</head>
+<body>
+
+<h1>Settings, mix &amp; match</h1>
+<p class="sub">Every part swaps independently: the nav rail, the header, how the style grid is laid out, how the General page is built, and which control vocabulary it uses. The window schematic inside each card is the one fixed thing. Click the nav inside the preview to move between tabs, so a layout gets judged on a page of rows as well as a page of cards.</p>
+
+<div class="bar">
+  <button class="btn" data-mode="dark">Dark</button>
+  <button class="btn" data-mode="light">Light</button>
+  <button class="btn" data-tab="style">Style tab</button>
+  <button class="btn" data-tab="general">General tab</button>
+</div>
+
+<div class="wrap">
+  <div class="panel">
+    <span class="label" style="display:block;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6b7080;margin-bottom:5px">Presets</span>
+    <div class="presets" id="presets"></div>
+    <div id="axes"></div>
+    <code class="recipe" id="recipe"></code>
+  </div>
+
+  <div class="stage">
+    <div class="win big" id="preview" data-mode="dark"></div>
+  </div>
+</div>
+
+<h2 class="wallhead">Twelve starting points</h2>
+<p class="sub">Each is a different combination, all showing the same tab. Click one to load it into the big preview and keep mixing.</p>
+<div class="wall" id="wall"></div>
+
+<script>
+/* ---------- fixed content ---------- */
+const ICON = {
+  style: 'M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+  colours: 'M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01',
+  viz: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z',
+  bar: 'M4 12h16M8 12a2 2 0 1 0 4 0 2 2 0 1 0-4 0',
+  general: 'M12 8h.01M11 12h1v4h1M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z'
+};
+const svg = (k) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="' + ICON[k] + '"/></svg>';
+
+const NAV = [
+  { key: 'style', name: 'Style', sub: 'Material and colour', group: 'Look' },
+  { key: 'colours', name: 'Colours', sub: 'Six roles', group: 'Look' },
+  { key: 'viz', name: 'Visualizer', sub: 'Shape and motion', group: 'Look' },
+  { key: 'bar', name: 'Progress bar', sub: 'Transport shape', group: 'Look' },
+  { key: 'general', name: 'General', sub: 'Navigation and sidebar', group: 'Behaviour' }
+];
+const HEAD = {
+  style: ['Style', 'How Prism looks. Each card is the main window in that style.'],
+  colours: ['Colours', 'Six roles. Only the accent takes a gradient.'],
+  viz: ['Visualizer', 'The shape the audio visualizer draws.'],
+  bar: ['Progress bar', 'The transport&#39;s shape.'],
+  general: ['General', 'How Prism behaves when you open a file.']
+};
+
+/* The window schematic, ported from the app's StyleMini
+   (src/renderer/src/components/Settings.tsx) so a card here is what ships.
+   Each style paints itself: these colours come from theme.ts, not from the
+   settings window around them. */
+const hex = (h) => { const s = h.replace('#',''); const n = parseInt(s.length===3 ? s.split('').map((c)=>c+c).join('') : s, 16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+const mix = (a, b, k) => { const A = hex(a), B = hex(b); return '#' + A.map((v,i)=>Math.round(v+(B[i]-v)*k).toString(16).padStart(2,'0')).join(''); };
+const rgba = (h, a) => 'rgba(' + hex(h).join(',') + ',' + a + ')';
+
+const STYLE_DEFS = {
+  dark: [
+    { name: 'Graphite', blurb: 'Flat, neutral', material: 'solid', bg: '#101215', side: '#141719', title: '#1a1d21', text: '#e3e6ea', palette: ['#3f5570'] },
+    { name: 'Driftwood', blurb: 'Warm, matte', material: 'tinted', bg: '#16130f', side: '#1a1713', title: '#221d17', text: '#ece2d2', palette: ['#5c2c1a','#8c4a2f','#c07c4a'] },
+    { name: 'Prism', blurb: 'Solid, blue', material: 'solid', bg: '#0d0f14', side: '#0e1016', title: '#16181f', text: '#eef0f4', palette: ['#2f6fed','#4d9dff'] },
+    { name: 'Default', blurb: 'Acrylic, sky', material: 'acrylic', bg: '#000000', side: '#141414', title: '#141414', text: '#eef0f4', palette: ['#38bdf8'] },
+    { name: 'New ember', blurb: 'Warm tint, coral', material: 'tinted', bg: '#191720', side: '#1c1a22', title: '#231f28', text: '#f0e7dc', palette: ['#ff8a6a'] },
+    { name: 'Terminal', blurb: 'Mono, green', material: 'solid', bg: '#0b0f14', side: '#0d1117', title: '#11161d', text: '#d7e0d9', palette: ['#22c55e'] }
+  ],
+  light: [
+    { name: 'Paper', blurb: 'Plain white, blue', material: 'solid', bg: '#fbfbfc', side: '#eceef1', title: '#e1e3e8', text: '#1b1d21', palette: ['#2f6fed','#4d9dff'] },
+    { name: 'Linen', blurb: 'Warm, bronze', material: 'solid', bg: '#f8f4ed', side: '#f1ebe1', title: '#e9e2d5', text: '#241f18', palette: ['#92400e'] },
+    { name: 'Frost', blurb: 'Cool, teal', material: 'solid', bg: '#f4f8fb', side: '#e9f0f6', title: '#dfe8f1', text: '#152029', palette: ['#0f766e'] },
+    { name: 'Orchid', blurb: 'Tinted, plum', material: 'tinted', bg: '#f7f1fb', side: '#efe4f7', title: '#e6d7f2', text: '#251a30', palette: ['#6b21a8'] }
+  ]
+};
+
+function mini(st) {
+  const accent = st.palette[0];
+  const paint = st.palette.length > 1 ? 'linear-gradient(90deg, ' + st.palette.join(', ') + ')' : accent;
+  const tint = st.material === 'tinted';
+  const side = tint ? mix(st.side, accent, 0.1) : st.side;
+  const title = tint ? mix(st.title, accent, 0.12) : st.title;
+  const bg = tint ? mix(st.bg, accent, 0.07) : st.bg;
+  const dim = mix(st.text, st.side, 0.5);
+  const line = (w, c) => '<span style="width:' + w + ';background:' + c + '"></span>';
+  return '<div class="mini">' +
+    '<div class="t" style="background:' + title + '">' +
+      '<i style="background:' + accent + '"></i>' +
+      '<u style="background:' + rgba(st.text, 0.5) + '"></u>' +
+    '</div>' +
+    '<div class="b">' +
+      '<div class="s" style="background:' + side + '">' +
+        line('62%', rgba(dim, 0.6)) + line('80%', rgba(st.text, 0.5)) +
+        '<span style="width:72%;background:' + paint + '"></span>' +
+        line('86%', rgba(st.text, 0.3)) + line('68%', rgba(st.text, 0.3)) +
+      '</div>' +
+      '<div class="v" style="background:' + bg + '">' +
+        '<em></em>' +
+        '<u style="background:' + rgba(st.text, 0.18) + '"><b style="background:' + paint + '"></b></u>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+const bars = () => '<div class="schem">' + Array.from({ length: 18 }, (_, i) =>
+  '<i style="height:' + (25 + Math.abs(Math.sin(i * 0.8) * Math.cos(i * 0.3)) * 70) + '%"></i>').join('') + '</div>';
+const lineSchem = () => '<div class="schem line"><u></u></div>';
+
+const ROLES = [['Background', '#101215'], ['Sidebar', '#141719'], ['Title bar', '#1a1d21'], ['Text', '#e3e6ea']];
+const STRIP = ['#5b5bd6', '#2f6fed', '#0f766e', '#166534', '#92400e', '#7f1d1d', '#831843', '#6b21a8', '#475569', '#3f5570'];
+
+/* ---------- axes ---------- */
+const AXES = [
+  { key: 'nav', label: 'Settings nav', opts: [
+    ['rail', 'Rail'], ['sub', 'Rail + subtitles'], ['icons', 'Icon rail'], ['wide', 'Grouped rail'],
+    ['quiet', 'Quiet rail'], ['tabs', 'Top tabs'], ['seg', 'Segmented'], ['right', 'Rail right']
+  ]},
+  { key: 'header', label: 'Page header', opts: [
+    ['title', 'Title + line'], ['slim', 'Slim title'], ['big', 'Editorial'], ['search', 'Search'], ['none', 'None']
+  ]},
+  { key: 'grid', label: 'Card grid', opts: [
+    ['three', 'Three up'], ['two', 'Two up'], ['four', 'Four up'], ['list', 'Rows'], ['gallery', 'Gallery'], ['split', 'Hero + two']
+  ]},
+  { key: 'general', label: 'General page', opts: [
+    ['rows', 'Divider rows'], ['inset', 'Grouped insets'], ['cards', 'Card per setting'], ['twocol', 'Two columns'], ['table', 'Compact table']
+  ]},
+  { key: 'control', label: 'Controls', opts: [
+    ['drop', 'Dropdowns + switch'], ['seg', 'Segments + switch'], ['radio', 'Radios + checkbox'],
+    ['btns', 'Buttons + pill'], ['link', 'Inline links + switch']
+  ]},
+  { key: 'sel', label: 'Selected state', opts: [
+    ['tint', 'Accent tint'], ['fill', 'Solid accent'], ['outline', 'Outline'], ['bar', 'Edge bar']
+  ]},
+  { key: 'label', label: 'Section labels', opts: [
+    ['caps', 'Caps'], ['sentence', 'Sentence'], ['big', 'Big'], ['none', 'None']
+  ]},
+  { key: 'density', label: 'Density', opts: [['compact', 'Compact'], ['default', 'Default'], ['roomy', 'Roomy']] },
+  { key: 'corner', label: 'Corners', opts: [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']] }
+];
+
+const PRESETS = {
+  'Rail': { nav: 'rail', header: 'title', grid: 'three', general: 'rows', control: 'drop', sel: 'tint', label: 'caps', density: 'default', corner: 'soft' },
+  'Dense utility': { nav: 'rail', header: 'slim', grid: 'three', general: 'inset', control: 'seg', sel: 'tint', label: 'caps', density: 'compact', corner: 'soft' },
+  'Editorial': { nav: 'quiet', header: 'big', grid: 'gallery', general: 'cards', control: 'radio', sel: 'outline', label: 'none', density: 'roomy', corner: 'round' },
+  'Console': { nav: 'icons', header: 'slim', grid: 'list', general: 'table', control: 'link', sel: 'bar', label: 'caps', density: 'compact', corner: 'sharp' },
+  'Top tabs': { nav: 'tabs', header: 'big', grid: 'three', general: 'inset', control: 'btns', sel: 'bar', label: 'sentence', density: 'default', corner: 'soft' },
+  'Cupertino': { nav: 'seg', header: 'none', grid: 'two', general: 'cards', control: 'seg', sel: 'fill', label: 'sentence', density: 'roomy', corner: 'round' },
+  'Right rail': { nav: 'right', header: 'title', grid: 'three', general: 'rows', control: 'drop', sel: 'fill', label: 'caps', density: 'default', corner: 'soft' },
+  'Subtitled': { nav: 'sub', header: 'slim', grid: 'list', general: 'twocol', control: 'seg', sel: 'tint', label: 'sentence', density: 'default', corner: 'soft' },
+  'Search first': { nav: 'rail', header: 'search', grid: 'four', general: 'rows', control: 'drop', sel: 'tint', label: 'caps', density: 'compact', corner: 'soft' },
+  'Gallery': { nav: 'wide', header: 'big', grid: 'gallery', general: 'inset', control: 'btns', sel: 'outline', label: 'big', density: 'roomy', corner: 'round' },
+  'Showcase': { nav: 'rail', header: 'title', grid: 'split', general: 'twocol', control: 'radio', sel: 'tint', label: 'big', density: 'default', corner: 'round' },
+  'Panelled': { nav: 'wide', header: 'slim', grid: 'two', general: 'cards', control: 'link', sel: 'fill', label: 'big', density: 'default', corner: 'sharp' }
+};
+
+/* ---------- controls vocabulary ---------- */
+const C = {
+  choice: {
+    drop: (opts, on) => '<span class="pick">' + on + ' <s>&#9660;</s></span>',
+    seg: (opts, on) => '<span class="seg">' + opts.map((o) => '<b class="' + (o === on ? 'on' : '') + '">' + o + '</b>').join('') + '</span>',
+    radio: (opts, on) => '<span class="radios">' + opts.map((o) => '<b class="' + (o === on ? 'on' : '') + '"><i></i>' + o + '</b>').join('') + '</span>',
+    btns: (opts, on) => '<span class="btns">' + opts.map((o) => '<b class="' + (o === on ? 'on' : '') + '">' + o + '</b>').join('') + '</span>',
+    link: (opts, on) => '<span class="link">' + on + ' <s>&#8250;</s></span>'
+  },
+  bool: {
+    drop: (on) => '<span class="sw ' + (on ? 'on' : '') + '"></span>',
+    seg: (on) => '<span class="sw ' + (on ? 'on' : '') + '"></span>',
+    radio: (on) => '<span class="cb ' + (on ? 'on' : '') + '"></span>',
+    btns: (on) => '<span class="toggle ' + (on ? 'on' : '') + '">' + (on ? 'On' : 'Off') + '</span>',
+    link: (on) => '<span class="sw ' + (on ? 'on' : '') + '"></span>'
+  },
+  action: {
+    drop: (t) => '<span class="cta">' + t + '</span>',
+    seg: (t) => '<span class="cta">' + t + '</span>',
+    radio: (t) => '<span class="cta">' + t + '</span>',
+    btns: (t) => '<span class="cta accent">' + t + '</span>',
+    link: (t) => '<span class="link">' + t + ' <s>&#8250;</s></span>'
+  }
+};
+
+const SETTINGS = [
+  { name: 'Arrow keys page through', hint: 'Which sibling files the arrows step through.',
+    kind: 'choice', opts: ['All', 'Media / Docs', 'Per type'], on: 'Media / Docs' },
+  { name: 'Sidebar text size', hint: 'Rows grow with the type.',
+    kind: 'choice', opts: ['Small', 'Default', 'Large'], on: 'Default' },
+  { name: 'Restore window position', hint: 'Reopen where you left off.', kind: 'bool', on: true },
+  { name: 'File associations', hint: 'Types Prism opens by default.', kind: 'action', on: 'Choose types' }
+];
+
+const control = (s, mode) =>
+  s.kind === 'choice' ? C.choice[mode](s.opts, s.on)
+  : s.kind === 'bool' ? C.bool[mode](s.on)
+  : C.action[mode](s.on);
+
+/* ---------- page bodies ---------- */
+function labelHtml(kind, text) {
+  if (kind === 'none') return '';
+  const cls = kind === 'caps' ? 'label' : kind === 'sentence' ? 'label sentence' : 'label big';
+  return '<div class="' + cls + '">' + text + '</div>';
+}
+
+function cardsHtml(s) {
+  const n = s.grid === 'two' ? 2 : s.grid === 'four' ? 4 : s.grid === 'list' ? 4 : 3;
+  const list = STYLE_DEFS[mode].slice(0, n);
+  return '<div class="cards ' + s.grid + '">' + list.map((st, i) =>
+    '<div class="card2 ' + (i === 0 ? 'on' : '') + '">' + mini(st) +
+    '<div class="cap"><span style="display:block"><b>' + st.name + '</b>' +
+    (s.grid === 'list' || s.grid === 'gallery' ? '<em>' + st.blurb + '</em>' : '') + '</span>' +
+    (i === 0 ? '<span>Selected</span>' : '') + '</div></div>').join('') + '</div>';
+}
+
+function shapesHtml(s, names, isBars) {
+  return '<div class="cards ' + (s.grid === 'gallery' ? 'gallery' : s.grid === 'list' ? 'list' : s.grid === 'four' ? 'four' : s.grid === 'two' ? 'two' : 'three') + '">' +
+    names.map((n, i) =>
+      '<div class="card2 ' + (i === 0 ? 'on' : '') + '">' + (isBars ? bars() : lineSchem()) +
+      '<div class="cap"><b>' + n + '</b>' + (i === 0 ? '<span>Selected</span>' : '') + '</div></div>').join('') + '</div>';
+}
+
+function generalHtml(s) {
+  const rows = SETTINGS.map((st) => {
+    const copy = '<div class="copy"><b>' + st.name + '</b>' + (s.general === 'table' ? '' : '<span>' + st.hint + '</span>') + '</div>';
+    const ctl = control(st, s.control);
+    if (s.general === 'table') return '<div class="pref">' + copy + '<span style="font-size:11px;color:var(--dim)">' + st.hint + '</span>' + ctl + '</div>';
+    return '<div class="pref">' + copy + ctl + '</div>';
+  });
+
+  if (s.general === 'inset') {
+    return labelHtml(s.label, 'Navigation') +
+      '<div class="grouped">' + rows.slice(0, 2).join('') + '</div>' +
+      labelHtml(s.label, 'Window') +
+      '<div class="grouped">' + rows.slice(2).join('') + '</div>';
+  }
+  return labelHtml(s.label, 'Behaviour') + rows.join('');
+}
+
+function bodyHtml(s, tab) {
+  if (tab === 'style') return labelHtml(s.label, 'Styles') + cardsHtml(s);
+  if (tab === 'viz') return labelHtml(s.label, 'Shape') + shapesHtml(s, ['Halo', 'Bars', 'Mirror', 'Ring'], true);
+  if (tab === 'bar') return labelHtml(s.label, 'Shape') + shapesHtml(s, ['Slim', 'Pill', 'Segments', 'Wave'], false);
+  if (tab === 'colours') {
+    return labelHtml(s.label, 'Surfaces and type') +
+      '<div class="roles">' + ROLES.map(([n, c]) => '<div class="role"><i style="background:' + c + '"></i><b>' + n + '</b></div>').join('') + '</div>' +
+      labelHtml(s.label, 'Accent') +
+      '<div class="strip">' + STRIP.map((c, i) => '<i style="background:' + c + (i === 0 ? ';outline:2px solid var(--accent-hi);outline-offset:2px' : '') + '"></i>').join('') + '</div>';
+  }
+  return '<div class="g-' + s.general + '">' + generalHtml(s) + '</div>';
+}
+
+/* ---------- frames ---------- */
+function navHtml(s, tab, id) {
+  const item = (n, showText, showSub) =>
+    '<b class="' + (n.key === tab ? 'on' : '') + '" data-go="' + id + '|' + n.key + '" title="' + n.name + '">' +
+    '<i>' + svg(n.key) + '</i>' + (showText ? '<span>' + n.name + (showSub ? '<small>' + n.sub + '</small>' : '') + '</span>' : '') + '</b>';
+
+  if (s.nav === 'tabs')
+    return { top: '<div class="tabs">' + NAV.map((n) =>
+      '<b class="' + (n.key === tab ? 'on' : '') + '" data-go="' + id + '|' + n.key + '">' + n.name + '</b>').join('') + '</div>' };
+  if (s.nav === 'seg')
+    return { top: '<div style="display:flex;justify-content:center;padding:12px 12px 4px"><div class="segnav">' + NAV.map((n) =>
+      '<b class="' + (n.key === tab ? 'on' : '') + '" data-go="' + id + '|' + n.key + '">' + n.name + '</b>').join('') + '</div></div>' };
+
+  const cls = s.nav === 'icons' ? 'rail icons' : s.nav === 'wide' ? 'rail wide' : s.nav === 'quiet' ? 'rail quiet' : s.nav === 'right' ? 'rail right' : 'rail';
+  let inner;
+  if (s.nav === 'icons') {
+    inner = '<div class="nav icons">' + NAV.map((n) => item(n, false)).join('') + '</div>';
+  } else if (s.nav === 'wide') {
+    inner = ['Look', 'Behaviour'].map((g) =>
+      '<div class="navgroup">' + g + '</div><div class="nav">' +
+      NAV.filter((n) => n.group === g).map((n) => item(n, true)).join('') + '</div>').join('');
+  } else {
+    inner = (s.nav === 'quiet' ? '' : '<div class="navtitle">Settings</div>') +
+      '<div class="nav">' + NAV.map((n) => item(n, true, s.nav === 'sub')).join('') + '</div>';
+  }
+  return { aside: '<aside class="' + cls + '">' + inner + '</aside>' };
+}
+
+function headHtml(s, tab) {
+  const [title, desc] = HEAD[tab];
+  if (s.header === 'none') return '';
+  if (s.header === 'search')
+    return '<div class="head" style="padding:10px 14px"><div class="search">&#9906; Search settings</div></div>';
+  const cls = s.header === 'big' ? 'head plain big' : s.header === 'slim' ? 'head slim' : 'head';
+  return '<div class="' + cls + '"><h3>' + title + '</h3><p>' + desc + '</p></div>';
+}
+
+function winHtml(s, tab, id) {
+  const nav = navHtml(s, tab, id);
+  const pane = '<div class="pane">' + (nav.top || '') + headHtml(s, tab) +
+    '<div class="body">' + bodyHtml(s, tab) + '</div></div>';
+  if (s.nav === 'right') return pane + nav.aside;
+  return (nav.aside || '') + pane;
+}
+
+function applyAttrs(el, s, mode) {
+  el.dataset.mode = mode;
+  ['sel', 'density', 'corner'].forEach((k) => { el.dataset[k] = s[k]; });
+}
+
+/* ---------- state ---------- */
+let state = { ...PRESETS['Dense utility'] };
+let tab = 'general';
+let mode = 'dark';
+
+const preview = document.getElementById('preview');
+const recipe = document.getElementById('recipe');
+
+document.getElementById('presets').innerHTML = Object.keys(PRESETS)
+  .map((n) => '<button class="preset" type="button" data-preset="' + n + '">' + n + '</button>').join('');
+document.getElementById('axes').innerHTML = AXES.map((a) =>
+  '<div class="axis"><span class="label">' + a.label + '</span><div class="opts">' +
+  a.opts.map(([v, l]) => '<button class="opt" type="button" data-axis="' + a.key + '" data-value="' + v + '">' + l + '</button>').join('') +
+  '</div></div>').join('');
+document.getElementById('wall').innerHTML = Object.entries(PRESETS).map(([name, p]) =>
+  '<section class="case"><header><h3>' + name + '</h3><span class="note">' +
+  p.nav + ' nav &middot; ' + p.grid + ' grid &middot; ' + p.general + ' general &middot; ' + p.control + '</span>' +
+  '<button class="btn" data-preset="' + name + '">Load</button></header>' +
+  '<div class="stage"><div class="win small" data-wall="' + name + '"></div></div></section>').join('');
+
+function render() {
+  applyAttrs(preview, state, mode);
+  preview.innerHTML = winHtml(state, tab, 'preview');
+
+  Object.entries(PRESETS).forEach(([name, p]) => {
+    const el = document.querySelector('[data-wall="' + name + '"]');
+    applyAttrs(el, p, mode);
+    el.innerHTML = winHtml(p, tab, 'wall:' + name);
+  });
+
+  document.querySelectorAll('.opt').forEach((b) => {
+    b.setAttribute('aria-pressed', String(state[b.dataset.axis] === b.dataset.value));
+  });
+  const match = Object.entries(PRESETS).find(([, p]) => AXES.every((a) => p[a.key] === state[a.key]));
+  document.querySelectorAll('.preset').forEach((b) => {
+    b.setAttribute('aria-pressed', String(!!match && match[0] === b.dataset.preset));
+  });
+  recipe.textContent = AXES.map((a) => a.key + '=' + state[a.key]).join('  ');
+}
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) {
+    const [who, key] = go.dataset.go.split('|');
+    tab = key;
+    render();
+    return;
+  }
+  const opt = e.target.closest('.opt');
+  if (opt) { state[opt.dataset.axis] = opt.dataset.value; render(); return; }
+  const pre = e.target.closest('[data-preset]');
+  if (pre) {
+    state = { ...PRESETS[pre.dataset.preset] };
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  const m = e.target.closest('[data-mode]');
+  if (m) { mode = m.dataset.mode; render(); return; }
+  const t = e.target.closest('[data-tab]');
+  if (t) { tab = t.dataset.tab; render(); }
+});
+
+render();
+</script>
+</body>
+</html>
