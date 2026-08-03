@@ -334,6 +334,12 @@ if (!app.requestSingleInstanceLock()) {
     // Windows 11 composites acrylic and mica behind the window; CSS can't, since
     // backdrop-filter only sees the app's own pixels. The window background has
     // to go transparent for the material to show through.
+    // Windows does not let an app take file associations on its own, and that is
+    // the right way round: this opens the list with Prism in it and the choice
+    // stays the user's.
+    ipcMain.on('app:default-apps', () => {
+      void shell.openExternal('ms-settings:defaultapps')
+    })
     ipcMain.on('window:material', (_e, material: string, mode?: string) => {
       if (!mainWindow) return
       const light = mode === 'light'

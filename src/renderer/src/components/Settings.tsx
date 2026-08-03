@@ -861,6 +861,7 @@ export function Settings({
   open,
   onClose,
   compactRail,
+  onShowSetup,
   transportStyle,
   onPickTransport
 }: {
@@ -868,6 +869,8 @@ export function Settings({
   onClose: () => void
   /** The rail collapsed to its icons, from the title-bar button. */
   compactRail: boolean
+  /** Run the first-run setup again. */
+  onShowSetup: () => void
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
@@ -971,9 +974,17 @@ export function Settings({
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
             ) : (
-              <p className="max-w-[46ch] text-[12.5px] leading-relaxed text-[var(--p-dim)]">
-                A quick viewer for images, video, audio and documents.
-              </p>
+              <div className="flex max-w-[46ch] flex-col items-start gap-4">
+                <p className="text-[12.5px] leading-relaxed text-[var(--p-dim)]">
+                  A quick viewer for images, video, audio and documents.
+                </p>
+                <button
+                  onClick={onShowSetup}
+                  className="rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--p-text)] transition hover:border-[color:var(--p-dim2)]"
+                >
+                  Show setup again
+                </button>
+              </div>
             )}
           </div>
         </div>

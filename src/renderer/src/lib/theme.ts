@@ -36,8 +36,9 @@ export interface Style {
   /** Surface alpha for acrylic and mica. Lower lets more of the frost through;
    *  omitted, a style takes the default for its mode. */
   glass?: number
-  /** Two colours for the soft light behind the window. Omitted, there is none. */
-  wash?: [string, string]
+  /** Whether the window carries a soft light behind it. The colours come from
+   *  the accent, so changing the accent changes the glow with it. */
+  wash?: boolean
   /** Saved by the user rather than shipped: it can be deleted. */
   custom?: boolean
   /** For a saved preset, the shipped style it grew out of. */
@@ -81,8 +82,9 @@ export const STYLES: Style[] = [
     size: '12.5',
     corners: '8',
     borders: 'hairline',
-    // The light that gives the style its name: two soft glows, opposite corners.
-    wash: ['#38bdf8', '#6366f1']
+    // The light that gives the style its name: two soft glows, opposite corners,
+    // in whatever the accent currently is.
+    wash: true
   },
   {
     id: 'default',
@@ -419,8 +421,19 @@ export const paletteOf = (accent: string): string[] =>
 
 const accentOf = paletteOf
 
-function paint(style: Style): void {
-  const r = document.documentElement.style
+/**
+ * Every custom property a style publishes, as one object.
+ *
+ * `paint` writes these to the document; anything that has to draw a style it
+ * isn't currently wearing - the setup's mode transition, for one - can apply
+ * the same set to a subtree instead. It has to be the whole set: handing over
+ * only the derived half is what left a transition wearing the old title bar.
+ *
+ * `opaque` drops the translucency a material would otherwise add. A copy of the
+ * window drawn over the window can't have the desktop behind it, so it paints
+ * the style's flat colours and lets the real thing take over the glass.
+ */
+export function variablesFor(style: Style, opaque = false): Record<string, string> {
   const palette = accentOf(style.accent)
   const accent = palette[0]
 
@@ -428,7 +441,7 @@ function paint(style: Style): void {
   let side = style.side
   let title = style.title
   const translucent = style.material === 'acrylic' || style.material === 'mica'
-  if (translucent) {
+  if (translucent && !opaque) {
     // Windows composites the material behind the window; these surfaces sit on
     // top of it, so they have to let it through.
     const a = style.glass ?? (style.material === 'acrylic' ? (style.mode === 'light' ? 0.5 : 0.55) : 0.82)
@@ -467,39 +480,45 @@ function paint(style: Style): void {
           ? style.icon
           : dimmed(style.text, style.side, 0.38, 4.5)
 
-  const set = (k: string, v: string): void => r.setProperty(k, v)
-  set('--p-bg', bg)
-  set('--p-side', side)
-  set('--p-side-flat', style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side)
-  set('--p-title', title)
-  for (const [k, v] of Object.entries(derive(style))) {
-    // bg and side are painted above with their material applied; the rest
-    // (text tiers, accent, kind tints, the preview stage) publish as derived.
-    if (k !== '--p-bg' && k !== '--p-side-flat') set(k, v)
+  // The wash comes from the accent, so picking a colour tints the whole window
+  // with it. Lighter styles take less: the same alpha over white is a stain.
+  const washA = palette[0]
+  const washB = palette[1] ?? mix(palette[0], style.mode === 'light' ? '#000000' : '#ffffff', 0.35)
+  const washAlpha = style.mode === 'light' ? 0.14 : 0.22
+
+  return {
+    ...derive(style),
+    // bg and side carry their material; the derived pair above is the flat one.
+    '--p-bg': bg,
+    '--p-side': side,
+    '--p-side-flat': style.material === 'tinted' ? mix(style.side, accent, 0.1) : style.side,
+    '--p-title': title,
+    '--p-icon': icon,
+    '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
+    '--p-divider': divider,
+    '--p-line': listLine,
+    // `none` is a valid background-image, so a style without a wash draws none.
+    '--p-wash': style.wash
+      ? `radial-gradient(46% 46% at 22% 24%, ${rgba(washA, washAlpha)}, transparent 70%),` +
+        ` radial-gradient(42% 42% at 78% 76%, ${rgba(washB, washAlpha * 0.9)}, transparent 70%)`
+      : 'none',
+    '--p-radius': style.corners + 'px',
+    '--p-radius-sm': Math.max(2, Number(style.corners) - 2) + 'px',
+    '--p-font': FONTS[style.font].stack,
+    '--p-size': style.size + 'px',
+    '--p-row': (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px',
+    '--p-indent': (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px'
   }
-  set('--p-icon', icon)
-  set('--p-hover', rgba(ink, style.mode === 'light' ? 0.07 : 0.06))
-  set('--p-divider', divider)
-  set('--p-line', listLine)
-  // Painted by one layer behind the app. `none` is a valid background-image, so
-  // a style without a wash simply draws nothing.
-  set(
-    '--p-wash',
-    style.wash
-      ? `radial-gradient(46% 46% at 22% 24%, ${rgba(style.wash[0], 0.22)}, transparent 70%),` +
-        ` radial-gradient(42% 42% at 78% 76%, ${rgba(style.wash[1], 0.2)}, transparent 70%)`
-      : 'none'
-  )
-  set('--p-radius', style.corners + 'px')
-  set('--p-radius-sm', Math.max(2, Number(style.corners) - 2) + 'px')
-  set('--p-font', FONTS[style.font].stack)
-  set('--p-size', style.size + 'px')
-  set('--p-row', (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px')
-  set('--p-indent', (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px')
+}
+
+function paint(style: Style): void {
+  const r = document.documentElement.style
+  for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
   document.documentElement.dataset.icons = style.iconMode
   document.documentElement.dataset.mode = style.mode
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
+  const translucent = style.material === 'acrylic' || style.material === 'mica'
   if (typeof window !== 'undefined') {
     window.prism?.setWindowMaterial(translucent ? style.material : 'none', style.mode)
   }

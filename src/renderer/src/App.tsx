@@ -8,6 +8,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
+import { Onboarding } from './components/Onboarding'
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
@@ -20,6 +21,8 @@ const PLAYABLE = new Set(['video', 'audio'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
 const RAIL_KEY = 'prism.settings.rail'
+// Shown once, on the first launch, and again from Settings > About.
+const SETUP_KEY = 'prism.onboarded'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
 type Ask =
@@ -33,7 +36,8 @@ function TopBar({
   settingsOpen,
   onToggleSettings,
   panelOpen,
-  onTogglePanel
+  onTogglePanel,
+  setup
 }: {
   file: ViewerFile | null
   pos: string
@@ -42,12 +46,16 @@ function TopBar({
   /** The left-hand panel of whatever is on screen: the tree, or the rail. */
   panelOpen: boolean
   onTogglePanel: () => void
+  /** First-run setup is up: the bar keeps the name and the window buttons, and
+   *  drops the controls for an app you haven't met yet. */
+  setup: boolean
 }): JSX.Element {
   const w = window.prism
   return (
     <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
+      {!setup && (
       <button
         className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
           panelOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
@@ -62,10 +70,12 @@ function TopBar({
           <path d="M9 4v16" />
         </svg>
       </button>
-      <span className="font-semibold text-[var(--p-accent-hi)]">Prism</span>
+      )}
+      <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>Prism</span>
       <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
+        {!setup && (
         <button
           className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
             settingsOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
@@ -80,6 +90,7 @@ function TopBar({
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
           </svg>
         </button>
+        )}
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.minimize()}>–</button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.toggleMaximize()}>▢</button>
         <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]" onClick={() => w.close()}>✕</button>
@@ -167,6 +178,7 @@ export default function App(): JSX.Element {
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [setup, setSetup] = useState(() => localStorage.getItem(SETUP_KEY) !== '1')
   // The file tree. Off on a fresh install: the media is the point.
   const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
   const treeSide = useTreeSide()
@@ -305,6 +317,9 @@ export default function App(): JSX.Element {
     const onKey = (e: KeyboardEvent): void => {
       const el = e.target as HTMLElement | null
       const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+      // The setup owns the window while it is up: none of these should reach the
+      // app behind it, least of all Escape, which would close Prism mid-guide.
+      if (setup) return
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
@@ -330,7 +345,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, settingsOpen, togglePanel])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -359,11 +374,15 @@ export default function App(): JSX.Element {
 
   // Drag-and-drop (path via webUtils, since Electron removed File.path).
   useEffect(() => {
-    const over = (e: DragEvent): void => { e.preventDefault(); setDragging(true) }
+    const over = (e: DragEvent): void => {
+      e.preventDefault()
+      if (!setup) setDragging(true)
+    }
     const leave = (): void => setDragging(false)
     const drop = (e: DragEvent): void => {
       e.preventDefault()
       setDragging(false)
+      if (setup) return
       const f = e.dataTransfer?.files?.[0]
       if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
     }
@@ -375,7 +394,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('dragleave', leave)
       window.removeEventListener('drop', drop)
     }
-  }, [open])
+  }, [open, setup])
 
   const many = (view?.files.length ?? 0) > 1
   const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
@@ -392,12 +411,18 @@ export default function App(): JSX.Element {
           onToggleSettings={() => setSettingsOpen((v) => !v)}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
+          setup={setup}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
           underneath) is what lets a translucent style show its material through
           the settings page; `invisible` keeps a playing video alive. */}
-      <div className={`flex min-h-0 flex-1 ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${settingsOpen ? 'invisible' : ''}`}>
+      <div
+        inert={settingsOpen || setup}
+        className={`flex min-h-0 flex-1 ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
+          settingsOpen || setup ? 'invisible' : ''
+        }`}
+      >
         {raw && !fullscreen && (
           <Sidebar
             open={sidebar}
@@ -410,7 +435,7 @@ export default function App(): JSX.Element {
           />
         )}
         <div
-          className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden ${
+          className={`p-wash group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
             dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''
           }`}
         >
@@ -426,6 +451,10 @@ export default function App(): JSX.Element {
       </div>
       <Settings
         open={settingsOpen}
+        onShowSetup={() => {
+          setSettingsOpen(false)
+          setSetup(true)
+        }}
         compactRail={compactRail}
         onClose={() => setSettingsOpen(false)}
         transportStyle={transportStyle}
@@ -472,6 +501,14 @@ export default function App(): JSX.Element {
           body={ask.message}
           onCancel={() => setAsk(null)}
           choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
+        />
+      )}
+      {setup && (
+        <Onboarding
+          onDone={() => {
+            localStorage.setItem(SETUP_KEY, '1')
+            setSetup(false)
+          }}
         />
       )}
     </div>
