@@ -456,6 +456,38 @@ function StyleTab(): JSX.Element {
         })}
       </div>
 
+      {/* What the style is made of, before what it is coloured: these two change
+          the whole window, the colours below change one role each. */}
+      <div className={ROWS}>
+        <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
+          <Select id="c-font" value={style.font} onChange={(v) => setOverride('font', v)} options={FONT_OPTIONS} />
+        </Pref>
+        <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
+          <div className="flex items-center gap-3">
+            {edits.acrylic !== undefined && (
+              <button
+                onClick={() => setAcrylic(null)}
+                className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
+              >
+                Reset
+              </button>
+            )}
+            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">{glass}%</span>
+            <input
+              id="c-glass"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={glass}
+              onChange={(e) => setAcrylic(Number(e.target.value))}
+              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+              style={{ accentColor: 'var(--p-accent)' }}
+            />
+          </div>
+        </Pref>
+      </div>
+
       {/* Colours live with the style they change, not in a tab of their own:
           a style is a starting point you tune, and the cards above show it. */}
       <Section
@@ -493,38 +525,6 @@ function StyleTab(): JSX.Element {
               onChange={(v) => setOverride('text', v)}
               onReset={() => setOverride('text', null)}
             />
-          </Pref>
-          <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
-            <Select
-              id="c-font"
-              value={style.font}
-              onChange={(v) => setOverride('font', v)}
-              options={FONT_OPTIONS}
-            />
-          </Pref>
-          <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
-            <div className="flex items-center gap-3">
-              {edits.acrylic !== undefined && (
-                <button
-                  onClick={() => setAcrylic(null)}
-                  className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
-                >
-                  Reset
-                </button>
-              )}
-              <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">{glass}%</span>
-              <input
-                id="c-glass"
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={glass}
-                onChange={(e) => setAcrylic(Number(e.target.value))}
-                className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                style={{ accentColor: 'var(--p-accent)' }}
-              />
-            </div>
           </Pref>
         </div>
         <div className="mt-3 flex items-center justify-between gap-6">
@@ -860,11 +860,14 @@ const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
 export function Settings({
   open,
   onClose,
+  compactRail,
   transportStyle,
   onPickTransport
 }: {
   open: boolean
   onClose: () => void
+  /** The rail collapsed to its icons, from the title-bar button. */
+  compactRail: boolean
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
 }): JSX.Element | null {
@@ -897,12 +900,23 @@ export function Settings({
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
      <div className="flex h-full w-full" style={{ zoom: size.zoom }}>
-      {/* tab rail, grouped: what Prism looks like, then how it behaves */}
-      <aside className="flex w-[212px] shrink-0 flex-col border-r border-[var(--p-divider)] bg-[var(--p-side)] p-2.5">
-          <div className="px-2 pb-1 pt-1 text-[14px] font-bold tracking-tight text-[var(--p-text)]">Settings</div>
+      {/* tab rail, grouped: how Prism behaves, then what it looks like. The same
+          title-bar button that hides the file tree collapses this to its glyphs. */}
+      <aside
+        className={`flex shrink-0 flex-col overflow-hidden border-r border-[var(--p-divider)] bg-[var(--p-side)] transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)] ${
+          compactRail ? 'w-[56px] p-2' : 'w-[212px] p-2.5'
+        }`}
+      >
+          <div
+            className={`px-2 pb-1 pt-1 text-[14px] font-bold tracking-tight text-[var(--p-text)] ${
+              compactRail ? 'invisible' : ''
+            }`}
+          >
+            Settings
+          </div>
           {RAIL_GROUPS.map((g) => (
             <nav key={g.name} className="flex flex-col gap-0.5">
-              {g.name ? (
+              {g.name && !compactRail ? (
                 <div className="px-2 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[.14em] text-[var(--p-dim2)]">
                   {g.name}
                 </div>
@@ -917,20 +931,26 @@ export function Settings({
                   <button
                     key={t.id}
                     onClick={() => setTab(t.id)}
-                    className={`flex items-center gap-2.5 rounded-[var(--p-radius-sm)] px-2.5 py-[7px] text-left text-[13px] transition ${
+                    title={t.label}
+                    aria-label={t.label}
+                    className={`flex items-center gap-2.5 rounded-[var(--p-radius-sm)] py-[7px] text-left text-[13px] transition ${
+                      compactRail ? 'justify-center px-0' : 'px-2.5'
+                    } ${
                       on
                         ? 'bg-[var(--p-sel-bg)] font-semibold text-[var(--p-on-accent)]'
                         : 'font-medium text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
                     }`}
                   >
                     <span className={on ? 'opacity-90' : ''}>{t.icon}</span>
-                    {t.label}
+                    {!compactRail && t.label}
                   </button>
                 )
               })}
             </nav>
           ))}
-          <div className="mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)]">Prism</div>
+          <div className={`mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)] ${compactRail ? 'invisible' : ''}`}>
+            Prism
+          </div>
         </aside>
 
         {/* content */}

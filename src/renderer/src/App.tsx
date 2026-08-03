@@ -19,6 +19,7 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 const PLAYABLE = new Set(['video', 'audio'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
+const RAIL_KEY = 'prism.settings.rail'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
 type Ask =
@@ -31,31 +32,30 @@ function TopBar({
   pos,
   settingsOpen,
   onToggleSettings,
-  sidebar,
-  onToggleSidebar
+  panelOpen,
+  onTogglePanel
 }: {
   file: ViewerFile | null
   pos: string
   settingsOpen: boolean
   onToggleSettings: () => void
-  sidebar: boolean
-  onToggleSidebar: () => void
+  /** The left-hand panel of whatever is on screen: the tree, or the rail. */
+  panelOpen: boolean
+  onTogglePanel: () => void
 }): JSX.Element {
   const w = window.prism
   return (
     <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
-      {/* Settings covers the tree, so a control for it would toggle something
-          you can't see. It keeps its space, so the title doesn't shift. */}
+      {/* One button, one idea: collapse the panel on the left. Over Settings the
+          tree isn't there, so it collapses that page's rail to its glyphs. */}
       <button
         className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-          sidebar ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-        } ${settingsOpen ? 'invisible' : ''}`}
-        onClick={onToggleSidebar}
-        title="Files (Ctrl+B)"
-        aria-label="Toggle file tree"
-        aria-pressed={sidebar}
-        aria-hidden={settingsOpen}
-        tabIndex={settingsOpen ? -1 : 0}
+          panelOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+        }`}
+        onClick={onTogglePanel}
+        title={settingsOpen ? 'Collapse the rail (Ctrl+B)' : 'Files (Ctrl+B)'}
+        aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle file tree'}
+        aria-pressed={panelOpen}
       >
         <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
           <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -176,6 +176,19 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
+  // Settings covers the tree, so over it the same control collapses that page's
+  // rail instead: one button, one idea - narrow the panel on the left.
+  const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
+  const toggleRail = useCallback(() => {
+    setCompactRail((on) => {
+      localStorage.setItem(RAIL_KEY, on ? '0' : '1')
+      return !on
+    })
+  }, [])
+  const togglePanel = useCallback(() => {
+    if (settingsOpen) toggleRail()
+    else toggleSidebar()
+  }, [settingsOpen, toggleRail, toggleSidebar])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
@@ -297,7 +310,7 @@ export default function App(): JSX.Element {
         window.prism.setFullscreen(!fullscreen)
       } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
         e.preventDefault()
-        toggleSidebar()
+        togglePanel()
       } else if (e.key === 'Escape') {
         // Settings owns Escape while it's open (its own handler closes it).
         // Without this, the window would shut instead: both listeners are on
@@ -317,7 +330,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, settingsOpen, toggleSidebar])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -377,8 +390,8 @@ export default function App(): JSX.Element {
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((v) => !v)}
-          sidebar={sidebar}
-          onToggleSidebar={toggleSidebar}
+          panelOpen={settingsOpen ? !compactRail : sidebar}
+          onTogglePanel={togglePanel}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -413,6 +426,7 @@ export default function App(): JSX.Element {
       </div>
       <Settings
         open={settingsOpen}
+        compactRail={compactRail}
         onClose={() => setSettingsOpen(false)}
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
