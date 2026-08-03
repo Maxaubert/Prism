@@ -44,14 +44,18 @@ function TopBar({
   const w = window.prism
   return (
     <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
+      {/* Settings covers the tree, so a control for it would toggle something
+          you can't see. It keeps its space, so the title doesn't shift. */}
       <button
         className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
           sidebar ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-        }`}
+        } ${settingsOpen ? 'invisible' : ''}`}
         onClick={onToggleSidebar}
         title="Files (Ctrl+B)"
         aria-label="Toggle file tree"
         aria-pressed={sidebar}
+        aria-hidden={settingsOpen}
+        tabIndex={settingsOpen ? -1 : 0}
       >
         <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
           <rect x="3" y="4" width="18" height="16" rx="2" />
