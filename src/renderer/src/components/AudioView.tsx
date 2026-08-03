@@ -97,7 +97,7 @@ export function AudioView({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden bg-[var(--p-bg)]"
+      className="p-wash relative h-full w-full overflow-hidden bg-[var(--p-bg)]"
       onMouseMove={showChrome}
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >

@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism onboarding lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 24px 60px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+  .sub { margin: 0 0 14px; color: #8a8e99; font-size: 12.5px; max-width: 96ch; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .btn:hover { border-color: rgba(255,255,255,.28); color: #fff; }
+  .btn[aria-pressed="true"] { background: #5b5bd6; border-color: #7b7bf0; color: #fff; font-weight: 600; }
+
+  .wall { display: flex; flex-direction: column; gap: 26px; }
+  .case { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; overflow: hidden; background: #0c0e12; }
+  .case > header { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .case h2 { margin: 0; font-size: 13px; font-weight: 650; }
+  .case .note { flex: 1; color: #6b7080; font-size: 11.5px; }
+  .case .steps { display: flex; gap: 4px; }
+  .case .steps b { padding: 3px 9px; border-radius: 99px; font-size: 11px; color: #8a8e99; cursor: pointer; border: 1px solid transparent; }
+  .case .steps b:hover { color: #fff; }
+  .case .steps b.on { background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.14); font-weight: 600; }
+  .stage { padding: 16px; background: #06070a; display: grid; place-items: center; }
+
+  /* ============ the onboarding window under test ============ */
+  .win {
+    --bg: #0d0f14; --side: #141719; --title: #16181f; --text: #eef0f4; --soft: #c8ccd4;
+    --dim: #8d949d; --dim2: #6f7681; --line: rgba(255,255,255,.09); --hover: rgba(255,255,255,.05);
+    --accent: #38bdf8; --accent-2: #6366f1; --on-accent: #04121a; --stage: #14171d;
+    width: 100%; max-width: 940px; aspect-ratio: 16 / 10; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; position: relative;
+  }
+  .win[data-mode="light"] {
+    --bg: #fbfbfc; --side: #eceef1; --title: #e6e8ec; --text: #14161a; --soft: #33363c;
+    --dim: #5c6068; --dim2: #787d86; --line: rgba(0,0,0,.11); --hover: rgba(0,0,0,.05);
+    --accent: #2f6fed; --accent-2: #7c3aed; --on-accent: #fff; --stage: #eef0f4;
+  }
+  .win * { box-sizing: border-box; }
+
+  /* the app's own title bar, kept: the setup sits below it */
+  .titlebar { height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--title); border-bottom: 1px solid var(--line); }
+  .titlebar .mark { width: 13px; height: 13px; border-radius: 3px; background: linear-gradient(140deg, var(--accent), var(--accent-2)); }
+  .titlebar .name { font-size: 12px; font-weight: 700; letter-spacing: -.01em; color: var(--accent); }
+  .titlebar .wc { margin-left: auto; display: flex; gap: 14px; color: var(--dim2); font-size: 11px; }
+  .setup { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  /* ---------- shared step furniture ---------- */
+  .kicker { font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); }
+  .head { margin: 6px 0 0; font-size: 27px; font-weight: 700; letter-spacing: -.028em; line-height: 1.06; }
+  .body { margin: 9px 0 0; font-size: 13px; line-height: 1.55; color: var(--dim); max-width: 44ch; }
+  .foot { display: flex; align-items: center; gap: 12px; }
+  .dots { display: flex; gap: 6px; }
+  .dots i { width: 6px; height: 6px; border-radius: 99px; background: var(--line); display: block; transition: .25s cubic-bezier(.23,1,.32,1); }
+  .dots i.on { width: 20px; background: var(--accent); }
+  .cta { border: 0; border-radius: 9px; padding: 8px 16px; font: inherit; font-size: 12.5px; font-weight: 650; background: var(--accent); color: var(--on-accent); cursor: pointer; }
+  .ghost { border: 1px solid var(--line); border-radius: 9px; padding: 7px 13px; font: inherit; font-size: 12.5px; font-weight: 600; background: none; color: var(--dim); cursor: pointer; }
+  .skip { margin-left: auto; font-size: 11.5px; color: var(--dim2); cursor: pointer; }
+
+  /* pickers used inside steps */
+  .modepick { display: flex; gap: 10px; margin-top: 16px; }
+  .modecard { flex: 1; max-width: 132px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; cursor: pointer; background: var(--hover); }
+  .modecard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  .modecard .swatch { height: 42px; border-radius: 6px; display: flex; overflow: hidden; }
+  .modecard .swatch .s { width: 34%; } .modecard .swatch .v { flex: 1; }
+  .modecard.dark .swatch .s { background: #141719 } .modecard.dark .swatch .v { background: #0d0f14 }
+  .modecard.light .swatch .s { background: #eceef1 } .modecard.light .swatch .v { background: #fbfbfc }
+  .modecard b { display: block; margin-top: 7px; font-size: 12px; font-weight: 650; }
+  .stylerow { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .stylechip { border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 600; color: var(--dim); cursor: pointer; background: var(--hover); }
+  .stylechip.on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .setdefault { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; }
+  .setdefault .done { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 9px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; color: var(--dim2); }
+  .setdefault .done svg { color: var(--accent) }
+
+  /* ============================================================
+     ART PRIMITIVES  (transform + opacity only)
+     ============================================================ */
+  .art { position: relative; display: grid; place-items: center; overflow: hidden; }
+  .art i, .art b, .art u, .art s { display: block; font-style: normal; text-decoration: none; }
+
+  /* -- the miniature Prism window -- */
+  .mw { width: 268px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: var(--bg); box-shadow: 0 18px 40px -22px rgba(0,0,0,.8); }
+  .mw .mt { height: 12px; background: var(--title); display: flex; align-items: center; gap: 3px; padding: 0 5px; }
+  .mw .mt i { width: 3px; height: 3px; border-radius: 1px; background: var(--accent); }
+  .mw .mt u { width: 34%; height: 2px; border-radius: 2px; background: var(--dim2); opacity: .55; }
+  .mw .mb { display: flex; height: 116px; }
+  .mw .ms { width: 0; overflow: hidden; background: var(--side); padding: 6px 0; display: flex; flex-direction: column; gap: 5px; }
+  .mw .ms u { height: 4px; border-radius: 3px; background: var(--dim2); opacity: .5; margin: 0 7px; }
+  .mw .ms u.a { background: var(--accent); opacity: 1; }
+  .mw .mv { flex: 1; display: grid; place-items: center; background: var(--bg); position: relative; }
+  .mw .mv s { width: 62%; height: 46%; border-radius: 4px; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); }
+  .mw .mv b { position: absolute; left: 12px; right: 12px; bottom: 9px; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .mw .mv b i { height: 100%; width: 44%; border-radius: 3px; background: var(--accent); }
+
+  /* step 1: a light copy of the same window, wiped across the dark one. Two
+     real windows rather than a filter, so both look like Prism actually looks. */
+  .modewrap { position: relative; width: 268px; }
+  .modewrap .mw { width: 268px }
+  .modewrap .over { position: absolute; inset: 0; clip-path: inset(0 0 0 100%); animation: wipe 6s cubic-bezier(.23,1,.32,1) infinite; }
+  .mw.aslight {
+    --bg: #fbfbfc; --side: #eceef1; --title: #e6e8ec; --line: rgba(0,0,0,.11);
+    --dim2: #787d86; --accent: #2f6fed;
+    border-color: rgba(0,0,0,.14);
+  }
+  @keyframes wipe {
+    0%, 8% { clip-path: inset(0 0 0 100%) }
+    42%, 58% { clip-path: inset(0 0 0 0%) }
+    92%, 100% { clip-path: inset(0 0 0 100%) }
+  }
+  /* the edge of the wipe, so the change reads as a sweep rather than a swap */
+  .modewrap .edge {
+    position: absolute; top: -10px; bottom: -10px; width: 2px; border-radius: 2px;
+    background: linear-gradient(180deg, transparent, var(--accent), transparent);
+    animation: edge 6s cubic-bezier(.23,1,.32,1) infinite; opacity: .9;
+  }
+  @keyframes edge {
+    0%, 8% { transform: translateX(268px); opacity: 0 }
+    20% { opacity: .9 }
+    42%, 58% { transform: translateX(0); opacity: 0 }
+    92%, 100% { transform: translateX(268px); opacity: 0 }
+  }
+
+  /* step 2: the sidebar sliding open */
+  .a-side .ms { animation: panel 5s cubic-bezier(.23,1,.32,1) infinite; }
+  @keyframes panel { 0%, 10% { width: 0 } 34%, 74% { width: 84px } 96%, 100% { width: 0 } }
+  .a-side .ms u { opacity: 0; transform: translateX(-8px); animation: rowin 5s cubic-bezier(.23,1,.32,1) infinite; }
+  .a-side .ms u:nth-child(1) { animation-delay: .12s } .a-side .ms u:nth-child(2) { animation-delay: .18s }
+  .a-side .ms u:nth-child(3) { animation-delay: .24s } .a-side .ms u:nth-child(4) { animation-delay: .3s }
+  .a-side .ms u:nth-child(5) { animation-delay: .36s } .a-side .ms u:nth-child(6) { animation-delay: .42s }
+  @keyframes rowin {
+    0%, 12% { opacity: 0; transform: translateX(-8px) }
+    30%, 72% { opacity: .5; transform: none }
+    88%, 100% { opacity: 0; transform: translateX(-8px) }
+  }
+  .a-side .ms u.a { animation-name: rowin-a }
+  @keyframes rowin-a {
+    0%, 12% { opacity: 0; transform: translateX(-8px) }
+    30%, 72% { opacity: 1; transform: none }
+    88%, 100% { opacity: 0; transform: translateX(-8px) }
+  }
+  /* the keycap that presses on the beat */
+  .keycap { display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--stage); font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--soft); box-shadow: 0 2px 0 var(--line); }
+  .a-side .keycap { position: absolute; bottom: 14px; animation: press 5s cubic-bezier(.23,1,.32,1) infinite; }
+  @keyframes press {
+    0%, 6% { transform: none; box-shadow: 0 2px 0 var(--line) }
+    10%, 14% { transform: translateY(2px); box-shadow: none }
+    18%, 66% { transform: none; box-shadow: 0 2px 0 var(--line) }
+    70%, 74% { transform: translateY(2px); box-shadow: none }
+    78%, 100% { transform: none; box-shadow: 0 2px 0 var(--line) }
+  }
+
+  /* step 3: the accent cycling + the surface frosting */
+  .a-style .mw { animation: none }
+  .a-style .accentable { animation: hue 9s linear infinite; }
+  @keyframes hue { to { filter: hue-rotate(360deg) } }
+  .a-style .frost { position: absolute; inset: 0; backdrop-filter: blur(0px); background: rgba(255,255,255,0); animation: frosty 6s ease-in-out infinite; border-radius: 10px; }
+  @keyframes frosty {
+    0%, 100% { background: rgba(125,125,150,0) }
+    50% { background: rgba(125,125,150,.16) }
+  }
+  .swatchring { position: absolute; width: 210px; height: 210px; border-radius: 50%; animation: spin 14s linear infinite; }
+  .swatchring i { position: absolute; width: 15px; height: 15px; border-radius: 4px; left: 50%; top: 50%; margin: -7px; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  /* step 4: the file taking the Prism mark */
+  .a-default { gap: 0 }
+  .files { display: flex; gap: 12px; align-items: flex-end; }
+  .file { width: 46px; height: 58px; border-radius: 6px; border: 1px solid var(--line); background: var(--stage); position: relative; overflow: hidden; }
+  .file u { position: absolute; left: 7px; right: 7px; height: 3px; border-radius: 2px; background: var(--dim2); opacity: .4 }
+  .file u:nth-of-type(1) { top: 12px } .file u:nth-of-type(2) { top: 20px; right: 16px }
+  .file .badge { position: absolute; right: -6px; bottom: -6px; width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(140deg, var(--accent), var(--accent-2)); display: grid; place-items: center; transform: scale(.4); opacity: 0; animation: badgein 4.5s cubic-bezier(.23,1,.32,1) infinite; }
+  .file:nth-child(1) .badge { animation-delay: .1s } .file:nth-child(2) .badge { animation-delay: .35s } .file:nth-child(3) .badge { animation-delay: .6s }
+  @keyframes badgein {
+    0%, 12% { transform: scale(.4); opacity: 0 }
+    26%, 78% { transform: none; opacity: 1 }
+    92%, 100% { transform: scale(.4); opacity: 0 }
+  }
+  .file .badge svg { width: 13px; height: 13px; color: #fff }
+  .file .ext { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 8.5px; font-weight: 700; letter-spacing: .08em; color: var(--dim2) }
+
+  /* -- the oversized cursor -- */
+  .cursor { position: absolute; width: 26px; height: 26px; pointer-events: none; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); }
+  .cursor svg { width: 100%; height: 100% }
+  .click { position: absolute; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--accent); transform: scale(.2); opacity: 0 }
+
+  /* -- keycap board (variant E) -- */
+  .board { display: flex; gap: 8px; }
+  .board .keycap { font-size: 12.5px; padding: 10px 14px }
+  .board .keycap.hit { animation: press 3.6s cubic-bezier(.23,1,.32,1) infinite }
+
+  /* -- filmstrip (variant F) -- */
+  .strip { display: flex; gap: 10px; align-items: center; animation: glide 8s cubic-bezier(.23,1,.32,1) infinite; }
+  @keyframes glide { 0%, 12% { transform: translateX(58px) } 44%, 62% { transform: none } 92%, 100% { transform: translateX(-58px) } }
+  .thumb { width: 66px; height: 46px; border-radius: 5px; background: linear-gradient(140deg,#3b3350,#5a3550 60%,#2c3e63); flex: none; opacity: .45; transition: .3s }
+  .thumb.mid { width: 108px; height: 70px; opacity: 1; background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63); box-shadow: 0 16px 30px -18px rgba(0,0,0,.9) }
+
+  /* reduced motion: hold the end state */
+  @media (prefers-reduced-motion: reduce) {
+    .art *, .art { animation: none !important; transition: none !important }
+    .a-side .ms { width: 84px } .a-side .ms u { opacity: .5; transform: none } .a-side .ms u.a { opacity: 1 }
+    .file .badge { transform: none; opacity: 1 }
+  }
+
+  /* ============================================================
+     LAYOUTS
+     ============================================================ */
+  /* A / D / E: split, art on one side */
+  .l-split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.05fr .95fr; }
+  .l-split .art { background: var(--stage); border-right: 1px solid var(--line); }
+  .l-split .copy { padding: 34px 38px; display: flex; flex-direction: column; }
+  .l-split .foot { margin-top: auto }
+
+  /* B: full-bleed art, copy floats over it */
+  .l-stage { flex: 1; min-height: 0; position: relative; }
+  .l-stage .art { position: absolute; inset: 0; background: radial-gradient(120% 90% at 70% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%), var(--stage); }
+  .l-stage .copy { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 34px 22px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--bg) 92%, transparent) 38%); }
+  .l-stage .foot { margin-top: 18px }
+
+  /* C: editorial - numbered, hairlines, art small and quiet */
+  .l-editorial { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 300px; }
+  .l-editorial .copy { padding: 40px 26px 26px 42px; display: flex; flex-direction: column; }
+  .l-editorial .num { font-size: 11px; font-weight: 700; letter-spacing: .2em; color: var(--dim2) }
+  .l-editorial .head { font-size: 34px; letter-spacing: -.032em; margin-top: 14px }
+  .l-editorial .rule { height: 1px; background: var(--line); margin: 18px 0 }
+  .l-editorial .art { border-left: 1px solid var(--line); background: none }
+  .l-editorial .foot { margin-top: auto }
+
+  /* F: art on top, copy under - a wide banner */
+  .l-banner { flex: 1; min-height: 0; display: grid; grid-template-rows: 1.15fr .85fr; }
+  .l-banner .art { background: var(--stage); border-bottom: 1px solid var(--line) }
+  .l-banner .copy { padding: 22px 38px 24px; display: flex; flex-direction: column; align-items: center; text-align: center }
+  .l-banner .body { max-width: 56ch }
+  .l-banner .foot { margin-top: auto; width: 100% }
+</style>
+</head>
+<body>
+
+<h1>Onboarding, six treatments</h1>
+<p class="sub">The same four steps every time: appearance, the sidebar, style, default viewer. What changes is how the step is drawn and how it moves. Walk each one through its steps, and tell me which parts you want: a layout from one, an animation from another.</p>
+
+<div class="bar">
+  <button class="btn" data-mode="dark" aria-pressed="true">Dark</button>
+  <button class="btn" data-mode="light">Light</button>
+  <button class="btn" data-step="0">Step 1</button>
+  <button class="btn" data-step="1">Step 2</button>
+  <button class="btn" data-step="2">Step 3</button>
+  <button class="btn" data-step="3">Step 4</button>
+  <button class="btn" data-replay="1">Replay animations</button>
+</div>
+
+<div class="wall" id="wall"></div>
+
+<script>
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>'
+const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'
+const CURSOR = '<svg viewBox="0 0 24 24" fill="#fff" stroke="#0b0d12" stroke-width="1.4" stroke-linejoin="round"><path d="M5 3l14 8.5-6.2 1.2L9.6 19z"/></svg>'
+
+/* ---------- the miniature window, the shared primitive ---------- */
+const miniWindow = (extra = '') => `
+  <div class="mw ${extra}">
+    <div class="mt"><i></i><u></u></div>
+    <div class="mb">
+      <div class="ms"><u></u><u class="a"></u><u></u><u></u><u></u><u></u></div>
+      <div class="mv"><s></s><b><i></i></b></div>
+    </div>
+  </div>`
+
+/** The same window twice, the light one wiped across the dark one. */
+const modeWindow = () => `
+  <div class="modewrap">
+    ${miniWindow()}
+    <div class="over">${miniWindow('aslight')}</div>
+    <div class="edge"></div>
+  </div>`
+
+/* ---------- step copy, shared by every treatment ---------- */
+const STEPS = [
+  {
+    kicker: 'Appearance',
+    head: 'Dark, or light',
+    body: 'Prism ships a set of each. Pick the one you live in; you can change it any time in Settings, and every style keeps its own colours.',
+    control: (s) => `
+      <div class="modepick">
+        <div class="modecard dark ${s.mode === 'dark' ? 'on' : ''}" data-pick="dark"><div class="swatch"><div class="s"></div><div class="v"></div></div><b>Dark</b></div>
+        <div class="modecard light ${s.mode === 'light' ? 'on' : ''}" data-pick="light"><div class="swatch"><div class="s"></div><div class="v"></div></div><b>Light</b></div>
+      </div>`
+  },
+  {
+    kicker: 'The sidebar',
+    head: 'Your folder, one keystroke away',
+    body: 'Ctrl+B opens a tree of the folder you came from. Click a file to view it, arrow through the rest, and it follows along as you go.',
+    control: () => `<div class="stylerow"><span class="keycap">Ctrl</span><span class="keycap">B</span></div>`
+  },
+  {
+    kicker: 'Style',
+    head: 'Make it yours',
+    body: 'Six styles to start from, then change what you like: accent, background, text, font, and how much of the desktop shows through.',
+    control: (s) => `
+      <div class="stylerow">
+        ${['Default', 'Ember', 'Void', 'Terminal', 'Driftwood'].map((n, i) =>
+          `<span class="stylechip ${i === s.style ? 'on' : ''}" data-style="${i}">${n}</span>`).join('')}
+      </div>`
+  },
+  {
+    kicker: 'Finally',
+    head: 'Open everything with Prism',
+    body: 'Make Prism the app Windows uses for images, video, audio and documents. It opens the Windows list with Prism ready to pick - nothing is changed behind your back.',
+    control: (s) => s.isDefault
+      ? `<div class="setdefault"><span class="done"><span style="width:13px;height:13px;display:block">${CHECK}</span>Default viewer</span></div>`
+      : `<div class="setdefault"><button class="cta" data-default="1">Set as default</button></div>`
+  }
+]
+
+/* ---------- the art, per treatment ---------- */
+const ART = {
+  /* A. Schematic: the app itself, drawn small, doing the thing */
+  schematic: (step) => {
+    if (step === 0) return `<div class="art a-mode">${modeWindow()}</div>`
+    if (step === 1) return `<div class="art a-side">${miniWindow()}<span class="keycap">Ctrl + B</span></div>`
+    if (step === 2) return `<div class="art a-style"><div class="accentable">${miniWindow()}</div><div class="frost"></div></div>`
+    return `<div class="art a-default"><div class="files">
+      ${['JPG', 'MP4', 'PDF'].map((e) => `<div class="file"><u></u><u></u><span class="ext">${e}</span><span class="badge">${CHECK}</span></div>`).join('')}
+    </div></div>`
+  },
+
+  /* B. Cursor-led: an oversized pointer performs each action */
+  cursor: (step) => {
+    if (step === 0) return `<div class="art a-mode">${modeWindow()}
+      <div class="cursor" style="animation: cur-mode 6s cubic-bezier(.23,1,.32,1) infinite">${CURSOR}</div></div>`
+    if (step === 1) return `<div class="art a-side">${miniWindow()}
+      <div class="cursor" style="animation: cur-side 5s cubic-bezier(.23,1,.32,1) infinite">${CURSOR}</div></div>`
+    if (step === 2) return `<div class="art a-style"><div class="accentable">${miniWindow()}</div>
+      <div class="cursor" style="animation: cur-style 6s cubic-bezier(.23,1,.32,1) infinite">${CURSOR}</div></div>`
+    return `<div class="art a-default"><div class="files">
+      ${['JPG', 'MP4', 'PDF'].map((e) => `<div class="file"><u></u><u></u><span class="ext">${e}</span><span class="badge">${CHECK}</span></div>`).join('')}
+      </div><div class="cursor" style="animation: cur-default 4.5s cubic-bezier(.23,1,.32,1) infinite">${CURSOR}</div></div>`
+  },
+
+  /* C. Quiet: one precise object, barely moving. For the editorial layout. */
+  quiet: (step) => {
+    if (step === 0) return `<div class="art"><div style="display:flex;gap:0;border-radius:10px;overflow:hidden;border:1px solid var(--line)">
+      <div style="width:86px;height:112px;background:#0d0f14"></div><div style="width:86px;height:112px;background:#fbfbfc"></div></div></div>`
+    if (step === 1) return `<div class="art a-side" style="transform:scale(.82)">${miniWindow()}</div>`
+    if (step === 2) return `<div class="art"><div class="swatchring">
+      ${['#38bdf8', '#6366f1', '#e01e4a', '#22c55e', '#ff8a6a', '#c07c4a', '#0f766e', '#8b5cf6'].map((c, i) =>
+        `<i style="background:${c};transform:rotate(${i * 45}deg) translateY(-88px)"></i>`).join('')}
+      </div><div style="width:46px;height:46px;border-radius:12px;background:linear-gradient(140deg,var(--accent),var(--accent-2))"></div></div>`
+    return `<div class="art"><div class="file" style="width:76px;height:96px;transform:scale(1.1)"><u></u><u></u><span class="ext">ANY</span><span class="badge" style="width:32px;height:32px;right:-8px;bottom:-8px">${CHECK}</span></div></div>`
+  },
+
+  /* D. Keyboard: the app answers keys. Big caps, small window. */
+  keys: (step) => {
+    if (step === 0) return `<div class="art a-mode" style="gap:18px;grid-auto-flow:row">${modeWindow()}
+      <div class="board"><span class="keycap">Dark</span><span class="keycap hit">Light</span></div></div>`
+    if (step === 1) return `<div class="art a-side" style="grid-auto-flow:row;gap:16px">${miniWindow()}
+      <div class="board"><span class="keycap hit">Ctrl</span><span class="keycap hit" style="animation-delay:.08s">B</span></div></div>`
+    if (step === 2) return `<div class="art a-style" style="grid-auto-flow:row;gap:16px"><div class="accentable">${miniWindow()}</div>
+      <div class="board"><span class="keycap">←</span><span class="keycap hit">→</span><span class="keycap">F</span></div></div>`
+    return `<div class="art a-default" style="grid-auto-flow:row;gap:18px"><div class="files">
+      ${['JPG', 'MP4', 'PDF'].map((e) => `<div class="file"><u></u><u></u><span class="ext">${e}</span><span class="badge">${CHECK}</span></div>`).join('')}
+      </div><div class="board"><span class="keycap">Double-click</span></div></div>`
+  },
+
+  /* E. Media: the thing Prism is for, moving through the frame */
+  media: (step) => {
+    if (step === 0) return `<div class="art a-mode">${modeWindow()}</div>`
+    if (step === 1) return `<div class="art"><div class="strip">
+      <div class="thumb"></div><div class="thumb"></div><div class="thumb mid"></div><div class="thumb"></div><div class="thumb"></div></div></div>`
+    if (step === 2) return `<div class="art a-style"><div class="accentable">${miniWindow()}</div><div class="frost"></div></div>`
+    return `<div class="art"><div class="strip" style="animation:none">
+      ${['JPG', 'MP4', 'PDF', 'MP3'].map((e) => `<div class="file"><u></u><u></u><span class="ext">${e}</span><span class="badge">${CHECK}</span></div>`).join('')}
+      </div></div>`
+  }
+}
+
+/* ---------- the treatments ---------- */
+const VARIANTS = [
+  { id: 'a', name: 'Schematic split', note: 'Art left, copy right. The app drawn small, doing the thing being described.', layout: 'l-split', art: 'schematic' },
+  { id: 'b', name: 'Stage', note: 'Full-bleed art, copy floating over the bottom. Cinematic, the art gets the room.', layout: 'l-stage', art: 'schematic' },
+  { id: 'c', name: 'Editorial', note: 'Numbered steps, hairlines, big type, one quiet object per step.', layout: 'l-editorial', art: 'quiet' },
+  { id: 'd', name: 'Cursor-led', note: 'An oversized pointer performs each action: clicks the toggle, opens the tree, picks a colour.', layout: 'l-split', art: 'cursor' },
+  { id: 'e', name: 'Keyboard', note: 'Keys are the story: caps press and the window answers. Prism is keyboard-first.', layout: 'l-split', art: 'keys' },
+  { id: 'f', name: 'Media banner', note: 'Art across the top, copy centred under it. Media moves through the frame.', layout: 'l-banner', art: 'media' }
+]
+
+/* ---------- render ---------- */
+let mode = 'dark'
+const state = {}
+VARIANTS.forEach((v) => (state[v.id] = { step: 0, mode: 'dark', style: 0, isDefault: false }))
+
+function copyHtml(v, s) {
+  const st = STEPS[s.step]
+  const last = s.step === STEPS.length - 1
+  const num = String(s.step + 1).padStart(2, '0')
+  const editorial = v.layout === 'l-editorial'
+  return `
+    <div class="copy">
+      ${editorial ? `<div class="num">${num} / 04</div>` : `<div class="kicker">${st.kicker}</div>`}
+      <h3 class="head">${st.head}</h3>
+      ${editorial ? '<div class="rule"></div>' : ''}
+      <p class="body">${st.body}</p>
+      ${st.control(s)}
+      <div class="foot">
+        <div class="dots">${STEPS.map((_, i) => `<i class="${i === s.step ? 'on' : ''}"></i>`).join('')}</div>
+        ${s.step ? `<button class="ghost" data-go="${v.id}|${s.step - 1}">Back</button>` : ''}
+        <button class="cta" data-go="${v.id}|${last ? 0 : s.step + 1}">${last ? 'Start using Prism' : 'Next'}</button>
+        ${last ? '' : `<span class="skip" data-go="${v.id}|3">Skip</span>`}
+      </div>
+    </div>`
+}
+
+function paint(id) {
+  const v = VARIANTS.find((x) => x.id === id)
+  const s = state[id]
+  const win = document.querySelector(`[data-win="${id}"]`)
+  win.dataset.mode = s.mode
+  const art = ART[v.art](s.step)
+  const light = v.art === 'schematic' || v.art === 'cursor' || v.art === 'media'
+  win.innerHTML = `
+    <div class="titlebar"><span class="mark"></span><span class="name">Prism</span><span class="wc">&minus; &square; &times;</span></div>
+    <div class="setup"><div class="${v.layout}">
+      ${v.layout === 'l-banner' || v.layout === 'l-stage' ? art + copyHtml(v, s) : art + copyHtml(v, s)}
+    </div></div>`
+  document.querySelectorAll(`[data-case="${id}"] .steps b`).forEach((b, i) => b.classList.toggle('on', i === s.step))
+}
+
+document.getElementById('wall').innerHTML = VARIANTS.map((v) => `
+  <section class="case" data-case="${v.id}">
+    <header>
+      <h2>${v.name}</h2><span class="note">${v.note}</span>
+      <div class="steps">${STEPS.map((s, i) => `<b data-go="${v.id}|${i}">${i + 1}</b>`).join('')}</div>
+    </header>
+    <div class="stage"><div class="win" data-win="${v.id}" data-mode="dark"></div></div>
+  </section>`).join('')
+VARIANTS.forEach((v) => paint(v.id))
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]')
+  if (go) {
+    const [id, step] = go.dataset.go.split('|')
+    state[id].step = Number(step)
+    paint(id)
+    return
+  }
+  const pick = e.target.closest('[data-pick]')
+  if (pick) {
+    const id = pick.closest('[data-case]').dataset.case
+    state[id].mode = pick.dataset.pick
+    paint(id)
+    return
+  }
+  const style = e.target.closest('[data-style]')
+  if (style) {
+    const id = style.closest('[data-case]').dataset.case
+    state[id].style = Number(style.dataset.style)
+    paint(id)
+    return
+  }
+  const def = e.target.closest('[data-default]')
+  if (def) {
+    const id = def.closest('[data-case]').dataset.case
+    state[id].isDefault = true
+    paint(id)
+    return
+  }
+  const m = e.target.closest('[data-mode]')
+  if (m) {
+    mode = m.dataset.mode
+    document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute && b.tagName === 'BUTTON' && b.setAttribute('aria-pressed', String(b.dataset.mode === mode)))
+    VARIANTS.forEach((v) => { state[v.id].mode = mode; paint(v.id) })
+    return
+  }
+  const st = e.target.closest('[data-step]')
+  if (st) {
+    VARIANTS.forEach((v) => { state[v.id].step = Number(st.dataset.step); paint(v.id) })
+    return
+  }
+  if (e.target.closest('[data-replay]')) VARIANTS.forEach((v) => paint(v.id))
+})
+</script>
+
+<style>
+  /* cursor paths, kept out of the main block: each one is a little
+     choreography rather than a reusable rule. */
+  @keyframes cur-mode {
+    0%, 10% { transform: translate(120px, 90px); opacity: 0 }
+    18% { opacity: 1 }
+    38% { transform: translate(38px, 18px) }
+    44% { transform: translate(36px, 20px) scale(.92) }
+    58%, 100% { transform: translate(38px, 18px); opacity: 1 }
+  }
+  @keyframes cur-side {
+    0%, 8% { transform: translate(-150px, 80px); opacity: 0 }
+    16% { opacity: 1 }
+    28% { transform: translate(-118px, -52px) }
+    32% { transform: translate(-118px, -52px) scale(.9) }
+    46%, 74% { transform: translate(-72px, -10px) }
+    88%, 100% { transform: translate(-150px, 80px); opacity: 0 }
+  }
+  @keyframes cur-style {
+    0%, 8% { transform: translate(130px, 100px); opacity: 0 }
+    16% { opacity: 1 }
+    34% { transform: translate(20px, 46px) }
+    40% { transform: translate(20px, 46px) scale(.9) }
+    52% { transform: translate(-24px, 46px) }
+    58% { transform: translate(-24px, 46px) scale(.9) }
+    76%, 100% { transform: translate(-24px, 46px); opacity: 1 }
+  }
+  @keyframes cur-default {
+    0%, 10% { transform: translate(90px, 74px); opacity: 0 }
+    18% { opacity: 1 }
+    40% { transform: translate(6px, 22px) }
+    46% { transform: translate(6px, 24px) scale(.9) }
+    60%, 100% { transform: translate(6px, 22px) }
+  }
+</style>
+</body>
+</html>

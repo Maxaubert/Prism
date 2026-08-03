@@ -896,7 +896,7 @@ export function Settings({
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-9 z-40 bg-[var(--p-bg)]"
+      className="p-wash fixed inset-x-0 bottom-0 top-9 z-40 bg-[var(--p-bg)]"
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
      <div className="flex h-full w-full" style={{ zoom: size.zoom }}>

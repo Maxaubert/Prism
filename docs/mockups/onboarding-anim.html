@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism onboarding — full window</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; padding: 22px 22px 48px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em }
+  .sub { margin: 0 0 14px; color: #8a8e99; font-size: 12.5px; max-width: 96ch }
+  .bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center }
+  .btn { border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer }
+  .btn:hover { border-color: rgba(255,255,255,.28); color: #fff }
+  .btn[aria-pressed="true"] { background: #5b5bd6; border-color: #7b7bf0; color: #fff; font-weight: 600 }
+  .lbl { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #6b7080; margin-right: 2px }
+
+  .frame { border: 1px solid rgba(255,255,255,.08); border-radius: 14px; background: #06070a; padding: 16px; display: grid; place-items: center }
+
+  /* ==================== the window ==================== */
+  .win {
+    --bg: #0b0d12; --side: #12151b; --title: #14171e; --text: #f2f4f8; --dim: #99a0ac; --dim2: #6f7681;
+    --line: rgba(255,255,255,.10); --accent: #38bdf8; --accent-2: #6366f1; --on-accent: #04121a;
+    position: relative; width: 100%; max-width: 1000px; aspect-ratio: 16 / 10;
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    background: var(--bg); color: var(--text); isolation: isolate;
+    transition: background-color .45s cubic-bezier(.16,1,.3,1), color .45s cubic-bezier(.16,1,.3,1);
+  }
+  .win[data-mode="light"] {
+    --bg: #f7f8fa; --side: #eceef2; --title: #e6e8ec; --text: #0f1216; --dim: #575c65; --dim2: #7b8089;
+    --line: rgba(0,0,0,.12); --accent: #2f6fed; --accent-2: #7c3aed; --on-accent: #fff;
+  }
+  .win * { box-sizing: border-box }
+
+  /* the app's own title bar stays: this is a page inside Prism, not a popup */
+  .titlebar { position: absolute; inset: 0 0 auto; height: 34px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; background: var(--title); border-bottom: 1px solid var(--line); z-index: 40 }
+  .titlebar .mark { width: 13px; height: 13px; border-radius: 3px; background: linear-gradient(140deg, var(--accent), var(--accent-2)) }
+  .titlebar .name { font-size: 12px; font-weight: 700; letter-spacing: -.01em; color: var(--accent) }
+  .titlebar .wc { margin-left: auto; color: var(--dim2); font-size: 11px; letter-spacing: .45em }
+
+  .screen { position: absolute; inset: 34px 0 0; overflow: hidden }
+  .ghost { position: absolute; inset: 0; z-index: 30; overflow: hidden; pointer-events: none }
+
+  /* ---------- shared furniture ---------- */
+  .pad { position: absolute; inset: 0; padding: 54px 62px; display: flex; flex-direction: column; z-index: 20 }
+  .kicker { font-size: 11px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; color: var(--accent) }
+  .h { margin: 14px 0 0; font-size: 58px; line-height: .98; font-weight: 800; letter-spacing: -.045em; max-width: 15ch }
+  .h .soft { color: var(--dim2) }
+  .p { margin: 16px 0 0; font-size: 15.5px; line-height: 1.5; color: var(--dim); max-width: 40ch; font-weight: 450 }
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 14px }
+  .rail { display: flex; gap: 7px; margin-right: 4px }
+  .rail i { width: 7px; height: 7px; border-radius: 99px; background: var(--line); display: block;
+    transition: width .35s cubic-bezier(.16,1,.3,1), background-color .35s }
+  .rail i.on { width: 26px; background: var(--accent) }
+  .cta { border: 0; border-radius: 10px; padding: 11px 22px; font: inherit; font-size: 14px; font-weight: 700;
+    letter-spacing: -.01em; background: var(--accent); color: var(--on-accent); cursor: pointer;
+    box-shadow: 0 12px 30px -14px var(--accent); transition: transform .16s cubic-bezier(.23,1,.32,1) }
+  .cta:hover { transform: translateY(-1px) }
+  .cta:active { transform: scale(.97) }
+  .back { border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; font: inherit; font-size: 13.5px;
+    font-weight: 600; background: none; color: var(--dim); cursor: pointer }
+  .skip { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--dim2); cursor: pointer }
+
+  /* entrance: every screen deals its parts in, top down */
+  .in > * { opacity: 0; transform: translateY(16px); animation: dealin .62s cubic-bezier(.16,1,.3,1) forwards }
+  .in > *:nth-child(1) { animation-delay: .04s } .in > *:nth-child(2) { animation-delay: .10s }
+  .in > *:nth-child(3) { animation-delay: .16s } .in > *:nth-child(4) { animation-delay: .22s }
+  .in > *:nth-child(5) { animation-delay: .28s }
+  @keyframes dealin { to { opacity: 1; transform: none } }
+
+  /* ==================== welcome ==================== */
+  .welcome { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; z-index: 25 }
+  .welcome .inner { display: flex; flex-direction: column; align-items: center }
+  .logo { width: 84px; height: 84px; border-radius: 24px; background: linear-gradient(140deg, var(--accent), var(--accent-2));
+    box-shadow: 0 30px 60px -22px color-mix(in srgb, var(--accent) 70%, transparent);
+    animation: logoin 1s cubic-bezier(.16,1,.3,1) both; position: relative; overflow: hidden }
+  .logo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+    transform: translateX(-120%); animation: shine 2.6s cubic-bezier(.16,1,.3,1) .5s infinite }
+  @keyframes logoin { from { opacity: 0; transform: scale(.7) translateY(18px) } to { opacity: 1; transform: none } }
+  @keyframes shine { 0% { transform: translateX(-120%) } 45%, 100% { transform: translateX(140%) } }
+  .welcome h2 { margin: 26px 0 0; font-size: 62px; font-weight: 800; letter-spacing: -.05em; line-height: 1 }
+  .welcome h2 span { display: inline-block; opacity: 0; transform: translateY(22px);
+    animation: dealin .8s cubic-bezier(.16,1,.3,1) forwards }
+  .welcome p { margin: 18px 0 0; font-size: 17px; color: var(--dim); font-weight: 450;
+    opacity: 0; animation: dealin .8s cubic-bezier(.16,1,.3,1) .55s forwards }
+  .track { margin-top: 40px; width: 190px; height: 3px; border-radius: 3px; background: var(--line); overflow: hidden;
+    opacity: 0; animation: dealin .5s ease-out .7s forwards }
+  .track i { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--accent);
+    animation: fill 2.1s cubic-bezier(.4,0,.2,1) .75s forwards }
+  @keyframes fill { to { width: 100% } }
+
+  /* ==================== step 1: the theme itself changes ==================== */
+  .swatchpair { display: flex; gap: 14px; margin-top: 26px }
+  .mcard { width: 168px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: color-mix(in srgb, var(--text) 4%, transparent);
+    cursor: pointer; transition: transform .2s cubic-bezier(.23,1,.32,1), border-color .2s, box-shadow .2s }
+  .mcard:hover { transform: translateY(-2px) }
+  .mcard.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 18px 34px -20px var(--accent) }
+  .mcard .prev { height: 74px; border-radius: 9px; overflow: hidden; display: flex }
+  .mcard .prev .s { width: 32% } .mcard .prev .v { flex: 1; position: relative }
+  .mcard .prev .v::after { content: ""; position: absolute; left: 14%; right: 14%; top: 30%; height: 34%; border-radius: 4px;
+    background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63) }
+  .mcard.dark .prev .s { background: #12151b } .mcard.dark .prev .v { background: #0b0d12 }
+  .mcard.light .prev .s { background: #eceef2 } .mcard.light .prev .v { background: #f7f8fa }
+  .mcard b { display: block; margin-top: 10px; font-size: 14px; font-weight: 700; letter-spacing: -.01em }
+  .mcard span { display: block; font-size: 11.5px; color: var(--dim2) }
+
+  /* the big ambient wash behind step 1, so the change is felt everywhere */
+  .wash { position: absolute; inset: -20%; z-index: 0; opacity: .8;
+    background:
+      radial-gradient(50% 50% at 22% 28%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
+      radial-gradient(46% 46% at 78% 72%, color-mix(in srgb, var(--accent-2) 30%, transparent), transparent 70%);
+    animation: drift 18s cubic-bezier(.45,0,.55,1) infinite alternate; filter: blur(6px) }
+  @keyframes drift { to { transform: translate3d(-4%, -3%, 0) scale(1.06) } }
+
+  /* ==================== step 2: the tree, at window scale ==================== */
+  .tree { position: absolute; left: 0; top: 0; bottom: 0; width: 300px; background: var(--side);
+    border-right: 1px solid var(--line); padding: 26px 0; z-index: 10;
+    transform: translateX(-100%); animation: treein 1.05s cubic-bezier(.16,1,.3,1) .18s forwards;
+    box-shadow: 30px 0 60px -30px rgba(0,0,0,.7) }
+  @keyframes treein { to { transform: none } }
+  .tree .row { display: flex; align-items: center; gap: 11px; padding: 0 24px; height: 34px;
+    opacity: 0; transform: translateX(-16px); animation: dealx .6s cubic-bezier(.16,1,.3,1) forwards }
+  .tree .row:nth-child(1) { animation-delay: .34s } .tree .row:nth-child(2) { animation-delay: .40s }
+  .tree .row:nth-child(3) { animation-delay: .46s } .tree .row:nth-child(4) { animation-delay: .52s }
+  .tree .row:nth-child(5) { animation-delay: .58s } .tree .row:nth-child(6) { animation-delay: .64s }
+  .tree .row:nth-child(7) { animation-delay: .70s } .tree .row:nth-child(8) { animation-delay: .76s }
+  @keyframes dealx { to { opacity: 1; transform: none } }
+  .tree .row i { width: 13px; height: 13px; border-radius: 3px; background: var(--dim2); opacity: .5; flex: none; display: block }
+  .tree .row u { height: 7px; border-radius: 4px; background: var(--dim2); opacity: .4; display: block }
+  .tree .row.on { background: color-mix(in srgb, var(--accent) 90%, transparent); border-radius: 0 10px 10px 0; margin-right: 18px }
+  .tree .row.on i { background: var(--on-accent); opacity: .9 } .tree .row.on u { background: var(--on-accent); opacity: .95 }
+  .keys { position: absolute; right: 92px; top: 52%; display: flex; gap: 10px; z-index: 12 }
+  .keycap { padding: 12px 18px; border-radius: 11px; border: 1px solid var(--line); background: var(--bg);
+    font-size: 15px; font-weight: 800; letter-spacing: .02em; color: var(--text);
+    box-shadow: 0 4px 0 var(--line), 0 18px 30px -18px rgba(0,0,0,.8);
+    animation: tap 2.6s cubic-bezier(.16,1,.3,1) infinite }
+  .keycap:nth-child(2) { animation-delay: .07s }
+  @keyframes tap {
+    0%, 62% { transform: none; box-shadow: 0 4px 0 var(--line), 0 18px 30px -18px rgba(0,0,0,.8) }
+    70%, 76% { transform: translateY(4px); box-shadow: 0 0 0 var(--line), 0 10px 18px -14px rgba(0,0,0,.8) }
+    84%, 100% { transform: none; box-shadow: 0 4px 0 var(--line), 0 18px 30px -18px rgba(0,0,0,.8) }
+  }
+  /* the copy clears the tree rather than sitting on top of it */
+  .pad.shift { padding-left: 372px }
+
+  /* ==================== step 3: colour floods the window ==================== */
+  .flood { position: absolute; inset: 0; z-index: 0 }
+  .flood i { position: absolute; inset: 0; opacity: 0; animation: floodcycle 13.2s cubic-bezier(.16,1,.3,1) infinite }
+  .flood i:nth-child(1) { animation-delay: 0s } .flood i:nth-child(2) { animation-delay: 3.3s }
+  .flood i:nth-child(3) { animation-delay: 6.6s } .flood i:nth-child(4) { animation-delay: 9.9s }
+  @keyframes floodcycle {
+    0% { opacity: 0; transform: scale(1.06) } 6%, 22% { opacity: 1; transform: none }
+    28%, 100% { opacity: 0; transform: scale(.98) }
+  }
+  .accentrow { display: flex; gap: 12px; margin-top: 26px; position: relative }
+  .accentrow i { width: 44px; height: 44px; border-radius: 14px; display: block;
+    box-shadow: 0 14px 26px -14px rgba(0,0,0,.7) }
+  .accentrow .halo { position: absolute; top: -5px; left: -5px; width: 54px; height: 54px; border-radius: 18px;
+    border: 2.5px solid var(--text); animation: halowalk 13.2s cubic-bezier(.16,1,.3,1) infinite }
+  @keyframes halowalk {
+    0%, 20% { transform: translateX(0) } 25%, 45% { transform: translateX(56px) }
+    50%, 70% { transform: translateX(112px) } 75%, 95% { transform: translateX(168px) } 100% { transform: translateX(0) }
+  }
+
+  /* ==================== step 4: the mark lands on everything ==================== */
+  .fan { position: absolute; right: 74px; top: 50%; transform: translateY(-50%); z-index: 5; width: 380px; height: 300px }
+  .tile { position: absolute; width: 128px; height: 158px; border-radius: 16px; border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--text) 5%, var(--bg)); box-shadow: 0 30px 50px -28px rgba(0,0,0,.9);
+    opacity: 0; animation: fanin .85s cubic-bezier(.16,1,.3,1) forwards }
+  .tile:nth-child(1) { left: 0; top: 84px; --rot: -13deg; animation-delay: .18s }
+  .tile:nth-child(2) { left: 120px; top: 34px; --rot: -2deg; animation-delay: .28s }
+  .tile:nth-child(3) { left: 240px; top: 84px; --rot: 11deg; animation-delay: .38s }
+  @keyframes fanin { from { opacity: 0; transform: translateY(40px) rotate(0) scale(.9) } to { opacity: 1; transform: rotate(var(--rot)) } }
+  .tile u { position: absolute; left: 18px; right: 18px; height: 6px; border-radius: 4px; background: var(--dim2); opacity: .3; display: block }
+  .tile u:nth-of-type(1) { top: 26px } .tile u:nth-of-type(2) { top: 40px; right: 46px }
+  .tile b { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-size: 11px;
+    font-weight: 800; letter-spacing: .16em; color: var(--dim2) }
+  .tile .badge { position: absolute; right: -14px; bottom: -14px; width: 46px; height: 46px; border-radius: 15px;
+    background: linear-gradient(140deg, var(--accent), var(--accent-2)); display: grid; place-items: center;
+    opacity: 0; transform: scale(.4); animation: pop .7s cubic-bezier(.16,1,.3,1) forwards }
+  .tile:nth-child(1) .badge { animation-delay: .95s } .tile:nth-child(2) .badge { animation-delay: 1.05s }
+  .tile:nth-child(3) .badge { animation-delay: 1.15s }
+  @keyframes pop { 0% { opacity: 0; transform: scale(.4) } 60% { opacity: 1; transform: scale(1.16) } 100% { opacity: 1; transform: none } }
+  .tile .badge svg { width: 24px; height: 24px; color: #fff }
+  .done { display: inline-flex; align-items: center; gap: 10px; margin-top: 26px; border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 16px; font-size: 13.5px; font-weight: 700; color: var(--dim2) }
+  .done svg { width: 16px; height: 16px; color: var(--accent) }
+
+  @media (prefers-reduced-motion: reduce) {
+    .win *, .win { animation: none !important; transition: none !important }
+    .tree { transform: none } .tree .row, .in > *, .tile, .tile .badge { opacity: 1; transform: none }
+  }
+</style>
+</head>
+<body>
+
+<h1>Onboarding, full window</h1>
+<p class="sub">It opens on the welcome, fills the bar, and moves itself into step one. Every screen owns the whole window. The theme switch restyles the window in front of you - pick which transition you want it to use.</p>
+
+<div class="bar">
+  <span class="lbl">Theme transition</span>
+  <button class="btn" data-fx="sweep" aria-pressed="true">Diagonal sweep</button>
+  <button class="btn" data-fx="iris">Iris</button>
+  <button class="btn" data-fx="split">Split</button>
+  <span style="width:14px"></span>
+  <button class="btn" data-go="welcome">Replay from welcome</button>
+  <button class="btn" data-go="0">1</button>
+  <button class="btn" data-go="1">2</button>
+  <button class="btn" data-go="2">3</button>
+  <button class="btn" data-go="3">4</button>
+</div>
+
+<div class="frame">
+  <div class="win" id="win" data-mode="dark">
+    <div class="titlebar"><span class="mark"></span><span class="name">Prism</span><span class="wc">— □ ×</span></div>
+    <div class="screen" id="screen"></div>
+    <div class="ghost" id="ghost" hidden></div>
+  </div>
+</div>
+
+<script>
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>'
+const PALETTES = [
+  { name: 'Default', bg: '#0b0d12', side: '#12151b', accent: '#38bdf8', accent2: '#6366f1' },
+  { name: 'Ember', bg: '#191720', side: '#1c1a22', accent: '#ff8a6a', accent2: '#e0574f' },
+  { name: 'Driftwood', bg: '#16130f', side: '#1a1713', accent: '#c07c4a', accent2: '#8c4a2f' },
+  { name: 'Paper', bg: '#f7f8fa', side: '#eceef2', accent: '#2f6fed', accent2: '#7c3aed' }
+]
+
+const win = document.getElementById('win')
+const screen = document.getElementById('screen')
+const ghost = document.getElementById('ghost')
+
+let step = 'welcome'
+let mode = 'dark'
+let fx = 'sweep'
+let timer = 0
+let demo = 0
+
+/* ---------- screens ---------- */
+const foot = (i, last) => `
+  <div class="foot">
+    <div class="rail">${[0, 1, 2, 3].map((n) => `<i class="${n === i ? 'on' : ''}"></i>`).join('')}</div>
+    ${i ? '<button class="back" data-step="' + (i - 1) + '">Back</button>' : ''}
+    <button class="cta" data-step="${last ? 'done' : i + 1}">${last ? 'Start using Prism' : 'Next'}</button>
+    ${last ? '' : '<span class="skip" data-step="3">Skip</span>'}
+  </div>`
+
+const SCREENS = {
+  welcome: () => `
+    <div class="wash"></div>
+    <div class="welcome"><div class="inner">
+      <div class="logo"></div>
+      <h2>${'Welcome to Prism'.split(' ').map((w, i) =>
+        `<span style="animation-delay:${.25 + i * .09}s">${w}&nbsp;</span>`).join('')}</h2>
+      <p>Open a file. Look at it. Move on.</p>
+      <div class="track"><i></i></div>
+    </div></div>`,
+
+  0: () => `
+    <div class="wash"></div>
+    <div class="pad in">
+      <div class="kicker">Appearance</div>
+      <h1 class="h">Dark, or <span class="soft">light</span>.</h1>
+      <p class="p">Both ship with their own set of styles. Change it whenever you like.</p>
+      <div class="swatchpair">
+        <div class="mcard dark ${mode === 'dark' ? 'on' : ''}" data-mode="dark">
+          <div class="prev"><div class="s"></div><div class="v"></div></div><b>Dark</b><span>Quiet chrome, the media leads</span>
+        </div>
+        <div class="mcard light ${mode === 'light' ? 'on' : ''}" data-mode="light">
+          <div class="prev"><div class="s"></div><div class="v"></div></div><b>Light</b><span>Paper white, ink black</span>
+        </div>
+      </div>
+      ${foot(0)}
+    </div>`,
+
+  1: () => `
+    <div class="tree">
+      ${[62, 84, 54, 96, 70, 48, 88, 60].map((w, i) =>
+        `<div class="row ${i === 3 ? 'on' : ''}"><i></i><u style="width:${w}px"></u></div>`).join('')}
+    </div>
+    <div class="keys"><span class="keycap">Ctrl</span><span class="keycap">B</span></div>
+    <div class="pad in shift">
+      <div class="kicker">The sidebar</div>
+      <h1 class="h">Your folder, one key away.</h1>
+      <p class="p">Ctrl+B opens the folder you came from. Click to view, arrow to move, it follows you.</p>
+      ${foot(1)}
+    </div>`,
+
+  2: () => `
+    <div class="flood">${PALETTES.map((p) =>
+      `<i style="background:radial-gradient(80% 80% at 25% 20%, ${p.accent}44, transparent 70%), radial-gradient(70% 70% at 80% 80%, ${p.accent2}3a, transparent 70%), ${p.bg}"></i>`).join('')}</div>
+    <div class="pad in">
+      <div class="kicker">Style</div>
+      <h1 class="h">Make it yours.</h1>
+      <p class="p">Six styles to start from. Then change the accent, the background, the type, the glass.</p>
+      <div class="accentrow">
+        <div class="halo"></div>
+        ${PALETTES.map((p) => `<i style="background:linear-gradient(140deg, ${p.accent}, ${p.accent2})"></i>`).join('')}
+      </div>
+      ${foot(2)}
+    </div>`,
+
+  3: () => `
+    <div class="wash"></div>
+    <div class="fan">
+      ${['JPG', 'MP4', 'PDF'].map((e) => `<div class="tile"><u></u><u></u><b>${e}</b><span class="badge">${CHECK}</span></div>`).join('')}
+    </div>
+    <div class="pad in">
+      <div class="kicker">One last thing</div>
+      <h1 class="h">Open <span class="soft">everything</span> with Prism.</h1>
+      <p class="p">Images, video, audio, documents. Windows asks first, nothing changes behind your back.</p>
+      <div><span class="done">${CHECK}Default viewer</span></div>
+      ${foot(3, true)}
+    </div>`
+}
+
+function render() {
+  screen.innerHTML = SCREENS[step]()
+  document.querySelectorAll('.btn[data-go]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(String(step) === b.dataset.go)))
+  clearTimeout(timer)
+  clearTimeout(demo)
+  // The welcome carries itself into step one.
+  if (step === 'welcome') timer = setTimeout(() => go(0), 3000)
+  // Step one demonstrates the thing it is asking about.
+  if (step === 0) demo = setTimeout(() => setMode(mode === 'dark' ? 'light' : 'dark', true), 2400)
+}
+
+function go(next) {
+  step = next
+  render()
+}
+
+/* ---------- the theme change, as a transition of the whole window ---------- */
+const SHAPES = {
+  sweep: ['polygon(120% -20%, 200% -20%, 200% 120%, 20% 120%)', 'polygon(-120% -20%, 200% -20%, 200% 120%, -220% 120%)'],
+  iris: ['circle(0% at 30% 76%)', 'circle(150% at 30% 76%)'],
+  split: ['inset(0 0 100% 0)', 'inset(0 0 0 0)']
+}
+
+function setMode(next, auto = false) {
+  if (next === mode) return
+  const [from, to] = SHAPES[fx]
+  // A copy of the window in the incoming theme, revealed over the live one.
+  ghost.hidden = false
+  ghost.dataset.mode = next
+  ghost.innerHTML = `<div class="win" data-mode="${next}" style="position:absolute;inset:0;width:100%;max-width:none;border:0;border-radius:0;aspect-ratio:auto">
+      <div class="titlebar"><span class="mark"></span><span class="name">Prism</span><span class="wc">— □ ×</span></div>
+      <div class="screen" style="inset:34px 0 0">${SCREENS[step]()}</div>
+    </div>`
+  if (fx === 'split') {
+    // Two halves closing in, rather than one edge crossing.
+    ghost.innerHTML += ''
+  }
+  ghost.style.clipPath = from
+  ghost.getBoundingClientRect()
+  ghost.style.transition = 'clip-path .82s cubic-bezier(.16,1,.3,1)'
+  ghost.style.clipPath = to
+  setTimeout(() => {
+    mode = next
+    win.dataset.mode = next
+    ghost.hidden = true
+    ghost.style.transition = 'none'
+    render()
+    // keep the demo cycling while step one is on screen
+    if (step === 0 && auto) demo = setTimeout(() => setMode(mode === 'dark' ? 'light' : 'dark', true), 3200)
+  }, 840)
+}
+
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-step]')
+  if (s) {
+    const v = s.dataset.step
+    if (v === 'done') { step = 'welcome'; render(); return }
+    go(Number(v)); return
+  }
+  const m = e.target.closest('.mcard[data-mode]')
+  if (m) { setMode(m.dataset.mode); return }
+  const f = e.target.closest('.btn[data-fx]')
+  if (f) {
+    fx = f.dataset.fx
+    document.querySelectorAll('.btn[data-fx]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fx === fx)))
+    if (step === 0) setMode(mode === 'dark' ? 'light' : 'dark')
+    return
+  }
+  const g = e.target.closest('.btn[data-go]')
+  if (g) { go(g.dataset.go === 'welcome' ? 'welcome' : Number(g.dataset.go)); return }
+})
+
+render()
+</script>
+</body>
+</html>
