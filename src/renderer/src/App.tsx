@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
+import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
@@ -164,6 +165,7 @@ export default function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   // The file tree. Off on a fresh install: the media is the point.
   const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
+  const treeSide = useTreeSide()
   const toggleSidebar = useCallback(() => {
     setSidebar((on) => {
       localStorage.setItem(SIDEBAR_KEY, on ? '0' : '1')
@@ -378,7 +380,7 @@ export default function App(): JSX.Element {
       {/* Settings covers this area. Hiding it (rather than leaving it painted
           underneath) is what lets a translucent style show its material through
           the settings page; `invisible` keeps a playing video alive. */}
-      <div className={`flex min-h-0 flex-1 ${settingsOpen ? 'invisible' : ''}`}>
+      <div className={`flex min-h-0 flex-1 ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${settingsOpen ? 'invisible' : ''}`}>
         {raw && !fullscreen && (
           <Sidebar
             open={sidebar}

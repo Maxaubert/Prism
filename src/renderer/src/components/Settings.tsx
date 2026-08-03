@@ -19,7 +19,18 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
-import { setAutoScroll, setTreeSize, TREE_SIZES, useAutoScroll, useTreeSize, type TreeSize } from '../lib/treePrefs'
+import {
+  setAutoScroll,
+  setTreeSide,
+  setTreeSize,
+  TREE_SIDES,
+  TREE_SIZES,
+  useAutoScroll,
+  useTreeSide,
+  useTreeSize,
+  type TreeSide,
+  type TreeSize
+} from '../lib/treePrefs'
 import {
   FONTS,
   acrylicLevel,
@@ -602,6 +613,7 @@ function GeneralTab(): JSX.Element {
   const scope = useNavScope()
   const size = useTreeSize()
   const follow = useAutoScroll()
+  const side = useTreeSide()
   const current = NAV_SCOPES.find((s) => s.id === scope)
   return (
     <div className={ROWS}>
@@ -613,6 +625,9 @@ function GeneralTab(): JSX.Element {
       </Pref>
       <Pref id="auto-scroll" label="Auto scroll" hint="The sidebar follows the file you are viewing.">
         <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
+      </Pref>
+      <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
+        <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </Pref>
     </div>
   )
