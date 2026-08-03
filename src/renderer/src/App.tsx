@@ -37,7 +37,8 @@ function TopBar({
   onToggleSettings,
   panelOpen,
   onTogglePanel,
-  setup
+  setup,
+  wash
 }: {
   file: ViewerFile | null
   pos: string
@@ -49,10 +50,13 @@ function TopBar({
   /** First-run setup is up: the bar keeps the name and the window buttons, and
    *  drops the controls for an app you haven't met yet. */
   setup: boolean
+  /** Whether the style's light reaches the bar. It follows the window: with a
+   *  file on screen there is no wash anywhere. */
+  wash: boolean
 }): JSX.Element {
   const w = window.prism
   return (
-    <div className="drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
+    <div className={`drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] ${wash ? 'p-wash' : ''}`}>
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
       {!setup && (
@@ -105,7 +109,7 @@ function TextViewer({ path }: { path: string }): JSX.Element {
     void window.prism.readText(path).then((t) => setText(t ?? '(could not read file)'))
   }, [path])
   return (
-    <pre className="h-full w-full overflow-auto bg-[var(--p-bg)] p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] select-text">
+    <pre className="h-full w-full overflow-auto p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] select-text">
       {text}
     </pre>
   )
@@ -396,13 +400,17 @@ export default function App(): JSX.Element {
     }
   }, [open, setup])
 
+  // The style's light belongs to an empty window, a visualizer, or a page of
+  // Prism's own - never behind someone's photo.
+  const washed = settingsOpen || setup || !file || file.kind === 'audio'
+
   const many = (view?.files.length ?? 0) > 1
   const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
-    <div className="flex h-full flex-col bg-[var(--p-bg)] text-[var(--p-text)] [font-size:var(--p-size)]">
+    <div className="flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
       {!fullscreen && (
         <TopBar
           file={file}
@@ -412,6 +420,7 @@ export default function App(): JSX.Element {
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
           setup={setup}
+          wash={washed}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -432,12 +441,13 @@ export default function App(): JSX.Element {
             onOpenFile={openFromTree}
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
+            wash={washed}
           />
         )}
         <div
-          className={`p-wash group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
-            dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''
-          }`}
+          className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
+            washed ? 'p-wash' : ''
+          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
         >
           {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
           {/* Paging still works in fullscreen via PageUp/PageDown (and ←/→ for images). */}

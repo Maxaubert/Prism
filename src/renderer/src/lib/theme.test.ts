@@ -41,8 +41,11 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
 
   it('keeps file names close to the text colour', () => {
     // The floor is a limit, not a target: sitting on 7:1 is what made light
-    // styles look washed out.
-    expect(contrast(t['--p-text-soft'], t['--p-text'])).toBeLessThan(1.5)
+    // styles look washed out. 1.55 rather than 1.5 since the tiers are measured
+    // against the window's one surface - on a light style that surface is the
+    // paper white rather than the slightly darker panel it used to be, so
+    // clearing the same floor lands a hair further from the text.
+    expect(contrast(t['--p-text-soft'], t['--p-text'])).toBeLessThan(1.55)
   })
 
   it('dims rather than brightens', () => {
@@ -90,9 +93,10 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     expect(contrast(t['--p-track'], t['--p-preview'])).toBeGreaterThan(1.6)
   })
 
-  it('separates the panel from the viewer', () => {
-    // Not a rule, a sanity check: the two surfaces shouldn't be identical
-    // unless the style means it (true black).
-    if (style.material !== 'oled') expect(t['--p-bg']).not.toBe(t['--p-side-flat'])
+  it('paints the panel and the viewer as one surface', () => {
+    // The chrome separates itself with edges and material, never with a step in
+    // shade: a step reads as a mismatched pane on glass, and reappears the
+    // moment the glass is turned off.
+    expect(t['--p-side-flat']).toBe(t['--p-bg'])
   })
 })

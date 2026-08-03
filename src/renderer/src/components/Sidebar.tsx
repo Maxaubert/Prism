@@ -88,7 +88,8 @@ export function Sidebar({
   refreshKey,
   onOpenFile,
   onRename,
-  onDelete
+  onDelete,
+  wash
 }: {
   open: boolean
   root: string
@@ -98,6 +99,8 @@ export function Sidebar({
   onOpenFile: (path: string) => void
   onRename: (path: string, name: string) => void
   onDelete: (path: string, name: string, isFolder: boolean) => void
+  /** Whether the style's light reaches the panel. Follows the window. */
+  wash: boolean
 }): JSX.Element {
   const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
   const [revealed, setRevealed] = useState<string | null>(null)
@@ -255,7 +258,7 @@ export function Sidebar({
       inert={!open}
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
-      className={`relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${
+      className={`relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
         dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
     >

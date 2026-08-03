@@ -35,6 +35,7 @@ import {
   FONTS,
   acrylicLevel,
   deletePreset,
+  isEdited,
   paletteOf,
   savePreset,
   setAcrylic,
@@ -80,7 +81,10 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
   )
   const line = (h: number, glow = false): JSX.Element => (
     <div className="relative w-full rounded-full bg-[var(--p-track)]" style={{ height: h }}>
-      <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: '42%', background: acc, boxShadow: glow ? `0 0 6px ${acc}` : undefined }} />
+      <div
+        className="absolute inset-y-0 left-0 rounded-full"
+        style={{ width: '42%', background: acc, boxShadow: glow ? `0 0 6px ${acc}` : undefined }}
+      />
     </div>
   )
 
@@ -88,28 +92,57 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
     case 'edge':
       return (
         <div className={box}>
-          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 text-[var(--p-dim)]">{dot}<span className="text-[9px] text-[var(--p-dim)]">controls</span></div>
+          <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5 text-[var(--p-dim)]">
+            {dot}
+            <span className="text-[9px] text-[var(--p-dim)]">controls</span>
+          </div>
           <div className="absolute inset-x-0 bottom-0">{line(2, true)}</div>
         </div>
       )
     case 'pill':
-      return <div className={`${box} flex flex-col justify-center gap-2 px-2`}>{line(7)}<div className="flex gap-1.5">{dot}{dot}</div></div>
+      return (
+        <div className={`${box} flex flex-col justify-center gap-2 px-2`}>
+          {line(7)}
+          <div className="flex gap-1.5">
+            {dot}
+            {dot}
+          </div>
+        </div>
+      )
     case 'inline':
-      return <div className={`${box} flex items-center gap-1.5 px-2`}>{dot}<div className="flex-1">{line(3)}</div>{dot}</div>
+      return (
+        <div className={`${box} flex items-center gap-1.5 px-2`}>
+          {dot}
+          <div className="flex-1">{line(3)}</div>
+          {dot}
+        </div>
+      )
     case 'island':
       return (
         <div className={`${box} grid place-items-center`}>
-          <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--p-track)] bg-[var(--p-hover)] px-2 py-1">{dot}<div className="w-14">{line(3)}</div></div>
+          <div className="flex items-center gap-1.5 rounded-full border border-[color:var(--p-track)] bg-[var(--p-hover)] px-2 py-1">
+            {dot}
+            <div className="w-14">{line(3)}</div>
+          </div>
         </div>
       )
     case 'wave':
-      return <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}><div className="h-4">{bars(52, 16, 'gap-[1.5px]')}</div><div className="flex gap-1.5">{dot}{dot}</div></div>
+      return (
+        <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}>
+          <div className="h-4">{bars(52, 16, 'gap-[1.5px]')}</div>
+          <div className="flex gap-1.5">
+            {dot}
+            {dot}
+          </div>
+        </div>
+      )
     case 'outline':
       return (
         <div className={box}>
           <div className="absolute inset-x-2 top-2">{line(2, true)}</div>
           <div className="absolute inset-x-2 bottom-2 flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" /><span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" />
+            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" />
+            <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--p-track)]" />
           </div>
         </div>
       )
@@ -117,26 +150,51 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
       return (
         <div className={box}>
           <div className="absolute inset-x-0 top-0">{line(4)}</div>
-          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span></div>
+          <div className="absolute inset-x-2 bottom-1.5 flex items-center gap-2">
+            <span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" />
+            <span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span>
+          </div>
         </div>
       )
     case 'segments':
       return (
         <div className={`${box} flex flex-col justify-center gap-2 px-2`}>
-          <div className="flex gap-[3px]">{Array.from({ length: 16 }).map((_, i) => <span key={i} className="h-1.5 flex-1 rounded-[2px]" style={{ background: i < 7 ? acc : 'var(--p-track)' }} />)}</div>
-          <div className="flex gap-1.5">{dot}{dot}</div>
+          <div className="flex gap-[3px]">
+            {Array.from({ length: 16 }).map((_, i) => (
+              <span
+                key={i}
+                className="h-1.5 flex-1 rounded-[2px]"
+                style={{ background: i < 7 ? acc : 'var(--p-track)' }}
+              />
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            {dot}
+            {dot}
+          </div>
         </div>
       )
     case 'wavebold':
       return (
         <div className={`${box} flex flex-col justify-center gap-1.5 px-2`}>
           <div className="h-5">{bars(40, 20, 'gap-[2px]', true)}</div>
-          <div className="flex items-center gap-2"><span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" /><span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span></div>
+          <div className="flex items-center gap-2">
+            <span className="h-4 w-4 rounded bg-[var(--p-accent-hi)]" />
+            <span className="text-[10px] font-semibold text-[var(--p-text-soft)]">0:41</span>
+          </div>
         </div>
       )
     case 'slim':
     default:
-      return <div className={box}><div className="absolute inset-x-0 top-0">{line(3)}</div><div className="absolute inset-x-2 bottom-2 flex gap-1.5">{dot}{dot}</div></div>
+      return (
+        <div className={box}>
+          <div className="absolute inset-x-0 top-0">{line(3)}</div>
+          <div className="absolute inset-x-2 bottom-2 flex gap-1.5">
+            {dot}
+            {dot}
+          </div>
+        </div>
+      )
   }
 }
 
@@ -144,11 +202,21 @@ function Mini({ id }: { id: TransportStyle }): JSX.Element {
 
 /** A titled block within a tab. One label, no explanation: if a section needs a
  *  sentence to justify itself, it is in the wrong place. */
-function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }): JSX.Element {
+function Section({
+  title,
+  action,
+  children
+}: {
+  title: string
+  action?: ReactNode
+  children: ReactNode
+}): JSX.Element {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-4">
-        <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">{title}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim)]">
+          {title}
+        </span>
         {action}
       </div>
       {children}
@@ -157,7 +225,15 @@ function Section({ title, action, children }: { title: string; action?: ReactNod
 }
 
 /** A real on/off switch: one control, one state, no pair of buttons to compare. */
-function Switch({ on, onChange, label }: { on: boolean; onChange: (b: boolean) => void; label: string }): JSX.Element {
+function Switch({
+  on,
+  onChange,
+  label
+}: {
+  on: boolean
+  onChange: (b: boolean) => void
+  label: string
+}): JSX.Element {
   return (
     <button
       role="switch"
@@ -177,7 +253,15 @@ function Switch({ on, onChange, label }: { on: boolean; onChange: (b: boolean) =
 }
 
 /** A label with its switch, sized to sit beside others on one line. */
-function SwitchItem({ label, on, onChange }: { label: string; on: boolean; onChange: (b: boolean) => void }): JSX.Element {
+function SwitchItem({
+  label,
+  on,
+  onChange
+}: {
+  label: string
+  on: boolean
+  onChange: (b: boolean) => void
+}): JSX.Element {
   return (
     <label className="flex cursor-pointer items-center gap-2.5 text-[12.5px] font-medium text-[var(--p-text-soft)]">
       {label}
@@ -186,7 +270,14 @@ function SwitchItem({ label, on, onChange }: { label: string; on: boolean; onCha
   )
 }
 
-/** A colour well that opens the system picker, with its hex and a way back. */
+/**
+ * A colour well: type a hex, or open the system picker.
+ *
+ * The hex is a field rather than a readout - a colour you already know is
+ * quicker typed than hunted for in a picker, and it is how a colour arrives
+ * from anywhere else. It is held as text while you edit and only applied when
+ * it parses, so half-typed values don't repaint the app on every keystroke.
+ */
 function ColourWell({
   id,
   value,
@@ -200,17 +291,52 @@ function ColourWell({
   onChange: (v: string) => void
   onReset: () => void
 }): JSX.Element {
+  // While you are typing the field holds the draft; the rest of the time it is
+  // simply the colour. No effect syncing the two, which is a render loop
+  // waiting to happen.
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? value
+
+  const commit = (raw: string): void => {
+    const hex = '#' + raw.trim().replace(/^#/, '')
+    const full = /^#[0-9a-f]{3}$/i.test(hex)
+      ? '#' +
+        hex
+          .slice(1)
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hex
+    setDraft(null) // either it took, or the field goes back to the colour
+    if (/^#[0-9a-f]{6}$/i.test(full)) onChange(full.toLowerCase())
+  }
+
   return (
     <div className="flex items-center gap-2.5">
       {custom && (
-        <button onClick={onReset} className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline">
+        <button
+          onClick={onReset}
+          className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
+        >
           Reset
         </button>
       )}
-      <span className="font-mono text-[11.5px] uppercase text-[var(--p-dim)]">{value}</span>
+      <input
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(text)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit(text)
+          else if (e.key === 'Escape') setDraft(null)
+        }}
+        spellCheck={false}
+        aria-label="Hex value"
+        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-preview)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      />
       <label
         className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
         style={{ background: value }}
+        title="Pick a colour"
       >
         <input
           id={id}
@@ -271,7 +397,15 @@ const GRID_SM = 'grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-2.5 [&
 
 /** A selectable tile — the shell every picker card shares. A div rather than a
  *  button so a card can carry its own controls (a preset's delete). */
-function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }): JSX.Element {
+function Tile({
+  on,
+  onClick,
+  children
+}: {
+  on: boolean
+  onClick: () => void
+  children: ReactNode
+}): JSX.Element {
   return (
     <div
       role="button"
@@ -298,7 +432,9 @@ function Tile({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 // "Selected" caption is the same fact written twice.
 function TileFooter({ name, on }: { name: string; on: boolean }): JSX.Element {
   return (
-    <span className={`text-[12.5px] font-semibold ${on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)]'}`}>
+    <span
+      className={`text-[12.5px] font-semibold ${on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)]'}`}
+    >
       {name}
     </span>
   )
@@ -318,7 +454,13 @@ function isActivePreset(p: Preset, v: VizState): boolean {
 
 /* ---------- tab bodies ---------- */
 
-function PlayerTab({ transportStyle, onPickTransport }: { transportStyle: TransportStyle; onPickTransport: (s: TransportStyle) => void }): JSX.Element {
+function PlayerTab({
+  transportStyle,
+  onPickTransport
+}: {
+  transportStyle: TransportStyle
+  onPickTransport: (s: TransportStyle) => void
+}): JSX.Element {
   const v = useViz()
   return (
     <div className="flex flex-col gap-4">
@@ -366,7 +508,11 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
   const paint = palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : accent
   const tint = st.material === 'tinted'
   const grad = st.material === 'gradient'
-  const side = tint ? mix(st.side, accent, 0.1) : grad ? `linear-gradient(180deg, ${mix(st.side, '#ffffff', 0.06)}, ${st.side})` : st.side
+  const side = tint
+    ? mix(st.side, accent, 0.1)
+    : grad
+      ? `linear-gradient(180deg, ${mix(st.side, '#ffffff', 0.06)}, ${st.side})`
+      : st.side
   const title = tint ? mix(st.title, accent, 0.12) : st.title
   const bg = tint ? mix(st.bg, accent, 0.07) : st.bg
   const dim = mix(st.text, st.side, 0.5)
@@ -374,8 +520,14 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
     <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
   )
   return (
-    <div className="flex h-[104px] flex-col overflow-hidden rounded-md" style={{ border: '1px solid var(--p-divider)' }}>
-      <div className="flex h-[9px] shrink-0 items-center gap-[3px] px-1.5" style={{ background: title }}>
+    <div
+      className="flex h-[104px] flex-col overflow-hidden rounded-md"
+      style={{ border: '1px solid var(--p-divider)' }}
+    >
+      <div
+        className="flex h-[9px] shrink-0 items-center gap-[3px] px-1.5"
+        style={{ background: title }}
+      >
         <span className="h-[2.5px] w-[2.5px] rounded-[1px]" style={{ background: accent }} />
         {line('30%', rgba(st.text, 0.5))}
       </div>
@@ -383,13 +535,19 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
         <div className="flex w-[36%] flex-col gap-[3px] p-1.5" style={{ background: side }}>
           {line('62%', rgba(dim, 0.6))}
           {line('80%', rgba(st.text, 0.5))}
-          <span className="block h-[3px] rounded-[2px]" style={{ width: '72%', background: paint }} />
+          <span
+            className="block h-[3px] rounded-[2px]"
+            style={{ width: '72%', background: paint }}
+          />
           {line('86%', rgba(st.text, 0.3))}
           {line('68%', rgba(st.text, 0.3))}
         </div>
         <div className="relative flex-1" style={{ background: bg }}>
           <div className="absolute left-1/2 top-1/2 h-[46%] w-[62%] -translate-x-1/2 -translate-y-1/2 rounded-[3px] bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
-          <div className="absolute inset-x-2 bottom-1.5 h-[2.5px] rounded-[2px]" style={{ background: rgba(st.text, 0.18) }}>
+          <div
+            className="absolute inset-x-2 bottom-1.5 h-[2.5px] rounded-[2px]"
+            style={{ background: rgba(st.text, 0.18) }}
+          >
             <span className="block h-full w-[44%] rounded-[2px]" style={{ background: paint }} />
           </div>
         </div>
@@ -398,9 +556,15 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
   )
 }
 
-const FONT_OPTIONS: Array<{ id: FontId; name: string }> = (
-  Object.keys(FONTS) as FontId[]
-).map((id) => ({ id, name: FONTS[id].name }))
+const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
+  { id: 'none', name: 'None' },
+  { id: 'hairline', name: 'Hairline' },
+  { id: 'strong', name: 'Strong' }
+]
+
+const FONT_OPTIONS: Array<{ id: FontId; name: string }> = (Object.keys(FONTS) as FontId[]).map(
+  (id) => ({ id, name: FONTS[id].name })
+)
 
 const MODE_OPTIONS: Array<{ id: Mode; name: string }> = [
   { id: 'dark', name: 'Dark' },
@@ -413,7 +577,10 @@ function StyleTab(): JSX.Element {
   const edits = useOverrides()
   const selected = useSelectedId()
   const list = useStyles(mode)
-  const dirty = !!(edits.accent || edits.bg || edits.text || edits.acrylic !== undefined)
+  // Ask the store rather than re-deriving it here: this list had already fallen
+  // behind twice, and a Save button that misses an edit loses it.
+  const dirty = isEdited()
+  void edits // re-render when an edit lands, so `dirty` is read again
   const glass = acrylicLevel(style)
   return (
     <div className="flex flex-col gap-5">
@@ -445,7 +612,16 @@ function StyleTab(): JSX.Element {
                     title="Delete preset"
                     className="grid h-5 w-5 shrink-0 place-items-center rounded-[var(--p-radius-sm)] text-[var(--p-dim2)] opacity-0 transition hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
                   >
-                    <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                    <svg
+                      viewBox="0 0 24 24"
+                      width={13}
+                      height={13}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden
+                    >
                       <path d="M6 6l12 12M18 6L6 18" />
                     </svg>
                   </button>
@@ -456,51 +632,20 @@ function StyleTab(): JSX.Element {
         })}
       </div>
 
-      {/* What the style is made of, before what it is coloured: these two change
-          the whole window, the colours below change one role each. */}
-      <div className={ROWS}>
-        <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
-          <Select id="c-font" value={style.font} onChange={(v) => setOverride('font', v)} options={FONT_OPTIONS} />
-        </Pref>
-        <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
-          <div className="flex items-center gap-3">
-            {edits.acrylic !== undefined && (
-              <button
-                onClick={() => setAcrylic(null)}
-                className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
-              >
-                Reset
-              </button>
-            )}
-            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">{glass}%</span>
-            <input
-              id="c-glass"
-              type="range"
-              min={0}
-              max={100}
-              step={1}
-              value={glass}
-              onChange={(e) => setAcrylic(Number(e.target.value))}
-              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-              style={{ accentColor: 'var(--p-accent)' }}
-            />
-          </div>
-        </Pref>
-      </div>
-
-      {/* Colours live with the style they change, not in a tab of their own:
-          a style is a starting point you tune, and the cards above show it. */}
       <Section
-        title="Colours"
-        // The button is only usable while there is an edit to save, but it keeps
-        // its space either way: a control that appears must not move the page.
+        title="This style"
+        // Always there, so the page never moves and you can see what the edit
+        // would do. Idle it is drawn from the theme's own quiet parts rather
+        // than dimmed with opacity, which leaves a button looking broken.
         action={
           <button
             onClick={savePreset}
-            aria-hidden={!dirty}
-            tabIndex={dirty ? 0 : -1}
-            className={`rounded-[var(--p-radius-sm)] border border-[var(--p-accent)] bg-[var(--p-accent)] px-3 py-1 text-[11.5px] font-semibold text-[var(--p-on-accent)] transition hover:brightness-110 ${
-              dirty ? '' : 'invisible'
+            disabled={!dirty}
+            title={dirty ? 'Keep this edit as a preset' : 'Nothing to save yet'}
+            className={`rounded-[var(--p-radius-sm)] border px-3 py-1 text-[11.5px] font-semibold transition ${
+              dirty
+                ? 'border-[var(--p-accent)] bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
+                : 'cursor-default border-[color:var(--p-line)] bg-[var(--p-hover)] text-[var(--p-dim2)]'
             }`}
           >
             Save as preset
@@ -508,6 +653,47 @@ function StyleTab(): JSX.Element {
         }
       >
         <div className={ROWS}>
+          <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
+            <Select
+              id="c-font"
+              value={style.font}
+              onChange={(v) => setOverride('font', v)}
+              options={FONT_OPTIONS}
+            />
+          </Pref>
+          <Pref id="c-edges" label="Edges" hint="Hairlines between the chrome and the window.">
+            <Segmented
+              value={style.borders}
+              onChange={(v) => setOverride('borders', v)}
+              options={EDGE_OPTIONS}
+            />
+          </Pref>
+          <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
+            <div className="flex items-center gap-3">
+              {edits.acrylic !== undefined && (
+                <button
+                  onClick={() => setAcrylic(null)}
+                  className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
+                >
+                  Reset
+                </button>
+              )}
+              <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
+                {glass}%
+              </span>
+              <input
+                id="c-glass"
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={glass}
+                onChange={(e) => setAcrylic(Number(e.target.value))}
+                className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+                style={{ accentColor: 'var(--p-accent)' }}
+              />
+            </div>
+          </Pref>
           <Pref id="c-bg" label="Background" hint="The viewer behind your file.">
             <ColourWell
               id="c-bg"
@@ -527,10 +713,12 @@ function StyleTab(): JSX.Element {
             />
           </Pref>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-6">
+        <div className="mt-4 flex items-center justify-between gap-6">
           <div>
             <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
-            <p className="text-[11.5px] text-[var(--p-dim)]">Selection, progress bar and visualizer.</p>
+            <p className="text-[11.5px] text-[var(--p-dim)]">
+              Selection, progress bar and visualizer.
+            </p>
           </div>
           {/* Always the colour that is actually on screen, whether it came from a
               swatch or from here. */}
@@ -547,7 +735,10 @@ function StyleTab(): JSX.Element {
           items={visibleThemes().map((th) => ({
             id: th.id,
             name: th.name,
-            fill: th.palette.length > 1 ? `linear-gradient(90deg, ${th.palette.join(', ')})` : th.palette[0]
+            fill:
+              th.palette.length > 1
+                ? `linear-gradient(90deg, ${th.palette.join(', ')})`
+                : th.palette[0]
           }))}
           selectedId={style.accent}
           onPick={(id) => setOverride('accent', id)}
@@ -570,7 +761,17 @@ const ROWS = 'border-t border-[color:var(--p-line)]'
 /** One setting: copy on the left, control on the right. The hint is one line —
  *  it truncates rather than wraps, because a setting that needs a paragraph
  *  needs a better name instead. */
-function Pref({ id, label, hint, children }: { id: string; label: string; hint?: string; children: ReactNode }): JSX.Element {
+function Pref({
+  id,
+  label,
+  hint,
+  children
+}: {
+  id: string
+  label: string
+  hint?: string
+  children: ReactNode
+}): JSX.Element {
   return (
     <div className="flex items-center justify-between gap-8 border-b border-[color:var(--p-line)] py-2.5">
       <div className="min-w-0">
@@ -622,12 +823,26 @@ function GeneralTab(): JSX.Element {
   return (
     <div className={ROWS}>
       <Pref id="nav-scope" label="Navigation mode" hint={current?.hint}>
-        <Select id="nav-scope" value={scope} onChange={(v) => setNavScope(v as NavScope)} options={NAV_SCOPES} />
+        <Select
+          id="nav-scope"
+          value={scope}
+          onChange={(v) => setNavScope(v as NavScope)}
+          options={NAV_SCOPES}
+        />
       </Pref>
       <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
-        <Select id="tree-size" value={size.id} onChange={(v) => setTreeSize(v as TreeSize)} options={TREE_SIZES} />
+        <Select
+          id="tree-size"
+          value={size.id}
+          onChange={(v) => setTreeSize(v as TreeSize)}
+          options={TREE_SIZES}
+        />
       </Pref>
-      <Pref id="auto-scroll" label="Auto scroll" hint="The sidebar follows the file you are viewing.">
+      <Pref
+        id="auto-scroll"
+        label="Auto scroll"
+        hint="The sidebar follows the file you are viewing."
+      >
         <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
@@ -749,7 +964,13 @@ function Swatches({
 
 // A colour-scheme picker (Solid / Gradient), used for both the visualizer and the
 // progress bar with their own selection.
-function SchemePicker({ selectedId, onPick }: { selectedId: string; onPick: (id: string) => void }): JSX.Element {
+function SchemePicker({
+  selectedId,
+  onPick
+}: {
+  selectedId: string
+  onPick: (id: string) => void
+}): JSX.Element {
   const themes = visibleThemes()
   return (
     <div className="flex flex-col gap-3">
@@ -758,12 +979,17 @@ function SchemePicker({ selectedId, onPick }: { selectedId: string; onPick: (id:
         if (!items.length) return null
         return (
           <div key={cat}>
-            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">{cat}</div>
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">
+              {cat}
+            </div>
             <Swatches
               items={items.map((t) => ({
                 id: t.id,
                 name: t.name,
-                fill: t.palette.length > 1 ? `linear-gradient(90deg, ${t.palette.join(', ')})` : t.palette[0]
+                fill:
+                  t.palette.length > 1
+                    ? `linear-gradient(90deg, ${t.palette.join(', ')})`
+                    : t.palette[0]
               }))}
               selectedId={selectedId}
               onPick={onPick}
@@ -799,8 +1025,17 @@ function ColourControls({
     <div className="flex flex-col gap-4">
       <SchemePicker selectedId={selectedId} onPick={onPick} />
       <div>
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">Effects</div>
-        <EffectToggles glow={glow} cycle={cycle} move={move} onGlow={onGlow} onCycle={onCycle} onMove={onMove} />
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[var(--p-dim2)]">
+          Effects
+        </div>
+        <EffectToggles
+          glow={glow}
+          cycle={cycle}
+          move={move}
+          onGlow={onGlow}
+          onCycle={onCycle}
+          onMove={onMove}
+        />
       </div>
     </div>
   )
@@ -811,7 +1046,17 @@ function ColourControls({
 type TabId = 'style' | 'general' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
-  <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+  <svg
+    viewBox="0 0 24 24"
+    width={17}
+    height={17}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
     <path d={d} />
   </svg>
 )
@@ -821,13 +1066,17 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
     id: 'style',
     label: 'Style',
     title: 'Style',
-    icon: <Ico d="M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01" />
+    icon: (
+      <Ico d="M12 3a9 9 0 1 0 0 18 3 3 0 0 0 0-6 3 3 0 0 1 0-6h3a6 6 0 0 0-3-6ZM7.5 10.5h.01M10 7h.01M14 7h.01" />
+    )
   },
   {
     id: 'general',
     label: 'General',
     title: 'General',
-    icon: <Ico d="M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
+    icon: (
+      <Ico d="M4 7h8M16 7h4M4 17h4M12 17h8M12 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0M8 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0" />
+    )
   },
   {
     id: 'player',
@@ -899,17 +1148,17 @@ export function Settings({
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="p-wash fixed inset-x-0 bottom-0 top-9 z-40 bg-[var(--p-bg)]"
+      className="fixed inset-x-0 bottom-0 top-9 z-40"
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
-     <div className="flex h-full w-full" style={{ zoom: size.zoom }}>
-      {/* tab rail, grouped: how Prism behaves, then what it looks like. The same
+      <div className="flex h-full w-full" style={{ zoom: size.zoom }}>
+        {/* tab rail, grouped: how Prism behaves, then what it looks like. The same
           title-bar button that hides the file tree collapses this to its glyphs. */}
-      <aside
-        className={`flex shrink-0 flex-col overflow-hidden border-r border-[var(--p-divider)] bg-[var(--p-side)] transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)] ${
-          compactRail ? 'w-[56px] p-2' : 'w-[212px] p-2.5'
-        }`}
-      >
+        <aside
+          className={`p-wash flex shrink-0 flex-col overflow-hidden border-r border-[var(--p-divider)] bg-[var(--p-side)] transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)] ${
+            compactRail ? 'w-[56px] p-2' : 'w-[212px] p-2.5'
+          }`}
+        >
           <div
             className={`px-2 pb-1 pt-1 text-[14px] font-bold tracking-tight text-[var(--p-text)] ${
               compactRail ? 'invisible' : ''
@@ -951,17 +1200,21 @@ export function Settings({
               })}
             </nav>
           ))}
-          <div className={`mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)] ${compactRail ? 'invisible' : ''}`}>
+          <div
+            className={`mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)] ${compactRail ? 'invisible' : ''}`}
+          >
             Prism
           </div>
         </aside>
 
         {/* content */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="p-wash flex min-w-0 flex-1 flex-col bg-[var(--p-bg)]">
           {/* No close button: the cog that opened this closes it, and Escape works
               too. One control, one place. */}
           <header className="px-6 pb-3 pt-5">
-            <h2 className="text-[21px] font-bold leading-none tracking-[-.022em] text-[var(--p-text)]">{active.title}</h2>
+            <h2 className="text-[21px] font-bold leading-none tracking-[-.022em] text-[var(--p-text)]">
+              {active.title}
+            </h2>
           </header>
 
           <div className="p-scroll min-h-0 flex-1 overflow-y-auto px-6 py-2">
