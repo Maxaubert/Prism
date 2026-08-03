@@ -118,29 +118,17 @@ body {
   }
 }
 
-/* A scrollbar that stays out of the way: no track, no arrows, and no thumb at
-   all until the pointer is in the pane it belongs to. The Windows default drew
-   a light grey gutter with stepper arrows, which on a true-black style is the
-   brightest thing on screen. */
+/* No scrollbar at all: the pane scrolls, it just doesn't advertise it - the same
+   treatment the file tree gets, so the two panes match. Styling the Windows one
+   (::-webkit-scrollbar) was tried and left it on screen; only taking it away
+   removes the grey gutter and steppers, which on a true-black style were the
+   brightest thing in the window. */
+.p-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 .p-scroll::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
-}
-.p-scroll::-webkit-scrollbar-track,
-.p-scroll::-webkit-scrollbar-corner {
-  background: transparent;
-}
-.p-scroll::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  background-clip: content-box;
-}
-.p-scroll:hover::-webkit-scrollbar-thumb {
-  background: var(--p-track);
-  background-clip: content-box;
-}
-.p-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--p-dim2);
-  background-clip: content-box;
+  display: none;
+  width: 0;
+  height: 0;
 }
