@@ -40,6 +40,8 @@ const api = {
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
   close: (): void => ipcRenderer.send('window:close'),
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
+  /** Open the Windows "Default apps" page, where Prism can be chosen. */
+  openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
   /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'),
    *  in the given mode: DWM tints its own blur, so it has to be told. */
   setWindowMaterial: (material: string, mode: string): void =>

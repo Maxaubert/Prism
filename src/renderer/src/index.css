@@ -140,3 +140,60 @@ body {
 .p-wash {
   background-image: var(--p-wash);
 }
+
+/* ---- first-run setup ---- */
+/* Everything here runs once, on arrival: nothing loops, and a click is what
+   starts it. transform + opacity only. */
+@keyframes ob-deal { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: none } }
+@keyframes ob-dealx { from { opacity: 0; transform: translateX(-16px) } to { opacity: 1; transform: none } }
+@keyframes ob-slide { from { transform: translateX(-100%) } to { transform: none } }
+@keyframes ob-logo { from { opacity: 0; transform: scale(.72) translateY(16px) } to { opacity: 1; transform: none } }
+@keyframes ob-fan { from { opacity: 0; transform: translateY(40px) scale(.92) } to { opacity: 1 } }
+@keyframes ob-pop { 0% { opacity: 0; transform: scale(.4) } 60% { opacity: 1; transform: scale(1.14) } 100% { opacity: 1; transform: none } }
+/* the plane that carries the window from one mode to the other */
+/*
+ * The style change is a wipe of the OLD window, not a wipe of the new one.
+ *
+ * Drawing the destination over the window means drawing it flat - a copy laid
+ * over the window has no desktop behind it to be glass against - so a
+ * translucent style arrived solid and then turned to glass at the end. The
+ * other way round there is nothing to arrive: the real window, material and
+ * all, is underneath from the first frame, and what travels off screen is a
+ * still of where you were.
+ */
+@keyframes ob-sweep {
+  from { clip-path: polygon(-2% -20%, 320% -20%, 320% 120%, -45% 120%) }
+  to { clip-path: polygon(145% -20%, 320% -20%, 320% 120%, 102% 120%) }
+}
+
+
+.ob-deal > * { opacity: 0; animation: ob-deal .6s cubic-bezier(.16,1,.3,1) forwards }
+.ob-deal > *:nth-child(1) { animation-delay: .03s } .ob-deal > *:nth-child(2) { animation-delay: .09s }
+.ob-deal > *:nth-child(3) { animation-delay: .15s } .ob-deal > *:nth-child(4) { animation-delay: .21s }
+.ob-deal > *:nth-child(5) { animation-delay: .27s }
+.ob-logo { animation: ob-logo .8s cubic-bezier(.16,1,.3,1) both }
+.ob-in-1 { opacity: 0; animation: ob-deal .7s cubic-bezier(.16,1,.3,1) .16s forwards }
+.ob-in-2 { opacity: 0; animation: ob-deal .7s cubic-bezier(.16,1,.3,1) .26s forwards }
+.ob-in-3 { opacity: 0; animation: ob-deal .7s cubic-bezier(.16,1,.3,1) .36s forwards }
+.ob-tree { animation: ob-slide .9s cubic-bezier(.16,1,.3,1) .1s both; box-shadow: 30px 0 60px -30px rgba(0,0,0,.55) }
+.ob-row { opacity: 0; animation: ob-dealx .55s cubic-bezier(.16,1,.3,1) forwards }
+.ob-tile { opacity: 0; animation: ob-fan .8s cubic-bezier(.16,1,.3,1) forwards }
+.ob-badge { opacity: 0; animation: ob-pop .6s cubic-bezier(.16,1,.3,1) forwards }
+/* Slow in, quick through the middle, slow out - the whole point of the move. */
+/* The still is flat where the window may be glass, so it dissolves in over the
+   real one rather than replacing it in a frame: the difference arrives as a
+   settle, under the eye, before the wipe has travelled anywhere. */
+@keyframes ob-still-in { from { opacity: 0 } to { opacity: 1 } }
+.ob-sweep {
+  animation:
+    ob-still-in .16s linear both,
+    ob-sweep 1.15s cubic-bezier(.72, 0, .24, 1) .16s forwards;
+}
+
+
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-deal > *, .ob-logo, .ob-in-1, .ob-in-2, .ob-in-3, .ob-tree, .ob-row, .ob-tile, .ob-badge {
+    animation-duration: .001s !important;
+  }
+}
