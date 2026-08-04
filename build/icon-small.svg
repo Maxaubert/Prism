@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 16-32px. The rendered prism silts up down here, and its bottom facet is
+       the tile's own colour, so the small mark keeps only the two lit faces -
+       and is centred on those, since they are what the eye sees. -->
+  <rect width="1024" height="1024" rx="205" fill="#101219"/>
+  <path fill="#eef3fa" d="M512 224 470 746 190 800z"/>
+  <path fill="#2f8fff" d="M512 224 834 708 470 746z"/>
+</svg>

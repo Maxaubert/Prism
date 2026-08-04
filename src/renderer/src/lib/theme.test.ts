@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { derive, mix, STYLES } from './theme'
+import { derive, mix, paletteOf, resolveVizTheme, setOverride, setStyle, STYLES } from './theme'
+import { ACCENT_THEME_ID } from './viz/styles'
+import { visibleThemes } from './vizStore'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel
@@ -98,5 +100,31 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     // shade: a step reads as a mismatched pane on glass, and reappears the
     // moment the glass is turned off.
     expect(t['--p-side-flat']).toBe(t['--p-bg'])
+  })
+})
+
+describe('the accent-following visualizer scheme', () => {
+  it('is not offered as an accent, because that would be circular', () => {
+    expect(visibleThemes().some((t) => t.id === ACCENT_THEME_ID)).toBe(false)
+  })
+
+  it('resolves to one solid colour: the accent, not a gradient', () => {
+    setStyle('aurora')
+    setOverride('accent', '#ff8800')
+    const scheme = resolveVizTheme(ACCENT_THEME_ID)
+    expect(scheme.accent).toBe('#ff8800')
+    expect(scheme.palette).toEqual(['#ff8800'])
+  })
+
+  it('follows a named accent down to its first colour', () => {
+    setStyle('aurora')
+    setOverride('accent', 'prism')
+    const scheme = resolveVizTheme(ACCENT_THEME_ID)
+    expect(scheme.palette).toHaveLength(1)
+    expect(scheme.palette[0]).toBe(paletteOf('prism')[0])
+  })
+
+  it('leaves every other scheme exactly as it is', () => {
+    expect(resolveVizTheme('prism').palette).toEqual(paletteOf('prism'))
   })
 })

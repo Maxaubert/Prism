@@ -4,7 +4,7 @@ import { Transport } from './Transport'
 import { Visualizer } from './Visualizer'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
-import { themeById } from '../lib/viz/styles'
+import { resolveVizTheme } from '../lib/theme'
 import { useViz, WIDTHS } from '../lib/vizStore'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
@@ -54,7 +54,7 @@ export function AudioView({
   const v = useViz()
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
-  const barFx = { palette: themeById(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
+  const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   // A callback ref feeds both the controls hook (via the ref object) and the
   // visualizer (via state, so it re-renders once the element actually mounts).
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -135,7 +135,7 @@ export function AudioView({
               <Visualizer
                 media={mediaEl}
                 styleId={v.style}
-                theme={themeById(v.theme)}
+                theme={resolveVizTheme(v.theme)}
                 dropStyle={v.drop}
                 previewBurst={v.preview}
                 glow={v.glow}

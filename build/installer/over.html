@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Prism setup overlay</title>
+<!--
+  The installer's foreground, drawn once per screen and composited over the
+  video loop at runtime.
+
+  This is treatment E: no panel anywhere. Type sits straight on the picture,
+  held up by weight and a shadow rather than a box. Which means every pixel here
+  needs an alpha channel, so make-over.cjs renders each screen twice, once on
+  black and once on white, and solves for the alpha it cannot capture directly.
+
+  Anything the installer has to write at runtime (the install path, the progress
+  fill) is NOT drawn here. It leaves a gap and NSIS paints into it, because the
+  words change and the bitmap cannot.
+-->
+<style>
+  * { box-sizing: border-box; margin: 0 }
+  /* Two panes, same overlay, one on black and one on white, captured together.
+     Swapping a background between two captures does not survive an off-screen
+     window: the second capture comes back stale and the alpha solves to opaque. */
+  html, body { width: 1280px; height: 480px; overflow: hidden }
+  body { display: flex; color: #f6f7fb; -webkit-font-smoothing: antialiased;
+    font: 400 13px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif }
+  .pane { position: relative; width: 640px; height: 480px; overflow: hidden; flex: none }
+  .pane.k { background: #000 } .pane.w { background: #fff }
+  .disp { font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif }
+
+  /* the caption is ours now: no OS title bar behind any of this */
+  .cap { position: absolute; left: 0; right: 0; top: 0; height: 38px; display: flex; align-items: center;
+    padding-left: 14px; gap: 9px }
+  .cap .who { font-size: 12px; font-weight: 620; color: rgba(255,255,255,.92); text-shadow: 0 1px 6px rgba(0,0,0,.8) }
+  .cap .file { font-size: 11px; color: rgba(255,255,255,.45); text-shadow: 0 1px 6px rgba(0,0,0,.8) }
+  .cap .wc { margin-left: auto; display: flex; height: 100% }
+  .cap .wc i { width: 44px; height: 38px; display: grid; place-items: center; font-style: normal; font-size: 12px;
+    color: rgba(255,255,255,.62) }
+  .cap .wc i.hot { background: rgba(255,255,255,.14); color: #fff }
+  .cap .wc i.x.hot { background: #c42b1c; color: #fff }
+
+  /* A shade, not a scrim: an ellipse of darkness under the words only, so the
+     picture stays uncovered everywhere else. The loop runs long enough now that
+     the ink does eventually reach the bottom of the frame. */
+  .shade { position: absolute; left: -60px; right: 20%; bottom: -80px; height: 340px;
+    background: radial-gradient(58% 62% at 34% 62%, rgba(4,5,9,.82), rgba(4,5,9,.5) 45%, transparent 72%) }
+  /* the block of words, bottom left */
+  .pad { position: absolute; left: 34px; right: 34px; bottom: 30px }
+  h1 { font-size: 30px; font-weight: 720; letter-spacing: -.025em; line-height: 1.08;
+    text-shadow: 0 2px 22px rgba(0,0,0,.75), 0 1px 3px rgba(0,0,0,.5) }
+  p { margin-top: 9px; font-size: 12.5px; color: rgba(255,255,255,.74); line-height: 1.5;
+    text-shadow: 0 1px 12px rgba(0,0,0,.85) }
+  .row { margin-top: 20px; display: flex; align-items: center; gap: 10px }
+
+  .cta { height: 36px; border: 0; border-radius: 8px; padding: 0 20px; font: inherit; font-size: 13px;
+    font-weight: 680; background: #5b5bd6; color: #fff; box-shadow: 0 10px 26px -12px #5b5bd6 }
+  .cta.hot { background: #6b6be2 }
+  .ghost { height: 36px; border: 1px solid rgba(255,255,255,.26); border-radius: 8px; padding: 0 16px; font: inherit;
+    font-size: 12.5px; font-weight: 600; background: rgba(255,255,255,.06); color: #cdd2dc }
+  .ghost.hot { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.5) }
+
+  /* The path box is drawn; the path inside it is not. NSIS writes that. */
+  .field { display: flex; align-items: center; gap: 10px; height: 34px; border: 1px solid rgba(255,255,255,.2);
+    border-radius: 9px; padding: 0 5px 0 11px; background: rgba(10,11,17,.62); flex: 1; min-width: 0 }
+  .field .gap { flex: 1; height: 100% }
+  .browse { height: 26px; border: 1px solid rgba(255,255,255,.2); border-radius: 7px; padding: 0 11px; font: inherit;
+    font-size: 11.5px; font-weight: 600; background: rgba(255,255,255,.09); color: #cdd2dc }
+  .browse.hot { background: rgba(255,255,255,.18); color: #fff }
+
+  /* Trough only. The indigo fill is a rectangle NSIS paints as it copies. */
+  .track { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.22);
+    box-shadow: 0 2px 14px rgba(0,0,0,.5) }
+  .pct { font-size: 12px; color: rgba(255,255,255,.8); text-shadow: 0 1px 10px rgba(0,0,0,.85);
+    font-variant-numeric: tabular-nums; width: 42px; text-align: right }
+
+  /* The options on the finish screen. `hollow` leaves the box out of the art
+     entirely, so setup can paint it in whichever state it is actually in. */
+  .row.opt { margin-top: 11px; display: flex; align-items: center; gap: 10px; font-size: 12.5px;
+    color: rgba(255,255,255,.82); text-shadow: 0 1px 10px rgba(0,0,0,.85) }
+  .box { width: 18px; height: 18px; border-radius: 5px; flex: none; display: grid; place-items: center;
+    border: 1.5px solid rgba(255,255,255,.34); background: rgba(10,11,17,.5) }
+  .box.hollow { border-color: transparent; background: transparent }
+  .box.on { background: #5b5bd6; border-color: #5b5bd6 }
+  .box.on::after { content: ""; width: 9px; height: 4.5px; border: 2px solid #fff; border-top: 0; border-right: 0;
+    transform: rotate(-45deg) translate(1px,-1px) }
+</style>
+</head>
+<body>
+<div class="pane k" id="k"></div><div class="pane w" id="w"></div>
+<script>
+const MARK = (s, flat) => `
+  <svg width="${s}" height="${s}" viewBox="0 0 1024 1024" style="display:block;flex:none${
+    flat ? '' : ';filter:drop-shadow(0 6px 18px rgba(91,91,214,.55))'}">
+    <path fill="#eef3fa" d="M512 ${flat ? '224 470 746 190 800' : '180 468 742 168 800'}z"/>
+    <path fill="#7b7bf5" d="M512 ${flat ? '224 834 708 470 746' : '180 856 700 468 742'}z"/>
+    ${flat ? '' : '<path fill="#0e1018" d="M468 742 856 700 512 844 168 800z"/>'}
+  </svg>`
+const FOLDER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8b919e" stroke-width="1.7"
+  stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`
+
+const COPY = [
+  ['Install Prism', 'A modern viewer for images, video, audio and documents.'],
+  ['Where it goes', 'Choose where to install Prism.'],
+  ['Installing', 'This takes a few seconds.'],
+  ['Prism installed', '']
+]
+
+// The finish screen's options. Their boxes are NOT drawn here: setup paints
+// those every frame from two small images, because three checkboxes have eight
+// states between them and baking all of those would be thirty two overlays.
+const OPTIONS = [
+  ['RUN', 'Open Prism now'],
+  ['MENU', 'Create start menu shortcut'],
+  ['DESK', 'Create desktop shortcut']
+]
+const NEXT = ['Install Prism', 'Install', '', 'Finish']
+
+/* `hot` names the one control drawn hot; `boxes` is 'none' (setup paints them),
+   'on' or 'off' (used only to cut the two box images out). */
+function screen(s, hot, boxes) {
+  const h = (n) => (hot === n ? ' hot' : '')
+  const [title, sub] = COPY[s]
+  return `
+    <div class="shade"></div>
+    <div class="cap">
+      ${MARK(15, true)}<span class="who">Prism Setup</span>
+      <div class="wc"><i class="min${h('min')}" data-a="CAP_MIN">&#8210;</i><i class="x${h('close')}" data-a="CAP_X">&#10005;</i></div>
+    </div>
+    <div class="pad">
+      <h1 class="disp" data-a="TITLE">${title}</h1>
+      ${sub ? `<p>${sub}</p>` : ''}
+      ${s === 1 ? `
+        <div class="row">
+          <div class="field">${FOLDER}<span class="gap" data-a="PATH"></span>
+            <button class="browse${h('browse')}" data-a="BROWSE">Browse</button></div>
+        </div>` : ''}
+      ${s === 2 ? `
+        <div class="row"><div class="track" data-a="TRACK"></div></div>` : ''}
+      ${s === 3 ? OPTIONS.map(([key, label]) => `
+        <div class="row opt" data-a="OPT_${key}">
+          <i class="box${boxes === 'none' ? ' hollow' : boxes === 'on' ? ' on' : ''}" data-a="BOX_${key}"></i>
+          <span>${label}</span>
+        </div>`).join('') : ''}
+      <div class="row">
+        ${s === 1 ? `<button class="ghost${h('back')}" data-a="BACK">Back</button>` : ''}
+        ${NEXT[s] ? `<button class="cta${h('next')}" data-a="NEXT">${NEXT[s]}</button>` : ''}
+      </div>
+    </div>`
+}
+
+window.render = (s, hot, boxes) => {
+  const html = screen(s, hot, boxes)
+  document.getElementById('k').innerHTML = html
+  document.getElementById('w').innerHTML = html
+}
+window.rects = () => {
+  const out = {}
+  document.querySelectorAll('#k [data-a]').forEach((el) => {
+    const r = el.getBoundingClientRect()
+    out[el.dataset.a] = { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
+  })
+  return out
+}
+window.render(0, null, 'none')
+</script>
+</body>
+</html>
