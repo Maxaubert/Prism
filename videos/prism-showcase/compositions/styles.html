@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Prism styles</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+      :root {
+        --ink: #08080b;
+        --cream: #f2f3f7;
+        --muted: #babfcc;
+        --hint: #78787e;
+        --accent: #5b5bd6;
+        --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI",
+          system-ui, sans-serif;
+        --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      .bg {
+        position: absolute;
+        inset: 0;
+        background: var(--ink);
+        z-index: 0;
+      }
+
+      /* The window holds one mark for the whole film. Nothing about the framing
+         changes, so the only thing changing is the thing the film is about. */
+      #screen {
+        position: absolute;
+        left: 684px;
+        top: 190px;
+        width: 1152px;
+        height: 720px;
+        border-radius: 12px;
+        overflow: hidden;
+        z-index: 2;
+        box-shadow: 0 40px 90px -25px rgba(0, 0, 0, 0.92);
+      }
+      #screen .clip {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .col {
+        position: absolute;
+        left: 96px;
+        top: 190px;
+        width: 520px;
+        height: 720px;
+        z-index: 3;
+      }
+      .num {
+        position: absolute;
+        top: 0;
+        left: 0;
+        font-family: var(--mono);
+        font-size: 15px;
+        letter-spacing: 0.18em;
+        color: var(--hint);
+      }
+      .slot {
+        position: absolute;
+        top: 176px;
+        left: 0;
+        width: 520px;
+      }
+      .mask {
+        display: block;
+        overflow: hidden;
+        padding-bottom: 4px;
+      }
+      .line {
+        display: block;
+        font-family: var(--display);
+        font-size: 104px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        color: var(--cream);
+        white-space: nowrap;
+      }
+      .rule {
+        display: block;
+        width: 104px;
+        height: 3px;
+        margin: 26px 0 20px;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: left center;
+      }
+      .sub {
+        display: block;
+        font-family: var(--mono);
+        font-size: 16px;
+        line-height: 1.75;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--muted);
+        max-width: 460px;
+      }
+
+      .rail {
+        position: absolute;
+        left: 96px;
+        top: 74px;
+        font-family: var(--mono);
+        font-size: 15px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        z-index: 4;
+      }
+      .hair {
+        position: absolute;
+        left: 96px;
+        right: 84px;
+        top: 108px;
+        height: 1px;
+        background: #1d1d24;
+        z-index: 4;
+      }
+      #progress {
+        position: absolute;
+        left: 96px;
+        right: 84px;
+        bottom: 74px;
+        height: 2px;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: left center;
+        z-index: 4;
+      }
+
+      .end {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 6;
+      }
+      .wordmark {
+        display: block;
+        font-family: var(--display);
+        font-size: 196px;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        line-height: 1.06;
+        color: var(--cream);
+      }
+      .end-line {
+        display: block;
+        font-family: var(--mono);
+        font-size: 19px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="styles"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="24.2"
+    >
+      <div id="ground" class="clip bg" data-start="0" data-duration="24.2" data-track-index="9"></div>
+
+      <div id="screen">
+        <video id="s-many" class="clip" src="assets/style-many.mp4" data-start="0" data-duration="6.6" data-track-index="0" muted playsinline></video>
+        <video id="s-video" class="clip" src="assets/style-video.mp4" data-start="6.6" data-duration="5.4" data-track-index="0" muted playsinline></video>
+        <video id="s-audio" class="clip" src="assets/style-audio.mp4" data-start="12" data-duration="5" data-track-index="0" muted playsinline></video>
+        <video id="s-text" class="clip" src="assets/style-text.mp4" data-start="17" data-duration="4" data-track-index="0" muted playsinline></video>
+      </div>
+
+      <div id="chrome" class="clip" data-start="0" data-duration="24.2" data-track-index="8">
+        <div class="rail">Prism · Styles</div>
+        <div class="hair"></div>
+        <div id="progress"></div>
+      </div>
+
+      <section id="c1" class="clip col" data-start="0.35" data-duration="6.25" data-track-index="1">
+        <div class="num">01 / 04</div>
+        <div class="slot">
+          <span class="mask"><span class="line">eleven</span></span>
+          <span class="mask"><span class="line">ways</span></span>
+          <span class="rule"></span>
+          <span class="sub">One window. Five dark, six light, and every one of them a full treatment rather than a colour swap.</span>
+        </div>
+      </section>
+
+      <section id="c2" class="clip col" data-start="6.6" data-duration="5.4" data-track-index="1">
+        <div class="num">02 / 04</div>
+        <div class="slot">
+          <span class="mask"><span class="line">while it</span></span>
+          <span class="mask"><span class="line">plays</span></span>
+          <span class="rule"></span>
+          <span class="sub">The look changes under a running video. Nothing stops, nothing reloads, nothing blinks.</span>
+        </div>
+      </section>
+
+      <section id="c3" class="clip col" data-start="12" data-duration="5" data-track-index="1">
+        <div class="num">03 / 04</div>
+        <div class="slot">
+          <span class="mask"><span class="line">the whole</span></span>
+          <span class="mask"><span class="line">window</span></span>
+          <span class="rule"></span>
+          <span class="sub">Down to the visualizer, which takes the accent of whatever style is on.</span>
+        </div>
+      </section>
+
+      <section id="c4" class="clip col" data-start="17" data-duration="4" data-track-index="1">
+        <div class="num">04 / 04</div>
+        <div class="slot">
+          <span class="mask"><span class="line">chrome,</span></span>
+          <span class="mask"><span class="line">not text</span></span>
+          <span class="rule"></span>
+          <span class="sub">A style dresses the frame. What you came to read stays in a face built for reading.</span>
+        </div>
+      </section>
+
+      <section id="end" class="clip end" data-start="21.2" data-duration="3" data-track-index="3">
+        <span class="mask"><span class="wordmark" id="end-mark">prism</span></span>
+        <span class="end-line" id="end-url">Settings · Style · pick one</span>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Four columns, one slot. Each arrives the same way, which is what makes a
+         change in the window read as the only event on screen. */
+      const BEATS = [
+        ["#c1", 0.35, 6.25],
+        ["#c2", 6.6, 5.4],
+        ["#c3", 12, 5],
+        ["#c4", 17, 4]
+      ];
+
+      BEATS.forEach(([id, at, len]) => {
+        tl.fromTo(`${id} .num`, { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, at);
+        tl.fromTo(`${id} .line`, { yPercent: 112 }, { yPercent: 0, duration: 0.72, stagger: 0.075, ease: "power3.out" }, at + 0.1);
+        tl.fromTo(`${id} .rule`, { scaleX: 0 }, { scaleX: 1, duration: 0.65, ease: "power3.out" }, at + 0.36);
+        tl.fromTo(`${id} .sub`, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, at + 0.44);
+
+        const out = at + len;
+        tl.to(`${id} .line`, { yPercent: -112, duration: 0.46, stagger: 0.05, ease: "power2.in" }, out - 0.56);
+        tl.to(`${id} .rule`, { scaleX: 0, duration: 0.36, ease: "power2.in" }, out - 0.5);
+        tl.to([`${id} .sub`, `${id} .num`], { opacity: 0, duration: 0.36, ease: "power2.in" }, out - 0.5);
+      });
+
+      tl.fromTo("#screen", { scale: 0.985, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.8, ease: "power2.out" }, 0);
+      tl.to("#screen", { scale: 0.955, opacity: 0, duration: 0.8, ease: "power2.inOut" }, 20.6);
+      tl.fromTo("#progress", { scaleX: 0 }, { scaleX: 1, duration: 21.2, ease: "none" }, 0);
+      tl.to("#chrome", { opacity: 0, duration: 0.5, ease: "power2.in" }, 20.9);
+
+      tl.fromTo("#end-mark", { yPercent: 116 }, { yPercent: 0, duration: 0.85, ease: "power3.out" }, 21.35);
+      tl.fromTo("#end-url", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 21.9);
+
+      window.__timelines["styles"] = tl;
+    </script>
+  </body>
+</html>

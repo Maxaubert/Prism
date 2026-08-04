@@ -45,6 +45,10 @@ const api = {
   /** True when setup asked for the first-run guide, whatever this machine has
    *  already seen. */
   forceSetup: process.argv.includes('--prism-setup'),
+  /** True when the process was started with --demo. It opens one door and only
+   *  that door: the recording harness can change the style while a file plays,
+   *  which Settings cannot do without covering the file it is meant to show. */
+  demo: process.argv.includes('--prism-demo'),
   /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'),
    *  in the given mode: DWM tints its own blur, so it has to be told. */
   setWindowMaterial: (material: string, mode: string): void =>
