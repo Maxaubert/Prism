@@ -128,3 +128,26 @@ describe('the accent-following visualizer scheme', () => {
     expect(resolveVizTheme('prism').palette).toEqual(paletteOf('prism'))
   })
 })
+
+describe('the accent scheme keeps its identity', () => {
+  it('hands back the same object while the accent is unchanged', () => {
+    setStyle('aurora')
+    setOverride('accent', '#3366ff')
+    const a = resolveVizTheme(ACCENT_THEME_ID)
+    const b = resolveVizTheme(ACCENT_THEME_ID)
+    // The Visualizer restarts its draw loop when the palette changes. A fresh
+    // array per render restarted it per render, which read as a stutter.
+    expect(b).toBe(a)
+    expect(b.palette).toBe(a.palette)
+  })
+
+  it('but rebuilds it the moment the accent does change', () => {
+    setStyle('aurora')
+    setOverride('accent', '#3366ff')
+    const before = resolveVizTheme(ACCENT_THEME_ID)
+    setOverride('accent', '#ff3366')
+    const after = resolveVizTheme(ACCENT_THEME_ID)
+    expect(after).not.toBe(before)
+    expect(after.accent).toBe('#ff3366')
+  })
+})

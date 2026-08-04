@@ -461,12 +461,21 @@ const accentOf = paletteOf
 
 /** A visualizer scheme, with the one that follows the app's accent filled in.
  *  Everything that draws with a scheme goes through here rather than
- *  themeById, because 'accent' has no colour of its own until now. */
+ *  themeById, because 'accent' has no colour of its own until now.
+ *
+ *  The result is cached until the accent actually changes. It is read during
+ *  render, and the Visualizer restarts its draw loop when the palette changes:
+ *  handing back a fresh array every render restarted it every render, which
+ *  looks exactly like a colour that makes the visualizer stutter. */
+let accentScheme: VizTheme | null = null
 export function resolveVizTheme(id: string): VizTheme {
   const base = themeById(id)
   if (id !== ACCENT_THEME_ID) return base
-  const palette = accentOf(edited(byId(current)).accent)
-  return { ...base, palette: [palette[0]], accent: palette[0] }
+  const colour = accentOf(edited(byId(current)).accent)[0]
+  if (accentScheme === null || accentScheme.accent !== colour) {
+    accentScheme = { ...base, palette: [colour], accent: colour }
+  }
+  return accentScheme
 }
 
 /**
