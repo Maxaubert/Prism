@@ -5,7 +5,7 @@ import {
   rgba,
   savePreset,
   setMode,
-  setOverride,
+  setStyle,
   stylesFor,
   useMode,
   useStyle,
@@ -13,8 +13,8 @@ import {
   type Mode,
   type Style
 } from '../lib/theme'
-import { visibleThemes } from '../lib/vizStore'
 import { FrostBackdrop } from './FrostBackdrop'
+import { StyleMini } from './StyleMini'
 import appIcon from '../assets/icon.png'
 
 // The first-run setup: a full-window page, not a dialog. Four steps and a
@@ -237,7 +237,7 @@ function Body({ text }: { text: string }): JSX.Element {
         part.startsWith('[') && part.endsWith(']') ? (
           <kbd
             key={i}
-            className="mx-[2px] inline-flex min-w-[1.9em] items-center justify-center rounded-[6px] border border-[color:var(--p-divider)] border-b-2 border-b-[color:var(--p-divider)] bg-[var(--p-preview)] px-1.5 py-[1px] text-[13px] font-semibold text-[var(--p-text)]"
+            className="relative -top-[1px] mx-[3px] inline-flex min-w-[2.1em] items-center justify-center rounded-[7px] border border-[color:var(--p-dim2)] bg-[var(--p-preview)] px-[7px] pb-[3px] pt-[2px] align-middle font-mono text-[12.5px] font-bold leading-none text-[var(--p-text)] shadow-[0_2px_0_var(--p-dim2),0_3px_6px_-3px_rgba(0,0,0,.45)]"
           >
             {part.slice(1, -1)}
           </kbd>
@@ -253,8 +253,8 @@ function Body({ text }: { text: string }): JSX.Element {
 
 const COPY = [
   { kicker: 'Appearance', head: ['Dark, or ', 'light', '.'], body: 'Both ship with their own styles. Change it whenever you like.' },
-  { kicker: 'The sidebar', head: ['Your folder, one key away.'], body: '[Ctrl] [B] opens the folder you came from. Click to view, arrow to move on.' },
-  { kicker: 'Style', head: ['Make it yours.'], body: 'Pick an accent now. The rest of the style is waiting in Settings.' },
+  { kicker: 'The sidebar', head: ['Your folder, one key away.'], body: '[Ctrl] + [B] opens the folder you came from. Click to view, arrow to move on.' },
+  { kicker: 'Style', head: ['Make it yours.'], body: 'Pick a look. Every one of these ships with your mode, and Settings has the rest.' },
   { kicker: 'One last thing', head: ['Open ', 'everything', ' with Prism.'], body: 'Images, video, audio, documents. Windows asks first, nothing changes behind your back.' }
 ]
 
@@ -345,29 +345,44 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
         {step === 0 && <ModeCards mode={mode} onPick={pickMode} />}
 
         {step === 2 && (
-          <div className="mt-6 flex max-w-[420px] flex-wrap gap-3">
-            {visibleThemes()
-              .slice(0, 10)
-              .map((t) => {
-                const on = t.id === style.accent
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setOverride('accent', t.id)}
-                    title={t.name}
-                    aria-label={t.name}
-                    aria-pressed={on}
-                    className={`h-11 w-11 rounded-[14px] transition hover:-translate-y-[3px] ${
-                      on ? 'ring-[2.5px] ring-[var(--p-text)]' : ''
-                    }`}
-                    style={{
-                      // Not the whole palette: a five-stop rainbow chip that
-                      // turns the app red is a promise it doesn't keep.
-                      background: `linear-gradient(140deg, ${t.palette[0]}, ${t.palette[1] ?? t.palette[0]})`
-                    }}
-                  />
-                )
-              })}
+          // The styles that ship with the mode chosen a step ago. A card is the
+          // window it makes, so the choice is shown rather than described, and
+          // the mock on the right repaints as you go.
+          <div className="mt-6 grid max-w-[430px] grid-cols-3 gap-2.5">
+            {stylesFor(mode).map((st) => {
+              const on = st.id === style.id
+              const light = mode === 'light'
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => setStyle(st.id)}
+                  aria-pressed={on}
+                  className="rounded-[12px] px-1.5 pb-1 pt-1.5 text-left transition hover:-translate-y-[2px]"
+                  style={{
+                    // A glass tile in the app's own material: a translucent
+                    // sheet with a lit top edge, tinting to the accent when it
+                    // is the chosen one. Deliberately no backdrop-filter: in a
+                    // translucent Electron window it renders opaque, which is
+                    // the opposite of the point.
+                    background: on
+                      ? 'color-mix(in srgb, var(--p-accent) 16%, transparent)'
+                      : light
+                        ? 'rgba(255,255,255,.55)'
+                        : 'rgba(255,255,255,.07)',
+                    boxShadow: on
+                      ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--p-accent) 55%, transparent)'
+                      : light
+                        ? 'inset 0 1px 0 rgba(255,255,255,.9), 0 6px 18px -12px rgba(0,0,0,.5)'
+                        : 'inset 0 1px 0 rgba(255,255,255,.14), 0 8px 20px -14px rgba(0,0,0,.9)'
+                  }}
+                >
+                  <StyleMini st={st} />
+                  <span className="mt-1.5 block px-0.5 text-[11.5px] font-semibold text-[var(--p-text-soft)]">
+                    {st.name}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         )}
 
