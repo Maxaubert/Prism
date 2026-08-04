@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Prism, in Filesmith's grammar: slab bars, one diagonal cut across the
+       shoulder, and the accent as the stem's foot, rounded at the bottom only.
+       The bowl closes at 600 so the leg has room to be a leg: a P whose bowl
+       runs the full height reads as a square with a nick out of it. -->
+  <rect width="1024" height="1024" rx="205" fill="#101219"/>
+  <g fill="#ffffff">
+    <path d="M412 150h350v150H412z"/>
+    <path d="M262 300 412 150v150z"/>
+    <path d="M612 300h150v150H612z"/>
+    <path d="M262 450h500v150H262z"/>
+    <path d="M262 300h150v420H262z"/>
+  </g>
+  <path fill="#2f6fed" d="M262 720h150v122a38 38 0 0 1-38 38h-74a38 38 0 0 1-38-38z"/>
+</svg>

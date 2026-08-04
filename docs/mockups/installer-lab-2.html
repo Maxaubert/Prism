@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism — setup, round two</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body { margin: 0; padding: 26px 26px 80px; background: #07080b; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 750; letter-spacing: -.025em }
+  .sub { margin: 0 0 18px; color: #838996; font-size: 12.5px; max-width: 104ch; line-height: 1.65 }
+  .sub b { color: #b9bdc8; font-weight: 600 }
+  .bar { display: flex; gap: 6px; margin-bottom: 22px; flex-wrap: wrap; align-items: center; position: sticky; top: 0;
+    background: #07080b; padding: 10px 0; z-index: 20; border-bottom: 1px solid rgba(255,255,255,.06) }
+  .btn { border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; transition: .15s }
+  .btn:hover { border-color: rgba(255,255,255,.3); color: #fff }
+  .btn[aria-pressed="true"] { background: #5b5bd6; border-color: #8f8ff0; color: #fff; font-weight: 600 }
+  .lbl { font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: #565c69; margin-right: 4px }
+
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(704px, 1fr)); gap: 24px }
+  .case { border: 1px solid rgba(255,255,255,.07); border-radius: 14px; background: #0a0b0f; overflow: hidden }
+  .case header { display: flex; align-items: baseline; gap: 10px; padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,.06) }
+  .case h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -.01em }
+  .case h2 em { font-style: normal; color: #6c7280; font-weight: 500; margin-left: 7px; font-size: 11px }
+  .case .note { flex: 1; color: #676d7a; font-size: 11px; line-height: 1.45 }
+  .case .steps { display: flex; gap: 3px; align-self: center }
+  .case .steps b { padding: 3px 9px; border-radius: 7px; font-size: 10.5px; color: #7b8290; cursor: pointer;
+    border: 1px solid transparent; transition: .12s }
+  .case .steps b:hover { color: #fff }
+  .case .steps b.on { background: rgba(255,255,255,.09); color: #fff; border-color: rgba(255,255,255,.14); font-weight: 650 }
+  .stage { padding: 28px; background: radial-gradient(120% 100% at 50% 0%, #0f1117 0%, #050608 72%); display: grid; place-items: center }
+
+  /* =========================================================================
+     THE WINDOW  640x480, the size setup will be told to be.
+     Tokens are Prism's own: indigo accent, near-black, one hairline value.
+     ========================================================================= */
+  .win {
+    --ink: #f4f6fa; --dim: #9aa1ae; --dim2: #6a707d; --faint: #4a505c;
+    --bg: #0b0d12; --line: rgba(255,255,255,.085); --line2: rgba(255,255,255,.15);
+    --accent: #5b5bd6; --accent-2: #8f8ff0; --raise: rgba(255,255,255,.045);
+    position: relative; width: 640px; height: 480px; overflow: hidden; border-radius: 10px;
+    background: var(--bg); color: var(--ink); border: 1px solid rgba(255,255,255,.13);
+    box-shadow: 0 44px 90px -44px rgba(0,0,0,.95); display: flex; flex-direction: column; isolation: isolate;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  }
+  .win * { box-sizing: border-box }
+  .disp { font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif }
+  .mono { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-variant-numeric: tabular-nums }
+
+  .wash { position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(58% 56% at 16% 12%, rgba(91,91,214,.30), transparent 70%),
+                radial-gradient(50% 48% at 88% 90%, rgba(143,143,240,.17), transparent 72%) }
+  .grain { position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: .42; mix-blend-mode: overlay;
+    background-image: radial-gradient(rgba(255,255,255,.1) .5px, transparent .5px); background-size: 3px 3px }
+
+  .cap { position: relative; z-index: 6; height: 34px; flex: none; display: flex; align-items: center; gap: 9px;
+    padding: 0 8px 0 13px; font-size: 11.5px; color: var(--dim2) }
+  .cap .x { margin-left: auto; width: 34px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 12px }
+
+  .mark { display: block }
+  .mark .a { fill: #eef3fa } .mark .b { fill: #7b7bf5 } .mark .c { fill: #0e1018 }
+
+  h3.t { margin: 0; font-weight: 760; letter-spacing: -.035em; line-height: 1.05 }
+  p.b { margin: 0; color: var(--dim); line-height: 1.55; font-size: 13px }
+  .micro { font-size: 11.5px; color: var(--dim2); line-height: 1.5 }
+  .over { font-size: 10px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--faint) }
+
+  /* controls */
+  .cta { height: 36px; border: 0; border-radius: 8px; padding: 0 20px; font: inherit; font-size: 13px; font-weight: 680;
+    letter-spacing: -.005em; background: var(--accent); color: #fff; cursor: pointer;
+    box-shadow: 0 10px 22px -12px var(--accent); transition: .15s }
+  .cta:hover { background: #6a6ae0 }
+  .cta:active { transform: scale(.985) }
+  .ghost { height: 36px; border: 1px solid var(--line2); border-radius: 8px; padding: 0 15px; font: inherit;
+    font-size: 12.5px; font-weight: 600; background: transparent; color: var(--dim); cursor: pointer; transition: .15s }
+  .ghost:hover { color: var(--ink); border-color: rgba(255,255,255,.32) }
+  .ghost[disabled] { opacity: .3; cursor: default }
+  .link { background: 0; border: 0; padding: 0; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--dim2);
+    cursor: pointer } .link:hover { color: var(--ink) }
+  .link[disabled] { opacity: .3; cursor: default }
+
+  .field { display: flex; align-items: center; gap: 10px; height: 40px; border: 1px solid var(--line2);
+    border-radius: 9px; padding: 0 6px 0 12px; background: rgba(255,255,255,.035) }
+  .field svg { flex: none; color: var(--dim2) }
+  .field span { flex: 1; font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .field button { height: 28px; border: 1px solid var(--line2); border-radius: 7px; padding: 0 12px; font: inherit;
+    font-size: 11.5px; font-weight: 600; background: rgba(255,255,255,.05); color: var(--dim); cursor: pointer }
+
+  .check { display: inline-flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--dim); cursor: pointer }
+  .check i { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line2); flex: none;
+    display: grid; place-items: center }
+  .check.on { color: var(--ink) } .check.on i { background: var(--accent); border-color: var(--accent) }
+  .check.on i::after { content: ""; width: 9px; height: 4.5px; border: 2px solid #fff; border-top: 0; border-right: 0;
+    transform: rotate(-45deg) translate(1px,-1px) }
+
+  .rule { height: 1px; background: var(--line) }
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 10px }
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; font-size: 11.5px }
+  .facts dt { color: var(--faint) } .facts dd { margin: 0; color: var(--dim) }
+
+  @keyframes sheen { to { transform: translateX(100%) } }
+  .sheen { position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.4), transparent);
+    transform: translateX(-100%); animation: sheen 2.1s cubic-bezier(.4,0,.2,1) infinite }
+
+  /* =====================================================================
+     A  REFRACT   the spine is a spectrum, and setup walks down it
+     ===================================================================== */
+  .A .row { flex: 1; display: flex; min-height: 0; position: relative; z-index: 4 }
+  .A .spine { width: 186px; flex: none; padding: 22px 0 20px 22px; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, rgba(0,0,0,.42), rgba(0,0,0,.2)); border-right: 1px solid var(--line) }
+  .A .beam { position: relative; margin: 26px 0 0 6px; flex: 1; padding-left: 24px }
+  .A .beam::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 26px; width: 2px; border-radius: 2px;
+    background: rgba(255,255,255,.1) }
+  .A .beam .lit { position: absolute; left: 0; top: 4px; width: 2px; border-radius: 2px;
+    background: linear-gradient(180deg, #eef3fa, #7b7bf5 34%, #5b5bd6 62%, #4fb9d6); box-shadow: 0 0 12px rgba(123,123,245,.55) }
+  .A .beam ul { margin: 0; padding: 0; list-style: none }
+  .A .beam li { height: 40px; display: flex; align-items: center; font-size: 12.5px; color: var(--faint); position: relative }
+  .A .beam li::before { content: ""; position: absolute; left: -28px; top: 50%; width: 9px; height: 1px; background: rgba(255,255,255,.14) }
+  .A .beam li.done { color: var(--dim) }
+  .A .beam li.on { color: var(--ink); font-weight: 640 }
+  .A .beam li.on::before { width: 15px; left: -30px; height: 2px; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2) }
+  .A .body { flex: 1; padding: 32px 34px 26px; display: flex; flex-direction: column; min-width: 0 }
+  .A h3.t { font-size: 29px }
+
+  /* =====================================================================
+     B  INDEX   no band, one hairline, the quietest thing that works
+     ===================================================================== */
+  .B { background: #0a0b0f }
+  .B .row { flex: 1; display: flex; min-height: 0; position: relative; z-index: 4 }
+  .B .idx { width: 200px; flex: none; padding: 30px 24px 22px 30px; display: flex; flex-direction: column;
+    border-right: 1px solid var(--line) }
+  .B .idx ol { margin: 34px 0 0; padding: 0; list-style: none }
+  .B .idx li { position: relative; height: 30px; display: flex; align-items: center; gap: 12px;
+    font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint) }
+  .B .idx li span { color: rgba(255,255,255,.16) }
+  .B .idx li.done, .B .idx li.done span { color: var(--dim2) }
+  .B .idx li.on { color: var(--ink); font-weight: 700 } .B .idx li.on span { color: var(--accent-2) }
+  .B .idx li.on::before { content: ""; position: absolute; left: -30px; width: 4px; height: 4px; border-radius: 99px; background: var(--accent-2) }
+  .B .body { flex: 1; padding: 44px 40px 26px; display: flex; flex-direction: column; min-width: 0 }
+  .B h3.t { font-size: 33px }
+
+  /* =====================================================================
+     C  COUNTERWEIGHT   statement left, every fact and action in the right rail
+     ===================================================================== */
+  .C .row { flex: 1; display: flex; min-height: 0; position: relative; z-index: 4 }
+  .C .say { flex: 1; padding: 34px 24px 26px 36px; display: flex; flex-direction: column; min-width: 0 }
+  .C h3.t { font-size: 40px }
+  .C .rail { width: 224px; flex: none; background: rgba(255,255,255,.035); border-left: 1px solid var(--line);
+    padding: 26px 22px 22px; display: flex; flex-direction: column }
+  .C .rail .dots { display: flex; gap: 5px; margin-bottom: 20px }
+  .C .rail .dots i { height: 3px; flex: 1; border-radius: 3px; background: rgba(255,255,255,.12) }
+  .C .rail .dots i.on { background: var(--accent-2) } .C .rail .dots i.done { background: rgba(143,143,240,.4) }
+  .C .rail .acts { margin-top: auto; display: flex; flex-direction: column; gap: 8px }
+  .C .rail .cta, .C .rail .ghost { width: 100%; padding: 0 }
+
+  /* =====================================================================
+     D  TRANSPORT   the step rail and the progress bar are one object
+     ===================================================================== */
+  .D .pad { position: relative; z-index: 4; flex: 1; padding: 30px 40px 0; display: flex; flex-direction: column; min-height: 0 }
+  .D h3.t { font-size: 46px }
+  .D .deck { position: relative; z-index: 5; flex: none; height: 66px; display: flex; align-items: center; gap: 18px;
+    padding: 0 18px 0 20px; border-top: 1px solid var(--line); background: rgba(0,0,0,.34) }
+  .D .scrub { flex: 1; position: relative; height: 22px; display: flex; align-items: center; cursor: default }
+  .D .scrub .bed { position: absolute; left: 0; right: 0; height: 3px; border-radius: 3px; background: rgba(255,255,255,.13) }
+  .D .scrub .fill { position: absolute; left: 0; height: 3px; border-radius: 3px; overflow: hidden;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2)) }
+  .D .scrub .stop { position: absolute; width: 7px; height: 7px; border-radius: 99px; background: #22252e;
+    border: 1.5px solid rgba(255,255,255,.22); transform: translateX(-50%) }
+  .D .scrub .stop.done { background: var(--accent-2); border-color: var(--accent-2) }
+  .D .scrub .head { position: absolute; width: 13px; height: 13px; border-radius: 99px; background: #fff;
+    transform: translateX(-50%); box-shadow: 0 0 0 4px rgba(143,143,240,.28), 0 3px 8px rgba(0,0,0,.6) }
+  .D .stamp { font-size: 11px; color: var(--dim2); letter-spacing: .04em; white-space: nowrap }
+
+  /* =====================================================================
+     E  QUIET WINDOW   setup wearing the app's own chrome
+     ===================================================================== */
+  .E .top { position: relative; z-index: 6; height: 38px; flex: none; display: flex; align-items: center; gap: 10px;
+    padding-left: 12px; border-bottom: 1px solid var(--line) }
+  .E .top .who { font-size: 12px; font-weight: 620; letter-spacing: -.01em; color: var(--dim) }
+  .E .top .wc { margin-left: auto; display: flex } .E .top .wc i { width: 42px; height: 37px; display: grid; place-items: center;
+    color: var(--faint); font-size: 11px; font-style: normal }
+  .E .row { flex: 1; display: flex; min-height: 0; position: relative; z-index: 4 }
+  .E .rail { width: 46px; flex: none; border-right: 1px solid var(--line); padding: 10px 0; display: flex;
+    flex-direction: column; align-items: center; gap: 6px; opacity: .34 }
+  .E .rail i { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--dim) }
+  .E .rail i.last { margin-top: auto }
+  .E .stagearea { flex: 1; display: grid; place-items: center; padding: 26px 40px 30px; min-width: 0 }
+  .E .plate { width: 100%; max-width: 400px; display: flex; flex-direction: column; align-items: center; text-align: center }
+  .E h3.t { font-size: 25px }
+  .E .drop { width: 100%; border: 1.5px dashed rgba(255,255,255,.13); border-radius: 14px; padding: 22px;
+    display: flex; flex-direction: column; align-items: center; gap: 12px }
+
+  /* =====================================================================
+     F  CONTACT SHEET   the formats it bundles, shown rather than listed
+     ===================================================================== */
+  .F .sheet { position: relative; z-index: 2; height: 250px; flex: none; display: grid;
+    grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); gap: 2px; background: #05060a }
+  .F .sheet div { position: relative; overflow: hidden; filter: grayscale(1) brightness(.42); transition: filter .5s ease }
+  .F .sheet div.lit { filter: none }
+  .F .sheet div b { position: absolute; left: 7px; bottom: 6px; font-size: 8.5px; font-weight: 800; letter-spacing: .13em;
+    color: rgba(255,255,255,.9); text-shadow: 0 1px 4px rgba(0,0,0,.8) }
+  .F .s1 { background: linear-gradient(150deg,#8a2f2a,#d1653a 48%,#2b3a63) }
+  .F .s2 { background: linear-gradient(160deg,#0f2038,#2f5f9e 58%,#9cc4ef) }
+  .F .s3 { background: linear-gradient(140deg,#0e2b2a,#1f7a72 55%,#63d3bd) }
+  .F .s4 { background: linear-gradient(200deg,#2a1c40,#6a4bb0 60%,#c9a6f2) }
+  .F .s5 { background: linear-gradient(140deg,#1a1b22,#3a3d4a); display: grid; place-items: center }
+  .F .s5::after { content: ""; width: 0; height: 0; border-left: 15px solid rgba(255,255,255,.85);
+    border-top: 9px solid transparent; border-bottom: 9px solid transparent }
+  .F .s6 { background: linear-gradient(160deg,#141a2e,#26304f); display: grid; place-items: center }
+  .F .s7 { background: linear-gradient(150deg,#3a2410,#8a5a25 62%,#e0b070) }
+  .F .s8 { background: #d9dce3; display: grid; place-items: center }
+  .F .s8::after { content: ""; width: 42px; height: 54px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.35);
+    border-radius: 2px }
+  .F .wave { display: flex; align-items: center; gap: 3px; height: 44px }
+  .F .wave i { width: 3px; border-radius: 3px; background: rgba(255,255,255,.75) }
+  .F .scrim { position: absolute; z-index: 3; left: 0; right: 0; top: 132px; height: 160px;
+    background: linear-gradient(180deg, transparent, #0b0d12 78%) }
+  .F .pad { position: relative; z-index: 4; flex: 1; padding: 4px 34px 26px; display: flex; flex-direction: column; min-height: 0 }
+  .F h3.t { font-size: 27px }
+
+  /* =====================================================================
+     G  HANDOFF   already a viewer, with setup docked as the control bar
+     ===================================================================== */
+  .G .photo { position: absolute; inset: 0; z-index: 0;
+    background: linear-gradient(180deg, #101a3a 0%, #2b2a5e 38%, #6b3f6a 62%, #b0653f 82%, #d98f4a 100%) }
+  .G .sun { position: absolute; z-index: 1; left: 58%; top: 55%; width: 108px; height: 108px; border-radius: 99px;
+    background: radial-gradient(circle, #ffd9a1, #f2a24f 58%, rgba(242,162,79,0) 72%); filter: blur(.4px) }
+  .G .ridge { position: absolute; z-index: 2; left: -4%; right: -4%; bottom: 0; height: 62% }
+  .G .r1 { background: #2a2350; clip-path: polygon(0 62%, 17% 40%, 33% 56%, 52% 28%, 71% 50%, 88% 34%, 100% 47%, 100% 100%, 0 100%) }
+  .G .r2 { background: #171334; clip-path: polygon(0 78%, 22% 60%, 41% 74%, 63% 52%, 82% 70%, 100% 60%, 100% 100%, 0 100%) }
+  .G .r3 { background: #0a0814; clip-path: polygon(0 92%, 30% 80%, 55% 90%, 78% 76%, 100% 86%, 100% 100%, 0 100%) }
+  .G .dim { position: absolute; inset: 0; z-index: 3; background: linear-gradient(180deg, rgba(6,7,12,.5), rgba(6,7,12,.1) 40%, rgba(6,7,12,.72)) }
+  .G .cap { color: rgba(255,255,255,.6) }
+  .G .deck { position: absolute; z-index: 6; left: 26px; right: 26px; bottom: 24px; border-radius: 15px;
+    background: rgba(12,13,20,.72); backdrop-filter: blur(26px) saturate(1.3); border: 1px solid rgba(255,255,255,.16);
+    box-shadow: 0 26px 60px -26px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.09); padding: 16px 18px }
+  .G .deck .head { display: flex; align-items: center; gap: 12px }
+  .G .deck .head .txt { min-width: 0 } .G .deck .head .txt b { display: block; font-size: 14.5px; font-weight: 700; letter-spacing: -.02em }
+  .G .deck .head .txt span { display: block; font-size: 11.5px; color: var(--dim2); margin-top: 2px }
+  .G .deck .more { margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1) }
+
+  /* =====================================================================
+     H  STACK   one column, one hairline, nothing else
+     ===================================================================== */
+  .H { background: #0a0b10 }
+  .H .top { position: absolute; z-index: 5; left: 0; top: 0; height: 2px; background: var(--accent-2);
+    box-shadow: 0 0 10px rgba(143,143,240,.6); transition: width .4s cubic-bezier(.23,1,.32,1) }
+  .H .pad { position: relative; z-index: 4; flex: 1; padding: 0 56px; display: flex; flex-direction: column;
+    justify-content: center; min-height: 0 }
+  .H .col { width: 100%; max-width: 380px }
+  .H h3.t { font-size: 30px }
+  .H .base { position: relative; z-index: 5; flex: none; height: 62px; display: flex; align-items: center;
+    padding: 0 22px 0 56px; gap: 14px }
+
+  @media (prefers-reduced-motion: reduce) { .sheen { animation: none; opacity: 0 } }
+</style>
+</head>
+<body>
+
+<h1>Setup, round two</h1>
+<p class="sub">Spine, re-cut four ways, and four that start somewhere else. Everything is drawn at 640&times;480 with the states the real thing has to carry: Back dead on screen one, Cancel while it copies, space required against space free, the file being written. <b>A&ndash;D</b> keep the spine idea (a band that says where you are) and argue about what belongs in it. <b>E&ndash;H</b> drop it. Accent is Prism's indigo, not a stock installer blue.</p>
+
+<div class="bar">
+  <span class="lbl">Screen</span>
+  <button class="btn" data-step="0" aria-pressed="true">1 Welcome</button>
+  <button class="btn" data-step="1">2 Where</button>
+  <button class="btn" data-step="2">3 Installing</button>
+  <button class="btn" data-step="3">4 Ready</button>
+</div>
+
+<div class="wall" id="wall"></div>
+
+<script>
+/* the mark: two lit faces, and the base facet only when it is big enough to read */
+const MARK = (s = 34, flat = false) => `
+  <svg class="mark" width="${s}" height="${s}" viewBox="0 0 1024 1024" aria-hidden>
+    <path class="a" d="M512 ${flat ? 224 : 180} ${flat ? '470 746 190 800' : '468 742 168 800'}z"/>
+    <path class="b" d="M512 ${flat ? 224 : 180} ${flat ? '834 708 470 746' : '856 700 468 742'}z"/>
+    ${flat ? '' : '<path class="c" d="M468 742 856 700 512 844 168 800z"/>'}
+  </svg>`
+
+const FOLDER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+  stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`
+const ICON = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+  stroke-linecap="round" stroke-linejoin="round">${d}</svg>`
+const I_TREE = ICON('<path d="M4 6h16M4 12h10M4 18h13"/>')
+const I_IMG = ICON('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4 4 3 3-2 4 3"/>')
+const I_COG = ICON('<circle cx="12" cy="12" r="3.2"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-12.8-1.4 1.4m-10 10-1.4 1.4"/>')
+const I_CLOUD = ICON('<path d="M7 17a4 4 0 0 1 .6-8 5.2 5.2 0 0 1 9.9 1.2A3.5 3.5 0 0 1 17 17"/><path d="M12 11v6m0 0-2.4-2.4M12 17l2.4-2.4"/>')
+
+const PATH = 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Prism'
+const CAP = (t, cls = 'cap') => `<div class="${cls}">${MARK(15, true)}<span>${t}</span><span class="x">&#10005;</span></div>`
+
+/* Copy. An installer is read in about four seconds, so it gets four seconds of words. */
+const HEAD = ['Prism opens what you double-click.', 'It installs here.', 'Copying.', 'Ready.']
+const BODY = [
+  'Images, video, audio, PDFs and text in one window. Arrow through the folder and close it. No library, no account.',
+  'For you only, so it needs no administrator, writes nothing outside this folder, and starts nothing at boot.',
+  'A few seconds. Nothing is registered until you ask for it.',
+  'Prism is in your Start menu. Make it the handler for a file type whenever you like, from Settings.'
+]
+const SHORT = ['A viewer, not a library', 'Where it goes', 'Installing', 'All set']
+const STEPS = ['Welcome', 'Location', 'Install', 'Finish']
+const NEXT = ['Continue', 'Install', 'Cancel', 'Finish']
+const FILE = 'resources\\decoders\\heif.dll'
+
+const FACTS = `
+  <dl class="facts">
+    <dt>Download</dt><dd>240 MB, everything inside</dd>
+    <dt>Decoders</dt><dd>HEIC AVIF JXL HEVC AV1 FLAC</dd>
+    <dt>Needs</dt><dd>Windows 10 1809 or newer</dd>
+  </dl>`
+const SPACE = '<div class="micro" style="margin-top:10px">240 MB required <span style="color:var(--faint)">&middot;</span> 412 GB free on C:</div>'
+const CHECKS = (gap = 12) => `
+  <div style="display:flex;flex-direction:column;gap:${gap}px">
+    <span class="check on"><i></i>Open Prism now</span>
+    <span class="check"><i></i>Make Prism the default viewer</span>
+  </div>`
+
+const DESIGNS = [
+
+/* ── A ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'A', name: 'Refract', kin: 'spine',
+  note: 'the spine is a beam that splits as you walk it: done steps are lit spectrum, ahead is unlit grey',
+  render: (s) => `
+    <div class="win A"><div class="wash"></div><div class="grain"></div>
+      ${CAP('Prism Setup')}
+      <div class="row">
+        <div class="spine">
+          <div style="display:flex;align-items:center;gap:10px;padding-right:20px">${MARK(24, true)}
+            <span class="disp" style="font-size:15px;font-weight:780;letter-spacing:-.03em">Prism</span></div>
+          <div class="beam">
+            <div class="lit" style="height:${18 + s * 40}px"></div>
+            <ul>${STEPS.map((n, i) => `<li class="${i === s ? 'on' : i < s ? 'done' : ''}">${n}</li>`).join('')}</ul>
+          </div>
+          <div class="mono" style="font-size:10px;color:var(--faint);padding-right:20px;letter-spacing:.02em">1.0.0<br>x64 &middot; per user</div>
+        </div>
+        <div class="body">
+          <h3 class="t disp">${SHORT[s]}</h3>
+          <p class="b" style="margin-top:14px;max-width:38ch">${BODY[s]}</p>
+
+          ${s === 0 ? `<div class="rule" style="margin:22px 0 16px"></div>${FACTS}` : ''}
+          ${s === 1 ? `<div class="field" style="margin-top:22px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>${SPACE}` : ''}
+          ${s === 2 ? `
+            <div style="margin-top:26px">
+              <div style="position:relative;height:3px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden">
+                <div style="position:absolute;inset:0 38% 0 0;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))"><span class="sheen"></span></div>
+              </div>
+              <div class="mono" style="display:flex;justify-content:space-between;margin-top:11px;font-size:10.5px;color:var(--dim2)">
+                <span>${FILE}</span><span>62%</span></div>
+            </div>` : ''}
+          ${s === 3 ? `<div style="margin-top:22px">${CHECKS()}</div>` : ''}
+
+          <div class="foot">
+            <button class="link" ${s !== 1 ? 'disabled' : ''}>Back</button>
+            <button class="cta" style="margin-left:auto">${NEXT[s]}</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+},
+
+/* ── B ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'B', name: 'Index', kin: 'spine',
+  note: 'the band becomes a hairline and a set index; one filled shape on the whole screen, and it is the button',
+  render: (s) => `
+    <div class="win B">
+      ${CAP('Prism Setup')}
+      <div class="row">
+        <div class="idx">
+          ${MARK(22, true)}
+          <ol>${STEPS.map((n, i) => `<li class="${i === s ? 'on' : i < s ? 'done' : ''}"><span class="mono">0${i + 1}</span>${n}</li>`).join('')}</ol>
+          <div class="mono" style="margin-top:auto;font-size:10px;color:var(--faint);line-height:1.7">
+            PRISM 1.0.0<br>240 MB<br>PER USER</div>
+        </div>
+        <div class="body">
+          <h3 class="t disp" style="max-width:11ch">${HEAD[s]}</h3>
+          <p class="b" style="margin-top:20px;max-width:40ch;font-size:12.5px">${BODY[s]}</p>
+
+          ${s === 0 ? `
+            <div class="micro" style="margin-top:26px;color:var(--faint);letter-spacing:.02em">
+              JPG PNG WEBP AVIF HEIC GIF<br>MP4 MKV MOV HEVC AV1<br>MP3 FLAC OPUS &middot; PDF TXT MD</div>` : ''}
+          ${s === 1 ? `<div class="field" style="margin-top:26px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>${SPACE}` : ''}
+          ${s === 2 ? `
+            <div class="mono" style="margin-top:28px;font-size:10.5px;color:var(--dim2);display:flex;flex-direction:column;gap:6px">
+              <span style="color:var(--faint)">Prism.exe</span>
+              <span style="color:var(--faint)">resources\\app.asar</span>
+              <span style="color:var(--ink)">${FILE}</span>
+            </div>
+            <div style="margin-top:20px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1;position:relative;height:1px;background:rgba(255,255,255,.12)">
+                <div style="position:absolute;left:0;top:-1px;width:62%;height:3px;background:var(--accent-2)"></div></div>
+              <span class="mono" style="font-size:10.5px;color:var(--dim2)">62%</span>
+            </div>` : ''}
+          ${s === 3 ? `<div style="margin-top:26px">${CHECKS(14)}</div>` : ''}
+
+          <div class="foot">
+            <button class="link" ${s !== 1 ? 'disabled' : ''}>Back</button>
+            <button class="cta" style="margin-left:auto">${NEXT[s]}</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+},
+
+/* ── C ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'C', name: 'Counterweight', kin: 'spine',
+  note: 'spine moved right and given a job: it carries the facts and the buttons, so the footer bar disappears',
+  render: (s) => `
+    <div class="win C"><div class="wash"></div><div class="grain"></div>
+      ${CAP('Prism Setup')}
+      <div class="row">
+        <div class="say">
+          <h3 class="t disp" style="max-width:9ch">${HEAD[s]}</h3>
+          <p class="b" style="margin-top:18px;max-width:34ch;font-size:12.5px">${BODY[s]}</p>
+
+          ${s === 0 ? `
+            <div class="micro" style="margin-top:auto;padding-top:20px;border-top:1px solid var(--line);max-width:36ch;color:var(--faint)">
+              Every decoder ships inside the installer. No codec pack, no first-run download, nothing added to
+              your system's media stack.</div>` : ''}
+          ${s === 1 ? `<div class="field" style="margin-top:26px;max-width:340px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>` : ''}
+          ${s === 2 ? `
+            <div style="margin-top:auto;padding-top:20px">
+              <div class="mono" style="font-size:10.5px;color:var(--dim2)">${FILE}</div>
+              <div style="margin-top:12px;position:relative;height:3px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;max-width:340px">
+                <div style="position:absolute;inset:0 38% 0 0;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))"><span class="sheen"></span></div>
+              </div>
+            </div>` : ''}
+          ${s === 3 ? `<div style="margin-top:26px">${CHECKS(13)}</div>` : ''}
+        </div>
+
+        <div class="rail">
+          <div class="dots">${STEPS.map((_, i) => `<i class="${i === s ? 'on' : i < s ? 'done' : ''}"></i>`).join('')}</div>
+          <div class="over">${['What it is', 'Destination', 'Progress', 'Done'][s]}</div>
+
+          <div style="margin-top:14px">
+            ${s === 2 ? `
+              <dl class="facts"><dt>Writing</dt><dd class="mono" style="font-size:10.5px">heif.dll</dd>
+                <dt>Files</dt><dd>1 640 of 2 704</dd><dt>Left</dt><dd>about 4 seconds</dd></dl>`
+            : s === 3 ? `
+              <dl class="facts"><dt>Installed</dt><dd>240 MB</dd><dt>Where</dt><dd class="mono" style="font-size:10px;line-height:1.5">…\\Programs\\Prism</dd>
+                <dt>Start menu</dt><dd>Added</dd></dl>`
+            : `
+              <dl class="facts"><dt>Size</dt><dd>240 MB</dd><dt>Free</dt><dd>412 GB on C:</dd>
+                <dt>Scope</dt><dd>This user</dd><dt>Admin</dt><dd>Not needed</dd></dl>`}
+          </div>
+
+          <div class="acts">
+            ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+            <button class="cta">${NEXT[s]}</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+},
+
+/* ── D ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'D', name: 'Transport', kin: 'spine',
+  note: 'the spine lies down: step markers and the copy progress are the same scrubber, the way a player would do it',
+  render: (s) => {
+    const pos = [4, 36, 62, 100][s]
+    return `
+    <div class="win D"><div class="wash"></div><div class="grain"></div>
+      ${CAP('Prism Setup')}
+      <div class="pad">
+        <div style="margin-top:16px">${MARK(30, true)}</div>
+        <h3 class="t disp" style="margin-top:auto;max-width:11ch">${HEAD[s]}</h3>
+        <p class="b" style="margin:16px 0 26px;max-width:42ch">${BODY[s]}</p>
+
+        ${s === 0 ? `
+          <div class="micro" style="margin-bottom:26px;color:var(--faint);letter-spacing:.04em;font-size:11px">
+            240 MB &nbsp;·&nbsp; per user &nbsp;·&nbsp; no administrator &nbsp;·&nbsp; decoders included</div>` : ''}
+        ${s === 1 ? `<div class="field" style="max-width:400px;margin-bottom:24px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>` : ''}
+        ${s === 2 ? `<div class="mono" style="font-size:10.5px;color:var(--dim2);margin-bottom:26px">${FILE} &nbsp;·&nbsp; 1 640 of 2 704</div>` : ''}
+        ${s === 3 ? `<div style="margin-bottom:24px;display:flex;gap:26px">
+            <span class="check on"><i></i>Open Prism now</span>
+            <span class="check"><i></i>Make it the default viewer</span></div>` : ''}
+      </div>
+
+      <div class="deck">
+        <button class="link" ${s !== 1 ? 'disabled' : ''}>Back</button>
+        <div class="scrub">
+          <div class="bed"></div>
+          <div class="fill" style="width:${pos}%">${s === 2 ? '<span class="sheen"></span>' : ''}</div>
+          ${[4, 36, 62, 100].map((p, i) => i === s ? '' :
+            `<span class="stop ${i < s ? 'done' : ''}" style="left:${p}%"></span>`).join('')}
+          <span class="head" style="left:${pos}%"></span>
+        </div>
+        <span class="stamp mono">${s + 1} / 4 &nbsp;${STEPS[s]}</span>
+        <button class="cta">${NEXT[s]}</button>
+      </div>
+    </div>`
+  }
+},
+
+/* ── E ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'E', name: 'Quiet window', kin: 'new',
+  note: 'setup wears the app: real title bar, real rail greyed out until it exists, and the content sits where media will',
+  render: (s) => `
+    <div class="win E"><div class="wash"></div>
+      <div class="top">${MARK(17, true)}<span class="who">Prism</span>
+        <div class="wc"><i>&#8210;</i><i>&#9723;</i><i>&#10005;</i></div></div>
+      <div class="row">
+        <div class="rail"><i>${I_TREE}</i><i>${I_IMG}</i><i class="last">${I_COG}</i></div>
+        <div class="stagearea">
+          <div class="plate">
+            ${s === 0 ? `
+              <div class="drop">
+                <span style="color:var(--dim2)">${I_CLOUD}</span>
+                <h3 class="t disp" style="font-size:22px">Nothing here yet</h3>
+                <p class="b" style="font-size:12.5px;max-width:34ch">This is the window you get. Install Prism and
+                  the next file you double-click lands right here.</p>
+              </div>
+              <div class="micro" style="margin-top:18px;color:var(--faint)">240 MB &middot; per user &middot; decoders included</div>
+              <button class="cta" style="margin-top:20px;padding:0 28px">Install Prism</button>` : ''}
+
+            ${s === 1 ? `
+              <h3 class="t disp">Where it goes</h3>
+              <p class="b" style="margin-top:12px;font-size:12.5px;max-width:36ch">${BODY[1]}</p>
+              <div class="field" style="margin-top:22px;width:100%;text-align:left">${FOLDER}<span>${PATH}</span><button>Browse</button></div>
+              <div class="micro" style="margin-top:10px">240 MB required &middot; 412 GB free</div>
+              <div style="display:flex;gap:10px;margin-top:24px"><button class="ghost">Back</button><button class="cta">Install</button></div>` : ''}
+
+            ${s === 2 ? `
+              <h3 class="t disp">Making room</h3>
+              <div style="margin-top:24px;width:100%;position:relative;height:3px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden">
+                <div style="position:absolute;inset:0 38% 0 0;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))"><span class="sheen"></span></div></div>
+              <div class="mono" style="margin-top:12px;font-size:10.5px;color:var(--dim2)">${FILE}</div>
+              <button class="ghost" style="margin-top:26px">Cancel</button>` : ''}
+
+            ${s === 3 ? `
+              <div style="filter:drop-shadow(0 10px 26px rgba(91,91,214,.5))">${MARK(52)}</div>
+              <h3 class="t disp" style="margin-top:18px">Open something</h3>
+              <p class="b" style="margin-top:10px;font-size:12.5px;max-width:32ch">Drag a file onto this window, or set
+                Prism as the handler for the types you care about.</p>
+              <div style="margin-top:20px">${CHECKS(11)}</div>
+              <button class="cta" style="margin-top:22px;padding:0 28px">Finish</button>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>`
+},
+
+/* ── F ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'F', name: 'Contact sheet', kin: 'new',
+  note: 'the bundled decoders as a sheet of frames: grey until installed, in colour when they are',
+  render: (s) => {
+    const lit = [0, 0, 5, 8][s]
+    const kinds = ['JPG', 'PNG', 'AVIF', 'HEIC', 'MP4', 'FLAC', 'JXL', 'PDF']
+    const cell = (i) => {
+      const inner = i === 5 ? `<div class="wave">${[14, 26, 38, 30, 20, 34, 24, 12].map((h) => `<i style="height:${h}px"></i>`).join('')}</div>` : ''
+      return `<div class="s${i + 1} ${i < lit ? 'lit' : ''}">${inner}<b>${kinds[i]}</b></div>`
+    }
+    return `
+    <div class="win F">
+      ${CAP('Prism Setup')}
+      <div class="sheet">${kinds.map((_, i) => cell(i)).join('')}</div>
+      <div class="scrim"></div>
+      <div class="pad">
+        <h3 class="t disp">${['Every format, in the box', 'Where it goes', 'Unpacking decoders', 'All eight, and the rest'][s]}</h3>
+        <p class="b" style="margin-top:12px;max-width:46ch;font-size:12.5px">${[
+          'HEIC from a phone, AVIF from the web, HEVC and AV1 video, FLAC and Opus audio. No codec pack, no first run download.',
+          BODY[1], 'Each one is unpacked into the Prism folder and used only by Prism.',
+          'Prism is in your Start menu and ready for whatever you point it at.'][s]}</p>
+
+        ${s === 1 ? `<div class="field" style="margin-top:18px;max-width:420px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>` : ''}
+        ${s === 2 ? `<div class="mono" style="margin-top:16px;font-size:10.5px;color:var(--dim2)">${FILE} &nbsp;·&nbsp; 5 of 8</div>` : ''}
+        ${s === 3 ? `<div style="margin-top:16px;display:flex;gap:24px">
+          <span class="check on"><i></i>Open Prism now</span>
+          <span class="check"><i></i>Make it the default viewer</span></div>` : ''}
+
+        <div class="foot">
+          <span class="micro">${['240 MB · per user · no administrator', '240 MB required · 412 GB free', 'Nothing is registered yet', 'Version 1.0.0'][s]}</span>
+          ${s === 1 ? '<button class="ghost" style="margin-left:auto">Back</button><button class="cta">Install</button>'
+            : `<button class="cta" style="margin-left:auto">${NEXT[s]}</button>`}
+        </div>
+      </div>
+    </div>`
+  }
+},
+
+/* ── G ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'G', name: 'Handoff', kin: 'new',
+  note: 'the window is already showing a picture; setup is the control bar over it, and it leaves when it is done',
+  render: (s) => `
+    <div class="win G">
+      <div class="photo"></div><div class="sun"></div>
+      <div class="ridge r1"></div><div class="ridge r2"></div><div class="ridge r3"></div>
+      <div class="dim"></div>
+      ${CAP('ridge-line.heic &nbsp;·&nbsp; 4032 × 3024')}
+      <div class="deck">
+        <div class="head">
+          ${s === 3 ? `<div style="filter:drop-shadow(0 6px 16px rgba(91,91,214,.55))">${MARK(30)}</div>` : MARK(30)}
+          <div class="txt" style="flex:1">
+            <b class="disp">${['Install Prism', 'Where it goes', 'Copying', 'This is Prism'][s]}</b>
+            <span>${[
+              '240 MB · per user · no administrator · decoders included',
+              'Nothing is written outside this folder',
+              'resources\\decoders\\heif.dll · 62%',
+              'Everything behind this bar is the viewer you just installed'][s]}</span>
+          </div>
+          ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+          <button class="${s === 2 ? 'ghost' : 'cta'}">${NEXT[s]}</button>
+        </div>
+
+        ${s === 1 ? `<div class="more" style="display:flex;align-items:center;gap:12px">
+            <div class="field" style="flex:1;height:34px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>
+            <span class="micro" style="white-space:nowrap">412 GB free</span></div>` : ''}
+        ${s === 2 ? `<div class="more">
+            <div style="position:relative;height:3px;border-radius:3px;background:rgba(255,255,255,.16);overflow:hidden">
+              <div style="position:absolute;inset:0 38% 0 0;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))"><span class="sheen"></span></div>
+            </div></div>` : ''}
+        ${s === 3 ? `<div class="more" style="display:flex;gap:26px">
+            <span class="check on"><i></i>Open Prism now</span>
+            <span class="check"><i></i>Make it the default viewer</span></div>` : ''}
+      </div>
+    </div>`
+},
+
+/* ── H ─────────────────────────────────────────────────────────────────── */
+{
+  id: 'H', name: 'Stack', kin: 'new',
+  note: 'one column, ranged left, and a hairline across the top edge that is the only thing tracking progress',
+  render: (s) => `
+    <div class="win H">
+      <div class="top" style="width:${[16, 42, 74, 100][s]}%"></div>
+      ${CAP('&nbsp;')}
+      <div class="pad">
+        <div class="col">
+          ${s === 0 ? `<div style="margin-bottom:26px">${MARK(34, true)}</div>` : ''}
+          <div class="over" style="margin-bottom:14px">${['Setup', 'Step 1 of 2', 'Step 2 of 2', 'Finished'][s]}</div>
+          <h3 class="t disp">${HEAD[s]}</h3>
+          <p class="b" style="margin-top:16px;font-size:12.5px">${BODY[s]}</p>
+
+          ${s === 0 ? `<div class="micro" style="margin-top:24px;color:var(--faint)">240 MB, decoders included. Nothing else to download.</div>` : ''}
+          ${s === 1 ? `<div class="field" style="margin-top:22px">${FOLDER}<span>${PATH}</span><button>Browse</button></div>${SPACE}` : ''}
+          ${s === 2 ? `
+            <div class="mono" style="margin-top:24px;font-size:10.5px;color:var(--dim2);display:flex;justify-content:space-between">
+              <span>${FILE}</span><span>62%</span></div>` : ''}
+          ${s === 3 ? `<div style="margin-top:22px">${CHECKS(13)}</div>` : ''}
+        </div>
+      </div>
+      <div class="base">
+        <span class="mono" style="font-size:10px;color:var(--faint);letter-spacing:.1em">PRISM 1.0.0</span>
+        <button class="link" style="margin-left:auto" ${s !== 1 ? 'disabled' : ''}>Back</button>
+        <button class="cta">${NEXT[s]}</button>
+      </div>
+    </div>`
+}
+]
+
+const state = {}
+DESIGNS.forEach((d) => (state[d.id] = 0))
+
+function paint(id) {
+  const d = DESIGNS.find((x) => x.id === id)
+  document.querySelector(`[data-stage="${id}"]`).innerHTML = d.render(state[id])
+  document.querySelectorAll(`[data-case="${id}"] .steps b`).forEach((b, i) => b.classList.toggle('on', i === state[id]))
+}
+
+document.getElementById('wall').innerHTML = DESIGNS.map((d) => `
+  <section class="case" data-case="${d.id}">
+    <header><h2>${d.id}. ${d.name}<em>${d.kin === 'spine' ? 'spine' : 'new'}</em></h2>
+      <span class="note">${d.note}</span>
+      <div class="steps">${[1, 2, 3, 4].map((n, i) => `<b data-go="${d.id}|${i}">${n}</b>`).join('')}</div>
+    </header>
+    <div class="stage" data-stage="${d.id}"></div>
+  </section>`).join('')
+DESIGNS.forEach((d) => paint(d.id))
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]')
+  if (go) { const [id, s] = go.dataset.go.split('|'); state[id] = Number(s); paint(id); return }
+  const st = e.target.closest('.btn[data-step]')
+  if (st) {
+    DESIGNS.forEach((d) => { state[d.id] = Number(st.dataset.step); paint(d.id) })
+    document.querySelectorAll('.btn[data-step]').forEach((b) => b.setAttribute('aria-pressed', String(b === st)))
+  }
+  const chk = e.target.closest('.check')
+  if (chk) chk.classList.toggle('on')
+})
+
+document.addEventListener('keydown', (e) => {
+  const i = { ArrowRight: 1, ArrowLeft: -1 }[e.key]
+  if (!i) return
+  const cur = Number(document.querySelector('.btn[aria-pressed="true"]').dataset.step)
+  const next = Math.min(3, Math.max(0, cur + i))
+  document.querySelector(`.btn[data-step="${next}"]`).click()
+})
+</script>
+</body>
+</html>

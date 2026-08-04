@@ -42,6 +42,9 @@ const api = {
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
+  /** True when setup asked for the first-run guide, whatever this machine has
+   *  already seen. */
+  forceSetup: process.argv.includes('--prism-setup'),
   /** Ask Windows for a translucent window material ('acrylic', 'mica', 'none'),
    *  in the given mode: DWM tints its own blur, so it has to be told. */
   setWindowMaterial: (material: string, mode: string): void =>

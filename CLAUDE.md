@@ -61,8 +61,10 @@ plan live in `docs/superpowers/`.
 Standard Electron three-layer split (`src/main`, `src/preload`, `src/renderer`), mirroring
 Filesmith's conventions.
 
-- **The viewer is not built here.** It lives in a shared package, **`prism-core`**, which also
-  powers Filesmith's previews. Prism is a thin app shell around `prism-core`:
+- **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
+  would also power Filesmith's previews, but it has not been extracted: `ImageView`,
+  `VideoView`, `AudioView`, `Visualizer` and the `fsmedia://` protocol are all in this repo
+  today. When it is extracted, the split is:
   - `prism-core` owns: the image / video / audio / PDF / text viewer React components, the
     audio visualizer, the `fsmedia://` streaming protocol (Range-aware, so `<video>`/`<audio>`
     can seek), file-kind detection, and thumbnail generation.

@@ -1,5 +1,11 @@
 import { useSyncExternalStore } from 'react'
-import { THEMES, DEFAULT_STYLE_ID, DEFAULT_THEME_ID, DEFAULT_DROP_STYLE } from './viz/styles'
+import {
+  ACCENT_THEME_ID,
+  THEMES,
+  DEFAULT_STYLE_ID,
+  DEFAULT_THEME_ID,
+  DEFAULT_DROP_STYLE
+} from './viz/styles'
 
 // A tiny reactive store for the visualizer + transport-colour settings, so the
 // in-canvas gear panel (AudioView) and the app Settings window are two views over
@@ -172,8 +178,11 @@ function apply(p: Partial<VizState>): void {
 }
 
 /** Themes still visible in the picker (not curated out). */
+/** The schemes a picker offers. The accent-following one is left out: it is not
+ *  a colour of its own, and offering it as an *accent* would be circular. The
+ *  visualizer's own picker puts it back, resolved. */
 export function visibleThemes(): typeof THEMES {
-  return THEMES.filter((t) => !state.removed.includes(t.id))
+  return THEMES.filter((t) => !state.removed.includes(t.id) && t.id !== ACCENT_THEME_ID)
 }
 
 export const setStyle = (id: string): void => {
@@ -303,6 +312,9 @@ export function restoreThemes(): void {
   localStorage.removeItem(K.removed)
   apply({ removed: [] })
 }
+
+/** The current settings, for callers that are not components. */
+export const vizState = (): VizState => state
 
 export function useViz(): VizState {
   return useSyncExternalStore(
