@@ -1,6 +1,8 @@
 import { useState, type JSX, type ReactNode } from 'react'
 import {
   isEdited,
+  paintedAlpha,
+  rgba,
   savePreset,
   setMode,
   setOverride,
@@ -12,6 +14,8 @@ import {
   type Style
 } from '../lib/theme'
 import { visibleThemes } from '../lib/vizStore'
+import { FrostBackdrop } from './FrostBackdrop'
+import appIcon from '../assets/icon.png'
 
 // The first-run setup: a full-window page, not a dialog. Four steps and a
 // welcome, each one animating in on the click that brought you to it - nothing
@@ -57,14 +61,18 @@ function ModeCards({ mode, onPick }: { mode: Mode; onPick?: (m: Mode) => void })
   )
 }
 
-/** A miniature of the window in a mode, for the two appearance cards. */
+/** A miniature of the window in a mode, for the two appearance cards. Both
+ *  defaults are acrylic, so it frosts exactly as the style cards do. */
 function ModePreview({ mode }: { mode: Mode }): JSX.Element {
   const st = stylesFor(mode)[0]
-  const bg = st?.bg ?? '#0b0d12'
-  const side = st?.side ?? '#12151b'
+  const glassA = st ? paintedAlpha(st) : 1
+  const frosted = glassA < 1
+  const bg = st ? (frosted ? rgba(st.bg, glassA) : st.bg) : '#0b0d12'
+  const side = st ? (frosted ? rgba(st.side, glassA) : st.side) : '#12151b'
   return (
-    <div className="flex h-[72px] overflow-hidden rounded-[9px]">
-      <div style={{ width: '32%', background: side }} />
+    <div className="relative flex h-[72px] overflow-hidden rounded-[9px]">
+      {frosted && <FrostBackdrop />}
+      <div className="relative" style={{ width: '32%', background: side }} />
       <div className="relative flex-1" style={{ background: bg }}>
         <div className="absolute left-[14%] right-[14%] top-[30%] h-[34%] rounded bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
       </div>
@@ -220,11 +228,32 @@ function Footer({
   )
 }
 
+/** Body copy with [Ctrl] [B] drawn as key caps. A shortcut is something you
+ *  press, and set as plain text mid-sentence it never looks like one. */
+function Body({ text }: { text: string }): JSX.Element {
+  return (
+    <>
+      {text.split(/(\[[^\]]+\])/g).map((part, i) =>
+        part.startsWith('[') && part.endsWith(']') ? (
+          <kbd
+            key={i}
+            className="mx-[2px] inline-flex min-w-[1.9em] items-center justify-center rounded-[6px] border border-[color:var(--p-divider)] border-b-2 border-b-[color:var(--p-divider)] bg-[var(--p-preview)] px-1.5 py-[1px] text-[13px] font-semibold text-[var(--p-text)]"
+          >
+            {part.slice(1, -1)}
+          </kbd>
+        ) : (
+          part
+        )
+      )}
+    </>
+  )
+}
+
 /* ---------- the page ---------- */
 
 const COPY = [
   { kicker: 'Appearance', head: ['Dark, or ', 'light', '.'], body: 'Both ship with their own styles. Change it whenever you like.' },
-  { kicker: 'The sidebar', head: ['Your folder, one key away.'], body: 'Ctrl+B opens the folder you came from. Click to view, arrow to move on.' },
+  { kicker: 'The sidebar', head: ['Your folder, one key away.'], body: '[Ctrl] [B] opens the folder you came from. Click to view, arrow to move on.' },
   { kicker: 'Style', head: ['Make it yours.'], body: 'Pick an accent now. The rest of the style is waiting in Settings.' },
   { kicker: 'One last thing', head: ['Open ', 'everything', ' with Prism.'], body: 'Images, video, audio, documents. Windows asks first, nothing changes behind your back.' }
 ]
@@ -270,15 +299,19 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
       <Shell>
         <div className="grid h-full place-items-center px-10 text-center">
           <div className="flex flex-col items-center">
-            <div
+            {/* The app's own icon, not a coloured square standing in for it:
+                this is the first thing anyone sees of Prism, and it should be
+                the same mark they will find on the taskbar. */}
+            <img
+              src={appIcon}
+              alt=""
               className="ob-logo h-[84px] w-[84px] rounded-[24px]"
-              style={{ background: 'linear-gradient(140deg, var(--p-accent), var(--p-accent-hi))' }}
+              draggable={false}
             />
             <h1 className="ob-in-1 mt-7 text-[60px] font-extrabold leading-none tracking-[-.05em] text-[var(--p-text)]">
               Welcome to Prism
             </h1>
-            <p className="ob-in-2 mt-4 text-[16.5px] text-[var(--p-dim)]">Open a file. Look at it. Move on.</p>
-            <button className="ob-in-3 mt-8 rounded-[10px] px-7 py-3 text-[15px] font-bold" onClick={() => go(0)} style={ctaStyle}>
+            <button className="ob-in-2 mt-9 rounded-[10px] px-7 py-3 text-[15px] font-bold" onClick={() => go(0)} style={ctaStyle}>
               Get started
             </button>
           </div>
@@ -305,7 +338,9 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
             </span>
           ))}
         </h1>
-        <p className="mt-4 max-w-[40ch] text-[15.5px] leading-relaxed text-[var(--p-dim)]">{c.body}</p>
+        <p className="mt-4 max-w-[40ch] text-[15.5px] leading-relaxed text-[var(--p-dim)]">
+          <Body text={c.body} />
+        </p>
 
         {step === 0 && <ModeCards mode={mode} onPick={pickMode} />}
 
@@ -376,11 +411,19 @@ function Sweep({ style, step }: { style: Style; step: number }): JSX.Element {
   const vars = variablesFor(style, true)
   const c = COPY[step]
   return (
-    <div aria-hidden className="ob-sweep pointer-events-none fixed inset-0 z-[60]" style={{ ...vars, background: 'var(--p-bg)' }}>
-      <div className="flex h-9 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
-        <span className="font-semibold text-[var(--p-accent-hi)]">Prism</span>
-      </div>
-      <div className="p-wash absolute inset-x-0 bottom-0 top-9 flex flex-col px-[62px] py-[52px]">
+    // The still stops at the title bar. Drawn opaque it was a dark slab where
+    // dark glass had been; drawn translucent it doubled up with the real bar
+    // underneath, which comes to the same thing. The bar is left alone and
+    // glides its own colour instead (see TopBar).
+    <div
+      aria-hidden
+      className="ob-sweep pointer-events-none fixed inset-x-0 bottom-0 top-9 z-[60]"
+      style={vars}
+    >
+      <div
+        className="p-wash absolute inset-0 flex flex-col px-[62px] py-[52px]"
+        style={{ backgroundColor: 'var(--p-bg)' }}
+      >
         <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[var(--p-accent-hi)]">{c.kicker}</div>
         <h1 className="mt-3.5 max-w-[15ch] text-[58px] font-extrabold leading-[.98] tracking-[-.045em] text-[var(--p-text)]">
           {c.head.map((part, i) => (
@@ -389,7 +432,9 @@ function Sweep({ style, step }: { style: Style; step: number }): JSX.Element {
             </span>
           ))}
         </h1>
-        <p className="mt-4 max-w-[40ch] text-[15.5px] leading-relaxed text-[var(--p-dim)]">{c.body}</p>
+        <p className="mt-4 max-w-[40ch] text-[15.5px] leading-relaxed text-[var(--p-dim)]">
+          <Body text={c.body} />
+        </p>
         {step === 0 && <ModeCards mode={style.mode} />}
         <Footer step={step} />
       </div>

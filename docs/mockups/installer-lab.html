@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism — installer, six ways</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body { margin: 0; padding: 24px 24px 72px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+  h1 { margin: 0 0 3px; font-size: 18px; font-weight: 700; letter-spacing: -.02em }
+  .sub { margin: 0 0 16px; color: #8a8e99; font-size: 12.5px; max-width: 108ch; line-height: 1.6 }
+  .bar { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; align-items: center }
+  .btn { border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; transition: .15s }
+  .btn:hover { border-color: rgba(255,255,255,.3); color: #fff }
+  .btn[aria-pressed="true"] { background: #2f6fed; border-color: #4d9dff; color: #fff; font-weight: 600 }
+  .lbl { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: #5b616e; margin: 0 6px 0 12px }
+
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(700px, 1fr)); gap: 22px }
+  .case { border: 1px solid rgba(255,255,255,.07); border-radius: 14px; background: #0b0d11; overflow: hidden }
+  .case header { display: flex; align-items: center; gap: 10px; padding: 11px 15px; border-bottom: 1px solid rgba(255,255,255,.06) }
+  .case h2 { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: -.01em }
+  .case .note { flex: 1; color: #676d7a; font-size: 11px }
+  .case .steps { display: flex; gap: 3px }
+  .case .steps b { padding: 3px 9px; border-radius: 7px; font-size: 10.5px; color: #7b8290; cursor: pointer;
+    border: 1px solid transparent; transition: .12s }
+  .case .steps b:hover { color: #fff }
+  .case .steps b.on { background: rgba(255,255,255,.09); color: #fff; border-color: rgba(255,255,255,.14); font-weight: 650 }
+  .stage { padding: 26px; background:
+      radial-gradient(120% 100% at 50% 0%, #101319 0%, #060709 70%); display: grid; place-items: center }
+
+  /* ============================================================
+     THE SETUP WINDOW — 640x480, the size NSIS is told to be
+     ============================================================ */
+  .win {
+    --ink: #f3f5f9; --dim: #9aa1ad; --dim2: #6b7280; --line: rgba(255,255,255,.09);
+    --line-2: rgba(255,255,255,.14); --bg: #0b0d12; --raise: rgba(255,255,255,.04);
+    --accent: #2f6fed; --accent-2: #4d9dff; --on-accent: #fff;
+    position: relative; width: 640px; height: 480px; overflow: hidden; border-radius: 10px;
+    background: var(--bg); color: var(--ink); border: 1px solid rgba(255,255,255,.12);
+    box-shadow: 0 40px 90px -40px rgba(0,0,0,.95), 0 0 0 1px rgba(0,0,0,.4);
+    display: flex; flex-direction: column; isolation: isolate;
+  }
+  .win * { box-sizing: border-box }
+  .wash { position: absolute; inset: 0; pointer-events: none; z-index: 0;
+    background: radial-gradient(56% 54% at 18% 16%, rgba(47,111,237,.24), transparent 70%),
+                radial-gradient(52% 50% at 84% 86%, rgba(77,157,255,.19), transparent 72%) }
+  .grain { position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: .5; mix-blend-mode: overlay;
+    background-image: radial-gradient(rgba(255,255,255,.09) .5px, transparent .5px); background-size: 3px 3px }
+
+  /* caption: every installer has one, and ours is drawn, not stock */
+  .cap { position: relative; z-index: 5; height: 34px; flex: none; display: flex; align-items: center; gap: 9px;
+    padding: 0 6px 0 13px; font-size: 11.5px; color: var(--dim2); letter-spacing: .01em }
+  .cap .x { margin-left: auto; width: 36px; height: 26px; border-radius: 6px; display: grid; place-items: center;
+    color: var(--dim2); font-size: 13px }
+  .cap .x:hover { background: rgba(255,255,255,.07); color: var(--ink) }
+
+  /* mark */
+  .mark { display: block; filter: drop-shadow(0 4px 14px rgba(47,111,237,.45)) }
+  .mark .a { fill: #eef3fa } .mark .b { fill: #2f8fff } .mark .c { fill: #0a0c12 }
+
+  /* type */
+  .kicker { font-size: 10.5px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: var(--accent-2) }
+  h3.t { margin: 0; font-weight: 780; letter-spacing: -.035em; line-height: 1.03 }
+  p.b { margin: 0; color: var(--dim); line-height: 1.55; font-size: 13px; max-width: 44ch }
+  .micro { font-size: 11.5px; color: var(--dim2); line-height: 1.5 }
+
+  /* controls, all on one 36px rhythm */
+  .cta { height: 36px; border: 0; border-radius: 8px; padding: 0 20px; font: inherit; font-size: 13px; font-weight: 700;
+    letter-spacing: -.01em; background: var(--accent); color: var(--on-accent); cursor: pointer;
+    box-shadow: 0 8px 20px -10px var(--accent); transition: .15s }
+  .cta:hover { background: #3a79f2 }
+  .ghost { height: 36px; border: 1px solid var(--line-2); border-radius: 8px; padding: 0 16px; font: inherit;
+    font-size: 13px; font-weight: 600; background: transparent; color: var(--dim); cursor: pointer; transition: .15s }
+  .ghost:hover { color: var(--ink); border-color: rgba(255,255,255,.3) }
+  .ghost[disabled] { opacity: .35; cursor: default }
+  .field { display: flex; align-items: center; gap: 10px; height: 40px; border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 0 6px 0 12px; background: rgba(255,255,255,.035) }
+  .field svg { flex: none; color: var(--dim2) }
+  .field span { flex: 1; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .field button { height: 28px; border: 1px solid var(--line-2); border-radius: 7px; padding: 0 12px; font: inherit;
+    font-size: 11.5px; font-weight: 600; background: rgba(255,255,255,.05); color: var(--dim); cursor: pointer }
+  .field button:hover { color: var(--ink) }
+
+  .track { position: relative; height: 5px; border-radius: 5px; background: rgba(255,255,255,.1); overflow: hidden }
+  .track i { position: absolute; inset: 0 38% 0 0; border-radius: 5px; background: linear-gradient(90deg, var(--accent), var(--accent-2)) }
+  .track i::after { content: ""; position: absolute; inset: 0; border-radius: 5px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+    transform: translateX(-100%); animation: sheen 1.9s cubic-bezier(.4,0,.2,1) infinite }
+  @keyframes sheen { to { transform: translateX(100%) } }
+  .ticks { display: flex; gap: 3px; height: 12px }
+  .ticks i { flex: 1; border-radius: 2px; background: rgba(255,255,255,.1) }
+  .ticks i.on { background: var(--accent) }
+  .ticks i.on:nth-last-child(-n+9) { background: var(--accent-2) }
+
+  .check { display: inline-flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--dim); cursor: pointer }
+  .check i { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line-2); flex: none;
+    display: grid; place-items: center; transition: .15s }
+  .check.on { color: var(--ink) }
+  .check.on i { background: var(--accent); border-color: var(--accent) }
+  .check.on i::after { content: ""; width: 9px; height: 4.5px; border: 2px solid #fff; border-top: 0; border-right: 0;
+    transform: rotate(-45deg) translate(1px,-1px) }
+
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 10px }
+  .rule { height: 1px; background: var(--line) }
+
+  /* =====================================================================
+     A — FULL BLEED
+     ===================================================================== */
+  .A .pad { position: relative; z-index: 4; padding: 6px 44px 32px; display: flex; flex-direction: column; flex: 1 }
+  .A h3.t { font-size: 44px }
+  .A .rail { display: flex; gap: 7px; margin-right: auto }
+  .A .rail i { width: 7px; height: 7px; border-radius: 99px; background: var(--line-2); display: block; transition: .3s }
+  .A .rail i.on { width: 24px; background: var(--accent) }
+
+  /* =====================================================================
+     B — SPINE
+     ===================================================================== */
+  .B .row { flex: 1; display: flex; min-height: 0; position: relative; z-index: 4 }
+  .B .spine { width: 208px; flex: none; background: linear-gradient(180deg, #080910, #05060b);
+    border-right: 1px solid var(--line); padding: 26px 22px 22px; display: flex; flex-direction: column }
+  .B .spine .who { font-size: 15.5px; font-weight: 800; letter-spacing: -.02em }
+  .B ol { margin: 30px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px }
+  .B li { font-size: 12px; color: var(--dim2); display: flex; gap: 11px; align-items: center; height: 34px }
+  .B li b { width: 20px; height: 20px; border-radius: 99px; border: 1px solid var(--line-2); display: grid;
+    place-items: center; font-size: 10px; font-weight: 700; flex: none }
+  .B li.on { color: var(--ink); font-weight: 600 } .B li.on b { background: var(--accent); border-color: var(--accent); color: #fff }
+  .B li.done b { background: rgba(255,255,255,.14); color: var(--ink); border-color: transparent }
+  .B .body { flex: 1; padding: 34px 34px 28px; display: flex; flex-direction: column; min-width: 0 }
+  .B h3.t { font-size: 28px }
+
+  /* =====================================================================
+     C — CARD ON GLASS
+     ===================================================================== */
+  .C .paper { position: absolute; inset: -40px; z-index: 0;
+    background: linear-gradient(125deg, #1e3a72 0%, #4a3580 42%, #17605f 100%); filter: blur(34px) saturate(1.25) }
+  .C .vig { position: absolute; inset: 0; z-index: 1; background: radial-gradient(75% 65% at 50% 45%, transparent, rgba(0,0,0,.55)) }
+  .C .card { position: relative; z-index: 4; margin: auto; width: 452px; border-radius: 18px; padding: 30px 32px 26px;
+    background: rgba(11,13,18,.74); border: 1px solid rgba(255,255,255,.16); backdrop-filter: blur(24px) saturate(1.2);
+    box-shadow: 0 34px 80px -34px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.08);
+    display: flex; flex-direction: column }
+  .C h3.t { font-size: 26px }
+
+  /* =====================================================================
+     D — LEDGER
+     ===================================================================== */
+  .D { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; background: #07080b }
+  .D .pad { position: relative; z-index: 4; padding: 10px 40px 30px 37px; display: flex; flex-direction: column; flex: 1 }
+  .D .pad::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(180deg, var(--accent), rgba(47,111,237,.15)) }
+  .D h3.t { font-size: 23px; font-weight: 700; letter-spacing: -.01em }
+  .D .kv { display: grid; grid-template-columns: 116px 1fr; gap: 7px 18px; font-size: 12px; color: var(--ink) }
+  .D .kv b { color: var(--dim2); font-weight: 400 }
+  .D .cta, .D .ghost, .D .field, .D .field button { border-radius: 3px; font-family: inherit }
+  .D .kicker { color: var(--dim2); letter-spacing: .18em }
+
+  /* =====================================================================
+     E — POSTER
+     ===================================================================== */
+  .E .huge { position: absolute; right: -96px; top: -66px; z-index: 2; opacity: .95 }
+  .E .fade { position: absolute; inset: 0; z-index: 3;
+    background: linear-gradient(100deg, rgba(11,13,18,.97) 34%, rgba(11,13,18,.55) 62%, transparent 88%) }
+  .E .pad { position: relative; z-index: 4; padding: 8px 40px 30px; display: flex; flex-direction: column; flex: 1 }
+  .E h3.t { font-size: 52px; max-width: 9ch }
+  .E .barfoot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding-top: 20px; border-top: 1px solid var(--line) }
+
+  /* =====================================================================
+     F — SHOWCASE
+     ===================================================================== */
+  .F .strip { position: relative; z-index: 4; display: flex; gap: 10px; padding: 4px 26px 0 }
+  .F .thumb { flex: 1; height: 104px; border-radius: 10px; position: relative; overflow: hidden;
+    box-shadow: 0 14px 26px -16px rgba(0,0,0,.9); border: 1px solid rgba(255,255,255,.08) }
+  .F .thumb b { position: absolute; left: 8px; bottom: 7px; font-size: 9px; font-weight: 800; letter-spacing: .12em;
+    color: rgba(255,255,255,.82); text-shadow: 0 1px 3px rgba(0,0,0,.7) }
+  .F .t1 { background: linear-gradient(140deg,#7d1f2a,#b03a2e 45%,#2c3e63) }
+  .F .t2 { background: linear-gradient(150deg,#25324f,#4c6ea8 60%,#8fb6e8) }
+  .F .t3 { background: linear-gradient(160deg,#132a2c,#1f6f6b 55%,#4bbfae) }
+  .F .t4 { background: linear-gradient(140deg,#2a2a31,#4a4a55); display: grid; place-items: center }
+  .F .t4::after { content: ""; width: 34px; height: 44px; border-radius: 3px; background: #d8dbe2;
+    box-shadow: 0 3px 10px rgba(0,0,0,.5) }
+  .F .pad { position: relative; z-index: 4; padding: 22px 26px 26px; display: flex; flex-direction: column; flex: 1 }
+  .F h3.t { font-size: 27px }
+  .F .kinds { display: flex; gap: 5px; flex-wrap: wrap }
+  .F .kinds b { font-size: 9.5px; font-weight: 700; letter-spacing: .1em; color: var(--dim2);
+    border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px }
+
+  @media (prefers-reduced-motion: reduce) { .track i::after { animation: none; opacity: 0 } }
+</style>
+</head>
+<body>
+
+<h1>The installer, six ways</h1>
+<p class="sub">Drawn at the size NSIS will be told to be (640&times;480), with the caption strip, the states and the microcopy the real thing needs: Back disabled on the first screen, Cancel while it copies, free space against required, the file being written. Each one is a different layout rather than a restyle. Walk the four screens with the numbers in each header, or move all six at once.</p>
+
+<div class="bar">
+  <span class="lbl" style="margin-left:0">Screen</span>
+  <button class="btn" data-step="0" aria-pressed="true">1 Welcome</button>
+  <button class="btn" data-step="1">2 Where it goes</button>
+  <button class="btn" data-step="2">3 Installing</button>
+  <button class="btn" data-step="3">4 Ready</button>
+</div>
+
+<div class="wall" id="wall"></div>
+
+<script>
+const MARK = (s = 34) => `
+  <svg class="mark" width="${s}" height="${s}" viewBox="0 0 1024 1024" aria-hidden>
+    <path class="a" d="M512 180 468 742 168 800z"/>
+    <path class="b" d="M512 180 856 700 468 742z"/>
+    <path class="c" d="M468 742 856 700 512 844 168 800z"/>
+  </svg>`
+
+const FOLDER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+  stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`
+
+const PATH = 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Prism'
+const CAP = (title) => `
+  <div class="cap">${MARK(15)}<span>${title}</span><span class="x">&#10005;</span></div>`
+
+const COPY = [
+  { k: 'Setup', t: 'Prism', b: 'A fast, quiet viewer for images, video, audio and documents. Open a file, look at it, arrow through the folder.' },
+  { k: 'Step 1 of 2', t: 'Where it goes', b: 'Prism installs for you only, so it needs no administrator and touches nothing outside this folder.' },
+  { k: 'Step 2 of 2', t: 'Installing', b: 'Copying files into place. This takes a few seconds.' },
+  { k: 'Finished', t: 'Prism is ready', b: 'It is in your Start menu, and it will open the files you double-click once you make it the default.' }
+]
+
+const DESIGNS = [
+  {
+    id: 'A', name: 'Full bleed', note: 'the window is the app: the wash, the type scale, the step rail',
+    render: (s) => `
+      <div class="win A"><div class="wash"></div><div class="grain"></div>
+        ${CAP('Prism Setup')}
+        <div class="pad">
+          <div style="margin:22px 0 0">${MARK(38)}</div>
+          <div class="kicker" style="margin-top:26px">${COPY[s].k}</div>
+          <h3 class="t" style="margin-top:12px">${COPY[s].t}</h3>
+          <p class="b" style="margin-top:14px;max-width:38ch">${COPY[s].b}</p>
+
+          ${s === 1 ? `
+            <div class="field" style="margin-top:20px">${FOLDER}<span>${PATH}</span><button>Browse…</button></div>
+            <div class="micro" style="margin-top:10px">240 MB required &middot; 412 GB free on C:</div>` : ''}
+
+          ${s === 2 ? `
+            <div style="margin-top:24px">
+              <div class="track"><i></i></div>
+              <div style="display:flex;justify-content:space-between;margin-top:10px" class="micro">
+                <span>resources\\app.asar</span><span>62%</span>
+              </div>
+            </div>` : ''}
+
+          ${s === 3 ? `
+            <div style="margin-top:20px;display:flex;flex-direction:column;gap:12px">
+              <span class="check on"><i></i>Open Prism now</span>
+              <span class="check"><i></i>Make Prism the default viewer</span>
+            </div>` : ''}
+
+          <div class="foot">
+            <div class="rail">${[0, 1, 2, 3].map((n) => `<i class="${n === s ? 'on' : ''}"></i>`).join('')}</div>
+            ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+            <button class="cta">${['Install', 'Install', 'Cancel', 'Finish'][s]}</button>
+          </div>
+        </div>
+      </div>`
+  },
+
+  {
+    id: 'B', name: 'Spine', note: 'a band down the left holds the mark and the step list, so you always know where you are',
+    render: (s) => `
+      <div class="win B"><div class="wash"></div><div class="grain"></div>
+        ${CAP('Prism Setup')}
+        <div class="row">
+          <div class="spine">
+            <div style="display:flex;align-items:center;gap:10px">${MARK(26)}<span class="who">Prism</span></div>
+            <ol>${['Welcome', 'Location', 'Install', 'Finish'].map((n, i) =>
+              `<li class="${i === s ? 'on' : i < s ? 'done' : ''}"><b>${i < s ? '&#10003;' : i + 1}</b>${n}</li>`).join('')}</ol>
+            <div class="micro" style="margin-top:auto">Version 1.0.0<br>240 MB &middot; per user</div>
+          </div>
+          <div class="body">
+            <div class="kicker">${COPY[s].k}</div>
+            <h3 class="t" style="margin-top:12px">${['A viewer, not a library', 'Where it goes', 'Installing', 'All set'][s]}</h3>
+            <p class="b" style="margin-top:12px;font-size:12.5px">${COPY[s].b}</p>
+
+            ${s === 0 ? `
+              <div class="rule" style="margin:20px 0 16px"></div>
+              <div class="micro" style="display:grid;grid-template-columns:auto 1fr;gap:7px 14px">
+                <span style="color:var(--dim)">Opens</span><span>JPG PNG WEBP AVIF GIF &middot; MP4 MKV MOV &middot; MP3 FLAC OPUS &middot; PDF TXT MD</span>
+                <span style="color:var(--dim)">Needs</span><span>Windows 10 1809 or newer &middot; nothing else</span>
+              </div>` : ''}
+
+            ${s === 1 ? `
+              <div class="field" style="margin-top:18px">${FOLDER}<span>${PATH}</span><button>Browse…</button></div>
+              <div class="micro" style="margin-top:10px">240 MB required &middot; 412 GB free</div>` : ''}
+
+            ${s === 2 ? `
+              <div style="margin-top:22px">
+                <div class="ticks">${Array.from({ length: 28 }, (_, i) => `<i class="${i < 17 ? 'on' : ''}"></i>`).join('')}</div>
+                <div style="display:flex;justify-content:space-between;margin-top:11px" class="micro">
+                  <span>locales\\en-GB.pak</span><span>17 of 28</span>
+                </div>
+              </div>` : ''}
+
+            ${s === 3 ? `
+              <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+                <span class="check on"><i></i>Open Prism now</span>
+                <span class="check"><i></i>Make Prism the default viewer</span>
+              </div>` : ''}
+
+            <div class="foot">
+              <button class="ghost" ${s === 0 || s > 1 ? 'disabled' : ''}>Back</button>
+              <button class="cta" style="margin-left:auto">${['Continue', 'Install', 'Cancel', 'Finish'][s]}</button>
+            </div>
+          </div>
+        </div>
+      </div>`
+  },
+
+  {
+    id: 'C', name: 'Card on glass', note: 'a frosted panel over a blurred desktop — the app is glass, so is its setup',
+    render: (s) => `
+      <div class="win C"><div class="paper"></div><div class="vig"></div>
+        ${CAP('Prism Setup')}
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:11px">${MARK(28)}
+            <div><div style="font-size:13.5px;font-weight:750;letter-spacing:-.01em">Prism</div>
+              <div class="micro" style="font-size:10.5px">Version 1.0.0</div></div>
+          </div>
+          <h3 class="t" style="margin-top:20px">${['Install Prism', 'Where it goes', 'Installing', 'Ready'][s]}</h3>
+          <p class="b" style="margin-top:11px;font-size:12.5px">${COPY[s].b}</p>
+
+          ${s === 1 ? `
+            <div class="field" style="margin-top:18px">${FOLDER}<span>${PATH}</span><button>Browse…</button></div>
+            <div class="micro" style="margin-top:10px">240 MB required &middot; 412 GB free</div>` : ''}
+
+          ${s === 2 ? `
+            <div style="margin-top:20px">
+              <div class="track"><i></i></div>
+              <div style="display:flex;justify-content:space-between;margin-top:10px" class="micro">
+                <span>Prism.exe</span><span>62%</span></div>
+            </div>` : ''}
+
+          ${s === 3 ? `
+            <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+              <span class="check on"><i></i>Open Prism now</span>
+              <span class="check"><i></i>Make Prism the default viewer</span>
+            </div>` : ''}
+
+          <div class="foot" style="margin-top:24px">
+            ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+            <button class="cta" style="margin-left:auto">${['Install', 'Install here', 'Cancel', 'Finish'][s]}</button>
+          </div>
+        </div>
+      </div>`
+  },
+
+  {
+    id: 'D', name: 'Ledger', note: 'mono, an accent rule down the edge, the facts in a table. No decoration at all.',
+    render: (s) => `
+      <div class="win D">
+        ${CAP('prism — setup')}
+        <div class="pad">
+          <div class="kicker">${['package', 'target', 'writing', 'complete'][s]}</div>
+          <h3 class="t" style="margin-top:12px">${['prism 1.0.0', 'install location', 'installing', 'done'][s]}</h3>
+
+          <div style="margin-top:20px">
+            ${s === 0 ? `<div class="kv">
+              <b>size</b><span>240 MB on disk</span>
+              <b>scope</b><span>this user &middot; no administrator</span>
+              <b>runtime</b><span>bundled &middot; nothing to download</span>
+              <b>opens</b><span>jpg png webp avif gif mp4 mkv mp3 flac pdf txt md</span>
+              <b>requires</b><span>windows 10 1809+</span>
+            </div>` : ''}
+            ${s === 1 ? `<div class="kv">
+              <b>path</b><span>${PATH}</span>
+              <b>needed</b><span>240 MB</span>
+              <b>free</b><span>412 GB</span>
+            </div>
+            <div style="margin-top:16px"><button class="ghost">change…</button></div>` : ''}
+            ${s === 2 ? `<div class="kv">
+              <b>file</b><span>resources\\app.asar</span>
+              <b>written</b><span>149 MB / 240 MB</span>
+              <b>elapsed</b><span>0:04</span>
+            </div>
+            <div class="rule" style="margin:18px 0 14px"></div>
+            <div class="track"><i></i></div>` : ''}
+            ${s === 3 ? `<div class="kv">
+              <b>installed</b><span>${PATH}</span>
+              <b>shortcuts</b><span>start menu &middot; desktop</span>
+              <b>uninstall</b><span>settings &rsaquo; apps</span>
+            </div>
+            <div style="margin-top:18px;display:flex;flex-direction:column;gap:11px">
+              <span class="check on"><i></i>open prism now</span>
+              <span class="check"><i></i>make prism the default viewer</span>
+            </div>` : ''}
+          </div>
+
+          <div class="foot">
+            <button class="ghost" ${s === 1 ? '' : 'disabled'}>back</button>
+            <button class="cta" style="margin-left:auto">${['install', 'install', 'cancel', 'finish'][s]}</button>
+          </div>
+        </div>
+      </div>`
+  },
+
+  {
+    id: 'E', name: 'Poster', note: 'the mark blown up and bleeding off the corner, the type set across it',
+    render: (s) => `
+      <div class="win E"><div class="wash"></div>
+        <div class="huge">${MARK(360)}</div>
+        <div class="fade"></div><div class="grain"></div>
+        ${CAP('Prism Setup')}
+        <div class="pad">
+          <div class="kicker" style="margin-top:16px">${COPY[s].k}</div>
+          <h3 class="t" style="margin-top:14px">${['Prism.', 'Where it goes.', 'Installing.', 'Done.'][s]}</h3>
+          <p class="b" style="margin-top:16px;max-width:30ch">${COPY[s].b}</p>
+
+          ${s === 1 ? `
+            <div class="field" style="margin-top:20px;max-width:360px">${FOLDER}<span>${PATH}</span><button>Browse…</button></div>
+            <div class="micro" style="margin-top:10px">240 MB required &middot; 412 GB free</div>` : ''}
+
+          ${s === 2 ? `
+            <div style="margin-top:22px;max-width:360px">
+              <div class="track"><i></i></div>
+              <div style="display:flex;justify-content:space-between;margin-top:10px" class="micro">
+                <span>resources\\icon.ico</span><span>62%</span></div>
+            </div>` : ''}
+
+          ${s === 3 ? `
+            <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+              <span class="check on"><i></i>Open Prism now</span>
+              <span class="check"><i></i>Make Prism the default viewer</span>
+            </div>` : ''}
+
+          <div class="barfoot">
+            ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+            <button class="cta">${['Install', 'Install here', 'Cancel', 'Finish'][s]}</button>
+            <span class="micro" style="margin-left:auto">1.0.0 &middot; 240 MB</span>
+          </div>
+        </div>
+      </div>`
+  },
+
+  {
+    id: 'F', name: 'Showcase', note: 'it shows what Prism opens before it offers to install it',
+    render: (s) => `
+      <div class="win F"><div class="wash"></div><div class="grain"></div>
+        ${CAP('Prism Setup')}
+        <div class="strip">
+          <div class="thumb t1"><b>JPG</b></div>
+          <div class="thumb t2"><b>MP4</b></div>
+          <div class="thumb t3"><b>FLAC</b></div>
+          <div class="thumb t4"><b>PDF</b></div>
+        </div>
+        <div class="pad">
+          <div style="display:flex;align-items:center;gap:10px">${MARK(24)}
+            <span style="font-size:13px;font-weight:750;letter-spacing:-.01em">Prism</span>
+            <span class="micro" style="margin-left:auto">1.0.0 &middot; 240 MB &middot; per user</span>
+          </div>
+          <h3 class="t" style="margin-top:16px">${['One window for all of it', 'Where it goes', 'Installing', 'Ready to open'][s]}</h3>
+          <p class="b" style="margin-top:11px;font-size:12.5px">${COPY[s].b}</p>
+
+          ${s === 0 ? `<div class="kinds" style="margin-top:14px">${
+            ['JPG','PNG','WEBP','AVIF','GIF','MP4','MKV','MOV','MP3','FLAC','OPUS','PDF','TXT','MD'].map((k) => `<b>${k}</b>`).join('')}</div>` : ''}
+
+          ${s === 1 ? `
+            <div class="field" style="margin-top:16px">${FOLDER}<span>${PATH}</span><button>Browse…</button></div>
+            <div class="micro" style="margin-top:9px">240 MB required &middot; 412 GB free</div>` : ''}
+
+          ${s === 2 ? `
+            <div style="margin-top:18px">
+              <div class="track"><i></i></div>
+              <div style="display:flex;justify-content:space-between;margin-top:10px" class="micro">
+                <span>Prism.exe</span><span>62%</span></div>
+            </div>` : ''}
+
+          ${s === 3 ? `
+            <div style="margin-top:16px;display:flex;gap:22px">
+              <span class="check on"><i></i>Open Prism now</span>
+              <span class="check"><i></i>Make it the default viewer</span>
+            </div>` : ''}
+
+          <div class="foot">
+            ${s === 1 ? '<button class="ghost">Back</button>' : ''}
+            <button class="cta" style="margin-left:auto">${['Install', 'Install here', 'Cancel', 'Finish'][s]}</button>
+          </div>
+        </div>
+      </div>`
+  }
+]
+
+const state = {}
+DESIGNS.forEach((d) => (state[d.id] = 0))
+
+function paint(id) {
+  const d = DESIGNS.find((x) => x.id === id)
+  document.querySelector(`[data-stage="${id}"]`).innerHTML = d.render(state[id])
+  document.querySelectorAll(`[data-case="${id}"] .steps b`).forEach((b, i) => b.classList.toggle('on', i === state[id]))
+}
+
+document.getElementById('wall').innerHTML = DESIGNS.map((d) => `
+  <section class="case" data-case="${d.id}">
+    <header><h2>${d.name}</h2><span class="note">${d.note}</span>
+      <div class="steps">${[1, 2, 3, 4].map((n, i) => `<b data-go="${d.id}|${i}">${n}</b>`).join('')}</div>
+    </header>
+    <div class="stage" data-stage="${d.id}"></div>
+  </section>`).join('')
+DESIGNS.forEach((d) => paint(d.id))
+
+document.addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]')
+  if (go) { const [id, s] = go.dataset.go.split('|'); state[id] = Number(s); paint(id); return }
+  const st = e.target.closest('.btn[data-step]')
+  if (st) {
+    DESIGNS.forEach((d) => { state[d.id] = Number(st.dataset.step); paint(d.id) })
+    document.querySelectorAll('.btn[data-step]').forEach((b) => b.setAttribute('aria-pressed', String(b === st)))
+  }
+})
+</script>
+</body>
+</html>

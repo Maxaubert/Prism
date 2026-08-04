@@ -9,6 +9,13 @@ import { ImageView } from './components/ImageView'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
+import { ACCENT_THEME_ID } from './lib/viz/styles'
+import {
+  setCycle as setVizCycle,
+  setGlow as setVizGlow,
+  setMove as setVizMove,
+  setTheme as setVizTheme
+} from './lib/vizStore'
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 
@@ -56,7 +63,12 @@ function TopBar({
 }): JSX.Element {
   const w = window.prism
   return (
-    <div className={`drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] ${wash ? 'p-wash' : ''}`}>
+    // The bar changes colour on a curve rather than in a frame: during the
+    // setup's mode wipe it is the one surface the still doesn't cover, and a
+    // hard swap there read as a flash.
+    <div
+      className={`drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+    >
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
       {!setup && (
@@ -143,21 +155,19 @@ function Viewer({
   }
 }
 
-function NavArrow({ dir, onClick }: { dir: 'l' | 'r'; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`no-drag absolute top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-[var(--p-text)] opacity-0 backdrop-blur-sm transition-opacity hover:bg-black/60 group-hover:opacity-100 ${dir === 'l' ? 'left-3' : 'right-3'}`}
-    >
-      {dir === 'l' ? '‹' : '›'}
-    </button>
-  )
-}
-
 function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--p-accent)]/20 text-3xl text-[var(--p-accent-hi)]">◇</div>
+      {/* A hairline and nothing else, so the window's own material carries
+          through it. No backdrop-filter: inside a transparent window it has
+          nothing behind to sample and composites as a solid fill, which is
+          exactly the opaque tile this was meant to get rid of. */}
+      <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border border-[color:var(--p-line)] text-[var(--p-accent-hi)]">
+        <svg viewBox="0 0 24 24" width={30} height={30} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M7 18a4 4 0 0 1 .6-8 5.2 5.2 0 0 1 10 1.2A3.4 3.4 0 0 1 17.5 18z" />
+          <path d="M12 11v6m0 0l-2.2-2.2M12 17l2.2-2.2" />
+        </svg>
+      </div>
       <div className="text-lg font-semibold">Open a file to view it</div>
       <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
       <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
@@ -182,7 +192,11 @@ export default function App(): JSX.Element {
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [setup, setSetup] = useState(() => localStorage.getItem(SETUP_KEY) !== '1')
+  // Setup launches with --setup, which shows the guide even here, where it has
+  // been through once already.
+  const [setup, setSetup] = useState(
+    () => window.prism.forceSetup === true || localStorage.getItem(SETUP_KEY) !== '1'
+  )
   // The file tree. Off on a fresh install: the media is the point.
   const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
   const treeSide = useTreeSide()
@@ -339,7 +353,12 @@ export default function App(): JSX.Element {
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
       else if (e.key === 'PageUp') go(-1)
-      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
+      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+        // Up and down are always the folder. Unlike left and right they are
+        // never a player's seek keys, so there is nothing to yield to.
+        e.preventDefault()
+        go(e.key === 'ArrowDown' ? 1 : -1)
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
         if (!playerOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
@@ -450,13 +469,8 @@ export default function App(): JSX.Element {
           } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
         >
           {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
-          {/* Paging still works in fullscreen via PageUp/PageDown (and ←/→ for images). */}
-          {file && many && !fullscreen && (
-            <>
-              <NavArrow dir="l" onClick={() => go(-1)} />
-              <NavArrow dir="r" onClick={() => go(1)} />
-            </>
-          )}
+          {/* No on-screen arrows: paging is the keyboard's job. Left and right,
+              up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>
       </div>
       <Settings
@@ -517,6 +531,12 @@ export default function App(): JSX.Element {
         <Onboarding
           onDone={() => {
             localStorage.setItem(SETUP_KEY, '1')
+            // The colour you picked is the colour the visualizer plays in:
+            // that one accent, lit, rather than a spectrum sweeping past.
+            setVizTheme(ACCENT_THEME_ID)
+            setVizGlow(true)
+            setVizCycle(false)
+            setVizMove(false)
             setSetup(false)
           }}
         />

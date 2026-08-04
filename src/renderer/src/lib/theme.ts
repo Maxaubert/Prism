@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
-import { THEMES } from './viz/styles'
-import { setBarTheme, setTheme } from './vizStore'
+import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
+import type { VizTheme } from './viz/core'
+import { setBarTheme, setTheme, vizState } from './vizStore'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -68,7 +69,7 @@ export const STYLES: Style[] = [
   {
     id: 'aurora',
     name: 'Aurora',
-    blurb: 'Glass over deep space, with soft light behind it.',
+    blurb: "Glass over deep space, lit by its own accent. Prism's default.",
     mode: 'dark',
     material: 'acrylic',
     // Glass and a wash together: the desktop comes through the surfaces, the
@@ -94,8 +95,8 @@ export const STYLES: Style[] = [
   },
   {
     id: 'default',
-    name: 'Default',
-    blurb: 'Acrylic over true black, sky accent.',
+    name: 'Onyx',
+    blurb: 'Glass over true black.',
     mode: 'dark',
     material: 'acrylic',
     bg: '#000000',
@@ -113,45 +114,9 @@ export const STYLES: Style[] = [
     borders: 'none'
   },
   {
-    id: 'acrylic-red',
-    name: 'Acryllic Red',
-    blurb: 'Acrylic, round, crimson.',
-    mode: 'dark',
-    material: 'acrylic',
-    bg: '#101420',
-    side: '#141821',
-    title: '#1a1f2b',
-    text: '#eceef5',
-    iconMode: 'accent',
-    icon: '#8b5cf6',
-    accent: 's-crimson',
-    font: 'system',
-    size: '12.5',
-    corners: '14',
-    borders: 'none'
-  },
-  {
-    id: 'new-ember',
-    name: 'New ember',
-    blurb: 'Warm tint, coral accent.',
-    mode: 'dark',
-    material: 'tinted',
-    bg: '#191720',
-    side: '#1c1a22',
-    title: '#231f28',
-    text: '#f0e7dc',
-    iconMode: 'custom',
-    icon: '#d3a06a',
-    accent: 's-coral',
-    font: 'calibri',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
-  },
-  {
     id: 'new-void',
-    name: 'New void',
-    blurb: 'True black, no edges.',
+    name: 'Void',
+    blurb: 'True black. No glass, no edges.',
     mode: 'dark',
     material: 'oled',
     bg: '#000000',
@@ -168,7 +133,7 @@ export const STYLES: Style[] = [
   },
   {
     id: 'terminal',
-    name: 'Terminal update',
+    name: 'Terminal',
     blurb: 'Mono, green, square.',
     mode: 'dark',
     material: 'solid',
@@ -201,10 +166,70 @@ export const STYLES: Style[] = [
     size: '12.5',
     corners: '8',
     borders: 'hairline'
+  },
+  {
+    id: 'new-ember',
+    name: 'Ember',
+    blurb: 'Warm tint, coral accent.',
+    mode: 'dark',
+    material: 'tinted',
+    bg: '#191720',
+    side: '#1c1a22',
+    title: '#231f28',
+    text: '#f0e7dc',
+    iconMode: 'custom',
+    icon: '#d3a06a',
+    accent: 's-coral',
+    font: 'calibri',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
+  },
+  {
+    id: 'acrylic-red',
+    name: 'Ruby',
+    blurb: 'Glass, round corners, crimson.',
+    mode: 'dark',
+    material: 'acrylic',
+    bg: '#101420',
+    side: '#141821',
+    title: '#1a1f2b',
+    text: '#eceef5',
+    iconMode: 'accent',
+    icon: '#8b5cf6',
+    accent: 's-crimson',
+    font: 'system',
+    size: '12.5',
+    corners: '14',
+    borders: 'none'
   }
 ]
 
 const LIGHT: Style[] = [
+  // Daybreak leads: setMode picks the first style of a mode, so the light half
+  // of the app opens on Aurora's daylight twin rather than plain Paper.
+  {
+    id: 'daybreak',
+    name: 'Daybreak',
+    blurb: 'Aurora in daylight: the same glass and glow, over white.',
+    mode: 'light',
+    material: 'acrylic',
+    // The light half of Aurora: the same two glows, the same accent, over white
+    // instead of near-black. No glass level of its own - it takes the one every
+    // light style takes, so it is as see-through as Paper.
+    bg: '#fbfcfe',
+    side: '#fbfcfe',
+    title: '#fbfcfe',
+    text: '#0f1319',
+    iconMode: 'kind',
+    icon: '#6b7280',
+    accent: 'prism',
+    font: 'system',
+    size: '12.5',
+    corners: '8',
+    borders: 'none',
+    wash: true
+  },
   {
     id: 'paper',
     name: 'Paper',
@@ -226,46 +251,6 @@ const LIGHT: Style[] = [
     borders: 'none'
   },
   {
-    id: 'daybreak',
-    name: 'Daybreak',
-    blurb: 'Aurora in daylight: glass, white, soft colour.',
-    mode: 'light',
-    material: 'acrylic',
-    // The light half of Aurora: the same two glows, the same accent, over white
-    // instead of near-black. No glass level of its own - it takes the one every
-    // light style takes, so it is as see-through as Paper.
-    bg: '#fbfcfe',
-    side: '#fbfcfe',
-    title: '#fbfcfe',
-    text: '#0f1319',
-    iconMode: 'kind',
-    icon: '#6b7280',
-    accent: 'prism',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'none',
-    wash: true
-  },
-  {
-    id: 'linen',
-    name: 'Linen',
-    blurb: 'Warm paper, bronze.',
-    mode: 'light',
-    material: 'solid',
-    bg: '#f8f4ed',
-    side: '#f1ebe1',
-    title: '#e9e2d5',
-    text: '#241f18',
-    iconMode: 'custom',
-    icon: '#8a6d45',
-    accent: 'd-bronze',
-    font: 'calibri',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
-  },
-  {
     id: 'frost',
     name: 'Frost',
     blurb: 'Glass, cool white, deep teal.',
@@ -285,6 +270,24 @@ const LIGHT: Style[] = [
     size: '12.5',
     corners: '14',
     borders: 'none'
+  },
+  {
+    id: 'linen',
+    name: 'Linen',
+    blurb: 'Warm paper, bronze.',
+    mode: 'light',
+    material: 'solid',
+    bg: '#f8f4ed',
+    side: '#f1ebe1',
+    title: '#e9e2d5',
+    text: '#241f18',
+    iconMode: 'custom',
+    icon: '#8a6d45',
+    accent: 'd-bronze',
+    font: 'calibri',
+    size: '12.5',
+    corners: '8',
+    borders: 'hairline'
   },
   {
     id: 'orchid',
@@ -456,6 +459,25 @@ export const paletteOf = (accent: string): string[] =>
 
 const accentOf = paletteOf
 
+/** A visualizer scheme, with the one that follows the app's accent filled in.
+ *  Everything that draws with a scheme goes through here rather than
+ *  themeById, because 'accent' has no colour of its own until now.
+ *
+ *  The result is cached until the accent actually changes. It is read during
+ *  render, and the Visualizer restarts its draw loop when the palette changes:
+ *  handing back a fresh array every render restarted it every render, which
+ *  looks exactly like a colour that makes the visualizer stutter. */
+let accentScheme: VizTheme | null = null
+export function resolveVizTheme(id: string): VizTheme {
+  const base = themeById(id)
+  if (id !== ACCENT_THEME_ID) return base
+  const colour = accentOf(edited(byId(current)).accent)[0]
+  if (accentScheme === null || accentScheme.accent !== colour) {
+    accentScheme = { ...base, palette: [colour], accent: colour }
+  }
+  return accentScheme
+}
+
 /**
  * Every custom property a style publishes, as one object.
  *
@@ -492,12 +514,7 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // Windows composites the material behind the window; the surfaces sit on
     // top of it, so they have to let it through - all at the same alpha, or
     // they read as panes butted together rather than one sheet.
-    //
-    // The number is what the old stack came to: the page and the app shell used
-    // to lay the window colour underneath every surface, and one coat of the
-    // bare alpha is far more see-through than three were.
-    const a = style.glass ?? (style.material === 'acrylic' ? (style.mode === 'light' ? 0.5 : 0.55) : 0.82)
-    const glass = 1 - (1 - a * 0.75) ** 3
+    const glass = paintedAlpha(style)
     bg = rgba(style.bg, glass)
     side = bg
     title = bg
@@ -603,6 +620,19 @@ export interface Overrides {
 const defaultGlass = (s: Style): number =>
   s.material === 'acrylic' ? (s.mode === 'light' ? 0.5 : 0.55) : 0.82
 
+/**
+ * The alpha a translucent style actually paints its surfaces at; 1 for an
+ * opaque material. The number is what the old stack came to: the page and the
+ * app shell used to lay the window colour underneath every surface, and one
+ * coat of the bare alpha is far more see-through than three were. Exported so
+ * the style cards can frost at exactly the alpha the window does.
+ */
+export function paintedAlpha(s: Style): number {
+  if (s.material !== 'acrylic' && s.material !== 'mica') return 1
+  const a = s.glass ?? defaultGlass(s)
+  return 1 - (1 - a * 0.75) ** 3
+}
+
 // The slider's two ends, in surface alpha: opaque-ish glass to barely there.
 const GLASS_MAX = 0.85
 const GLASS_SPAN = 0.55
@@ -703,7 +733,9 @@ let version = 0
 function apply(syncAccent = true): void {
   const style = edited(byId(current))
   paint(style)
-  if (syncAccent && !style.accent.startsWith('#')) {
+  // A scheme that already follows the accent must not be replaced by the
+  // accent's own named scheme: it is following on purpose.
+  if (syncAccent && !style.accent.startsWith('#') && vizState().theme !== ACCENT_THEME_ID) {
     setTheme(style.accent)
     setBarTheme(style.accent)
   }

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prism — app icon candidates</title>
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body { margin: 0; padding: 22px 22px 60px; background: #08090d; color: #eef0f4;
+    font: 400 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+  h1 { margin: 0 0 2px; font-size: 17px; font-weight: 650; letter-spacing: -.01em }
+  .sub { margin: 0 0 16px; color: #8a8e99; font-size: 12.5px; max-width: 104ch }
+  h2 { margin: 30px 0 8px; font-size: 13px; font-weight: 650; color: #cfd3db }
+  .bar { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; align-items: center }
+  .btn { border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: #b9bdc8;
+    border-radius: 8px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer }
+  .btn[aria-pressed="true"] { background: #2f6fed; border-color: #4d9dff; color: #fff; font-weight: 600 }
+
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px }
+  .case { border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: #0c0e12; overflow: hidden }
+  .case header { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.06) }
+  .case h3 { margin: 0; font-size: 12px; font-weight: 650 }
+  .case .n { color: #4c5260; font-size: 11px }
+  .case .note { flex: 1; text-align: right; color: #6b7080; font-size: 10.5px }
+  .row { display: flex; align-items: flex-end; gap: 14px; padding: 16px 12px; flex-wrap: wrap; justify-content: center }
+  .row .s { display: flex; flex-direction: column; align-items: center; gap: 5px }
+  .row .s em { font-style: normal; font-size: 9.5px; color: #4c5260 }
+
+  /* the strips: how it looks where it actually lives */
+  .strip { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid rgba(255,255,255,.06) }
+  .taskbar { background: #1c1c1c; border-radius: 0 }
+  .taskbar .ic { filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)) }
+  .explorer { background: #f3f3f3; color: #1b1b1b }
+  .explorer .name { font-size: 12px }
+  .tray { background: #202020; gap: 8px }
+
+  svg { display: block }
+</style>
+</head>
+<body>
+
+<h1>App icon candidates</h1>
+<p class="sub">Filesmith's language: a rounded square, flat blocks, one accent, one diagonal cut. These are Prism in that family, in Prism's blue. Each is drawn as vector, so whichever you pick renders crisply to .ico / .png at every size. Look hardest at 32 and 16: that is the taskbar and the tray.</p>
+
+<div class="bar">
+  <button class="btn" data-tile="light" aria-pressed="true">Light tile</button>
+  <button class="btn" data-tile="dark">Dark tile</button>
+  <button class="btn" data-tile="none">No tile</button>
+</div>
+
+<div class="wall" id="wall"></div>
+
+<script>
+const INK = '#171922'
+const ACCENT = '#2f6fed'
+const ACCENT2 = '#4d9dff'
+const LIGHT = '#f2f3f5'
+
+/* Each mark draws inside a 1024 box, on whatever tile is behind it.
+   One letter, Filesmith's grammar: a slab stem, one big move, and the accent as
+   the stem's foot. The bowl is what varies. */
+
+// The stem's foot, the way the F does it: a block, rounded at the bottom only.
+const foot = (a, x = 300, y = 700, w = 190, h = 170, r = 40) =>
+  `<path fill="${a}" d="M${x} ${y}h${w}v${h - r}a${r} ${r} 0 0 1-${r} ${r}h-${w - r * 2}a${r} ${r} 0 0 1-${r}-${r}z"/>`
+
+const MARKS = [
+  { name: 'Round bowl', note: 'the one that reads',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 190v150h110a75 75 0 0 0 0-150z"/>
+      ${foot(a)}` },
+
+  { name: 'Round bowl, open counter', note: 'more air in the hole',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 165v200h115a100 100 0 0 0 0-200z"/>
+      ${foot(a)}` },
+
+  { name: 'Round bowl, cut shoulder', note: "the F's diagonal, top left",
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M470 170h130a265 265 0 0 1 0 530H490v170H300V340zm20 190v150h110a75 75 0 0 0 0-150z"/>
+      ${foot(a)}` },
+
+  { name: 'Round bowl, big', note: 'bowl takes the width',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M290 170h330a290 290 0 0 1 0 580H480v120H290zm190 190v200h130a100 100 0 0 0 0-200z"/>
+      ${foot(a, 290, 750, 190, 120, 36)}` },
+
+  { name: 'Round bowl, tall stem', note: 'long leg, small bowl',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 150h270a230 230 0 0 1 0 460H490v260H300zm190 170v120h80a60 60 0 0 0 0-120z"/>
+      ${foot(a, 300, 700, 190, 180, 42)}` },
+
+  { name: 'Square counter', note: 'round outside, square hole',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 175h170v180H490z"/>
+      ${foot(a)}` },
+
+  { name: 'Prism counter', note: 'the hole is the object',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 175v185h185z"/>
+      ${foot(a)}` },
+
+  { name: 'Slab bowl', note: 'bars, with the counter opened up',
+    d: (fg, a) => `
+      <path fill="${fg}" d="M300 170h500v170H300z"/>
+      <path fill="${fg}" d="M630 340h170v180H630z"/>
+      <path fill="${fg}" d="M300 520h500v170H300z"/>
+      <path fill="${fg}" d="M300 170h170v520H300z"/>
+      ${foot(a, 300, 690, 170, 180, 38)}` },
+
+  { name: 'Slab bowl, cut', note: 'bars, plus the diagonal',
+    d: (fg, a) => `
+      <path fill="${fg}" d="M470 170h330v170H470z"/>
+      <path fill="${fg}" d="M300 340 470 170v170z"/>
+      <path fill="${fg}" d="M630 340h170v180H630z"/>
+      <path fill="${fg}" d="M300 520h500v170H300z"/>
+      <path fill="${fg}" d="M300 340h170v350H300z"/>
+      ${foot(a, 300, 690, 170, 180, 38)}` },
+
+  { name: 'Knockout, round bowl', note: 'cut from the tile',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M140 140h744v744H140zm200 130h250a215 215 0 0 1 0 430H490v130H340zm150 150v130h100a65 65 0 0 0 0-130z"/>
+      ${foot(a, 340, 700, 150, 160, 34)}` },
+
+  { name: 'Accent bowl', note: 'the blue takes the bowl, not the foot',
+    d: (fg, a) => `
+      <path fill="${fg}" d="M300 170h190v700H300z"/>
+      <path fill="${a}" fill-rule="evenodd"
+        d="M490 170h110a265 265 0 0 1 0 530H490V510h110a75 75 0 0 0 0-150H490z"/>` },
+
+  { name: 'Two-tone stem', note: 'the leg fades into the accent',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 190v150h110a75 75 0 0 0 0-150z"/>
+      <path fill="${a}" d="M300 620h190v250H300z" opacity=".35"/>
+      ${foot(a)}` },
+
+  { name: 'Toe cut', note: 'the foot cut on the diagonal',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 190v150h110a75 75 0 0 0 0-150z"/>
+      <path fill="${a}" d="M300 700h190v170H360z"/>` },
+
+  { name: 'Beam counter', note: 'light out of the hole',
+    d: (fg, a) => `
+      <path fill="${fg}" fill-rule="evenodd"
+        d="M300 170h300a265 265 0 0 1 0 530H490v170H300zm190 175v185h185z"/>
+      <path fill="${a}" d="M700 380h260v90H700z"/>
+      ${foot(a)}` }
+]
+
+let tile = 'light'
+const SIZES = [512, 128, 48, 32, 16]
+
+function icon(m, size) {
+  const fg = tile === 'dark' ? '#ffffff' : INK
+  const bg = tile === 'light' ? LIGHT : tile === 'dark' ? '#101219' : 'none'
+  const r = 205
+  return `<svg width="${size}" height="${size}" viewBox="0 0 1024 1024">
+    ${tile === 'none' ? '' : `<rect x="0" y="0" width="1024" height="1024" rx="${r}" fill="${bg}"/>`}
+    ${m.d(fg, ACCENT)}
+  </svg>`
+}
+
+function render() {
+  document.getElementById('wall').innerHTML = MARKS.map((m, i) => `
+    <section class="case">
+      <header><span class="n">${String(i + 1).padStart(2, '0')}</span><h3>${m.name}</h3><span class="note">${m.note}</span></header>
+      <div class="row">
+        ${SIZES.map((s) => `<div class="s">${icon(m, s === 512 ? 132 : s)}<em>${s}</em></div>`).join('')}
+      </div>
+      <div class="strip taskbar"><span class="ic">${icon(m, 28)}</span>${icon(m, 28)}<span style="color:#8a8e99;font-size:11px">taskbar</span></div>
+      <div class="strip explorer">${icon(m, 32)}<span class="name">holiday-2026.jpg</span></div>
+      <div class="strip tray">${icon(m, 16)}<span style="color:#8a8e99;font-size:11px">tray, 16px</span></div>
+    </section>`).join('')
+  document.querySelectorAll('.btn[data-tile]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tile === tile)))
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.btn[data-tile]')
+  if (b) { tile = b.dataset.tile; render() }
+})
+
+render()
+</script>
+</body>
+</html>

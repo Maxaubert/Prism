@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
-import { DEFAULT_THEME_ID } from '../lib/viz/styles'
+import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
 import type { VizTheme } from '../lib/viz/core'
 import {
   useViz,
@@ -18,6 +18,7 @@ import {
   type VizState
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
+import { FrostBackdrop } from './FrostBackdrop'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 import {
   setAutoScroll,
@@ -36,7 +37,9 @@ import {
   acrylicLevel,
   deletePreset,
   isEdited,
+  paintedAlpha,
   paletteOf,
+  resolveVizTheme,
   savePreset,
   setAcrylic,
   setMode,
@@ -508,30 +511,54 @@ function StyleMini({ st }: { st: Style }): JSX.Element {
   const paint = palette.length > 1 ? `linear-gradient(90deg, ${palette.join(', ')})` : accent
   const tint = st.material === 'tinted'
   const grad = st.material === 'gradient'
+  // Frost, for real: the window paints translucent surfaces over the desktop,
+  // so the card does the same - a wallpaper-ish backdrop behind surfaces at the
+  // exact alpha the window uses - rather than pretending the style is solid.
+  const glassA = paintedAlpha(st)
+  const frosted = glassA < 1
+  // The same numbers variablesFor uses, so the card's glow matches the window's.
+  const washA = st.mode === 'light' ? 0.28 : 0.22
+  // The real gradient runs down the chrome from a lightened bg (variablesFor);
+  // the viewer stays flat. It was drawn from `side`, and only on the panel.
+  const gradBg = `linear-gradient(180deg, ${mix(st.bg, '#ffffff', 0.06)}, ${st.bg})`
   const side = tint
     ? mix(st.side, accent, 0.1)
     : grad
-      ? `linear-gradient(180deg, ${mix(st.side, '#ffffff', 0.06)}, ${st.side})`
-      : st.side
-  const title = tint ? mix(st.title, accent, 0.12) : st.title
-  const bg = tint ? mix(st.bg, accent, 0.07) : st.bg
+      ? gradBg
+      : frosted
+        ? rgba(st.side, glassA)
+        : st.side
+  const title = tint ? mix(st.title, accent, 0.12) : grad ? gradBg : frosted ? rgba(st.title, glassA) : st.title
+  const bg = tint ? mix(st.bg, accent, 0.07) : frosted ? rgba(st.bg, glassA) : st.bg
   const dim = mix(st.text, st.side, 0.5)
   const line = (w: string, c: string): JSX.Element => (
     <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
   )
   return (
     <div
-      className="flex h-[104px] flex-col overflow-hidden rounded-md"
+      className="relative flex h-[104px] flex-col overflow-hidden rounded-md"
       style={{ border: '1px solid var(--p-divider)' }}
     >
+      {frosted && <FrostBackdrop />}
+      {st.wash && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10"
+          style={{
+            backgroundImage:
+              `radial-gradient(58% 56% at 20% 22%, ${rgba(palette[0], washA)}, transparent 72%),` +
+              ` radial-gradient(54% 52% at 80% 78%, ${rgba(palette[1] ?? palette[0], washA * 0.9)}, transparent 72%)`
+          }}
+        />
+      )}
       <div
-        className="flex h-[9px] shrink-0 items-center gap-[3px] px-1.5"
+        className="relative flex h-[9px] shrink-0 items-center gap-[3px] px-1.5"
         style={{ background: title }}
       >
         <span className="h-[2.5px] w-[2.5px] rounded-[1px]" style={{ background: accent }} />
         {line('30%', rgba(st.text, 0.5))}
       </div>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <div className="flex w-[36%] flex-col gap-[3px] p-1.5" style={{ background: side }}>
           {line('62%', rgba(dim, 0.6))}
           {line('80%', rgba(st.text, 0.5))}
@@ -599,7 +626,11 @@ function StyleTab(): JSX.Element {
           const on = st.id === selected
           return (
             <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
-              <StyleMini st={st.id === style.id ? style : st} />
+              {/* Always the SAVED style, never the live draft: an edit deselects
+                  every card, and a deselected card that keeps tracking the edit
+                  (accent included) claims to be a style it no longer is.
+                  Clicking it must give exactly what it shows. */}
+              <StyleMini st={st} />
               <div className="flex items-center justify-between gap-2">
                 <TileFooter name={st.name} on={on} />
                 {st.custom && (
@@ -848,6 +879,21 @@ function GeneralTab(): JSX.Element {
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </Pref>
+      {/* Setup offers this once; this is where you find it afterwards. Windows
+          owns the choice, so all we can do is open the page it lives on. */}
+      <Pref
+        id="default-apps"
+        label="Default viewer"
+        hint="Windows keeps this choice. Opens Prism's page in Default apps."
+      >
+        <button
+          id="default-apps"
+          onClick={() => void window.prism.openDefaultApps()}
+          className="h-8 rounded-lg border border-[color:var(--p-accent)]/45 bg-[var(--p-accent)]/10 px-3 text-[12px] font-semibold text-[var(--p-accent-hi)] transition-colors hover:border-[color:var(--p-accent)] hover:bg-[var(--p-accent)]/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+        >
+          Choose in Windows
+        </button>
+      </Pref>
     </div>
   )
 }
@@ -971,7 +1017,9 @@ function SchemePicker({
   selectedId: string
   onPick: (id: string) => void
 }): JSX.Element {
-  const themes = visibleThemes()
+  // The accent-following scheme leads the list, drawn in the colour it is
+  // actually following rather than the placeholder it carries.
+  const themes = [resolveVizTheme(ACCENT_THEME_ID), ...visibleThemes()]
   return (
     <div className="flex flex-col gap-3">
       {COLOUR_ORDER.map((cat) => {

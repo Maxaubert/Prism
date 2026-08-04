@@ -236,7 +236,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
               t.onDelete(path, name, true)
             }
           }}
-          className="flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left text-[var(--p-text-soft)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+          className="flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left text-[var(--p-text-soft)] outline-none transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:outline-none"
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
           <Chevron open={open} />
@@ -306,7 +306,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                   t.onDelete(f.path, f.name, false)
                 }
               }}
-              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left transition-colors ${
+              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
                 on
                   ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                   : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
