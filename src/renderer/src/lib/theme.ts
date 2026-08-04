@@ -167,24 +167,7 @@ export const STYLES: Style[] = [
     corners: '8',
     borders: 'hairline'
   },
-  {
-    id: 'new-ember',
-    name: 'Ember',
-    blurb: 'Warm tint, coral accent.',
-    mode: 'dark',
-    material: 'tinted',
-    bg: '#191720',
-    side: '#1c1a22',
-    title: '#231f28',
-    text: '#f0e7dc',
-    iconMode: 'custom',
-    icon: '#d3a06a',
-    accent: 's-coral',
-    font: 'calibri',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline'
-  },
+
   {
     id: 'acrylic-red',
     name: 'Ruby',
@@ -211,12 +194,12 @@ const LIGHT: Style[] = [
   {
     id: 'daybreak',
     name: 'Daybreak',
-    blurb: 'Aurora in daylight: the same glass and glow, over white.',
+    blurb: 'Aurora in daylight: the same glow, over solid white.',
     mode: 'light',
-    material: 'acrylic',
-    // The light half of Aurora: the same two glows, the same accent, over white
-    // instead of near-black. No glass level of its own - it takes the one every
-    // light style takes, so it is as see-through as Paper.
+    // Solid, not glass. Acrylic over a light desktop pulls the whole window
+    // grey, and grey is the one thing a light style cannot afford: artwork with
+    // white in it stops reading as white. The glow stays; the translucency goes.
+    material: 'solid',
     bg: '#fbfcfe',
     side: '#fbfcfe',
     title: '#fbfcfe',
@@ -577,7 +560,11 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
       : 'none',
     '--p-radius': style.corners + 'px',
     '--p-radius-sm': Math.max(2, Number(style.corners) - 2) + 'px',
+    // The style's face, worn by the sidebar and the title bar only. Terminal in
+    // mono is a look; Settings in mono is a mistake, and every long line of
+    // running text in the app lives outside the chrome.
     '--p-font': FONTS[style.font].stack,
+    '--p-font-ui': FONTS.system.stack,
     '--p-size': style.size + 'px',
     '--p-row': (style.size === '13.5' ? 31 : style.size === '12' ? 22 : 26) + 'px',
     '--p-indent': (style.size === '13.5' ? 15 : style.size === '12' ? 11 : 13) + 'px'
@@ -734,10 +721,12 @@ function apply(syncAccent = true): void {
   const style = edited(byId(current))
   paint(style)
   // A scheme that already follows the accent must not be replaced by the
-  // accent's own named scheme: it is following on purpose.
-  if (syncAccent && !style.accent.startsWith('#') && vizState().theme !== ACCENT_THEME_ID) {
-    setTheme(style.accent)
-    setBarTheme(style.accent)
+  // accent's own named scheme: it is following on purpose. The visualizer and
+  // the progress bar are answered separately, since either can be set to a
+  // colour of its own.
+  if (syncAccent && !style.accent.startsWith('#')) {
+    if (vizState().theme !== ACCENT_THEME_ID) setTheme(style.accent)
+    if (vizState().barTheme !== ACCENT_THEME_ID) setBarTheme(style.accent)
   }
   emit()
 }

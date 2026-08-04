@@ -258,7 +258,7 @@ export function Sidebar({
       inert={!open}
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
-      className={`relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
+      className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
         dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
     >

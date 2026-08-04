@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { derive, mix, paletteOf, resolveVizTheme, setOverride, setStyle, STYLES } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
-import { visibleThemes } from './vizStore'
+import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
 // Every shipped style has to be readable, in both modes. These are the numbers
 // that caught grey-on-white: a fixed dimming fraction reads fine on a dark panel
@@ -149,5 +149,20 @@ describe('the accent scheme keeps its identity', () => {
     const after = resolveVizTheme(ACCENT_THEME_ID)
     expect(after).not.toBe(before)
     expect(after.accent).toBe('#ff3366')
+  })
+})
+
+describe('the progress bar follows the accent', () => {
+  it('takes the accent colour, not a scheme of its own', () => {
+    setStyle('aurora')
+    setOverride('accent', '#12b886')
+    expect(resolveVizTheme(DEFAULT_BAR_THEME).accent).toBe('#12b886')
+  })
+
+  it('follows a style switch without being told', () => {
+    setStyle('aurora')
+    const auroraBar = resolveVizTheme(DEFAULT_BAR_THEME).accent
+    setStyle('terminal')
+    expect(resolveVizTheme(DEFAULT_BAR_THEME).accent).not.toBe(auroraBar)
   })
 })

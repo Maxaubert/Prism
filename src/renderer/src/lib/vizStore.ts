@@ -86,7 +86,7 @@ export const WIDTH_LABELS: Array<[string, string]> = [
 
 // The progress bar picks from the SAME colour schemes as the visualizer, with its
 // own selection and its own effect toggles (independent of the visualizer's).
-export const DEFAULT_BAR_THEME = DEFAULT_THEME_ID
+export const DEFAULT_BAR_THEME = ACCENT_THEME_ID
 
 export interface VizState {
   style: string

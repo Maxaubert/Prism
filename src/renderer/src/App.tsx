@@ -11,6 +11,7 @@ import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
 import { ACCENT_THEME_ID } from './lib/viz/styles'
 import {
+  setBarTheme as setVizBarTheme,
   setCycle as setVizCycle,
   setGlow as setVizGlow,
   setMove as setVizMove,
@@ -67,7 +68,7 @@ function TopBar({
     // setup's mode wipe it is the one surface the still doesn't cover, and a
     // hard swap there read as a flash.
     <div
-      className={`drag flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      className={`drag p-styled-font flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
@@ -534,6 +535,7 @@ export default function App(): JSX.Element {
             // The colour you picked is the colour the visualizer plays in:
             // that one accent, lit, rather than a spectrum sweeping past.
             setVizTheme(ACCENT_THEME_ID)
+            setVizBarTheme(ACCENT_THEME_ID)
             setVizGlow(true)
             setVizCycle(false)
             setVizMove(false)
