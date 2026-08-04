@@ -77,6 +77,7 @@ body,
   --p-radius: 2px;
   --p-radius-sm: 2px;
   --p-font: 'Segoe UI', system-ui, sans-serif;
+  --p-font-ui: 'Segoe UI', system-ui, sans-serif;
   --p-size: 12.5px;
   --p-row: 26px;
   --p-indent: 13px;
@@ -94,7 +95,9 @@ body,
 body {
   background: transparent;
   color: var(--p-text);
-  font-family: var(--p-font);
+  /* The app reads in the UI face. A style's own face is chrome: the sidebar and
+     the title bar opt into it with .p-styled-font. */
+  font-family: var(--p-font-ui);
   overflow: hidden;
   user-select: none;
 }
@@ -197,4 +200,10 @@ body {
   .ob-deal > *, .ob-logo, .ob-in-1, .ob-in-2, .ob-in-3, .ob-tree, .ob-row, .ob-tile, .ob-badge {
     animation-duration: .001s !important;
   }
+}
+
+/* The two surfaces that carry the style's chosen face. Everything else, and
+   Settings above all, stays on the face it was designed in. */
+.p-styled-font {
+  font-family: var(--p-font);
 }
