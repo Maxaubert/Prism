@@ -1,0 +1,9 @@
+Prism. A fast, universal media viewer for Windows.
+
+Open a file, view or play it, arrow through the rest of the folder. The quick look
+Windows never shipped. Images, video, audio, PDFs and text. A file tree bounded by the
+folder you opened. Rename and delete through the Recycle Bin. Styles that repaint the
+whole window. One resident process, so the second file opens instantly.
+
+Free, per user, no admin. Windows 10 1809+ and Windows 11, x64.
+github.com/Maxaubert/Prism

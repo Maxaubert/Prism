@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Prism, the small things</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+      :root {
+        --ink: #08080b;
+        --cream: #f2f3f7;
+        --muted: #babfcc;
+        --hint: #6a6a74;
+        --accent: #5b5bd6;
+        --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI",
+          system-ui, sans-serif;
+        --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      .bg {
+        position: absolute;
+        inset: 0;
+        background: var(--ink);
+        z-index: 0;
+      }
+
+      /* Mirrored from the styles film on purpose: same family, different film. */
+      #screen {
+        position: absolute;
+        left: 84px;
+        top: 152px;
+        width: 1120px;
+        height: 700px;
+        border-radius: 12px;
+        overflow: hidden;
+        z-index: 2;
+        box-shadow: 0 40px 90px -25px rgba(0, 0, 0, 0.92);
+      }
+      #screen .clip {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .col {
+        position: absolute;
+        right: 96px;
+        top: 152px;
+        width: 600px;
+        height: 700px;
+        z-index: 3;
+      }
+      .slot {
+        position: absolute;
+        top: 150px;
+        left: 0;
+        width: 600px;
+      }
+      .mask {
+        display: block;
+        overflow: hidden;
+        padding-bottom: 5px;
+      }
+      .line {
+        display: block;
+        font-family: var(--display);
+        font-size: 92px;
+        font-weight: 800;
+        line-height: 1.02;
+        letter-spacing: -0.045em;
+        color: var(--cream);
+        white-space: nowrap;
+      }
+      .rule {
+        display: block;
+        width: 96px;
+        height: 3px;
+        margin: 24px 0 18px;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: left center;
+      }
+      .sub {
+        display: block;
+        font-family: var(--mono);
+        font-size: 16px;
+        line-height: 1.8;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        max-width: 520px;
+      }
+
+      /* The index across the bottom is the film's spine: six things, and you can
+         see at any moment which one is being shown and how many are left. */
+      .rail {
+        position: absolute;
+        left: 84px;
+        right: 96px;
+        bottom: 92px;
+        display: flex;
+        gap: 40px;
+        z-index: 4;
+      }
+      .step {
+        font-family: var(--mono);
+        font-size: 15px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #3a3a44;
+        padding-top: 16px;
+        border-top: 2px solid #22222a;
+        flex: 1;
+      }
+      .top {
+        position: absolute;
+        left: 84px;
+        top: 74px;
+        font-family: var(--mono);
+        font-size: 15px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        z-index: 4;
+      }
+      .hair {
+        position: absolute;
+        left: 84px;
+        right: 96px;
+        top: 108px;
+        height: 1px;
+        background: #1d1d24;
+        z-index: 4;
+      }
+
+      .end {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 6;
+      }
+      .wordmark {
+        display: block;
+        font-family: var(--display);
+        font-size: 196px;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        line-height: 1.06;
+        color: var(--cream);
+      }
+      .end-line {
+        display: block;
+        font-family: var(--mono);
+        font-size: 19px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="craft"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="28.6"
+    >
+      <div id="ground" class="clip bg" data-start="0" data-duration="28.6" data-track-index="9"></div>
+
+      <div id="screen">
+        <video id="c-handoff" class="clip" src="assets/handoff.mp4" data-start="0" data-duration="4" data-track-index="0" muted playsinline></video>
+        <video id="c-seek" class="clip" src="assets/seek.mp4" data-start="4" data-duration="4.2" data-track-index="0" data-media-start="0.8" muted playsinline></video>
+        <video id="c-speed" class="clip" src="assets/speed.mp4" data-start="8.2" data-duration="3.6" data-track-index="0" data-media-start="1" muted playsinline></video>
+        <video id="c-rename" class="clip" src="assets/rename.mp4" data-start="11.8" data-duration="4.4" data-track-index="0" data-media-start="1.4" muted playsinline></video>
+        <video id="c-delete" class="clip" src="assets/delete.mp4" data-start="16.2" data-duration="5" data-track-index="0" data-media-start="1.6" muted playsinline></video>
+        <video id="c-viz" class="clip" src="assets/settings-viz.mp4" data-start="21.2" data-duration="4.4" data-track-index="0" data-media-start="3.2" muted playsinline></video>
+      </div>
+
+      <div id="chrome" class="clip" data-start="0" data-duration="28.6" data-track-index="8">
+        <div class="top">Prism · The small things</div>
+        <div class="hair"></div>
+        <div class="rail">
+          <div class="step" id="p1">01 Handoff</div>
+          <div class="step" id="p2">02 Frames</div>
+          <div class="step" id="p3">03 Speed</div>
+          <div class="step" id="p4">04 Rename</div>
+          <div class="step" id="p5">05 Delete</div>
+          <div class="step" id="p6">06 Visualizer</div>
+        </div>
+      </div>
+
+      <section id="k1" class="clip col" data-start="0.3" data-duration="3.7" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">the second</span></span>
+          <span class="mask"><span class="line">file</span></span>
+          <span class="rule"></span>
+          <span class="sub">One process. Open another file from anywhere and the window already up takes it, with no second start-up to sit through.</span>
+        </div>
+      </section>
+
+      <section id="k2" class="clip col" data-start="4.1" data-duration="4.1" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">a frame</span></span>
+          <span class="mask"><span class="line">at a time</span></span>
+          <span class="rule"></span>
+          <span class="sub">Comma and period walk single frames. Arrows jump five seconds. Space stops it dead.</span>
+        </div>
+      </section>
+
+      <section id="k3" class="clip col" data-start="8.3" data-duration="3.5" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">or faster</span></span>
+          <span class="rule"></span>
+          <span class="sub">Speed sits in the transport, where you are already looking, not three pages into a settings tree.</span>
+        </div>
+      </section>
+
+      <section id="k4" class="clip col" data-start="11.9" data-duration="4.3" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">rename it</span></span>
+          <span class="mask"><span class="line">in place</span></span>
+          <span class="rule"></span>
+          <span class="sub">F2, type, enter. The extension is left alone unless you go looking for it.</span>
+        </div>
+      </section>
+
+      <section id="k5" class="clip col" data-start="16.3" data-duration="4.9" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">delete,</span></span>
+          <span class="mask"><span class="line">reversibly</span></span>
+          <span class="rule"></span>
+          <span class="sub">It asks once and says where the file goes. Everything Prism removes lands in the Recycle Bin, overwrites included.</span>
+        </div>
+      </section>
+
+      <section id="k6" class="clip col" data-start="21.3" data-duration="4.3" data-track-index="1">
+        <div class="slot">
+          <span class="mask"><span class="line">and the</span></span>
+          <span class="mask"><span class="line">visualizer</span></span>
+          <span class="rule"></span>
+          <span class="sub">Glow, cycle, drift. Every switch changes what you are looking at while the track keeps playing.</span>
+        </div>
+      </section>
+
+      <section id="end" class="clip end" data-start="25.6" data-duration="3" data-track-index="3">
+        <span class="mask"><span class="wordmark" id="end-mark">prism</span></span>
+        <span class="end-line" id="end-url">github.com/Maxaubert/Prism</span>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const BEATS = [
+        ["#k1", "#p1", 0.3, 3.7],
+        ["#k2", "#p2", 4.1, 4.1],
+        ["#k3", "#p3", 8.3, 3.5],
+        ["#k4", "#p4", 11.9, 4.3],
+        ["#k5", "#p5", 16.3, 4.9],
+        ["#k6", "#p6", 21.3, 4.3]
+      ];
+
+      BEATS.forEach(([col, step, at, len]) => {
+        tl.fromTo(`${col} .line`, { yPercent: 112 }, { yPercent: 0, duration: 0.7, stagger: 0.07, ease: "power3.out" }, at);
+        tl.fromTo(`${col} .rule`, { scaleX: 0 }, { scaleX: 1, duration: 0.62, ease: "power3.out" }, at + 0.28);
+        tl.fromTo(`${col} .sub`, { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.58, ease: "power3.out" }, at + 0.36);
+
+        /* The index lights for its own beat and dims again, so the rail reads as
+           a position rather than a decoration. */
+        tl.to(step, { color: "#f2f3f7", borderTopColor: "#5b5bd6", duration: 0.4, ease: "power2.out" }, at);
+        tl.to(step, { color: "#3a3a44", borderTopColor: "#22222a", duration: 0.4, ease: "power2.in" }, at + len - 0.2);
+
+        const out = at + len;
+        tl.to(`${col} .line`, { yPercent: -112, duration: 0.44, stagger: 0.05, ease: "power2.in" }, out - 0.52);
+        tl.to(`${col} .rule`, { scaleX: 0, duration: 0.34, ease: "power2.in" }, out - 0.46);
+        tl.to(`${col} .sub`, { opacity: 0, duration: 0.34, ease: "power2.in" }, out - 0.46);
+      });
+
+      tl.fromTo("#screen", { scale: 0.985, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.8, ease: "power2.out" }, 0);
+      tl.to("#screen", { scale: 0.955, opacity: 0, duration: 0.8, ease: "power2.inOut" }, 25);
+      tl.to("#chrome", { opacity: 0, duration: 0.5, ease: "power2.in" }, 25.2);
+
+      tl.fromTo("#end-mark", { yPercent: 116 }, { yPercent: 0, duration: 0.85, ease: "power3.out" }, 25.75);
+      tl.fromTo("#end-url", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 26.3);
+
+      window.__timelines["craft"] = tl;
+    </script>
+  </body>
+</html>

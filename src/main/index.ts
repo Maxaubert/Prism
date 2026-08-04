@@ -251,7 +251,10 @@ function createWindow(): void {
       // Setup launches Prism with --setup so the guide runs even on a machine
       // that has seen it before. It rides in the renderer's own argv rather
       // than an IPC message, so it is there before the first render.
-      additionalArguments: process.argv.includes('--setup') ? ['--prism-setup'] : []
+      additionalArguments: [
+        ...(process.argv.includes('--setup') ? ['--prism-setup'] : []),
+        ...(process.argv.includes('--demo') ? ['--prism-demo'] : [])
+      ]
     }
   })
   mainWindow.on('ready-to-show', () => mainWindow?.show())

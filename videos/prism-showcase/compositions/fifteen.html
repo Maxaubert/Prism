@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Prism in fifteen</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+      :root {
+        --ink: #08080b;
+        --cream: #f2f3f7;
+        --muted: #babfcc;
+        --accent: #5b5bd6;
+        --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI",
+          system-ui, sans-serif;
+        --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      .bg {
+        position: absolute;
+        inset: 0;
+        background: var(--ink);
+        z-index: 0;
+      }
+
+      /* The window never moves in this one. Fifteen seconds is not long enough to
+         learn a grammar, so there is only one thing to watch and the cuts do the
+         work. */
+      #screen {
+        position: absolute;
+        left: 96px;
+        top: 74px;
+        width: 1728px;
+        height: 1080px;
+        z-index: 2;
+      }
+      #frame {
+        position: absolute;
+        inset: 0;
+        width: 1728px;
+        height: 1080px;
+        border-radius: 15px;
+        overflow: hidden;
+        box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.95);
+      }
+      #frame .clip {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      /* A band across the bottom so a word can sit over the picture and still be
+         read, whatever the picture happens to be. */
+      .band {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 330px;
+        background: linear-gradient(to top, rgba(4, 4, 6, 0.94) 12%, rgba(4, 4, 6, 0) 100%);
+        z-index: 3;
+      }
+      .word {
+        position: absolute;
+        left: 104px;
+        bottom: 96px;
+        z-index: 4;
+      }
+      .mask {
+        display: block;
+        overflow: hidden;
+        padding-bottom: 6px;
+      }
+      .line {
+        display: block;
+        font-family: var(--display);
+        font-size: 118px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: -0.045em;
+        color: var(--cream);
+        white-space: nowrap;
+      }
+      .tag {
+        position: absolute;
+        right: 104px;
+        bottom: 122px;
+        font-family: var(--mono);
+        font-size: 17px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        z-index: 4;
+      }
+      #line-accent {
+        position: absolute;
+        left: 104px;
+        right: 104px;
+        bottom: 62px;
+        height: 2px;
+        background: var(--accent);
+        transform: scaleX(0);
+        transform-origin: left center;
+        z-index: 4;
+      }
+
+      .end {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 6;
+      }
+      .wordmark {
+        display: block;
+        font-family: var(--display);
+        font-size: 210px;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        line-height: 1.04;
+        color: var(--cream);
+      }
+      .end-line {
+        display: block;
+        font-family: var(--mono);
+        font-size: 20px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 26px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="fifteen"
+      data-start="0"
+      data-width="1920"
+      data-height="1080"
+      data-duration="15.6"
+    >
+      <div id="ground" class="clip bg" data-start="0" data-duration="15.6" data-track-index="9"></div>
+
+      <div id="screen">
+        <div id="frame">
+          <video id="f-open" class="clip" src="assets/open.mp4" data-start="0" data-duration="1.8" data-track-index="0" muted playsinline></video>
+          <video id="f-kinds" class="clip" src="assets/kinds.mp4" data-start="1.8" data-duration="1.9" data-track-index="0" data-media-start="1.4" muted playsinline></video>
+          <video id="f-zoom" class="clip" src="assets/zoom.mp4" data-start="3.7" data-duration="1.7" data-track-index="0" data-media-start="1.2" muted playsinline></video>
+          <video id="f-tree" class="clip" src="assets/tree-walk.mp4" data-start="5.4" data-duration="1.9" data-track-index="0" data-media-start="1.6" muted playsinline></video>
+          <video id="f-video" class="clip" src="assets/video.mp4" data-start="7.3" data-duration="1.9" data-track-index="0" data-media-start="0.8" muted playsinline></video>
+          <video id="f-audio" class="clip" src="assets/audio.mp4" data-start="9.2" data-duration="1.8" data-track-index="0" data-media-start="1" muted playsinline></video>
+          <video id="f-style" class="clip" src="assets/style-many.mp4" data-start="11" data-duration="2.4" data-track-index="0" data-media-start="2.2" muted playsinline></video>
+        </div>
+      </div>
+
+      <div id="band" class="clip band" data-start="0" data-duration="13.4" data-track-index="8"></div>
+      <div id="rule" class="clip" data-start="0" data-duration="13.4" data-track-index="7">
+        <div id="line-accent"></div>
+      </div>
+
+      <div id="w1" class="clip word" data-start="0.15" data-duration="1.65" data-track-index="1">
+        <span class="mask"><span class="line">open it</span></span>
+      </div>
+      <div id="w2" class="clip word" data-start="1.8" data-duration="1.9" data-track-index="1">
+        <span class="mask"><span class="line">anything</span></span>
+      </div>
+      <div id="w3" class="clip word" data-start="3.7" data-duration="1.7" data-track-index="1">
+        <span class="mask"><span class="line">closer</span></span>
+      </div>
+      <div id="w4" class="clip word" data-start="5.4" data-duration="1.9" data-track-index="1">
+        <span class="mask"><span class="line">the whole folder</span></span>
+      </div>
+      <div id="w5" class="clip word" data-start="7.3" data-duration="1.9" data-track-index="1">
+        <span class="mask"><span class="line">watch it</span></span>
+      </div>
+      <div id="w6" class="clip word" data-start="9.2" data-duration="1.8" data-track-index="1">
+        <span class="mask"><span class="line">hear it</span></span>
+      </div>
+      <div id="w7" class="clip word" data-start="11" data-duration="2.4" data-track-index="1">
+        <span class="mask"><span class="line">make it yours</span></span>
+      </div>
+
+      <div id="g1" class="clip tag" data-start="0.15" data-duration="1.65" data-track-index="2">JPG · PNG · WEBP · AVIF · HEIC</div>
+      <div id="g2" class="clip tag" data-start="1.8" data-duration="1.9" data-track-index="2">Pictures, video, sound, documents</div>
+      <div id="g3" class="clip tag" data-start="3.7" data-duration="1.7" data-track-index="2">Fit · zoom · pan · rotate</div>
+      <div id="g4" class="clip tag" data-start="5.4" data-duration="1.9" data-track-index="2">Ctrl+B</div>
+      <div id="g5" class="clip tag" data-start="7.3" data-duration="1.9" data-track-index="2">Seek · speed · frame steps</div>
+      <div id="g6" class="clip tag" data-start="9.2" data-duration="1.8" data-track-index="2">A visualizer in your accent</div>
+      <div id="g7" class="clip tag" data-start="11" data-duration="2.4" data-track-index="2">Eleven styles, light and dark</div>
+
+      <section id="end" class="clip end" data-start="13.4" data-duration="2.2" data-track-index="3">
+        <span class="mask"><span class="wordmark" id="end-mark">prism</span></span>
+        <span class="end-line" id="end-url">github.com/Maxaubert/Prism</span>
+      </section>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Seven beats on a fixed grid. Each word rises as its shot cuts in, which
+         is the only synchronisation this film has and all it needs. */
+      const BEATS = [
+        [0.15, 1.65],
+        [1.8, 1.9],
+        [3.7, 1.7],
+        [5.4, 1.9],
+        [7.3, 1.9],
+        [9.2, 1.8],
+        [11, 2.4]
+      ];
+
+      BEATS.forEach(([at, len], i) => {
+        const w = `#w${i + 1}`;
+        const g = `#g${i + 1}`;
+        tl.fromTo(`${w} .line`, { yPercent: 115 }, { yPercent: 0, duration: 0.62, ease: "power3.out" }, at);
+        tl.fromTo(g, { opacity: 0, x: 26 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, at + 0.12);
+        tl.to(`${w} .line`, { yPercent: -115, duration: 0.34, ease: "power2.in" }, at + len - 0.36);
+        tl.to(g, { opacity: 0, duration: 0.28, ease: "power2.in" }, at + len - 0.32);
+      });
+
+      /* One continuous line under everything, so the fifteen seconds read as one
+         run rather than seven unrelated cuts. */
+      tl.fromTo("#line-accent", { scaleX: 0 }, { scaleX: 1, duration: 13.4, ease: "none" }, 0);
+      tl.to("#band", { opacity: 0, duration: 0.4, ease: "power2.in" }, 13.1);
+
+      tl.fromTo("#screen", { scale: 1.03, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.7, ease: "power2.out" }, 0);
+      tl.to("#screen", { scale: 0.965, opacity: 0, duration: 0.75, ease: "power2.inOut" }, 13.2);
+
+      tl.fromTo("#end-mark", { yPercent: 118 }, { yPercent: 0, duration: 0.85, ease: "power3.out" }, 13.5);
+      tl.fromTo("#end-url", { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 14.05);
+
+      window.__timelines["fifteen"] = tl;
+    </script>
+  </body>
+</html>

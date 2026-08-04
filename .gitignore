@@ -11,3 +11,11 @@ dist/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Showcase working files: recorded takes, the demo folder they browse, and the
+# render project's node_modules. The scripts in tools/showcase rebuild all of it.
+.demo/
+videos/*/node_modules/
+videos/*/renders/
+videos/*/snapshots/
+videos/*/assets/
