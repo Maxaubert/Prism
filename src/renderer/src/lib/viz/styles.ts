@@ -918,8 +918,16 @@ export const THEMES: VizTheme[] = [
   { id: 'd-ink', name: 'Ink', blurb: 'Solid ink blue.', palette: ['#2c3e50'], accent: '#2c3e50' },
 
   // Prism's own: a true blue, not the indigo-violet it used to lean on.
-  { id: 'prism', name: 'Prism blue', blurb: 'Prism blue into sky.', palette: ['#2f6fed', '#4d9dff'], accent: '#2f6fed' }
+  { id: 'prism', name: 'Prism blue', blurb: 'Prism blue into sky.', palette: ['#2f6fed', '#4d9dff'], accent: '#2f6fed' },
+
+  // Not a colour of its own: whatever the app's accent currently is, solid.
+  // resolveVizTheme in theme.ts fills it in, because only the style store knows
+  // what the accent is, and it can be a hex nobody named.
+  { id: 'accent', name: 'Accent', blurb: "Follows the app's accent colour.", palette: ['#5b5bd6'], accent: '#5b5bd6' }
 ]
+
+/** The scheme that takes its colour from the app rather than from this list. */
+export const ACCENT_THEME_ID = 'accent'
 
 export const DEFAULT_THEME_ID = 'brand'
 

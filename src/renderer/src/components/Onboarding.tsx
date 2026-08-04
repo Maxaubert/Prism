@@ -1,6 +1,8 @@
 import { useState, type JSX, type ReactNode } from 'react'
 import {
   isEdited,
+  paintedAlpha,
+  rgba,
   savePreset,
   setMode,
   setOverride,
@@ -12,6 +14,7 @@ import {
   type Style
 } from '../lib/theme'
 import { visibleThemes } from '../lib/vizStore'
+import { FrostBackdrop } from './FrostBackdrop'
 
 // The first-run setup: a full-window page, not a dialog. Four steps and a
 // welcome, each one animating in on the click that brought you to it - nothing
@@ -57,14 +60,18 @@ function ModeCards({ mode, onPick }: { mode: Mode; onPick?: (m: Mode) => void })
   )
 }
 
-/** A miniature of the window in a mode, for the two appearance cards. */
+/** A miniature of the window in a mode, for the two appearance cards. Both
+ *  defaults are acrylic, so it frosts exactly as the style cards do. */
 function ModePreview({ mode }: { mode: Mode }): JSX.Element {
   const st = stylesFor(mode)[0]
-  const bg = st?.bg ?? '#0b0d12'
-  const side = st?.side ?? '#12151b'
+  const glassA = st ? paintedAlpha(st) : 1
+  const frosted = glassA < 1
+  const bg = st ? (frosted ? rgba(st.bg, glassA) : st.bg) : '#0b0d12'
+  const side = st ? (frosted ? rgba(st.side, glassA) : st.side) : '#12151b'
   return (
-    <div className="flex h-[72px] overflow-hidden rounded-[9px]">
-      <div style={{ width: '32%', background: side }} />
+    <div className="relative flex h-[72px] overflow-hidden rounded-[9px]">
+      {frosted && <FrostBackdrop />}
+      <div className="relative" style={{ width: '32%', background: side }} />
       <div className="relative flex-1" style={{ background: bg }}>
         <div className="absolute left-[14%] right-[14%] top-[30%] h-[34%] rounded bg-[linear-gradient(140deg,#7d1f2a,#b03a2e_45%,#2c3e63)]" />
       </div>
@@ -376,11 +383,19 @@ function Sweep({ style, step }: { style: Style; step: number }): JSX.Element {
   const vars = variablesFor(style, true)
   const c = COPY[step]
   return (
-    <div aria-hidden className="ob-sweep pointer-events-none fixed inset-0 z-[60]" style={{ ...vars, background: 'var(--p-bg)' }}>
-      <div className="flex h-9 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px]">
-        <span className="font-semibold text-[var(--p-accent-hi)]">Prism</span>
-      </div>
-      <div className="p-wash absolute inset-x-0 bottom-0 top-9 flex flex-col px-[62px] py-[52px]">
+    // The still stops at the title bar. Drawn opaque it was a dark slab where
+    // dark glass had been; drawn translucent it doubled up with the real bar
+    // underneath, which comes to the same thing. The bar is left alone and
+    // glides its own colour instead (see TopBar).
+    <div
+      aria-hidden
+      className="ob-sweep pointer-events-none fixed inset-x-0 bottom-0 top-9 z-[60]"
+      style={vars}
+    >
+      <div
+        className="p-wash absolute inset-0 flex flex-col px-[62px] py-[52px]"
+        style={{ backgroundColor: 'var(--p-bg)' }}
+      >
         <div className="text-[11px] font-extrabold uppercase tracking-[.22em] text-[var(--p-accent-hi)]">{c.kicker}</div>
         <h1 className="mt-3.5 max-w-[15ch] text-[58px] font-extrabold leading-[.98] tracking-[-.045em] text-[var(--p-text)]">
           {c.head.map((part, i) => (

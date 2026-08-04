@@ -238,8 +238,21 @@ function createWindow(): void {
     // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
     // the custom title bar still draws over it.
     titleBarStyle: 'hidden',
+    // Explicit, rather than inherited from the executable: Windows caches the
+    // exe's icon per path, so a new build can keep showing the old one in the
+    // taskbar. A window icon set here is not cached by anything.
+    icon: app.isPackaged
+      ? join(process.resourcesPath, 'icon.ico')
+      : join(__dirname, '../../build/icon.ico'),
     backgroundColor: '#111318',
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      // Setup launches Prism with --setup so the guide runs even on a machine
+      // that has seen it before. It rides in the renderer's own argv rather
+      // than an IPC message, so it is there before the first render.
+      additionalArguments: process.argv.includes('--setup') ? ['--prism-setup'] : []
+    }
   })
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   mainWindow.on('closed', () => (mainWindow = null))
@@ -318,7 +331,11 @@ if (!app.requestSingleInstanceLock()) {
         return false
       }
     })
+    // The same wall as every other handler. A text file only ever reaches the
+    // renderer from inside the session root, and opening one from outside
+    // re-roots first, so this refuses nothing the app legitimately asks for.
     ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
+      if (!isInsideRoot(sessionRoot, p)) return null
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')
       } catch {
@@ -338,7 +355,12 @@ if (!app.requestSingleInstanceLock()) {
     // the right way round: this opens the list with Prism in it and the choice
     // stays the user's.
     ipcMain.on('app:default-apps', () => {
-      void shell.openExternal('ms-settings:defaultapps')
+      // Windows 11 takes a deep link straight to Prism's own page in Default
+      // apps, where each file type is one click. The app cannot set them
+      // itself: the choice lives in a signed UserChoice key precisely so that
+      // no installer can help itself to it. Older builds ignore the query and
+      // land on the list, which is still the right list.
+      void shell.openExternal('ms-settings:defaultapps?registeredAppUser=Prism')
     })
     ipcMain.on('window:material', (_e, material: string, mode?: string) => {
       if (!mainWindow) return

@@ -11,11 +11,24 @@ files:
   - '!{.git,.claude,docs,test}/*'
   - '!build/**'
   - '!dist/**'
+extraResources:
+  - from: build/icon.ico
+    to: icon.ico
 win:
+  icon: build/icon.ico
   target:
     - nsis
   artifactName: ${productName}-Setup-${arch}-${version}.${ext}
 nsis:
   oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  # Setup draws its own directory page (build/installer/pages.nsh), so MUI's is
+  # off. allowElevation off keeps it per-user, which is the only mode Prism has.
+  allowToChangeInstallationDirectory: false
+  allowElevation: false
+  include: build/installer.nsh
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
