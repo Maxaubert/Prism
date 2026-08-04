@@ -33,6 +33,11 @@
 !macro PRISM_EXT EXT ID
   WriteRegNone SHELL_CONTEXT "Software\Classes\.${EXT}\OpenWithProgids" "${ID}"
   WriteRegStr SHELL_CONTEXT "${PRISM_CAPS}\FileAssociations" ".${EXT}" "${ID}"
+  ; The other half of being offered. OpenWithProgids gets Prism into the Open
+  ; With list; SupportedTypes under Applications\<exe> is what the "Choose
+  ; another app" dialog and parts of Default apps read, and without it a type
+  ; can look registered and still refuse to take.
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe\SupportedTypes" ".${EXT}" ""
 !macroend
 
 !macro PRISM_UNEXT EXT ID
@@ -87,6 +92,13 @@
   !insertmacro PRISM_EXT "csv"  "Prism.Text"
   !insertmacro PRISM_EXT "log"  "Prism.Text"
 
+  ; the executable as an application in its own right, which is what the
+  ; per-type "Choose another app" dialog looks up
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe" "FriendlyAppName" "${PRODUCT_NAME}"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe\DefaultIcon" "" "$INSTDIR\${PRODUCT_FILENAME}.exe,0"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe\shell\open" "FriendlyAppName" "${PRODUCT_NAME}"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe\shell\open\command" "" '"$INSTDIR\${PRODUCT_FILENAME}.exe" "%1"'
+
   ; and the entry that makes Windows list Prism as an application you can
   ; choose, which is the door the app's own Settings link opens
   WriteRegStr SHELL_CONTEXT "${PRISM_CAPS}" "ApplicationName" "${PRODUCT_NAME}"
@@ -100,6 +112,7 @@
 !macro PRISM_UNREGISTER_TYPES
   DeleteRegValue SHELL_CONTEXT "Software\RegisteredApplications" "${PRODUCT_NAME}"
   DeleteRegKey SHELL_CONTEXT "Software\Prism"
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\Applications\${PRODUCT_FILENAME}.exe"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Image"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Video"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Audio"

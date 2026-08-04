@@ -889,7 +889,7 @@ function GeneralTab(): JSX.Element {
         <button
           id="default-apps"
           onClick={() => void window.prism.openDefaultApps()}
-          className="h-8 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-preview)] px-3 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-dim2)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+          className="h-8 rounded-lg border border-[color:var(--p-accent)]/45 bg-[var(--p-accent)]/10 px-3 text-[12px] font-semibold text-[var(--p-accent-hi)] transition-colors hover:border-[color:var(--p-accent)] hover:bg-[var(--p-accent)]/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
         >
           Choose in Windows
         </button>

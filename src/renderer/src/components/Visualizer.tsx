@@ -314,7 +314,10 @@ export function Visualizer({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [media, theme.accent, theme.palette])
+    // The palette's CONTENTS, not the array: a caller that builds a new array
+    // each render would otherwise restart the loop on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [media, theme.accent, theme.palette.join(',')])
 
   return <canvas ref={canvasRef} className="h-full w-full" />
 }

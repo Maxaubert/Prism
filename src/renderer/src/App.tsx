@@ -155,17 +155,6 @@ function Viewer({
   }
 }
 
-function NavArrow({ dir, onClick }: { dir: 'l' | 'r'; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`no-drag absolute top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-[var(--p-text)] opacity-0 backdrop-blur-sm transition-opacity hover:bg-black/60 group-hover:opacity-100 ${dir === 'l' ? 'left-3' : 'right-3'}`}
-    >
-      {dir === 'l' ? '‹' : '›'}
-    </button>
-  )
-}
-
 function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
@@ -364,7 +353,12 @@ export default function App(): JSX.Element {
         else window.prism.close()
       } else if (e.key === 'PageDown') go(1)
       else if (e.key === 'PageUp') go(-1)
-      else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
+      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+        // Up and down are always the folder. Unlike left and right they are
+        // never a player's seek keys, so there is nothing to yield to.
+        e.preventDefault()
+        go(e.key === 'ArrowDown' ? 1 : -1)
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
         if (!playerOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
@@ -475,13 +469,8 @@ export default function App(): JSX.Element {
           } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
         >
           {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
-          {/* Paging still works in fullscreen via PageUp/PageDown (and ←/→ for images). */}
-          {file && many && !fullscreen && (
-            <>
-              <NavArrow dir="l" onClick={() => go(-1)} />
-              <NavArrow dir="r" onClick={() => go(1)} />
-            </>
-          )}
+          {/* No on-screen arrows: paging is the keyboard's job. Left and right,
+              up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>
       </div>
       <Settings
