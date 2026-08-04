@@ -25,7 +25,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 
 ## Scope
 
-**In scope (v1 — universal quick-viewer):**
+**In scope (v1, the universal quick-viewer):**
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
@@ -77,11 +77,11 @@ Filesmith's conventions.
 
 These already exist in Filesmith and are the seed of `prism-core` (extracted in Phase 1):
 
-- `src/renderer/src/components/PreviewWindow.tsx` — the image/video/PDF viewer shell.
-- `src/renderer/src/components/AudioVisualizer.tsx` — the circular Web-Audio visualizer.
+- `src/renderer/src/components/PreviewWindow.tsx`: the image/video/PDF viewer shell.
+- `src/renderer/src/components/AudioVisualizer.tsx`: the circular Web-Audio visualizer.
 - `src/main/index.ts` `serveMedia` + the `fsmedia://` privileged scheme (Range/206 streaming).
-- `src/shared/fileKind.ts` — extension → kind.
-- `src/main/thumbnail.ts` + `Util/IconHelper` equivalents — thumbnail/decoded-image fallback.
+- `src/shared/fileKind.ts`: extension → kind.
+- `src/main/thumbnail.ts` + `Util/IconHelper` equivalents: thumbnail/decoded-image fallback.
 
 ## Build, test, release
 
