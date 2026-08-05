@@ -9,6 +9,11 @@ files:
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,.prettierrc.yaml,.prettierignore,eslint.config.js,tsconfig*.json}'
   - '!{.git,.claude,docs,test}/*'
+  # Recording and render working files. Hundreds of megabytes of takes that have
+  # no business inside the app, and one corrupt one that stopped the build.
+  - '!.demo/**'
+  - '!videos/**'
+  - '!tools/**'
   - '!build/**'
   - '!dist/**'
 extraResources:

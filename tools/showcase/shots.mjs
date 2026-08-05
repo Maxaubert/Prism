@@ -23,7 +23,16 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync, copyFileSync, existsSync, renameSync } from 'node:fs'
+import {
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  renameSync
+} from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -35,10 +44,70 @@ const DEMO = join(ROOT, '.demo', 'PrismDemo')
 const OUT = join(ROOT, '.demo', 'shots')
 const PROFILE = join(tmpdir(), 'prism-showcase-profile')
 const ELECTRON = join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe')
+
+/* The installed Prism, filmed by default. What you see in your own copy is then
+   what gets filmed, by definition. Pass --dev to use the build in out/ instead:
+   that one carries the --demo hook, which is the only way to change style or
+   visualizer while a file is playing, so the live-change shots need it. */
+const INSTALLED = join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Prism', 'Prism.exe')
+const DEV = process.argv.includes('--dev') || !existsSync(INSTALLED)
+
+/* --live films the installed app against its OWN profile: no copy, no seeding,
+   no overrides, nothing written by the recorder. It is the app as it sits on
+   this machine, which is the only way to settle whether a copy was ever faithful.
+   Opening a file is all it does; it changes no setting. */
+const LIVE = process.argv.includes('--live')
+
+/* Where the frames come from.
+ *
+ * Desktop Duplication films the screen, which means the window has to BE on the
+ * screen: it takes over the display for the length of a run, it catches whatever
+ * shows through a translucent style, and it competes with anything else drawing.
+ *
+ * Chromium can hand over its own frames instead. That only became possible once
+ * every shot moved to an opaque style - acrylic is composited by Windows and
+ * simply is not there in a page capture - and once --demo stopped Chromium
+ * throttling a window nobody is looking at, which had it painting less than one
+ * frame a second. Now the window can sit at x=-4000 and film at sixty.
+ *
+ * --screen forces the old path, for anything that genuinely needs the compositor.
+ */
+const OFFSCREEN = !process.argv.includes('--screen')
+
+/**
+ * Launch, and try again if the lock was still held.
+ *
+ * Prism is single-instance: start it while a previous one is still shutting down
+ * and the new process hands its file over and exits, which from here looks
+ * exactly like the window closing on its own. Waiting is the whole fix.
+ */
+async function launch(options, tries = 4) {
+  for (let i = 1; ; i += 1) {
+    try {
+      const app = await electron.launch(options)
+      await app.firstWindow()
+      return app
+    } catch (e) {
+      if (i >= tries) throw e
+      await new Promise((r) => setTimeout(r, 1500 * i))
+    }
+  }
+}
+
 /** Detached instances started by a shot, so they can be cleaned up by handle. */
 const strays = []
 
-const WIN = { w: 1280, h: 800, x: 200, y: 70 }
+/* The window is sized to the work area, not to a number chosen here.
+ *
+ * 1280x800 was the old value and it was the root of the "too tall" problem: the
+ * visualizer box is a percentage of the window's HEIGHT, so in a short narrow
+ * window the bars fill a bigger share of the frame than they do in the wide one
+ * anybody actually uses. A ring is sized by the smaller dimension and looked
+ * identical either way, which is exactly why Halo passed and the bars did not.
+ *
+ * Filling the work area also makes the footage 16:9, which is what the films
+ * are, so nothing has to be cropped afterwards. */
+let WIN = { w: 1280, h: 800, x: 200, y: 70 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /* Each take runs the same script at a different pace. Not for variety: a take
@@ -101,17 +170,32 @@ function inspect(file) {
    is the tail left running after the last action so the clip does not end on a
    movement. */
 
-const SEED = {
+/* The real profile, copied.
+ *
+ * Every attempt to rebuild these settings by hand got something wrong: the
+ * height came from a stale record, the position from an older one still, and
+ * each wrong guess cost a recording session. The app's own store is the only
+ * accurate description of how this machine is set up, so the recorder copies it
+ * rather than describing it.
+ *
+ * It copies into a throwaway directory. The takes switch styles and modes
+ * constantly, and none of that reaches the profile actually in use.
+ */
+const REAL_PROFILE = join(process.env.APPDATA ?? '', 'Prism')
+
+/* Two overrides, and only two.
+ *
+ * There were six once - style, mode, visualizer shape, glow, height, position -
+ * each added for a decent reason, and together they meant the recording could
+ * not look like the app whatever else was copied. Everything about the
+ * visualizer now comes from the profile: shape, size, position, palette, glow.
+ *
+ * The theme is the exception, because the films are dark and this machine runs
+ * light. Change these two to change what the films wear. */
+const OVERRIDE = {
   'prism.onboarded': '1',
   'prism.style': 'aurora',
-  'prism.mode': 'dark',
-  'prism.viz.theme': 'accent',
-  'prism.viz.barTheme': 'accent',
-  'prism.viz.glow': '1',
-  'prism.viz.cycle': '0',
-  'prism.viz.move': '0',
-  'prism.volume': '0.7',
-  'prism.sidebar': '0'
+  'prism.mode': 'dark'
 }
 
 /**
@@ -171,10 +255,11 @@ const SHOTS = {
     file: 'coastline-dawn.jpg',
     note: 'A photograph is already open. Arrow keys page through the folder.',
     run: async (k) => {
-      await k.wait(1.3)
-      for (const _ of [0, 1]) {
+      // Each picture is held long enough to be looked at rather than counted.
+      await k.wait(1.9)
+      for (let i = 0; i < 2; i += 1) {
         await k.key('ArrowRight')
-        await k.wait(1.15)
+        await k.wait(1.8)
       }
     }
   },
@@ -185,7 +270,7 @@ const SHOTS = {
     run: async (k) => {
       await k.wait(0.7)
       await k.move(700, 420, 560)
-      for (const _ of [0, 1, 2, 3, 4]) {
+      for (let i = 0; i < 5; i += 1) {
         await k.page.mouse.wheel(0, -240)
         await k.wait(0.2)
       }
@@ -199,16 +284,21 @@ const SHOTS = {
 
   tree: {
     file: 'coastline-dawn.jpg',
+    tree: true,
     note: 'Ctrl+B opens the tree, the panel is dragged wider, a subfolder opens.',
     run: async (k) => {
       await k.wait(0.6)
-      await k.tree(true)
-      await k.wait(0.5)
       const grip = await k.box(k.page.getByLabel('Resize file tree'))
       await k.drag(grip.x + 2, grip.y + grip.height / 2, grip.x + 122, grip.y + grip.height / 2, 850)
       await k.wait(0.8)
       await k.go(k.page.getByRole('treeitem', { name: 'Video' }), 650)
       await k.wait(1.1)
+    },
+    after: async (k) => {
+      // Put the panel back. Its width is a stored setting, so a drag left
+      // unwound is a wide sidebar in every shot filmed after this one.
+      const grip = await k.box(k.page.getByLabel('Resize file tree'))
+      await k.drag(grip.x + 2, grip.y + grip.height / 2, grip.x - 118, grip.y + grip.height / 2, 500)
     }
   },
 
@@ -228,6 +318,12 @@ const SHOTS = {
 
   audio: {
     file: 'coast-road.mp3',
+    /* Void, not the acrylic default. A translucent window puts the desktop
+       behind the visualizer, and a blurred photograph behind moving bars is the
+       worst thing you can hand an h264 encoder: it bands, it smears, and the
+       bars lose their edges. Flat black costs nothing to encode and the
+       visualizer is the only thing left to look at. */
+    look: 'new-void',
     note: 'Cover art and the circular visualizer, running in the accent colour.',
     run: async (k) => {
       await k.wait(4.5)
@@ -236,11 +332,10 @@ const SHOTS = {
 
   delete: {
     file: 'coastline-dawn.jpg',
+    tree: true,
     note: 'Delete goes to the Recycle Bin, so the one destructive-looking key is not.',
     run: async (k) => {
       await k.wait(0.6)
-      await k.tree(true)
-      await k.wait(0.5)
       await k.go(k.page.getByRole('treeitem', { name: 'spare.jpg' }), 650)
       await k.wait(0.6)
       await k.key('Delete')
@@ -256,23 +351,25 @@ const SHOTS = {
      keeps running. No Settings, no pause, no reload. */
   'style-video': {
     file: 'Video/wave-study.mp4',
+    look: null,
+    hook: true,
     note: 'The style changes four times while the video plays. Nothing stops.',
     run: async (k) => {
       await k.wait(1.6)
-      for (const id of ['terminal', 'driftwood', 'acrylic-red', 'aurora']) {
+      for (const id of ['new-void', 'driftwood', 'frost', 'aurora']) {
         await k.style(id)
-        await k.wait(1.45)
+        await k.wait(1.8)
       }
     }
   },
 
   'style-photo': {
     file: 'dunes.jpg',
+    look: null,
+    hook: true,
     note: 'Dark to light and back: the whole window repaints around the picture.',
     run: async (k) => {
       await k.wait(1.2)
-      await k.tree(true)
-      await k.wait(0.6)
       await k.mode('light', 'daybreak')
       await k.wait(1.6)
       await k.style('paper')
@@ -286,24 +383,152 @@ const SHOTS = {
 
   'style-audio': {
     file: 'coast-road.mp3',
+    look: null,
+    hook: true,
     note: 'The visualizer takes each style’s accent as the style changes.',
     run: async (k) => {
+      // The seeded palette is a fixed one, because that is what this machine
+      // runs. This shot is about the accent-following palette, so it asks for it.
+      await k.viz('Flow')
+      await k.vizTheme('accent')
       await k.wait(1.6)
-      for (const id of ['terminal', 'acrylic-red', 'driftwood', 'new-void', 'aurora']) {
+      for (const id of ['terminal', 'acrylic-red', 'driftwood', 'aurora']) {
         await k.style(id)
-        await k.wait(1.35)
+        await k.wait(1.6)
       }
+    }
+  },
+
+  /* ------------------------------------------------- the visualizer, properly */
+
+  'audio-noglow': {
+    file: 'coast-road.mp3',
+    /* Void, not the acrylic default. A translucent window puts the desktop
+       behind the visualizer, and a blurred photograph behind moving bars is the
+       worst thing you can hand an h264 encoder: it bands, it smears, and the
+       bars lose their edges. Flat black costs nothing to encode and the
+       visualizer is the only thing left to look at. */
+    look: 'new-void',
+    note: 'The same player with the glow off, to compare against `audio` after encoding.',
+    pre: (k) => k.vizGlow(false),
+    run: async (k) => {
+      await k.wait(4.6)
+    }
+  },
+
+  'viz-shapes': {
+    file: 'coast-road.mp3',
+    hook: true,
+    note: 'Five of the seven visualizer shapes, changed while the track runs.',
+    run: async (k) => {
+      await k.wait(1.5)
+      for (const id of ['mirror-caps', 'ripples', 'liquid', 'clean-wall']) {
+        await k.viz(id)
+        await k.wait(2)
+      }
+    }
+  },
+
+  'viz-colour': {
+    file: 'coast-road.mp3',
+    /* Void, not the acrylic default. A translucent window puts the desktop
+       behind the visualizer, and a blurred photograph behind moving bars is the
+       worst thing you can hand an h264 encoder: it bands, it smears, and the
+       bars lose their edges. Flat black costs nothing to encode and the
+       visualizer is the only thing left to look at. */
+    look: 'new-void',
+    hook: true,
+    note: 'The same shape, four palettes: accent, ocean, gold, aurora.',
+    pre: (k) => k.viz('Halo'),
+    run: async (k) => {
+      await k.wait(1.4)
+      for (const id of ['ocean', 'gold', 'aurora', 'accent']) {
+        await k.vizTheme(id)
+        await k.wait(1.5)
+      }
+    }
+  },
+
+  /* The warm ones. Driftwood in the dark and Linen in the light are the two
+     that stop looking like a theme and start looking like a room. */
+  /* A document with the tree beside it, and the look changed while it is open.
+     Text is where a style shows itself most plainly: the chrome moves, the
+     reading face does not. */
+  'video-plain': {
+    file: 'Video/wave-study.mp4',
+    note: 'A video playing, nothing touched. The chrome fades out and stays out.',
+    run: async (k) => {
+      // No pointer movement at all: the transport hides itself when nothing has
+      // happened for a moment, which is the state worth filming.
+      await k.wait(8)
+    }
+  },
+
+  'doc-theme': {
+    file: 'field-notes.txt',
+    tree: true,
+    look: null,
+    note: 'A text document with the tree open, dressed in four different styles.',
+    run: async (k) => {
+      /* Five, and two of them light. Black to brown and back is one idea shown
+         twice; the light styles are where a document changes most, since the
+         page itself turns over. */
+      await k.wait(2.2)
+      /* Not Frost: it sets grey text on a grey page and the document stops being
+         readable, which is a fault in the style rather than something to show
+         off. Daybreak is solid rather than acrylic, so the ink stays dark. */
+      for (const id of ['new-void', 'driftwood', 'daybreak', 'linen', 'aurora']) {
+        await k.style(id)
+        await k.wait(2.5)
+      }
+    }
+  },
+
+  'style-warm': {
+    file: 'still-life.jpg',
+    look: null,
+    hook: true,
+    note: 'Driftwood, then the warm light styles, each held long enough to read.',
+    run: async (k) => {
+      await k.wait(1.1)
+      await k.style('driftwood')
+      await k.wait(2.4)
+      await k.mode('light', 'linen')
+      await k.wait(2.4)
+      await k.style('paper')
+      await k.wait(2.2)
+      await k.mode('dark', 'driftwood')
+      await k.wait(2)
+    }
+  },
+
+  'style-warm-audio': {
+    file: 'coast-road.mp3',
+    look: null,
+    hook: true,
+    note: 'Driftwood with the player: the visualizer takes the copper accent.',
+    pre: async (k) => {
+      await k.viz('Caps')
+      await k.vizTheme('accent')
+    },
+    run: async (k) => {
+      await k.wait(1.2)
+      await k.style('driftwood')
+      await k.wait(2.6)
+      await k.mode('light', 'linen')
+      await k.wait(2.6)
+      await k.mode('dark', 'aurora')
+      await k.wait(1.6)
     }
   },
 
   rename: {
     file: 'coastline-dawn.jpg',
+    tree: true,
     note: 'F2 renames in the tree. Nothing here is destroyed: the bin catches everything.',
     run: async (k) => {
       await k.wait(0.6)
-      await k.tree(true)
-      await k.wait(0.5)
-      await k.go(k.page.getByRole('treeitem', { name: 'dunes.jpg' }), 650)
+            await k.go(k.page.getByRole('treeitem', { name: 'dunes.jpg' }), 650)
       await k.wait(0.5)
       await k.key('F2')
       await k.wait(0.6)
@@ -327,8 +552,8 @@ const SHOTS = {
   },
 
   text: {
-    file: 'notes.md',
-    note: 'Markdown, plain text and source read in the same window as everything else.',
+    file: 'field-notes.pdf',
+    note: 'A PDF, read in the same window as everything else.',
     run: async (k) => {
       await k.wait(1.4)
       await k.page.mouse.wheel(0, 260)
@@ -341,6 +566,7 @@ const SHOTS = {
   kinds: {
     file: 'atrium.jpg',
     note: 'One folder, three kinds. The arrow key does not care which is next.',
+    pre: (k) => k.viz('Caps'),
     run: async (k) => {
       await k.wait(1.1)
       await k.key('ArrowRight') // an mp3, so the visualizer takes over
@@ -382,7 +608,7 @@ const SHOTS = {
     run: async (k) => {
       await k.wait(0.7)
       await k.move(760, 380, 520)
-      for (const _ of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      for (let i = 0; i < 8; i += 1) {
         await k.page.mouse.wheel(0, -240)
         await k.wait(0.16)
       }
@@ -407,7 +633,7 @@ const SHOTS = {
       await k.wait(0.9)
       await k.key(' ')
       await k.wait(0.7)
-      for (const _ of [0, 1, 2, 3, 4, 5]) {
+      for (let i = 0; i < 6; i += 1) {
         await k.key('.')
         await k.wait(0.22)
       }
@@ -434,10 +660,9 @@ const SHOTS = {
 
   'tree-menu': {
     file: 'coastline-dawn.jpg',
+    tree: true,
     note: 'Right-click in the tree: rename and delete, where you would look for them.',
     run: async (k) => {
-      await k.wait(0.6)
-      await k.tree(true)
       await k.wait(0.6)
       const row = await k.box(k.page.getByRole('treeitem', { name: 'glacier.jpg' }))
       await k.move(row.x + 70, row.y + row.height / 2, 620)
@@ -451,12 +676,11 @@ const SHOTS = {
 
   'tree-walk': {
     file: 'coastline-dawn.jpg',
+    tree: true,
     note: 'Clicking down the tree: every file opens in the window beside it.',
     run: async (k) => {
       await k.wait(0.6)
-      await k.tree(true)
-      await k.wait(0.5)
-      for (const name of ['dunes.jpg', 'rain-street.jpg', 'notes.md', 'still-life.jpg']) {
+            for (const name of ['dunes.jpg', 'rain-street.jpg', 'glacier.jpg', 'still-life.jpg']) {
         await k.go(k.page.getByRole('treeitem', { name }), 520)
         await k.wait(1.05)
       }
@@ -468,6 +692,7 @@ const SHOTS = {
   'settings-viz': {
     file: 'coast-road.mp3',
     note: 'The visualizer page changes the visualizer while it is running.',
+    pre: (k) => k.viz('Flow'),
     run: async (k) => {
       await k.wait(0.7)
       await k.go(k.page.getByRole('button', { name: 'Settings' }), 700)
@@ -499,7 +724,10 @@ const SHOTS = {
 
   'mode-audio': {
     file: 'coast-road.mp3',
+    look: null,
+    hook: true,
     note: 'Light and dark, with the visualizer never missing a frame.',
+    pre: (k) => k.viz('Wall'),
     run: async (k) => {
       await k.wait(1.6)
       await k.mode('light', 'daybreak')
@@ -510,38 +738,35 @@ const SHOTS = {
   },
 
   'style-text': {
-    file: 'notes.md',
+    file: 'field-notes.pdf',
+    hook: true,
     note: 'The chrome wears the style; the writing stays in a face built for reading.',
     run: async (k) => {
       await k.wait(1.2)
-      await k.tree(true)
-      await k.wait(0.5)
-      for (const id of ['terminal', 'driftwood', 'aurora']) {
+            for (const id of ['terminal', 'driftwood', 'aurora']) {
         await k.style(id)
-        await k.wait(1.5)
+        await k.wait(1.7)
       }
     }
   },
 
   'style-many': {
     file: 'glacier.jpg',
+    look: null,
+    hook: true,
     note: 'Eight styles in one run, dark and light, on one picture.',
     run: async (k) => {
       await k.wait(1)
-      await k.tree(true)
-      await k.wait(0.5)
-      for (const id of ['default', 'new-void', 'terminal', 'driftwood', 'acrylic-red']) {
+            for (const id of ['new-void', 'terminal', 'driftwood', 'acrylic-red']) {
         await k.style(id)
-        await k.wait(1.15)
+        await k.wait(1.7)
       }
-      await k.mode('light', 'daybreak')
-      await k.wait(1.15)
-      for (const id of ['paper', 'frost', 'linen']) {
-        await k.style(id)
-        await k.wait(1.15)
-      }
+      await k.mode('light', 'linen')
+      await k.wait(1.7)
+      await k.style('orchid')
+      await k.wait(1.7)
       await k.mode('dark', 'aurora')
-      await k.wait(1.5)
+      await k.wait(1.8)
     }
   },
 
@@ -549,6 +774,9 @@ const SHOTS = {
      running, which is the whole reason Prism feels instant on the second file. */
   handoff: {
     file: 'coastline-dawn.jpg',
+    // Needs the screen: the point of the shot is a SECOND process handing its
+    // file to this window, and Chromium's own capture sees only this page.
+    screen: true,
     note: 'A second file, opened from outside. The running window takes it at once.',
     run: async (k) => {
       await k.wait(1.6)
@@ -561,7 +789,9 @@ const SHOTS = {
 
   settings: {
     file: 'coast-road.mp3',
+    look: null,
     note: 'The Style page: every style is a miniature of the window it makes.',
+    pre: (k) => k.viz('Halo'),
     run: async (k) => {
       await k.wait(0.7)
       await k.go(k.page.getByRole('button', { name: 'Settings' }), 700)
@@ -570,6 +800,46 @@ const SHOTS = {
       await k.wait(1.4)
       await k.go(k.page.getByRole('button', { name: 'Aurora' }).first(), 560)
       await k.wait(1.3)
+    }
+  }
+}
+
+/* One clip per visualizer shape, generated rather than written out twelve times.
+   Same track, same second of it, same settings: the only variable is the shape,
+   which is the point of a comparison. */
+/* The presets, by the names Settings shows. Each carries its own geometry, which
+   is the whole reason this list is names and not shape ids. */
+/* Three, not twelve. Twelve was a catalogue: two seconds each, several of them
+   near-identical at a glance, and the film spent half its length on looks nobody
+   picked. These are the ones that survived review. */
+const VIZ_SHAPES = ['Halo', 'Flow', 'Wall 2']
+
+/* All twelve in one run, two seconds each. Separate clips meant twelve launches
+   to compare twelve looks; this way they are on one timeline and the comparison
+   is a scrub rather than a playlist. */
+SHOTS['viz-tour'] = {
+  file: 'coast-road.mp3',
+  hook: true,
+  look: 'new-void',
+  note: 'Halo, Flow and Wall 2, held long enough to see, on one track.',
+  pre: (k) => k.viz(VIZ_SHAPES[0]),
+  run: async (k) => {
+    await k.wait(3)
+    for (const id of VIZ_SHAPES.slice(1)) {
+      await k.viz(id)
+      await k.wait(3)
+    }
+  }
+}
+
+for (const id of VIZ_SHAPES) {
+  SHOTS[`viz-${id.toLowerCase().replace(/ /g, '-')}`] = {
+    file: 'coast-road.mp3',
+    hook: true,
+    note: `Visualizer preset: ${id}.`,
+    pre: (k) => k.viz(id),
+    run: async (k) => {
+      await k.wait(6)
     }
   }
 }
@@ -600,20 +870,44 @@ async function seedProfile() {
       await sleep(500) // Windows releases the handles a moment after the exit
     }
   }
-  const seeder = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`] })
+  // Local Storage holds every prism.* setting; copying that one folder brings
+  // the configuration across without the caches around it.
+  const from = join(REAL_PROFILE, 'Local Storage')
+  if (!existsSync(from)) throw new Error(`no installed profile at ${REAL_PROFILE}`)
+  mkdirSync(PROFILE, { recursive: true })
+  cpSync(from, join(PROFILE, 'Local Storage'), { recursive: true })
+
+  const seeder = DEV
+    ? await launch({ args: [MAIN, `--user-data-dir=${PROFILE}`] })
+    : await launch({ executablePath: INSTALLED, args: [`--user-data-dir=${PROFILE}`] })
   await (await seeder.firstWindow()).evaluate((kv) => {
     for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
-  }, SEED)
+  }, OVERRIDE)
   await sleep(400)
   await seeder.close()
   await sleep(700)
 }
 
 async function shoot(name, shot, pace, out) {
-  await seedProfile()
-  const app = await electron.launch({
-    args: [MAIN, '--demo', `--user-data-dir=${PROFILE}`, join(DEMO, shot.file)]
-  })
+  for (const child of strays.splice(0)) {
+    try {
+      child.kill()
+    } catch {
+      /* already gone */
+    }
+  }
+  if (!LIVE) await seedProfile()
+  else await sleep(600)
+  const app = DEV
+    ? await launch({
+        args: [MAIN, '--demo', `--user-data-dir=${PROFILE}`, join(DEMO, shot.file)]
+      })
+    : await launch({
+        executablePath: INSTALLED,
+        args: LIVE
+          ? ['--demo', join(DEMO, shot.file)]
+          : ['--demo', `--user-data-dir=${PROFILE}`, join(DEMO, shot.file)]
+      })
   const page = await app.firstWindow()
   // An unattended run that loses a take should say why, not just stop.
   app.process().stderr.on('data', (d) => process.stderr.write(`  [${name}] ${d}`))
@@ -624,16 +918,65 @@ async function shoot(name, shot, pace, out) {
   page.on('pageerror', (e) => console.log(`  [${name}] page error: ${e.message.slice(0, 200)}`))
   await page.waitForLoadState('domcontentloaded')
 
-  const scale = await app.evaluate(({ BrowserWindow, screen }) => {
+  const display = await app.evaluate(({ BrowserWindow, screen }) => {
     const w = BrowserWindow.getAllWindows()[0]
     w.setAlwaysOnTop(true, 'screen-saver')
-    return screen.getPrimaryDisplay().scaleFactor
+    const d = screen.getPrimaryDisplay()
+    return { scale: d.scaleFactor, area: d.workArea, full: d.bounds }
   })
-  await app.evaluate(({ BrowserWindow }, b) => {
+  const scale = display.scale
+  WIN = { w: display.area.width, h: display.area.height, x: display.area.x, y: display.area.y }
+  /* Do not resize. This is the root of a whole evening of wrong footage.
+   *
+   * Prism opens every window at a fixed size and does not remember one, so a
+   * launch gives exactly what a double-click in Explorer gives. The recorder
+   * used to stretch that to the full work area, taking the aspect from 1.51 to
+   * 1.87 - and since the visualizer's box is a percentage of HEIGHT while its
+   * shapes are drawn across the WIDTH, every proportion moved. Shapes measured
+   * off the height came out too big, shapes fitted to the smaller dimension came
+   * out too small, and nothing matched the app on screen.
+   *
+   * So: film the window as it opens, and only nudge it if it landed somewhere
+   * the capture cannot reach. */
+  const got = await app.evaluate(({ BrowserWindow, screen }, o) => {
     const w = BrowserWindow.getAllWindows()[0]
-    w.setBounds({ x: b.x, y: b.y, width: b.w, height: b.h })
+    if (o.offscreen) {
+      // Off every monitor. Still a real window with a real size, so nothing
+      // about layout changes; it is simply nowhere anybody is looking.
+      if (!o.onScreen) {
+        w.setPosition(-4000, 200)
+        return w.getBounds()
+      }
+    }
+    const b = w.getBounds()
+    const area = screen.getPrimaryDisplay().workArea
+    const x = Math.min(Math.max(b.x, area.x + o.margin), area.x + area.width - b.width - o.margin)
+    const y = Math.min(Math.max(b.y, area.y + o.margin), area.y + area.height - b.height - o.margin)
+    if (x !== b.x || y !== b.y) w.setPosition(Math.round(x), Math.round(y))
     w.focus()
-  }, WIN)
+    return w.getBounds()
+  }, { margin: 8, offscreen: OFFSCREEN, onScreen: shot.screen === true })
+  /* Clamp to the screen. A maximised window's bounds overhang the display by
+     the invisible resize border - x can be -8 - and a capture rectangle that
+     starts off-screen is rejected outright, which looks like ffmpeg writing an
+     empty file for no reason. */
+  const area = display.full
+  const x = Math.max(area.x, got.x)
+  const y = Math.max(area.y, got.y)
+  WIN = {
+    x,
+    y,
+    w: Math.min(got.width - (x - got.x), area.x + area.width - x),
+    h: Math.min(got.height - (y - got.y), area.y + area.height - y)
+  }
+  /* H.264 wants even dimensions in physical pixels, and a window of 1194x794 at
+     2.25 scaling comes to 2686.5x1786.5, which rounds to odd. The encoder then
+     refuses to open at all and ffmpeg writes an empty file, which reads as the
+     capture having failed for no reason. Trim rather than pad: a pixel off an
+     edge is invisible, a pixel of desktop is not. */
+  const even = (v) => Math.floor((v * scale) / 2) * 2
+  WIN.wPx = even(WIN.w)
+  WIN.hPx = even(WIN.h)
 
   await sleep(pace.settle * 1000)
   // Ask for the window again, right before rolling: a take recorded while
@@ -645,22 +988,6 @@ async function shoot(name, shot, pace, out) {
   })
   await sleep(250)
   await page.evaluate(CURSOR)
-
-  const px = (v) => Math.round(v * scale)
-  const ff = spawn(
-    'ffmpeg',
-    [
-      '-y', '-loglevel', 'error',
-      '-init_hw_device', 'd3d11va',
-      '-filter_complex',
-      `ddagrab=output_idx=0:framerate=60:draw_mouse=0:video_size=${px(WIN.w)}x${px(WIN.h)}` +
-        `:offset_x=${px(WIN.x)}:offset_y=${px(WIN.y)},hwdownload,format=bgra`,
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-qp', '14', '-pix_fmt', 'yuv420p',
-      out
-    ],
-    { stdio: ['pipe', 'ignore', 'inherit'] }
-  )
-  await sleep(pace.roll * 1000)
 
   const k = {
     page,
@@ -711,10 +1038,16 @@ async function shoot(name, shot, pace, out) {
     /* Exactly what a double-click in Explorer does: start Prism again with a
        path. The single-instance lock forwards it to the window already up. */
     open: async (rel) => {
-      const child = spawn(ELECTRON, [MAIN, `--user-data-dir=${PROFILE}`, join(DEMO, rel)], {
-        detached: true,
-        stdio: 'ignore'
-      })
+      /* The same binary and the same profile as the window being filmed, or
+         there is no handoff to film: a second instance pointed at a different
+         profile takes a different single-instance lock and simply opens its own
+         window. */
+      const child = LIVE
+        ? spawn(INSTALLED, [join(DEMO, rel)], { detached: true, stdio: 'ignore' })
+        : spawn(ELECTRON, [MAIN, `--user-data-dir=${PROFILE}`, join(DEMO, rel)], {
+            detached: true,
+            stdio: 'ignore'
+          })
       child.unref()
       strays.push(child)
     },
@@ -728,6 +1061,11 @@ async function shoot(name, shot, pace, out) {
       }
     },
     style: (id) => page.evaluate((s) => window.prismDemo.setStyle(s), id),
+    /* A preset, not a shape: it carries height, position, width and palette, and
+       switching only the shape leaves the last one's geometry behind. */
+    viz: (name) => page.evaluate((s) => window.prismDemo.setPreset(s), name),
+    vizTheme: (id) => page.evaluate((s) => window.prismDemo.setVizTheme(s), id),
+    vizGlow: (on) => page.evaluate((b) => window.prismDemo.setVizGlow(b), on),
     mode: async (m, id) => {
       await page.evaluate((x) => window.prismDemo.setMode(x), m)
       await sleep(120)
@@ -735,9 +1073,175 @@ async function shoot(name, shot, pace, out) {
     }
   }
 
+  /* A stills shot never rolls the camera. It sets a look, waits for it to
+     finish arriving, and takes one frame; the clip is those frames cut
+     together. Filming the change instead catches the window mid-repaint, which
+     is a real frame of a real app and still looks like a glitch. Anything with
+     motion of its own - a video playing, a visualizer running - stays filmed,
+     because there the movement is the point. */
+  if (shot.stills) {
+    const frames = []
+    for (const [i, look] of shot.stills.entries()) {
+      await k.style(look)
+      await sleep(1100 * pace.wait) // the repaint, the acrylic, and a breath
+      const frame = join(OUT, `.${name}-${String(i).padStart(2, '0')}.png`)
+      if (OFFSCREEN) {
+        writeFileSync(frame, await page.screenshot({ type: 'png' }))
+        frames.push(frame)
+        continue
+      }
+      spawnSync('ffmpeg', [
+        '-y', '-loglevel', 'error',
+        '-init_hw_device', 'd3d11va',
+        '-filter_complex',
+        `ddagrab=output_idx=0:framerate=10:draw_mouse=0:video_size=${WIN.wPx}x${WIN.hPx}` +
+          `:offset_x=${Math.round(WIN.x * scale)}:offset_y=${Math.round(WIN.y * scale)},` +
+          'hwdownload,format=bgra',
+        '-frames:v', '1', frame
+      ])
+      frames.push(frame)
+    }
+    // Held long enough to read, cut with no dissolve: the point is that each is
+    // a different window, and a crossfade would blur exactly that.
+    const list = join(OUT, `.${name}.txt`)
+    writeFileSync(
+      list,
+      frames.map((f) => `file '${f.replace(/\\/g, '/')}'\nduration ${shot.hold ?? 1.6}`).join('\n') +
+        `\nfile '${frames[frames.length - 1].replace(/\\/g, '/')}'\n`
+    )
+    spawnSync('ffmpeg', [
+      '-y', '-loglevel', 'error',
+      '-f', 'concat', '-safe', '0', '-i', list,
+      '-vf', 'fps=60,format=yuv420p',
+      '-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
+      out
+    ])
+    for (const f of [...frames, list]) rmSync(f, { force: true })
+    await app.close()
+    await sleep(1100)
+    return out
+  }
+
+  // Anything a shot needs true on frame one happens before the camera rolls.
+  // A clip that opens on one visualizer and switches a beat later is showing
+  // the rig, not the app.
+  // The demo hook arrives via an async import, so it is not there the instant
+  // the window is. Without this wait the pre-roll call is a no-op and the shot
+  // opens on whatever style the profile carried, then switches on camera. The
+  // installed build has no hook at all, which is the price of filming it.
+  // Ask the window whether it has the hook rather than assuming from which
+  // build this is: the installed app has it too when launched with --demo, and
+  // that is what makes a style change mid-playback possible at all. It arrives
+  // through an async import, so it is worth waiting a moment for.
+  const hooked = await page
+    .waitForFunction(() => Boolean(window.prismDemo), null, { timeout: 6000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (hooked) {
+    // The tree is furniture unless the shot is about the tree, and every shot
+    // sits in a style. Both settled before the camera rolls.
+    await k.tree(shot.tree === true)
+    /* Void by default: OLED black, no translucency. The acrylic styles put the
+       desktop wallpaper behind the window, which arrives as coloured bands
+       either side of a picture and as a blurred field behind a visualizer -
+       honest on screen, and mush after h264. A film wants one flat ground.
+       `look: null` opts out, for the shots where the style IS the subject. */
+    if (shot.look !== null) await k.style(shot.look ?? 'new-void')
+    if (shot.pre) await shot.pre(k)
+  } else if (shot.hook) {
+    console.log(`  ${name}: changes the look mid-take, and this build has no hook`)
+    await app.close()
+    await sleep(900)
+    return null
+  }
+
+  const px = (v) => Math.round(v * scale)
+
+  /* Off-screen: collect Chromium's own frames and their timestamps, then let
+     ffmpeg lay them on a constant 60fps timeline. Frames arrive when the page
+     paints, so their spacing is uneven; a concat list with real durations keeps
+     the motion true rather than assuming they were evenly spread. */
+  let shots = null
+  if (OFFSCREEN && !shot.screen) {
+    const dir = join(OUT, `.${name}-frames`)
+    rmSync(dir, { recursive: true, force: true })
+    mkdirSync(dir, { recursive: true })
+    const cdp = await page.context().newCDPSession(page)
+    const times = []
+    let n = 0
+    cdp.on('Page.screencastFrame', (f) => {
+      const file = join(dir, `f${String(n++).padStart(6, '0')}.jpg`)
+      writeFileSync(file, Buffer.from(f.data, 'base64'))
+      times.push({ file, at: f.metadata.timestamp })
+      cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {})
+    })
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 92,
+      maxWidth: 4000,
+      maxHeight: 3000,
+      everyNthFrame: 1
+    })
+    shots = { dir, times, cdp }
+  }
+
+  const ff = shots ? null : spawn(
+    'ffmpeg',
+    [
+      '-y', '-loglevel', 'error',
+      '-init_hw_device', 'd3d11va',
+      '-filter_complex',
+      `ddagrab=output_idx=0:framerate=60:draw_mouse=0:video_size=${WIN.wPx}x${WIN.hPx}` +
+        `:offset_x=${px(WIN.x)}:offset_y=${px(WIN.y)},hwdownload,format=bgra`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-qp', '14', '-pix_fmt', 'yuv420p',
+      out
+    ],
+    { stdio: ['pipe', 'ignore', 'inherit'] }
+  )
+  await sleep(pace.roll * 1000)
+
   await shot.run(k)
-  ff.stdin.write('q')
-  await new Promise((r) => ff.on('close', r))
+
+  if (shots) {
+    await shots.cdp.send('Page.stopScreencast').catch(() => {})
+    await sleep(200)
+    const { times, dir } = shots
+    /* Frames arrive when the page paints, and a viewer showing a photograph
+       paints once. That is not a failed capture: the concat below holds each
+       frame for the time it was actually on screen, so eight frames over four
+       seconds is a correct four seconds. What would be a failure is nothing at
+       all, or a capture that stopped early. */
+    const covered = times.length ? times[times.length - 1].at - times[0].at : 0
+    if (times.length < 2 || covered < 1)
+      throw new Error(`capture covered ${covered.toFixed(1)}s in ${times.length} frames`)
+    /* Each line is a frame and how long it stayed on screen. Frames arrive when
+       the page paints, so their spacing is uneven; real durations keep the
+       motion true where assuming an even spread would rush and stall it. The
+       last frame is repeated because concat gives the final entry no duration. */
+    const list = join(OUT, `.${name}.txt`)
+    const lines = times.map((t, i) => {
+      const next = times[i + 1]?.at ?? t.at + 1 / 60
+      return `file '${t.file.replace(/\\/g, '/')}'\nduration ${Math.max(1 / 240, next - t.at).toFixed(4)}`
+    })
+    writeFileSync(
+      list,
+      lines.join('\n') + `\nfile '${times[times.length - 1].file.replace(/\\/g, '/')}'\n`
+    )
+    spawnSync('ffmpeg', [
+      '-y', '-loglevel', 'error',
+      '-f', 'concat', '-safe', '0', '-i', list,
+      // Even dimensions, because H.264 will not open on odd ones.
+      '-vf', 'fps=60,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
+      '-c:v', 'libx264', '-crf', '16', '-preset', 'slow',
+      out
+    ])
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(list, { force: true })
+  } else {
+    ff.stdin.write('q')
+    await new Promise((r) => ff.on('close', r))
+  }
   if (shot.after) await shot.after(k)
   await app.close()
   // Prism is single-instance. Launch the next take before this process has
@@ -760,6 +1264,17 @@ for (const n of names) if (!SHOTS[n]) throw new Error(`no such shot: ${n}`)
 
 mkdirSync(OUT, { recursive: true })
 
+/* A Prism left running holds the single-instance lock, and every launch this
+   run makes would hand its file to that window and exit. Clear the field first.
+   This closes a Prism you have open; a recording run needs the app to itself. */
+spawnSync('powershell', [
+  '-NoProfile',
+  '-NonInteractive',
+  '-Command',
+  'Get-Process Prism -ErrorAction SilentlyContinue | Stop-Process -Force'
+])
+await sleep(1200)
+
 /** The folder the shots browse is also a folder two of them edit. Put it back
  *  the way it started before every take, or take two of `delete` has nothing to
  *  delete and take two of `rename` is renaming a file that already moved. */
@@ -768,6 +1283,31 @@ function tidyDemo() {
   if (existsSync(at('dunes-at-dawn.jpg'))) renameSync(at('dunes-at-dawn.jpg'), at('dunes.jpg'))
   if (existsSync(at('dunes-at-dawn'))) renameSync(at('dunes-at-dawn'), at('dunes.jpg'))
   if (!existsSync(at('spare.jpg'))) copyFileSync(at('atrium.jpg'), at('spare.jpg'))
+}
+
+/* Live mode drives the app's own setters, and those write to the real profile.
+   Whatever the last shot happened to leave selected would otherwise become the
+   setting from then on, so the run borrows the settings and gives them back. */
+let borrowed = null
+async function withSettings(fn, arg) {
+  const app = await launch({ executablePath: INSTALLED, args: ['--demo'] })
+  const page = await app.firstWindow()
+  const out = await page.evaluate(fn, arg)
+  await sleep(300)
+  await app.close()
+  await sleep(900)
+  return out
+}
+
+if (LIVE) {
+  borrowed = await withSettings(() =>
+    Object.fromEntries(
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('prism.'))
+        .map((k) => [k, localStorage.getItem(k)])
+    )
+  )
+  console.log(`  borrowed ${Object.keys(borrowed).length} settings, to be put back at the end`)
 }
 
 const manifest = []
@@ -796,11 +1336,36 @@ for (const name of names) {
   manifest.push({ id: name, note: SHOTS[name].note, file: SHOTS[name].file, takes })
 }
 
+// Merge, never replace: re-recording one shot must not empty the lab of the
+// other twenty-five. Fresh entries win, the rest stay as they were, and the list
+// keeps the shot list's own order so the lab reads the way the file reads.
+//
 // A JS file rather than JSON: the lab opens over file://, where fetch is refused
 // but a script tag is not.
-writeFileSync(
-  join(ROOT, '.demo', 'shots.js'),
-  `window.SHOT_DATA = ${JSON.stringify(manifest, null, 2)}\n`
-)
+const manifestPath = join(ROOT, '.demo', 'shots.js')
+let previous = []
+try {
+  previous = JSON.parse(
+    readFileSync(manifestPath, 'utf8').replace(/^window\.SHOT_DATA = /, '').trim()
+  )
+} catch {
+  /* first run, or a manifest written by an older shape of this script */
+}
+const order = Object.keys(SHOTS)
+const merged = [
+  ...previous.filter((old) => !manifest.some((fresh) => fresh.id === old.id)),
+  ...manifest
+].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+writeFileSync(manifestPath, `window.SHOT_DATA = ${JSON.stringify(merged, null, 2)}\n`)
+if (borrowed) {
+  await withSettings((kv) => {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('prism.') && !(k in kv)) localStorage.removeItem(k)
+    }
+    for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
+  }, borrowed)
+  console.log('  settings put back')
+}
+
 const bad = manifest.flatMap((m) => m.takes).filter((t) => !t.ok).length
 console.log(`\n${names.length} shot(s), ${TAKES} take(s) each, ${bad} suspect`)
