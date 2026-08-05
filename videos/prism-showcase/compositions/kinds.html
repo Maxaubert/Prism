@@ -6,226 +6,121 @@
     <title>Everything Prism opens</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      html,
-      body {
-        width: 1920px;
-        height: 1080px;
-        overflow: hidden;
-        background: #000;
-      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
       :root {
         --ink: #08080b;
         --cream: #f2f3f7;
         --muted: #babfcc;
-        --hint: #6a6a74;
+        --hint: #78787e;
         --accent: #5b5bd6;
-        --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI",
-          system-ui, sans-serif;
+        --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
         --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
       }
-      #root {
-        position: relative;
-        width: 1920px;
-        height: 1080px;
-        overflow: hidden;
-      }
-      .bg {
-        position: absolute;
-        inset: 0;
-        background: var(--ink);
-        z-index: 0;
-      }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+      .bg { position: absolute; inset: 0; background: var(--ink); z-index: 0; }
+      /* Never transformed. A CSS transform on the element a <video> lives in
+         puts it on a composited layer that gets resampled, and the resampling
+         drops about one frame in six: the same clip measures 0% duplicated
+         frames on its own and 16% inside a scaled box. That is the hitch. The
+         window is sized directly and faded by a veil over the top of it. */
+      #screen { position: absolute; z-index: 2; border-radius: 12px; overflow: hidden;
+        box-shadow: 0 40px 90px -25px rgba(0, 0, 0, 0.92); }
+      #veil { position: absolute; inset: 0; background: #08080b; z-index: 5; opacity: 0;
+        pointer-events: none; }
+      /* contain, not cover. The boxes below are cut to the footage's own 3:2,
+         but a clip that ever differs should letterbox rather than lose an edge:
+         cover was quietly shaving the file tree off the left of every shot that
+         had one. */
+      #screen .clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      .mask { display: block; overflow: hidden; padding-bottom: 5px; }
+      .line { display: block; font-family: var(--display); font-weight: 800; color: var(--cream);
+        letter-spacing: -0.045em; white-space: nowrap; }
+      .rule { display: block; width: 100px; height: 3px; background: var(--accent);
+        transform: scaleX(0); transform-origin: left center; }
+      .sub { display: block; font-family: var(--mono); letter-spacing: 0.13em;
+        text-transform: uppercase; color: var(--muted); }
+      .rail, .num { font-family: var(--mono); letter-spacing: 0.16em; text-transform: uppercase; }
+      .rail { position: absolute; left: 96px; top: 74px; font-size: 15px; color: var(--muted); z-index: 4; }
+      .hair { position: absolute; left: 96px; right: 84px; top: 108px; height: 1px;
+        background: #1d1d24; z-index: 4; }
+      #progress { position: absolute; left: 96px; right: 84px; bottom: 74px; height: 2px;
+        background: var(--accent); transform: scaleX(0); transform-origin: left center; z-index: 4; }
+      .end { position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; z-index: 6; }
+      .wordmark { display: block; font-family: var(--display); font-size: 196px; font-weight: 800;
+        letter-spacing: -0.05em; line-height: 1.06; color: var(--cream); }
+      .end-line { display: block; font-family: var(--mono); font-size: 19px; letter-spacing: 0.16em;
+        text-transform: uppercase; color: var(--muted); margin-top: 24px; }
 
-      #screen {
-        position: absolute;
-        left: 700px;
-        top: 150px;
-        width: 1140px;
-        height: 713px;
-        border-radius: 12px;
-        overflow: hidden;
-        z-index: 2;
-        box-shadow: 0 40px 90px -25px rgba(0, 0, 0, 0.92);
-      }
-      #screen .clip {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      /* The list is the film. Each kind joins it and stays, so by the end the
-         claim is on screen all at once instead of having to be remembered. */
-      .list {
-        position: absolute;
-        left: 96px;
-        top: 232px;
-        width: 540px;
-        z-index: 3;
-      }
-      .item {
-        display: block;
-        font-family: var(--display);
-        font-size: 76px;
-        font-weight: 800;
-        line-height: 1.14;
-        letter-spacing: -0.04em;
-        color: var(--cream);
-        opacity: 0;
-        white-space: nowrap;
-      }
-      .item .dot {
-        display: inline-block;
-        width: 13px;
-        height: 13px;
-        margin-right: 20px;
-        border-radius: 999px;
-        background: var(--accent);
-        vertical-align: middle;
-      }
-      .kicker {
-        position: absolute;
-        left: 96px;
-        top: 150px;
-        font-family: var(--mono);
-        font-size: 16px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--muted);
-        z-index: 3;
-      }
-      .note {
-        position: absolute;
-        left: 96px;
-        top: 848px;
-        width: 520px;
-        font-family: var(--mono);
-        font-size: 15.5px;
-        line-height: 1.8;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--hint);
-        z-index: 3;
-      }
-
-      .rail {
-        position: absolute;
-        left: 96px;
-        top: 74px;
-        font-family: var(--mono);
-        font-size: 15px;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--muted);
-        z-index: 4;
-      }
-      .hair {
-        position: absolute;
-        left: 96px;
-        right: 80px;
-        top: 108px;
-        height: 1px;
-        background: #1d1d24;
-        z-index: 4;
-      }
-
-      .end {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        z-index: 6;
-      }
-      .mask {
-        display: block;
-        overflow: hidden;
-        padding-bottom: 6px;
-      }
-      .wordmark {
-        display: block;
-        font-family: var(--display);
-        font-size: 196px;
-        font-weight: 800;
-        letter-spacing: -0.05em;
-        line-height: 1.06;
-        color: var(--cream);
-      }
-      .end-line {
-        display: block;
-        font-family: var(--mono);
-        font-size: 19px;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--muted);
-        margin-top: 24px;
-      }
+      #screen { left: 700px; top: 150px; width: 1140px; height: 758px; }
+      .list { position: absolute; left: 96px; top: 232px; width: 560px; z-index: 3; }
+      .item { display: block; font-family: var(--display); font-size: 76px; font-weight: 800;
+        line-height: 1.14; letter-spacing: -0.04em; color: var(--cream); opacity: 0; white-space: nowrap; }
+      .item .dot { display: inline-block; width: 13px; height: 13px; margin-right: 20px;
+        border-radius: 999px; background: var(--accent); vertical-align: middle; }
+      .kicker { position: absolute; left: 96px; top: 150px; font-family: var(--mono); font-size: 16px;
+        letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); z-index: 3; }
+      .note { position: absolute; left: 96px; top: 848px; width: 520px; font-family: var(--mono);
+        font-size: 15.5px; line-height: 1.8; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--hint); z-index: 3; opacity: 0; }
     </style>
   </head>
   <body>
+    <!-- Generated by tools/showcase/films.mjs. Edit the film's beats there. -->
     <div
       id="root"
       data-composition-id="kinds"
       data-start="0"
       data-width="1920"
       data-height="1080"
-      data-duration="21.4"
+      data-duration="17.88"
     >
-      <div id="ground" class="clip bg" data-start="0" data-duration="21.4" data-track-index="9"></div>
+      <div id="ground" class="clip bg" data-start="0" data-duration="17.88" data-track-index="9"></div>
 
       <div id="screen">
-        <video id="k-open" class="clip" src="assets/open.mp4" data-start="0" data-duration="3.4" data-track-index="0" muted playsinline></video>
-        <video id="k-portrait" class="clip" src="assets/portrait.mp4" data-start="3.4" data-duration="2.8" data-track-index="0" muted playsinline></video>
-        <video id="k-video" class="clip" src="assets/video.mp4" data-start="6.2" data-duration="3.4" data-track-index="0" data-media-start="0.6" muted playsinline></video>
-        <video id="k-audio" class="clip" src="assets/audio.mp4" data-start="9.6" data-duration="3.2" data-track-index="0" muted playsinline></video>
-        <video id="k-text" class="clip" src="assets/text.mp4" data-start="12.8" data-duration="2.8" data-track-index="0" muted playsinline></video>
-        <video id="k-tree" class="clip" src="assets/tree-walk.mp4" data-start="15.6" data-duration="3.2" data-track-index="0" data-media-start="1.2" muted playsinline></video>
+        <video id="v-open" class="clip" src="assets/open.mp4" data-start="0" data-duration="2.68" data-track-index="0" muted playsinline></video>
+        <video id="v-portrait" class="clip" src="assets/portrait.mp4" data-start="2.68" data-duration="2.8" data-track-index="0" muted playsinline></video>
+        <video id="v-video" class="clip" src="assets/video.mp4" data-start="5.48" data-duration="3.4" data-track-index="0" data-media-start="0.6" muted playsinline></video>
+        <video id="v-audio" class="clip" src="assets/audio.mp4" data-start="8.88" data-duration="3.2" data-track-index="0" muted playsinline></video>
+        <video id="v-tree-walk" class="clip" src="assets/tree-walk.mp4" data-start="12.08" data-duration="3.2" data-track-index="0" data-media-start="1.2" muted playsinline></video>
       </div>
 
-      <div id="chrome" class="clip" data-start="0" data-duration="21.4" data-track-index="8">
+      <div id="chrome" class="clip" data-start="0" data-duration="17.88" data-track-index="8">
         <div class="rail">Prism · What it opens</div>
         <div class="hair"></div>
       </div>
 
-      <div id="kicker" class="clip kicker" data-start="0.2" data-duration="18.6" data-track-index="7">
-        One viewer, one window
-      </div>
+      <div id="kicker" class="clip kicker" data-start="0.2" data-duration="15.08" data-track-index="7">One viewer, one window</div>
 
-      <div id="list" class="clip list" data-start="0.2" data-duration="18.6" data-track-index="1">
+      <div id="list" class="clip list" data-start="0.2" data-duration="15.08" data-track-index="1">
         <span class="item" id="i1"><span class="dot"></span>Pictures</span>
         <span class="item" id="i2"><span class="dot"></span>Any shape</span>
         <span class="item" id="i3"><span class="dot"></span>Video</span>
         <span class="item" id="i4"><span class="dot"></span>Sound</span>
-        <span class="item" id="i5"><span class="dot"></span>Words</span>
-        <span class="item" id="i6"><span class="dot"></span>The folder</span>
+        <span class="item" id="i5"><span class="dot"></span>The folder</span>
       </div>
 
-      <div id="note" class="clip note" data-start="15.9" data-duration="2.9" data-track-index="2">
-        JPG PNG WEBP AVIF HEIC JXL TIFF SVG GIF ICO · MP4 MKV MOV WEBM AVI ·
-        MP3 FLAC WAV OPUS OGG AAC M4A · PDF MD TXT CSV LOG
-      </div>
+      <div id="note" class="clip note" data-start="12.38" data-duration="2.9" data-track-index="2">JPG PNG WEBP AVIF HEIC JXL TIFF SVG GIF ICO · MP4 MKV MOV WEBM AVI · MP3 FLAC WAV OPUS OGG AAC M4A</div>
 
-      <section id="end" class="clip end" data-start="18.8" data-duration="2.6" data-track-index="3">
+      <section id="end" class="clip end" data-start="15.28" data-duration="2.6" data-track-index="3">
         <span class="mask"><span class="wordmark" id="end-mark">prism</span></span>
         <span class="end-line" id="end-url">github.com/Maxaubert/Prism</span>
       </section>
+      <div id="veil" class="clip" data-start="0" data-duration="17.88" data-track-index="6"></div>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
 
-      /* Each kind lands as its shot cuts in, and then stays put. The one before
-         it steps back to a quieter grey rather than leaving, so the list reads as
-         a growing claim rather than a slideshow of words. */
-      const AT = [0.35, 3.5, 6.3, 9.7, 12.9, 15.7];
+      const AT = [
+        0.35,
+        3.03,
+        5.83,
+        9.23,
+        12.43
+      ];
 
       AT.forEach((at, i) => {
         const id = `#i${i + 1}`;
@@ -235,14 +130,12 @@
       });
 
       tl.fromTo("#kicker", { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power2.out" }, 0.2);
-      tl.fromTo("#note", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 16);
-
-      tl.fromTo("#screen", { scale: 0.985, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.75, ease: "power2.out" }, 0);
-      tl.to("#screen", { scale: 0.955, opacity: 0, duration: 0.75, ease: "power2.inOut" }, 18.3);
-      tl.to(["#list", "#kicker", "#note", "#chrome"], { opacity: 0, duration: 0.5, ease: "power2.in" }, 18.4);
-
-      tl.fromTo("#end-mark", { yPercent: 116 }, { yPercent: 0, duration: 0.85, ease: "power3.out" }, 18.95);
-      tl.fromTo("#end-url", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 19.5);
+      tl.fromTo("#note", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 12.48);
+      tl.fromTo("#veil", { opacity: 1 }, { opacity: 0, duration: 0.65, ease: "power2.out" }, 0);
+      tl.to("#veil", { opacity: 1, duration: 0.55, ease: "power2.inOut" }, 14.78);
+      tl.to(["#list", "#kicker", "#note", "#chrome"], { opacity: 0, duration: 0.5, ease: "power2.in" }, 14.88);
+      tl.fromTo("#end-mark", { yPercent: 116 }, { yPercent: 0, duration: 0.85, ease: "power3.out" }, 15.43);
+      tl.fromTo("#end-url", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 15.98);
 
       window.__timelines["kinds"] = tl;
     </script>

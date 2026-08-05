@@ -218,7 +218,7 @@ async function main() {
   await beat('browse', 900, async () => {
     // Two, not three: the third lands on the deliberately soft night street, and
     // "look closer" is a poor claim to make over a photograph that is out of focus.
-    for (const _ of [0, 1]) {
+    for (let i = 0; i < 2; i += 1) {
       await page.keyboard.press('ArrowRight')
       await sleep(950)
     }
@@ -228,7 +228,7 @@ async function main() {
     await move(700, 420, 560)
     // Far enough in that the pan never reaches an edge: a strip of background
     // sliding into frame reads as a bug, not a gesture.
-    for (const _ of [0, 1, 2, 3, 4]) {
+    for (let i = 0; i < 5; i += 1) {
       await page.mouse.wheel(0, -240)
       await sleep(200)
     }

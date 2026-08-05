@@ -8,7 +8,20 @@ import prettier from 'eslint-config-prettier'
 export default tseslint.config(
   // docs/ holds standalone browser pages (the visualizer lab), not app source.
   // build/ is installer tooling: Node scripts and NSIS, none of it shipped.
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'docs/**', 'build/**', '**/*.d.ts'] },
+  // .demo/ and videos/ are recording and render working files, rebuilt by
+  // tools/showcase and never imported by the app.
+  {
+    ignores: [
+      'out/**',
+      'dist/**',
+      'node_modules/**',
+      'docs/**',
+      'build/**',
+      '.demo/**',
+      'videos/**',
+      '**/*.d.ts'
+    ]
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -19,6 +32,13 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }]
     }
+  },
+  {
+    // tools/ runs on Node, drives a browser through Playwright, and injects the
+    // odd snippet into a page: it needs both sets of globals and none of the
+    // React rules.
+    files: ['tools/**/*.mjs'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } }
   },
   prettier
 )

@@ -21,9 +21,28 @@ const ROOT = join(HERE, '..', '..')
 const SHOTS = join(ROOT, '.demo', 'shots')
 const OUT = join(ROOT, 'videos', 'prism-showcase', 'assets')
 
-/** Head and tail to drop, per shot. Everything has a little air by design. */
+/**
+ * Head and tail to drop, per shot.
+ *
+ * The head matters more than it looks: Prism blurs the file as a backdrop while
+ * it decodes, so the first second of a shot that opens a photograph is a
+ * coloured smear. Filming it is honest and putting it in a film is not - it
+ * reads as a broken render rather than as a viewer doing its job quickly.
+ */
+/* Smaller than they were. Those numbers were cut for screen capture, which
+   started rolling before the window had settled; the page capture starts after
+   the pre-roll wait, so most of what they were removing is no longer there and
+   the old trims were eating the shot instead. */
 const TRIM = {
-  audio: { head: 0.5 },
+  open: { head: 0.7 },
+  kinds: { head: 0.6 },
+  portrait: { head: 0.4 },
+  rotate: { head: 0.3 },
+  zoom: { head: 0.4 },
+  'zoom-deep': { head: 0.4 },
+  tree: { head: 0.4 },
+  'tree-walk': { head: 0.4 },
+  audio: { head: 0.3 },
   'style-video': { head: 0.4 },
   'style-audio': { head: 0.4 },
   'style-many': { head: 0.3 },
@@ -72,9 +91,12 @@ for (const shot of manifest) {
   execFileSync('ffmpeg', [
     '-y', '-loglevel', 'error',
     '-ss', head.toFixed(3), '-t', span.toFixed(3), '-i', join(SHOTS, chosen.file),
-    // Three pixels off each edge: the window's rounded corners were cut out of
-    // the desktop, and the compositions round them again in CSS.
-    '-vf', 'crop=2874:1794:3:3,scale=1440:900:flags=lanczos',
+    // Three pixels off each edge, expressed relative to the source: the window
+    // is whatever size it was left at, and a hardcoded crop breaks the moment it
+    // changes. The corners were cut from the desktop and the compositions round
+    // them again in CSS. Height follows the width to keep the aspect, rounded to
+    // even because H.264 insists.
+    '-vf', 'crop=iw-6:ih-6:3:3,scale=1440:-2:flags=lanczos',
     '-an', '-c:v', 'libx264', '-crf', '17', '-preset', 'slow',
     '-g', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
     out
