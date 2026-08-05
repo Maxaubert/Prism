@@ -14,10 +14,13 @@
 
 <div align="center">
   <a href="docs/media/prism.mp4">
-    <img src="docs/media/prism.webp" alt="Prism opening a photograph, a video, an audio file and a document" width="760">
+    <picture>
+      <source srcset="docs/media/prism.avif" type="image/avif">
+      <img src="docs/media/prism.webp" alt="Prism opening a photograph, a video, an audio file and a document" width="760">
+    </picture>
   </a>
 
-  <sub><a href="docs/media/prism.mp4">The same 43 seconds in 1080p60</a></sub>
+  <sub><a href="docs/media/prism.mp4">Download the film as an MP4</a></sub>
 </div>
 
 ---
