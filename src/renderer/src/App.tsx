@@ -469,7 +469,12 @@ export default function App(): JSX.Element {
             washed ? 'p-wash' : ''
           } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
         >
-          {file ? <Viewer key={file.path} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
+          {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
+              every arrow press, which threw the current picture away before the
+              next one had decoded and flashed the window black between them.
+              A viewer keeps itself in order across files of its own kind; only
+              a change of kind needs a fresh one. */}
+          {file ? <Viewer key={file.kind} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>

@@ -41,12 +41,33 @@ export function ImageView({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const huge = !!img && img.width * img.height > CANVAS_PATH_PIXELS
 
-  // The viewer is remounted per file (keyed by path), so state starts fresh here;
-  // no synchronous resets needed. All updates below fire asynchronously.
+  /* The picture on screen stays there until the next one is ready.
+   *
+   * This component is no longer remounted per file, so `img` still holds the
+   * previous picture while the new one decodes - which is the point: swapping
+   * only when the replacement exists means arrowing through a folder never
+   * shows an empty window. Everything that IS per-file (zoom, pan, rotation,
+   * the failure flag) is reset here, since a remount is no longer doing it. */
   useEffect(() => {
     let alive = true
+    // Both of these settle asynchronously, with the load: setting them straight
+    // away would render twice for no reason, and `failed` in particular must not
+    // clear before there is anything to replace what failed.
+    //
+    // `loaded` is never reset. It drives the fade-in, so clearing it would fade
+    // the picture already on screen down to nothing while the next one decodes:
+    // the same black flash, arrived at from the other direction. It starts false
+    // on first mount, which is the only time a fade is wanted.
     loadImage(url)
-      .then((r) => alive && setImg(r))
+      .then((r) => {
+        if (!alive) return
+        setFailed(false)
+        setImg(r)
+        setZoom(1)
+        setTx(0)
+        setTy(0)
+        setRot(0)
+      })
       .catch(() => alive && setFailed(true))
     return () => {
       alive = false

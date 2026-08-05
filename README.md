@@ -12,6 +12,16 @@
 
 ---
 
+<div align="center">
+  <a href="docs/media/prism.mp4">
+    <img src="docs/media/prism.gif" alt="Prism opening a photograph, a video and an audio file" width="760">
+  </a>
+
+  <sub><a href="docs/media/prism.mp4">Watch the full 43 seconds</a></sub>
+</div>
+
+---
+
 Prism opens an image, a video, an audio file, or a PDF and shows it instantly, then lets
 you arrow through the rest of the folder without a beat. It is the "quick look" Windows
 never shipped: one small app that opens everything and looks good doing it.

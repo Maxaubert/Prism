@@ -39,17 +39,6 @@ function rgbOf(colour: string): [number, number, number] {
   return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [13, 15, 20]
 }
 
-/** A shade off the background: lighter on a dark window, darker on a light one,
- *  so a panel separates itself whichever way round the style is. */
-function panelColour(bg: string): string {
-  const [r, g, b] = rgbOf(bg)
-  const light = (r * 0.299 + g * 0.587 + b * 0.114) / 255 > 0.5
-  const k = light ? -1 : 1
-  const step = light ? 16 : 20
-  const mix = (v: number): number => Math.max(0, Math.min(255, Math.round(v + k * step)))
-  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
-}
-
 export function Visualizer({
   media,
   styleId,
@@ -203,7 +192,11 @@ export function Visualizer({
 
     const tick = (now: number): void => {
       const rect = canvas.getBoundingClientRect()
-      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
+      // The display's real ratio, not a flat 2. A 225% screen was drawing a
+      // 2360x611 buffer and letting the compositor stretch it to 2655x689, which
+      // softened every edge in the visualizer. Capped at 3 so a 400% display
+      // cannot ask for sixteen times the pixels.
+      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1))
       const W = Math.round(rect.width * dpr)
       const H = Math.round(rect.height * dpr)
       if (W > 0 && H > 0) {
@@ -289,10 +282,6 @@ export function Visualizer({
           ctx.fillRect(0, 0, W, H)
         } else {
           ctx.clearRect(0, 0, W, H)
-          if (style2.panel) {
-            ctx.fillStyle = panelColour(bg)
-            ctx.fillRect(0, 0, W, H)
-          }
         }
         if (draw) {
           ctx.save()

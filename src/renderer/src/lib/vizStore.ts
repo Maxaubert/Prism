@@ -185,8 +185,40 @@ export function visibleThemes(): typeof THEMES {
   return THEMES.filter((t) => !state.removed.includes(t.id) && t.id !== ACCENT_THEME_ID)
 }
 
+/**
+ * Picking a shape brings its framing with it, unless the framing was chosen by
+ * hand.
+ *
+ * Every shipped look is a preset carrying a height and a position, and they are
+ * not interchangeable: Halo wants 88 and the middle, Caps wants 41 and the
+ * middle, and the grounded shapes want 56 low down because their bars rise from
+ * the transport. Changing only the shape left the last one's numbers behind, so
+ * Halo would render at less than half the size it is designed for and a wall of
+ * bars would float in the centre of the window.
+ *
+ * The exception matters as much as the rule: if the current height and position
+ * are not a shipped look's, they were set deliberately, and a style change must
+ * not throw them away.
+ */
 export const setStyle = (id: string): void => {
+  const shipped = (styleId: string): Preset | undefined =>
+    DEFAULT_PRESETS.find((p) => p.style === styleId)
+  const from = shipped(state.style)
+  const to = shipped(id)
+  const untouched =
+    from !== undefined &&
+    state.height === from.height &&
+    state.pos === from.pos &&
+    state.width === from.width
+
   localStorage.setItem(K.style, id)
+  if (to && untouched) {
+    localStorage.setItem(K.height, String(to.height))
+    localStorage.setItem(K.pos, String(to.pos))
+    localStorage.setItem(K.width, to.width)
+    apply({ style: id, height: to.height, pos: to.pos, width: to.width })
+    return
+  }
   apply({ style: id })
 }
 export const setTheme = (id: string): void => {
