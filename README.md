@@ -14,7 +14,7 @@
 
 <div align="center">
   <a href="docs/media/prism.mp4">
-    <img src="docs/media/prism.gif" alt="Prism opening a photograph, a video, an audio file and a document" width="680">
+    <img src="docs/media/prism.webp" alt="Prism opening a photograph, a video, an audio file and a document" width="760">
   </a>
 
   <sub><a href="docs/media/prism.mp4">The same 43 seconds in 1080p60</a></sub>
