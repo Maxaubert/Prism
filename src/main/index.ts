@@ -1,6 +1,16 @@
-import { app, protocol, shell, BrowserWindow, ipcMain, dialog, nativeTheme, utilityProcess } from 'electron'
+import {
+  app,
+  protocol,
+  shell,
+  screen,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  nativeTheme,
+  utilityProcess
+} from 'electron'
 import { dirname, extname, join, resolve } from 'path'
-import { createReadStream, existsSync, statSync } from 'fs'
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { Readable } from 'stream'
 import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
@@ -226,10 +236,91 @@ function sendOpen(p: string): void {
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
 }
 
+/**
+ * Where the window was last time.
+ *
+ * Every launch opened at 1180x780 wherever Windows felt like putting it, so
+ * anyone who wanted it bigger resized it again on every single file they opened.
+ * The state is one small file in userData: size, position, and whether it was
+ * maximised.
+ *
+ * It is checked against the displays actually attached before it is used. A
+ * window remembered on a second monitor that is no longer there would otherwise
+ * open somewhere nobody can reach it.
+ */
+interface WindowState {
+  width: number
+  height: number
+  x?: number
+  y?: number
+  maximised?: boolean
+}
+
+const WINDOW_STATE = (): string => join(app.getPath('userData'), 'window-state.json')
+
+function readWindowState(): WindowState {
+  const fallback: WindowState = { width: 1180, height: 780 }
+  try {
+    const saved = JSON.parse(readFileSync(WINDOW_STATE(), 'utf8')) as WindowState
+    if (!Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return fallback
+    const size = {
+      width: Math.max(560, Math.round(saved.width)),
+      height: Math.max(400, Math.round(saved.height)),
+      maximised: saved.maximised === true
+    }
+    if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return size
+    // Only keep the position if some display still contains it: a window
+    // remembered on a monitor that has since been unplugged opens off-screen.
+    const visible = screen.getAllDisplays().some((d) => {
+      const a = d.workArea
+      return (
+        saved.x! + size.width > a.x &&
+        saved.x! < a.x + a.width &&
+        saved.y! + size.height > a.y &&
+        saved.y! < a.y + a.height
+      )
+    })
+    return visible ? { ...size, x: Math.round(saved.x!), y: Math.round(saved.y!) } : size
+  } catch {
+    return fallback // no file yet, or one written by something else
+  }
+}
+
+/** Save on a delay: a drag fires this continuously, and the disk does not need
+ *  to hear about every pixel of it. */
+function watchWindowState(win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null
+  const save = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (win.isDestroyed() || win.isMinimized()) return
+      // getNormalBounds is the un-maximised size, which is what should come back
+      // when the window is restored.
+      const b = win.getNormalBounds()
+      const state: WindowState = { ...b, maximised: win.isMaximized() }
+      try {
+        writeFileSync(WINDOW_STATE(), JSON.stringify(state))
+      } catch {
+        /* a viewer that cannot write its window size is still a viewer */
+      }
+    }, 400)
+  }
+  // Listed one by one: BrowserWindow's overloads are per event name, so a loop
+  // over a union of them has no single signature to match.
+  win.on('resize', save)
+  win.on('move', save)
+  win.on('maximize', save)
+  win.on('unmaximize', save)
+  win.on('close', save)
+}
+
 function createWindow(): void {
+  const remembered = readWindowState()
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 780,
+    width: remembered.width,
+    height: remembered.height,
+    x: remembered.x,
+    y: remembered.y,
     minWidth: 560,
     minHeight: 400,
     show: false,
@@ -248,6 +339,12 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
+      /* Chromium throttles a window nobody can see down to about a frame a
+       * second, which is right for a viewer sitting in the background and wrong
+       * for the recorder: it films off-screen so it does not have to take over
+       * the display, and a throttled window films as a slideshow. Only --demo
+       * turns it off, so nothing about normal use changes. */
+      backgroundThrottling: !process.argv.includes('--demo'),
       // Setup launches Prism with --setup so the guide runs even on a machine
       // that has seen it before. It rides in the renderer's own argv rather
       // than an IPC message, so it is there before the first render.
@@ -257,7 +354,13 @@ function createWindow(): void {
       ]
     }
   })
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    // Maximised is restored after the window exists rather than at construction:
+    // a window created maximised has no sensible un-maximised size to go back to.
+    if (remembered.maximised) mainWindow?.maximize()
+    mainWindow?.show()
+  })
+  watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('window:fullscreen', true))
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('window:fullscreen', false))

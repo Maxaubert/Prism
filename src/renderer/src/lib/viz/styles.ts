@@ -459,9 +459,11 @@ export const VIZ_STYLES: VizStyle[] = [
     id: 'mirror-caps',
     name: 'Mirror Caps',
     blurb: 'Peak caps hovering above and below the centre.',
-    // Two thin caps per band and nothing between them: without a panel to sit
-    // on, the shape reads as scattered dashes.
-    panel: true,
+    // No panel. The caps needed something to sit on or they read as scattered
+    // dashes, and a panel was the first answer; but a slab behind the visualizer
+    // is the one thing this window is not supposed to have. The column between
+    // each pair of caps does the same job with none of the background: it is
+    // per band, it moves with the sound, and it stops where the caps stop.
     create() {
       const n = 44
       const b = makeBands(n)
@@ -486,7 +488,9 @@ export const VIZ_STYLES: VizStyle[] = [
           ctx.beginPath()
           ctx.roundRect(x, mid + off - 3 * o.dpr, bw, 3 * o.dpr, 1.5 * o.dpr)
           ctx.fill()
-          ctx.fillStyle = bandColor(o, i / (n - 1), d.t, 0.12)
+          // Carries what the panel used to: enough to join the pair into one
+          // bar, not enough to become a background.
+          ctx.fillStyle = bandColor(o, i / (n - 1), d.t, 0.2)
           ctx.fillRect(x, mid - off, bw, off * 2)
         }
       }

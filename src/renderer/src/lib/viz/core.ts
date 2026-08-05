@@ -74,9 +74,8 @@ export interface VizStyle {
   blurb: string
   /** Fade the canvas instead of clearing it, for motion trails. */
   trails?: boolean
-  /** Draw on a panel a shade off the app's background. Only for shapes that
-   *  are mostly holes - caps and outlines vanish on a plain window otherwise. */
-  panel?: boolean
+  /** Reserved: where a shape rests inside its box. Removed for now - see the
+   *  note in AudioView about position meaning different things per shape. */
   /** Shown in the browseable style list. Styles used only by a saved preset
    *  (the settled looks) stay renderable but out of the list. */
   variant?: boolean
