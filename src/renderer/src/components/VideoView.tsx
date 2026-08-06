@@ -34,13 +34,17 @@ export function VideoView({
   const [started, setStarted] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showChrome = useCallback(() => {
-    setChromeOn(true)
+  const hideAfter = useCallback((ms: number) => {
     if (hideTimer.current) clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
       if (video.current && !video.current.paused) setChromeOn(false)
-    }, 2600)
+    }, ms)
   }, [])
+
+  const showChrome = useCallback(() => {
+    setChromeOn(true)
+    hideAfter(2600)
+  }, [hideAfter])
 
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
@@ -74,7 +78,12 @@ export function VideoView({
     <div
       className="group relative flex h-full w-full items-center justify-center"
       onMouseMove={showChrome}
-      onMouseLeave={() => c.playing && setChromeOn(false)}
+      // Hide on leave after a grace, never instantly. When a fullscreen game
+      // winds down, a dying overlay window can intermittently steal hit-testing
+      // and the OS delivers alternating mouseleave/mousemove; an instant hide
+      // turns that flap into visible chrome flicker (issue #33). A real
+      // departure still hides the chrome 350ms later, which reads the same.
+      onMouseLeave={() => c.playing && hideAfter(350)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
       <video
