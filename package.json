@@ -13,6 +13,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run --passWithNoTests",
+    "e2e": "npm run build && node tools/e2e/run.mjs",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",

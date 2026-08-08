@@ -66,6 +66,7 @@ export function PdfPage({
 
     textBox.replaceChildren()
     textBox.style.setProperty('--scale-factor', String(viewport.scale))
+    textBox.style.setProperty('--user-unit', String(proxy.userUnit ?? 1))
     const layer = new TextLayer({
       textContentSource: proxy.streamTextContent(),
       container: textBox,
