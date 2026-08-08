@@ -3,6 +3,7 @@ import type { DirListing } from '@shared/types'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
+import { FilterMenu } from './FilterMenu'
 import { Rows } from './TreeRows'
 import { TreeProvider } from '../lib/treeContext'
 
@@ -266,10 +267,11 @@ export function Sidebar({
         className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[var(--p-divider)]`}
         style={{ width }}
       >
-        <div className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
-          <span className="truncate" title={root}>
+        <div className="flex h-8 shrink-0 items-center justify-between gap-1.5 pl-3 pr-1.5 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
+          <span className="min-w-0 truncate" title={root}>
             {rootName}
           </span>
+          <FilterMenu />
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
