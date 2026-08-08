@@ -70,7 +70,9 @@ export function ContextMenu({
         style={{ left: pos.x, top: pos.y }}
         // Hairline: square, bordered, ruled between items. No inner padding, so
         // each row spans the full width and the rules read as structure.
-        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-title)] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+        // Flat surface colour: --p-title is translucent on glass styles, and a
+        // menu you can read the file names through is noise, not material.
+        className="pointer-events-auto absolute min-w-[156px] overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_10px_28px_rgba(0,0,0,.5)]"
       >
         {items.map((it) => (
           <button
