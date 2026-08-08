@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
@@ -6,6 +6,8 @@ import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
+import { MarkdownView } from './components/MarkdownView'
+import { PdfView } from './components/pdf/PdfView'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
@@ -26,6 +28,10 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 // get their own phase. All viewers eventually come from prism-core.
 
 const PLAYABLE = new Set(['video', 'audio'])
+// Documents own their vertical keys: Up/Down and PageUp/PageDown scroll or flip
+// pages inside a pdf/text file instead of paging the folder. Left/Right page
+// the folder everywhere.
+const DOC = new Set(['pdf', 'text'])
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
 const RAIL_KEY = 'prism.settings.rail'
@@ -116,13 +122,24 @@ function TopBar({
   )
 }
 
+const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
+
 function TextViewer({ path }: { path: string }): JSX.Element {
   const [text, setText] = useState<string>('')
+  const box = useRef<HTMLPreElement>(null)
   useEffect(() => {
     void window.prism.readText(path).then((t) => setText(t ?? '(could not read file)'))
   }, [path])
+  // Documents own their vertical keys: focused, the <pre> scrolls natively.
+  useEffect(() => {
+    box.current?.focus()
+  }, [path])
   return (
-    <pre className="h-full w-full overflow-auto p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] select-text">
+    <pre
+      ref={box}
+      tabIndex={-1}
+      className="h-full w-full overflow-auto p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] outline-none select-text"
+    >
       {text}
     </pre>
   )
@@ -132,12 +149,15 @@ function Viewer({
   file,
   onToggleFullscreen,
   fullscreen,
-  transportStyle
+  transportStyle,
+  onOpenLocal
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
   fullscreen: boolean
   transportStyle: TransportStyle
+  /** A markdown link to a local file; opened the same way as a tree click. */
+  onOpenLocal: (path: string) => void
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -148,9 +168,13 @@ function Viewer({
     case 'audio':
       return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
     case 'pdf':
-      return <embed src={url} type="application/pdf" className="h-full w-full" />
+      return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'text':
-      return <TextViewer path={file.path} />
+      return isMarkdown(file.name) ? (
+        <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
+      ) : (
+        <TextViewer path={file.path} />
+      )
     default:
       return <div className="text-[var(--color-dim)]">Can&apos;t preview this file type yet.</div>
   }
@@ -350,13 +374,21 @@ export default function App(): JSX.Element {
         // Without this, the window would shut instead: both listeners are on
         // window in the capture phase, and this one was registered first.
         if (settingsOpen) return
+        // So does anything transient that closes itself on Escape (the PDF find
+        // bar, an open menu) and any focused input: this listener runs first
+        // (capture, registered earliest), so it has to yield by inspection.
+        if (typing || document.querySelector('[data-owns-escape]')) return
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
-      } else if (e.key === 'PageDown') go(1)
-      else if (e.key === 'PageUp') go(-1)
-      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
-        // Up and down are always the folder. Unlike left and right they are
-        // never a player's seek keys, so there is nothing to yield to.
+      } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+        // Inside a document these keys belong to the document (the pdf viewer
+        // flips pages; a focused text scroller scrolls natively).
+        if (file && DOC.has(file.kind)) return
+        go(e.key === 'PageDown' ? 1 : -1)
+      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+        // Up and down page the folder, except inside a document, where they
+        // scroll it (the viewers keep their scrollers focused for exactly this).
+        if (file && DOC.has(file.kind)) return
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
@@ -474,7 +506,7 @@ export default function App(): JSX.Element {
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {file ? <Viewer key={file.kind} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} /> : <EmptyState onOpen={browse} />}
+          {file ? <Viewer key={file.kind} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} /> : <EmptyState onOpen={browse} />}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>

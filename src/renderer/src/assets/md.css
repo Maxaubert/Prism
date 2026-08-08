@@ -1,0 +1,182 @@
+/* The markdown document: GitHub's proportions on Prism's palette. Scoped under
+   .p-md so nothing leaks into the app chrome. */
+
+.p-md {
+  font-family: var(--p-font);
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--p-text-soft);
+  word-wrap: break-word;
+}
+
+.p-md > *:first-child {
+  margin-top: 0;
+}
+
+.p-md h1,
+.p-md h2,
+.p-md h3,
+.p-md h4,
+.p-md h5,
+.p-md h6 {
+  margin: 1.6em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--p-text);
+}
+.p-md h1 {
+  font-size: 1.85em;
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid var(--p-divider);
+}
+.p-md h2 {
+  font-size: 1.45em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--p-divider);
+}
+.p-md h3 {
+  font-size: 1.2em;
+}
+.p-md h4 {
+  font-size: 1.05em;
+}
+.p-md h5,
+.p-md h6 {
+  font-size: 0.95em;
+  color: var(--p-dim);
+}
+
+.p-md p,
+.p-md ul,
+.p-md ol,
+.p-md table,
+.p-md blockquote,
+.p-md pre,
+.p-md details {
+  margin: 0 0 1em;
+}
+
+.p-md a {
+  color: var(--p-accent-hi);
+  text-decoration: none;
+}
+.p-md a:hover {
+  text-decoration: underline;
+}
+
+.p-md ul,
+.p-md ol {
+  padding-left: 1.8em;
+}
+.p-md li + li {
+  margin-top: 0.2em;
+}
+/* Task lists: GFM marks the list item; the box replaces the bullet. */
+.p-md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.3em;
+}
+.p-md input[type='checkbox'] {
+  margin-right: 0.45em;
+  accent-color: var(--p-accent);
+  vertical-align: -1.5px;
+}
+
+.p-md code,
+.p-md kbd {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--p-hover);
+  border: 1px solid var(--p-divider);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.p-md pre {
+  background: var(--p-side);
+  border: 1px solid var(--p-divider);
+  border-radius: 6px;
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.p-md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--p-text-soft);
+}
+
+.p-md blockquote {
+  border-left: 3px solid var(--p-accent);
+  padding: 0.1em 1em;
+  color: var(--p-dim);
+}
+.p-md blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.p-md table {
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.p-md th,
+.p-md td {
+  border: 1px solid var(--p-line);
+  padding: 0.4em 0.85em;
+}
+.p-md th {
+  background: var(--p-hover);
+  color: var(--p-text);
+  font-weight: 600;
+}
+
+.p-md img,
+.p-md video {
+  max-width: 100%;
+  height: auto;
+}
+.p-md video,
+.p-md audio {
+  display: block;
+  margin: 0.5em auto;
+}
+.p-md video {
+  border-radius: 6px;
+}
+/* Badge rows: shields sit inline with a breath between them. */
+.p-md img[src^='https://img.shields.io'] {
+  display: inline-block;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+.p-md hr {
+  border: none;
+  border-top: 1px solid var(--p-divider);
+  margin: 1.8em 0;
+}
+
+/* Inline HTML alignment, the way GitHub honours it. */
+.p-md [align='center'] {
+  text-align: center;
+}
+.p-md [align='right'] {
+  text-align: right;
+}
+
+.p-md details > summary {
+  cursor: pointer;
+  color: var(--p-text);
+}
+
+.p-md sub,
+.p-md sup {
+  font-size: 0.75em;
+}
+
+.p-md ::selection {
+  background: rgba(91, 91, 214, 0.45);
+}

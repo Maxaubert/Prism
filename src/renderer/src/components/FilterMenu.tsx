@@ -68,6 +68,7 @@ export function FilterMenu(): JSX.Element {
         <div
           role="menu"
           aria-label="Navigation filter"
+          data-owns-escape
           // normal-case etc: the sidebar header this sits in is an uppercase,
           // letter-spaced label, and the menu must not inherit that voice.
           className="absolute right-0 top-full z-40 mt-1 w-[218px] overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-title)] font-normal normal-case tracking-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
