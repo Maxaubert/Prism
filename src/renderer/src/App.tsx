@@ -128,7 +128,13 @@ function TextViewer({ path }: { path: string }): JSX.Element {
   const [text, setText] = useState<string>('')
   const box = useRef<HTMLPreElement>(null)
   useEffect(() => {
-    void window.prism.readText(path).then((t) => setText(t ?? '(could not read file)'))
+    // Guarded: paging quickly between text files reuses this component (Viewer
+    // is keyed by kind), and a slow read must not land over a fast one.
+    let alive = true
+    void window.prism.readText(path).then((t) => alive && setText(t ?? '(could not read file)'))
+    return () => {
+      alive = false
+    }
   }, [path])
   // Documents own their vertical keys: focused, the <pre> scrolls natively.
   useEffect(() => {

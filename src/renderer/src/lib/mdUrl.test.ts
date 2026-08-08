@@ -1,34 +1,39 @@
 import { describe, expect, it } from 'vitest'
-import { isAnchor, isExternal, resolveLocalPath, resolveMdUrl } from './mdUrl'
+import { isAnchor, isExternal, resolveMdUrl } from './mdUrl'
 
 const BASE = 'C:\\Repo\\Prism'
+const local = (p: string): string => `fsmedia://local/${encodeURIComponent(p)}`
 
 describe('resolveMdUrl', () => {
   it('resolves a bare relative path against the base folder', () => {
     expect(resolveMdUrl('docs/media/prism.webp', BASE)).toBe(
-      `fsmedia://local/${encodeURIComponent('C:\\Repo\\Prism\\docs\\media\\prism.webp')}`
+      local('C:\\Repo\\Prism\\docs\\media\\prism.webp')
     )
   })
 
   it('resolves ./ and ../ segments', () => {
-    expect(resolveMdUrl('./build/icon.png', BASE)).toBe(
-      `fsmedia://local/${encodeURIComponent('C:\\Repo\\Prism\\build\\icon.png')}`
-    )
-    expect(resolveMdUrl('../shared/logo.png', BASE)).toBe(
-      `fsmedia://local/${encodeURIComponent('C:\\Repo\\shared\\logo.png')}`
-    )
+    expect(resolveMdUrl('./build/icon.png', BASE)).toBe(local('C:\\Repo\\Prism\\build\\icon.png'))
+    expect(resolveMdUrl('../shared/logo.png', BASE)).toBe(local('C:\\Repo\\shared\\logo.png'))
   })
 
-  it('keeps spaces and other reserved characters safe inside the URL', () => {
-    expect(resolveMdUrl('my picture.png', BASE)).toBe(
-      `fsmedia://local/${encodeURIComponent('C:\\Repo\\Prism\\my picture.png')}`
-    )
+  it('decodes what the markdown pipeline already percent-encoded', () => {
+    // remark/mdast normalize URLs before the transform runs: a space arrives as
+    // %20 and must not end up double-encoded (the file on disk has a space).
+    expect(resolveMdUrl('my%20picture.png', BASE)).toBe(local('C:\\Repo\\Prism\\my picture.png'))
+    expect(resolveMdUrl('docs/caf%C3%A9.png', BASE)).toBe(local('C:\\Repo\\Prism\\docs\\café.png'))
+  })
+
+  it('takes malformed percent sequences literally', () => {
+    expect(resolveMdUrl('100%.png', BASE)).toBe(local('C:\\Repo\\Prism\\100%.png'))
+  })
+
+  it('strips a #fragment and ?query from a relative link', () => {
+    expect(resolveMdUrl('ROADMAP.md#phases', BASE)).toBe(local('C:\\Repo\\Prism\\ROADMAP.md'))
+    expect(resolveMdUrl('notes.md?x=1', BASE)).toBe(local('C:\\Repo\\Prism\\notes.md'))
   })
 
   it('accepts a base with a trailing separator', () => {
-    expect(resolveMdUrl('a.png', 'C:\\Repo\\Prism\\')).toBe(
-      `fsmedia://local/${encodeURIComponent('C:\\Repo\\Prism\\a.png')}`
-    )
+    expect(resolveMdUrl('a.png', 'C:\\Repo\\Prism\\')).toBe(local('C:\\Repo\\Prism\\a.png'))
   })
 
   it('passes web, data-image and fsmedia URLs through untouched', () => {
@@ -54,25 +59,9 @@ describe('resolveMdUrl', () => {
     expect(resolveMdUrl('//evil.example/x.png', BASE)).toBe('')
   })
 
-  it('drops an empty url', () => {
+  it('drops an empty url, and a url that is only a query', () => {
     expect(resolveMdUrl('', BASE)).toBe('')
-  })
-})
-
-describe('resolveLocalPath', () => {
-  it('returns the decoded absolute path for a relative link', () => {
-    expect(resolveLocalPath('ROADMAP.md', BASE)).toBe('C:\\Repo\\Prism\\ROADMAP.md')
-    expect(resolveLocalPath('docs/notes.md', BASE)).toBe('C:\\Repo\\Prism\\docs\\notes.md')
-  })
-
-  it('strips a #fragment and ?query from a relative link', () => {
-    expect(resolveLocalPath('ROADMAP.md#phases', BASE)).toBe('C:\\Repo\\Prism\\ROADMAP.md')
-  })
-
-  it('returns null for external, anchor and dropped urls', () => {
-    expect(resolveLocalPath('https://example.com', BASE)).toBeNull()
-    expect(resolveLocalPath('#top', BASE)).toBeNull()
-    expect(resolveLocalPath('javascript:alert(1)', BASE)).toBeNull()
+    expect(resolveMdUrl('?only=query', BASE)).toBe('')
   })
 })
 

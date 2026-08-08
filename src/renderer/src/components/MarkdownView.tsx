@@ -26,7 +26,9 @@ const SCHEMA = {
     video: ['src', 'poster', 'controls', 'loop', 'muted', 'playsInline', 'width', 'height'],
     audio: ['src', 'controls', 'loop'],
     details: ['open'],
-    input: [...(defaultSchema.attributes?.input ?? []), 'type', 'checked', 'disabled'],
+    // 'checked' only: the default schema already pins input to a disabled
+    // checkbox, and adding 'type' back unrestricted would let text inputs in.
+    input: [...(defaultSchema.attributes?.input ?? []), 'checked'],
     div: [...(defaultSchema.attributes?.div ?? []), 'align'],
     p: [...(defaultSchema.attributes?.p ?? []), 'align'],
     h1: ['align'], h2: ['align'], h3: ['align'], h4: ['align'], h5: ['align'], h6: ['align'],
@@ -99,7 +101,25 @@ export function MarkdownView({
     box.current?.focus()
   }, [path, text])
 
-  const onClick = (e: MouseEvent): void => {
+  const followAnchor = (fragment: string): void => {
+    const raw = decodeURIComponent(fragment)
+    let target =
+      document.getElementById(raw) ??
+      document.getElementById(`user-content-${raw}`) ??
+      document.getElementById(slug(raw))
+    if (!target) {
+      // GitHub disambiguates duplicate headings as slug-1, slug-2...; our
+      // headings share the plain slug, so the suffix picks among them here.
+      const m = /^(.+)-(\d+)$/.exec(slug(raw))
+      if (m) {
+        const twins = document.querySelectorAll(`[id="${CSS.escape(m[1])}"]`)
+        target = (twins[Number(m[2])] as HTMLElement | undefined) ?? null
+      }
+    }
+    target?.scrollIntoView({ block: 'start' })
+  }
+
+  const followLink = (e: MouseEvent): void => {
     const a = (e.target as HTMLElement).closest('a')
     if (!a) return
     const href = a.getAttribute('href') ?? ''
@@ -107,16 +127,18 @@ export function MarkdownView({
     if (isExternal(href)) {
       window.open(href) // main's window-open handler routes this to the browser
     } else if (isAnchor(href)) {
-      const id = href.slice(1)
-      const target =
-        document.getElementById(id) ??
-        document.getElementById(`user-content-${id}`) ??
-        document.getElementById(slug(decodeURIComponent(id)))
-      target?.scrollIntoView({ block: 'start' })
+      followAnchor(href.slice(1))
     } else if (href.startsWith('fsmedia://local/')) {
       // A relative link, already resolved by urlTransform: back to its path.
       onOpenLocal(decodeURIComponent(href.slice('fsmedia://local/'.length)))
     }
+  }
+
+  const onClick = followLink
+  // Middle-click would otherwise ask the browser to open the href in a new
+  // window, which main forwards to the OS - nonsense for an fsmedia:// URL.
+  const onAuxClick = (e: MouseEvent): void => {
+    if (e.button === 1) followLink(e)
   }
 
   const components = useMemo<Components>(() => {
@@ -140,6 +162,7 @@ export function MarkdownView({
       ref={box}
       tabIndex={-1}
       onClick={onClick}
+      onAuxClick={onAuxClick}
       className="h-full w-full overflow-y-auto outline-none select-text"
     >
       {text === null ? (
