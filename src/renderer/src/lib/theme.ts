@@ -90,7 +90,6 @@ export const STYLES: Style[] = [
     corners: '8',
     // Hairline edges everywhere by default (owner decision, 2026-08-08): the
     // chrome traces itself even before the material or the wash separates it.
-    // Void is the one exception; "no edges" is that style's whole point.
     borders: 'hairline',
     // The light that gives the style its name: two soft glows, opposite corners,
     // in whatever the accent currently is.
@@ -117,7 +116,7 @@ export const STYLES: Style[] = [
   {
     id: 'new-void',
     name: 'Void',
-    blurb: 'True black. No glass, no edges.',
+    blurb: 'True black, edged in hairlines.',
     mode: 'dark',
     material: 'oled',
     bg: '#000000',
@@ -130,7 +129,8 @@ export const STYLES: Style[] = [
     font: 'segoe',
     size: '12.5',
     corners: '2',
-    borders: 'none'
+    // On true black the hairlines are all the separation there is.
+    borders: 'hairline'
   },
   {
     id: 'terminal',
