@@ -1,0 +1,39 @@
+/* The PDF text layer: pdf.js positions one transparent span per text item over
+   the canvas; these are the essential rules from its own pdf_viewer.css, scoped
+   to Prism's class. Transparent text is what makes selection and ::highlight
+   read as marks on the page rather than a second copy of it. */
+
+.p-pdf-textlayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: transparent;
+  z-index: 1;
+}
+
+.p-pdf-textlayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.p-pdf-textlayer ::selection {
+  background: rgba(91, 91, 214, 0.45);
+  color: transparent;
+}
+
+/* Find matches, painted by the CSS Custom Highlight API: every match in a quiet
+   accent, the one you are on in the full accent. */
+::highlight(p-find) {
+  background: rgba(91, 91, 214, 0.32);
+}
+::highlight(p-find-here) {
+  background: rgba(91, 91, 214, 0.85);
+  color: #fff;
+}

@@ -38,13 +38,10 @@ export default defineConfig({
       // pdf.js side data, served next to the bundle: character maps for CJK text
       // and the fourteen standard fonts a PDF may use without embedding them.
       viteStaticCopy({
-        targets: [
-          { src: normalizePath(resolve('node_modules/pdfjs-dist/cmaps')) + '/*', dest: 'pdf/cmaps' },
-          {
-            src: normalizePath(resolve('node_modules/pdfjs-dist/standard_fonts')) + '/*',
-            dest: 'pdf/standard_fonts'
-          }
-        ]
+        targets: ['cmaps', 'standard_fonts', 'wasm', 'iccs'].map((dir) => ({
+          src: normalizePath(resolve(`node_modules/pdfjs-dist/${dir}`)) + '/*',
+          dest: `pdf/${dir}`
+        }))
       })
     ],
     build: { rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } } }

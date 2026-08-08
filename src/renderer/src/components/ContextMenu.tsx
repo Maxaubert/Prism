@@ -60,7 +60,10 @@ export function ContextMenu({
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-40 pointer-events-none">
+    // data-owns-escape: the app's own (earlier, capture-phase) Escape handler
+    // yields to any element carrying it, so closing this menu can't close the
+    // window underneath.
+    <div data-owns-escape className="fixed inset-0 z-40 pointer-events-none">
       <div
         ref={box}
         role="menu"
