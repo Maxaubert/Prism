@@ -150,23 +150,32 @@ async function filterScenario(fixtures) {
   try {
     const funnel = win.locator('[aria-label="Navigation filter"]')
     await funnel.waitFor({ timeout: 10000 })
+    // File rows in the tree (folders have aria-expanded, files don't).
+    const fileRows = win.locator('[role="treeitem"]:not([aria-expanded])')
 
     const fillOf = () => funnel.locator('svg').getAttribute('fill')
     ok((await fillOf()) === 'currentColor', 'default scope (group) shows a filled funnel')
     // Docs group: README.md + sample.pdf = "x / 2" in the top bar.
     ok(await win.locator('text=/\\/ 2$/').first().isVisible().catch(() => false), 'group scope lists 2 documents')
+    ok((await fileRows.count()) === 2, 'group scope shows 2 file rows in the tree')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("All in one")')
     await sleep(200)
     ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
     ok(await win.locator('text=/\\/ 5$/').first().isVisible().catch(() => false), 'all scope lists 5 files')
+    ok((await fileRows.count()) === 5, 'all scope shows all 5 file rows in the tree')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("Per file type")')
     await sleep(200)
     ok((await fillOf()) === 'currentColor', 'per-type shows a filled funnel')
     ok(!(await win.locator('text=/\\/ \\d+$/').first().isVisible().catch(() => false)), 'per-type: the lone markdown file shows no position')
+    ok((await fileRows.count()) === 1, 'per-type shows only the open file in the tree')
+    ok(
+      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
+      'the open file row survives every filter'
+    )
     await win.screenshot({ path: join(SHOTS, 'filter.png') })
 
     // Settings shows the same value: the two controls share the store.

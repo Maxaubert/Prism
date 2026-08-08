@@ -23,8 +23,11 @@ so a fresh install shows a filled funnel; that is honest, a filter really is app
 the scope name with its one-line hint, active row in the accent colour. Dismiss on outside
 press, Escape, or picking. Anchored under the button, clamped to the window.
 
-**Not in scope.** The filter does not hide rows in the tree; it narrows what the arrows page
-through, exactly as the Settings control does. (Same store, same semantics, new handle.)
+**Tree rows follow the filter** (owner clarification, 2026-08-08): the same scope also hides
+non-matching file rows in the tree, anchored to the open file's kind. Folders always show, the
+open file always shows, an unrecognised open file ('other') suspends the filtering (it has no
+family), and a folder left with nothing says "nothing matches the filter". Settings and the
+funnel stay two handles on one store.
 
 ## 2. Markdown viewer
 

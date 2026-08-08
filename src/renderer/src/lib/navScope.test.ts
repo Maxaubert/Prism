@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FileKind, ViewerFile } from '@shared/types'
-import { scopeFiles } from './navScope'
+import { matchesScope, scopeFiles } from './navScope'
 
 function f(name: string, kind: FileKind): ViewerFile {
   return { path: `C:/f/${name}`, name, ext: name.slice(name.lastIndexOf('.')), kind, size: 0 }
@@ -17,6 +17,31 @@ const FOLDER: ViewerFile[] = [
 ]
 const at = (name: string): number => FOLDER.findIndex((x) => x.name === name)
 const names = (list: ViewerFile[]): string[] => list.map((x) => x.name)
+
+describe('matchesScope', () => {
+  it('accepts everything in "all"', () => {
+    expect(matchesScope('image', 'pdf', 'all')).toBe(true)
+    expect(matchesScope('other', 'audio', 'all')).toBe(true)
+  })
+
+  it('requires the exact kind in "type"', () => {
+    expect(matchesScope('image', 'image', 'type')).toBe(true)
+    expect(matchesScope('video', 'image', 'type')).toBe(false)
+  })
+
+  it('groups media with media and documents with documents', () => {
+    expect(matchesScope('video', 'image', 'group')).toBe(true)
+    expect(matchesScope('audio', 'video', 'group')).toBe(true)
+    expect(matchesScope('text', 'pdf', 'group')).toBe(true)
+    expect(matchesScope('pdf', 'image', 'group')).toBe(false)
+  })
+
+  it('gives "other" no family', () => {
+    expect(matchesScope('other', 'image', 'group')).toBe(false)
+    expect(matchesScope('image', 'other', 'group')).toBe(false)
+    expect(matchesScope('other', 'other', 'group')).toBe(true)
+  })
+})
 
 describe('scopeFiles', () => {
   it('leaves the list untouched in "all"', () => {
