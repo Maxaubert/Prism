@@ -1,18 +1,36 @@
 /* The PDF text layer: pdf.js positions one transparent span per text item over
-   the canvas; these are the essential rules from its own pdf_viewer.css, scoped
-   to Prism's class. Transparent text is what makes selection and ::highlight
-   read as marks on the page rather than a second copy of it. */
+   the canvas. The rules and custom-property plumbing here are the .textLayer
+   contract from pdf.js's own pdf_viewer.css (v6), scoped to Prism's class: the
+   layer sets left/top, --font-height, --scale-x and --rotate per span, and this
+   CSS turns them into the font-size and transform that make the invisible text
+   sit exactly on the painted glyphs. Without it, selection and find highlights
+   drift off the page's text. */
 
 .p-pdf-textlayer {
+  color-scheme: only light;
   position: absolute;
+  text-align: initial;
   inset: 0;
   overflow: clip;
+  opacity: 1;
   line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
   text-size-adjust: none;
   forced-color-adjust: none;
   transform-origin: 0 0;
   caret-color: transparent;
   z-index: 1;
+
+  /* The scale plumbing: --scale-factor is set by PdfPage from the viewport;
+     --min-font-size is set inline by the TextLayer itself. */
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
 }
 
 .p-pdf-textlayer :is(span, br) {
@@ -21,6 +39,26 @@
   white-space: pre;
   cursor: text;
   transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.p-pdf-textlayer > :not(.markedContent),
+.p-pdf-textlayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.p-pdf-textlayer .markedContent {
+  display: contents;
+}
+
+.p-pdf-textlayer span[role='img'] {
+  user-select: none;
+  cursor: default;
 }
 
 .p-pdf-textlayer ::selection {

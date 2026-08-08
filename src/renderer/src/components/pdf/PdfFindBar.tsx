@@ -30,7 +30,9 @@ export function PdfFindBar({
   return (
     <div
       data-owns-escape
-      className="absolute right-4 top-3 z-20 flex items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)]/95 py-1 pl-3 pr-1 shadow-[0_8px_24px_rgba(0,0,0,.45)] backdrop-blur"
+      // Opaque on purpose: the bar floats over white pages, and a translucent
+      // blur there smears the page edge into a smudge.
+      className="absolute right-4 top-3 z-20 flex items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)] py-1 pl-3 pr-1 shadow-[0_8px_24px_rgba(0,0,0,.45)]"
     >
       <input
         ref={input}

@@ -490,7 +490,7 @@ export function PdfView({
 
       {/* control cluster, appears on hover (the image viewer's pill, adapted) */}
       {doc && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] opacity-0 backdrop-blur transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {
