@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
-import type { DirListing } from '@shared/types'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import type { DirListing, ViewerFile } from '@shared/types'
+import { fileKind } from '@shared/fileKind'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
+import { matchesScope, useNavScope } from '../lib/navScope'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { FilterMenu } from './FilterMenu'
@@ -247,6 +249,27 @@ export function Sidebar({
     [onRename]
   )
 
+  // The navigation filter, applied to the rows too: files that don't belong
+  // with the open file under the current scope disappear from the tree. The
+  // open file itself always shows, and with nothing open there is no anchor to
+  // filter around, so everything shows.
+  const scope = useNavScope()
+  const anchorKind = useMemo(() => {
+    if (!currentPath) return null
+    const ext = /\.[^.\\/]*$/.exec(currentPath)?.[0] ?? ''
+    return fileKind(ext)
+  }, [currentPath])
+  const fileVisible = useCallback(
+    (f: ViewerFile): boolean => {
+      // 'other' means Prism was pointed at a file the tree wouldn't even list;
+      // it has no family, and hiding the whole tree around it helps nobody.
+      if (!currentPath || !anchorKind || anchorKind === 'other') return true
+      if (f.path.toLowerCase() === currentPath.toLowerCase()) return true
+      return matchesScope(f.kind, anchorKind, scope)
+    },
+    [currentPath, anchorKind, scope]
+  )
+
   const rootListing = state.children[root]
   const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
 
@@ -285,6 +308,7 @@ export function Sidebar({
               currentPath,
               size,
               editing,
+              fileVisible,
               onToggle: toggle,
               onOpenFile,
               onStartRename: setEditing,

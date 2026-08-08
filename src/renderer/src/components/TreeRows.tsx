@@ -267,6 +267,10 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const pad = 4 + depth * t.size.indent
   if (listing.unreadable) return <Note text="can't read this folder" pad={pad} />
   if (!listing.folders.length && !listing.files.length) return <Note text="empty" pad={pad} />
+  // The navigation filter narrows the rows the same way it narrows the arrows.
+  const files = listing.files.filter(t.fileVisible)
+  if (!listing.folders.length && !files.length)
+    return <Note text="nothing matches the filter" pad={pad} />
   // A hairline dropped from the parent's chevron, so deep nesting stays legible.
   const guide = depth > 0 ? 4 + (depth - 1) * t.size.indent + 6 : -1
   return (
@@ -275,7 +279,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
       {listing.folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} />
       ))}
-      {listing.files.map((f) => {
+      {files.map((f) => {
         if (t.editing === f.path) {
           return (
             <li key={f.path} role="none">
