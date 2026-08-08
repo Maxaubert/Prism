@@ -22,9 +22,19 @@ import '../../assets/pdf.css'
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
-// pdf.js side data rides next to the bundle (electron.vite.config copies it),
-// resolved against the document base so dev serve and file:// both work.
-const sideData = (dir: string): string => new URL(`pdf/${dir}/`, document.baseURI).toString()
+// pdf.js side data rides next to the bundle (electron.vite.config copies it).
+// Dev serves it over http, where a plain relative URL works. The packaged app
+// runs from file://, where fetch() refuses file: URLs, so there the data is
+// served through fsmedia:// instead (registered with supportFetchAPI). Built
+// with forward slashes and per-segment encoding so pdf.js can append filenames.
+const sideData = (dir: string): string => {
+  if (location.protocol !== 'file:') return new URL(`pdf/${dir}/`, document.baseURI).toString()
+  const here = decodeURIComponent(location.pathname)
+    .replace(/^\/+/, '')
+    .replace(/[^\\/]*$/, '') // the folder index.html loads from
+  const path = `${here}pdf/${dir}/`
+  return `fsmedia://local/${path.split(/[\\/]/).map(encodeURIComponent).join('/')}`
+}
 
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
@@ -332,14 +342,24 @@ export function PdfView({
 
   // Walking the matches follows them on screen: the exact span when its page is
   // rendered, the page itself until then (rendering brings the span, and the
-  // layers bump re-runs this to centre it).
+  // layers bump finishes the centring). One-shot per match: layer bumps happen
+  // on every scroll (virtualization) and zoom, and refollowing on those would
+  // pin the viewport to the match and make scrolling away impossible.
+  const followPending = useRef(false)
+  useEffect(() => {
+    followPending.current = curMatch >= 0
+  }, [curMatch, matches])
   useEffect(() => {
     const m = matches[curMatch]
-    if (!m) return
+    if (!m || !followPending.current) return
     const divs = layers.current.get(m.page + 1)
     const span = divs?.[m.item]
-    if (span) span.scrollIntoView({ block: 'center' })
-    else goToPage(m.page + 1)
+    if (span) {
+      span.scrollIntoView({ block: 'center' })
+      followPending.current = false
+    } else {
+      goToPage(m.page + 1) // the span's layer mounts next; that bump centres it
+    }
   }, [curMatch, matches, layersVersion, goToPage])
 
   const stepFind = useCallback(
@@ -350,6 +370,10 @@ export function PdfView({
   const closeFind = useCallback(() => {
     setFindOpen(false)
     setQuery('')
+    // The re-search effect is gated on findOpen, so these must clear here or
+    // the highlights (and the match being followed) would outlive the bar.
+    setMatches([])
+    setCurMatch(-1)
     scroller.current?.focus()
   }, [])
 
@@ -357,6 +381,9 @@ export function PdfView({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Settings (or the setup) covers the viewer with an inert wrapper; a
+      // window-level listener doesn't know that unless it looks.
+      if (scroller.current?.closest('[inert]')) return
       const el = e.target as HTMLElement | null
       const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
       if ((e.key === 'f' || e.key === 'F') && e.ctrlKey) {
@@ -368,6 +395,12 @@ export function PdfView({
         e.preventDefault()
         if (findOpen) stepFind(e.shiftKey ? -1 : 1)
         else setFindOpen(true)
+        return
+      }
+      // The bar's input handles its own Escape; this catches the key when the
+      // bar is open but focus is on the document (App yields it to the bar).
+      if (e.key === 'Escape' && findOpen) {
+        closeFind()
         return
       }
       if (e.key === 'PageDown' || e.key === 'PageUp') {
@@ -390,7 +423,7 @@ export function PdfView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [findOpen, stepFind, goToPage, page, pageCount, zoomBy, fitTo, onToggleFullscreen])
+  }, [findOpen, stepFind, closeFind, goToPage, page, pageCount, zoomBy, fitTo, onToggleFullscreen])
 
   // Ctrl+wheel zooms. Native listener: React's synthetic wheel is passive, and
   // a passive handler cannot stop the browser's own pinch-zoom default.
@@ -488,9 +521,12 @@ export function PdfView({
         />
       )}
 
-      {/* control cluster, appears on hover (the image viewer's pill, adapted) */}
+      {/* control cluster, appears on hover (the image viewer's pill, adapted).
+          focus-within on the pill itself, not the group: the scroller keeps
+          focus for the scroll keys, and group-focus-within would pin the pill
+          permanently visible. */}
       {doc && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {

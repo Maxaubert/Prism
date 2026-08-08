@@ -1,9 +1,48 @@
-import { resolve } from 'path'
+import { join, resolve } from 'path'
+import { cpSync, createReadStream, existsSync } from 'fs'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
-import { normalizePath } from 'vite'
+import type { Plugin } from 'vite'
+
+// pdf.js side data (character maps, the fourteen standard fonts, wasm image
+// decoders, ICC profiles), served next to the bundle as /pdf/<dir>/<file>.
+// Hand-rolled: vite-plugin-static-copy rebases files from outside the Vite
+// root under their full node_modules path on Windows, which 404s everything.
+const PDF_DIRS = ['cmaps', 'standard_fonts', 'wasm', 'iccs']
+
+function pdfSideData(): Plugin {
+  let outDir = ''
+  return {
+    name: 'prism-pdf-side-data',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir)
+    },
+    configureServer(server) {
+      server.middlewares.use('/pdf', (req, res, next) => {
+        const [dir, ...rest] = (req.url ?? '').replace(/^\/+/, '').split('/')
+        const file = rest.join('/').split('?')[0]
+        const path = join(resolve(`node_modules/pdfjs-dist/${dir}`), decodeURIComponent(file))
+        if (!PDF_DIRS.includes(dir) || file.includes('..') || !existsSync(path)) {
+          next()
+          return
+        }
+        res.setHeader(
+          'Content-Type',
+          path.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream'
+        )
+        createReadStream(path).pipe(res)
+      })
+    },
+    closeBundle() {
+      for (const dir of PDF_DIRS) {
+        cpSync(resolve(`node_modules/pdfjs-dist/${dir}`), join(outDir, 'pdf', dir), {
+          recursive: true
+        })
+      }
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -32,18 +71,7 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [
-      react(),
-      tailwindcss(),
-      // pdf.js side data, served next to the bundle: character maps for CJK text
-      // and the fourteen standard fonts a PDF may use without embedding them.
-      viteStaticCopy({
-        targets: ['cmaps', 'standard_fonts', 'wasm', 'iccs'].map((dir) => ({
-          src: normalizePath(resolve(`node_modules/pdfjs-dist/${dir}`)) + '/*',
-          dest: `pdf/${dir}`
-        }))
-      })
-    ],
+    plugins: [react(), tailwindcss(), pdfSideData()],
     build: { rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } } }
   }
 })
