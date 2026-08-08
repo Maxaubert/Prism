@@ -6,7 +6,7 @@ import { NAV_SCOPES, setNavScope, useNavScope } from '../lib/navScope'
 // funnel is filled while a filter narrows the list ('group' or 'type') and
 // outlined when everything is in one list ('all').
 
-const MENU_W = 218
+const MENU_W = 156
 
 export function FilterMenu(): JSX.Element {
   const scope = useNavScope()
@@ -103,21 +103,19 @@ export function FilterMenu(): JSX.Element {
                 setNavScope(s.id)
                 setOpen(null)
               }}
-              className={`block w-full border-t border-[color:var(--p-divider)] px-[11px] py-[6px] text-left transition-colors first:border-t-0 hover:bg-[var(--p-hover)] ${
+              // The hint stays in the title: the row itself is just the name,
+              // so the menu reads at a glance (and Settings keeps the long form).
+              title={s.hint}
+              className={`flex h-[28px] w-full items-center justify-between border-t border-[color:var(--p-divider)] px-[11px] text-left text-[12px] transition-colors first:border-t-0 hover:bg-[var(--p-hover)] ${
                 s.id === scope ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
               }`}
             >
-              <span className="flex items-center justify-between text-[12px]">
-                {s.name}
-                {s.id === scope && (
-                  <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M4.5 12.5l5 5 10-11" />
-                  </svg>
-                )}
-              </span>
-              <span className="mt-0.5 block text-[10.5px] normal-case tracking-normal text-[var(--p-dim2)]">
-                {s.hint}
-              </span>
+              {s.name}
+              {s.id === scope && (
+                <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M4.5 12.5l5 5 10-11" />
+                </svg>
+              )}
             </button>
           ))}
         </div>
