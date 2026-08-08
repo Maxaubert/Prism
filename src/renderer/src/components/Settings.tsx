@@ -618,10 +618,9 @@ function StyleTab(): JSX.Element {
               options={EDGE_OPTIONS}
             />
           </Pref>
-          {/* Only styles made of glass have a glass level. On a solid style the
-              slider moved and nothing happened, which is worse than not
-              offering it: Paper and Frost are the light styles that do. */}
-          {(style.material === 'acrylic' || style.material === 'mica') && (
+          {/* Every style takes frost (owner decision, 2026-08-08): above zero
+              the override turns the material to acrylic, at zero it is solid,
+              so the slider does something honest wherever it starts. */}
           <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
             <div className="flex items-center gap-3">
               {edits.acrylic !== undefined && (
@@ -648,7 +647,6 @@ function StyleTab(): JSX.Element {
               />
             </div>
           </Pref>
-          )}
           <Pref id="c-bg" label="Background" hint="The viewer behind your file.">
             <ColourWell
               id="c-bg"
