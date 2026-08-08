@@ -49,7 +49,9 @@ Create the shared engine so there is one implementation, not two.
 - **Video:** the `prism-core` player; play/pause (space), seek, volume, speed, fullscreen, frame
   step (,/.).
 - **Audio:** the `prism-core` player + circular visualizer; cover art; speed/volume.
-- **PDF / text / code / markdown:** Chromium PDF; syntax-highlighted text/code; rendered markdown.
+- **PDF / text / code / markdown:** first-party pdf.js viewer with its own Ctrl+F (done
+  2026-08-08, replacing the Chromium PDF embed); rendered markdown (done 2026-08-08); plain
+  mono text/code (syntax highlighting still open).
 - **Chrome:** dark frameless window, indigo accent, auto-hiding controls, a minimal top strip
   with filename + window controls. Remember window size/position.
 - **Icon + brand:** generate the Prism icon (indigo, prism/monogram), wire into electron-builder.
