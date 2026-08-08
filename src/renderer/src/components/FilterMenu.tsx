@@ -92,7 +92,10 @@ export function FilterMenu(): JSX.Element {
           style={{ left: open.x, top: open.y, width: MENU_W }}
           // normal-case etc: the sidebar header this sits in is an uppercase,
           // letter-spaced label, and the menu must not inherit that voice.
-          className="fixed z-40 overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-title)] font-normal normal-case tracking-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+          // The flat surface colour, not the title bar's: on a glass style the
+          // title carries the window alpha, and a see-through menu reads as a
+          // rendering mistake over whatever it happens to cover.
+          className="fixed z-40 overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] font-normal normal-case tracking-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
         >
           {NAV_SCOPES.map((s) => (
             <button
