@@ -36,9 +36,13 @@ never shipped: one small app that opens everything and looks good doing it.
 - **Images**: zoom, pan, fit, rotate, fullscreen; common and exotic formats.
 - **Video**: play / pause / seek / volume / speed / fullscreen, frame-step.
 - **Audio**: play with a live circular visualizer and cover art.
-- **PDF and documents**: flip through pages; text, code, and markdown too.
+- **PDF**: Prism's own viewer, no browser chrome: continuous pages, zoom and fit, text
+  selection, and its own Ctrl+F that counts matches across the whole document.
+- **Documents**: markdown renders formatted (badges, images, even embedded video); text and
+  code stay clean and monospaced.
 - **Folder aware**: open one file, then use the arrow keys to move through its neighbours.
-  Choose whether the arrows stay within media, within documents, or one file type (Settings → General).
+  Choose whether the arrows stay within media, within documents, or one file type, from the
+  filter in the sidebar or Settings → General.
 - **File tree** (`Ctrl+B`): a collapsible panel of the folder you opened in. Expand subfolders,
   click any file to view it. It never reaches above that folder.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.

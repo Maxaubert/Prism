@@ -27,6 +27,15 @@ const GROUP: Record<FileKind, string> = {
   other: 'other'
 }
 
+/** Whether a file of `kind` belongs with the opened file's `anchor` kind under
+ *  the scope. Shared by the paging list and the sidebar tree, so the arrows and
+ *  the rows always agree on what the filter means. */
+export function matchesScope(kind: FileKind, anchor: FileKind, scope: NavScope): boolean {
+  if (scope === 'all') return true
+  if (scope === 'type') return kind === anchor
+  return GROUP[kind] === GROUP[anchor]
+}
+
 /**
  * Narrow a folder listing to the files that belong with the opened one.
  * Returns the filtered list plus the position of that same file within it, so
@@ -43,12 +52,7 @@ export function scopeFiles(
   if (scope === 'all') return { files, index: i }
 
   const anchor = files[i]
-  const matches =
-    scope === 'type'
-      ? (f: ViewerFile): boolean => f.kind === anchor.kind
-      : (f: ViewerFile): boolean => GROUP[f.kind] === GROUP[anchor.kind]
-
-  const kept = files.filter((f) => f === anchor || matches(f))
+  const kept = files.filter((f) => f === anchor || matchesScope(f.kind, anchor.kind, scope))
   return { files: kept, index: Math.max(0, kept.indexOf(anchor)) }
 }
 
