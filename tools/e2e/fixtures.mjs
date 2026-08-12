@@ -7,6 +7,7 @@
  * valid file, with exactly five case-mixed "grape" tokens across its pages.
  */
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -91,5 +92,20 @@ export function buildFixtures() {
   writeFileSync(join(FIXTURES, 'two.png'), PNG)
   writeFileSync(join(FIXTURES, 'song.mp3'), Buffer.alloc(128)) // listed by extension
   writeFileSync(join(FIXTURES, 'notes.txt'), 'alpha beta\n') // the edit scenario's canvas
+
+  // Two short "episodes" for the player scenario (ffmpeg test pattern), and a
+  // sidecar subtitle for the first, named the way the whole world names them.
+  for (const ep of ['ep1', 'ep2']) {
+    const r = spawnSync(
+      'ffmpeg',
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', join(FIXTURES, `${ep}.mp4`)],
+      { windowsHide: true }
+    )
+    if (r.status !== 0) throw new Error('ffmpeg is needed to build the player fixtures')
+  }
+  writeFileSync(
+    join(FIXTURES, 'ep1.en.srt'),
+    '1\r\n00:00:00,200 --> 00:00:01,300\r\nHELLO SUBS\r\n'
+  )
   return FIXTURES
 }

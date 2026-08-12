@@ -31,8 +31,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   open dialog.
 - **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, exotic
   formats via a decode fallback.
-- **Video** player: play / pause / seek / volume / speed / fullscreen, frame-step.
-- **Audio** player: play / seek / volume / speed, a live circular visualizer, cover art.
+- **Video** player: play / pause / seek / volume / fullscreen, frame-step, and a transport
+  settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
+  kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
+  SRT converted to WebVTT; embedded MKV tracks deliberately out until a demuxer decision).
+- **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
+  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges); plain text and source code stay mono.

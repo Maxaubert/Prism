@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
+import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
+import { PlayerMenu } from './PlayerMenu'
 import { Visualizer } from './Visualizer'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
@@ -43,15 +45,19 @@ export function AudioView({
   name,
   fullscreen,
   onToggleFullscreen,
+  onAutoAdvance,
   transportStyle
 }: {
   url: string
   name: string
   fullscreen: boolean
   onToggleFullscreen: () => void
+  /** Autoplay's exit: the app moves to the next track in the folder. */
+  onAutoAdvance: () => void
   transportStyle: TransportStyle
 }): JSX.Element {
   const v = useViz()
+  const prefs = usePlayerPrefs()
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
@@ -106,6 +112,8 @@ export function AudioView({
         src={url}
         crossOrigin="anonymous"
         autoPlay
+        loop={prefs.loop}
+        onEnded={() => prefs.autoplay && onAutoAdvance()}
         className="hidden"
         onLoadedMetadata={forceDuration}
         {...c.bind}
@@ -159,7 +167,13 @@ export function AudioView({
               transportBg ? 'bg-[var(--p-title)]' : ''
             } ${chromeVisible ? 'translate-y-0' : 'translate-y-full'}`}
           >
-            <Transport c={c} style={transportStyle} peaks={peaks} bar={barFx} />
+            <Transport
+              c={c}
+              style={transportStyle}
+              peaks={peaks}
+              bar={barFx}
+              settings={<PlayerMenu c={c} autoplayHint="track" />}
+            />
           </div>
         </>
       )}
