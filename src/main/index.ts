@@ -14,7 +14,7 @@ import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } f
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
-import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
+import { isInsideRoot, isRoot, listDir, searchFiles, toViewerFile } from './dirList'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -418,6 +418,10 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.handle('dir:list', (_e, p: string): DirListing | null =>
       isInsideRoot(sessionRoot, p) ? listDir(p) : null
+    )
+    // The sidebar's search: the whole session root, bounded, never outside it.
+    ipcMain.handle('search:files', (_e, query: string) =>
+      sessionRoot ? searchFiles(sessionRoot, query) : { hits: [], truncated: false }
     )
     // File operations. Inside the root only, and nothing is ever destroyed: an
     // overwritten or deleted file goes to the Recycle Bin.

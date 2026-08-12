@@ -8,6 +8,7 @@ import { ContextMenu } from './ContextMenu'
 import { FilterMenu } from './FilterMenu'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
+import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
@@ -118,6 +119,9 @@ export function Sidebar({
   const [dragging, setDragging] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  // The search box. A query swaps the tree for a flat result list; clearing it
+  // brings the tree back exactly as it was (its state never unmounts).
+  const [query, setQuery] = useState('')
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
   const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
@@ -314,36 +318,80 @@ export function Sidebar({
             <FilterMenu />
           </div>
         </div>
+        {/* The search box: a quiet panel, not a chrome bar. Escape clears. */}
+        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2 py-1 font-normal normal-case tracking-normal">
+          <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="M16 16l4.5 4.5" />
+          </svg>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                setQuery('')
+                e.currentTarget.blur()
+              }
+            }}
+            placeholder="Search"
+            aria-label="Search files"
+            spellCheck={false}
+            className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
+          />
+          {query && (
+            <button
+              className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-[var(--p-dim2)] hover:text-[var(--p-text)]"
+              onClick={() => setQuery('')}
+              title="Clear"
+              aria-label="Clear search"
+            >
+              <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          )}
+        </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
           ref={scroller}
           className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <TreeProvider
-            value={{
-              expanded: state.expanded,
-              children: state.children,
-              currentPath,
-              size,
-              editing,
-              fileVisible,
-              onToggle: toggle,
-              onOpenFile,
-              onStartRename: setEditing,
-              onSubmitRename: submitRename,
-              onCancelRename: () => setEditing(null),
-              onDelete,
-              onMenu
-            }}
-          >
-            {rootListing ? (
-              <ul role="tree" aria-label="Folder contents" className="list-none">
-                <Rows listing={rootListing} depth={0} />
-              </ul>
-            ) : (
-              <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">loading…</div>
-            )}
-          </TreeProvider>
+          {query.trim() ? (
+            <SearchResults
+              query={query.trim()}
+              refreshKey={refreshKey}
+              currentPath={currentPath}
+              size={size}
+              onOpen={onOpenFile}
+            />
+          ) : (
+            <TreeProvider
+              value={{
+                expanded: state.expanded,
+                children: state.children,
+                currentPath,
+                size,
+                editing,
+                fileVisible,
+                onToggle: toggle,
+                onOpenFile,
+                onStartRename: setEditing,
+                onSubmitRename: submitRename,
+                onCancelRename: () => setEditing(null),
+                onDelete,
+                onMenu
+              }}
+            >
+              {rootListing ? (
+                <ul role="tree" aria-label="Folder contents" className="list-none">
+                  <Rows listing={rootListing} depth={0} />
+                </ul>
+              ) : (
+                <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">loading…</div>
+              )}
+            </TreeProvider>
+          )}
         </div>
       </div>
 
