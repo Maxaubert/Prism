@@ -8,6 +8,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
 import { PdfView } from './components/pdf/PdfView'
+import { TextEdit } from './components/TextEdit'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
@@ -52,7 +53,10 @@ function TopBar({
   panelOpen,
   onTogglePanel,
   setup,
-  wash
+  wash,
+  editable,
+  editing,
+  onToggleEdit
 }: {
   file: ViewerFile | null
   pos: string
@@ -67,6 +71,10 @@ function TopBar({
   /** Whether the style's light reaches the bar. It follows the window: with a
    *  file on screen there is no wash anywhere. */
   wash: boolean
+  /** Whether the open file takes the pencil (text kinds do). */
+  editable: boolean
+  editing: boolean
+  onToggleEdit: () => void
 }): JSX.Element {
   const w = window.prism
   return (
@@ -98,6 +106,21 @@ function TopBar({
       <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
+        {!setup && editable && (
+        <button
+          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+            editing ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+          }`}
+          onClick={onToggleEdit}
+          title={editing ? 'Stop editing' : 'Edit'}
+          aria-label="Edit"
+          aria-pressed={editing}
+        >
+          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+          </svg>
+        </button>
+        )}
         {!setup && (
         <button
           className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
@@ -237,6 +260,10 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
+  // The pencil: the raw source of a text file, editable in place. Leaving the
+  // file leaves the editor; a save bumps docVersion so the viewer re-reads.
+  const [editMode, setEditMode] = useState(false)
+  const [docVersion, setDocVersion] = useState(0)
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
   const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
@@ -290,6 +317,14 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+
+  // A different file closes the editor (render-phase adjustment, the sidebar's
+  // pattern): the pencil applies to what you were looking at, not what's next.
+  const [editedPath, setEditedPath] = useState<string | null>(null)
+  if ((file?.path ?? null) !== editedPath) {
+    setEditedPath(file?.path ?? null)
+    setEditMode(false)
+  }
 
   /* ---------- file operations ---------- */
 
@@ -479,6 +514,9 @@ export default function App(): JSX.Element {
           onTogglePanel={togglePanel}
           setup={setup}
           wash={washed}
+          editable={file?.kind === 'text'}
+          editing={editMode}
+          onToggleEdit={() => setEditMode((v) => !v)}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -512,7 +550,20 @@ export default function App(): JSX.Element {
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {file ? <Viewer key={file.kind} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} /> : <EmptyState onOpen={browse} />}
+          {file && editMode && file.kind === 'text' ? (
+            <TextEdit
+              path={file.path}
+              onClose={() => setEditMode(false)}
+              onSaved={() => {
+                setEditMode(false)
+                setDocVersion((v) => v + 1) // the viewer re-reads what was saved
+              }}
+            />
+          ) : file ? (
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} />
+          ) : (
+            <EmptyState onOpen={browse} />
+          )}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>

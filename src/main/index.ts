@@ -11,11 +11,14 @@ import {
 } from 'electron'
 import { dirname, extname, join, resolve } from 'path'
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { readFile } from 'fs/promises'
+import { copyFile, readFile, writeFile } from 'fs/promises'
+import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
 import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
-import { renameFile } from './fileOps'
-import type { DirListing, OnClash, OpenPayload, RenameResult } from '@shared/types'
+import { renameFile, uniqueName } from './fileOps'
+import { appsForExt, argsFor, type AppCandidate } from './openWith'
+import { fileKind } from '@shared/fileKind'
+import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -444,6 +447,99 @@ if (!app.requestSingleInstanceLock()) {
       if (!isInsideRoot(sessionRoot, p)) return null
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')
+      } catch {
+        return null
+      }
+    })
+    // The editor's save. Text files only, in place, inside the root: this is
+    // the third thing Prism writes (after rename and bin), and the narrowest.
+    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<boolean> => {
+      if (!isInsideRoot(sessionRoot, p) || !existsSync(p)) return false
+      if (fileKind(extname(p).toLowerCase()) !== 'text') return false
+      try {
+        await writeFile(p, text, 'utf-8')
+        return true
+      } catch {
+        return false
+      }
+    })
+
+    /* ----- context-menu verbs ----- */
+
+    ipcMain.on('file:show-in-explorer', (_e, p: string) => {
+      if (isInsideRoot(sessionRoot, p)) shell.showItemInFolder(p)
+    })
+    ipcMain.on('file:open-default', (_e, p: string) => {
+      if (isInsideRoot(sessionRoot, p)) void shell.openPath(p)
+    })
+    // The Windows "how do you want to open this?" chooser, which also reaches
+    // the store apps the submenu can't launch.
+    ipcMain.on('file:open-chooser', (_e, p: string) => {
+      if (!isInsideRoot(sessionRoot, p)) return
+      spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
+        detached: true,
+        stdio: 'ignore'
+      }).unref()
+    })
+
+    // What the "Open in" submenu lists. The candidates main enumerated are the
+    // only executables the launch handler below will ever run.
+    const openWithCache = new Map<string, AppCandidate[]>()
+    ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
+      if (!isInsideRoot(sessionRoot, p)) return []
+      const ext = extname(p).toLowerCase()
+      if (!ext) return []
+      let list = openWithCache.get(ext)
+      if (!list) {
+        list = await appsForExt(ext)
+        openWithCache.set(ext, list)
+      }
+      return Promise.all(
+        list.map(async (c) => ({
+          id: c.exe,
+          name: c.name,
+          icon: await app
+            .getFileIcon(c.exe, { size: 'small' })
+            .then((i) => i.toDataURL())
+            .catch(() => undefined)
+        }))
+      )
+    })
+    ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
+      if (!isInsideRoot(sessionRoot, p)) return false
+      const c = openWithCache.get(extname(p).toLowerCase())?.find((x) => x.exe === exe)
+      if (!c) return false
+      try {
+        spawn(c.exe, argsFor(c.args, p), { detached: true, stdio: 'ignore' }).unref()
+        return true
+      } catch {
+        return false
+      }
+    })
+
+    // The real file onto the clipboard (a drop list, so Ctrl+V in Explorer
+    // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
+    ipcMain.handle('file:copy-clip', (_e, p: string): Promise<boolean> => {
+      if (!isInsideRoot(sessionRoot, p)) return Promise.resolve(false)
+      const quoted = p.replace(/'/g, "''")
+      return new Promise((done) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath '${quoted}'`],
+          { windowsHide: true, timeout: 5000 },
+          (err) => done(!err)
+        )
+      })
+    })
+
+    ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
+      if (!isInsideRoot(sessionRoot, p)) return null
+      try {
+        if (!statSync(p).isFile()) return null // folders are a different feature
+        const dir = dirname(p)
+        const copy = join(dir, uniqueName(dir, p.slice(dir.length + 1)))
+        await copyFile(p, copy)
+        return copy
       } catch {
         return null
       }
