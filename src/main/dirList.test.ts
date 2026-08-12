@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { join, sep } from 'path'
 import { tmpdir } from 'os'
-import { isInsideRoot, isRoot, listDir } from './dirList'
+import { isInsideRoot, isRoot, listDir, searchFiles } from './dirList'
 
 // A real temp folder, since both functions are about the filesystem.
 function fixture(): string {
@@ -93,5 +93,52 @@ describe('isRoot', () => {
   it('is false for anything inside it', () => {
     expect(isRoot(root, join(root, 'sub'))).toBe(false)
     expect(isRoot(root, join(root, 'b.jpg'))).toBe(false)
+  })
+})
+
+describe('searchFiles', () => {
+  const root = (() => {
+    const r = mkdtempSync(join(tmpdir(), 'prism-search-'))
+    mkdirSync(join(r, 'season1'))
+    mkdirSync(join(r, 'season1', 'extras'))
+    mkdirSync(join(r, '$RECYCLE.BIN'))
+    writeFileSync(join(r, 'poster.jpg'), '')
+    writeFileSync(join(r, 'notes.md'), '')
+    writeFileSync(join(r, 'archive.zip'), '') // not viewable
+    writeFileSync(join(r, 'season1', 'ep1.mp4'), '')
+    writeFileSync(join(r, 'season1', 'ep2.mp4'), '')
+    writeFileSync(join(r, 'season1', 'extras', 'ep1-bts.mp4'), '')
+    writeFileSync(join(r, '$RECYCLE.BIN', 'ep-old.mp4'), '')
+    writeFileSync(join(r, '.hidden-ep.mp4'), '')
+    return r
+  })()
+
+  it('finds matches in folders the tree never expanded', () => {
+    const { hits, truncated } = searchFiles(root, 'ep1')
+    expect(truncated).toBe(false)
+    expect(hits.map((h) => h.name).sort()).toEqual(['ep1-bts.mp4', 'ep1.mp4'])
+  })
+
+  it('reports where a hit lives, relative to the root', () => {
+    const { hits } = searchFiles(root, 'ep1-bts')
+    expect(hits[0].dir).toBe(join('season1', 'extras'))
+  })
+
+  it('is case-insensitive and skips noise, junk and non-viewables', () => {
+    const names = searchFiles(root, 'EP').hits.map((h) => h.name)
+    expect(names).toContain('ep1.mp4')
+    expect(names).not.toContain('ep-old.mp4') // recycle bin
+    expect(names).not.toContain('.hidden-ep.mp4') // dotfile
+    expect(searchFiles(root, 'archive').hits).toEqual([])
+  })
+
+  it('caps the hits and says so', () => {
+    const { hits, truncated } = searchFiles(root, 'ep', 1)
+    expect(hits).toHaveLength(1)
+    expect(truncated).toBe(true)
+  })
+
+  it('returns nothing for a blank query', () => {
+    expect(searchFiles(root, '   ')).toEqual({ hits: [], truncated: false })
   })
 })
