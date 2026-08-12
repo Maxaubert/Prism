@@ -300,7 +300,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               onClick={() => t.onOpenFile(f.path)}
-              onContextMenu={(e) => t.onMenu(e, f.path, f.name, false)}
+              onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
                 if (e.key === 'F2') {
                   e.preventDefault()
