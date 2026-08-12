@@ -1,0 +1,122 @@
+import type { FileKind } from '@shared/types'
+import { formatBytes, formatTime } from './format'
+
+// What the Properties popup shows: label/value rows assembled per kind. The
+// cheap facts come from a stat; the interesting ones come from actually opening
+// the file the way its viewer would (an image knows its pixels, a PDF its
+// pages), which is why this is async and can take a beat on a network drive.
+
+export interface PropRow {
+  label: string
+  value: string
+}
+
+const KIND_NAMES: Record<FileKind, string> = {
+  image: 'Image',
+  video: 'Video',
+  audio: 'Audio',
+  pdf: 'PDF document',
+  text: 'Text document',
+  other: 'File'
+}
+
+const dims = (w: number, h: number): string => `${w} × ${h} px`
+
+function probeImage(url: string): Promise<PropRow[]> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve([{ label: 'Dimensions', value: dims(img.naturalWidth, img.naturalHeight) }])
+    img.onerror = () => resolve([])
+    img.src = url
+  })
+}
+
+function probeMedia(url: string, video: boolean): Promise<PropRow[]> {
+  return new Promise((resolve) => {
+    const el = document.createElement(video ? 'video' : 'audio') as HTMLVideoElement
+    el.preload = 'metadata'
+    const done = (rows: PropRow[]): void => {
+      el.removeAttribute('src') // let the element release the file
+      resolve(rows)
+    }
+    el.onloadedmetadata = () => {
+      const rows: PropRow[] = []
+      if (video && el.videoWidth) rows.push({ label: 'Dimensions', value: dims(el.videoWidth, el.videoHeight) })
+      if (Number.isFinite(el.duration)) rows.push({ label: 'Duration', value: formatTime(el.duration) })
+      done(rows)
+    }
+    el.onerror = () => done([])
+    setTimeout(() => done([]), 8000) // a probe, not a promise to wait forever
+    el.src = url
+  })
+}
+
+async function probePdf(url: string): Promise<PropRow[]> {
+  try {
+    const pdfjs = await import('pdfjs-dist')
+    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default
+    const task = pdfjs.getDocument({ url })
+    const doc = await task.promise
+    const pages = doc.numPages
+    void task.destroy() // releases the worker and the document together
+    return [{ label: 'Pages', value: String(pages) }]
+  } catch {
+    return []
+  }
+}
+
+async function probeText(path: string): Promise<PropRow[]> {
+  const text = await window.prism.readText(path)
+  if (text === null) return []
+  const words = text.split(/\s+/).filter(Boolean).length
+  return [
+    { label: 'Lines', value: String(text.split('\n').length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') },
+    { label: 'Words', value: String(words).replace(/\B(?=(\d{3})+(?!\d))/g, ',') },
+    { label: 'Characters', value: String(text.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }
+  ]
+}
+
+/** The rows for one file (or folder), most interesting first. */
+export async function propsFor(path: string, name: string, kind: FileKind, isFolder: boolean): Promise<PropRow[]> {
+  const url = window.prism.mediaUrl(path)
+  const ext = /\.[^.\\/]+$/.exec(name)?.[0]?.slice(1).toUpperCase()
+
+  const [stat, special] = await Promise.all([
+    window.prism.statFile(path),
+    isFolder
+      ? window.prism.listDir(path).then((l): PropRow[] =>
+          l && !l.unreadable
+            ? [{ label: 'Contents', value: `${l.folders.length} folders, ${l.files.length} files` }]
+            : []
+        )
+      : kind === 'image'
+        ? probeImage(url)
+        : kind === 'video'
+          ? probeMedia(url, true)
+          : kind === 'audio'
+            ? probeMedia(url, false)
+            : kind === 'pdf'
+              ? probePdf(url)
+              : kind === 'text'
+                ? probeText(path)
+                : Promise.resolve([])
+  ])
+
+  const rows: PropRow[] = [
+    { label: 'Kind', value: isFolder ? 'Folder' : ext ? `${KIND_NAMES[kind]} (${ext})` : KIND_NAMES[kind] },
+    ...special
+  ]
+  if (stat && !isFolder) rows.push({ label: 'Size', value: formatBytes(stat.size) })
+  // A rough bitrate falls out of size and duration; good enough for a viewer.
+  if (kind === 'audio' && stat) {
+    const dur = special.find((r) => r.label === 'Duration')
+    if (dur) {
+      const secs = dur.value.split(':').reduce((a, b) => a * 60 + Number(b), 0)
+      if (secs > 0) rows.push({ label: 'Bitrate', value: `${Math.round((stat.size * 8) / secs / 1000)} kbps` })
+    }
+  }
+  rows.push({ label: 'Location', value: path.replace(/[\\/][^\\/]*$/, '') })
+  if (stat) rows.push({ label: 'Modified', value: new Date(stat.mtimeMs).toLocaleString() })
+  return rows
+}

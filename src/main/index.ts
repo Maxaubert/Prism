@@ -465,6 +465,21 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
 
+    // What the Properties popup can't compute in the renderer: dates and the
+    // authoritative size, straight from the file system. Root-guarded.
+    ipcMain.handle(
+      'file:stat',
+      (_e, p: string): { size: number; mtimeMs: number; isFolder: boolean } | null => {
+        if (!isInsideRoot(sessionRoot, p)) return null
+        try {
+          const st = statSync(p)
+          return { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() }
+        } catch {
+          return null
+        }
+      }
+    )
+
     /* ----- subtitles ----- */
 
     // Sidecar tracks for a video (same name, same folder or Subs/), and their
