@@ -54,7 +54,8 @@ const Label = ({ text }: { text: string }): JSX.Element => (
 export function PlayerMenu({
   c,
   autoplayHint,
-  subtitles
+  subtitles,
+  onOpenChange
 }: {
   c: MediaControls
   /** What autoplay means for this player ("video" / "track"). */
@@ -65,10 +66,18 @@ export function PlayerMenu({
     active: string | null
     onPick: (path: string | null) => void
   }
+  /** The player pins its auto-hiding chrome while the menu is open: an
+   *  invisible-but-interactive menu would eat clicks and the first Escape. */
+  onOpenChange?: (open: boolean) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const prefs = usePlayerPrefs()
   const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    onOpenChange?.(open)
+    return () => onOpenChange?.(false) // unmounting always reads as closed
+  }, [open, onOpenChange])
 
   useEffect(() => {
     if (!open) return
@@ -112,7 +121,9 @@ export function PlayerMenu({
         <div
           role="menu"
           aria-label="Player settings"
-          className="absolute bottom-9 right-0 z-30 w-[210px] overflow-hidden rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+          // max-h + scroll: short windows would otherwise clip the menu against
+          // the viewer pane's overflow-hidden with no way to reach the bottom.
+          className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[210px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
         >
           <Label text="Speed" />
           <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">

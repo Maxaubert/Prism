@@ -75,11 +75,25 @@ export function AudioView({
   // stays put.
   const [chromeOn, setChromeOn] = useState(true)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The transport never slides away while the settings menu is open: a menu
+  // that left the screen would still own the first Escape.
+  const menuOpen = useRef(false)
   const showChrome = useCallback(() => {
     setChromeOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
-    if (fullscreen) hideTimer.current = setTimeout(() => setChromeOn(false), 2600)
+    if (fullscreen)
+      hideTimer.current = setTimeout(() => {
+        if (!menuOpen.current) setChromeOn(false)
+      }, 2600)
   }, [fullscreen])
+
+  const onMenuOpen = useCallback(
+    (open: boolean) => {
+      menuOpen.current = open
+      showChrome() // opening pins it; closing restarts the hide clock
+    },
+    [showChrome]
+  )
 
   const c = useMediaControls(audioRef, {
     onFullscreen: onToggleFullscreen,
@@ -93,7 +107,9 @@ export function AudioView({
   useEffect(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current)
     if (fullscreen) {
-      hideTimer.current = setTimeout(() => setChromeOn(false), 2600)
+      hideTimer.current = setTimeout(() => {
+        if (!menuOpen.current) setChromeOn(false)
+      }, 2600)
     }
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -172,7 +188,7 @@ export function AudioView({
               style={transportStyle}
               peaks={peaks}
               bar={barFx}
-              settings={<PlayerMenu c={c} autoplayHint="track" />}
+              settings={<PlayerMenu c={c} autoplayHint="track" onOpenChange={onMenuOpen} />}
             />
           </div>
         </>
