@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { RATES, type MediaControls } from '../lib/useMediaControls'
+import type { MediaControls } from '../lib/useMediaControls'
 import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
 import type { SubTrackInfo } from '../lib/useSubtitles'
 
@@ -125,23 +125,33 @@ export function PlayerMenu({
           // the viewer pane's overflow-hidden with no way to reach the bottom.
           className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[210px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
         >
-          <Label text="Speed" />
-          <div className="grid grid-cols-4 gap-1 px-2 pb-1.5">
-            {RATES.map((r) => (
-              <button
-                key={r}
-                role="menuitemradio"
-                aria-checked={r === c.rate}
-                onClick={() => c.setRate(r)}
-                className={`rounded-[4px] py-1 text-[11.5px] font-semibold tabular-nums transition-colors ${
-                  r === c.rate
-                    ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)]'
-                    : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
-                }`}
-              >
-                {r}×
-              </button>
-            ))}
+          {/* YouTube's idea, tighter: the value above, the slider below. The
+              readout doubles as the reset: click it to go back to 1×. */}
+          <div className="flex items-center justify-between px-3 pb-0.5 pt-2">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[.1em] text-[var(--p-dim2)]">
+              Speed
+            </span>
+            <button
+              className="rounded px-1 text-[11.5px] font-semibold tabular-nums text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+              onClick={() => c.setRate(1)}
+              title="Back to 1×"
+            >
+              {c.rate.toFixed(2)}×
+            </button>
+          </div>
+          <div className="px-3 pb-2">
+            <input
+              type="range"
+              min={0.25}
+              max={2}
+              step={0.05}
+              value={c.rate}
+              onChange={(e) => c.setRate(Number(e.target.value))}
+              onDoubleClick={() => c.setRate(1)}
+              aria-label="Playback speed"
+              className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+              style={{ accentColor: 'var(--p-accent)' }}
+            />
           </div>
           <Rule />
           <Toggle

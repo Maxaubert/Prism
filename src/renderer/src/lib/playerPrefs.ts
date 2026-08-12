@@ -16,7 +16,10 @@ const KEY = 'prism.player.prefs'
 function load(): PlayerPrefs {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<PlayerPrefs>
-    return { loop: raw.loop === true, autoplay: raw.autoplay === true, subs: raw.subs === true }
+    const loop = raw.loop === true
+    // Loop and autoplay are mutually exclusive (a looping file never ends, so
+    // autoplay could never fire); if a stored state has both, loop wins.
+    return { loop, autoplay: !loop && raw.autoplay === true, subs: raw.subs === true }
   } catch {
     return { loop: false, autoplay: false, subs: false }
   }
@@ -27,6 +30,9 @@ const listeners = new Set<() => void>()
 
 export function setPlayerPref<K extends keyof PlayerPrefs>(key: K, value: PlayerPrefs[K]): void {
   prefs = { ...prefs, [key]: value }
+  // The exclusivity above, kept live: switching one on switches the other off.
+  if (key === 'loop' && value === true) prefs = { ...prefs, autoplay: false }
+  if (key === 'autoplay' && value === true) prefs = { ...prefs, loop: false }
   try {
     localStorage.setItem(KEY, JSON.stringify(prefs))
   } catch {
