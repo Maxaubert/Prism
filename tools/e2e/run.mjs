@@ -290,12 +290,24 @@ async function playerScenario(fixtures) {
     await cog.click()
     await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
 
-    await win.click('[role="menuitemradio"]:has-text("2×")')
-    ok(await win.evaluate(() => document.querySelector('video').playbackRate === 2), 'speed chip sets playbackRate')
+    await win.locator('input[aria-label="Playback speed"]').evaluate((el) => {
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      set.call(el, '2')
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    ok(await win.evaluate(() => document.querySelector('video').playbackRate === 2), 'speed slider sets playbackRate')
 
     await win.click('[role="menuitemcheckbox"]:has-text("Loop")')
     ok(await win.evaluate(() => document.querySelector('video').loop), 'loop toggle sets the element')
-    await win.click('[role="menuitemcheckbox"]:has-text("Loop")') // off again for autoplay
+
+    // Loop and autoplay are mutually exclusive: enabling one drops the other.
+    await win.click('[role="menuitemcheckbox"]:has-text("Autoplay")')
+    ok(
+      (await win.locator('[role="menuitemcheckbox"]:has-text("Loop")').getAttribute('aria-checked')) === 'false',
+      'enabling autoplay switches loop off'
+    )
+    await win.click('[role="menuitemcheckbox"]:has-text("Autoplay")') // off again; subtitles next
 
     // Subtitles: the sidecar ep1.en.srt shows up as English; picking it loads cues.
     ok((await win.locator('[role="menuitemradio"]:has-text("English")').count()) === 1, 'sidecar srt listed as English')
