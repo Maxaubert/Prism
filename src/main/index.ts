@@ -9,7 +9,7 @@ import {
   nativeTheme,
   utilityProcess
 } from 'electron'
-import { dirname, extname, join, resolve } from 'path'
+import { basename, dirname, extname, join, resolve } from 'path'
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
@@ -483,16 +483,23 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // What the "Open in" submenu lists. The candidates main enumerated are the
-    // only executables the launch handler below will ever run.
-    const openWithCache = new Map<string, AppCandidate[]>()
+    // only executables the launch handler below will ever run. Entries expire:
+    // Prism is resident, and a list cached forever would never learn about a
+    // newly installed app (or unlearn a transient reg.exe failure).
+    const OPEN_WITH_TTL = 30_000
+    const openWithCache = new Map<string, { list: AppCandidate[]; at: number }>()
+    const cachedApps = (ext: string): AppCandidate[] | null => {
+      const hit = openWithCache.get(ext)
+      return hit && Date.now() - hit.at < OPEN_WITH_TTL ? hit.list : null
+    }
     ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
       if (!isInsideRoot(sessionRoot, p)) return []
       const ext = extname(p).toLowerCase()
       if (!ext) return []
-      let list = openWithCache.get(ext)
+      let list = cachedApps(ext)
       if (!list) {
         list = await appsForExt(ext)
-        openWithCache.set(ext, list)
+        openWithCache.set(ext, { list, at: Date.now() })
       }
       return Promise.all(
         list.map(async (c) => ({
@@ -507,7 +514,9 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
       if (!isInsideRoot(sessionRoot, p)) return false
-      const c = openWithCache.get(extname(p).toLowerCase())?.find((x) => x.exe === exe)
+      // The expired list still answers a launch: the menu the user is clicking
+      // was built from it moments ago.
+      const c = openWithCache.get(extname(p).toLowerCase())?.list.find((x) => x.exe === exe)
       if (!c) return false
       try {
         spawn(c.exe, argsFor(c.args, p), { detached: true, stdio: 'ignore' }).unref()
@@ -537,7 +546,9 @@ if (!app.requestSingleInstanceLock()) {
       try {
         if (!statSync(p).isFile()) return null // folders are a different feature
         const dir = dirname(p)
-        const copy = join(dir, uniqueName(dir, p.slice(dir.length + 1)))
+        // basename, not a slice: dirname keeps its trailing separator at a
+        // drive root, and slicing past it ate the name's first character.
+        const copy = join(dir, uniqueName(dir, basename(p)))
         await copyFile(p, copy)
         return copy
       } catch {
