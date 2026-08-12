@@ -10,7 +10,7 @@
  * .e2e/shots for eyeballing; assertions throw, and the script exits non-zero.
  */
 import { _electron as electron } from 'playwright-core'
-import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -96,6 +96,31 @@ async function mdScenario(fixtures) {
     )
     // Nothing executable survives sanitizing.
     ok((await win.locator('.p-md script, .p-md iframe').count()) === 0, 'no scripts or iframes')
+
+    // GitHub fidelity: align="center" really centers (Tailwind's preflight
+    // used to blockify images out of it), and lists keep their bullets.
+    ok(
+      await win.evaluate(() => {
+        const md = document.querySelector('.p-md')
+        const icon = md.querySelector('img[src*="icon"]')
+        const col = md.getBoundingClientRect()
+        const r = icon.getBoundingClientRect()
+        return Math.abs(r.left + r.width / 2 - (col.left + col.width / 2)) < 4
+      }),
+      'align="center" centers the header image'
+    )
+    ok(
+      await win.evaluate(() => getComputedStyle(document.querySelector('.p-md ul')).listStyleType === 'disc'),
+      'bullet lists keep their discs'
+    )
+
+    // The bar repeats the file name only when the tree isn't showing it.
+    ok((await win.locator('.drag:has-text("README.md")').count()) === 0, 'bar stays quiet while the tree names the file')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('.drag:has-text("README.md")').count()) === 1, 'closing the tree puts the name in the bar')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
     await win.screenshot({ path: join(SHOTS, 'markdown.png') })
   } finally {
     await app.close()
@@ -110,6 +135,15 @@ async function pdfScenario(fixtures) {
     ok((await win.locator('canvas').count()) >= 1, 'a page canvas renders')
     ok((await win.locator('[data-page]').count()) === 3, 'three page frames')
     ok(await win.locator('text=/\\/ 3/').first().isVisible().catch(() => false), 'pill shows / 3')
+    // The rebased zoom: 1.9 pdf.js units is the default and reads as 100%.
+    ok((await win.locator('button[title="Default zoom (0)"]').textContent()) === '100%', 'default zoom reads 100%')
+    ok(
+      await win.evaluate(() => {
+        const page = document.querySelector('[data-page="1"]')
+        return Math.abs(page.getBoundingClientRect().width - 612 * 1.9) < 2
+      }),
+      'default zoom really is 1.9 pdf units'
+    )
     await win.waitForSelector('.p-pdf-textlayer span', { timeout: 10000 })
     ok((await win.locator('.p-pdf-textlayer span').count()) > 0, 'text layer present')
 
@@ -139,6 +173,37 @@ async function pdfScenario(fixtures) {
     await sleep(400)
     ok((await win.inputValue('input[aria-label="Page number"]')) === '2', 'PageDown flips to page 2')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
+
+    // The pill's buttons take real CLICKS (they once sat under the text
+    // layer's z-index and swallowed nothing but hover).
+    await win.hover('[data-page="2"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    ok((await win.textContent('button[title="Default zoom (0)"]')) === '118%', 'clicking + zooms to 118%')
+    await win.click('button[title="Default zoom (0)"]')
+    ok((await win.textContent('button[title="Default zoom (0)"]')) === '100%', 'clicking the label resets to 100%')
+    await win.click('button[title="Fullscreen (F)"]')
+    await sleep(600)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
+      'clicking fullscreen goes fullscreen'
+    )
+    await win.keyboard.press('f')
+    await sleep(600)
+    ok(
+      !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())),
+      'F leaves fullscreen again'
+    )
+
+    // A PDF's Properties knows its pages.
+    await win.click('[role="treeitem"][aria-selected="true"]', { button: 'right' })
+    await win.click('[role="menuitem"]:has-text("Properties")')
+    await win.waitForFunction(
+      () => /Pages/.test(document.querySelector('[role="dialog"]')?.textContent ?? ''),
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(/Pages\s*3/.test(((await win.textContent('[role="dialog"]')) ?? '').replace(/\s+/g, ' ')), 'pdf properties show 3 pages')
+    await win.click('button:has-text("Close")')
   } finally {
     await app.close()
   }
@@ -165,6 +230,35 @@ async function filterScenario(fixtures) {
     ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
     ok(await win.locator('text=/\\/ 8$/').first().isVisible().catch(() => false), 'all scope lists 8 files')
     ok((await fileRows.count()) === 8, 'all scope shows all 8 file rows in the tree')
+
+    // Sorting: Playnite's shape, one direction pair for every field. Size
+    // ascending puts the smallest first; flipping to descending, the biggest.
+    const sortBtn = win.locator('[aria-label="Sort order"]')
+    const sortMenu = '[role="menu"][aria-label="Sort order"]'
+    const firstRow = () => fileRows.first().textContent()
+    await sortBtn.click()
+    await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Size")`)
+    await sleep(250)
+    ok(((await firstRow()) ?? '').includes('notes.txt'), 'size ascending puts the smallest file first')
+    const rootFiles = readdirSync(fixtures).filter((n) => statSync(join(fixtures, n)).isFile() && !/\.srt$/i.test(n))
+    const sizeOf = (n) => statSync(join(fixtures, n)).size
+    const maxSize = Math.max(...rootFiles.map(sizeOf))
+    await sortBtn.click()
+    await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Descending")`)
+    await sleep(250)
+    const first = (await firstRow()) ?? ''
+    ok(
+      rootFiles.some((n) => first.includes(n) && sizeOf(n) === maxSize),
+      'descending flips: a biggest file first'
+    )
+    // Back to defaults, so the scenarios after this one see the normal order.
+    await sortBtn.click()
+    await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Ascending")`)
+    await sleep(150)
+    await sortBtn.click()
+    await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Name")`)
+    await sleep(150)
+    ok(((await firstRow()) ?? '').includes('ep1.mp4'), 'name ascending is back to normal')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("Per file type")')
@@ -229,6 +323,23 @@ async function contextMenuScenario(fixtures) {
     await win.click('[role="menuitem"]:has-text("Duplicate")')
     await win.waitForSelector('[role="treeitem"]:has-text("README (2).md")', { timeout: 8000 })
     ok(true, 'Duplicate creates README (2).md in the tree')
+
+    // Properties: the size sits on the row, the popup knows the kind's facts.
+    await row.click({ button: 'right' })
+    const propRow = win.locator('[role="menuitem"]:has-text("Properties")')
+    ok(/\d+(\.\d+)? (B|KB|MB)/.test((await propRow.textContent()) ?? ''), 'Properties row carries the file size')
+    await propRow.click()
+    await win.waitForSelector('[role="dialog"]', { timeout: 8000 })
+    await win.waitForSelector('dd', { timeout: 8000 })
+    const dlg = (await win.textContent('[role="dialog"]')) ?? ''
+    ok(/Words/.test(dlg) && /Lines/.test(dlg), 'text properties show lines and words')
+    ok(/Text document \(MD\)/.test(dlg), 'kind row names the format')
+    await win.screenshot({ path: join(SHOTS, 'properties.png') })
+    // Escape closes the dialog, not the window (the dialog owns the key).
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'Escape closes the properties dialog')
+    ok(!win.isClosed(), 'window survives dialog Escape')
   } finally {
     await app.close()
   }
@@ -331,7 +442,7 @@ async function playerScenario(fixtures) {
       v.currentTime = Math.max(0, v.duration - 0.3)
       void v.play()
     })
-    await win.waitForSelector('text=ep2.mp4', { timeout: 10000 })
+    await win.waitForSelector('[role="treeitem"][aria-selected="true"]:has-text("ep2.mp4")', { timeout: 10000 })
     ok(true, 'autoplay advances to the next video')
     ok(!win.isClosed(), 'window survives the whole tour')
   } finally {

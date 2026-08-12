@@ -29,6 +29,9 @@ const api = {
   writeText: (path: string, text: string): Promise<boolean> =>
     ipcRenderer.invoke('file:write', path, text),
 
+  /** Size, modified time and folder-ness for the Properties popup. */
+  statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
+    ipcRenderer.invoke('file:stat', path),
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
   subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
     ipcRenderer.invoke('subs:for', path),

@@ -64,9 +64,26 @@
   text-decoration: underline;
 }
 
+/* Tailwind's preflight strips list markers; a document wants them back, with
+   GitHub's nesting order. */
 .p-md ul,
 .p-md ol {
   padding-left: 1.8em;
+}
+.p-md ul {
+  list-style: disc;
+}
+.p-md ul ul {
+  list-style: circle;
+}
+.p-md ul ul ul {
+  list-style: square;
+}
+.p-md ol {
+  list-style: decimal;
+}
+.p-md ol ol {
+  list-style: lower-roman;
 }
 .p-md li + li {
   margin-top: 0.2em;
@@ -137,6 +154,13 @@
 .p-md video {
   max-width: 100%;
   height: auto;
+}
+/* Tailwind's preflight makes images block-level, which breaks two things a
+   README leans on: <div align="center"> centering (text-align does nothing to
+   a block) and images flowing inline with a sentence. GitHub keeps them
+   inline; inline-block is that, plus sane sizing. */
+.p-md img {
+  display: inline-block;
 }
 .p-md video,
 .p-md audio {
