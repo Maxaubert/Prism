@@ -27,7 +27,7 @@ const accentColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
 
 /** Kind tints when the style asks for them, otherwise the style's icon colour. */
-function iconColour(kind: FileKind | 'folder'): string {
+export function iconColour(kind: FileKind | 'folder'): string {
   const mode = document.documentElement.dataset.icons
   if (mode !== 'kind') return 'var(--p-icon)'
   return kind === 'folder' ? FOLDER_TINT : TINT[kind]
@@ -65,8 +65,9 @@ function Glyph({ children, color }: { children: JSX.Element; color: string }): J
 }
 
 /** Filled glyph per kind. Detail is knocked out in the panel colour rather than
- *  drawn as strokes, so the shape still reads as a photo or a page at 14px. */
-function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color: string; ko?: string }): JSX.Element {
+ *  drawn as strokes, so the shape still reads as a photo or a page at 14px.
+ *  Exported for the search results, which draw the same rows outside the tree. */
+export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color: string; ko?: string }): JSX.Element {
   const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
   switch (kind) {
     case 'image':

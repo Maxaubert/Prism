@@ -122,6 +122,26 @@ async function mdScenario(fixtures) {
     await win.keyboard.press('Control+b')
     await sleep(400)
     await win.screenshot({ path: join(SHOTS, 'markdown.png') })
+
+    // The sidebar search walks folders the tree never expanded.
+    await win.fill('[aria-label="Search files"]', 'prism')
+    await win.waitForSelector('[role="option"]', { timeout: 8000 })
+    ok((await win.locator('[role="option"]').count()) === 2, 'search finds the 2 films in docs/media')
+    ok(
+      (await win.locator('[role="option"]').first().textContent())?.includes('docs\\media'),
+      'hits say where they live'
+    )
+    await win.screenshot({ path: join(SHOTS, 'search.png') })
+    await win.click('[role="option"]:has-text("prism.webp")')
+    await sleep(600)
+    ok(
+      (await win.locator('[role="option"][aria-selected="true"]').textContent())?.includes('prism.webp'),
+      'clicking a hit opens it'
+    )
+    await win.locator('[aria-label="Search files"]').press('Escape')
+    await sleep(300)
+    ok((await win.locator('[role="tree"]').count()) === 1, 'Escape clears the search and the tree returns')
+    ok(!win.isClosed(), 'window survives search Escape')
   } finally {
     await app.close()
   }
