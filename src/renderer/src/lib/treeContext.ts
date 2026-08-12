@@ -21,7 +21,7 @@ export interface TreeApi {
   onSubmitRename: (path: string, name: string) => void
   onCancelRename: () => void
   onDelete: (path: string, name: string, isFolder: boolean) => void
-  onMenu: (e: MouseEvent, path: string, name: string, isFolder: boolean) => void
+  onMenu: (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => void
 }
 
 const Ctx = createContext<TreeApi | null>(null)

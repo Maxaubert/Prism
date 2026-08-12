@@ -39,6 +39,11 @@ const sideData = (dir: string): string => {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
 const STEP = 1.18
+// The default zoom, and what the pill calls 100%: pdf.js's own 1.0 (one PDF
+// point per CSS px) reads small on a modern screen, so the baseline sits at
+// 1.9 (owner decision, 2026-08-12: "190% is the new 100%"). Fit modes and the
+// absolute clamps still work in pdf.js units; only the label is rebased.
+const DEFAULT_ZOOM = 1.9
 const PAGE_GAP = 16
 const PAD_X = 48
 const PAD_Y = 24
@@ -64,8 +69,8 @@ export function PdfView({
   onToggleFullscreen: () => void
 }): JSX.Element {
   const [docState, setDocState] = useState<DocState | null>(null)
-  const [mode, setMode] = useState<FitMode>('fit-page')
-  const [manualScale, setManualScale] = useState(1)
+  const [mode, setMode] = useState<FitMode>('manual')
+  const [manualScale, setManualScale] = useState(DEFAULT_ZOOM)
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState<string | null>(null)
@@ -91,8 +96,8 @@ export function PdfView({
   const [forUrl, setForUrl] = useState(url)
   if (forUrl !== url) {
     setForUrl(url)
-    setMode('fit-page')
-    setManualScale(1)
+    setMode('manual')
+    setManualScale(DEFAULT_ZOOM)
     setPage(1)
     setPageEdit(null)
     setDims(new Map())
@@ -194,14 +199,16 @@ export function PdfView({
     box.scrollTop = a.y * box.scrollHeight - box.clientHeight / 2
   }, [scale])
 
-  const zoomBy = useCallback(
-    (f: number) => {
+  const rescale = useCallback(
+    (next: number) => {
       holdCentre()
       setMode('manual')
-      setManualScale(clamp(scale * f, MIN_SCALE, MAX_SCALE))
+      setManualScale(clamp(next, MIN_SCALE, MAX_SCALE))
     },
-    [holdCentre, scale]
+    [holdCentre]
   )
+
+  const zoomBy = useCallback((f: number) => rescale(scale * f), [rescale, scale])
 
   const fitTo = useCallback(
     (m: Exclude<FitMode, 'manual'>) => {
@@ -414,16 +421,18 @@ export function PdfView({
         case '=': zoomBy(STEP); break
         case '-':
         case '_': zoomBy(1 / STEP); break
-        case '0': fitTo('fit-page'); break
+        case '0': rescale(DEFAULT_ZOOM); break
         case 'w':
         case 'W': fitTo('fit-width'); break
+        case 'p':
+        case 'P': fitTo('fit-page'); break
         case 'f':
         case 'F': onToggleFullscreen(); break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [findOpen, stepFind, closeFind, goToPage, page, pageCount, zoomBy, fitTo, onToggleFullscreen])
+  }, [findOpen, stepFind, closeFind, goToPage, page, pageCount, zoomBy, fitTo, rescale, onToggleFullscreen])
 
   // Ctrl+wheel zooms. Native listener: React's synthetic wheel is passive, and
   // a passive handler cannot stop the browser's own pinch-zoom default.
@@ -524,9 +533,11 @@ export function PdfView({
       {/* control cluster, appears on hover (the image viewer's pill, adapted).
           focus-within on the pill itself, not the group: the scroller keeps
           focus for the scroll keys, and group-focus-within would pin the pill
-          permanently visible. */}
+          permanently visible. z-10: the text layer's spans carry z-index 1,
+          and a z-auto pill under a big page sat BELOW them - visible through
+          the transparent text, but swallowing no clicks. */}
       {doc && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {
@@ -551,17 +562,17 @@ export function PdfView({
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(1 / STEP)} title="Zoom out (-)">−</button>
           <button
             className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15"
-            onClick={() => fitTo('fit-page')}
-            title="Fit page (0)"
+            onClick={() => rescale(DEFAULT_ZOOM)}
+            title="Default zoom (0)"
           >
-            {Math.round(scale * 100)}%
+            {Math.round((scale / DEFAULT_ZOOM) * 100)}%
           </button>
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(STEP)} title="Zoom in (+)">+</button>
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button
             className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15 ${mode === 'fit-width' ? 'text-[var(--p-accent-hi)]' : ''}`}
             onClick={() => fitTo(mode === 'fit-width' ? 'fit-page' : 'fit-width')}
-            title={mode === 'fit-width' ? 'Fit page (0)' : 'Fit width (W)'}
+            title={mode === 'fit-width' ? 'Fit page (P)' : 'Fit width (W)'}
           >
             <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M3 12h18M6 8l-3 4 3 4M18 8l3 4-3 4" />

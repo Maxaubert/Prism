@@ -3,7 +3,7 @@ import type { FileKind, ViewerFile } from '@shared/types'
 import { matchesScope, scopeFiles } from './navScope'
 
 function f(name: string, kind: FileKind): ViewerFile {
-  return { path: `C:/f/${name}`, name, ext: name.slice(name.lastIndexOf('.')), kind, size: 0 }
+  return { path: `C:/f/${name}`, name, ext: name.slice(name.lastIndexOf('.')), kind, size: 0, mtimeMs: 0 }
 }
 
 // A folder with one of everything, in the order the main process would sort it.

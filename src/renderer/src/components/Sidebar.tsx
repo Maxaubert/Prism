@@ -6,7 +6,10 @@ import { matchesScope, useNavScope } from '../lib/navScope'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { FilterMenu } from './FilterMenu'
+import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
+import { SortMenu } from './SortMenu'
+import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
@@ -75,6 +78,8 @@ interface Menu {
   path: string
   name: string
   isFolder: boolean
+  /** Bytes on disk, for the Properties row's hint. Folders carry none. */
+  size?: number
   /** "Open in" candidates: undefined for folders, null while they load. */
   apps?: OpenWithApp[] | null
 }
@@ -113,6 +118,7 @@ export function Sidebar({
   const [dragging, setDragging] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
   const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   // The file the tree has already been positioned for. Scrolling away by hand
@@ -238,9 +244,9 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  const onMenu = useCallback((e: MouseEvent, path: string, name: string, isFolder: boolean) => {
+  const onMenu = useCallback((e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
     e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, apps: isFolder ? undefined : null })
+    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, apps: isFolder ? undefined : null })
     // The app list arrives while the menu is up; ignore it if the menu has
     // meanwhile moved to another row (or closed).
     if (!isFolder) {
@@ -303,7 +309,10 @@ export function Sidebar({
           <span className="min-w-0 truncate" title={root}>
             {rootName}
           </span>
-          <FilterMenu />
+          <div className="flex items-center">
+            <SortMenu />
+            <FilterMenu />
+          </div>
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
@@ -424,6 +433,13 @@ export function Sidebar({
               : []),
             { label: 'Rename', hint: 'F2', icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />, onPick: () => setEditing(menu.path) },
             {
+              label: 'Properties',
+              // The size right on the row: the question Properties answers most.
+              hint: menu.isFolder ? undefined : formatBytes(menu.size ?? NaN) || undefined,
+              icon: <MenuIcon d="M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z" />,
+              onPick: () => setProps({ path: menu.path, name: menu.name, isFolder: menu.isFolder, size: menu.size })
+            },
+            {
               label: 'Delete',
               hint: 'Del',
               danger: true,
@@ -431,6 +447,16 @@ export function Sidebar({
               onPick: () => onDelete(menu.path, menu.name, menu.isFolder)
             }
           ]}
+        />
+      )}
+
+      {props && (
+        <PropertiesDialog
+          path={props.path}
+          name={props.name}
+          kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '')}
+          isFolder={props.isFolder}
+          onClose={() => setProps(null)}
         />
       )}
     </aside>

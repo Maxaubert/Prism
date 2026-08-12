@@ -42,14 +42,18 @@ export function Dialog({
   }, [onCancel])
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6" role="presentation" onMouseDown={onCancel}>
+    // data-owns-escape: the app's capture-phase Escape handler registered
+    // first and would otherwise close the WINDOW while a dialog is up.
+    <div data-owns-escape className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6" role="presentation" onMouseDown={onCancel}>
       <div
         ref={box}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-title)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
+        // Flat surface colour: --p-title carries the window alpha on glass
+        // styles, and a question box should not be see-through.
+        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
       >
         <h2 className="text-[14.5px] font-semibold text-[var(--p-text)]">{title}</h2>
         {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]">{body}</div>}

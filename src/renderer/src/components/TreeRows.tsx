@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
+import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
@@ -264,19 +265,25 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
 
 export function Rows({ listing, depth }: { listing: DirListing; depth: number }): JSX.Element {
   const t = useTree()
+  const sort = useSort()
   const pad = 4 + depth * t.size.indent
   if (listing.unreadable) return <Note text="can't read this folder" pad={pad} />
   if (!listing.folders.length && !listing.files.length) return <Note text="empty" pad={pad} />
-  // The navigation filter narrows the rows the same way it narrows the arrows.
-  const files = listing.files.filter(t.fileVisible)
+  // The navigation filter narrows the rows the same way it narrows the arrows,
+  // and the sort orders them the same way it orders the paging.
+  const files = sortFiles(listing.files.filter(t.fileVisible), sort.field, sort.dir)
   if (!listing.folders.length && !files.length)
     return <Note text="nothing matches the filter" pad={pad} />
+  // Folders sort by name (they have no size or kind worth ordering by) and
+  // follow the direction only when the field is name, the way Explorer does.
+  const folders =
+    sort.field === 'name' && sort.dir === 'desc' ? [...listing.folders].reverse() : listing.folders
   // A hairline dropped from the parent's chevron, so deep nesting stays legible.
   const guide = depth > 0 ? 4 + (depth - 1) * t.size.indent + 6 : -1
   return (
     <ul role="group" className="relative list-none">
       {guide >= 0 && <span className="absolute inset-y-0 w-px bg-[var(--p-divider)]" style={{ left: guide }} aria-hidden />}
-      {listing.folders.map((f) => (
+      {folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} />
       ))}
       {files.map((f) => {
@@ -300,7 +307,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               onClick={() => t.onOpenFile(f.path)}
-              onContextMenu={(e) => t.onMenu(e, f.path, f.name, false)}
+              onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
                 if (e.key === 'F2') {
                   e.preventDefault()
