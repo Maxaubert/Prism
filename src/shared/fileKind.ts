@@ -11,7 +11,9 @@ const VIDEO = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi'])
 const AUDIO = new Set(['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav'])
 const TEXT = new Set([
   '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
-  '.html', '.xml', '.yml', '.yaml', '.ini', '.log', '.csv'
+  '.html', '.xml', '.yml', '.yaml', '.ini', '.log', '.csv',
+  // Subtitles are text too (2026-08-12): view one, fix a line, save it.
+  '.srt', '.vtt'
 ])
 
 export function fileKind(ext: string): FileKind {
