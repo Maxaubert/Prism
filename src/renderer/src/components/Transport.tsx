@@ -1,15 +1,17 @@
 import { useRef, useState, type JSX, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatTime } from '../lib/format'
-import { RATES, type MediaControls } from '../lib/useMediaControls'
+import type { MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
 
 // The transport bar shared by every player. One of ten shapes (chosen in
 // Settings) draws the same set of controls — a scrub bar with hover-time and
-// draggable thumb, play/pause, a hover-expand volume slider, the time readout and
-// a speed menu. `extra` slots a view-specific control on the right (the video
-// player passes its fullscreen button). `peaks` feeds the waveform shapes.
+// draggable thumb, play/pause, a hover-expand volume slider, the time readout
+// and the player-settings cog (`settings`, where the speed button used to be:
+// speed lives inside that menu now). `extra` slots a view-specific control on
+// the right (the video player passes its fullscreen button). `peaks` feeds the
+// waveform shapes.
 //
 // The played progress fill is coloured by its own scheme + effects (`bar`), the
 // same colour system as the visualizer but picked independently; the controls use
@@ -214,37 +216,6 @@ function Time({ c, big }: { c: MediaControls; big?: boolean }): JSX.Element {
   )
 }
 
-function Speed({ c }: { c: MediaControls }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="relative">
-      <button
-        className="rounded px-2 py-0.5 text-[13px] font-semibold hover:text-[var(--color-accent-hi)]"
-        onClick={() => setOpen((x) => !x)}
-        title="Playback speed"
-      >
-        {c.rate}×
-      </button>
-      {open && (
-        <div className="absolute bottom-8 right-0 flex flex-col rounded-lg bg-[#1b1e26] p-1 shadow-xl">
-          {RATES.map((r) => (
-            <button
-              key={r}
-              className={`rounded px-3 py-1 text-left text-[13px] hover:bg-[var(--p-hover)] ${r === c.rate ? 'text-[var(--color-accent-hi)]' : ''}`}
-              onClick={() => {
-                c.setRate(r)
-                setOpen(false)
-              }}
-            >
-              {r}×
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 /* ---------- the transport, composed per style ---------- */
 
 export function Transport({
@@ -252,12 +223,15 @@ export function Transport({
   style,
   peaks,
   bar,
+  settings,
   extra
 }: {
   c: MediaControls
   style: TransportStyle
   peaks: number[]
   bar: BarFx
+  /** The player-settings cog (speed, loop, autoplay, subtitles). */
+  settings?: ReactNode
   extra?: ReactNode
 }): JSX.Element {
   // The standard control row shared by most styles.
@@ -267,7 +241,7 @@ export function Transport({
       <VolHover c={c} />
       <Time c={c} />
       <div className="flex-1" />
-      <Speed c={c} />
+      {settings}
       {extra}
     </div>
   )
@@ -277,7 +251,7 @@ export function Transport({
       <Time c={c} big />
       <div className="flex-1" />
       <VolHover c={c} />
-      <Speed c={c} />
+      {settings}
       {extra}
     </div>
   )
@@ -307,7 +281,7 @@ export function Transport({
           <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3.5 flex-1" />
           <span className="tabular-nums text-[12.5px] text-[var(--p-text)]/50">{formatTime(c.dur)}</span>
           <VolHover c={c} />
-          <Speed c={c} />
+          {settings}
           {extra}
         </div>
       )
@@ -319,7 +293,7 @@ export function Transport({
             <PlayBtn c={c} />
             <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3 w-40" />
             <Time c={c} />
-            <Speed c={c} />
+            {settings}
             {extra}
           </div>
         </div>
@@ -375,7 +349,7 @@ export function Transport({
             <VolHover c={c} />
             <Time c={c} />
             <div className="flex-1" />
-            <Speed c={c} />
+            {settings}
             {extra}
           </div>
         </div>

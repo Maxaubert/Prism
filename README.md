@@ -34,8 +34,11 @@ never shipped: one small app that opens everything and looks good doing it.
 ## What it is
 
 - **Images**: zoom, pan, fit, rotate, fullscreen; common and exotic formats.
-- **Video**: play / pause / seek / volume / speed / fullscreen, frame-step.
-- **Audio**: play with a live circular visualizer and cover art.
+- **Video**: play / pause / seek / volume / fullscreen, frame-step, and a settings menu with
+  speed, loop, autoplay (the next video in the folder plays itself), and subtitles: sidecar
+  `.srt`/`.vtt` files are found by name, next to the file or in `Subs/`.
+- **Audio**: play with a live circular visualizer; the same settings menu (speed, loop,
+  autoplay the next track).
 - **PDF**: Prism's own viewer, no browser chrome: continuous pages, zoom and fit, text
   selection, and its own Ctrl+F that counts matches across the whole document.
 - **Documents**: markdown renders formatted (badges, images, even embedded video); text and
@@ -44,7 +47,10 @@ never shipped: one small app that opens everything and looks good doing it.
   Choose whether the arrows stay within media, within documents, or one file type, from the
   filter in the sidebar or Settings → General.
 - **File tree** (`Ctrl+B`): a collapsible panel of the folder you opened in. Expand subfolders,
-  click any file to view it. It never reaches above that folder.
+  click any file to view it. It never reaches above that folder. Right-click for the verbs:
+  open in another app, show in Explorer, copy, duplicate, rename, delete.
+- **Edit text files in place**: the pencil in the top bar opens the raw source (markdown too);
+  `Ctrl+S` saves, `Esc` backs out.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.

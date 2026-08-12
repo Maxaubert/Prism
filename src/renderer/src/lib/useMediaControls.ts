@@ -96,7 +96,13 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const bumpVol = useCallback((d: number) => setVolState((x) => +clamp01(x + d).toFixed(2)), [])
   const toggleMute = useCallback(() => setMuted((x) => !x), [])
   const stepRate = useCallback(
-    (dir: number) => setRate((r) => RATES[Math.max(0, Math.min(RATES.length - 1, RATES.indexOf(r) + dir))] ?? r),
+    (dir: number) =>
+      setRate((r) => {
+        // From the NEAREST preset: the menu's slider sets rates between the
+        // presets, and stepping from those must not snap to an end of the list.
+        const nearest = RATES.reduce((a, b, i) => (Math.abs(b - r) < Math.abs(RATES[a] - r) ? i : a), 0)
+        return RATES[Math.max(0, Math.min(RATES.length - 1, nearest + dir))] ?? r
+      }),
     []
   )
 
