@@ -96,6 +96,23 @@ async function mdScenario(fixtures) {
     )
     // Nothing executable survives sanitizing.
     ok((await win.locator('.p-md script, .p-md iframe').count()) === 0, 'no scripts or iframes')
+
+    // GitHub fidelity: align="center" really centers (Tailwind's preflight
+    // used to blockify images out of it), and lists keep their bullets.
+    ok(
+      await win.evaluate(() => {
+        const md = document.querySelector('.p-md')
+        const icon = md.querySelector('img[src*="icon"]')
+        const col = md.getBoundingClientRect()
+        const r = icon.getBoundingClientRect()
+        return Math.abs(r.left + r.width / 2 - (col.left + col.width / 2)) < 4
+      }),
+      'align="center" centers the header image'
+    )
+    ok(
+      await win.evaluate(() => getComputedStyle(document.querySelector('.p-md ul')).listStyleType === 'disc'),
+      'bullet lists keep their discs'
+    )
     await win.screenshot({ path: join(SHOTS, 'markdown.png') })
   } finally {
     await app.close()
@@ -139,6 +156,17 @@ async function pdfScenario(fixtures) {
     await sleep(400)
     ok((await win.inputValue('input[aria-label="Page number"]')) === '2', 'PageDown flips to page 2')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
+
+    // A PDF's Properties knows its pages.
+    await win.click('[role="treeitem"][aria-selected="true"]', { button: 'right' })
+    await win.click('[role="menuitem"]:has-text("Properties")')
+    await win.waitForFunction(
+      () => /Pages/.test(document.querySelector('[role="dialog"]')?.textContent ?? ''),
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(/Pages\s*3/.test(((await win.textContent('[role="dialog"]')) ?? '').replace(/\s+/g, ' ')), 'pdf properties show 3 pages')
+    await win.click('button:has-text("Close")')
   } finally {
     await app.close()
   }
@@ -229,6 +257,23 @@ async function contextMenuScenario(fixtures) {
     await win.click('[role="menuitem"]:has-text("Duplicate")')
     await win.waitForSelector('[role="treeitem"]:has-text("README (2).md")', { timeout: 8000 })
     ok(true, 'Duplicate creates README (2).md in the tree')
+
+    // Properties: the size sits on the row, the popup knows the kind's facts.
+    await row.click({ button: 'right' })
+    const propRow = win.locator('[role="menuitem"]:has-text("Properties")')
+    ok(/\d+(\.\d+)? (B|KB|MB)/.test((await propRow.textContent()) ?? ''), 'Properties row carries the file size')
+    await propRow.click()
+    await win.waitForSelector('[role="dialog"]', { timeout: 8000 })
+    await win.waitForSelector('dd', { timeout: 8000 })
+    const dlg = (await win.textContent('[role="dialog"]')) ?? ''
+    ok(/Words/.test(dlg) && /Lines/.test(dlg), 'text properties show lines and words')
+    ok(/Text document \(MD\)/.test(dlg), 'kind row names the format')
+    await win.screenshot({ path: join(SHOTS, 'properties.png') })
+    // Escape closes the dialog, not the window (the dialog owns the key).
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'Escape closes the properties dialog')
+    ok(!win.isClosed(), 'window survives dialog Escape')
   } finally {
     await app.close()
   }
