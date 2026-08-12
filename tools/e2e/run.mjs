@@ -174,6 +174,26 @@ async function pdfScenario(fixtures) {
     ok((await win.inputValue('input[aria-label="Page number"]')) === '2', 'PageDown flips to page 2')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
 
+    // The pill's buttons take real CLICKS (they once sat under the text
+    // layer's z-index and swallowed nothing but hover).
+    await win.hover('[data-page="2"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    ok((await win.textContent('button[title="Default zoom (0)"]')) === '118%', 'clicking + zooms to 118%')
+    await win.click('button[title="Default zoom (0)"]')
+    ok((await win.textContent('button[title="Default zoom (0)"]')) === '100%', 'clicking the label resets to 100%')
+    await win.click('button[title="Fullscreen (F)"]')
+    await sleep(600)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
+      'clicking fullscreen goes fullscreen'
+    )
+    await win.keyboard.press('f')
+    await sleep(600)
+    ok(
+      !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())),
+      'F leaves fullscreen again'
+    )
+
     // A PDF's Properties knows its pages.
     await win.click('[role="treeitem"][aria-selected="true"]', { button: 'right' })
     await win.click('[role="menuitem"]:has-text("Properties")')
