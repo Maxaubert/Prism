@@ -20,3 +20,5 @@ videos/*/renders/
 videos/*/snapshots/
 videos/*/assets/
 SERSADMIN*/
+
+.e2e/

@@ -1,5 +1,5 @@
 import { createContext, useContext, type MouseEvent } from 'react'
-import type { DirListing } from '@shared/types'
+import type { DirListing, ViewerFile } from '@shared/types'
 import type { TREE_SIZES } from './treePrefs'
 
 // What a tree row can do, shared through context so the recursive row components
@@ -12,6 +12,9 @@ export interface TreeApi {
   size: (typeof TREE_SIZES)[number]
   /** Path of the file being renamed right now, if any. */
   editing: string | null
+  /** The navigation filter, applied to the rows as well: a file row renders
+   *  only when this says so. Folders always render. */
+  fileVisible: (f: ViewerFile) => boolean
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void
   onStartRename: (path: string) => void

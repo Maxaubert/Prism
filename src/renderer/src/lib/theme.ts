@@ -88,7 +88,9 @@ export const STYLES: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'none',
+    // Hairline edges everywhere by default (owner decision, 2026-08-08): the
+    // chrome traces itself even before the material or the wash separates it.
+    borders: 'hairline',
     // The light that gives the style its name: two soft glows, opposite corners,
     // in whatever the accent currently is.
     wash: true
@@ -109,14 +111,12 @@ export const STYLES: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '2',
-    // Glass and edge lines together cut the window into panes; the material
-    // is what separates the surfaces here.
-    borders: 'none'
+    borders: 'hairline'
   },
   {
     id: 'new-void',
     name: 'Void',
-    blurb: 'True black. No glass, no edges.',
+    blurb: 'True black, edged in hairlines.',
     mode: 'dark',
     material: 'oled',
     bg: '#000000',
@@ -129,7 +129,8 @@ export const STYLES: Style[] = [
     font: 'segoe',
     size: '12.5',
     corners: '2',
-    borders: 'none'
+    // On true black the hairlines are all the separation there is.
+    borders: 'hairline'
   },
   {
     id: 'terminal',
@@ -147,7 +148,7 @@ export const STYLES: Style[] = [
     font: 'mono',
     size: '12.5',
     corners: '2',
-    borders: 'none'
+    borders: 'hairline'
   },
   {
     id: 'driftwood',
@@ -184,7 +185,7 @@ export const STYLES: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '14',
-    borders: 'none'
+    borders: 'hairline'
   }
 ]
 
@@ -210,7 +211,7 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'none',
+    borders: 'hairline',
     wash: true
   },
   {
@@ -219,8 +220,6 @@ const LIGHT: Style[] = [
     blurb: 'Acrylic over white, Prism blue.',
     mode: 'light',
     material: 'acrylic',
-    // No dividers: the three surfaces are stepped far enough apart to separate
-    // themselves, which is the whole point of a style with no edge lines.
     bg: '#fbfbfc',
     side: '#eceef1',
     title: '#e1e3e8',
@@ -231,7 +230,7 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'none'
+    borders: 'hairline'
   },
   {
     id: 'frost',
@@ -252,7 +251,7 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '14',
-    borders: 'none'
+    borders: 'hairline'
   },
   {
     id: 'linen',
@@ -288,7 +287,7 @@ const LIGHT: Style[] = [
     font: 'trebuchet',
     size: '12.5',
     corners: '14',
-    borders: 'none'
+    borders: 'hairline'
   }
 ]
 

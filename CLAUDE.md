@@ -33,9 +33,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   formats via a decode fallback.
 - **Video** player: play / pause / seek / volume / speed / fullscreen, frame-step.
 - **Audio** player: play / seek / volume / speed, a live circular visualizer, cover art.
-- **PDF / document** viewer: Chromium PDF; plain text, source code, and markdown.
+- **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
+  zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). Markdown renders formatted
+  (react-markdown, sanitized inline HTML, remote badges); plain text and source code stay mono.
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
-  with a scope setting (all / media vs documents / one file type) in Settings → General.
+  with a scope setting (all / media vs documents / one file type) in Settings → General and as
+  a filter button in the sidebar header (filled funnel = filter active). The scope also hides
+  non-matching file rows in the tree (2026-08-08); folders and the open file always show. Documents own their
+  vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
+  always page the folder.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
@@ -94,7 +100,10 @@ version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user,
 - Follow Filesmith's patterns (aliases `@shared`/`@renderer`, eslint/prettier config, IPC shape,
   frameless TopBar) so `prism-core` drops into both apps cleanly.
 - No em-dashes anywhere (use en-dashes, commas, or parentheses).
-- No new runtime dependencies beyond React / Electron / `prism-core` without a reason.
+- No new runtime dependencies beyond React / Electron / `prism-core` without a reason. Current
+  reasoned exceptions (all viewer-core, destined for `prism-core`): `react-markdown` +
+  `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
+  `heic-convert` (HEIC decode).
 
 ## Working with me
 
