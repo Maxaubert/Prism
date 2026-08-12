@@ -19,6 +19,21 @@ export interface DirEntry {
   name: string
 }
 
+/** A sidebar search hit: enough to draw the row and open the file. */
+export interface SearchHit {
+  path: string
+  name: string
+  kind: FileKind
+  /** Where it lives, relative to the searched root ('' at the root itself). */
+  dir: string
+}
+
+export interface SearchResult {
+  hits: SearchHit[]
+  /** True when a cap stopped the walk: there may be more than what came back. */
+  truncated: boolean
+}
+
 /** One directory's listable contents: subfolders, then viewable files.
  *  `unreadable` marks a folder we could not open, so the tree can say so
  *  instead of showing it as empty. */
