@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 
 // The right-click menu for a tree row. Just the actions: you right-clicked the
 // row, so you know what it applies to. Small, keyboard-dismissable, clamped so
@@ -80,7 +80,19 @@ export function ContextMenu({
   const box = useRef<HTMLDivElement>(null)
   const fly = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
-  const [sub, setSub] = useState<{ index: number; x: number; y: number } | null>(null)
+  const [sub, setSub] = useState<{ index: number; anchorY: number; x: number; y: number } | null>(null)
+  // Leaving a submenu parent doesn't close the flyout immediately: the natural
+  // diagonal path into the flyout crosses the rows below, and closing on first
+  // touch makes the menu read as flickering shut at random. Native menus give
+  // a grace period; so does this one.
+  const closeTimer = useRef<number | null>(null)
+  const cancelClose = useCallback((): void => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }, [])
+  useEffect(() => cancelClose, [cancelClose])
 
   useLayoutEffect(() => {
     const el = box.current
@@ -92,20 +104,23 @@ export function ContextMenu({
     })
   }, [x, y])
 
+  const subItems = sub ? items[sub.index]?.children : null
+
   // The flyout hangs off its row, flipped to the left when the right edge
-  // would push it off screen, and never below the bottom.
+  // would push it off screen, and never below the bottom. Re-clamped from the
+  // row's anchor whenever its CONTENT changes too: the app list lands async,
+  // and a list that grew after the first clamp would run off the screen.
   useLayoutEffect(() => {
     const el = fly.current
     const menu = box.current
     if (!el || !menu || !sub) return
-    const w = el.getBoundingClientRect().width
-    const h = el.getBoundingClientRect().height
+    const { width: w, height: h } = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
     let fx = menuRect.right - 2
     if (fx + w > window.innerWidth - 8) fx = menuRect.left - w + 2
-    const fy = Math.min(sub.y, window.innerHeight - h - 8)
+    const fy = Math.max(8, Math.min(sub.anchorY, window.innerHeight - h - 8))
     if (fx !== sub.x || fy !== sub.y) setSub({ ...sub, x: fx, y: fy })
-  }, [sub])
+  }, [sub, subItems?.length])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -139,15 +154,22 @@ export function ContextMenu({
 
   const hover = (index: number, it: MenuItem, el: HTMLElement): void => {
     if (!it.children) {
-      setSub(null)
+      // Grace period, then close - unless the pointer reached the flyout (or
+      // came back to the parent), which cancels the timer.
+      if (sub && closeTimer.current === null) {
+        closeTimer.current = window.setTimeout(() => {
+          closeTimer.current = null
+          setSub(null)
+        }, 300)
+      }
       return
     }
+    cancelClose()
     if (sub?.index === index) return
     const r = el.getBoundingClientRect()
-    setSub({ index, x: window.innerWidth, y: r.top - 5 }) // clamped after measure
+    const anchorY = r.top - 5
+    setSub({ index, anchorY, x: window.innerWidth, y: anchorY }) // clamped after measure
   }
-
-  const subItems = sub ? items[sub.index]?.children : null
 
   return (
     // data-owns-escape: the app's own (earlier, capture-phase) Escape handler
@@ -169,6 +191,7 @@ export function ContextMenu({
           ref={fly}
           role="menu"
           style={{ left: sub.x, top: sub.y }}
+          onPointerEnter={cancelClose}
           className={`pointer-events-auto absolute min-w-[176px] max-w-[260px] ${PANEL}`}
         >
           {subItems.map((it) => (

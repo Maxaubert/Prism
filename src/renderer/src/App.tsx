@@ -44,6 +44,7 @@ type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
+  | { kind: 'discard-edit'; proceed: () => void }
 
 function TopBar({
   file,
@@ -264,6 +265,25 @@ export default function App(): JSX.Element {
   // file leaves the editor; a save bumps docVersion so the viewer re-reads.
   const [editMode, setEditMode] = useState(false)
   const [docVersion, setDocVersion] = useState(0)
+  // Whether the editor holds unsaved text. A ref: navigation guards read it
+  // inside callbacks, and it must never be a render dependency.
+  const editorDirty = useRef(false)
+  const onEditorDirty = useCallback((d: boolean) => {
+    editorDirty.current = d
+  }, [])
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [ask, setAsk] = useState<Ask | null>(null)
+
+  /** Anything that would move off (or reload out of) a dirty editor goes
+   *  through here: it asks first, exactly as the editor's own Escape does.
+   *  TextEdit guards its own exits; this guards everyone else's. */
+  const guardEdit = useCallback(
+    (proceed: () => void): void => {
+      if (editMode && editorDirty.current) setAsk({ kind: 'discard-edit', proceed })
+      else proceed()
+    },
+    [editMode]
+  )
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
   const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
@@ -296,7 +316,10 @@ export default function App(): JSX.Element {
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
-  const openFromTree = useCallback((p: string) => void window.prism.openWithin(p).then(open), [open])
+  const openFromTree = useCallback(
+    (p: string) => guardEdit(() => void window.prism.openWithin(p).then(open)),
+    [open, guardEdit]
+  )
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
@@ -310,10 +333,12 @@ export default function App(): JSX.Element {
       if (!raw || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      setRawIndex(raw.files.indexOf(view.files[next]))
-      setHasNavigated(true)
+      guardEdit(() => {
+        setRawIndex(raw.files.indexOf(view.files[next]))
+        setHasNavigated(true)
+      })
     },
-    [raw, view]
+    [raw, view, guardEdit]
   )
 
   const file = view?.files[view.index] ?? null
@@ -328,11 +353,10 @@ export default function App(): JSX.Element {
 
   /* ---------- file operations ---------- */
 
-  // Renaming and deleting are the only things Prism does that change your files,
-  // so both are confirmable and neither destroys anything: an overwritten or
-  // deleted file goes to the Recycle Bin.
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [ask, setAsk] = useState<Ask | null>(null)
+  // Renaming, deleting, duplicating and the editor's save are the things Prism
+  // does that change your files; the destructive ones are confirmable, and
+  // nothing is destroyed: an overwritten or deleted file goes to the Recycle
+  // Bin. (`refreshKey` and `ask` are declared above, with the edit guard.)
 
   /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
    *  folder moves everything under it, including possibly the open file. */
@@ -535,8 +559,18 @@ export default function App(): JSX.Element {
             currentPath={file?.path ?? null}
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
-            onRename={(p, name) => void runRename(p, name, 'ask')}
-            onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
+            // Renaming or binning the edited file (or a folder over it) would
+            // silently drop the editor's unsaved text; those ask first too.
+            onRename={(p, name) => {
+              const run = (): void => void runRename(p, name, 'ask')
+              if (file && within(file.path, p)) guardEdit(run)
+              else run()
+            }}
+            onDelete={(path, name, isFolder) => {
+              const show = (): void => setAsk({ kind: 'delete', path, name, isFolder })
+              if (file && within(file.path, path)) guardEdit(show)
+              else show()
+            }}
             wash={washed}
           />
         )}
@@ -558,6 +592,7 @@ export default function App(): JSX.Element {
                 setEditMode(false)
                 setDocVersion((v) => v + 1) // the viewer re-reads what was saved
               }}
+              onDirtyChange={onEditorDirty}
             />
           ) : file ? (
             <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} />
@@ -610,6 +645,29 @@ export default function App(): JSX.Element {
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
             { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'discard-edit' && (
+        <Dialog
+          title="Discard your changes?"
+          body="Leaving this file drops what you typed in the editor; the file keeps what it had."
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Keep editing', onPick: () => setAsk(null) },
+            {
+              label: 'Discard',
+              danger: true,
+              primary: true,
+              onPick: () => {
+                const go = ask.proceed
+                editorDirty.current = false
+                setEditMode(false)
+                setAsk(null)
+                go()
+              }
+            }
           ]}
         />
       )}

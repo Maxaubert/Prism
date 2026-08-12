@@ -249,6 +249,15 @@ async function editScenario(fixtures) {
     await win.locator('textarea').focus()
     await win.keyboard.press('Control+End')
     await win.keyboard.type('gamma')
+
+    // Navigating away from a dirty editor asks first; "Keep editing" stays.
+    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.waitForSelector('text=Discard your changes?', { timeout: 5000 })
+    ok(true, 'leaving a dirty editor asks first')
+    await win.click('button:has-text("Keep editing")')
+    await sleep(200)
+    ok((await win.locator('textarea').count()) === 1, 'Keep editing stays in the editor')
+
     await win.keyboard.press('Control+s')
     await win.waitForSelector('pre', { timeout: 5000 })
     ok((await win.textContent('pre')).includes('gamma'), 'save returns to the viewer with the new text')

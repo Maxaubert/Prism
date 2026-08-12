@@ -9,13 +9,16 @@ import { Dialog } from './Dialog'
 export function TextEdit({
   path,
   onClose,
-  onSaved
+  onSaved,
+  onDirtyChange
 }: {
   path: string
   /** Leave without saving (already confirmed if anything changed). */
   onClose: () => void
   /** The file on disk now holds the editor's text. */
   onSaved: () => void
+  /** App guards navigation behind this: leaving a dirty editor must ask. */
+  onDirtyChange: (dirty: boolean) => void
 }): JSX.Element {
   // Keyed by path so a stale read never lands in the wrong editor.
   const [loaded, setLoaded] = useState<{ path: string; text: string } | null>(null)
@@ -27,6 +30,11 @@ export function TextEdit({
   const original = loaded?.path === path ? loaded.text : null
   const text = value ?? original
   const dirty = value !== null && value !== original
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+    return () => onDirtyChange(false) // unmounting always leaves App clean
+  }, [dirty, onDirtyChange])
 
   useEffect(() => {
     let alive = true
