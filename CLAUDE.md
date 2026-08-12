@@ -38,12 +38,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
-  zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). Markdown renders formatted
+  zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
+  (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges); plain text and source code stay mono.
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
   with a scope setting (all / media vs documents / one file type) in Settings → General and as
   a filter button in the sidebar header (filled funnel = filter active). The scope also hides
-  non-matching file rows in the tree (2026-08-08); folders and the open file always show. Documents own their
+  non-matching file rows in the tree (2026-08-08); folders and the open file always show. A
+  sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
+  name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
   always page the folder.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;

@@ -8,6 +8,7 @@ import { ContextMenu } from './ContextMenu'
 import { FilterMenu } from './FilterMenu'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
+import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 
@@ -308,7 +309,10 @@ export function Sidebar({
           <span className="min-w-0 truncate" title={root}>
             {rootName}
           </span>
-          <FilterMenu />
+          <div className="flex items-center">
+            <SortMenu />
+            <FilterMenu />
+          </div>
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div

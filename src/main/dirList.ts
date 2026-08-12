@@ -47,12 +47,15 @@ export function isRoot(root: string, p: string): boolean {
 export function toViewerFile(p: string): ViewerFile {
   const ext = extname(p).toLowerCase()
   let size = 0
+  let mtimeMs = 0
   try {
-    size = statSync(p).size
+    const st = statSync(p)
+    size = st.size
+    mtimeMs = st.mtimeMs
   } catch {
     /* unreadable; leave 0 so the renderer just treats it as unknown */
   }
-  return { path: p, name: basename(p), ext, kind: fileKind(ext), size }
+  return { path: p, name: basename(p), ext, kind: fileKind(ext), size, mtimeMs }
 }
 
 const byName = (a: { name: string }, b: { name: string }): number =>
