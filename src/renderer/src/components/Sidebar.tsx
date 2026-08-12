@@ -318,8 +318,10 @@ export function Sidebar({
             <FilterMenu />
           </div>
         </div>
-        {/* The search box: a quiet panel, not a chrome bar. Escape clears. */}
-        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-hover)] px-2 py-1 font-normal normal-case tracking-normal">
+        {/* The search box: a hairline and nothing else, so it wears whatever
+            the style wears (a filled grey panel glowed on true black). The
+            accent arrives with focus. Escape clears. */}
+        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
           <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
             <circle cx="11" cy="11" r="6.5" />
             <path d="M16 16l4.5 4.5" />
