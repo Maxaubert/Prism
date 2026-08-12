@@ -47,7 +47,7 @@ type Ask =
   | { kind: 'discard-edit'; proceed: () => void }
 
 function TopBar({
-  file,
+  name,
   pos,
   settingsOpen,
   onToggleSettings,
@@ -59,7 +59,9 @@ function TopBar({
   editing,
   onToggleEdit
 }: {
-  file: ViewerFile | null
+  /** The open file's name - or '' while the sidebar is showing it, so the
+   *  same fact isn't said twice on one screen. */
+  name: string
   pos: string
   settingsOpen: boolean
   onToggleSettings: () => void
@@ -104,7 +106,7 @@ function TopBar({
       </button>
       )}
       <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>Prism</span>
-      <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{file ? file.name : ''}</span>
+      <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
@@ -548,7 +550,9 @@ export default function App(): JSX.Element {
     <div className="flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
       {!fullscreen && (
         <TopBar
-          file={file}
+          // The tree already names (and highlights) the open file; the bar only
+          // repeats it when the tree isn't there to say it.
+          name={sidebar && raw && !settingsOpen ? '' : (file?.name ?? '')}
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((v) => !v)}

@@ -113,6 +113,14 @@ async function mdScenario(fixtures) {
       await win.evaluate(() => getComputedStyle(document.querySelector('.p-md ul')).listStyleType === 'disc'),
       'bullet lists keep their discs'
     )
+
+    // The bar repeats the file name only when the tree isn't showing it.
+    ok((await win.locator('.drag:has-text("README.md")').count()) === 0, 'bar stays quiet while the tree names the file')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('.drag:has-text("README.md")').count()) === 1, 'closing the tree puts the name in the bar')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
     await win.screenshot({ path: join(SHOTS, 'markdown.png') })
   } finally {
     await app.close()
@@ -376,7 +384,7 @@ async function playerScenario(fixtures) {
       v.currentTime = Math.max(0, v.duration - 0.3)
       void v.play()
     })
-    await win.waitForSelector('text=ep2.mp4', { timeout: 10000 })
+    await win.waitForSelector('[role="treeitem"][aria-selected="true"]:has-text("ep2.mp4")', { timeout: 10000 })
     ok(true, 'autoplay advances to the next video')
     ok(!win.isClosed(), 'window survives the whole tour')
   } finally {
