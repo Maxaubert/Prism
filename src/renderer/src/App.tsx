@@ -180,7 +180,8 @@ function Viewer({
   onToggleFullscreen,
   fullscreen,
   transportStyle,
-  onOpenLocal
+  onOpenLocal,
+  onAutoAdvance
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
@@ -188,15 +189,17 @@ function Viewer({
   transportStyle: TransportStyle
   /** A markdown link to a local file; opened the same way as a tree click. */
   onOpenLocal: (path: string) => void
+  /** Autoplay: a finished video/track moves to the next of its kind. */
+  onAutoAdvance: () => void
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
-      return <VideoView url={url} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
+      return <VideoView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
+      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'text':
@@ -342,6 +345,21 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+
+  // Autoplay's landing: the next file of the SAME kind, however many images or
+  // documents sit between - a folder of episodes plays like a season, whatever
+  // else lives beside them. Stops quietly at the end of the folder.
+  const advanceSameKind = useCallback(() => {
+    if (!raw || !view) return
+    const current = view.files[view.index]
+    if (!current) return
+    for (let i = view.index + 1; i < view.files.length; i += 1) {
+      if (view.files[i].kind === current.kind) {
+        setRawIndex(raw.files.indexOf(view.files[i]))
+        return
+      }
+    }
+  }, [raw, view])
 
   // A different file closes the editor (render-phase adjustment, the sidebar's
   // pattern): the pencil applies to what you were looking at, not what's next.
@@ -595,7 +613,7 @@ export default function App(): JSX.Element {
               onDirtyChange={onEditorDirty}
             />
           ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} />
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} />
           ) : (
             <EmptyState onOpen={browse} />
           )}

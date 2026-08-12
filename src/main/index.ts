@@ -17,6 +17,7 @@ import { Readable } from 'stream'
 import { isInsideRoot, isRoot, listDir, toViewerFile } from './dirList'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
+import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
 import { fileKind } from '@shared/fileKind'
 import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
 
@@ -463,6 +464,17 @@ if (!app.requestSingleInstanceLock()) {
         return false
       }
     })
+
+    /* ----- subtitles ----- */
+
+    // Sidecar tracks for a video (same name, same folder or Subs/), and their
+    // text as WebVTT. Same wall as everything else: inside the root only.
+    ipcMain.handle('subs:for', (_e, p: string): SubTrack[] =>
+      isInsideRoot(sessionRoot, p) ? sidecarsFor(p) : []
+    )
+    ipcMain.handle('subs:read', (_e, p: string): string | null =>
+      isInsideRoot(sessionRoot, p) ? readAsVtt(p) : null
+    )
 
     /* ----- context-menu verbs ----- */
 

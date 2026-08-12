@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
+import { usePlayerPrefs } from '../lib/playerPrefs'
+import { useSubtitles } from '../lib/useSubtitles'
 import { Transport } from './Transport'
+import { PlayerMenu } from './PlayerMenu'
 import { IconFull, IconPause, IconPlay } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
@@ -14,14 +17,22 @@ import { resolveVizTheme } from '../lib/theme'
 
 export function VideoView({
   url,
+  path,
   onToggleFullscreen,
+  onAutoAdvance,
   transportStyle
 }: {
   url: string
+  /** The file's real path, for finding sidecar subtitles next to it. */
+  path: string
   onToggleFullscreen: () => void
+  /** Autoplay's exit: the app moves to the next video in the folder. */
+  onAutoAdvance: () => void
   transportStyle: TransportStyle
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  const prefs = usePlayerPrefs()
+  const subtitles = useSubtitles(path)
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const solidBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const v = useViz()
@@ -81,6 +92,10 @@ export function VideoView({
         ref={video}
         src={url}
         autoPlay
+        loop={prefs.loop}
+        // Autoplay: the folder is a playlist. Loop wins while both are on
+        // (a looping video never ends, so this simply doesn't fire).
+        onEnded={() => prefs.autoplay && onAutoAdvance()}
         // Fill the stage and letterbox only on the axis that needs it. max-w/max-h
         // would cap the video at its intrinsic size, so anything smaller than the
         // window (e.g. a 720p file fullscreened) sat boxed in on all four sides.
@@ -88,7 +103,13 @@ export function VideoView({
         onClick={clickToggle}
         onDoubleClick={onToggleFullscreen}
         {...c.bind}
-      />
+      >
+        {/* Keyed by URL so switching tracks replaces the element: Chromium is
+            happier remounting a track than watching its src change. */}
+        {subtitles.vttUrl && (
+          <track key={subtitles.vttUrl} default kind="subtitles" src={subtitles.vttUrl} label="Subtitles" />
+        )}
+      </video>
 
       {/* center play/pause flash + the resting play affordance, but only once a
           video has started (so autoplay startup + navigation don't flash it) */}
@@ -117,6 +138,13 @@ export function VideoView({
           style={transportStyle}
           peaks={peaks}
           bar={barFx}
+          settings={
+            <PlayerMenu
+              c={c}
+              autoplayHint="video"
+              subtitles={{ tracks: subtitles.tracks, active: subtitles.active, onPick: subtitles.pick }}
+            />
+          }
           extra={
             <button
               className="grid place-items-center hover:text-[var(--color-accent-hi)]"

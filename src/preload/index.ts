@@ -29,6 +29,12 @@ const api = {
   writeText: (path: string, text: string): Promise<boolean> =>
     ipcRenderer.invoke('file:write', path, text),
 
+  /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
+  subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
+    ipcRenderer.invoke('subs:for', path),
+  /** One track's text as WebVTT (SRT converted), for a <track> blob. */
+  readSubs: (path: string): Promise<string | null> => ipcRenderer.invoke('subs:read', path),
+
   /* ----- context-menu verbs ----- */
 
   /** Reveal (and select) the file or folder in File Explorer. */

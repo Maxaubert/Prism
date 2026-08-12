@@ -34,8 +34,11 @@ never shipped: one small app that opens everything and looks good doing it.
 ## What it is
 
 - **Images**: zoom, pan, fit, rotate, fullscreen; common and exotic formats.
-- **Video**: play / pause / seek / volume / speed / fullscreen, frame-step.
-- **Audio**: play with a live circular visualizer and cover art.
+- **Video**: play / pause / seek / volume / fullscreen, frame-step, and a settings menu with
+  speed, loop, autoplay (the next video in the folder plays itself), and subtitles: sidecar
+  `.srt`/`.vtt` files are found by name, next to the file or in `Subs/`.
+- **Audio**: play with a live circular visualizer; the same settings menu (speed, loop,
+  autoplay the next track).
 - **PDF**: Prism's own viewer, no browser chrome: continuous pages, zoom and fit, text
   selection, and its own Ctrl+F that counts matches across the whole document.
 - **Documents**: markdown renders formatted (badges, images, even embedded video); text and

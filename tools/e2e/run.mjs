@@ -163,8 +163,8 @@ async function filterScenario(fixtures) {
     await win.click('[role="menuitemradio"]:has-text("All in one")')
     await sleep(200)
     ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
-    ok(await win.locator('text=/\\/ 6$/').first().isVisible().catch(() => false), 'all scope lists 6 files')
-    ok((await fileRows.count()) === 6, 'all scope shows all 6 file rows in the tree')
+    ok(await win.locator('text=/\\/ 8$/').first().isVisible().catch(() => false), 'all scope lists 8 files')
+    ok((await fileRows.count()) === 8, 'all scope shows all 8 file rows in the tree')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("Per file type")')
@@ -279,6 +279,54 @@ async function editScenario(fixtures) {
   }
 }
 
+async function playerScenario(fixtures) {
+  console.log('player settings')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    await win.hover('video') // keep the chrome awake
+    const cog = win.locator('[aria-label="Player settings"]')
+    ok((await cog.count()) === 1, 'the transport carries the settings cog')
+    await cog.click()
+    await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+
+    await win.click('[role="menuitemradio"]:has-text("2×")')
+    ok(await win.evaluate(() => document.querySelector('video').playbackRate === 2), 'speed chip sets playbackRate')
+
+    await win.click('[role="menuitemcheckbox"]:has-text("Loop")')
+    ok(await win.evaluate(() => document.querySelector('video').loop), 'loop toggle sets the element')
+    await win.click('[role="menuitemcheckbox"]:has-text("Loop")') // off again for autoplay
+
+    // Subtitles: the sidecar ep1.en.srt shows up as English; picking it loads cues.
+    ok((await win.locator('[role="menuitemradio"]:has-text("English")').count()) === 1, 'sidecar srt listed as English')
+    await win.click('[role="menuitemradio"]:has-text("English")')
+    await win.waitForFunction(
+      () => {
+        const t = document.querySelector('video')?.textTracks
+        return t && t.length > 0 && t[0].cues && t[0].cues.length > 0
+      },
+      undefined,
+      { timeout: 8000 }
+    )
+    ok(true, 'picking the track loads its cues')
+    await win.screenshot({ path: join(SHOTS, 'player-menu.png') })
+
+    // Autoplay: on, then jump near the end; the next video should take over.
+    await win.click('[role="menuitemcheckbox"]:has-text("Autoplay")')
+    await win.keyboard.press('Escape')
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.currentTime = Math.max(0, v.duration - 0.3)
+      void v.play()
+    })
+    await win.waitForSelector('text=ep2.mp4', { timeout: 10000 })
+    ok(true, 'autoplay advances to the next video')
+    ok(!win.isClosed(), 'window survives the whole tour')
+  } finally {
+    await app.close()
+  }
+}
+
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
@@ -294,6 +342,8 @@ try {
   await contextMenuScenario(fixtures)
   await sleep(900)
   await editScenario(fixtures)
+  await sleep(900)
+  await playerScenario(fixtures)
 } catch (e) {
   failures += 1
   console.error('scenario crashed:', e)
