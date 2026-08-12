@@ -51,8 +51,10 @@
   !insertmacro PRISM_PROGID "Prism.Document" "Document"
   !insertmacro PRISM_PROGID "Prism.Text" "Text file"
 
-  ; the same lists src/shared/fileKind.ts calls viewable, minus source code:
-  ; a .ts or .css belongs to an editor, and Prism still opens either on request
+  ; the same lists src/shared/fileKind.ts calls viewable - all of them. Code
+  ; and config types were excluded once ("a .ts belongs to an editor"), but the
+  ; decision was reversed (2026-08-12, #45): being offered costs nothing, the
+  ; default is still never taken, and Prism edits text now anyway.
   !insertmacro PRISM_EXT "png"  "Prism.Image"
   !insertmacro PRISM_EXT "jpg"  "Prism.Image"
   !insertmacro PRISM_EXT "jpeg" "Prism.Image"
@@ -91,6 +93,19 @@
   !insertmacro PRISM_EXT "markdown" "Prism.Text"
   !insertmacro PRISM_EXT "csv"  "Prism.Text"
   !insertmacro PRISM_EXT "log"  "Prism.Text"
+  !insertmacro PRISM_EXT "json" "Prism.Text"
+  !insertmacro PRISM_EXT "js"   "Prism.Text"
+  !insertmacro PRISM_EXT "ts"   "Prism.Text"
+  !insertmacro PRISM_EXT "tsx"  "Prism.Text"
+  !insertmacro PRISM_EXT "jsx"  "Prism.Text"
+  !insertmacro PRISM_EXT "css"  "Prism.Text"
+  !insertmacro PRISM_EXT "html" "Prism.Text"
+  !insertmacro PRISM_EXT "xml"  "Prism.Text"
+  !insertmacro PRISM_EXT "yml"  "Prism.Text"
+  !insertmacro PRISM_EXT "yaml" "Prism.Text"
+  !insertmacro PRISM_EXT "ini"  "Prism.Text"
+  !insertmacro PRISM_EXT "srt"  "Prism.Text"
+  !insertmacro PRISM_EXT "vtt"  "Prism.Text"
 
   ; the executable as an application in its own right, which is what the
   ; per-type "Choose another app" dialog looks up
@@ -152,5 +167,18 @@
   !insertmacro PRISM_UNEXT "markdown" "Prism.Text"
   !insertmacro PRISM_UNEXT "csv"  "Prism.Text"
   !insertmacro PRISM_UNEXT "log"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "json" "Prism.Text"
+  !insertmacro PRISM_UNEXT "js"   "Prism.Text"
+  !insertmacro PRISM_UNEXT "ts"   "Prism.Text"
+  !insertmacro PRISM_UNEXT "tsx"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "jsx"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "css"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "html" "Prism.Text"
+  !insertmacro PRISM_UNEXT "xml"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "yml"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "yaml" "Prism.Text"
+  !insertmacro PRISM_UNEXT "ini"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "srt"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "vtt"  "Prism.Text"
   System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, p 0, p 0)'
 !macroend

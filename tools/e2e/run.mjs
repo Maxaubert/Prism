@@ -220,16 +220,16 @@ async function filterScenario(fixtures) {
 
     const fillOf = () => funnel.locator('svg').getAttribute('fill')
     ok((await fillOf()) === 'currentColor', 'default scope (group) shows a filled funnel')
-    // Docs group: README.md + sample.pdf + notes.txt = "x / 3" in the top bar.
-    ok(await win.locator('text=/\\/ 3$/').first().isVisible().catch(() => false), 'group scope lists 3 documents')
-    ok((await fileRows.count()) === 3, 'group scope shows 3 file rows in the tree')
+    // Docs group: README.md + sample.pdf + notes.txt + ep1.en.srt = "x / 4".
+    ok(await win.locator('text=/\\/ 4$/').first().isVisible().catch(() => false), 'group scope lists 4 documents')
+    ok((await fileRows.count()) === 4, 'group scope shows 4 file rows in the tree')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("All in one")')
     await sleep(200)
     ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
-    ok(await win.locator('text=/\\/ 8$/').first().isVisible().catch(() => false), 'all scope lists 8 files')
-    ok((await fileRows.count()) === 8, 'all scope shows all 8 file rows in the tree')
+    ok(await win.locator('text=/\\/ 9$/').first().isVisible().catch(() => false), 'all scope lists 9 files')
+    ok((await fileRows.count()) === 9, 'all scope shows all 9 file rows in the tree')
 
     // Sorting: Playnite's shape, one direction pair for every field. Size
     // ascending puts the smallest first; flipping to descending, the biggest.
@@ -258,15 +258,15 @@ async function filterScenario(fixtures) {
     await sortBtn.click()
     await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Name")`)
     await sleep(150)
-    ok(((await firstRow()) ?? '').includes('ep1.mp4'), 'name ascending is back to normal')
+    ok(((await firstRow()) ?? '').includes('ep1.en.srt'), 'name ascending is back to normal')
 
     await funnel.click()
     await win.click('[role="menuitemradio"]:has-text("Per file type")')
     await sleep(200)
     ok((await fillOf()) === 'currentColor', 'per-type shows a filled funnel')
-    // Text kind: README.md + notes.txt.
-    ok(await win.locator('text=/\\/ 2$/').first().isVisible().catch(() => false), 'per-type lists the 2 text files')
-    ok((await fileRows.count()) === 2, 'per-type shows the 2 text rows in the tree')
+    // Text kind: README.md + notes.txt + ep1.en.srt.
+    ok(await win.locator('text=/\\/ 3$/').first().isVisible().catch(() => false), 'per-type lists the 3 text files')
+    ok((await fileRows.count()) === 3, 'per-type shows the 3 text rows in the tree')
     ok(
       (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
       'the open file row survives every filter'
