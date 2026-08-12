@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchSubs, srtToVtt } from './subtitles'
+import { matchSubs, srtToVtt, stripVttStyles } from './subtitles'
 
 describe('matchSubs', () => {
   const files = [
@@ -66,5 +66,37 @@ describe('srtToVtt', () => {
   it('leaves styling tags and commas in cue text alone', () => {
     const vtt = srtToVtt('1\n00:00:01,000 --> 00:00:02,000\n<i>Well, well</i>\n')
     expect(vtt).toContain('<i>Well, well</i>')
+  })
+})
+
+describe('stripVttStyles', () => {
+  it('drops a STYLE block that could reach the network, keeps the cues', () => {
+    const vtt = [
+      'WEBVTT',
+      '',
+      'STYLE',
+      '::cue { background: url(https://evil.example/beacon) }',
+      '',
+      '00:00:01.000 --> 00:00:02.000',
+      'Hello there',
+      ''
+    ].join('\n')
+    const out = stripVttStyles(vtt)
+    expect(out).not.toContain('evil.example')
+    expect(out).not.toContain('STYLE')
+    expect(out).toContain('Hello there')
+    expect(out).toContain('00:00:01.000 --> 00:00:02.000')
+  })
+
+  it('drops REGION blocks too', () => {
+    const vtt = 'WEBVTT\n\nREGION\nid:fred\nwidth:40%\n\n00:00:01.000 --> 00:00:02.000\nHi\n'
+    const out = stripVttStyles(vtt)
+    expect(out).not.toContain('width:40%')
+    expect(out).toContain('Hi')
+  })
+
+  it('leaves a plain file untouched', () => {
+    const vtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nJust a cue\n'
+    expect(stripVttStyles(vtt)).toBe(vtt)
   })
 })

@@ -44,14 +44,25 @@ export function VideoView({
   // brief pre-autoplay moment (which otherwise flashes on every navigation).
   const [started, setStarted] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The chrome never hides while the settings menu is open: an invisible menu
+  // would keep eating clicks and the first Escape.
+  const menuOpen = useRef(false)
 
   const showChrome = useCallback(() => {
     setChromeOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
-      if (video.current && !video.current.paused) setChromeOn(false)
+      if (video.current && !video.current.paused && !menuOpen.current) setChromeOn(false)
     }, 2600)
   }, [])
+
+  const onMenuOpen = useCallback(
+    (open: boolean) => {
+      menuOpen.current = open
+      showChrome() // opening pins it; closing restarts the hide clock
+    },
+    [showChrome]
+  )
 
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
@@ -85,7 +96,7 @@ export function VideoView({
     <div
       className="group relative flex h-full w-full items-center justify-center"
       onMouseMove={showChrome}
-      onMouseLeave={() => c.playing && setChromeOn(false)}
+      onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
       <video
@@ -143,6 +154,7 @@ export function VideoView({
               c={c}
               autoplayHint="video"
               subtitles={{ tracks: subtitles.tracks, active: subtitles.active, onPick: subtitles.pick }}
+              onOpenChange={onMenuOpen}
             />
           }
           extra={

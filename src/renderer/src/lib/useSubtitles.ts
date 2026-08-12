@@ -22,13 +22,16 @@ export interface Subtitles {
 
 export function useSubtitles(videoPath: string): Subtitles {
   const { subs } = usePlayerPrefs()
-  // Keyed by path so a slow lookup never lands on the wrong file.
+  // Everything here is keyed by path: the player is NOT remounted between
+  // videos (the viewer is keyed by kind), so un-keyed state would carry one
+  // file's subtitles onto the next while the lookup is still in flight.
   const [found, setFound] = useState<{ path: string; tracks: SubTrackInfo[] } | null>(null)
-  const [active, setActive] = useState<string | null>(null)
+  const [chosen, setChosen] = useState<{ path: string; track: string | null } | null>(null)
   const [vtt, setVtt] = useState<{ track: string; url: string } | null>(null)
   const urlRef = useRef<string | null>(null)
 
   const tracks = found?.path === videoPath ? found.tracks : []
+  const active = chosen?.path === videoPath ? chosen.track : null
 
   useEffect(() => {
     let alive = true
@@ -36,7 +39,7 @@ export function useSubtitles(videoPath: string): Subtitles {
       if (!alive) return
       setFound({ path: videoPath, tracks: t })
       // Subtitles are wanted: the new file starts with its first track on.
-      setActive(subs && t.length ? t[0].path : null)
+      setChosen({ path: videoPath, track: subs && t.length ? t[0].path : null })
     })
     return () => {
       alive = false
@@ -75,10 +78,13 @@ export function useSubtitles(videoPath: string): Subtitles {
     []
   )
 
-  const pick = useCallback((path: string | null) => {
-    setActive(path)
-    setPlayerPref('subs', path !== null) // remembered for the next file
-  }, [])
+  const pick = useCallback(
+    (path: string | null) => {
+      setChosen({ path: videoPath, track: path })
+      setPlayerPref('subs', path !== null) // remembered for the next file
+    },
+    [videoPath]
+  )
 
   return { tracks, active, vttUrl: vtt?.track === active ? vtt.url : null, pick }
 }

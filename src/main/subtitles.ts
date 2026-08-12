@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'fs'
+import { readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, extname, join } from 'path'
 
 // Sidecar subtitles, the convention every player follows: "Episode.mkv" is
@@ -68,32 +68,51 @@ export function srtToVtt(srt: string): string {
   return 'WEBVTT\n\n' + body.trim() + '\n'
 }
 
-/** The tracks on disk for a video: its own folder, then the Subs/ variants. */
+/** The tracks on disk for a video: its own folder, then the Subs/ variants.
+ *  One readdir of the folder, reused for both the sidecars and the Subs/
+ *  lookup: this runs in the main process, and disks can be network shares. */
 export function sidecarsFor(videoPath: string): SubTrack[] {
   const dir = dirname(videoPath)
   const video = basename(videoPath)
-  const out: SubTrack[] = []
-  const scan = (folder: string): void => {
-    let names: string[]
-    try {
-      names = readdirSync(folder)
-    } catch {
-      return // no such folder; nothing to add
-    }
-    for (const m of matchSubs(video, names)) out.push({ path: join(folder, m.name), label: m.label })
+  let names: string[]
+  try {
+    names = readdirSync(dir)
+  } catch {
+    return []
   }
-  scan(dir)
+  const out: SubTrack[] = matchSubs(video, names).map((m) => ({
+    path: join(dir, m.name),
+    label: m.label
+  }))
   for (const sub of SUB_DIRS) {
-    const real = (() => {
-      try {
-        return readdirSync(dir).find((n) => n.toLowerCase() === sub)
-      } catch {
-        return undefined
-      }
-    })()
-    if (real) scan(join(dir, real))
+    const real = names.find((n) => n.toLowerCase() === sub)
+    if (!real) continue
+    let subNames: string[]
+    try {
+      subNames = readdirSync(join(dir, real))
+    } catch {
+      continue // a file wearing a folder's name, or unreadable
+    }
+    for (const m of matchSubs(video, subNames)) {
+      out.push({ path: join(dir, real, m.name), label: m.label })
+    }
   }
   return out
+}
+
+// A subtitle file is kilobytes; a "subtitle file" this big is something else
+// wearing the extension, and reading it would stall the main process.
+const MAX_SUB_BYTES = 5 * 1024 * 1024
+
+/** Drop STYLE and REGION blocks: they are the one part of WebVTT that can
+ *  reference the network (::cue background url(...)), and a downloaded
+ *  subtitle must not get to phone home just by being displayed. WebVTT is
+ *  blank-line-separated blocks, so it is filtered as blocks. */
+export function stripVttStyles(vtt: string): string {
+  return vtt
+    .split(/\r?\n[ \t]*\r?\n/)
+    .filter((block) => !/^(?:STYLE|REGION)\b/.test(block.trimStart()))
+    .join('\n\n')
 }
 
 /** A track's text as WebVTT, whatever it was on disk. */
@@ -101,8 +120,9 @@ export function readAsVtt(path: string): string | null {
   const ext = extname(path).toLowerCase()
   if (!SUB_EXTS.has(ext)) return null
   try {
+    if (statSync(path).size > MAX_SUB_BYTES) return null
     const text = readFileSync(path, 'utf-8')
-    return ext === '.srt' ? srtToVtt(text) : text
+    return stripVttStyles(ext === '.srt' ? srtToVtt(text) : text)
   } catch {
     return null
   }
