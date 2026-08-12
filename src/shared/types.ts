@@ -9,6 +9,8 @@ export interface ViewerFile {
   /** Bytes on disk; 0 if it couldn't be stat'ed. Used to skip preloading files
    *  so large that warming them would cost more than it saves. */
   size: number
+  /** Modified time (ms since epoch); 0 if it couldn't be stat'ed. Sorting. */
+  mtimeMs: number
 }
 
 /** A subfolder, as the sidebar tree sees it. */
