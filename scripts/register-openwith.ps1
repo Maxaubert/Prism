@@ -11,7 +11,9 @@ $exts = @(
   # audio
   '.mp3','.m4a','.aac','.ogg','.opus','.flac','.wav',
   # docs / text
-  '.pdf','.txt','.md','.markdown','.json','.js','.ts','.tsx','.jsx','.css','.html','.xml','.yml','.yaml','.ini','.log','.csv'
+  '.pdf','.txt','.md','.markdown','.json','.js','.ts','.tsx','.jsx','.css','.html','.xml','.yml','.yaml','.ini','.log','.csv',
+  # subtitles (viewable text since 2026-08-12)
+  '.srt','.vtt'
 )
 
 if ($Remove) {
