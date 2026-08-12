@@ -86,9 +86,10 @@ export function buildFixtures() {
   )
 
   // Mixed kinds for the filter scenarios: 2 images + 1 audio (media) and
-  // pdf + md (documents) = 5 viewables in "all".
+  // pdf + md + txt (documents) = 6 viewables in "all".
   writeFileSync(join(FIXTURES, 'one.png'), PNG)
   writeFileSync(join(FIXTURES, 'two.png'), PNG)
   writeFileSync(join(FIXTURES, 'song.mp3'), Buffer.alloc(128)) // listed by extension
+  writeFileSync(join(FIXTURES, 'notes.txt'), 'alpha beta\n') // the edit scenario's canvas
   return FIXTURES
 }

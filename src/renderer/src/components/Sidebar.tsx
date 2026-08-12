@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
-import type { DirListing, ViewerFile } from '@shared/types'
+import type { DirListing, OpenWithApp, ViewerFile } from '@shared/types'
 import { fileKind } from '@shared/fileKind'
 import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
 import { matchesScope, useNavScope } from '../lib/navScope'
@@ -75,6 +75,8 @@ interface Menu {
   path: string
   name: string
   isFolder: boolean
+  /** "Open in" candidates: undefined for folders, null while they load. */
+  apps?: OpenWithApp[] | null
 }
 
 /** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
@@ -238,7 +240,14 @@ export function Sidebar({
 
   const onMenu = useCallback((e: MouseEvent, path: string, name: string, isFolder: boolean) => {
     e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder })
+    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, apps: isFolder ? undefined : null })
+    // The app list arrives while the menu is up; ignore it if the menu has
+    // meanwhile moved to another row (or closed).
+    if (!isFolder) {
+      void window.prism.appsFor(path).then((apps) => {
+        setMenu((m) => (m && m.path === path ? { ...m, apps } : m))
+      })
+    }
   }, [])
 
   const submitRename = useCallback(
@@ -362,6 +371,57 @@ export function Sidebar({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            // Files also go places: another app, Explorer, the clipboard.
+            ...(!menu.isFolder
+              ? [
+                  {
+                    label: 'Open in',
+                    icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,
+                    children: [
+                      { label: 'Default app', icon: <MenuIcon d="M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5" />, onPick: () => window.prism.openInDefault(menu.path) },
+                      ...(menu.apps === null
+                        ? [{ label: 'Looking for apps…', disabled: true }]
+                        : (menu.apps ?? []).map((a) => ({
+                            label: a.name,
+                            icon: a.icon ? (
+                              <img src={a.icon} width={14} height={14} alt="" className="shrink-0" />
+                            ) : (
+                              <MenuIcon d="M4 5h16v14H4zM4 9h16" />
+                            ),
+                            onPick: () => void window.prism.openWith(menu.path, a.id)
+                          }))),
+                      { label: 'Choose another app…', icon: <MenuIcon d="M12 8v8M8 12h8M3.5 5h17v14h-17z" />, onPick: () => window.prism.openWithChooser(menu.path) }
+                    ]
+                  }
+                ]
+              : []),
+            {
+              label: 'Show in File Explorer',
+              icon: <MenuIcon d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />,
+              onPick: () => window.prism.showInExplorer(menu.path)
+            },
+            {
+              label: 'Copy path',
+              icon: <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />,
+              onPick: () => void navigator.clipboard.writeText(menu.path)
+            },
+            {
+              label: 'Copy file',
+              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+              onPick: () => void window.prism.copyFileToClipboard(menu.path)
+            },
+            ...(!menu.isFolder
+              ? [
+                  {
+                    label: 'Duplicate',
+                    icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
+                    onPick: () =>
+                      void window.prism.duplicateFile(menu.path).then((copy) => {
+                        if (copy) void load(parentDir(menu.path), true)
+                      })
+                  }
+                ]
+              : []),
             { label: 'Rename', hint: 'F2', icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />, onPick: () => setEditing(menu.path) },
             {
               label: 'Delete',

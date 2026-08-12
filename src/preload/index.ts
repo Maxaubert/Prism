@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, OnClash, OpenPayload, RenameResult } from '@shared/types'
+import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -25,6 +25,29 @@ const api = {
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<string | null> => ipcRenderer.invoke('file:text', path),
+  /** Save the editor's text over the file. Text kinds only, inside the root. */
+  writeText: (path: string, text: string): Promise<boolean> =>
+    ipcRenderer.invoke('file:write', path, text),
+
+  /* ----- context-menu verbs ----- */
+
+  /** Reveal (and select) the file or folder in File Explorer. */
+  showInExplorer: (path: string): void => ipcRenderer.send('file:show-in-explorer', path),
+  /** Hand the file to whatever Windows has as its default app. */
+  openInDefault: (path: string): void => ipcRenderer.send('file:open-default', path),
+  /** The Windows "how do you want to open this?" chooser. */
+  openWithChooser: (path: string): void => ipcRenderer.send('file:open-chooser', path),
+  /** Apps Windows registers for this file's extension, MRU first, with icons. */
+  appsFor: (path: string): Promise<OpenWithApp[]> => ipcRenderer.invoke('apps:for', path),
+  /** Launch one of the apps `appsFor` listed (by its id). */
+  openWith: (path: string, appId: string): Promise<boolean> =>
+    ipcRenderer.invoke('file:open-with', path, appId),
+  /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
+  copyFileToClipboard: (path: string): Promise<boolean> =>
+    ipcRenderer.invoke('file:copy-clip', path),
+  /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
+  duplicateFile: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke('file:duplicate', path),
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
