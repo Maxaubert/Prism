@@ -26,6 +26,15 @@ export interface DirListing {
   unreadable?: boolean
 }
 
+/** An app the "Open in" submenu can hand a file to. `id` is the executable's
+ *  path; main only ever launches an id it enumerated itself. */
+export interface OpenWithApp {
+  id: string
+  name: string
+  /** The exe's icon as a data URL, when Windows would give one up. */
+  icon?: string
+}
+
 /** What to do when a rename runs into a name that's already taken. 'ask' changes
  *  nothing and reports back, so the choice can be put to the user. */
 export type OnClash = 'ask' | 'overwrite' | 'keep-both'

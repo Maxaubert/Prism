@@ -526,7 +526,7 @@ export function PdfView({
           focus for the scroll keys, and group-focus-within would pin the pill
           permanently visible. */}
       {doc && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-title)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {

@@ -8,6 +8,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
 import { PdfView } from './components/pdf/PdfView'
+import { TextEdit } from './components/TextEdit'
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
@@ -43,6 +44,7 @@ type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
+  | { kind: 'discard-edit'; proceed: () => void }
 
 function TopBar({
   file,
@@ -52,7 +54,10 @@ function TopBar({
   panelOpen,
   onTogglePanel,
   setup,
-  wash
+  wash,
+  editable,
+  editing,
+  onToggleEdit
 }: {
   file: ViewerFile | null
   pos: string
@@ -67,6 +72,10 @@ function TopBar({
   /** Whether the style's light reaches the bar. It follows the window: with a
    *  file on screen there is no wash anywhere. */
   wash: boolean
+  /** Whether the open file takes the pencil (text kinds do). */
+  editable: boolean
+  editing: boolean
+  onToggleEdit: () => void
 }): JSX.Element {
   const w = window.prism
   return (
@@ -98,6 +107,21 @@ function TopBar({
       <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{file ? file.name : ''}</span>
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
+        {!setup && editable && (
+        <button
+          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+            editing ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+          }`}
+          onClick={onToggleEdit}
+          title={editing ? 'Stop editing' : 'Edit'}
+          aria-label="Edit"
+          aria-pressed={editing}
+        >
+          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+          </svg>
+        </button>
+        )}
         {!setup && (
         <button
           className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
@@ -156,7 +180,8 @@ function Viewer({
   onToggleFullscreen,
   fullscreen,
   transportStyle,
-  onOpenLocal
+  onOpenLocal,
+  onAutoAdvance
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
@@ -164,15 +189,17 @@ function Viewer({
   transportStyle: TransportStyle
   /** A markdown link to a local file; opened the same way as a tree click. */
   onOpenLocal: (path: string) => void
+  /** Autoplay: a finished video/track moves to the next of its kind. */
+  onAutoAdvance: () => void
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
-      return <VideoView url={url} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
+      return <VideoView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} transportStyle={transportStyle} />
+      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'text':
@@ -237,6 +264,29 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
+  // The pencil: the raw source of a text file, editable in place. Leaving the
+  // file leaves the editor; a save bumps docVersion so the viewer re-reads.
+  const [editMode, setEditMode] = useState(false)
+  const [docVersion, setDocVersion] = useState(0)
+  // Whether the editor holds unsaved text. A ref: navigation guards read it
+  // inside callbacks, and it must never be a render dependency.
+  const editorDirty = useRef(false)
+  const onEditorDirty = useCallback((d: boolean) => {
+    editorDirty.current = d
+  }, [])
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [ask, setAsk] = useState<Ask | null>(null)
+
+  /** Anything that would move off (or reload out of) a dirty editor goes
+   *  through here: it asks first, exactly as the editor's own Escape does.
+   *  TextEdit guards its own exits; this guards everyone else's. */
+  const guardEdit = useCallback(
+    (proceed: () => void): void => {
+      if (editMode && editorDirty.current) setAsk({ kind: 'discard-edit', proceed })
+      else proceed()
+    },
+    [editMode]
+  )
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
   const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
@@ -269,7 +319,10 @@ export default function App(): JSX.Element {
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
-  const openFromTree = useCallback((p: string) => void window.prism.openWithin(p).then(open), [open])
+  const openFromTree = useCallback(
+    (p: string) => guardEdit(() => void window.prism.openWithin(p).then(open)),
+    [open, guardEdit]
+  )
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
@@ -283,21 +336,45 @@ export default function App(): JSX.Element {
       if (!raw || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      setRawIndex(raw.files.indexOf(view.files[next]))
-      setHasNavigated(true)
+      guardEdit(() => {
+        setRawIndex(raw.files.indexOf(view.files[next]))
+        setHasNavigated(true)
+      })
     },
-    [raw, view]
+    [raw, view, guardEdit]
   )
 
   const file = view?.files[view.index] ?? null
 
+  // Autoplay's landing: the next file of the SAME kind, however many images or
+  // documents sit between - a folder of episodes plays like a season, whatever
+  // else lives beside them. Stops quietly at the end of the folder.
+  const advanceSameKind = useCallback(() => {
+    if (!raw || !view) return
+    const current = view.files[view.index]
+    if (!current) return
+    for (let i = view.index + 1; i < view.files.length; i += 1) {
+      if (view.files[i].kind === current.kind) {
+        setRawIndex(raw.files.indexOf(view.files[i]))
+        return
+      }
+    }
+  }, [raw, view])
+
+  // A different file closes the editor (render-phase adjustment, the sidebar's
+  // pattern): the pencil applies to what you were looking at, not what's next.
+  const [editedPath, setEditedPath] = useState<string | null>(null)
+  if ((file?.path ?? null) !== editedPath) {
+    setEditedPath(file?.path ?? null)
+    setEditMode(false)
+  }
+
   /* ---------- file operations ---------- */
 
-  // Renaming and deleting are the only things Prism does that change your files,
-  // so both are confirmable and neither destroys anything: an overwritten or
-  // deleted file goes to the Recycle Bin.
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [ask, setAsk] = useState<Ask | null>(null)
+  // Renaming, deleting, duplicating and the editor's save are the things Prism
+  // does that change your files; the destructive ones are confirmable, and
+  // nothing is destroyed: an overwritten or deleted file goes to the Recycle
+  // Bin. (`refreshKey` and `ask` are declared above, with the edit guard.)
 
   /** True when `p` is `parent` itself or sits inside it. Renaming or binning a
    *  folder moves everything under it, including possibly the open file. */
@@ -479,6 +556,9 @@ export default function App(): JSX.Element {
           onTogglePanel={togglePanel}
           setup={setup}
           wash={washed}
+          editable={file?.kind === 'text'}
+          editing={editMode}
+          onToggleEdit={() => setEditMode((v) => !v)}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -497,8 +577,18 @@ export default function App(): JSX.Element {
             currentPath={file?.path ?? null}
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
-            onRename={(p, name) => void runRename(p, name, 'ask')}
-            onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
+            // Renaming or binning the edited file (or a folder over it) would
+            // silently drop the editor's unsaved text; those ask first too.
+            onRename={(p, name) => {
+              const run = (): void => void runRename(p, name, 'ask')
+              if (file && within(file.path, p)) guardEdit(run)
+              else run()
+            }}
+            onDelete={(path, name, isFolder) => {
+              const show = (): void => setAsk({ kind: 'delete', path, name, isFolder })
+              if (file && within(file.path, path)) guardEdit(show)
+              else show()
+            }}
             wash={washed}
           />
         )}
@@ -512,7 +602,21 @@ export default function App(): JSX.Element {
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {file ? <Viewer key={file.kind} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} /> : <EmptyState onOpen={browse} />}
+          {file && editMode && file.kind === 'text' ? (
+            <TextEdit
+              path={file.path}
+              onClose={() => setEditMode(false)}
+              onSaved={() => {
+                setEditMode(false)
+                setDocVersion((v) => v + 1) // the viewer re-reads what was saved
+              }}
+              onDirtyChange={onEditorDirty}
+            />
+          ) : file ? (
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} />
+          ) : (
+            <EmptyState onOpen={browse} />
+          )}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>
@@ -559,6 +663,29 @@ export default function App(): JSX.Element {
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
             { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'discard-edit' && (
+        <Dialog
+          title="Discard your changes?"
+          body="Leaving this file drops what you typed in the editor; the file keeps what it had."
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Keep editing', onPick: () => setAsk(null) },
+            {
+              label: 'Discard',
+              danger: true,
+              primary: true,
+              onPick: () => {
+                const go = ask.proceed
+                editorDirty.current = false
+                setEditMode(false)
+                setAsk(null)
+                go()
+              }
+            }
           ]}
         />
       )}

@@ -56,6 +56,14 @@ body,
   margin: 0;
 }
 
+/* Subtitles: quiet, readable, no theatrics. Chromium renders the cues; this
+   only takes its defaults down a notch. */
+video::cue {
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
 /* Fallbacks only: theme.ts paints the real values onto :root before first render
    and repaints them whenever the style changes. */
 :root {

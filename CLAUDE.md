@@ -31,8 +31,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   open dialog.
 - **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, exotic
   formats via a decode fallback.
-- **Video** player: play / pause / seek / volume / speed / fullscreen, frame-step.
-- **Audio** player: play / seek / volume / speed, a live circular visualizer, cover art.
+- **Video** player: play / pause / seek / volume / fullscreen, frame-step, and a transport
+  settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
+  kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
+  SRT converted to WebVTT; embedded MKV tracks deliberately out until a demuxer decision).
+- **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
+  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges); plain text and source code stay mono.
@@ -45,10 +49,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
-  The only writes Prism performs. Nothing is destroyed: deleting and overwriting both go via the
-  Recycle Bin, a taken name asks (cancel / replace / keep both), and names are validated first.
-  The session root itself can never be renamed or binned. Anything further (move, copy, new folder,
-  multi-select) is a fresh decision, not a natural next step.
+  Nothing is destroyed: deleting and overwriting both go via the Recycle Bin, a taken name asks
+  (cancel / replace / keep both), and names are validated first. The session root itself can never
+  be renamed or binned.
+- **Context-menu verbs** (2026-08-12): "Open in" (a submenu of the apps Windows registers for that
+  extension, from the registry, plus the Windows chooser; main only launches exes it enumerated
+  itself), Show in File Explorer, Copy path, Copy file (real clipboard drop via PowerShell),
+  Duplicate (Explorer-style "name (2)" naming).
+- **Edit mode for text files** (2026-08-12): a pencil in the top bar opens the raw source of any
+  text-kind file (markdown edits its unrendered text); Ctrl+S overwrites in place, Escape asks when
+  dirty. Prism's writes are therefore: rename, bin, duplicate, and the editor's save. Anything
+  further (move, new folder, multi-select) is a fresh decision, not a natural next step.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
