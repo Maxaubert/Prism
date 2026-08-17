@@ -299,6 +299,12 @@ export default function App(): JSX.Element {
     // Main needs this too: it is what stops a close from discarding the buffer.
     window.prism.setDirty(d)
   }, [])
+  /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
+   *  drive (panel shut, search showing); App then pages the folder itself. */
+  const treeNav = useRef<((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null>(null)
+  const onNav = useCallback((step: typeof treeNav.current) => {
+    treeNav.current = step
+  }, [])
   /** The open editor's save, lent up so the close question can offer it. */
   const editorSave = useRef<(() => Promise<boolean>) | null>(null)
   const onSaveHandle = useCallback((fn: (() => Promise<boolean>) | null) => {
@@ -529,11 +535,19 @@ export default function App(): JSX.Element {
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
         e.preventDefault()
+        // The tree gets first refusal: it walks folders as well as files, and
+        // says no when it isn't there to walk.
+        const dir = e.key === 'ArrowDown' ? 'down' : 'up'
+        if (!fullscreen && treeNav.current?.(dir)) return
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
         if (!playerOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
+          // Left/Right keep meaning previous/next FILE, and on a folder row
+          // they are its chevron. Either way the tree answers first.
+          const dir = e.key === 'ArrowRight' ? 'right' : 'left'
+          if (!fullscreen && treeNav.current?.(dir)) return
           go(e.key === 'ArrowRight' ? 1 : -1)
         }
       }
@@ -639,6 +653,7 @@ export default function App(): JSX.Element {
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
             dirty={dirty}
+            onNav={onNav}
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
             // Renaming or binning the edited file (or a folder over it) would

@@ -108,6 +108,10 @@ export function buildFixtures() {
   )
   // A trailing comma, the mistake JSON.parse explains better than the grammar.
   writeFileSync(join(FIXTURES, 'code', 'bad.json'), '{\n  "name": "prism",\n  "ok": true,\n}\n')
+  // A subfolder, so the tree cursor has a folder row to step onto and walk into.
+  mkdirSync(join(FIXTURES, 'code', 'nested', 'level-two'), { recursive: true })
+  writeFileSync(join(FIXTURES, 'code', 'nested', 'level-two', 'buried.py'), 'VALUE = 42\n')
+
   // Stream-lexed: coloured, never underlined, however odd it looks.
   writeFileSync(
     join(FIXTURES, 'code', 'hello.sh'),

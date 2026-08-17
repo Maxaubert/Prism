@@ -40,3 +40,87 @@ export function toggleExpanded(expanded: ReadonlySet<string>, path: string): Set
   if (!next.delete(path)) next.add(path)
   return next
 }
+
+/* ---------- the keyboard's view of the tree ---------- */
+
+/** One navigable row, in the order the tree draws it. */
+export interface TreeRow {
+  path: string
+  name: string
+  isFolder: boolean
+}
+
+/**
+ * Every row the tree is currently showing, flattened depth-first: the cursor
+ * walks this. The order has to match what `Rows` renders exactly - folders
+ * before files, the filter applied to files only, the sort applied to both -
+ * or the arrows would land somewhere other than the highlight suggests. The
+ * ordering itself is passed in rather than imported, so this stays a pure
+ * function of its arguments and the sort store keeps its single owner.
+ *
+ * A folder that is expanded but whose children haven't loaded yet contributes
+ * only itself, which is exactly what is on screen at that moment.
+ */
+export function visibleRows<F extends FileEntry>(
+  root: string,
+  expanded: ReadonlySet<string>,
+  children: Readonly<
+    Record<string, { folders: ReadonlyArray<FileEntry>; files: readonly F[]; unreadable?: boolean }>
+  >,
+  opts: {
+    fileVisible: (f: F) => boolean
+    orderFiles: (files: F[]) => readonly F[]
+    /** Folders follow the sort direction only when the field is name. */
+    foldersReversed: boolean
+  }
+): TreeRow[] {
+  const out: TreeRow[] = []
+  const seen = new Set<string>() // a symlink loop must not hang the keyboard
+  const walk = (dir: string): void => {
+    if (seen.has(dir.toLowerCase())) return
+    seen.add(dir.toLowerCase())
+    const listing = children[dir]
+    if (!listing || listing.unreadable) return
+    const folders = opts.foldersReversed ? [...listing.folders].reverse() : listing.folders
+    for (const f of folders) {
+      out.push({ path: f.path, name: f.name, isFolder: true })
+      if (expanded.has(f.path)) walk(f.path)
+    }
+    for (const f of opts.orderFiles(listing.files.filter(opts.fileVisible))) {
+      out.push({ path: f.path, name: f.name, isFolder: false })
+    }
+  }
+  walk(root)
+  return out
+}
+
+/** Only what visibleRows needs of a row, so this module stays type-light. */
+interface FileEntry {
+  path: string
+  name: string
+}
+
+/**
+ * The row the cursor lands on when it steps `delta` from `from`.
+ *
+ * `filesOnly` is what makes Left/Right keep meaning "previous / next file"
+ * while Up/Down mean "previous / next row": the same cursor, two strides.
+ * Returns null at the ends, so the caller can leave the cursor where it is
+ * rather than wrapping around a folder the user is reading through.
+ */
+export function stepRow(
+  rows: readonly TreeRow[],
+  from: string | null,
+  delta: number,
+  filesOnly = false
+): TreeRow | null {
+  if (!rows.length) return null
+  const at = from ? rows.findIndex((r) => same(r.path, from)) : -1
+  // Nothing selected yet: step in from the near end rather than refusing.
+  let i = at < 0 ? (delta > 0 ? -1 : rows.length) : at
+  for (;;) {
+    i += delta > 0 ? 1 : -1
+    if (i < 0 || i >= rows.length) return null
+    if (!filesOnly || !rows[i].isFolder) return rows[i]
+  }
+}
