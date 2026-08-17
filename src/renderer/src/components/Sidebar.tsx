@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type { DirListing, OpenWithApp, ViewerFile } from '@shared/types'
 import { fileKind } from '@shared/fileKind'
-import { ancestorChain, parentDir, toggleExpanded } from '../lib/fileTree'
+import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { matchesScope, useNavScope } from '../lib/navScope'
+import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { FilterMenu } from './FilterMenu'
@@ -96,20 +97,27 @@ export function Sidebar({
   open,
   root,
   currentPath,
+  dirty,
   refreshKey,
   onOpenFile,
   onRename,
   onDelete,
+  onNav,
   wash
 }: {
   open: boolean
   root: string
   currentPath: string | null
+  /** The open file holds unsaved text; its row is marked. */
+  dirty: boolean
   /** Bumped by App after a rename or delete, to re-read the folders on screen. */
   refreshKey: number
   onOpenFile: (path: string) => void
   onRename: (path: string, name: string) => void
   onDelete: (path: string, name: string, isFolder: boolean) => void
+  /** Lends App the tree's arrow keys. The callback returns false when the tree
+   *  has nothing to say, and App pages the folder itself instead. */
+  onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
   /** Whether the style's light reaches the panel. Follows the window. */
   wash: boolean
 }): JSX.Element {
@@ -130,6 +138,7 @@ export function Sidebar({
   // it; only a new file asks to be found again.
   const placed = useRef<string | null>(null)
   const size = useTreeSize()
+  const sort = useSort()
   const autoScroll = useAutoScroll()
   // On the right, everything that faces the media flips: the edge it draws, the
   // handle you grab, and which way dragging makes it wider.
@@ -276,7 +285,7 @@ export function Sidebar({
   const anchorKind = useMemo(() => {
     if (!currentPath) return null
     const ext = /\.[^.\\/]*$/.exec(currentPath)?.[0] ?? ''
-    return fileKind(ext)
+    return fileKind(ext, /[^\\/]*$/.exec(currentPath)?.[0] ?? '')
   }, [currentPath])
   const fileVisible = useCallback(
     (f: ViewerFile): boolean => {
@@ -288,6 +297,87 @@ export function Sidebar({
     },
     [currentPath, anchorKind, scope]
   )
+
+  /* ---------- the keyboard cursor ---------- */
+
+  // Which row the arrows are on. Normally that is the open file, but it parts
+  // company with it the moment the cursor steps onto a folder: a folder isn't
+  // something to view, so landing there must not disturb what's on screen.
+  const [cursor, setCursor] = useState<string | null>(null)
+  const at = cursor ?? currentPath
+
+  // Reset to the open file whenever the viewer moves on its own (a click, a
+  // drop, autoplay), so the cursor never trails a file the user has left.
+  const [cursorFor, setCursorFor] = useState<string | null>(null)
+  if (currentPath !== cursorFor) {
+    setCursorFor(currentPath)
+    setCursor(currentPath)
+  }
+
+  const rows = useMemo(
+    () =>
+      visibleRows(root, state.expanded, state.children, {
+        fileVisible,
+        orderFiles: (files) => sortFiles(files as ViewerFile[], sort.field, sort.dir),
+        foldersReversed: sort.field === 'name' && sort.dir === 'desc'
+      }),
+    [root, state.expanded, state.children, fileVisible, sort]
+  )
+
+  /** Put the cursor on a row: folders only highlight, files open. */
+  const land = useCallback(
+    (row: { path: string; isFolder: boolean }): void => {
+      setCursor(row.path)
+      if (!row.isFolder) onOpenFile(row.path)
+      // Roving focus, so Enter and Space reach the row without any key handling
+      // of our own, and so a screen reader follows the cursor. preventScroll:
+      // the scroller below decides how the row is brought into view.
+      requestAnimationFrame(() => {
+        const el = scroller.current?.querySelector<HTMLElement>(
+          `[data-row="${CSS.escape(row.path)}"]`
+        )
+        el?.focus({ preventScroll: true })
+        el?.scrollIntoView({ block: 'nearest' })
+      })
+    },
+    [onOpenFile]
+  )
+
+  // The tree's answer to an arrow key. Returns false when it has nothing to
+  // say, and App pages the folder the old way instead: while the panel is shut,
+  // while search has replaced the tree, or at the ends of the tree.
+  const step = useCallback(
+    (dir: 'up' | 'down' | 'left' | 'right'): boolean => {
+      if (!open || query) return false
+      const here = rows.find((r) => r.path.toLowerCase() === (at ?? '').toLowerCase())
+      // Left and right on a folder are its chevron: collapse, or open.
+      if (here?.isFolder && (dir === 'left' || dir === 'right')) {
+        const isOpen = state.expanded.has(here.path)
+        if (dir === 'right' && !isOpen) toggle(here.path)
+        else if (dir === 'left' && isOpen) toggle(here.path)
+        else if (dir === 'right') {
+          // Already open: step into it, the way a tree does.
+          const next = stepRow(rows, here.path, 1)
+          if (next) land(next)
+        }
+        return true
+      }
+      // Up/Down walk every row; Left/Right keep meaning previous/next FILE.
+      const delta = dir === 'down' || dir === 'right' ? 1 : -1
+      const next = stepRow(rows, at, delta, dir === 'left' || dir === 'right')
+      if (!next) return false
+      land(next)
+      return true
+    },
+    [open, query, rows, at, state.expanded, toggle, land]
+  )
+
+  // Lend the tree's keyboard to App, which owns the window's key handling and
+  // all the guards that go with it (settings, fullscreen, a focused document).
+  useEffect(() => {
+    onNav(step)
+    return () => onNav(null)
+  }, [onNav, step])
 
   const rootListing = state.children[root]
   const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
@@ -373,6 +463,8 @@ export function Sidebar({
                 expanded: state.expanded,
                 children: state.children,
                 currentPath,
+                dirty,
+                cursor: at,
                 size,
                 editing,
                 fileVisible,
@@ -504,7 +596,7 @@ export function Sidebar({
         <PropertiesDialog
           path={props.path}
           name={props.name}
-          kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '')}
+          kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '', props.name)}
           isFolder={props.isFolder}
           onClose={() => setProps(null)}
         />

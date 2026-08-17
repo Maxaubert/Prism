@@ -98,6 +98,21 @@ video::cue {
   --color-accent: var(--p-accent);
   --color-accent-hi: var(--p-accent-hi);
   --color-panel: var(--p-title);
+
+  /* Code tokens. Deliberately NOT part of a style: the window chrome recolours,
+     a syntax palette shouldn't, or the same function reads as a string after a
+     style switch. Muted on purpose, so a page of code stays quiet. */
+  --p-code-keyword: #a78bfa;
+  --p-code-string: #9ec97f;
+  --p-code-number: #d9a05b;
+  --p-code-comment: #6b7280;
+  --p-code-fn: #7fb3e8;
+  --p-code-type: #6fd0c4;
+  --p-code-const: #e2a3c7;
+  --p-code-op: #93a0b0;
+  --p-code-meta: #8b93a1;
+  --p-code-invalid: #e06c75;
+  --p-code-active-line: rgba(255, 255, 255, 0.035);
 }
 
 body {

@@ -9,6 +9,11 @@ export interface TreeApi {
   expanded: Set<string>
   children: Record<string, DirListing>
   currentPath: string | null
+  /** The open file has unsaved text: its row says so with a bold name and a *. */
+  dirty: boolean
+  /** The row the arrow keys are on. Usually the open file, but it steps onto
+   *  folders too, where there is nothing to open and only a highlight to move. */
+  cursor: string | null
   size: (typeof TREE_SIZES)[number]
   /** Path of the file being renamed right now, if any. */
   editing: string | null
