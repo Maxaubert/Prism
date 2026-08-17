@@ -213,6 +213,8 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
   const open = t.expanded.has(path)
   const listing = t.children[path]
   const pad = 4 + depth * t.size.indent
+  // A folder is never "the open file", so the cursor ring is all it can show.
+  const onCursor = !!t.cursor && t.cursor.toLowerCase() === path.toLowerCase()
   return (
     <li role="none">
       {t.editing === path ? (
@@ -227,6 +229,11 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
         <button
           role="treeitem"
           aria-expanded={open}
+          // The cursor's row is the tree's one tab stop (roving tabindex), so
+          // Tab reaches the tree once and Enter/Space then work natively on the
+          // row the arrows are on - no key handling of our own for either.
+          data-row={path}
+          tabIndex={onCursor ? 0 : -1}
           onClick={() => t.onToggle(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
@@ -238,7 +245,11 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
               t.onDelete(path, name, true)
             }
           }}
-          className="flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left text-[var(--p-text-soft)] outline-none transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:outline-none"
+          className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:outline-none ${
+            onCursor
+              ? 'bg-[var(--p-hover)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
+              : 'text-[var(--p-text-soft)]'
+          }`}
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
           <Chevron open={open} />
@@ -310,6 +321,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
             <button
               role="treeitem"
               aria-selected={on}
+              data-row={f.path}
+              // Roving tabindex: the cursor's row is the tree's single tab stop.
+              tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               onClick={() => t.onOpenFile(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {

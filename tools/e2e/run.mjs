@@ -584,6 +584,73 @@ async function codeScenario(fixtures) {
   }
 }
 
+async function treeNavScenario(fixtures) {
+  console.log('tree navigation')
+  // Open inside code/, so the root has folders above and below the cursor.
+  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  const cursor = () => win.evaluate(() => document.activeElement?.getAttribute('data-row') ?? '')
+  const name = (p) => (p ?? '').split('\\').pop()
+  // Found by walking the rows rather than by selector: a Windows path in a CSS
+  // attribute selector needs escaping that is easy to get quietly wrong.
+  const expanded = (n) =>
+    win.evaluate(
+      (folder) =>
+        [...document.querySelectorAll('[role="treeitem"][aria-expanded]')]
+          .find((e) => (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(folder.toLowerCase()))
+          ?.getAttribute('aria-expanded') ?? 'missing',
+      n
+    )
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(600)
+
+    // Up from the first file lands on the folder row above it, which is the
+    // whole point: folders are rows the keyboard can reach.
+    await win.keyboard.press('ArrowUp')
+    await sleep(500)
+    ok(name(await cursor()) === 'nested', `Up steps onto the folder row (got ${name(await cursor())})`)
+    ok((await win.locator('.cm-content').count()) === 1, 'and the viewer keeps showing the file')
+
+    // Enter is the row's own activation - it expands, then collapses.
+    ok((await expanded('nested')) === 'false', 'the folder starts collapsed')
+    await win.keyboard.press('Enter')
+    await sleep(600)
+    ok((await expanded('nested')) === 'true', 'Enter expands the folder')
+    await win.keyboard.press('Enter')
+    await sleep(600)
+    ok((await expanded('nested')) === 'false', 'Enter again collapses it')
+
+    // Right/Left are the chevron while the cursor is on a folder.
+    await win.keyboard.press('ArrowRight')
+    await sleep(600)
+    ok((await expanded('nested')) === 'true', 'Right expands the folder')
+    await win.keyboard.press('ArrowLeft')
+    await sleep(600)
+    ok((await expanded('nested')) === 'false', 'Left collapses it')
+
+    // Down off a folder goes back to the files, opening as it lands.
+    await win.keyboard.press('ArrowDown')
+    await sleep(700)
+    ok(name(await cursor()) === 'bad.json', 'Down returns to the file below')
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('bad.json'),
+      'and the file is the open one again'
+    )
+
+    // Walking into an expanded folder: the cursor follows what is on screen.
+    await win.keyboard.press('ArrowUp')
+    await sleep(400)
+    await win.keyboard.press('ArrowRight') // expand `nested`
+    await sleep(700)
+    await win.keyboard.press('ArrowDown')
+    await sleep(600)
+    ok(name(await cursor()) === 'level-two', 'Down walks INTO the expanded folder')
+    await win.screenshot({ path: join(SHOTS, 'tree-nav.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 async function unsavedScenario(fixtures) {
   console.log('unsaved work')
   const notes = join(fixtures, 'notes.txt')
@@ -707,6 +774,8 @@ try {
   await editScenario(fixtures)
   await sleep(900)
   await codeScenario(fixtures)
+  await sleep(900)
+  await treeNavScenario(fixtures)
   await sleep(900)
   await unsavedScenario(fixtures)
   await sleep(900)

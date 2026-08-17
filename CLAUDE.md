@@ -64,6 +64,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
+  **Keyboard-navigable (2026-08-17)**: the arrows drive a cursor over the flattened visible rows
+  (`fileTree.visibleRows` / `stepRow`, pure and tested), folders included. Up/Down step every
+  row and walk into expanded folders; Left/Right keep meaning previous/next FILE, and become
+  the chevron while the cursor is on a folder. Landing on a file opens it, landing on a folder
+  only moves the highlight. The cursor row is the tree's single tab stop (roving `tabIndex`),
+  so Enter and Space are the row button's own activation, with no key handling for them
+  anywhere. Sidebar lends the whole thing to App through `onNav`, returning false when there is
+  no tree to drive (panel shut, search showing, end of tree) so App pages the folder instead.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
   Nothing is destroyed: deleting and overwriting both go via the Recycle Bin, a taken name asks
   (cancel / replace / keep both), and names are validated first. The session root itself can never

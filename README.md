@@ -48,7 +48,9 @@ never shipped: one small app that opens everything and looks good doing it.
   filter in the sidebar or Settings → General.
 - **File tree** (`Ctrl+B`): a collapsible panel of the folder you opened in. Expand subfolders,
   click any file to view it. It never reaches above that folder. Right-click for the verbs:
-  open in another app, show in Explorer, copy, duplicate, rename, delete.
+  open in another app, show in Explorer, copy, duplicate, rename, delete. Drive it entirely
+  from the keyboard: arrows move through folders and files alike, `Enter` opens or collapses
+  a folder, and files open as you land on them.
 - **Code, highlighted**: source files open with syntax colouring, line numbers, folding and
   their own `Ctrl+F`, across ~150 languages. Where the language has a real grammar, a syntax
   error gets the red underline you would expect from an editor.
