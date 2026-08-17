@@ -44,7 +44,8 @@ export function CodeView({
   name,
   onClose,
   onSaved,
-  onDirtyChange
+  onDirtyChange,
+  onSaveHandle
 }: {
   path: string
   name: string
@@ -55,6 +56,9 @@ export function CodeView({
   onSaved: () => void
   /** App guards navigation behind this: leaving unsaved text must ask. */
   onDirtyChange: (dirty: boolean) => void
+  /** Lends App this buffer's save, so the closing-with-unsaved-text question
+   *  can offer to save rather than only to discard. Null once unmounted. */
+  onSaveHandle?: (save: (() => Promise<boolean>) | null) => void
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -159,20 +163,27 @@ export function CodeView({
 
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]) // unmount leaves App clean
 
-  const save = useCallback(async (): Promise<void> => {
+  const save = useCallback(async (): Promise<boolean> => {
     const v = view.current
-    if (!v || !saved.current) return
+    if (!v || !saved.current) return false
     const text = v.state.doc.toString()
     const ok = await window.prism.writeText(path, text)
     if (!ok) {
       setFailed(true)
-      return
+      return false
     }
     saved.current = { path, text }
     markDirty(false)
     setFailed(false)
     onSaved()
+    return true
   }, [path, markDirty, onSaved])
+
+  // Lend the save out for as long as this editor is the one on screen.
+  useEffect(() => {
+    onSaveHandle?.(save)
+    return () => onSaveHandle?.(null)
+  }, [save, onSaveHandle])
 
   // Ctrl+S, Ctrl+F and Escape, wherever focus sits inside the editor. Capture,
   // so they land before CodeMirror's own keymap sees them.

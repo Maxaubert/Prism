@@ -302,6 +302,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
           )
         }
         const on = !!t.currentPath && f.path.toLowerCase() === t.currentPath.toLowerCase()
+        // Unsaved work, said the way every editor says it: bold, and a star.
+        // Only the open file can be dirty, so only its row can carry this.
+        const unsaved = on && t.dirty
         return (
           <li key={f.path} role="none">
             <button
@@ -320,7 +323,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               }}
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
                 on
-                  ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                  ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
                   : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
@@ -330,7 +333,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 color={on ? 'var(--p-on-accent)' : iconColour(f.kind)}
                 ko={on ? accentColour() : undefined}
               />
-              <Label name={f.name} />
+              <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>
           </li>
         )

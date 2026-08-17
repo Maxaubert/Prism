@@ -465,6 +465,25 @@ async function codeScenario(fixtures) {
     await sleep(700)
     ok(((await selected()) ?? '').includes('main.py'), 'and the arrows page again')
 
+    // Up and Down have to agree with Left and Right. They used to be handed to
+    // every document unconditionally, which meant they did nothing at all on a
+    // code file the user was only navigating past.
+    await win.keyboard.press('ArrowUp')
+    await sleep(700)
+    ok(((await selected()) ?? '').includes('hello.sh'), 'Up pages the folder when the caret is not in the file')
+    await win.keyboard.press('ArrowDown')
+    await sleep(700)
+    ok(((await selected()) ?? '').includes('main.py'), 'and Down pages back')
+
+    await win.locator('.cm-line').first().click()
+    await sleep(200)
+    const held = await selected()
+    await win.keyboard.press('ArrowUp')
+    await sleep(500)
+    ok((await selected()) === held, 'but the caret takes Up once you click into the text')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
     // Squiggles, and the honest limit on them.
     await win.click('[role="treeitem"]:has-text("broken.ts")')
     await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 })
@@ -493,6 +512,52 @@ async function codeScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'code-find.png') })
   } finally {
     await app.close()
+  }
+}
+
+async function unsavedScenario(fixtures) {
+  console.log('unsaved work')
+  const notes = join(fixtures, 'notes.txt')
+  const { app, win } = await launch(notes)
+  const row = () => win.locator('[role="treeitem"][aria-selected="true"]')
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    ok(!((await row().textContent()) ?? '').includes('*'), 'a saved file gets no star')
+
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('delta')
+    await sleep(300)
+
+    // The sidebar says which file is unsaved, the way every editor says it.
+    ok(((await row().textContent()) ?? '').includes('notes.txt*'), 'the dirty row gains a star')
+    ok(
+      await row().evaluate((el) => Number(getComputedStyle(el).fontWeight) >= 700),
+      'and goes bold'
+    )
+    await win.screenshot({ path: join(SHOTS, 'unsaved-star.png') })
+
+    // Closing must not throw the buffer away in silence. This is the real
+    // window close (main blocks it), not a renderer-side intercept.
+    await win.evaluate(() => window.prism.close())
+    await win.waitForSelector('text=Save before closing?', { timeout: 5000 })
+    ok(true, 'closing with unsaved text asks first')
+    await win.screenshot({ path: join(SHOTS, 'unsaved-close.png') })
+
+    await win.click('button:has-text("Cancel")')
+    await sleep(400)
+    ok(!win.isClosed(), 'Cancel keeps the window open')
+    ok(((await row().textContent()) ?? '').includes('*'), 'and keeps the unsaved text')
+
+    // Save and close: the file lands on disk, then the window really goes.
+    await win.evaluate(() => window.prism.close())
+    await win.waitForSelector('text=Save before closing?', { timeout: 5000 })
+    await win.click('button:has-text("Save and close")')
+    await sleep(1500)
+    ok(readFileSync(notes, 'utf-8').includes('delta'), 'Save and close writes the file')
+    ok(win.isClosed(), 'and the window closes')
+  } finally {
+    await app.close().catch(() => {})
   }
 }
 
@@ -573,6 +638,8 @@ try {
   await editScenario(fixtures)
   await sleep(900)
   await codeScenario(fixtures)
+  await sleep(900)
+  await unsavedScenario(fixtures)
   await sleep(900)
   await playerScenario(fixtures)
 } catch (e) {

@@ -49,6 +49,7 @@ type Ask =
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'discard-edit'; proceed: () => void }
+  | { kind: 'close-dirty' }
 
 function TopBar({
   name,
@@ -185,7 +186,8 @@ function Viewer({
   transportStyle,
   onOpenLocal,
   onAutoAdvance,
-  onEditorDirty
+  onEditorDirty,
+  onSaveHandle
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
@@ -197,6 +199,7 @@ function Viewer({
   onAutoAdvance: () => void
   /** Code and text edit in place, so the viewer itself can hold unsaved work. */
   onEditorDirty: (dirty: boolean) => void
+  onSaveHandle: (save: (() => Promise<boolean>) | null) => void
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -221,6 +224,7 @@ function Viewer({
             name={file.name}
             onSaved={() => {}}
             onDirtyChange={onEditorDirty}
+            onSaveHandle={onSaveHandle}
           />
         </Suspense>
       )
@@ -293,6 +297,13 @@ export default function App(): JSX.Element {
   const onEditorDirty = useCallback((d: boolean) => {
     editorDirty.current = d
     setDirty(d)
+    // Main needs this too: it is what stops a close from discarding the buffer.
+    window.prism.setDirty(d)
+  }, [])
+  /** The open editor's save, lent up so the close question can offer it. */
+  const editorSave = useRef<(() => Promise<boolean>) | null>(null)
+  const onSaveHandle = useCallback((fn: (() => Promise<boolean>) | null) => {
+    editorSave.current = fn
   }, [])
   const [refreshKey, setRefreshKey] = useState(0)
   const [ask, setAsk] = useState<Ask | null>(null)
@@ -332,6 +343,8 @@ export default function App(): JSX.Element {
 
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
+  // Main held the window open because the editor is dirty; ask, then answer it.
+  useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   // A click in the tree: the folder it lives in becomes the paging list, the
@@ -368,6 +381,10 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+
+  // Whether what's on screen is the text editor rather than a document that
+  // only scrolls. Markdown is a document until the pencil turns it into source.
+  const showsEditor = !!file && file.kind === 'text' && (!isMarkdown(file.name) || editMode)
 
   // Autoplay's landing: the next file of the SAME kind, however many images or
   // documents sit between - a folder of episodes plays like a season, whatever
@@ -494,9 +511,13 @@ export default function App(): JSX.Element {
         if (file && DOC.has(file.kind)) return
         go(e.key === 'PageDown' ? 1 : -1)
       } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
-        // Up and down page the folder, except inside a document, where they
-        // scroll it (the viewers keep their scrollers focused for exactly this).
-        if (file && DOC.has(file.kind)) return
+        // Up and down page the folder, except where a document owns them to
+        // scroll itself. Only the viewers with no caret do: the pdf and the
+        // rendered markdown. A text file's editor owns them when the caret is
+        // in it, and when it isn't (`typing` is false here) it has no more
+        // claim on them than a photo does - which is what makes these agree
+        // with Left/Right instead of dying on a file that can't scroll.
+        if (file && DOC.has(file.kind) && !showsEditor) return
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
@@ -509,7 +530,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, togglePanel])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, showsEditor, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -605,6 +626,9 @@ export default function App(): JSX.Element {
             open={sidebar}
             root={raw.root}
             currentPath={file?.path ?? null}
+            // Only the open file can hold unsaved text, so one flag is enough
+            // to mark the one row that needs marking.
+            dirty={dirty}
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
             // Renaming or binning the edited file (or a folder over it) would
@@ -643,10 +667,11 @@ export default function App(): JSX.Element {
                   setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
                 }}
                 onDirtyChange={onEditorDirty}
+                onSaveHandle={onSaveHandle}
               />
             </Suspense>
           ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onEditorDirty={onEditorDirty} />
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onEditorDirty={onEditorDirty} onSaveHandle={onSaveHandle} />
           ) : (
             <EmptyState onOpen={browse} />
           )}
@@ -678,6 +703,43 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'close-dirty' && (
+        <Dialog
+          title="Save before closing?"
+          body={
+            <>
+              <span className="text-[#d7dae1]">{file?.name ?? 'This file'}</span> has changes that
+              aren&apos;t on disk yet. Closing without saving throws them away.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            {
+              label: 'Close without saving',
+              danger: true,
+              onPick: () => {
+                setAsk(null)
+                window.prism.close(true)
+              }
+            },
+            {
+              label: 'Save and close',
+              primary: true,
+              onPick: () => {
+                void (async () => {
+                  // A failed write must not close the window over the top of the
+                  // text it failed to keep: the editor shows why, we stay put.
+                  const saved = await editorSave.current?.()
+                  setAsk(null)
+                  if (saved) window.prism.close(true)
+                })()
+              }
+            }
           ]}
         />
       )}

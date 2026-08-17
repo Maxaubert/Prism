@@ -72,7 +72,16 @@ const api = {
   // frameless window controls
   minimize: (): void => ipcRenderer.send('window:minimize'),
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
-  close: (): void => ipcRenderer.send('window:close'),
+  /** `force` means the unsaved-changes question has already been answered. */
+  close: (force = false): void => ipcRenderer.send('window:close', force),
+  /** Keep main in step with the editor, so closing can ask before it discards. */
+  setDirty: (dirty: boolean): void => ipcRenderer.send('editor:dirty', dirty),
+  /** Main blocked a close because the editor is dirty: put the question up. */
+  onAskClose: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('app:ask-close', listener)
+    return () => ipcRenderer.removeListener('app:ask-close', listener)
+  },
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
