@@ -68,7 +68,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   (`fileTree.visibleRows` / `stepRow`, pure and tested), folders included. Up/Down step every
   row and walk into expanded folders; Left/Right keep meaning previous/next FILE, and become
   the chevron while the cursor is on a folder. Landing on a file opens it, landing on a folder
-  only moves the highlight. The cursor row is the tree's single tab stop (roving `tabIndex`),
+  only moves the highlight. ONE mark, not two: the filled accent belongs to the cursor and
+  follows it onto folders; the open file is deliberately left unmarked while the cursor is
+  elsewhere (`aria-selected` still names it). The cursor row is the tree's single tab stop (roving `tabIndex`),
   so Enter and Space are the row button's own activation, with no key handling for them
   anywhere. Sidebar lends the whole thing to App through `onNav`, returning false when there is
   no tree to drive (panel shut, search showing, end of tree) so App pages the folder instead.
@@ -133,7 +135,11 @@ These already exist in Filesmith and are the seed of `prism-core` (extracted in 
 
 ## Build, test, release
 
-`npm run dev` / `npm test` for the inner loop; `npm run package` builds the NSIS installer;
+`npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
+Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
+off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
+truly hidden window stops answering clicks and screenshots, so parking it is the way.
+`npm run package` builds the NSIS installer;
 version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user, GitHub Releases.
 
 ## Conventions
