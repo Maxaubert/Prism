@@ -33,10 +33,9 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 // get their own phase. All viewers eventually come from prism-core.
 
 const PLAYABLE = new Set(['video', 'audio'])
-// Documents own their vertical keys: Up/Down and PageUp/PageDown scroll or flip
-// pages inside a pdf/text file instead of paging the folder. Left/Right page
-// the folder everywhere.
-const DOC = new Set(['pdf', 'text'])
+// There is deliberately no DOC kind-set here any more. Which keys a document
+// owns is a question about FOCUS, not about file kind: a pdf nobody has clicked
+// into has no more claim on Up/Down than a photo does. See docFocused().
 const PRELOAD_MAX_BYTES = 80 * 1024 * 1024 // don't warm neighbours bigger than this
 const SIDEBAR_KEY = 'prism.sidebar'
 const RAIL_KEY = 'prism.settings.rail'
@@ -382,9 +381,13 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
 
-  // Whether what's on screen is the text editor rather than a document that
-  // only scrolls. Markdown is a document until the pencil turns it into source.
-  const showsEditor = !!file && file.kind === 'text' && (!isMarkdown(file.name) || editMode)
+  // Whether the open document currently holds focus. Documents mark their own
+  // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
+  // only after the user has actually clicked into (or tabbed to) the document.
+  const docFocused = (): boolean => {
+    const el = document.activeElement
+    return !!el && !!el.closest('[data-doc-scroller]')
+  }
 
   // Autoplay's landing: the next file of the SAME kind, however many images or
   // documents sit between - a folder of episodes plays like a season, whatever
@@ -503,21 +506,28 @@ export default function App(): JSX.Element {
         // bar, an open menu) and any focused input: this listener runs first
         // (capture, registered earliest), so it has to yield by inspection.
         if (typing || document.querySelector('[data-owns-escape]')) return
+        // A focused document gives the keys back before the window gives up.
+        // Escape is the way out of a document you clicked into, the same as it
+        // is out of the text editor; only then does it reach the window.
+        if (docFocused()) {
+          e.preventDefault()
+          ;(document.activeElement as HTMLElement | null)?.blur()
+          return
+        }
         if (fullscreen) window.prism.setFullscreen(false)
         else window.prism.close()
       } else if (e.key === 'PageDown' || e.key === 'PageUp') {
-        // Inside a document these keys belong to the document (the pdf viewer
-        // flips pages; a focused text scroller scrolls natively).
-        if (file && DOC.has(file.kind)) return
+        // Same rule as the arrows: the document has these only once it has
+        // been focused. Reading a pdf from the sidebar should page the folder.
+        if (docFocused()) return
         go(e.key === 'PageDown' ? 1 : -1)
       } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
-        // Up and down page the folder, except where a document owns them to
-        // scroll itself. Only the viewers with no caret do: the pdf and the
-        // rendered markdown. A text file's editor owns them when the caret is
-        // in it, and when it isn't (`typing` is false here) it has no more
-        // claim on them than a photo does - which is what makes these agree
-        // with Left/Right instead of dying on a file that can't scroll.
-        if (file && DOC.has(file.kind) && !showsEditor) return
+        // FOCUS decides, for every kind. A document owns the vertical keys only
+        // while it is focused - click into it, or Tab to it. Until then it has
+        // no more claim on them than a photo does, so arrowing through a folder
+        // from the sidebar behaves the same whatever kind of file it lands on.
+        // (`typing` already covered the text editor's caret, above.)
+        if (docFocused()) return
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
@@ -530,7 +540,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, showsEditor, togglePanel])
+  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just

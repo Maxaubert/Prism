@@ -114,6 +114,31 @@ async function mdScenario(fixtures) {
       'bullet lists keep their discs'
     )
 
+    // A rendered README takes no focus either, so Up/Down keep paging the
+    // folder until the reader actually clicks into the page.
+    const mdRow = () => win.locator('[role="treeitem"][aria-selected="true"]').textContent()
+    ok(
+      await win.evaluate(() => !document.activeElement?.closest('[data-doc-scroller]')),
+      'an opened README takes no focus'
+    )
+    await win.keyboard.press('ArrowDown')
+    await sleep(700)
+    ok(!((await mdRow()) ?? '').includes('README.md'), 'Down pages the folder from an unfocused README')
+    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.waitForSelector('.p-md h1', { timeout: 10000 })
+    await sleep(400)
+
+    await win.click('.p-md h1')
+    await sleep(300)
+    ok(
+      await win.evaluate(() => !!document.activeElement?.closest('[data-doc-scroller]')),
+      'clicking the page focuses the document'
+    )
+    ok(((await mdRow()) ?? '').includes('README.md'), 'and the folder stays put')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    ok(!win.isClosed(), 'Escape releases the document without closing the window')
+
     // The bar repeats the file name only when the tree isn't showing it.
     ok((await win.locator('.drag:has-text("README.md")').count()) === 0, 'bar stays quiet while the tree names the file')
     await win.keyboard.press('Control+b')
@@ -167,6 +192,16 @@ async function pdfScenario(fixtures) {
     await win.waitForSelector('.p-pdf-textlayer span', { timeout: 10000 })
     ok((await win.locator('.p-pdf-textlayer span').count()) > 0, 'text layer present')
 
+    // Focus decides here too, and this has to be checked before anything in
+    // the scenario legitimately focuses the document (the find bar does).
+    // Straight off the sidebar the pdf has taken no focus, so the vertical
+    // keys belong to the folder rather than silently flipping pages under a
+    // user who was only browsing.
+    ok(
+      await win.evaluate(() => !document.activeElement?.closest('[data-doc-scroller]')),
+      'an opened pdf takes no focus'
+    )
+
     await win.keyboard.press('Control+f')
     await win.waitForSelector('[data-owns-escape] input', { timeout: 5000 })
     await win.keyboard.type('grape')
@@ -188,10 +223,40 @@ async function pdfScenario(fixtures) {
     ok((await win.locator('[data-owns-escape]').count()) === 0, 'Escape closes the find bar')
     ok(!win.isClosed(), 'window survives Escape')
 
-    // Page jump via PageDown; the pill's page number follows.
+    // The find bar just handed focus back to the document, so give it back to
+    // nobody first: this is about what an untouched pdf does with the keys.
+    const selected = () => win.locator('[role="treeitem"][aria-selected="true"]').textContent()
+    await win.evaluate(() => document.activeElement?.blur())
+    // PageUp, not PageDown: sample.pdf sorts last in this folder, so a Down
+    // would stop at the edge and prove nothing either way.
+    await win.keyboard.press('PageUp')
+    await sleep(700)
+    ok(!((await selected()) ?? '').includes('sample.pdf'), 'PageUp pages the FOLDER while the pdf is unfocused')
+    ok((await win.locator('canvas').count()) === 0, 'and really left the pdf')
+
+    await win.click('[role="treeitem"]:has-text("sample.pdf")')
+    await win.waitForSelector('[data-page="1"]', { timeout: 15000 })
+    await sleep(600)
+
+    // Click into the document and it owns them, exactly as an editor would.
+    await win.click('[data-page="1"]', { position: { x: 40, y: 300 } })
+    await sleep(300)
+    ok(
+      await win.evaluate(() => !!document.activeElement?.closest('[data-doc-scroller]')),
+      'clicking the page focuses the document'
+    )
     await win.keyboard.press('PageDown')
-    await sleep(400)
-    ok((await win.inputValue('input[aria-label="Page number"]')) === '2', 'PageDown flips to page 2')
+    await sleep(500)
+    ok((await win.inputValue('input[aria-label="Page number"]')) === '2', 'now PageDown flips to page 2')
+
+    // Escape hands the keys back without closing the window.
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    ok(
+      await win.evaluate(() => !document.activeElement?.closest('[data-doc-scroller]')),
+      'Escape releases the document'
+    )
+    ok(!win.isClosed(), 'and does not close the window')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
 
     // The pill's buttons take real CLICKS (they once sat under the text
@@ -435,14 +500,18 @@ async function codeScenario(fixtures) {
     // The whole focus contract: a freshly opened file has no caret, so the
     // arrows still belong to the folder, exactly as they do for an image.
     ok(!(await caretInFile()), 'a freshly opened file has no caret')
-    // ...and holding focus on the scroller to do that must not draw Chromium's
+    // ...and when the scroller DOES take focus, it must not draw Chromium's
     // ring around the whole document frame.
     ok(
       await win.evaluate(() => {
         const s = document.querySelector('.cm-scroller')
-        return document.activeElement === s && getComputedStyle(s).outlineStyle === 'none'
+        s.focus()
+        const focused = document.activeElement === s
+        const ringless = getComputedStyle(s).outlineStyle === 'none'
+        s.blur()
+        return focused && ringless
       }),
-      'the focused scroller draws no focus frame'
+      'a focused scroller draws no focus frame'
     )
     await win.keyboard.press('ArrowLeft')
     await sleep(700)

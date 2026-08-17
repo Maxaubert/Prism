@@ -110,11 +110,13 @@ export function CodeView({
         ]
       })
     })
-    // The scroller is what holds focus while nobody is editing, so Up/Down and
-    // PageUp/PageDown scroll natively - the same trick MarkdownView plays with
-    // its <pre>. CodeMirror's own key handlers sit on the content, not here, so
-    // holding focus at this level never puts a caret in the file.
+    // Focusable and marked as a document, on the same terms as the pdf and the
+    // markdown page: if the user does put focus here, the vertical keys scroll
+    // it natively; if they don't, App keeps them for paging the folder.
+    // CodeMirror's key handlers sit on the content, not here, so focus at this
+    // level never puts a caret in the file.
     v.scrollDOM.tabIndex = -1
+    v.scrollDOM.setAttribute('data-doc-scroller', '')
     view.current = v
     return () => {
       v.destroy()
@@ -150,10 +152,9 @@ export function CodeView({
         markDirty(false)
         setFailed(false)
         setLoadedPath(path)
-        // A fresh file is a document, not a cursor: focus the scroller so the
-        // arrows still belong to the folder until the user clicks in.
+        // A fresh file is a document, not a cursor, and it takes no focus at
+        // all: the arrows stay the folder's until the user clicks in.
         v.contentDOM.blur()
-        v.scrollDOM.focus()
       }
     )
     return () => {
@@ -185,12 +186,19 @@ export function CodeView({
     return () => onSaveHandle?.(null)
   }, [save, onSaveHandle])
 
-  // Ctrl+S, Ctrl+F and Escape, wherever focus sits inside the editor. Capture,
-  // so they land before CodeMirror's own keymap sees them.
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+  // Ctrl+S and Ctrl+F belong to the open file whether or not it has focus -
+  // and since nothing focuses it on arrival, that has to be a window listener
+  // rather than one on this subtree, which is how the pdf viewer does it too.
+  // Capture, so they land before CodeMirror's own keymap sees them.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
       const v = view.current
       if (!v) return
+      const target = e.target as HTMLElement | null
+      // Some other field has the keyboard (the sidebar's search box, a dialog).
+      // Its keys are its own; only the editor's own inputs come back to us.
+      const ours = !!target && !!host.current?.contains(target)
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !ours) return
       if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         e.stopPropagation()
@@ -206,11 +214,11 @@ export function CodeView({
         e.preventDefault()
         e.stopPropagation()
         v.contentDOM.blur()
-        v.scrollDOM.focus()
       }
-    },
-    [save]
-  )
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [save])
 
   return (
     <div
@@ -218,7 +226,6 @@ export function CodeView({
       // window) has to yield to the editor's, but only when there is one.
       data-owns-escape={editing ? '' : undefined}
       ref={host}
-      onKeyDownCapture={onKeyDown}
       className="relative h-full w-full"
     >
       {!ready && (
