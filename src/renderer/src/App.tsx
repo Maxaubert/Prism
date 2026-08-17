@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
@@ -9,7 +9,10 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
 import { PdfView } from './components/pdf/PdfView'
-import { TextEdit } from './components/TextEdit'
+// CodeMirror is ~770KB of editor that a folder of photos never needs. Splitting
+// it out keeps it off the launch path, which is the whole point of the resident
+// single-instance model: the window has to be there the instant you ask.
+const CodeView = lazy(() => import('./components/CodeView').then((m) => ({ default: m.CodeView })))
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Onboarding } from './components/Onboarding'
@@ -58,6 +61,7 @@ function TopBar({
   wash,
   editable,
   editing,
+  dirty,
   onToggleEdit
 }: {
   /** The open file's name - or '' while the sidebar is showing it, so the
@@ -75,9 +79,11 @@ function TopBar({
   /** Whether the style's light reaches the bar. It follows the window: with a
    *  file on screen there is no wash anywhere. */
   wash: boolean
-  /** Whether the open file takes the pencil (text kinds do). */
+  /** Whether the open file takes the pencil (only markdown does). */
   editable: boolean
   editing: boolean
+  /** The open buffer holds unsaved text: the bar says so with a dot. */
+  dirty: boolean
   onToggleEdit: () => void
 }): JSX.Element {
   const w = window.prism
@@ -108,6 +114,15 @@ function TopBar({
       )}
       <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>Prism</span>
       <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
+      {/* Unsaved work is the one thing the bar interrupts itself to say. The
+          tree names the file, so the dot goes where the eye already is. */}
+      {dirty && (
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--p-accent-hi)]"
+          title="Unsaved changes (Ctrl+S)"
+          aria-label="Unsaved changes"
+        />
+      )}
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
@@ -149,32 +164,17 @@ function TopBar({
   )
 }
 
+// The one kind with two faces: markdown renders, and the pencil shows its
+// source. Every other text file is only ever itself, so it needs no toggle.
 const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
 
-function TextViewer({ path }: { path: string }): JSX.Element {
-  const [text, setText] = useState<string>('')
-  const box = useRef<HTMLPreElement>(null)
-  useEffect(() => {
-    // Guarded: paging quickly between text files reuses this component (Viewer
-    // is keyed by kind), and a slow read must not land over a fast one.
-    let alive = true
-    void window.prism.readText(path).then((t) => alive && setText(t ?? '(could not read file)'))
-    return () => {
-      alive = false
-    }
-  }, [path])
-  // Documents own their vertical keys: focused, the <pre> scrolls natively.
-  useEffect(() => {
-    box.current?.focus()
-  }, [path])
+/** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
+ *  the wait is long enough to notice, so a warm cache shows nothing at all. */
+function EditorLoading(): JSX.Element {
   return (
-    <pre
-      ref={box}
-      tabIndex={-1}
-      className="h-full w-full overflow-auto p-6 font-mono text-[13px] leading-relaxed text-[var(--p-text-soft)] outline-none select-text"
-    >
-      {text}
-    </pre>
+    <div className="delayed-loader grid h-full w-full place-items-center">
+      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+    </div>
   )
 }
 
@@ -184,7 +184,8 @@ function Viewer({
   fullscreen,
   transportStyle,
   onOpenLocal,
-  onAutoAdvance
+  onAutoAdvance,
+  onEditorDirty
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
@@ -194,6 +195,8 @@ function Viewer({
   onOpenLocal: (path: string) => void
   /** Autoplay: a finished video/track moves to the next of its kind. */
   onAutoAdvance: () => void
+  /** Code and text edit in place, so the viewer itself can hold unsaved work. */
+  onEditorDirty: (dirty: boolean) => void
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -206,10 +209,20 @@ function Viewer({
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'text':
+      // Markdown is a document until the pencil says otherwise; everything else
+      // is its own source, editable where it sits. A save here changes nothing
+      // on screen that isn't already there, so it must not remount the viewer.
       return isMarkdown(file.name) ? (
         <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
       ) : (
-        <TextViewer path={file.path} />
+        <Suspense fallback={<EditorLoading />}>
+          <CodeView
+            path={file.path}
+            name={file.name}
+            onSaved={() => {}}
+            onDirtyChange={onEditorDirty}
+          />
+        </Suspense>
       )
     default:
       return <div className="text-[var(--color-dim)]">Can&apos;t preview this file type yet.</div>
@@ -267,29 +280,30 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
-  // The pencil: the raw source of a text file, editable in place. Leaving the
-  // file leaves the editor; a save bumps docVersion so the viewer re-reads.
+  // The pencil: markdown's raw source, the one text kind with a rendered form
+  // to toggle away from. Leaving the file leaves the editor; a save bumps
+  // docVersion so the rendered view re-reads what was written.
   const [editMode, setEditMode] = useState(false)
   const [docVersion, setDocVersion] = useState(0)
   // Whether the editor holds unsaved text. A ref: navigation guards read it
-  // inside callbacks, and it must never be a render dependency.
+  // inside callbacks, and it must never be a render dependency. The state
+  // beside it exists only to put a dot in the top bar.
   const editorDirty = useRef(false)
+  const [dirty, setDirty] = useState(false)
   const onEditorDirty = useCallback((d: boolean) => {
     editorDirty.current = d
+    setDirty(d)
   }, [])
   const [refreshKey, setRefreshKey] = useState(0)
   const [ask, setAsk] = useState<Ask | null>(null)
 
-  /** Anything that would move off (or reload out of) a dirty editor goes
-   *  through here: it asks first, exactly as the editor's own Escape does.
-   *  TextEdit guards its own exits; this guards everyone else's. */
-  const guardEdit = useCallback(
-    (proceed: () => void): void => {
-      if (editMode && editorDirty.current) setAsk({ kind: 'discard-edit', proceed })
-      else proceed()
-    },
-    [editMode]
-  )
+  /** Anything that would move off (or reload out of) unsaved text goes through
+   *  here: it asks first. Every text file is editable in place now, not just
+   *  the one behind the pencil, so this guards on the buffer alone. */
+  const guardEdit = useCallback((proceed: () => void): void => {
+    if (editorDirty.current) setAsk({ kind: 'discard-edit', proceed })
+    else proceed()
+  }, [])
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
   const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
@@ -451,7 +465,9 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const el = e.target as HTMLElement | null
-      const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+      // isContentEditable covers the code editor: CodeMirror types into a div,
+      // not a textarea, and the arrows there belong to the caret, not the folder.
+      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
@@ -567,9 +583,12 @@ export default function App(): JSX.Element {
           onTogglePanel={togglePanel}
           setup={setup}
           wash={washed}
-          editable={file?.kind === 'text'}
+          // Only markdown takes the pencil. Code and plain text have no
+          // rendered form to leave, so they are simply editable where they sit.
+          editable={file?.kind === 'text' && isMarkdown(file.name)}
           editing={editMode}
-          onToggleEdit={() => setEditMode((v) => !v)}
+          dirty={dirty}
+          onToggleEdit={() => guardEdit(() => setEditMode((v) => !v))}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -614,17 +633,20 @@ export default function App(): JSX.Element {
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
           {file && editMode && file.kind === 'text' ? (
-            <TextEdit
-              path={file.path}
-              onClose={() => setEditMode(false)}
-              onSaved={() => {
-                setEditMode(false)
-                setDocVersion((v) => v + 1) // the viewer re-reads what was saved
-              }}
-              onDirtyChange={onEditorDirty}
-            />
+            <Suspense fallback={<EditorLoading />}>
+              <CodeView
+                path={file.path}
+                name={file.name}
+                onClose={() => guardEdit(() => setEditMode(false))}
+                onSaved={() => {
+                  setEditMode(false)
+                  setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
+                }}
+                onDirtyChange={onEditorDirty}
+              />
+            </Suspense>
           ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} />
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onEditorDirty={onEditorDirty} />
           ) : (
             <EmptyState onOpen={browse} />
           )}
@@ -691,7 +713,7 @@ export default function App(): JSX.Element {
               primary: true,
               onPick: () => {
                 const go = ask.proceed
-                editorDirty.current = false
+                onEditorDirty(false) // the buffer is being abandoned: ref and dot both
                 setEditMode(false)
                 setAsk(null)
                 go()

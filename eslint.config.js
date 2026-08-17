@@ -9,7 +9,8 @@ export default tseslint.config(
   // docs/ holds standalone browser pages (the visualizer lab), not app source.
   // build/ is installer tooling: Node scripts and NSIS, none of it shipped.
   // .demo/ and videos/ are recording and render working files, rebuilt by
-  // tools/showcase and never imported by the app.
+  // tools/showcase and never imported by the app. .e2e/ is generated fixtures,
+  // some of them broken on purpose so the viewer has an error to underline.
   {
     ignores: [
       'out/**',
@@ -18,6 +19,7 @@ export default tseslint.config(
       'docs/**',
       'build/**',
       '.demo/**',
+      '.e2e/**',
       'videos/**',
       '**/*.d.ts'
     ]

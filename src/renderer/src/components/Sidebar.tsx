@@ -276,7 +276,7 @@ export function Sidebar({
   const anchorKind = useMemo(() => {
     if (!currentPath) return null
     const ext = /\.[^.\\/]*$/.exec(currentPath)?.[0] ?? ''
-    return fileKind(ext)
+    return fileKind(ext, /[^\\/]*$/.exec(currentPath)?.[0] ?? '')
   }, [currentPath])
   const fileVisible = useCallback(
     (f: ViewerFile): boolean => {
@@ -504,7 +504,7 @@ export function Sidebar({
         <PropertiesDialog
           path={props.path}
           name={props.name}
-          kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '')}
+          kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '', props.name)}
           isFolder={props.isFolder}
           onClose={() => setProps(null)}
         />
