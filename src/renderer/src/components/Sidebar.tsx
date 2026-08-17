@@ -96,6 +96,7 @@ export function Sidebar({
   open,
   root,
   currentPath,
+  dirty,
   refreshKey,
   onOpenFile,
   onRename,
@@ -105,6 +106,8 @@ export function Sidebar({
   open: boolean
   root: string
   currentPath: string | null
+  /** The open file holds unsaved text; its row is marked. */
+  dirty: boolean
   /** Bumped by App after a rename or delete, to re-read the folders on screen. */
   refreshKey: number
   onOpenFile: (path: string) => void
@@ -373,6 +376,7 @@ export function Sidebar({
                 expanded: state.expanded,
                 children: state.children,
                 currentPath,
+                dirty,
                 size,
                 editing,
                 fileVisible,

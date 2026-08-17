@@ -234,6 +234,10 @@ function pathFromArgv(argv: string[]): string | null {
 
 let mainWindow: BrowserWindow | null = null
 let pendingOpen: string | null = null
+/** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
+let editorDirty = false
+/** The user has answered the "unsaved changes" question: let the close through. */
+let closeConfirmed = false
 
 function sendOpen(p: string): void {
   const payload = buildPayload(p, true) // came from outside: it becomes the root
@@ -316,6 +320,16 @@ function watchWindowState(win: BrowserWindow): void {
   win.on('maximize', save)
   win.on('unmaximize', save)
   win.on('close', save)
+  // Every route out of the window ends here: the title bar's X, Alt+F4, the
+  // taskbar, Escape. Unsaved text stops all of them until the user answers.
+  win.on('close', (e) => {
+    if (!editorDirty || closeConfirmed) return
+    e.preventDefault()
+    win.webContents.send('app:ask-close')
+    // A minimised or background window can't show its own dialog usefully.
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  })
 }
 
 function createWindow(): void {
@@ -590,7 +604,17 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('window:toggle-maximize', () =>
       mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize()
     )
-    ipcMain.on('window:close', () => mainWindow?.close())
+    // Closing with unsaved text asks first. The renderer keeps `editorDirty`
+    // current, so the common (clean) path closes with no round trip; only a
+    // dirty buffer costs a question. `force` is the renderer saying the user
+    // already answered it.
+    ipcMain.on('editor:dirty', (_e, d: boolean) => {
+      editorDirty = !!d
+    })
+    ipcMain.on('window:close', (_e, force?: boolean) => {
+      if (force) closeConfirmed = true
+      mainWindow?.close()
+    })
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => mainWindow?.setFullScreen(!!on))
     // Windows 11 composites acrylic and mica behind the window; CSS can't, since
     // backdrop-filter only sees the app's own pixels. The window background has

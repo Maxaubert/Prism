@@ -54,9 +54,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
   name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
-  always page the folder. In a text file, focus decides: the file opens with its SCROLLER
-  focused (no caret), so the arrows still page; click into the text and they become the
-  caret's, until Escape hands focus back.
+  always page the folder. In a text file, focus decides, and it decides for ALL FOUR arrows:
+  the file opens with no caret, so Up/Down page exactly as Left/Right do; click into the text
+  and all four become the caret's, until Escape hands focus back. Only the pdf and the
+  rendered markdown, which have no caret to own them, keep Up/Down for scrolling.
+  PageUp/PageDown always belong to the document.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
@@ -71,7 +73,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   simply editable where it sits, Ctrl+S to save. The pencil now belongs to **markdown alone**,
   the one kind with a rendered form to toggle away from; code and `.txt` have none, so a mode
   switch there was meaningless chrome. Leaving unsaved text always asks (App's `guardEdit`,
-  now gated on the buffer rather than on a mode). Prism's writes are therefore: rename, bin,
+  now gated on the buffer rather than on a mode), and so does CLOSING: main mirrors the
+  renderer's dirty flag and blocks `win.on('close')` until the user answers (save / discard /
+  cancel), which covers Alt+F4 and the taskbar, not just the X. The dirty file is named in
+  the tree, bold with a `*`, and a dot sits in the top bar.
+  Prism's writes are therefore: rename, bin,
   duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
   fresh decision, not a natural next step.
 - Keyboard-first controls; remember window size/position.

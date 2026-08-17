@@ -9,6 +9,8 @@ export interface TreeApi {
   expanded: Set<string>
   children: Record<string, DirListing>
   currentPath: string | null
+  /** The open file has unsaved text: its row says so with a bold name and a *. */
+  dirty: boolean
   size: (typeof TREE_SIZES)[number]
   /** Path of the file being renamed right now, if any. */
   editing: string | null
