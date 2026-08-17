@@ -40,7 +40,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
-  (react-markdown, sanitized inline HTML, remote badges); plain text and source code stay mono.
+  (react-markdown, sanitized inline HTML, remote badges).
+- **Code / text** viewer (2026-08-17): CodeMirror 6, always editable (see below). ~20 Lezer
+  grammars give highlighting, folding and real syntax-error squiggles; `@codemirror/legacy-modes`
+  adds ~100 stream lexers for highlighting only, so those languages never claim an error.
+  Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
+  Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
+  gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
   with a scope setting (all / media vs documents / one file type) in Settings → General and as
   a filter button in the sidebar header (filled funnel = filter active). The scope also hides
@@ -48,7 +54,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
   name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
-  always page the folder.
+  always page the folder. In a text file, focus decides: the file opens with its SCROLLER
+  focused (no caret), so the arrows still page; click into the text and they become the
+  caret's, until Escape hands focus back.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).
@@ -59,10 +67,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   extension, from the registry, plus the Windows chooser; main only launches exes it enumerated
   itself), Show in File Explorer, Copy path, Copy file (real clipboard drop via PowerShell),
   Duplicate (Explorer-style "name (2)" naming).
-- **Edit mode for text files** (2026-08-12): a pencil in the top bar opens the raw source of any
-  text-kind file (markdown edits its unrendered text); Ctrl+S overwrites in place, Escape asks when
-  dirty. Prism's writes are therefore: rename, bin, duplicate, and the editor's save. Anything
-  further (move, new folder, multi-select) is a fresh decision, not a natural next step.
+- **Text edits in place** (2026-08-17, replacing the 2026-08-12 edit mode): every text file is
+  simply editable where it sits, Ctrl+S to save. The pencil now belongs to **markdown alone**,
+  the one kind with a rendered form to toggle away from; code and `.txt` have none, so a mode
+  switch there was meaningless chrome. Leaving unsaved text always asks (App's `guardEdit`,
+  now gated on the buffer rather than on a mode). Prism's writes are therefore: rename, bin,
+  duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
+  fresh decision, not a natural next step.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
@@ -115,7 +126,10 @@ version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user,
   frameless TopBar) so `prism-core` drops into both apps cleanly.
 - No em-dashes anywhere (use en-dashes, commas, or parentheses).
 - No new runtime dependencies beyond React / Electron / `prism-core` without a reason. Current
-  reasoned exceptions (all viewer-core, destined for `prism-core`): `react-markdown` +
+  reasoned exceptions (all viewer-core, destined for `prism-core`): CodeMirror 6
+  (`@codemirror/*` + `@lezer/highlight`, the code viewer: highlighting, folding, search and
+  syntax-error squiggles across ~150 languages, which is not a thing to hand-roll),
+  `react-markdown` +
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
   `heic-convert` (HEIC decode).
 

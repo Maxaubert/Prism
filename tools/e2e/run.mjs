@@ -366,45 +366,131 @@ async function contextMenuScenario(fixtures) {
 }
 
 async function editScenario(fixtures) {
-  console.log('edit mode')
+  console.log('editing in place')
   const notes = join(fixtures, 'notes.txt')
   const { app, win } = await launch(notes)
   try {
-    await win.waitForSelector('pre', { timeout: 10000 })
-    const pencil = win.locator('[aria-label="Edit"]')
-    ok((await pencil.count()) === 1, 'pencil shows for a text file')
-    await pencil.click()
-    await win.waitForSelector('textarea', { timeout: 5000 })
-    ok((await win.inputValue('textarea')).startsWith('alpha beta'), 'editor holds the raw text')
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    // Plain text has no rendered form to toggle away from, so it has no pencil:
+    // it is simply editable where it sits.
+    ok((await win.locator('[aria-label="Edit"]').count()) === 0, 'no pencil on a plain text file')
+    ok((await win.locator('.cm-lineNumbers').count()) === 0, 'prose gets no line-number gutter')
+    ok((await win.textContent('.cm-content')).startsWith('alpha beta'), 'the text is there to edit')
 
-    await win.locator('textarea').focus()
+    await win.locator('.cm-line').first().click()
     await win.keyboard.press('Control+End')
     await win.keyboard.type('gamma')
+    await sleep(200)
+    ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 1, 'the bar grows a dirty dot')
 
-    // Navigating away from a dirty editor asks first; "Keep editing" stays.
+    // Navigating away from unsaved text asks first; "Keep editing" stays.
     await win.click('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('text=Discard your changes?', { timeout: 5000 })
-    ok(true, 'leaving a dirty editor asks first')
+    ok(true, 'leaving unsaved text asks first')
     await win.click('button:has-text("Keep editing")')
     await sleep(200)
-    ok((await win.locator('textarea').count()) === 1, 'Keep editing stays in the editor')
+    ok((await win.locator('.cm-content').count()) === 1, 'Keep editing stays on the file')
 
+    await win.locator('.cm-line').first().click()
     await win.keyboard.press('Control+s')
-    await win.waitForSelector('pre', { timeout: 5000 })
-    ok((await win.textContent('pre')).includes('gamma'), 'save returns to the viewer with the new text')
-    ok(readFileSync(notes, 'utf-8').includes('gamma'), 'the file on disk holds the edit')
+    await sleep(600)
+    ok(readFileSync(notes, 'utf-8').includes('gamma'), 'Ctrl+S writes the file in place')
+    ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 0, 'saving clears the dot')
 
-    // Markdown edits its unrendered source.
+    // Markdown is the one kind that keeps the pencil: it has a rendered form.
     await win.click('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
+    ok((await win.locator('[aria-label="Edit"]').count()) === 1, 'markdown keeps the pencil')
     await win.click('[aria-label="Edit"]')
-    await win.waitForSelector('textarea', { timeout: 5000 })
-    ok((await win.inputValue('textarea')).startsWith('<div align="center">'), 'markdown editor shows raw source')
+    await win.waitForSelector('.cm-content', { timeout: 5000 })
+    ok(
+      (await win.textContent('.cm-content')).startsWith('<div align="center">'),
+      'the pencil shows raw markdown source'
+    )
     await win.screenshot({ path: join(SHOTS, 'edit-md.png') })
-    await win.keyboard.press('Escape') // not dirty: straight back to the view
+    await win.click('button:has-text("Done")') // clean: straight back to the view
     await win.waitForSelector('.p-md h1', { timeout: 5000 })
-    ok(true, 'Escape leaves a clean editor without asking')
-    ok(!win.isClosed(), 'window survives editor Escape')
+    ok(true, 'Done leaves a clean editor without asking')
+    ok(!win.isClosed(), 'window survives the round trip')
+  } finally {
+    await app.close()
+  }
+}
+
+async function codeScenario(fixtures) {
+  console.log('code viewer')
+  const dir = join(fixtures, 'code')
+  const { app, win } = await launch(join(dir, 'main.py'))
+  const selected = () => win.locator('[role="treeitem"][aria-selected="true"]').textContent()
+  const caretInFile = () =>
+    win.evaluate(() => !!document.activeElement?.classList.contains('cm-content'))
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    ok((await win.locator('.cm-line span').count()) > 5, 'python highlights into coloured tokens')
+    ok((await win.locator('.cm-lineNumbers').count()) === 1, 'code gets a line-number gutter')
+    ok((await win.locator('.cm-foldGutter').count()) === 1, 'and a fold gutter')
+    ok((await win.locator('[aria-label="Edit"]').count()) === 0, 'no pencil on a code file')
+    await win.screenshot({ path: join(SHOTS, 'code.png') })
+
+    // The whole focus contract: a freshly opened file has no caret, so the
+    // arrows still belong to the folder, exactly as they do for an image.
+    ok(!(await caretInFile()), 'a freshly opened file has no caret')
+    // ...and holding focus on the scroller to do that must not draw Chromium's
+    // ring around the whole document frame.
+    ok(
+      await win.evaluate(() => {
+        const s = document.querySelector('.cm-scroller')
+        return document.activeElement === s && getComputedStyle(s).outlineStyle === 'none'
+      }),
+      'the focused scroller draws no focus frame'
+    )
+    await win.keyboard.press('ArrowLeft')
+    await sleep(700)
+    ok(((await selected()) ?? '').includes('hello.sh'), 'Left pages the folder while nothing is focused')
+
+    // Click into the text and the arrows become the caret's.
+    await win.locator('.cm-line').first().click()
+    await sleep(200)
+    ok(await caretInFile(), 'clicking into the text puts the caret in the file')
+    const before = await selected()
+    await win.keyboard.press('ArrowLeft')
+    await sleep(500)
+    ok((await selected()) === before, 'the arrows stop paging once the caret is in the file')
+
+    await win.keyboard.press('Escape')
+    await sleep(300)
+    ok(!(await caretInFile()), 'Escape hands focus back to the folder')
+    ok(!win.isClosed(), 'Escape does not close the window')
+    await win.keyboard.press('ArrowRight')
+    await sleep(700)
+    ok(((await selected()) ?? '').includes('main.py'), 'and the arrows page again')
+
+    // Squiggles, and the honest limit on them.
+    await win.click('[role="treeitem"]:has-text("broken.ts")')
+    await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 })
+    ok(true, 'a TypeScript syntax error gets a red underline')
+    await win.screenshot({ path: join(SHOTS, 'code-error.png') })
+
+    await win.click('[role="treeitem"]:has-text("bad.json")')
+    await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 })
+    ok(true, "JSON's trailing comma gets one too")
+
+    await win.click('[role="treeitem"]:has-text("hello.sh")')
+    await sleep(1500) // past the linter's debounce, so absence means absence
+    ok((await win.locator('.cm-line span').count()) > 3, 'shell is still coloured')
+    ok(
+      (await win.locator('.cm-lintRange-error').count()) === 0,
+      'a stream-lexed language never claims an error'
+    )
+
+    // Ctrl+F belongs to the file, whether or not the caret is in it.
+    await win.keyboard.press('Control+f')
+    await win.waitForSelector('.cm-panel.cm-search', { timeout: 5000 })
+    ok(true, 'Ctrl+F opens the code find bar')
+    await win.keyboard.type('echo')
+    await sleep(400)
+    ok((await win.locator('.cm-searchMatch').count()) >= 1, 'and finds a match')
+    await win.screenshot({ path: join(SHOTS, 'code-find.png') })
   } finally {
     await app.close()
   }
@@ -485,6 +571,8 @@ try {
   await contextMenuScenario(fixtures)
   await sleep(900)
   await editScenario(fixtures)
+  await sleep(900)
+  await codeScenario(fixtures)
   await sleep(900)
   await playerScenario(fixtures)
 } catch (e) {

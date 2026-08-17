@@ -460,7 +460,7 @@ if (!app.requestSingleInstanceLock()) {
     // the third thing Prism writes (after rename and bin), and the narrowest.
     ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<boolean> => {
       if (!isInsideRoot(sessionRoot, p) || !existsSync(p)) return false
-      if (fileKind(extname(p).toLowerCase()) !== 'text') return false
+      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text') return false
       try {
         await writeFile(p, text, 'utf-8')
         return true

@@ -93,6 +93,27 @@ export function buildFixtures() {
   writeFileSync(join(FIXTURES, 'song.mp3'), Buffer.alloc(128)) // listed by extension
   writeFileSync(join(FIXTURES, 'notes.txt'), 'alpha beta\n') // the edit scenario's canvas
 
+  // A folder of source files for the code scenario. It lives one level down so
+  // the root counts the filter scenario asserts on stay put. Name order is
+  // bad.json, broken.ts, hello.sh, main.py - the paging order the tests use.
+  mkdirSync(join(FIXTURES, 'code'), { recursive: true })
+  writeFileSync(
+    join(FIXTURES, 'code', 'main.py'),
+    'import sys\n\n\nclass Greeter:\n    """Says hello."""\n\n    def __init__(self, name: str) -> None:\n        self.name = name\n\n    def greet(self, times=1):\n        for i in range(times):\n            print(f"hello {self.name} #{i}")\n        return 42\n\n\nif __name__ == "__main__":\n    Greeter(sys.argv[1]).greet(3)\n'
+  )
+  // One unmistakable syntax error: an opening paren that never closes.
+  writeFileSync(
+    join(FIXTURES, 'code', 'broken.ts'),
+    'export function add(a: number, b: number {\n  return a + b\n}\n'
+  )
+  // A trailing comma, the mistake JSON.parse explains better than the grammar.
+  writeFileSync(join(FIXTURES, 'code', 'bad.json'), '{\n  "name": "prism",\n  "ok": true,\n}\n')
+  // Stream-lexed: coloured, never underlined, however odd it looks.
+  writeFileSync(
+    join(FIXTURES, 'code', 'hello.sh'),
+    '#!/usr/bin/env bash\nset -euo pipefail\nfor f in *.txt; do\n  echo "$f"\ndone\n'
+  )
+
   // Two short "episodes" for the player scenario (ffmpeg test pattern), and a
   // sidecar subtitle for the first, named the way the whole world names them.
   for (const ep of ['ep1', 'ep2']) {

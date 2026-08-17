@@ -41,16 +41,20 @@ never shipped: one small app that opens everything and looks good doing it.
   autoplay the next track).
 - **PDF**: Prism's own viewer, no browser chrome: continuous pages, zoom and fit, text
   selection, and its own Ctrl+F that counts matches across the whole document.
-- **Documents**: markdown renders formatted (badges, images, even embedded video); text and
-  code stay clean and monospaced.
+- **Documents**: markdown renders formatted (badges, images, even embedded video); plain text
+  stays clean and monospaced.
 - **Folder aware**: open one file, then use the arrow keys to move through its neighbours.
   Choose whether the arrows stay within media, within documents, or one file type, from the
   filter in the sidebar or Settings → General.
 - **File tree** (`Ctrl+B`): a collapsible panel of the folder you opened in. Expand subfolders,
   click any file to view it. It never reaches above that folder. Right-click for the verbs:
   open in another app, show in Explorer, copy, duplicate, rename, delete.
-- **Edit text files in place**: the pencil in the top bar opens the raw source (markdown too);
-  `Ctrl+S` saves, `Esc` backs out.
+- **Code, highlighted**: source files open with syntax colouring, line numbers, folding and
+  their own `Ctrl+F`, across ~150 languages. Where the language has a real grammar, a syntax
+  error gets the red underline you would expect from an editor.
+- **Edit text files in place**: any text file is editable where it sits, `Ctrl+S` to save. Click
+  into the text to get a caret; until you do, the arrow keys keep paging the folder. Markdown
+  keeps a pencil in the top bar, to swap its rendered page for its raw source.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
