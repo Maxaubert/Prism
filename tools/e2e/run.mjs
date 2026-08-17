@@ -38,6 +38,7 @@ const ok = (cond, name) => {
 async function seedProfile() {
   const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`] })
   const win = await app.firstWindow()
+  await offscreen(app)
   await win.evaluate((kv) => {
     for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
   }, { 'prism.onboarded': '1', 'prism.sidebar': '1' })
@@ -46,11 +47,34 @@ async function seedProfile() {
   await sleep(900) // let the single-instance lock go
 }
 
+/**
+ * Park the window where nobody has to watch the suite run: off the virtual
+ * desktop, transparent, out of the taskbar. Electron has no headless mode, and
+ * a genuinely hidden window (`win.hide()`) stops answering clicks and
+ * screenshots - it keeps compositing at this position, so everything works and
+ * nothing appears. Main shows the window on ready-to-show, so this has to run
+ * after that, and again once it has settled.
+ */
+const park = ({ BrowserWindow }) => {
+  const w = BrowserWindow.getAllWindows()[0]
+  if (!w) return
+  w.setSkipTaskbar(true)
+  w.setOpacity(0)
+  w.setPosition(-4000, -4000)
+}
+
+async function offscreen(app) {
+  await app.evaluate(park)
+  await sleep(500)
+  await app.evaluate(park)
+}
+
 /** Launch Prism on a file, in the seeded profile. */
 async function launch(file) {
   const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
+  await offscreen(app)
   await sleep(600) // the opened file arrives over IPC after load
   return { app, win }
 }
@@ -517,9 +541,15 @@ async function codeScenario(fixtures) {
     await sleep(700)
     ok(((await selected()) ?? '').includes('hello.sh'), 'Left pages the folder while nothing is focused')
 
-    // Click into the text and the arrows become the caret's.
+    // Click into the text and the arrows become the caret's. Waiting for the
+    // caret rather than sleeping at it: offscreen, the click takes a beat
+    // longer to land and a fixed pause made this flaky.
     await win.locator('.cm-line').first().click()
-    await sleep(200)
+    await win
+      .waitForFunction(() => !!document.activeElement?.classList.contains('cm-content'), undefined, {
+        timeout: 8000
+      })
+      .catch(() => {})
     ok(await caretInFile(), 'clicking into the text puts the caret in the file')
     const before = await selected()
     await win.keyboard.press('ArrowLeft')
@@ -545,7 +575,11 @@ async function codeScenario(fixtures) {
     ok(((await selected()) ?? '').includes('main.py'), 'and Down pages back')
 
     await win.locator('.cm-line').first().click()
-    await sleep(200)
+    await win
+      .waitForFunction(() => !!document.activeElement?.classList.contains('cm-content'), undefined, {
+        timeout: 8000
+      })
+      .catch(() => {})
     const held = await selected()
     await win.keyboard.press('ArrowUp')
     await sleep(500)
@@ -576,7 +610,7 @@ async function codeScenario(fixtures) {
     await win.waitForSelector('.cm-panel.cm-search', { timeout: 5000 })
     ok(true, 'Ctrl+F opens the code find bar')
     await win.keyboard.type('echo')
-    await sleep(400)
+    await win.waitForSelector('.cm-searchMatch', { timeout: 8000 }).catch(() => {})
     ok((await win.locator('.cm-searchMatch').count()) >= 1, 'and finds a match')
     await win.screenshot({ path: join(SHOTS, 'code-find.png') })
   } finally {
@@ -610,6 +644,23 @@ async function treeNavScenario(fixtures) {
     await sleep(500)
     ok(name(await cursor()) === 'nested', `Up steps onto the folder row (got ${name(await cursor())})`)
     ok((await win.locator('.cm-content').count()) === 1, 'and the viewer keeps showing the file')
+
+    // One mark, and it belongs to the cursor. The open file goes unmarked while
+    // the cursor is elsewhere; aria-selected still names it for a reader.
+    const marks = await win.evaluate(() => {
+      const solid = (el) => {
+        const c = getComputedStyle(el).backgroundColor
+        return c !== 'transparent' && !/rgba\(0, 0, 0, 0\)/.test(c)
+      }
+      const open = document.querySelector('[role="treeitem"][aria-selected="true"]')
+      return {
+        folderFilled: solid(document.activeElement),
+        openFilled: solid(open),
+        openRinged: getComputedStyle(open).boxShadow !== 'none'
+      }
+    })
+    ok(marks.folderFilled, 'the folder under the cursor takes the accent')
+    ok(!marks.openFilled && !marks.openRinged, 'and the open file carries no second highlight')
 
     // Enter is the row's own activation - it expands, then collapses.
     ok((await expanded('nested')) === 'false', 'the folder starts collapsed')
