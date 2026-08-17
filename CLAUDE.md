@@ -54,11 +54,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
   name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
-  always page the folder. In a text file, focus decides, and it decides for ALL FOUR arrows:
-  the file opens with no caret, so Up/Down page exactly as Left/Right do; click into the text
-  and all four become the caret's, until Escape hands focus back. Only the pdf and the
-  rendered markdown, which have no caret to own them, keep Up/Down for scrolling.
-  PageUp/PageDown always belong to the document.
+  always page the folder. **FOCUS decides the vertical keys, for every kind, and nothing
+  auto-focuses a document any more** (2026-08-17): opening a pdf, a README or a code file
+  takes no focus, so Up/Down and PageUp/PageDown keep paging the folder while you browse from
+  the sidebar. Click into the document (or Tab to it) and it owns them: the pdf flips pages,
+  the page scrolls, the caret moves. Escape hands them back without closing the window.
+  Documents mark their scroller `data-doc-scroller`; App's `docFocused()` is the single test,
+  and there is deliberately no kind-based DOC set any more. A window-level key listener in a
+  viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
 - **Rename + delete from the tree** (F2 / Delete / right-click, files and folders, decided 2026-08-01).

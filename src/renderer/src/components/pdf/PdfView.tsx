@@ -410,7 +410,11 @@ export function PdfView({
         closeFind()
         return
       }
+      // Flipping pages is the document's business, and only once the document
+      // has focus. This listener is on `window`, so without the check it fired
+      // from the sidebar too and paged the pdf instead of the folder.
       if (e.key === 'PageDown' || e.key === 'PageUp') {
+        if (!scroller.current?.contains(document.activeElement)) return
         e.preventDefault()
         goToPage(clamp(page + (e.key === 'PageDown' ? 1 : -1), 1, pageCount))
         return
@@ -448,10 +452,10 @@ export function PdfView({
     return () => box.removeEventListener('wheel', onWheel)
   }, [zoomBy])
 
-  // Documents own their vertical keys: focus makes native scrolling answer them.
-  useEffect(() => {
-    if (doc) scroller.current?.focus()
-  }, [doc])
+  // Deliberately NOT focused on open. A document earns the vertical keys by
+  // being clicked into (or tabbed to), never by merely being on screen: taking
+  // them on arrival is what used to make PageDown flip pages while the user was
+  // only paging through the folder from the sidebar. Escape gives them back.
 
   /* ---------- render ---------- */
 
@@ -486,7 +490,10 @@ export function PdfView({
     <div className="group relative h-full w-full">
       <div
         ref={scroller}
-        tabIndex={-1}
+        // 0, not -1: Tab is the keyboard's way into the document, and clicking
+        // anywhere on a page lands focus here too.
+        tabIndex={0}
+        data-doc-scroller
         onScroll={onScroll}
         className="h-full w-full overflow-auto outline-none"
       >
