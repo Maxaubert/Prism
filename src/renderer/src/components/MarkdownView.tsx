@@ -95,11 +95,10 @@ export function MarkdownView({
     }
   }, [path])
 
-  // Documents own their vertical keys (PageUp/Down, Up/Down): give the scroll
-  // container focus so the browser's native scrolling answers them.
-  useEffect(() => {
-    box.current?.focus()
-  }, [path, text])
+  // Deliberately NOT focused on open. A document earns the vertical keys by
+  // being clicked into (or tabbed to), never by merely being on screen: taking
+  // them on arrival is what used to leave Up/Down dead while the user was only
+  // paging through the folder from the sidebar. Escape gives them back.
 
   const followAnchor = (fragment: string): void => {
     const raw = decodeURIComponent(fragment)
@@ -160,7 +159,10 @@ export function MarkdownView({
   return (
     <div
       ref={box}
-      tabIndex={-1}
+      // 0, not -1: Tab is the keyboard's way into the document, and clicking
+      // anywhere inside lands focus here too.
+      tabIndex={0}
+      data-doc-scroller
       onClick={onClick}
       onAuxClick={onAuxClick}
       className="h-full w-full overflow-y-auto outline-none select-text"

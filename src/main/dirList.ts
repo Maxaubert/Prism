@@ -55,7 +55,8 @@ export function toViewerFile(p: string): ViewerFile {
   } catch {
     /* unreadable; leave 0 so the renderer just treats it as unknown */
   }
-  return { path: p, name: basename(p), ext, kind: fileKind(ext), size, mtimeMs }
+  const name = basename(p)
+  return { path: p, name, ext, kind: fileKind(ext, name), size, mtimeMs }
 }
 
 const byName = (a: { name: string }, b: { name: string }): number =>
@@ -92,10 +93,10 @@ export function searchFiles(root: string, query: string, maxHits = 200, maxEntri
         continue
       }
       const ext = extname(name)
-      if (!isViewable(ext)) continue
+      if (!isViewable(ext, name)) continue
       if (!name.toLowerCase().includes(q)) continue
       const rel = dir.slice(root.length).replace(/^[\\/]/, '')
-      hits.push({ path: join(dir, name), name, kind: fileKind(ext.toLowerCase()), dir: rel })
+      hits.push({ path: join(dir, name), name, kind: fileKind(ext.toLowerCase(), name), dir: rel })
       if (hits.length >= maxHits) return { hits, truncated: true }
     }
   }
@@ -121,7 +122,7 @@ export function listDir(dir: string): DirListing {
     const p = join(dir, name)
     try {
       if (statSync(p).isDirectory()) folders.push({ path: p, name })
-      else if (isViewable(extname(p))) files.push(toViewerFile(p))
+      else if (isViewable(extname(p), name)) files.push(toViewerFile(p))
     } catch {
       /* vanished or unreadable between readdir and stat; skip it */
     }
