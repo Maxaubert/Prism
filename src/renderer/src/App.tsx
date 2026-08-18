@@ -47,7 +47,6 @@ type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
-  | { kind: 'discard-edit'; proceed: () => void }
   | { kind: 'close-dirty' }
 
 function TopBar({
@@ -168,6 +167,9 @@ function TopBar({
 // source. Every other text file is only ever itself, so it needs no toggle.
 const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
 
+/** The last segment of a path, either separator. */
+const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
+
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
 function EditorLoading(): JSX.Element {
@@ -185,8 +187,8 @@ function Viewer({
   transportStyle,
   onOpenLocal,
   onAutoAdvance,
-  onEditorDirty,
-  onSaveHandle
+  onBuffer,
+  getPending
 }: {
   file: ViewerFile
   onToggleFullscreen: () => void
@@ -196,9 +198,10 @@ function Viewer({
   onOpenLocal: (path: string) => void
   /** Autoplay: a finished video/track moves to the next of its kind. */
   onAutoAdvance: () => void
-  /** Code and text edit in place, so the viewer itself can hold unsaved work. */
-  onEditorDirty: (dirty: boolean) => void
-  onSaveHandle: (save: (() => Promise<boolean>) | null) => void
+  /** Code and text edit in place, so the viewer hands its buffer up to App. */
+  onBuffer: (path: string, text: string | null) => void
+  /** Asked for the unsaved text of a file, if App is holding any. */
+  getPending: (path: string) => string | undefined
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -222,8 +225,8 @@ function Viewer({
             path={file.path}
             name={file.name}
             onSaved={() => {}}
-            onDirtyChange={onEditorDirty}
-            onSaveHandle={onSaveHandle}
+            onBuffer={onBuffer}
+            getPending={getPending}
           />
         </Suspense>
       )
@@ -288,38 +291,55 @@ export default function App(): JSX.Element {
   // docVersion so the rendered view re-reads what was written.
   const [editMode, setEditMode] = useState(false)
   const [docVersion, setDocVersion] = useState(0)
-  // Whether the editor holds unsaved text. A ref: navigation guards read it
-  // inside callbacks, and it must never be a render dependency. The state
-  // beside it exists only to put a dot in the top bar.
-  const editorDirty = useRef(false)
-  const [dirty, setDirty] = useState(false)
-  const onEditorDirty = useCallback((d: boolean) => {
-    editorDirty.current = d
-    setDirty(d)
-    // Main needs this too: it is what stops a close from discarding the buffer.
-    window.prism.setDirty(d)
+  // Unsaved text lives HERE, keyed by path, not inside the editor. That is what
+  // lets you edit a file, look at three others, come back, and find your edits
+  // still sitting there - and it is why leaving a file now asks nothing. Only
+  // closing the window can actually destroy any of it, so only closing asks.
+  // Keyed case-insensitively, as Windows paths are, but keeping the real path:
+  // that is what gets written, and what the tree matches its rows against.
+  const buffers = useRef(new Map<string, { path: string; text: string }>())
+  const [dirtyPaths, setDirtyPaths] = useState<ReadonlySet<string>>(new Set())
+  // The names as they are actually spelled. dirtyPaths is lowercased for
+  // matching, which is no way to address someone's file in a dialog.
+  const [unsavedNames, setUnsavedNames] = useState<readonly string[]>([])
+  const syncDirty = useCallback(() => {
+    setDirtyPaths(new Set(buffers.current.keys()))
+    setUnsavedNames([...buffers.current.values()].map((b) => baseName(b.path)))
+    // Main needs this too: it is what holds the window open on a close.
+    window.prism.setDirty(buffers.current.size > 0)
   }, [])
+  /** What the editor should show for a file: unsaved text if we kept any. */
+  const getPending = useCallback((p: string) => buffers.current.get(p.toLowerCase())?.text, [])
+  /** The editor reports its buffer as it changes; null once it matches disk. */
+  const onBuffer = useCallback(
+    (path: string, text: string | null) => {
+      const key = path.toLowerCase()
+      if (text === null) buffers.current.delete(key)
+      else buffers.current.set(key, { path, text })
+      syncDirty()
+    },
+    [syncDirty]
+  )
   /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
    *  drive (panel shut, search showing); App then pages the folder itself. */
   const treeNav = useRef<((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null>(null)
   const onNav = useCallback((step: typeof treeNav.current) => {
     treeNav.current = step
   }, [])
-  /** The open editor's save, lent up so the close question can offer it. */
-  const editorSave = useRef<(() => Promise<boolean>) | null>(null)
-  const onSaveHandle = useCallback((fn: (() => Promise<boolean>) | null) => {
-    editorSave.current = fn
-  }, [])
+  /** Write every unsaved buffer. Returns the paths that could not be written,
+   *  so a failing disk cancels the close instead of eating the work. */
+  const saveAll = useCallback(async (): Promise<string[]> => {
+    const failed: string[] = []
+    for (const [key, buf] of [...buffers.current]) {
+      if (await window.prism.writeText(buf.path, buf.text)) buffers.current.delete(key)
+      else failed.push(buf.path)
+    }
+    syncDirty()
+    return failed
+  }, [syncDirty])
   const [refreshKey, setRefreshKey] = useState(0)
   const [ask, setAsk] = useState<Ask | null>(null)
 
-  /** Anything that would move off (or reload out of) unsaved text goes through
-   *  here: it asks first. Every text file is editable in place now, not just
-   *  the one behind the pencil, so this guards on the buffer alone. */
-  const guardEdit = useCallback((proceed: () => void): void => {
-    if (editorDirty.current) setAsk({ kind: 'discard-edit', proceed })
-    else proceed()
-  }, [])
   // Settings covers the tree, so over it the same control collapses that page's
   // rail instead: one button, one idea - narrow the panel on the left.
   const [compactRail, setCompactRail] = useState(() => localStorage.getItem(RAIL_KEY) === '1')
@@ -355,8 +375,10 @@ export default function App(): JSX.Element {
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openFromTree = useCallback(
-    (p: string) => guardEdit(() => void window.prism.openWithin(p).then(open)),
-    [open, guardEdit]
+    // No guard: unsaved text is kept in `buffers`, so leaving a file costs
+    // nothing and there is nothing to ask about.
+    (p: string) => void window.prism.openWithin(p).then(open),
+    [open]
   )
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
@@ -377,12 +399,10 @@ export default function App(): JSX.Element {
       if (!raw || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      guardEdit(() => {
-        setRawIndex(raw.files.indexOf(view.files[next]))
-        setHasNavigated(true)
-      })
+      setRawIndex(raw.files.indexOf(view.files[next]))
+      setHasNavigated(true)
     },
-    [raw, view, guardEdit]
+    [raw, view]
   )
 
   const file = view?.files[view.index] ?? null
@@ -632,8 +652,8 @@ export default function App(): JSX.Element {
           // rendered form to leave, so they are simply editable where they sit.
           editable={file?.kind === 'text' && isMarkdown(file.name)}
           editing={editMode}
-          dirty={dirty}
-          onToggleEdit={() => guardEdit(() => setEditMode((v) => !v))}
+          dirty={dirtyPaths.size > 0}
+          onToggleEdit={() => setEditMode((v) => !v)}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -652,22 +672,14 @@ export default function App(): JSX.Element {
             currentPath={file?.path ?? null}
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
-            dirty={dirty}
+            dirtyPaths={dirtyPaths}
             onNav={onNav}
             refreshKey={refreshKey}
             onOpenFile={openFromTree}
             // Renaming or binning the edited file (or a folder over it) would
             // silently drop the editor's unsaved text; those ask first too.
-            onRename={(p, name) => {
-              const run = (): void => void runRename(p, name, 'ask')
-              if (file && within(file.path, p)) guardEdit(run)
-              else run()
-            }}
-            onDelete={(path, name, isFolder) => {
-              const show = (): void => setAsk({ kind: 'delete', path, name, isFolder })
-              if (file && within(file.path, path)) guardEdit(show)
-              else show()
-            }}
+            onRename={(p, name) => void runRename(p, name, 'ask')}
+            onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             wash={washed}
           />
         )}
@@ -686,17 +698,17 @@ export default function App(): JSX.Element {
               <CodeView
                 path={file.path}
                 name={file.name}
-                onClose={() => guardEdit(() => setEditMode(false))}
+                onClose={() => setEditMode(false)}
                 onSaved={() => {
                   setEditMode(false)
                   setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
                 }}
-                onDirtyChange={onEditorDirty}
-                onSaveHandle={onSaveHandle}
+                onBuffer={onBuffer}
+                getPending={getPending}
               />
             </Suspense>
           ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onEditorDirty={onEditorDirty} onSaveHandle={onSaveHandle} />
+            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
           ) : (
             <EmptyState onOpen={browse} />
           )}
@@ -734,34 +746,44 @@ export default function App(): JSX.Element {
 
       {ask?.kind === 'close-dirty' && (
         <Dialog
-          title="Save before closing?"
+          title={unsavedNames.length > 1 ? `${unsavedNames.length} files have unsaved changes` : 'Unsaved changes'}
           body={
             <>
-              <span className="text-[#d7dae1]">{file?.name ?? 'This file'}</span> has changes that
-              aren&apos;t on disk yet. Closing without saving throws them away.
+              <span className="text-[#d7dae1]">{unsavedNames.join(', ') || 'This file'}</span>
+              {unsavedNames.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              Closing without saving throws them away.
             </>
           }
           onCancel={() => setAsk(null)}
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             {
-              label: 'Close without saving',
+              label: 'Discard',
               danger: true,
               onPick: () => {
+                buffers.current.clear()
+                syncDirty()
                 setAsk(null)
                 window.prism.close(true)
               }
             },
             {
-              label: 'Save and close',
+              label: 'Save all changes',
               primary: true,
               onPick: () => {
                 void (async () => {
                   // A failed write must not close the window over the top of the
-                  // text it failed to keep: the editor shows why, we stay put.
-                  const saved = await editorSave.current?.()
+                  // text it failed to keep: we stay put and say which file.
+                  const failed = await saveAll()
+                  if (failed.length) {
+                    setAsk({
+                      kind: 'failed',
+                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
+                    })
+                    return
+                  }
                   setAsk(null)
-                  if (saved) window.prism.close(true)
+                  window.prism.close(true)
                 })()
               }
             }
@@ -783,29 +805,6 @@ export default function App(): JSX.Element {
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
             { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
-          ]}
-        />
-      )}
-
-      {ask?.kind === 'discard-edit' && (
-        <Dialog
-          title="Discard your changes?"
-          body="Leaving this file drops what you typed in the editor; the file keeps what it had."
-          onCancel={() => setAsk(null)}
-          choices={[
-            { label: 'Keep editing', onPick: () => setAsk(null) },
-            {
-              label: 'Discard',
-              danger: true,
-              primary: true,
-              onPick: () => {
-                const go = ask.proceed
-                onEditorDirty(false) // the buffer is being abandoned: ref and dot both
-                setEditMode(false)
-                setAsk(null)
-                go()
-              }
-            }
           ]}
         />
       )}

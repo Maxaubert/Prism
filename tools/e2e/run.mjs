@@ -69,13 +69,31 @@ async function offscreen(app) {
   await app.evaluate(park)
 }
 
-/** Launch Prism on a file, in the seeded profile. */
+/**
+ * Launch Prism on a file, in the seeded profile, and wait until that file is
+ * really the one on screen. Prism is single-instance: if the previous
+ * scenario's process still holds the lock, this launch hands the path to the
+ * OLD window and exits, and for a moment the window is still showing whatever
+ * it had. Sleeping and hoping made roughly one run in four type into the wrong
+ * file; waiting for the selected row settles it.
+ */
 async function launch(file) {
   const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
-  await sleep(600) // the opened file arrives over IPC after load
+  const want = /[^\\/]*$/.exec(file)?.[0] ?? file
+  await win
+    .waitForFunction(
+      (name) =>
+        document
+          .querySelector('[role="treeitem"][aria-selected="true"]')
+          ?.textContent?.includes(name) ?? false,
+      want,
+      { timeout: 15000 }
+    )
+    .catch(() => {})
+  await sleep(400)
   return { app, win }
 }
 
@@ -472,13 +490,21 @@ async function editScenario(fixtures) {
     await sleep(200)
     ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 1, 'the bar grows a dirty dot')
 
-    // Navigating away from unsaved text asks first; "Keep editing" stays.
+    // Leaving a dirty file now asks NOTHING - and must not cost the text.
     await win.click('[role="treeitem"]:has-text("README.md")')
-    await win.waitForSelector('text=Discard your changes?', { timeout: 5000 })
-    ok(true, 'leaving unsaved text asks first')
-    await win.click('button:has-text("Keep editing")')
-    await sleep(200)
-    ok((await win.locator('.cm-content').count()) === 1, 'Keep editing stays on the file')
+    await win.waitForSelector('.p-md h1', { timeout: 10000 })
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'leaving unsaved text asks nothing')
+    ok(
+      (await win.locator('[role="treeitem"]:has-text("notes.txt")').textContent())?.includes('*'),
+      'and the file it left keeps its star'
+    )
+    await win.click('[role="treeitem"]:has-text("notes.txt")')
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await sleep(500)
+    ok(
+      (await win.textContent('.cm-content')).includes('gamma'),
+      'coming back shows the edits, not what is on disk'
+    )
 
     await win.locator('.cm-line').first().click()
     await win.keyboard.press('Control+s')
@@ -727,21 +753,41 @@ async function unsavedScenario(fixtures) {
     // Closing must not throw the buffer away in silence. This is the real
     // window close (main blocks it), not a renderer-side intercept.
     await win.evaluate(() => window.prism.close())
-    await win.waitForSelector('text=Save before closing?', { timeout: 5000 })
+    await win.waitForSelector('text=/unsaved changes/i', { timeout: 5000 })
     ok(true, 'closing with unsaved text asks first')
-    await win.screenshot({ path: join(SHOTS, 'unsaved-close.png') })
 
     await win.click('button:has-text("Cancel")')
     await sleep(400)
     ok(!win.isClosed(), 'Cancel keeps the window open')
     ok(((await row().textContent()) ?? '').includes('*'), 'and keeps the unsaved text')
 
-    // Save and close: the file lands on disk, then the window really goes.
+    // A second file, edited and left: two buffers pending at once, which is
+    // what "save all changes" is for.
+    const readme = join(fixtures, 'README.md')
+    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.waitForSelector('.p-md h1', { timeout: 10000 })
+    await win.click('[aria-label="Edit"]')
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('epsilon')
+    await sleep(400)
+    ok(
+      (await win.locator('[role="treeitem"]').filter({ hasText: '*' }).count()) === 2,
+      'two files are starred at once'
+    )
+
     await win.evaluate(() => window.prism.close())
-    await win.waitForSelector('text=Save before closing?', { timeout: 5000 })
-    await win.click('button:has-text("Save and close")')
-    await sleep(1500)
-    ok(readFileSync(notes, 'utf-8').includes('delta'), 'Save and close writes the file')
+    await win.waitForSelector('text=/unsaved changes/i', { timeout: 5000 })
+    const body = (await win.textContent('[role="dialog"]')) ?? ''
+    ok(/notes\.txt/.test(body) && /README\.md/.test(body), `the question names both files, as they are spelled (said: ${JSON.stringify(body.slice(0, 120))})`)
+    ok(body.includes('Save all changes') && body.includes('Discard'), 'and offers cancel / discard / save all')
+    await win.screenshot({ path: join(SHOTS, 'unsaved-close.png') })
+
+    await win.click('button:has-text("Save all changes")')
+    await sleep(2000)
+    ok(readFileSync(notes, 'utf-8').includes('delta'), 'Save all writes the first file')
+    ok(readFileSync(readme, 'utf-8').includes('epsilon'), 'and the second')
     ok(win.isClosed(), 'and the window closes')
   } finally {
     await app.close().catch(() => {})
