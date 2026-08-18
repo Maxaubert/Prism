@@ -758,8 +758,10 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             {
+              // Not `danger`: discarding here throws away typing, not a file,
+              // and the red read as heavier than the act. Same weight as
+              // Cancel; "Save all changes" is the one carrying the accent.
               label: 'Discard',
-              danger: true,
               onPick: () => {
                 buffers.current.clear()
                 syncDirty()
