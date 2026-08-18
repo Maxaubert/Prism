@@ -314,8 +314,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         }
         const on = !!t.currentPath && f.path.toLowerCase() === t.currentPath.toLowerCase()
         // Unsaved work, said the way every editor says it: bold, and a star.
-        // Only the open file can be dirty, so only its row can carry this.
-        const unsaved = on && t.dirty
+        // Any file can carry it now, not just the open one - unsaved text
+        // survives you wandering off to look at something else.
+        const unsaved = t.dirtyPaths.has(f.path.toLowerCase())
         // One mark, not two: the accent is the cursor, and it follows the arrows
         // onto folders. Which file is on screen goes deliberately unmarked while
         // the cursor is elsewhere - the viewer is already showing it, and a

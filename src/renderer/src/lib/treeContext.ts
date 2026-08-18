@@ -9,8 +9,8 @@ export interface TreeApi {
   expanded: Set<string>
   children: Record<string, DirListing>
   currentPath: string | null
-  /** The open file has unsaved text: its row says so with a bold name and a *. */
-  dirty: boolean
+  /** Every file holding unsaved text: each says so with a bold name and a *. */
+  dirtyPaths: ReadonlySet<string>
   /** The row the arrow keys are on. Usually the open file, but it steps onto
    *  folders too, where there is nothing to open and only a highlight to move. */
   cursor: string | null
