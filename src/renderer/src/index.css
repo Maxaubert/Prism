@@ -99,13 +99,18 @@ video::cue {
   --color-accent-hi: var(--p-accent-hi);
   --color-panel: var(--p-title);
 
-  /* Code tokens. Deliberately NOT part of a style: the window chrome recolours,
+  /* Code tokens. Deliberately NOT part of a STYLE: the window chrome recolours,
      a syntax palette shouldn't, or the same function reads as a string after a
-     style switch. Muted on purpose, so a page of code stays quiet. */
+     style switch. They do follow the MODE, because that is legibility rather
+     than decoration - the dark set is invisible on a light background (strings
+     measured 1.7:1 against Orchid). Every value below clears WCAG AA (4.5:1)
+     against every style background of its mode; check with a contrast tool
+     before changing one. Muted on purpose, so a page of code stays quiet, and
+     comment stays the dimmest of them. */
   --p-code-keyword: #a78bfa;
   --p-code-string: #9ec97f;
   --p-code-number: #d9a05b;
-  --p-code-comment: #6b7280;
+  --p-code-comment: #78818f;
   --p-code-fn: #7fb3e8;
   --p-code-type: #6fd0c4;
   --p-code-const: #e2a3c7;
@@ -113,6 +118,27 @@ video::cue {
   --p-code-meta: #8b93a1;
   --p-code-invalid: #e06c75;
   --p-code-active-line: rgba(255, 255, 255, 0.035);
+  --p-code-sel: rgba(255, 255, 255, 0.11);
+  --p-code-match: rgba(255, 255, 255, 0.12);
+}
+
+/* The same palette re-cut for the light styles: same hue families, darkened
+   until each clears AA on the palest background Prism ships (Daybreak). Without
+   this the dark set carries over and code is effectively unreadable. */
+:root[data-mode='light'] {
+  --p-code-keyword: #6f42c1;
+  --p-code-string: #1f6640;
+  --p-code-number: #7f4800;
+  --p-code-comment: #5b636e;
+  --p-code-fn: #1a63b8;
+  --p-code-type: #0f6f68;
+  --p-code-const: #a5325f;
+  --p-code-op: #54606e;
+  --p-code-meta: #5c5f8a;
+  --p-code-invalid: #c02626;
+  --p-code-active-line: rgba(0, 0, 0, 0.04);
+  --p-code-sel: rgba(0, 0, 0, 0.1);
+  --p-code-match: rgba(0, 0, 0, 0.12);
 }
 
 body {
