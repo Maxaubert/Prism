@@ -56,8 +56,9 @@ never shipped: one small app that opens everything and looks good doing it.
   error gets the red underline you would expect from an editor.
 - **Edit text files in place**: any text file is editable where it sits, `Ctrl+S` to save. Click
   into the text to get a caret; until you do, the arrow keys keep paging the folder. Markdown
-  keeps a pencil in the top bar, to swap its rendered page for its raw source. An unsaved file
-  is named in the tree in bold with a `*`, and nothing closes Prism out from under it.
+  keeps a pencil in the top bar, to swap its rendered page for its raw source. Wander off to
+  another file and your edits wait for you: unsaved files are starred in the tree, and nothing
+  closes Prism out from under them.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
