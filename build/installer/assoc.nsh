@@ -51,10 +51,20 @@
   !insertmacro PRISM_PROGID "Prism.Document" "Document"
   !insertmacro PRISM_PROGID "Prism.Text" "Text file"
 
-  ; the same lists src/shared/fileKind.ts calls viewable - all of them. Code
+  ; The same lists src/shared/fileKind.ts calls viewable - ALL of them. Code
   ; and config types were excluded once ("a .ts belongs to an editor"), but the
   ; decision was reversed (2026-08-12, #45): being offered costs nothing, the
   ; default is still never taken, and Prism edits text now anyway.
+  ;
+  ; This list and fileKind.ts must stay in step, and they did not: the code
+  ; viewer added 96 extensions here that were never registered, so Prism opened
+  ; a .py and never showed up in its "Open with". A comment claiming parity did
+  ; not stop that, so src/shared/fileAssoc.test.ts now checks it and names the
+  ; extensions to add. Add a type to fileKind, add it here, or the suite fails.
+  ;
+  ; Extension-based only, so the bare names fileKind also matches (Dockerfile,
+  ; Makefile, LICENSE) and the dotfiles (.gitignore) cannot appear: Windows
+  ; associates on extension and those have none.
   !insertmacro PRISM_EXT "png"  "Prism.Image"
   !insertmacro PRISM_EXT "jpg"  "Prism.Image"
   !insertmacro PRISM_EXT "jpeg" "Prism.Image"
@@ -88,24 +98,140 @@
 
   !insertmacro PRISM_EXT "pdf"  "Prism.Document"
 
-  !insertmacro PRISM_EXT "txt"  "Prism.Text"
-  !insertmacro PRISM_EXT "md"   "Prism.Text"
+  ; prose and data
+  !insertmacro PRISM_EXT "txt"      "Prism.Text"
+  !insertmacro PRISM_EXT "md"       "Prism.Text"
   !insertmacro PRISM_EXT "markdown" "Prism.Text"
-  !insertmacro PRISM_EXT "csv"  "Prism.Text"
-  !insertmacro PRISM_EXT "log"  "Prism.Text"
-  !insertmacro PRISM_EXT "json" "Prism.Text"
-  !insertmacro PRISM_EXT "js"   "Prism.Text"
-  !insertmacro PRISM_EXT "ts"   "Prism.Text"
-  !insertmacro PRISM_EXT "tsx"  "Prism.Text"
-  !insertmacro PRISM_EXT "jsx"  "Prism.Text"
-  !insertmacro PRISM_EXT "css"  "Prism.Text"
-  !insertmacro PRISM_EXT "html" "Prism.Text"
-  !insertmacro PRISM_EXT "xml"  "Prism.Text"
-  !insertmacro PRISM_EXT "yml"  "Prism.Text"
-  !insertmacro PRISM_EXT "yaml" "Prism.Text"
-  !insertmacro PRISM_EXT "ini"  "Prism.Text"
-  !insertmacro PRISM_EXT "srt"  "Prism.Text"
-  !insertmacro PRISM_EXT "vtt"  "Prism.Text"
+  !insertmacro PRISM_EXT "rst"      "Prism.Text"
+  !insertmacro PRISM_EXT "adoc"     "Prism.Text"
+  !insertmacro PRISM_EXT "tex"      "Prism.Text"
+  !insertmacro PRISM_EXT "csv"      "Prism.Text"
+  !insertmacro PRISM_EXT "log"      "Prism.Text"
+  !insertmacro PRISM_EXT "srt"      "Prism.Text"
+  !insertmacro PRISM_EXT "vtt"      "Prism.Text"
+  !insertmacro PRISM_EXT "diff"     "Prism.Text"
+  !insertmacro PRISM_EXT "patch"    "Prism.Text"
+
+  ; web
+  !insertmacro PRISM_EXT "html"     "Prism.Text"
+  !insertmacro PRISM_EXT "xhtml"    "Prism.Text"
+  !insertmacro PRISM_EXT "css"      "Prism.Text"
+  !insertmacro PRISM_EXT "scss"     "Prism.Text"
+  !insertmacro PRISM_EXT "sass"     "Prism.Text"
+  !insertmacro PRISM_EXT "less"     "Prism.Text"
+  !insertmacro PRISM_EXT "styl"     "Prism.Text"
+  !insertmacro PRISM_EXT "vue"      "Prism.Text"
+  !insertmacro PRISM_EXT "svelte"   "Prism.Text"
+  !insertmacro PRISM_EXT "astro"    "Prism.Text"
+  !insertmacro PRISM_EXT "xml"      "Prism.Text"
+  !insertmacro PRISM_EXT "svgz"     "Prism.Text"
+
+  ; javascript and friends
+  !insertmacro PRISM_EXT "js"       "Prism.Text"
+  !insertmacro PRISM_EXT "mjs"      "Prism.Text"
+  !insertmacro PRISM_EXT "cjs"      "Prism.Text"
+  !insertmacro PRISM_EXT "jsx"      "Prism.Text"
+  !insertmacro PRISM_EXT "ts"       "Prism.Text"
+  !insertmacro PRISM_EXT "mts"      "Prism.Text"
+  !insertmacro PRISM_EXT "cts"      "Prism.Text"
+  !insertmacro PRISM_EXT "tsx"      "Prism.Text"
+  !insertmacro PRISM_EXT "json"     "Prism.Text"
+  !insertmacro PRISM_EXT "jsonc"    "Prism.Text"
+  !insertmacro PRISM_EXT "json5"    "Prism.Text"
+  !insertmacro PRISM_EXT "ipynb"    "Prism.Text"
+
+  ; scripting
+  !insertmacro PRISM_EXT "py"       "Prism.Text"
+  !insertmacro PRISM_EXT "pyw"      "Prism.Text"
+  !insertmacro PRISM_EXT "rb"       "Prism.Text"
+  !insertmacro PRISM_EXT "php"      "Prism.Text"
+  !insertmacro PRISM_EXT "pl"       "Prism.Text"
+  !insertmacro PRISM_EXT "pm"       "Prism.Text"
+  !insertmacro PRISM_EXT "lua"      "Prism.Text"
+  !insertmacro PRISM_EXT "r"        "Prism.Text"
+  !insertmacro PRISM_EXT "jl"       "Prism.Text"
+  !insertmacro PRISM_EXT "tcl"      "Prism.Text"
+
+  ; shells
+  !insertmacro PRISM_EXT "sh"       "Prism.Text"
+  !insertmacro PRISM_EXT "bash"     "Prism.Text"
+  !insertmacro PRISM_EXT "zsh"      "Prism.Text"
+  !insertmacro PRISM_EXT "fish"     "Prism.Text"
+  !insertmacro PRISM_EXT "ps1"      "Prism.Text"
+  !insertmacro PRISM_EXT "psm1"     "Prism.Text"
+  !insertmacro PRISM_EXT "bat"      "Prism.Text"
+  !insertmacro PRISM_EXT "cmd"      "Prism.Text"
+
+  ; compiled
+  !insertmacro PRISM_EXT "c"        "Prism.Text"
+  !insertmacro PRISM_EXT "h"        "Prism.Text"
+  !insertmacro PRISM_EXT "cc"       "Prism.Text"
+  !insertmacro PRISM_EXT "cpp"      "Prism.Text"
+  !insertmacro PRISM_EXT "cxx"      "Prism.Text"
+  !insertmacro PRISM_EXT "hpp"      "Prism.Text"
+  !insertmacro PRISM_EXT "hh"       "Prism.Text"
+  !insertmacro PRISM_EXT "hxx"      "Prism.Text"
+  !insertmacro PRISM_EXT "m"        "Prism.Text"
+  !insertmacro PRISM_EXT "mm"       "Prism.Text"
+  !insertmacro PRISM_EXT "cs"       "Prism.Text"
+  !insertmacro PRISM_EXT "go"       "Prism.Text"
+  !insertmacro PRISM_EXT "rs"       "Prism.Text"
+  !insertmacro PRISM_EXT "zig"      "Prism.Text"
+  !insertmacro PRISM_EXT "java"     "Prism.Text"
+  !insertmacro PRISM_EXT "kt"       "Prism.Text"
+  !insertmacro PRISM_EXT "kts"      "Prism.Text"
+  !insertmacro PRISM_EXT "scala"    "Prism.Text"
+  !insertmacro PRISM_EXT "swift"    "Prism.Text"
+  !insertmacro PRISM_EXT "dart"     "Prism.Text"
+  !insertmacro PRISM_EXT "groovy"   "Prism.Text"
+  !insertmacro PRISM_EXT "vb"       "Prism.Text"
+  !insertmacro PRISM_EXT "pas"      "Prism.Text"
+  !insertmacro PRISM_EXT "f90"      "Prism.Text"
+  !insertmacro PRISM_EXT "asm"      "Prism.Text"
+  !insertmacro PRISM_EXT "s"        "Prism.Text"
+
+  ; functional
+  !insertmacro PRISM_EXT "hs"       "Prism.Text"
+  !insertmacro PRISM_EXT "ex"       "Prism.Text"
+  !insertmacro PRISM_EXT "exs"      "Prism.Text"
+  !insertmacro PRISM_EXT "erl"      "Prism.Text"
+  !insertmacro PRISM_EXT "clj"      "Prism.Text"
+  !insertmacro PRISM_EXT "cljs"     "Prism.Text"
+  !insertmacro PRISM_EXT "elm"      "Prism.Text"
+  !insertmacro PRISM_EXT "fs"       "Prism.Text"
+  !insertmacro PRISM_EXT "fsx"      "Prism.Text"
+  !insertmacro PRISM_EXT "ml"       "Prism.Text"
+  !insertmacro PRISM_EXT "mli"      "Prism.Text"
+
+  ; hardware
+  !insertmacro PRISM_EXT "v"        "Prism.Text"
+  !insertmacro PRISM_EXT "sv"       "Prism.Text"
+  !insertmacro PRISM_EXT "vhd"      "Prism.Text"
+  !insertmacro PRISM_EXT "vhdl"     "Prism.Text"
+
+  ; data and queries
+  !insertmacro PRISM_EXT "sql"      "Prism.Text"
+  !insertmacro PRISM_EXT "graphql"  "Prism.Text"
+  !insertmacro PRISM_EXT "gql"      "Prism.Text"
+  !insertmacro PRISM_EXT "proto"    "Prism.Text"
+
+  ; config and build
+  !insertmacro PRISM_EXT "yml"      "Prism.Text"
+  !insertmacro PRISM_EXT "yaml"     "Prism.Text"
+  !insertmacro PRISM_EXT "toml"     "Prism.Text"
+  !insertmacro PRISM_EXT "ini"      "Prism.Text"
+  !insertmacro PRISM_EXT "cfg"      "Prism.Text"
+  !insertmacro PRISM_EXT "conf"     "Prism.Text"
+  !insertmacro PRISM_EXT "properties" "Prism.Text"
+  !insertmacro PRISM_EXT "env"      "Prism.Text"
+  !insertmacro PRISM_EXT "editorconfig" "Prism.Text"
+  !insertmacro PRISM_EXT "tf"       "Prism.Text"
+  !insertmacro PRISM_EXT "tfvars"   "Prism.Text"
+  !insertmacro PRISM_EXT "nix"      "Prism.Text"
+  !insertmacro PRISM_EXT "gradle"   "Prism.Text"
+  !insertmacro PRISM_EXT "cmake"    "Prism.Text"
+  !insertmacro PRISM_EXT "mk"       "Prism.Text"
+
 
   ; the executable as an application in its own right, which is what the
   ; per-type "Choose another app" dialog looks up
