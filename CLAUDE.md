@@ -100,7 +100,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
-  Never hijack defaults silently.
+  Never hijack defaults silently. The installer offers EVERY viewable type
+  (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that
+  list is the only thing deciding what Windows will offer Prism for.
 
 **Out of scope (v1):** playlists / library / collections, editing, casting, streaming URLs,
 subtitles (planned later), office-doc rendering beyond PDF (planned later), cross-platform
@@ -137,6 +139,15 @@ These already exist in Filesmith and are the seed of `prism-core` (extracted in 
 - `src/main/thumbnail.ts` + `Util/IconHelper` equivalents: thumbnail/decoded-image fallback.
 
 ## Build, test, release
+
+**Standing step, every time a new file type is supported:** ask whether this change adds an
+extension. If it does, it goes in `src/shared/fileKind.ts` AND
+`build/installer/assoc.nsh`, or Windows will never offer Prism for it - Prism will open the
+file happily and be missing from its "Open with", which is exactly what happened to 96
+extensions when the code viewer landed. `src/shared/fileAssoc.test.ts` enforces the parity and
+names the extensions to add, so the answer to "did I remember?" is `npm test`, not a re-read.
+Bare names (`Dockerfile`, `Makefile`) and dotfiles cannot be registered: Windows associates on
+extension and they have none.
 
 `npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
