@@ -85,11 +85,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Text edits in place** (2026-08-17, replacing the 2026-08-12 edit mode): every text file is
   simply editable where it sits, Ctrl+S to save. The pencil now belongs to **markdown alone**,
   the one kind with a rendered form to toggle away from; code and `.txt` have none, so a mode
-  switch there was meaningless chrome. Leaving unsaved text always asks (App's `guardEdit`,
-  now gated on the buffer rather than on a mode), and so does CLOSING: main mirrors the
-  renderer's dirty flag and blocks `win.on('close')` until the user answers (save / discard /
-  cancel), which covers Alt+F4 and the taskbar, not just the X. The dirty file is named in
-  the tree, bold with a `*`, and a dot sits in the top bar.
+  switch there was meaningless chrome. **Unsaved text lives in App, keyed by path**
+  (2026-08-18), not inside the editor: leaving a file keeps it, so switching files asks
+  NOTHING and coming back shows your edits rather than what is on disk. Every dirty file is
+  starred and bold in the tree, not just the open one. The only thing that can destroy the
+  work is closing, so only closing asks: main mirrors the renderer's dirty flag and blocks
+  `win.on('close')` until the user answers **Cancel / Discard / Save all changes** (which
+  covers Alt+F4 and the taskbar, not just the X). A failed write cancels the close and names
+  the file rather than closing over the top of it.
   Prism's writes are therefore: rename, bin,
   duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
   fresh decision, not a natural next step.

@@ -44,8 +44,8 @@ export function CodeView({
   name,
   onClose,
   onSaved,
-  onDirtyChange,
-  onSaveHandle
+  onBuffer,
+  getPending
 }: {
   path: string
   name: string
@@ -54,17 +54,26 @@ export function CodeView({
   onClose?: () => void
   /** The file on disk now holds this buffer. */
   onSaved: () => void
-  /** App guards navigation behind this: leaving unsaved text must ask. */
-  onDirtyChange: (dirty: boolean) => void
-  /** Lends App this buffer's save, so the closing-with-unsaved-text question
-   *  can offer to save rather than only to discard. Null once unmounted. */
-  onSaveHandle?: (save: (() => Promise<boolean>) | null) => void
+  /** Hand the buffer up as it changes, or null once it matches disk. App owns
+   *  it from there, so leaving this file no longer throws the text away. */
+  onBuffer: (path: string, text: string | null) => void
+  /** Unsaved text App is already holding for this file, if any: what you typed
+   *  before wandering off to another one. Asked for rather than passed, so a
+   *  keystroke does not have to travel back down through a re-render. */
+  getPending: (path: string) => string | undefined
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   // The text as it was read, so "dirty" means "differs from disk" rather than
   // "was typed in". Keyed by path: a slow read must not land in another file.
   const saved = useRef<{ path: string; text: string } | null>(null)
+  // The path the update listener attributes its text to. A ref, because that
+  // listener is built once and outlives every file it shows; written in an
+  // effect rather than during render.
+  const pathRef = useRef(path)
+  useEffect(() => {
+    pathRef.current = path
+  }, [path])
   const [dirty, setDirty] = useState(false)
   const [failed, setFailed] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -73,12 +82,13 @@ export function CodeView({
   const [loadedPath, setLoadedPath] = useState<string | null>(null)
   const ready = loadedPath === path
 
-  const markDirty = useCallback(
-    (d: boolean) => {
-      setDirty((was) => (was === d ? was : d))
-      onDirtyChange(d)
+  /** Report the buffer up, and keep the local flag the pill reads. */
+  const report = useCallback(
+    (text: string | null) => {
+      setDirty((was) => (was === (text !== null) ? was : text !== null))
+      onBuffer(pathRef.current, text)
     },
-    [onDirtyChange]
+    [onBuffer]
   )
 
   // Build the editor once. Everything file-specific rides in a compartment, so
@@ -105,7 +115,8 @@ export function CodeView({
             if (u.focusChanged) setEditing(u.view.hasFocus)
             if (!u.docChanged) return
             const disk = saved.current
-            markDirty(disk !== null && u.state.doc.toString() !== disk.text)
+            const now = u.state.doc.toString()
+            report(disk !== null && now !== disk.text ? now : null)
           })
         ]
       })
@@ -122,7 +133,7 @@ export function CodeView({
       v.destroy()
       view.current = null
     }
-  }, [markDirty])
+  }, [report])
 
   // Load the file, and reconfigure the language, the linter and the gutters to
   // match it. Runs on every path change, since the view outlives the file.
@@ -133,8 +144,11 @@ export function CodeView({
       ([text, langExt]) => {
         const v = view.current
         if (!alive || !v) return
-        const body = text ?? '(could not read file)'
-        saved.current = { path, text: body }
+        const disk = text ?? '(could not read file)'
+        saved.current = { path, text: disk }
+        // Unsaved text App kept for this file wins over what is on disk: coming
+        // back to a file you edited must show your edits, not undo them.
+        const body = getPending(path) ?? disk
         v.dispatch({
           changes: { from: 0, to: v.state.doc.length, insert: body },
           selection: { anchor: 0 },
@@ -149,7 +163,7 @@ export function CodeView({
             )
           ]
         })
-        markDirty(false)
+        report(body === disk ? null : body)
         setFailed(false)
         setLoadedPath(path)
         // A fresh file is a document, not a cursor, and it takes no focus at
@@ -160,9 +174,11 @@ export function CodeView({
     return () => {
       alive = false
     }
-  }, [path, name, markDirty])
-
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange]) // unmount leaves App clean
+    // getPending is read once per file, deliberately: it seeds this editor
+    // rather than tracking it. Re-running on every keystroke would fight the
+    // buffer it is feeding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, name, report])
 
   const save = useCallback(async (): Promise<boolean> => {
     const v = view.current
@@ -174,17 +190,11 @@ export function CodeView({
       return false
     }
     saved.current = { path, text }
-    markDirty(false)
+    report(null)
     setFailed(false)
     onSaved()
     return true
-  }, [path, markDirty, onSaved])
-
-  // Lend the save out for as long as this editor is the one on screen.
-  useEffect(() => {
-    onSaveHandle?.(save)
-    return () => onSaveHandle?.(null)
-  }, [save, onSaveHandle])
+  }, [path, report, onSaved])
 
   // Ctrl+S and Ctrl+F belong to the open file whether or not it has focus -
   // and since nothing focuses it on arrival, that has to be a window listener
