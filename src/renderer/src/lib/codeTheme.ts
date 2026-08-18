@@ -34,21 +34,24 @@ const chrome = EditorView.theme(
     '&:not(.cm-focused) .cm-cursor': { display: 'none' },
     '&.cm-focused, &:focus, &:focus-visible': { outline: 'none' },
 
-    '.cm-selectionBackground, ::selection': { backgroundColor: 'rgba(255, 255, 255, 0.11)' },
+    '.cm-selectionBackground, ::selection': { backgroundColor: 'var(--p-code-sel)' },
     '&.cm-focused .cm-selectionBackground, &.cm-focused ::selection': {
       backgroundColor: 'color-mix(in srgb, var(--p-accent) 55%, transparent)'
     },
     '.cm-activeLine': { backgroundColor: 'var(--p-code-active-line)' },
     '&:not(.cm-focused) .cm-activeLine': { backgroundColor: 'transparent' },
 
+    // --p-dim, not --p-dim2: the theme generates dim2 against a 3.2:1 target,
+    // which is fine for a label beside something else and not fine for line
+    // numbers you actually read. dim is generated against 4.5:1.
     '.cm-gutters': {
       backgroundColor: 'transparent',
-      color: 'var(--p-dim2)',
+      color: 'var(--p-dim)',
       border: 'none',
       paddingRight: '4px'
     },
     '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--p-text-soft)' },
-    '&:not(.cm-focused) .cm-activeLineGutter': { color: 'var(--p-dim2)' },
+    '&:not(.cm-focused) .cm-activeLineGutter': { color: 'var(--p-dim)' },
     '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 18px', minWidth: '38px' },
     // Fold arrows are chrome, and chrome fades when it isn't needed: they only
     // appear once the pointer is over the gutter they belong to.
@@ -142,7 +145,7 @@ const chrome = EditorView.theme(
       padding: '0 6px'
     },
     '.cm-panel.cm-search button[name=close]:hover': { color: 'var(--p-text)' },
-    '.cm-searchMatch': { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: '2px' },
+    '.cm-searchMatch': { backgroundColor: 'var(--p-code-match)', borderRadius: '2px' },
     '.cm-searchMatch.cm-searchMatch-selected': {
       backgroundColor: 'color-mix(in srgb, var(--p-accent) 75%, transparent)'
     },
