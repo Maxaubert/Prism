@@ -76,3 +76,11 @@ export interface OpenPayload {
   index: number
   root: string
 }
+
+/** A shell main detected on this machine; the only things term:spawn launches. */
+export interface ShellDef {
+  id: string
+  name: string
+  exe: string
+  args: string[]
+}

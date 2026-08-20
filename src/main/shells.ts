@@ -1,15 +1,11 @@
 import { spawnSync } from 'child_process'
+import type { ShellDef } from '@shared/types'
 
 // The shells this machine actually has. Prism never execs a renderer-supplied
 // path: the renderer names a shell by id, and the id is looked up in this list,
 // which main built itself - the same rule the "Open in" menu follows.
 
-export interface ShellDef {
-  id: string
-  name: string
-  exe: string
-  args: string[]
-}
+export type { ShellDef }
 
 /**
  * Distro names out of decoded `wsl -l -q` output. The -q form prints one bare
