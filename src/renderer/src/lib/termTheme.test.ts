@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { buildTermTheme } from './termTheme'
 
 describe('buildTermTheme', () => {
+  it('carries a derived ANSI palette: syntax adapts to the base', () => {
+    const t = buildTermTheme('#7a1111', '#f5e9e9', '#5b5bd6')
+    expect(t.red).toBeDefined()
+    expect(t.red).not.toBe('#e05561') // adapted away from the seed on red
+  })
+
   it('the style surfaces become the terminal surfaces', () => {
     const t = buildTermTheme('#000000', '#e3e6ea', '#7c7cf0')
     expect(t.background).toBe('#000000') // void: a black terminal
