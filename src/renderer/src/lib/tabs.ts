@@ -25,6 +25,10 @@ export interface TreeState {
 export interface Tab {
   /** Stable for the tab's life; the React key and the id every action names. */
   id: string
+  /** The one non-folder tab: the Settings page riding the strip so it can be
+   *  flipped to and from like anything else. Not persisted, never confirmed
+   *  on close, owns no root. */
+  kind?: 'settings'
   /** Absolute. The folder the tree is bounded by and main checks against. */
   root: string
   /** The root folder's viewable files, as main listed them. */
@@ -87,6 +91,14 @@ export function setTabTerm(
   return tabs.map((t) => (t.id === tabId ? { ...t, term } : t))
 }
 
+/** Open the Settings tab: activate the existing one, or add it at the end. */
+export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
+  const existing = tabs.find((t) => t.kind === 'settings')
+  if (existing) return { tabs: tabs.slice(), activeId: existing.id }
+  const tab: Tab = { id, kind: 'settings', root: '', files: [], index: -1, tree: emptyTree(''), term: null }
+  return { tabs: [...tabs, tab], activeId: id }
+}
+
 export interface TabState {
   tabs: Tab[]
   activeId: string | null
@@ -119,7 +131,7 @@ export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabSta
  * left, not a reload.
  */
 export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  const hit = tabs.findIndex((t) => sameRoot(t.root, p.root))
+  const hit = tabs.findIndex((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
   if (hit >= 0) {
     const next = tabs.slice()
     const was = next[hit]
@@ -198,7 +210,7 @@ function parentOf(p: string): string {
  * A drive root has no basename, so it keeps its whole path.
  */
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const bases = tabs.map((t) => baseOf(t.root))
+  const bases = tabs.map((t) => (t.kind === 'settings' ? 'Settings' : baseOf(t.root)))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very
   // same folder (the + allows that) have nothing to tell apart, so they keep
   // the plain name rather than both growing an identical suffix.

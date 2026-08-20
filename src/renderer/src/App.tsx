@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
@@ -311,6 +311,16 @@ export default function App(): JSX.Element {
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   const rawIndex = active?.index ?? -1
+  const settingsOpen = active?.kind === 'settings'
+  const openSettings = useCallback(() => {
+    setTabState((s) => openSettingsTab(s.tabs, `settings-${(settingsSeq.current += 1)}`))
+  }, [])
+  const closeSettingsTab = useCallback(() => {
+    setTabState((s) => {
+      const st = s.tabs.find((t) => t.kind === 'settings')
+      return st ? closeTab(s.tabs, st.id, s.activeId) : s
+    })
+  }, [])
   /** Point the active tab at another of its files. */
   const setRawIndex = useCallback(
     (i: number) =>
@@ -327,7 +337,11 @@ export default function App(): JSX.Element {
   const [dragging, setDragging] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Settings rides the strip as a tab of its own kind, so it can be flipped
+  // to and from like any other. `settingsOpen` is simply "the settings tab is
+  // in front"; the page itself stays mounted underneath either way, keeping
+  // its own internal state.
+  const settingsSeq = useRef(0)
   // Setup launches with --setup, which shows the guide even here, where it has
   // been through once already.
   const [setup, setSetup] = useState(
@@ -438,18 +452,19 @@ export default function App(): JSX.Element {
   const heldRoots = useRef<readonly string[]>([])
   const hadTabs = useRef(false)
   useEffect(() => {
-    const now = tabs.map((t) => t.root)
+    const folderTabs = tabs.filter((t) => t.kind !== 'settings')
+    const now = folderTabs.map((t) => t.root)
     for (const was of heldRoots.current) {
       if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
     }
     heldRoots.current = now
     // Mount says nothing (there is nothing to persist and no root to drop);
     // once a tab has existed, an empty list is real news: the last tab closed.
-    if (tabs.length) hadTabs.current = true
+    if (folderTabs.length) hadTabs.current = true
     else if (!hadTabs.current) return
     window.prism.tabsChanged(
-      tabs.map((t) => ({ root: t.root, file: t.files[t.index]?.path })),
-      Math.max(0, tabs.findIndex((t) => t.id === activeId))
+      folderTabs.map((t) => ({ root: t.root, file: t.files[t.index]?.path })),
+      Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
     )
   }, [tabs, activeId])
 
@@ -562,6 +577,10 @@ export default function App(): JSX.Element {
     (id: string) => {
       const tab = tabs.find((t) => t.id === id)
       if (!tab) return
+      if (tab.kind === 'settings') {
+        forceCloseTab(id)
+        return
+      }
       const names = dirtyUnder(tab.root)
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else if (confirmCloseTabs())
@@ -605,7 +624,7 @@ export default function App(): JSX.Element {
     (fn: typeof toggleTermView) =>
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab) return s
+        if (!tab || tab.kind === 'settings') return s
         const next = fn(tab.term, nextTermId())
         if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
         return { ...s, tabs: setTabTerm(s.tabs, tab.id, next) }
@@ -1122,7 +1141,7 @@ export default function App(): JSX.Element {
           name={sidebar && active && !settingsOpen ? '' : (file?.name ?? '')}
           pos={pos}
           settingsOpen={settingsOpen}
-          onToggleSettings={() => setSettingsOpen((v) => !v)}
+          onToggleSettings={openSettings}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
           setup={setup}
@@ -1160,7 +1179,7 @@ export default function App(): JSX.Element {
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
-        {active && !fullscreen && (
+        {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar}
             root={active.root}
@@ -1264,11 +1283,11 @@ export default function App(): JSX.Element {
       <Settings
         open={settingsOpen}
         onShowSetup={() => {
-          setSettingsOpen(false)
+          closeSettingsTab()
           setSetup(true)
         }}
         compactRail={compactRail}
-        onClose={() => setSettingsOpen(false)}
+        onClose={closeSettingsTab}
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
       />

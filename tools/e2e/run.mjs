@@ -389,14 +389,36 @@ async function sortScenario(fixtures) {
     ok(((await firstRow()) ?? '').includes('ep1.en.srt'), 'name ascending is back to normal')
     await win.screenshot({ path: join(SHOTS, 'sorting.png') })
 
-    // Settings grew a Terminal tab: shell, theme, font size live there.
+    // Settings opens as a TAB on the strip now, so it can be flipped to and
+    // from; its rail grew a Terminal page with theme cards and font size.
     await win.click('[aria-label="Settings"]')
     await sleep(400)
+    ok(
+      await win.locator('[role="tab"]:has-text("Settings")').isVisible().catch(() => false),
+      'the cog opens Settings as a tab on the strip'
+    )
     await win.click('button:has-text("Terminal")')
     await sleep(300)
     ok(
-      (await win.locator('#term-theme').count()) === 1 && (await win.locator('#term-font').count()) === 1,
-      'the Terminal settings tab offers theme and font size'
+      (await win.locator('[data-term-card]').count()) >= 6 && (await win.locator('#term-font').count()) === 1,
+      'the Terminal settings page offers theme preview cards and font size'
+    )
+    // Flip away to the folder tab and back: the strip is the way around.
+    await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(300)
+    ok(
+      await win.locator('.p-md h1').first().isVisible().catch(() => false),
+      'flipping to the folder tab shows the document again'
+    )
+    await win.locator('[role="tab"]:has-text("Settings")').click()
+    await sleep(300)
+    ok((await win.locator('[data-term-card]').count()) >= 6, 'and back to Settings, same page')
+    // Close it like any tab.
+    await win.locator('[role="tab"]:has-text("Settings")').locator('..').locator('[aria-label^="Close"]').click()
+    await sleep(300)
+    ok(
+      (await win.locator('[role="tab"]:has-text("Settings")').count()) === 0,
+      'the Settings tab closes like any other'
     )
   } finally {
     await app.close()

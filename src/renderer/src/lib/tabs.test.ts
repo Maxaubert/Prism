@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -238,5 +238,24 @@ describe('the terminal slot', () => {
     const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', view: 'split' })
     const r = rerootTab(withTerm, shoot.id, payload(DOCS, []), 'x')
     expect(r.tabs[0].term).toEqual({ id: 's1', view: 'split' })
+  })
+})
+
+describe('the settings tab', () => {
+  it('opens once and re-activates after that', () => {
+    const a = tabOf(SHOOT, [])
+    const first = openSettingsTab([a], 'set-1')
+    expect(first.tabs).toHaveLength(2)
+    expect(first.tabs[1].kind).toBe('settings')
+    const again = openSettingsTab(first.tabs, 'set-2')
+    expect(again.tabs).toHaveLength(2)
+    expect(again.activeId).toBe('set-1')
+  })
+  it('is labelled Settings and never swallows an arriving file', () => {
+    const st = openSettingsTab([], 's').tabs
+    expect(tabLabels(st)).toEqual(['Settings'])
+    const r = receiveFile(st, payload(SHOOT, []), 'n')
+    expect(r.tabs).toHaveLength(2)
+    expect(r.tabs[1].kind).toBeUndefined()
   })
 })
