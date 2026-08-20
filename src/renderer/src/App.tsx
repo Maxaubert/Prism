@@ -56,6 +56,7 @@ function TopBar({
   onToggleSettings,
   panelOpen,
   onTogglePanel,
+  onOpenFolder,
   setup,
   wash,
   editable,
@@ -72,6 +73,9 @@ function TopBar({
   /** The left-hand panel of whatever is on screen: the tree, or the rail. */
   panelOpen: boolean
   onTogglePanel: () => void
+  /** Choose a folder to root in. The other button about "what am I looking at",
+   *  so it sits beside the panel toggle. */
+  onOpenFolder: () => void
   /** First-run setup is up: the bar keeps the name and the window buttons, and
    *  drops the controls for an app you haven't met yet. */
   setup: boolean
@@ -108,6 +112,19 @@ function TopBar({
         <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <path d="M9 4v16" />
+        </svg>
+      </button>
+      )}
+      {!setup && (
+      <button
+        className="no-drag grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+        onClick={onOpenFolder}
+        title="Open folder (Ctrl+T)"
+        aria-label="Open folder"
+      >
+        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <path d="M12 11v5m2.5-2.5h-5" />
         </svg>
       </button>
       )}
@@ -359,11 +376,13 @@ export default function App(): JSX.Element {
   }, [])
 
   const open = useCallback((p: OpenPayload | null) => {
-    if (p && p.files.length) {
-      setRaw(p)
-      setRawIndex(Math.max(0, Math.min(p.files.length - 1, p.index)))
-      setHasNavigated(false) // a fresh open starts in "opened directly" mode
-    }
+    if (!p) return
+    // index -1 is a folder that was opened deliberately and holds nothing
+    // viewable: root the tree there anyway and leave the viewer empty, so it is
+    // a place to browse from rather than a refusal.
+    setRaw(p)
+    setRawIndex(p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1)
+    setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
   useEffect(() => window.prism.onOpenFile(open), [open])
@@ -372,6 +391,9 @@ export default function App(): JSX.Element {
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
+  /** Choose a folder to root in. The only route that names a root deliberately;
+   *  every other one infers it from whatever file arrived. */
+  const openFolder = useCallback(() => void window.prism.openFolder().then(open), [open])
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openFromTree = useCallback(
@@ -389,7 +411,7 @@ export default function App(): JSX.Element {
   const scope = useNavScope()
   const sort = useSort()
   const view = useMemo(() => {
-    if (!raw) return null
+    if (!raw || rawIndex < 0 || !raw.files.length) return null
     const ordered = sortFiles(raw.files, sort.field, sort.dir)
     return scopeFiles(ordered, ordered.indexOf(raw.files[rawIndex]), scope)
   }, [raw, rawIndex, scope, sort])
@@ -520,6 +542,9 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
+      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
+        e.preventDefault()
+        openFolder()
       } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
         e.preventDefault()
         togglePanel()
@@ -574,7 +599,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, settingsOpen, setup, togglePanel])
+  }, [file, fullscreen, go, hasNavigated, openFolder, settingsOpen, setup, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -646,6 +671,7 @@ export default function App(): JSX.Element {
           onToggleSettings={() => setSettingsOpen((v) => !v)}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
+          onOpenFolder={openFolder}
           setup={setup}
           wash={washed}
           // Only markdown takes the pencil. Code and plain text have no

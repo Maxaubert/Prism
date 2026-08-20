@@ -218,6 +218,17 @@ function buildPayload(p: string, reroot: boolean): OpenPayload | null {
   return { files, index: idx, root: sessionRoot }
 }
 
+/** Build the open payload for a FOLDER the user chose: the tree roots there and
+ *  the viewer shows its first viewable file. A folder holding nothing Prism can
+ *  show still opens - you get its tree and an empty viewer, which is a usable
+ *  place to browse from rather than a refusal. */
+function folderPayload(dir: string): OpenPayload | null {
+  if (!existsSync(dir)) return null
+  sessionRoot = dir
+  const files = listDir(dir).files
+  return { files, index: files.length ? 0 : -1, root: sessionRoot }
+}
+
 /** The file path an OS "open" passed us, if any (last argv entry that's a file). */
 function pathFromArgv(argv: string[]): string | null {
   for (let i = argv.length - 1; i >= 1; i -= 1) {
@@ -423,6 +434,13 @@ if (!app.requestSingleInstanceLock()) {
       const r = await dialog.showOpenDialog({ properties: ['openFile'] })
       if (r.canceled || !r.filePaths.length) return null
       return buildPayload(r.filePaths[0], true)
+    })
+    // Choosing a folder rather than a file: the other way in, and the only one
+    // that names the root deliberately instead of inferring it from a file.
+    ipcMain.handle('open:folder', async (): Promise<OpenPayload | null> => {
+      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      if (r.canceled || !r.filePaths.length) return null
+      return folderPayload(r.filePaths[0])
     })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p, true))
     // A click in the sidebar tree. Inside the root only, and it leaves the root
