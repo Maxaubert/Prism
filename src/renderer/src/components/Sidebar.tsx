@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
-import type { DirListing, OpenWithApp, ViewerFile } from '@shared/types'
+import type { OpenWithApp, ViewerFile } from '@shared/types'
+import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { matchesScope, useNavScope } from '../lib/navScope'
@@ -30,12 +31,6 @@ const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MI
 function loadWidth(): number {
   const v = Number(localStorage.getItem(WIDTH_KEY))
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
-}
-
-interface TreeState {
-  expanded: Set<string>
-  /** path -> its children, once loaded. Absent means "not loaded yet". */
-  children: Record<string, DirListing>
 }
 
 /**
@@ -103,7 +98,9 @@ export function Sidebar({
   onRename,
   onDelete,
   onNav,
-  wash
+  wash,
+  state,
+  onTree
 }: {
   open: boolean
   root: string
@@ -121,8 +118,18 @@ export function Sidebar({
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
   /** Whether the style's light reaches the panel. Follows the window. */
   wash: boolean
+  /** The tree's expanded folders and loaded children. Owned by the tab. */
+  state: TreeState
+  onTree: (update: (s: TreeState) => TreeState) => void
 }): JSX.Element {
-  const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
+  // The tree's state belongs to the TAB, not to this component. Owned here it
+  // reset on every tab switch, which made a tab feel like a reload rather than
+  // a place you left, so App holds it and hands it down.
+  //
+  // Updates go up as functions, never as values: this component no longer holds
+  // the current state, so only the owner can apply one. That is also what keeps
+  // this handle stable, which the loading effect below depends on.
+  const setState = onTree
   const [revealed, setRevealed] = useState<string | null>(null)
   const [width, setWidth] = useState(loadWidth)
   const [dragging, setDragging] = useState(false)
@@ -153,14 +160,14 @@ export function Sidebar({
   const load = useCallback(async (p: string, force = false): Promise<void> => {
     const listing = (await window.prism.listDir(root, p)) ?? { folders: [], files: [], unreadable: true }
     setState((s) => (s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }))
-  }, [root])
+  }, [root, setState])
 
   const toggle = useCallback(
     (p: string) => {
       setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
       void load(p)
     },
-    [load]
+    [load, setState]
   )
 
   // Reveal: when the open file changes, expand every folder between the root and
