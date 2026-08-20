@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
-import { closeTab, receiveFile, rerootTab, sameRoot, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, receiveFile, rerootTab, sameRoot, type TabState, type TreeState } from './lib/tabs'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -428,9 +428,22 @@ export default function App(): JSX.Element {
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
-  /** Choose a folder to root in. The only route that names a root deliberately;
-   *  every other one infers it from whatever file arrived. */
-  const openFolder = useCallback(() => void window.prism.openFolder().then(open), [open])
+  /**
+   * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
+   * so a tab arrives rooted at the user's own folder and you browse from there.
+   * Choosing a folder is the sidebar's button, which changes THIS tab.
+   *
+   * It spawns unconditionally, unlike an arriving file: pressing + and watching
+   * nothing happen because that root was already open would be worse than two
+   * tabs on one folder.
+   */
+  const newTab = useCallback(() => {
+    void window.prism.openHome().then((p) => {
+      if (!p) return
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setHasNavigated(false)
+    })
+  }, [])
 
 
   /** Close one tab. The last one leaves an empty window rather than taking the
@@ -668,7 +681,7 @@ export default function App(): JSX.Element {
         window.prism.setFullscreen(!fullscreen)
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
         e.preventDefault()
-        openFolder()
+        newTab()
       } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && !typing) {
         // Deliberately does NOT take the window on the last tab. Prism is
         // resident, and a window that vanishes under a reflex keystroke -
@@ -736,7 +749,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, openFolder, settingsOpen, setup, stepTab, togglePanel])
+  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, settingsOpen, setup, stepTab, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -828,7 +841,7 @@ export default function App(): JSX.Element {
           activeId={activeId}
           onPick={pickTab}
           onClose={closeOneTab}
-          onNew={openFolder}
+          onNew={newTab}
           wash={washed}
         />
       )}

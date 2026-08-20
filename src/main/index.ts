@@ -476,6 +476,10 @@ if (!app.requestSingleInstanceLock()) {
       if (r.canceled || !r.filePaths.length) return null
       return folderPayload(r.filePaths[0])
     })
+    // A new tab, with nothing to answer first. The + is meant to be instant, so
+    // it lands somewhere sensible - the user's own folder - and the sidebar's
+    // folder button is where choosing happens.
+    ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
     // The renderer owns the tab list; main only persists it and keeps the wall
     // in step, so a root whose tab was closed stops being reachable.

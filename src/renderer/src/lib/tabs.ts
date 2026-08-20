@@ -57,6 +57,20 @@ export interface TabState {
 }
 
 /**
+ * Add a tab, unconditionally.
+ *
+ * The strip's `+` is an explicit "give me a tab", not "show me this file", so
+ * unlike `receiveFile` it does NOT fold into a tab that already has that root:
+ * pressing + and watching nothing happen is worse than two tabs on one folder.
+ * Arriving files still land in the first tab matching their root, so nothing
+ * downstream has to care that two can exist.
+ */
+export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
+  const spawned = newTab(p, id)
+  return { tabs: [...tabs, spawned], activeId: spawned.id }
+}
+
+/**
  * Where a file arriving from outside lands. One rule, three outcomes:
  *
  *   1. A tab whose root already holds it: switch to that tab and point it at
@@ -80,8 +94,7 @@ export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): T
     }
     return { tabs: next, activeId: was.id }
   }
-  const spawned = newTab(p, id)
-  return { tabs: [...tabs, spawned], activeId: spawned.id }
+  return addTab(tabs, p, id)
 }
 
 /**

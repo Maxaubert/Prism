@@ -20,8 +20,10 @@ export function TabStrip({
   activeId: string | null
   onPick: (id: string) => void
   onClose: (id: string) => void
-  /** The + at the end. This one ADDS a tab; the sidebar's folder button
-   *  replaces the current one. Different verbs, so different labels. */
+  /** The + at the end. This one ADDS a tab, rooted at the user's own folder
+   *  with nothing to answer first; the sidebar's folder button is the one that
+   *  opens a chooser, and it replaces the current tab. Different verbs, so
+   *  different labels. */
   onNew: () => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
@@ -84,7 +86,7 @@ export function TabStrip({
       })}
       <button
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        title="Open a folder in a new tab (Ctrl+T)"
+        title="New tab (Ctrl+T)"
         aria-label="New tab"
         onClick={onNew}
       >
