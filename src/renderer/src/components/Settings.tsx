@@ -20,6 +20,7 @@ import {
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
 import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
+import { savedShellId, saveShellId } from '../lib/termPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -773,8 +774,32 @@ function GeneralTab(): JSX.Element {
   const follow = useAutoScroll()
   const side = useTreeSide()
   const current = NAV_SCOPES.find((s) => s.id === scope)
+  // The shells main detected, fetched when the tab first shows. `saved` may
+  // name one that no longer exists; the select then shows the real default,
+  // which is also what a new terminal would actually launch.
+  const [shells, setShells] = useState<Array<{ id: string; name: string }>>([])
+  const [shellChoice, setShellChoice] = useState(() => savedShellId() ?? '')
+  useEffect(() => {
+    void window.prism.termShells().then(setShells)
+  }, [])
+  const shellValue = shells.some((sh) => sh.id === shellChoice)
+    ? shellChoice
+    : (shells[0]?.id ?? '')
   return (
     <div className={ROWS}>
+      {shells.length > 0 && (
+        <Pref id="term-shell" label="Terminal shell" hint="Applies to new terminals.">
+          <Select
+            id="term-shell"
+            value={shellValue}
+            onChange={(v) => {
+              setShellChoice(v)
+              saveShellId(v)
+            }}
+            options={shells}
+          />
+        </Pref>
+      )}
       <Pref id="nav-scope" label="Navigation mode" hint={current?.hint}>
         <Select
           id="nav-scope"
