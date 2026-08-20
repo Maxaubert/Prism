@@ -1028,6 +1028,55 @@ async function terminalScenario(fixtures) {
       'reopening shows the same shell, scrollback intact'
     )
 
+    const countMarker = async () =>
+      (((await win.locator('.xterm').textContent()) ?? '').match(/prism-e2e-marker/g) ?? []).length
+
+    // PSReadLine renders the input line in colour; through the pty that
+    // arrives as SGR and xterm draws it as styled spans. White-on-dark only
+    // would mean the highlighting chain is broken somewhere.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('echo hi')
+    await sleep(600)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('.xterm [class*="xterm-fg-"]').length)) > 0,
+      'the input line is syntax-highlighted (PSReadLine colours reach xterm)'
+    )
+    await win.keyboard.press('Escape') // RevertLine: a clean prompt again
+    await sleep(300)
+
+    // The ghost suggestion: history holds the earlier echo, so its prefix
+    // summons the rest as inline text, and RightArrow accepts the whole line.
+    const base = await countMarker()
+    await win.keyboard.type('echo pri')
+    await sleep(1200)
+    ok((await countMarker()) >= base + 1, 'typing a prefix shows the history suggestion as ghost text')
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      (n) => ((document.querySelector('.xterm')?.textContent ?? '').match(/prism-e2e-marker/g) ?? []).length >= n,
+      base + 2,
+      { timeout: 10000 }
+    )
+    ok(true, 'RightArrow accepts the suggestion and it runs')
+
+    // The terminal button's own menu: split, and clear.
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open in split view")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 1,
+      'right-clicking the terminal button offers split and clear'
+    )
+    await win.locator('[role="menuitem"]:has-text("Clear terminal")').click()
+    await sleep(500)
+    ok((await countMarker()) === 0, 'Clear terminal wipes screen and scrollback')
+    ok(
+      ((await win.locator('.xterm').textContent()) ?? '').includes('PS '),
+      'but the prompt (same shell, same cwd) is still there'
+    )
+    await win.locator('.xterm').click()
+
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
     await win.locator('.xterm').click()
@@ -1042,16 +1091,38 @@ async function terminalScenario(fixtures) {
 
     // The image half: Ctrl+V with an image forwards the ^V key instead of
     // pasting text, so nothing appears - and the shell stays healthy.
-    const before = (await win.locator('.xterm').textContent()) ?? ''
-    await app.evaluate(({ clipboard, nativeImage }) => {
-      const png =
-        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP8z8Dwn4EBTAEAHhcCAd6P9ToAAAAASUVORK5CYII='
-      clipboard.writeImage(nativeImage.createFromDataURL(png))
+    // The previous clipboard TEXT must not reappear: with an image on the
+    // clipboard the ^V key is forwarded for the TUI to read, and nothing gets
+    // text-pasted. (Exact before/after equality is too strict now that
+    // PSReadLine actively redraws the input line.)
+    const countPaste = async () =>
+      (((await win.locator('.xterm').textContent()) ?? '').match(/paste-marker/g) ?? []).length
+    const beforeN = await countPaste()
+    // The Windows clipboard is a shared resource and writeImage can silently
+    // lose the race to whoever holds it open; write until it verifiably took.
+    // A canvas-made PNG is valid by construction (hand-rolled base64 proved
+    // twice today that it is not).
+    const pngUrl = await win.evaluate(() => {
+      const c = document.createElement('canvas')
+      c.width = 8
+      c.height = 8
+      const g = c.getContext('2d')
+      g.fillStyle = '#c0392b'
+      g.fillRect(0, 0, 8, 8)
+      return c.toDataURL('image/png')
     })
+    let clipHasImage = false
+    for (let i = 0; i < 5 && !clipHasImage; i += 1) {
+      clipHasImage = await app.evaluate(({ clipboard, nativeImage }, url) => {
+        clipboard.writeImage(nativeImage.createFromDataURL(url))
+        return clipboard.availableFormats().some((f) => f.startsWith('image/'))
+      }, pngUrl)
+      if (!clipHasImage) await sleep(400)
+    }
+    ok(clipHasImage, 'the clipboard verifiably holds the image (harness precondition)')
     await win.keyboard.press('Control+v')
     await sleep(800)
-    const after = (await win.locator('.xterm').textContent()) ?? ''
-    ok(after === before, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
+    ok((await countPaste()) === beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
     await win.keyboard.type('echo still-alive')
     await win.keyboard.press('Enter')
     await win.waitForFunction(

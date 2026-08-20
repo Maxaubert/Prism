@@ -39,7 +39,31 @@ let cached: Promise<ShellDef[]> | null = null
 export function detectShells(): Promise<ShellDef[]> {
   cached ??= Promise.resolve().then(() => {
     const list: ShellDef[] = []
-    if (probe('pwsh.exe')) list.push({ id: 'pwsh', name: 'PowerShell 7', exe: 'pwsh.exe', args: ['-NoLogo'] })
+    if (probe('pwsh.exe'))
+      list.push({
+        id: 'pwsh',
+        name: 'PowerShell 7',
+        exe: 'pwsh.exe',
+        // PSReadLine's ghost suggestions from history (RightArrow accepts,
+        // Up/Down recalls), switched on explicitly so no profile or version
+        // default can leave them off.
+        //
+        // EnableScreenReaderMode:$false matters more than it looks: when the
+        // system screen-reader flag is set (automation tooling flips it as a
+        // false positive), PSReadLine 2.4 silently drops to a plain renderer -
+        // no colours, no predictions. This puts the real renderer back. A user
+        // actually running a screen reader can pick a different shell in
+        // Settings; a per-user toggle is the future knob if anyone needs it.
+        // The try keeps older PSReadLine versions (no such parameter) working.
+        //
+        // Windows PowerShell ships PSReadLine 2.0: no prediction, plain args.
+        args: [
+          '-NoLogo',
+          '-NoExit',
+          '-Command',
+          'Set-PSReadLineOption -PredictionSource History; try { Set-PSReadLineOption -EnableScreenReaderMode:$false } catch {}'
+        ]
+      })
     list.push({ id: 'powershell', name: 'Windows PowerShell', exe: 'powershell.exe', args: ['-NoLogo'] })
     list.push({ id: 'cmd', name: 'Command Prompt', exe: 'cmd.exe', args: [] })
     // wsl -l -q prints UTF-16LE. --cd . starts the distro in the pty's cwd.

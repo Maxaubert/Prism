@@ -105,6 +105,8 @@ export function Sidebar({
   onOpenSplit,
   splitPath,
   onRemoveSplit,
+  onTermSplit,
+  onClearTerm,
   state,
   onTree
 }: {
@@ -137,6 +139,10 @@ export function Sidebar({
    *  menu offers the way OUT instead of the way in. */
   splitPath: string | null
   onRemoveSplit: () => void
+  /** The terminal button's own right-click menu. */
+  onTermSplit: () => void
+  /** Null while no shell exists: there is nothing to clear yet. */
+  onClearTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -158,6 +164,9 @@ export function Sidebar({
   // brings the tree back exactly as it was (its state never unmounts).
   const [query, setQuery] = useState('')
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
+  // The terminal button's right-click menu: its own tiny state, since the file
+  // menu carries a path and this one is about the tab's shell.
+  const [termMenu, setTermMenu] = useState<{ x: number; y: number } | null>(null)
   const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   // The file the tree has already been positioned for. Scrolling away by hand
@@ -538,6 +547,10 @@ export function Sidebar({
                 : 'border-[color:var(--p-line)] text-[var(--p-icon)] hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]'
             }`}
             onClick={onToggleTerm}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setTermMenu({ x: e.clientX, y: e.clientY })
+            }}
             title="Terminal (Ctrl+`)"
             aria-label="Terminal"
             aria-pressed={termOpen}
@@ -576,6 +589,31 @@ export function Sidebar({
           }`}
         />
       </div>
+
+      {termMenu && (
+        <ContextMenu
+          x={termMenu.x}
+          y={termMenu.y}
+          onClose={() => setTermMenu(null)}
+          items={[
+            {
+              label: 'Open in split view',
+              icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+              onPick: onTermSplit
+            },
+            // Only once a shell exists: there is nothing to clear before that.
+            ...(onClearTerm
+              ? [
+                  {
+                    label: 'Clear terminal',
+                    icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
+                    onPick: onClearTerm
+                  }
+                ]
+              : [])
+          ]}
+        />
+      )}
 
       {menu && (
         <ContextMenu
