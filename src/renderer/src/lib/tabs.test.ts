@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, tabLabels, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, setTabTerm, tabLabels, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -187,5 +187,24 @@ describe('addTab', () => {
     const r = addTab([shoot], payload(DOCS, ['D:\\docs\\r.md']), 'n')
     expect(r.tabs.map((t) => t.root)).toEqual([SHOOT, DOCS])
     expect(r.activeId).toBe('n')
+  })
+})
+
+describe('the terminal slot', () => {
+  it('a new tab has no terminal', () => {
+    expect(tabOf(SHOOT, []).term).toBeNull()
+  })
+  it('setTabTerm writes only the named tab', () => {
+    const a = tabOf(SHOOT, [])
+    const b = tabOf(DOCS, [])
+    const next = setTabTerm([a, b], a.id, { id: 's1', open: true })
+    expect(next[0].term).toEqual({ id: 's1', open: true })
+    expect(next[1].term).toBeNull()
+  })
+  it('rerooting keeps the shell: a dev server survives the tree moving', () => {
+    const shoot = tabOf(SHOOT, ['C:@shoot@a.jpg'.split('@').join(String.fromCharCode(92))])
+    const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', open: true })
+    const r = rerootTab(withTerm, shoot.id, payload(DOCS, []), 'x')
+    expect(r.tabs[0].term).toEqual({ id: 's1', open: true })
   })
 })

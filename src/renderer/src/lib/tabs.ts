@@ -30,6 +30,9 @@ export interface Tab {
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
   tree: TreeState
+  /** The tab's shell, if one was ever opened. `open` is only visibility:
+   *  a hidden terminal keeps running. Null until the first toggle. */
+  term: { id: string; open: boolean } | null
 }
 
 /** A tree with only its root open and nothing loaded. */
@@ -47,8 +50,18 @@ export function newTab(p: OpenPayload, id: string): Tab {
     root: p.root,
     files: p.files,
     index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
-    tree: emptyTree(p.root)
+    tree: emptyTree(p.root),
+    term: null
   }
+}
+
+/** Write one tab's terminal slot; every other tab is untouched. */
+export function setTabTerm(
+  tabs: readonly Tab[],
+  tabId: string,
+  term: Tab['term']
+): Tab[] {
+  return tabs.map((t) => (t.id === tabId ? { ...t, term } : t))
 }
 
 export interface TabState {
@@ -121,7 +134,10 @@ export function rerootTab(
   const i = tabs.findIndex((t) => t.id === id)
   if (i < 0) return receiveFile(tabs, p, newId)
   const next = tabs.slice()
-  next[i] = { ...newTab(p, tabs[i].id) }
+  // The shell survives the move: killing a dev server because the tree changed
+  // folders would be worse. Its cwd is visibly the old one; exit + reopen gets
+  // the new root. Everything else (files, index, tree) starts fresh.
+  next[i] = { ...newTab(p, tabs[i].id), term: tabs[i].term }
   return { tabs: next, activeId: tabs[i].id }
 }
 
