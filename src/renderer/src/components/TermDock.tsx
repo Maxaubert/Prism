@@ -15,6 +15,7 @@ const EDGE_NAMES: Array<{ edge: DockEdge; label: string }> = [
 
 export function TermDock({
   mode,
+  onClose,
   edge,
   size,
   onResize,
@@ -26,6 +27,8 @@ export function TermDock({
   /** `full` takes the whole viewer area: no handle, no size, and the dock menu
    *  waits for split (where an edge means something). */
   mode: 'full' | 'split'
+  /** The split's X: hide this pane, leaving the file the room. */
+  onClose: () => void
   edge: DockEdge
   size: number
   onResize: (px: number) => void
@@ -107,7 +110,7 @@ export function TermDock({
     <div
       ref={panel}
       data-term-panel
-      className={`relative flex bg-[var(--p-bg)] ${vertical ? 'flex-col' : 'flex-row'} ${
+      className={`group relative flex bg-[var(--p-bg)] ${vertical ? 'flex-col' : 'flex-row'} ${
         full
           ? 'min-h-0 min-w-0 flex-1'
           : `shrink-0 border-[var(--p-divider)] ${
@@ -126,6 +129,18 @@ export function TermDock({
       onDrop={onDrop}
     >
       {!full && inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
+      {!full && (
+        <button
+          className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={onClose}
+          title="Remove from split view"
+          aria-label="Remove the terminal from the split"
+        >
+          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      )}
       <div className="min-h-0 min-w-0 flex-1">
         <Suspense fallback={<div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">Starting shell…</div>}>
           <TerminalPanel sessionId={sessionId} root={root} shellId={shellId} />

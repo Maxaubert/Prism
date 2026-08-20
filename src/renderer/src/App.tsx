@@ -614,8 +614,36 @@ export default function App(): JSX.Element {
   const openFromTree = useCallback(
     // No guard: unsaved text is kept in `buffers`, so leaving a file costs
     // nothing and there is nothing to ask about.
-    (p: string) => void (active && window.prism.openWithin(active.root, p).then(open)),
+    (p: string) =>
+      void (
+        active &&
+        window.prism.openWithin(active.root, p).then((payload) => {
+          if (!payload) return
+          open(payload)
+          // Clicking a file means "show me this file". Over a FULL terminal
+          // that hides the shell (still running) and gives the file the room;
+          // in split the file simply lands in its pane, terminal untouched.
+          setTabState((s) => {
+            const tab = s.tabs.find((t) => t.id === s.activeId)
+            return tab?.term?.view === 'full'
+              ? { ...s, tabs: setTabTerm(s.tabs, tab.id, { ...tab.term, view: 'hidden' }) }
+              : s
+          })
+        })
+      ),
     [active, open]
+  )
+
+  /** The split's X buttons and the context menu's "Remove from split view".
+   *  Closing the FILE pane leaves the terminal, which takes the full view;
+   *  closing the TERMINAL pane leaves the file. Either way the split is gone. */
+  const closeFilePane = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
+    [applyTermView]
+  )
+  const closeTermPane = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
+    [applyTermView]
   )
 
   /** The context menu: show THIS file, with the terminal beside it. */
@@ -968,6 +996,8 @@ export default function App(): JSX.Element {
             onToggleTerm={toggleTerm}
             termOpen={termView !== 'hidden'}
             onOpenSplit={openFileSplit}
+            splitPath={termView === 'split' ? (file?.path ?? null) : null}
+            onRemoveSplit={closeFilePane}
             state={active.tree}
             onTree={onTree}
             currentPath={file?.path ?? null}
@@ -1024,6 +1054,18 @@ export default function App(): JSX.Element {
           )}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
+          {termView === 'split' && !fullscreen && (
+            <button
+              className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={closeFilePane}
+              title="Remove from split view"
+              aria-label="Remove the file from the split"
+            >
+              <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          )}
         </div>
         {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
             in the DOM; hidden tabs' sessions stay alive in the store, and
@@ -1033,6 +1075,7 @@ export default function App(): JSX.Element {
         {active?.term && termView !== 'hidden' && !fullscreen && (
           <TermDock
             mode={termView}
+            onClose={closeTermPane}
             edge={dockEdge}
             size={termSizes[dockAxis(dockEdge)]}
             onResize={resizeTermPanel}
