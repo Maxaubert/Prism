@@ -23,7 +23,8 @@ import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
 import { FONT_PCTS, setTermFontPct, setTermThemeId, useTermFontPct, useTermThemeId } from '../lib/termLook'
-import { TERM_PRESETS } from '../lib/termTheme'
+import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
+import { deriveAnsi } from '../lib/termAnsi'
 import {
   setAutoScroll,
   setTreeSide,
@@ -836,10 +837,6 @@ function TermThemeCard({
   )
 }
 
-// Standard ANSI, for cards whose theme doesn't bring its own (the
-// follow-style card): xterm's defaults, what those sessions actually use.
-const DEFAULT_ANSI = { green: '#0dbc79', yellow: '#e5e510', blue: '#3b8eea', cyan: '#11a8cd', red: '#f14c4c' }
-
 function TerminalTab(): JSX.Element {
   // The shells main detected, fetched when the tab first shows. `saved` may
   // name one that no longer exists; the select then shows the real default,
@@ -854,6 +851,11 @@ function TerminalTab(): JSX.Element {
     : (shells[0]?.id ?? '')
   const themeId = useTermThemeId()
   const fontPct = useTermFontPct()
+  // The follow-style card mirrors the LIVE style, derived ANSI included, and
+  // repaints when the style does.
+  const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
+  useEffect(() => watchTermTheme(() => setStyleTheme(readTermTheme())), [])
+  const styleAnsi = deriveAnsi(styleTheme.background, styleTheme.foreground)
   return (
     <div className={ROWS}>
       {shells.length > 0 && (
@@ -879,31 +881,34 @@ function TerminalTab(): JSX.Element {
             id="style"
             name="Follow style"
             on={themeId === 'style'}
-            bg="var(--p-bg)"
-            fg="var(--p-text)"
-            cursor="var(--p-accent-hi)"
-            ansi={DEFAULT_ANSI}
+            bg={styleTheme.background}
+            fg={styleTheme.foreground}
+            cursor={styleTheme.cursor}
+            ansi={styleAnsi}
             onPick={() => setTermThemeId('style')}
           />
-          {TERM_PRESETS.map((p) => (
-            <TermThemeCard
-              key={p.id}
-              id={p.id}
-              name={p.name}
-              on={themeId === p.id}
-              bg={p.theme.background}
-              fg={p.theme.foreground}
-              cursor={p.theme.cursor}
-              ansi={{
-                green: p.theme.green ?? DEFAULT_ANSI.green,
-                yellow: p.theme.yellow ?? DEFAULT_ANSI.yellow,
-                blue: p.theme.blue ?? DEFAULT_ANSI.blue,
-                cyan: p.theme.cyan ?? DEFAULT_ANSI.cyan,
-                red: p.theme.red ?? DEFAULT_ANSI.red
-              }}
-              onPick={() => setTermThemeId(p.id)}
-            />
-          ))}
+          {TERM_PRESETS.map((p) => {
+            const t = resolveTermTheme(p.id)
+            return (
+              <TermThemeCard
+                key={p.id}
+                id={p.id}
+                name={p.name}
+                on={themeId === p.id}
+                bg={t.background}
+                fg={t.foreground}
+                cursor={t.cursor}
+                ansi={{
+                  green: t.green ?? '',
+                  yellow: t.yellow ?? '',
+                  blue: t.blue ?? '',
+                  cyan: t.cyan ?? '',
+                  red: t.red ?? ''
+                }}
+                onPick={() => setTermThemeId(p.id)}
+              />
+            )
+          })}
         </div>
       </div>
       <Pref
