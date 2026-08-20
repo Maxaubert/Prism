@@ -1,6 +1,6 @@
 import { join, sep } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, openRoots, resetRoots, validRoot } from './roots'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, openRoots, resetRoots, syncRoots, validRoot } from './roots'
 
 const A = join('C:', 'shoot')
 const B = join('D:', 'docs')
@@ -32,6 +32,27 @@ describe('the open-root set', () => {
     expect(openRoots()).toEqual([B])
     expect(insideAnyRoot(join(A, 'a.jpg'))).toBe(false)
     expect(insideAnyRoot(join(B, 'a.md'))).toBe(true)
+  })
+})
+
+describe('syncRoots', () => {
+  it('replaces the set rather than merging into it', () => {
+    addRoot(A)
+    syncRoots([B])
+    expect(openRoots()).toEqual([B])
+  })
+  it('makes a closed tab root unreachable, which is the whole point', () => {
+    addRoot(A)
+    addRoot(B)
+    syncRoots([B])
+    expect(insideAnyRoot(join(A, 'a.jpg'))).toBe(false)
+    expect(insideAnyRoot(join(B, 'r.md'))).toBe(true)
+  })
+  it('an empty list closes the wall completely', () => {
+    addRoot(A)
+    syncRoots([])
+    expect(openRoots()).toEqual([])
+    expect(insideAnyRoot(join(A, 'a.jpg'))).toBe(false)
   })
 })
 

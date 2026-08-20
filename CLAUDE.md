@@ -96,6 +96,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Prism's writes are therefore: rename, bin,
   duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
   fresh decision, not a natural next step.
+- **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
+  whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
+  choose a folder, and several roots stay open as tabs. **A tab is a root and a current
+  file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
+  arriving from outside reuses a tab whose root already holds it (five photos from one
+  folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
+  in `tabs.json`; a root that is gone is dropped without a word. The strip is absent at one
+  tab, so a single quick-look meets exactly the old chrome. `Ctrl+W` closes a tab and the
+  last one leaves an EMPTY WINDOW rather than quitting: Prism is resident and a window that
+  vanishes under a reflex keystroke is the failure the close flow exists to prevent.
+  Closing a tab holding unsaved text asks, like the window does.
+  The root wall is a set now (`src/main/roots.ts`), not one string. Navigation handlers
+  (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
+  check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
+  it, which is what narrows the wall when a tab closes.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
