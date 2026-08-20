@@ -4,7 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
-import { readTermTheme, watchTermTheme } from '../lib/termTheme'
+import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
+import { onTermLookChange, termBaseFontPx, termThemeId } from '../lib/termLook'
 import { forgetSession, markTouched, suppressActivity } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
@@ -20,16 +21,48 @@ interface Session {
   fit: FitAddon
   el: HTMLDivElement
   unsub: Array<() => void>
+  /** Ctrl+scroll zoom, this session only: never persisted, dies with it. */
+  fontOverride?: number
 }
 
 const sessions = new Map<string, Session>()
 
-// One watcher restyles every running shell when the style repaints :root, so
-// switching to void turns live terminals black without a respawn. Module
-// scope, like the sessions it dresses.
-watchTermTheme((t) => {
-  for (const s of sessions.values()) s.term.options.theme = t
-})
+/** Refit a session and tell the pty its new geometry. */
+function refitSession(id: string, s: Session): void {
+  if (!s.el.clientWidth || !s.el.clientHeight) return
+  suppressActivity(id)
+  s.fit.fit()
+  window.prism.termResize(id, s.term.cols, s.term.rows)
+}
+
+// One restyler for every running shell, driven by BOTH sources of truth: the
+// style repainting :root (the follow-style default) and the Terminal settings
+// changing (preset theme, base font size). A session the user Ctrl+scrolled
+// keeps its own font; everything else follows the base.
+function applyLook(): void {
+  const theme = resolveTermTheme(termThemeId())
+  const base = termBaseFontPx()
+  for (const [id, s] of sessions) {
+    s.term.options.theme = theme
+    const want = s.fontOverride ?? base
+    if (s.term.options.fontSize !== want) {
+      s.term.options.fontSize = want
+      refitSession(id, s)
+    }
+  }
+}
+watchTermTheme(applyLook)
+onTermLookChange(applyLook)
+
+/** Ctrl+scroll: zoom THIS session's text, unpersisted. */
+function zoomSession(id: string, delta: number): void {
+  const s = sessions.get(id)
+  if (!s) return
+  const next = Math.max(7, Math.min(40, (s.fontOverride ?? termBaseFontPx()) + delta))
+  s.fontOverride = next
+  s.term.options.fontSize = next
+  refitSession(id, s)
+}
 
 /** Wipe a session's screen and scrollback, back to a bare prompt. The shell
  *  itself is untouched: same process, same cwd, same history. */
@@ -55,10 +88,11 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     scrollback: 10000,
     allowProposedApi: true, // unicode11 needs it
     fontFamily: '"Cascadia Mono", Consolas, monospace',
-    fontSize: 13,
-    // The terminal wears the style: void gets a black terminal, a light style
-    // a light one. Live switches are handled by the watcher above.
-    theme: readTermTheme()
+    // The Settings base size; Ctrl+scroll can zoom this one session later.
+    fontSize: termBaseFontPx(),
+    // Follow-style by default, or the chosen preset. Live switches of either
+    // are handled by applyLook above.
+    theme: resolveTermTheme(termThemeId())
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
@@ -170,8 +204,17 @@ export default function TerminalPanel({
     refit()
     const ro = new ResizeObserver(refit)
     ro.observe(host)
+    // Ctrl+scroll zooms this session's text - unpersisted, the Settings base
+    // size is untouched. Non-passive so the browser's own zoom never fires.
+    const wheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      zoomSession(sessionId, e.deltaY < 0 ? 1 : -1)
+    }
+    host.addEventListener('wheel', wheel, { passive: false })
     return () => {
       ro.disconnect()
+      host.removeEventListener('wheel', wheel)
       // Detach, don't dispose: the shell runs on unseen.
       if (s.el.parentElement === host) host.removeChild(s.el)
     }

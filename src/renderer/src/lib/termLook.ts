@@ -1,0 +1,55 @@
+import { useSyncExternalStore } from 'react'
+
+// The terminal's persisted look: which theme it wears and its base font size.
+// Same tiny-store shape as tabPrefs. Per-SESSION font zoom (Ctrl+scroll) is
+// deliberately NOT here: that lives and dies with the session.
+
+const THEME_KEY = 'prism.term.theme'
+const FONT_KEY = 'prism.term.fontPct'
+
+export const TERM_BASE_FONT_PX = 13
+export const FONT_PCTS = [80, 90, 100, 110, 125, 150] as const
+
+let listeners: Array<() => void> = []
+const notify = (): void => listeners.forEach((l) => l())
+
+/** 'style' follows the app style (the default); anything else names a preset. */
+export function termThemeId(): string {
+  return localStorage.getItem(THEME_KEY) ?? 'style'
+}
+
+export function setTermThemeId(id: string): void {
+  localStorage.setItem(THEME_KEY, id)
+  notify()
+}
+
+export function termFontPct(): number {
+  const v = Number(localStorage.getItem(FONT_KEY))
+  return FONT_PCTS.includes(v as (typeof FONT_PCTS)[number]) ? v : 100
+}
+
+export function setTermFontPct(pct: number): void {
+  localStorage.setItem(FONT_KEY, String(pct))
+  notify()
+}
+
+/** The base font in pixels the current percentage means. */
+export function termBaseFontPx(): number {
+  return Math.round((TERM_BASE_FONT_PX * termFontPct()) / 100)
+}
+
+export function onTermLookChange(cb: () => void): () => void {
+  listeners.push(cb)
+  return () => {
+    listeners = listeners.filter((l) => l !== cb)
+  }
+}
+
+const sub = onTermLookChange
+
+export function useTermThemeId(): string {
+  return useSyncExternalStore(sub, termThemeId)
+}
+export function useTermFontPct(): number {
+  return useSyncExternalStore(sub, termFontPct)
+}

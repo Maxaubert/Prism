@@ -22,6 +22,8 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
+import { FONT_PCTS, setTermFontPct, setTermThemeId, useTermFontPct, useTermThemeId } from '../lib/termLook'
+import { TERM_PRESETS } from '../lib/termTheme'
 import {
   setAutoScroll,
   setTreeSide,
@@ -769,6 +771,66 @@ function Select({
   )
 }
 
+function TerminalTab(): JSX.Element {
+  // The shells main detected, fetched when the tab first shows. `saved` may
+  // name one that no longer exists; the select then shows the real default,
+  // which is also what a new terminal would actually launch.
+  const [shells, setShells] = useState<Array<{ id: string; name: string }>>([])
+  const [shellChoice, setShellChoice] = useState(() => savedShellId() ?? '')
+  useEffect(() => {
+    void window.prism.termShells().then(setShells)
+  }, [])
+  const shellValue = shells.some((sh) => sh.id === shellChoice)
+    ? shellChoice
+    : (shells[0]?.id ?? '')
+  const themeId = useTermThemeId()
+  const fontPct = useTermFontPct()
+  return (
+    <div className={ROWS}>
+      {shells.length > 0 && (
+        <Pref id="term-shell" label="Shell" hint="Applies to new terminals.">
+          <Select
+            id="term-shell"
+            value={shellValue}
+            onChange={(v) => {
+              setShellChoice(v)
+              saveShellId(v)
+            }}
+            options={shells}
+          />
+        </Pref>
+      )}
+      <Pref
+        id="term-theme"
+        label="Theme"
+        hint="Follow style wears the app's look; presets are whole palettes."
+      >
+        <Select
+          id="term-theme"
+          value={themeId}
+          onChange={setTermThemeId}
+          options={[
+            { id: 'style', name: 'Follow style' },
+            ...TERM_PRESETS.map((p) => ({ id: p.id, name: p.name }))
+          ]}
+        />
+      </Pref>
+      <Pref
+        id="term-font"
+        label="Font size"
+        hint="The base for every terminal. Ctrl+scroll zooms one session only."
+      >
+        <Select
+          id="term-font"
+          value={String(fontPct)}
+          onChange={(v) => setTermFontPct(Number(v))}
+          options={FONT_PCTS.map((p) => ({ id: String(p), name: `${p}%` }))}
+        />
+      </Pref>
+    </div>
+  )
+}
+
 function GeneralTab(): JSX.Element {
   const size = useTreeSize()
   const follow = useAutoScroll()
@@ -786,32 +848,8 @@ function GeneralTab(): JSX.Element {
     } else setNewTabMode(v as 'home' | 'ask')
   }
   const side = useTreeSide()
-  // The shells main detected, fetched when the tab first shows. `saved` may
-  // name one that no longer exists; the select then shows the real default,
-  // which is also what a new terminal would actually launch.
-  const [shells, setShells] = useState<Array<{ id: string; name: string }>>([])
-  const [shellChoice, setShellChoice] = useState(() => savedShellId() ?? '')
-  useEffect(() => {
-    void window.prism.termShells().then(setShells)
-  }, [])
-  const shellValue = shells.some((sh) => sh.id === shellChoice)
-    ? shellChoice
-    : (shells[0]?.id ?? '')
   return (
     <div className={ROWS}>
-      {shells.length > 0 && (
-        <Pref id="term-shell" label="Terminal shell" hint="Applies to new terminals.">
-          <Select
-            id="term-shell"
-            value={shellValue}
-            onChange={(v) => {
-              setShellChoice(v)
-              saveShellId(v)
-            }}
-            options={shells}
-          />
-        </Pref>
-      )}
       <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
         <Select
           id="tree-size"
@@ -1076,7 +1114,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'style' | 'general' | 'player' | 'visualizer' | 'about'
+type TabId = 'style' | 'general' | 'terminal' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg
@@ -1112,6 +1150,12 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
     )
   },
   {
+    id: 'terminal',
+    label: 'Terminal',
+    title: 'Terminal',
+    icon: <Ico d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M13 15h4" />
+  },
+  {
     id: 'player',
     label: 'Progress bar',
     title: 'Progress bar',
@@ -1134,7 +1178,7 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
 // The rail is grouped rather than one flat list: five entries split two ways
 // says more about where a setting lives than five in a row does.
 const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
-  { name: 'Behaviour', tabs: ['general'] },
+  { name: 'Behaviour', tabs: ['general', 'terminal'] },
   { name: 'Look', tabs: ['style', 'visualizer', 'player'] },
   { name: '', tabs: ['about'] }
 ]
@@ -1255,6 +1299,8 @@ export function Settings({
               <StyleTab />
             ) : tab === 'general' ? (
               <GeneralTab />
+            ) : tab === 'terminal' ? (
+              <TerminalTab />
             ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (
