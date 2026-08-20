@@ -38,6 +38,19 @@ export function dropRoot(root: string): void {
   if (i >= 0) roots.splice(i, 1)
 }
 
+/**
+ * Replace the set with exactly these roots.
+ *
+ * The renderer owns the tab list, so it is the authority on which roots are
+ * open; this is how main hears about a tab being closed. It matters that it
+ * REPLACES rather than merges: a root whose tab is gone must stop being
+ * reachable, or the wall would only ever grow for the life of the process.
+ */
+export function syncRoots(next: readonly string[]): void {
+  roots.length = 0
+  next.forEach(addRoot)
+}
+
 /** True when `p` sits in any open root. The general wall. */
 export function insideAnyRoot(p: string): boolean {
   return roots.some((r) => isInsideRoot(r, p))

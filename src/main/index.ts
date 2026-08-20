@@ -15,7 +15,8 @@ import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
 import { listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
+import { addRoot, insideAnyRoot, isAnyRoot, syncRoots, validRoot } from './roots'
+import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -258,6 +259,32 @@ function sendOpen(p: string): void {
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
 }
 
+const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
+
+/** Restore last session's strip: register each surviving root so the wall
+ *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
+function restoreTabs(): OpenPayload[] {
+  const saved = readTabs(TABS_STATE())
+  const out: OpenPayload[] = []
+  for (const t of saved.tabs) {
+    const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
+    if (payload) out.push(payload)
+  }
+  // The active tab goes last: the renderer applies these in order through the
+  // same arriving-file rule as everything else, and that rule leaves the tab it
+  // just handled in front.
+  const front = out.splice(saved.active, 1)
+  return [...out, ...front]
+}
+
+/** Save on a delay, as the window state does: switching tabs with the arrow
+ *  keys fires this continuously and the disk need not hear about each one. */
+let tabsTimer: NodeJS.Timeout | null = null
+function saveTabs(state: SavedTabs): void {
+  if (tabsTimer) clearTimeout(tabsTimer)
+  tabsTimer = setTimeout(() => writeTabs(TABS_STATE(), state), 400)
+}
+
 /**
  * Where the window was last time.
  *
@@ -405,8 +432,12 @@ function createWindow(): void {
   if (devUrl) void mainWindow.loadURL(devUrl)
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 
-  // Deliver any file the app was launched with, once the renderer is ready.
+  // Rebuild last session's strip, then deliver whatever the app was launched
+  // with. Order matters: the launch file goes through the same arriving-file
+  // rule as everything else, so double-clicking a photo in a folder that was
+  // already open lands in that tab rather than opening a second copy of it.
   mainWindow.webContents.on('did-finish-load', () => {
+    for (const payload of restoreTabs()) mainWindow?.webContents.send('open:file', payload)
     if (pendingOpen) {
       sendOpen(pendingOpen)
       pendingOpen = null
@@ -446,6 +477,12 @@ if (!app.requestSingleInstanceLock()) {
       return folderPayload(r.filePaths[0])
     })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
+    // The renderer owns the tab list; main only persists it and keeps the wall
+    // in step, so a root whose tab was closed stops being reachable.
+    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => {
+      syncRoots(state.tabs.map((t) => t.root))
+      saveTabs(state)
+    })
     // The three navigation handlers take the root they act in, because they are
     // per-tab operations and the renderer always knows which tab asked. Both the
     // root and the path have to hold up: naming a root you never opened gets you

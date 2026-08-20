@@ -15,6 +15,10 @@ const api = {
   /** Choose a FOLDER to root in. The only way to name a root deliberately;
    *  every other route infers it from the file that arrived. */
   openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
+  /** Report the tab strip. Main persists it and keeps the root wall in step, so
+   *  a root whose tab was closed stops being reachable. */
+  tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>
+    ipcRenderer.send('tabs:changed', { tabs, active }),
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a
   // root that is not open as well as a path from a different one.

@@ -16,6 +16,7 @@ import { PdfView } from './components/pdf/PdfView'
 const CodeView = lazy(() => import('./components/CodeView').then((m) => ({ default: m.CodeView })))
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
+import { TabStrip } from './components/TabStrip'
 import { Onboarding } from './components/Onboarding'
 import { ACCENT_THEME_ID } from './lib/viz/styles'
 import {
@@ -55,6 +56,10 @@ type Ask =
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'close-dirty' }
+  // Closing a TAB whose root holds unsaved text. Same three answers as the
+  // window's, because the stake is the same: leave that tab and the only route
+  // back to those buffers is gone, even though the window stays open.
+  | { kind: 'close-tab'; id: string; names: readonly string[] }
 
 function TopBar({
   name,
@@ -411,6 +416,25 @@ export default function App(): JSX.Element {
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
+  // Tell main what is open, whenever it changes. It persists the strip for next
+  // launch and, more importantly, narrows the root wall to match: a root whose
+  // tab has been closed must stop being reachable.
+  //
+  // Not before the first tab exists, though. On mount there are none, and main
+  // has ALREADY registered the root of the file it is about to deliver: an
+  // eager empty report raced that and tore the wall down under the launch file,
+  // which then could not be read. Once a tab has existed, an empty list is real
+  // news (the last tab closed) and is sent.
+  const hadTabs = useRef(false)
+  useEffect(() => {
+    if (tabs.length) hadTabs.current = true
+    else if (!hadTabs.current) return
+    window.prism.tabsChanged(
+      tabs.map((t) => ({ root: t.root, file: t.files[t.index]?.path })),
+      Math.max(0, tabs.findIndex((t) => t.id === activeId))
+    )
+  }, [tabs, activeId])
+
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   // Main held the window open because the editor is dirty; ask, then answer it.
@@ -424,8 +448,41 @@ export default function App(): JSX.Element {
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a
    *  reflex keystroke is the failure this app has been careful to avoid. */
+  const forceCloseTab = useCallback((id: string) => {
+    setTabState((s) => closeTab(s.tabs, id, s.activeId))
+  }, [])
+  /** Unsaved buffers living under a tab's root, as their names are spelled. */
+  const dirtyUnder = useCallback((root: string): string[] => {
+    const r = root.toLowerCase()
+    return [...buffers.current.values()]
+      .filter((b) => b.path.toLowerCase().startsWith(r))
+      .map((b) => baseName(b.path))
+  }, [])
+  /** Close a tab, asking first when that would strand unsaved text. */
+  const closeOneTab = useCallback(
+    (id: string) => {
+      const tab = tabs.find((t) => t.id === id)
+      const names = tab ? dirtyUnder(tab.root) : []
+      if (names.length) setAsk({ kind: 'close-tab', id, names })
+      else forceCloseTab(id)
+    },
+    [dirtyUnder, forceCloseTab, tabs]
+  )
   const closeActiveTab = useCallback(() => {
-    setTabState((s) => (s.activeId ? closeTab(s.tabs, s.activeId, s.activeId) : s))
+    if (activeId) closeOneTab(activeId)
+  }, [activeId, closeOneTab])
+  const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+  /** Step the active tab by `delta`, wrapping, so Ctrl+Tab cycles. */
+  const stepTab = useCallback((delta: number) => {
+    setTabState((s) => {
+      if (s.tabs.length < 2) return s
+      const i = s.tabs.findIndex((t) => t.id === s.activeId)
+      return { ...s, activeId: s.tabs[(i + delta + s.tabs.length) % s.tabs.length].id }
+    })
+  }, [])
+  /** Jump to the nth tab, 1-based, for Ctrl+1..Ctrl+9. */
+  const jumpTab = useCallback((n: number) => {
+    setTabState((s) => (s.tabs[n - 1] ? { ...s, activeId: s.tabs[n - 1].id } : s))
   }, [])
   /**
    * The sidebar's tree state belongs to the tab, so switching back to one shows
@@ -602,6 +659,19 @@ export default function App(): JSX.Element {
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
         e.preventDefault()
         openFolder()
+      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && !typing) {
+        // Deliberately does NOT take the window on the last tab. Prism is
+        // resident, and a window that vanishes under a reflex keystroke -
+        // with unsaved text in it - is the failure the close flow exists to
+        // prevent. The last tab leaves an empty window instead.
+        e.preventDefault()
+        closeActiveTab()
+      } else if (e.key === 'Tab' && e.ctrlKey && !typing) {
+        e.preventDefault()
+        stepTab(e.shiftKey ? -1 : 1)
+      } else if (e.ctrlKey && !typing && /^[1-9]$/.test(e.key)) {
+        e.preventDefault()
+        jumpTab(Number(e.key))
       } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
         e.preventDefault()
         togglePanel()
@@ -656,7 +726,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [file, fullscreen, go, hasNavigated, openFolder, settingsOpen, setup, togglePanel])
+  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, openFolder, settingsOpen, setup, stepTab, togglePanel])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -737,6 +807,20 @@ export default function App(): JSX.Element {
           editing={editMode}
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}
+        />
+      )}
+      {/* Under the bar, and only once there are two or more: one tab is exactly
+          the chrome Prism has always had, so someone quick-looking a single
+          photo never meets a workspace element. Gone in fullscreen with the
+          rest of it. */}
+      {!fullscreen && (
+        <TabStrip
+          tabs={tabs}
+          activeId={activeId}
+          onPick={pickTab}
+          onClose={closeOneTab}
+          onNew={openFolder}
+          wash={washed}
         />
       )}
       {/* Settings covers this area. Hiding it (rather than leaving it painted
@@ -871,6 +955,60 @@ export default function App(): JSX.Element {
                   }
                   setAsk(null)
                   window.prism.close(true)
+                })()
+              }
+            }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'close-tab' && (
+        <Dialog
+          title={ask.names.length > 1 ? `${ask.names.length} files have unsaved changes` : 'Unsaved changes'}
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
+              {ask.names.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              Closing this folder is the last way back to them.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            {
+              // Same weight as Cancel, as in the window's question: discarding
+              // throws away typing, not a file, and red read heavier than the act.
+              label: 'Discard',
+              onPick: () => {
+                const tab = tabs.find((t) => t.id === ask.id)
+                if (tab) {
+                  const r = tab.root.toLowerCase()
+                  for (const key of [...buffers.current.keys()]) {
+                    if (key.startsWith(r)) buffers.current.delete(key)
+                  }
+                  syncDirty()
+                }
+                setAsk(null)
+                forceCloseTab(ask.id)
+              }
+            },
+            {
+              label: 'Save all changes',
+              primary: true,
+              onPick: () => {
+                void (async () => {
+                  // A failed write must not close the tab over the top of the
+                  // text it failed to keep, exactly as on the window's route.
+                  const failed = await saveAll()
+                  if (failed.length) {
+                    setAsk({
+                      kind: 'failed',
+                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
+                    })
+                    return
+                  }
+                  setAsk(null)
+                  forceCloseTab(ask.id)
                 })()
               }
             }
