@@ -83,6 +83,12 @@ function createSession(id: string, root: string, shellId: string | undefined): S
 
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
+    // Prism's tab-management keys work over a focused shell (no shell uses
+    // them): returning false keeps xterm from also feeding bytes to the pty.
+    // App's window listener does the actual work.
+    if (e.ctrlKey && !e.altKey && (e.key === 'Tab' || e.key === 't' || e.key === 'T' || /^[1-9]$/.test(e.key))) {
+      return false
+    }
     if (e.key === 'Enter' && e.shiftKey) {
       // Newline-without-submit, the continuation form Claude Code accepts
       // everywhere. This is what /terminal-setup exists to configure; here it
