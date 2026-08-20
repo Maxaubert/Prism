@@ -1,6 +1,5 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult } from '@shared/types'
-import type { ShellDef } from '../main/shells'
+import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
