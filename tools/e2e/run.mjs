@@ -1155,42 +1155,39 @@ async function terminalScenario(fixtures) {
 
     // The activity indicator: streaming output lights the tab's dot, quiet
     // turns it off. ping -n 3 emits for ~2s, like an AI CLI's spinner would.
-    // The spawn banner must NOT have lit the dot: working means sustained
-    // streaming, and the banner is one short burst.
+    // The dots are AGENT-scoped now: a plain terminal never shows one, no
+    // matter how hard it streams.
     ok(
-      (await win.locator('[data-activity="working"]').count()) === 0,
-      'opening a terminal does not flash the working dot'
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length)) === 0,
+      'a plain terminal shows no dot'
     )
     await win.keyboard.type('ping -n 3 127.0.0.1')
     await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-activity="working"]', { timeout: 10000 })
-    ok(true, 'sustained streaming marks the tab as working')
-    await win.waitForFunction(() => !document.querySelector('[data-activity="working"]'), null, {
-      timeout: 15000
-    })
-    ok(true, 'and quiet marks it idle again')
+    await sleep(3500)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length)) === 0,
+      'even sustained streaming lights nothing without an agent'
+    )
 
-    // The bell: rings amber, and visiting the tab does NOT clear it - only
-    // genuine work does. This tab is active the whole time, which proves it.
-    await win.keyboard.type('[console]::Write([char]7)')
+    // A real agent: claude starts, the poll finds it in the shell's process
+    // tree, a dot appears; leaving claude retires it. Nothing is submitted.
+    await win.keyboard.type('claude')
     await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-activity="bell"]', { timeout: 10000 })
-    ok(true, 'the bell turns the dot amber')
-    await sleep(2500)
-    ok(
-      (await win.locator('[data-activity="bell"]').count()) === 1,
-      'and it persists on the visited tab'
+    await win.waitForSelector('[data-activity="working"], [data-activity="done"]', { timeout: 30000 })
+    ok(true, 'claude in the shell brings the dot')
+    await win.waitForSelector('[data-activity="done"]', { timeout: 30000 })
+    ok(true, 'and it settles amber once claude is idle')
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    await win.keyboard.press('Control+c')
+    await sleep(600)
+    await win.keyboard.press('Control+c')
+    await win.waitForFunction(
+      () => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length === 0,
+      null,
+      { timeout: 20000 }
     )
-    await win.keyboard.type('ping -n 3 127.0.0.1')
-    await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-activity="working"]', { timeout: 10000 })
-    await win.waitForFunction(() => !document.querySelector('[data-activity="working"]'), null, {
-      timeout: 15000
-    })
-    ok(
-      (await win.locator('[data-activity="bell"]').count()) === 0,
-      'real work retires the bell'
-    )
+    ok(true, 'claude leaving retires the dot')
 
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))

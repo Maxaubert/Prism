@@ -14,3 +14,23 @@ export function suppressActivity(id: string, ms = 800): void {
 export function activitySuppressed(id: string): boolean {
   return Date.now() < (until.get(id) ?? 0)
 }
+
+// Whether the USER has typed into a session (keystrokes, paste, a dropped
+// path) - the signal the reroot policy runs on: an untouched shell follows
+// the tab to its new folder; a touched one (a Claude session, half-typed
+// work) stays where it is.
+const touchedIds = new Set<string>()
+
+export function markTouched(id: string): void {
+  touchedIds.add(id)
+}
+
+export function isTouched(id: string): boolean {
+  return touchedIds.has(id)
+}
+
+/** A session ended: forget everything about it. */
+export function forgetSession(id: string): void {
+  touchedIds.delete(id)
+  until.delete(id)
+}

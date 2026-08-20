@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
 import { readTermTheme, watchTermTheme } from '../lib/termTheme'
-import { suppressActivity } from '../lib/termActivity'
+import { forgetSession, markTouched, suppressActivity } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -43,6 +43,7 @@ export function disposeTermSession(id: string): void {
   const s = sessions.get(id)
   if (!s) return
   sessions.delete(id)
+  forgetSession(id)
   s.unsub.forEach((u) => u())
   s.term.dispose()
   s.el.remove()
@@ -72,7 +73,10 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   el.className = 'h-full w-full'
   term.open(el)
 
-  term.onData((d) => window.prism.termInput(id, d))
+  term.onData((d) => {
+    markTouched(id) // user input: the reroot policy leaves this shell alone
+    window.prism.termInput(id, d)
+  })
   const unsub = [
     window.prism.onTermData((forId, data) => {
       if (forId === id) term.write(data)
