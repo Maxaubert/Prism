@@ -123,7 +123,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   arrangement: `Ctrl+D` on a file, or right-click a file, "Open in split view" - docked
   bottom/top/left/right (right-click menu on the panel), resizable. Ctrl+D sits behind the
   typing guard so in the shell it stays EOF. The terminal wears the style (reads
-  --p-bg/--p-text/--p-accent-hi live): void means a black terminal. cwd starts at the tab's root; hiding keeps the shell running; exit,
+  --p-bg/--p-text/--p-accent-hi live): void means a black terminal. Right-clicking the
+  terminal button offers split view and Clear terminal. Syntax highlighting and history
+  ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
+  spawn - including `-EnableScreenReaderMode:$false`, because automation tooling
+  false-positives the system screen-reader flag and PSReadLine then silently drops to a
+  plain renderer (diagnosed 2026-08-20; a real screen-reader user gets a Settings knob if
+  ever asked for). cwd starts at the tab's root; hiding keeps the shell running; exit,
   tab close, or quit kill it; rerooting keeps it. pwsh by default, Settings picks from what
   the machine has. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it

@@ -634,6 +634,16 @@ export default function App(): JSX.Element {
     [active, open]
   )
 
+  /** The terminal button's own context menu. */
+  const openTermSplit = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' })),
+    [applyTermView]
+  )
+  const clearTerm = useCallback(() => {
+    const id = active?.term?.id
+    if (id) void import('./components/TerminalPanel').then((m) => m.clearTermSession(id))
+  }, [active])
+
   /** The split's X buttons and the context menu's "Remove from split view".
    *  Closing the FILE pane leaves the terminal, which takes the full view;
    *  closing the TERMINAL pane leaves the file. Either way the split is gone. */
@@ -998,6 +1008,8 @@ export default function App(): JSX.Element {
             onOpenSplit={openFileSplit}
             splitPath={termView === 'split' ? (file?.path ?? null) : null}
             onRemoveSplit={closeFilePane}
+            onTermSplit={openTermSplit}
+            onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
             onTree={onTree}
             currentPath={file?.path ?? null}

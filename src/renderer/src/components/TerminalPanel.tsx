@@ -30,6 +30,12 @@ watchTermTheme((t) => {
   for (const s of sessions.values()) s.term.options.theme = t
 })
 
+/** Wipe a session's screen and scrollback, back to a bare prompt. The shell
+ *  itself is untouched: same process, same cwd, same history. */
+export function clearTermSession(id: string): void {
+  sessions.get(id)?.term.clear()
+}
+
 /** Kill a session's renderer half: the xterm instance and its element. Main's
  *  pty half is killed separately (term:kill) or already exited. */
 export function disposeTermSession(id: string): void {
