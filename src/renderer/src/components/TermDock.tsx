@@ -88,7 +88,9 @@ export function TermDock({
     [sessionId]
   )
 
-  const handleBase = 'shrink-0 no-drag z-10'
+  // The handle paints the panel's own dark, not transparency: an unpainted
+  // strip over the wrapper read as a bright line across the dock.
+  const handleBase = 'shrink-0 no-drag z-10 bg-[#0b0b0f] transition-colors'
   const handleAxis = vertical
     ? `${handleBase} h-1 w-full cursor-ns-resize`
     : `${handleBase} w-1 h-full cursor-ew-resize`
@@ -100,7 +102,7 @@ export function TermDock({
     <div
       ref={panel}
       data-term-panel
-      className={`relative flex shrink-0 border-[var(--p-divider)] ${vertical ? 'flex-col' : 'flex-row'} ${
+      className={`relative flex shrink-0 bg-[#0b0b0f] border-[var(--p-divider)] ${vertical ? 'flex-col' : 'flex-row'} ${
         { bottom: 'border-t', top: 'border-b', left: 'border-r', right: 'border-l' }[edge]
       }`}
       style={vertical ? { height: size } : { width: size }}
