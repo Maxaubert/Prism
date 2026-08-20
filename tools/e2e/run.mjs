@@ -1174,9 +1174,11 @@ async function terminalScenario(fixtures) {
     await win.keyboard.type('claude')
     await win.keyboard.press('Enter')
     await win.waitForSelector('[data-activity="working"], [data-activity="done"]', { timeout: 30000 })
-    ok(true, 'claude in the shell brings the dot')
-    await win.waitForSelector('[data-activity="done"]', { timeout: 30000 })
-    ok(true, 'and it settles amber once claude is idle')
+    // The dot must be BORN amber: startup painting is not the agent working.
+    ok(
+      (await win.evaluate(() => document.querySelector('[data-activity="working"],[data-activity="done"]')?.getAttribute('data-activity'))) === 'done',
+      'claude in the shell brings the dot, and it starts amber (idle)'
+    )
     await win.keyboard.press('Escape')
     await sleep(400)
     await win.keyboard.press('Control+c')

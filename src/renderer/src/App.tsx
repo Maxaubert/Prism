@@ -6,7 +6,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { activitySuppressed, isTouched } from './lib/termActivity'
+import { activitySuppressed, isTouched, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -636,7 +636,21 @@ export default function App(): JSX.Element {
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
   useEffect(
     () =>
-      window.prism.onTermAgent((id, present) =>
+      window.prism.onTermAgent((id, present) => {
+        if (present) {
+          // An agent's BIRTH state is idle: its startup paint (banner, welcome
+          // box) is a stream, but it is not the agent answering anything. Wipe
+          // the run and suppress scoring briefly so the dot is born amber and
+          // blue only ever means a real answer underway.
+          outputRuns.current.delete(id)
+          suppressActivity(id, 1500)
+          setWorkingIds((prev) => {
+            if (!prev.has(id)) return prev
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        }
         setAgentIds((prev) => {
           if (present === prev.has(id)) return prev
           const next = new Set(prev)
@@ -644,7 +658,7 @@ export default function App(): JSX.Element {
           else next.delete(id)
           return next
         })
-      ),
+      }),
     []
   )
   useEffect(
