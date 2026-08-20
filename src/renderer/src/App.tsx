@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
+import { closeTab, receiveFile, type TabState, type TreeState } from './lib/tabs'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -26,6 +27,12 @@ import {
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
+
+// Tab ids only have to be unique within a session and stable while a tab lives:
+// they are React keys and the handle every tab action names, never anything
+// persisted. A counter is enough and, unlike a path, survives a rename.
+let tabSeq = 0
+const nextTabId = (): string => `tab-${(tabSeq += 1)}`
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -275,12 +282,28 @@ function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
 }
 
 export default function App(): JSX.Element {
-  // `raw` is every viewable sibling main found; `rawIndex` points at the file on
-  // screen. The list the user actually pages through is derived from those two
-  // plus the navigation scope, so changing the scope re-derives around the
-  // current file instead of moving off it.
-  const [raw, setRaw] = useState<OpenPayload | null>(null)
-  const [rawIndex, setRawIndex] = useState(0)
+  // The open projects. A tab carries every viewable sibling main found for its
+  // root and which of them is on screen; `active` is the one you are looking at.
+  // The list the user actually pages through is derived from those plus the
+  // navigation scope, so changing the scope re-derives around the current file
+  // instead of moving off it.
+  // One piece of state, not two: every tab action is a pure function of the
+  // whole thing, so each handler below is a plain updater and stays stable for
+  // the life of the window. `open` in particular is handed to main once, through
+  // onOpenFile, and must not be rebuilt whenever a tab changes.
+  const [tabState, setTabState] = useState<TabState>({ tabs: [], activeId: null })
+  const { tabs, activeId } = tabState
+  const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
+  const rawIndex = active?.index ?? -1
+  /** Point the active tab at another of its files. */
+  const setRawIndex = useCallback(
+    (i: number) =>
+      setTabState((s) => ({
+        ...s,
+        tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: i } : t))
+      })),
+    []
+  )
   // Whether the user has started paging through the folder in this session. A
   // freshly opened audio/video keeps the arrow keys for seeking; once you've
   // navigated, arrows keep paging even when they land on a playable file.
@@ -375,13 +398,16 @@ export default function App(): JSX.Element {
     localStorage.setItem(TRANSPORT_KEY, s)
   }, [])
 
+  /**
+   * A file or folder arriving from outside: argv, the second-instance handoff,
+   * a drop, or either dialog. `receiveFile` decides where it lands - a tab whose
+   * root already holds it, a new tab, or the empty window - and index -1 is a
+   * folder that holds nothing viewable, which still opens as a place to browse
+   * from rather than a refusal.
+   */
   const open = useCallback((p: OpenPayload | null) => {
     if (!p) return
-    // index -1 is a folder that was opened deliberately and holds nothing
-    // viewable: root the tree there anyway and leave the viewer empty, so it is
-    // a place to browse from rather than a refusal.
-    setRaw(p)
-    setRawIndex(p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1)
+    setTabState((s) => receiveFile(s.tabs, p, nextTabId()))
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
@@ -394,13 +420,44 @@ export default function App(): JSX.Element {
   /** Choose a folder to root in. The only route that names a root deliberately;
    *  every other one infers it from whatever file arrived. */
   const openFolder = useCallback(() => void window.prism.openFolder().then(open), [open])
+
+  /** Close one tab. The last one leaves an empty window rather than taking the
+   *  window with it: Prism is resident, and a window that vanishes under a
+   *  reflex keystroke is the failure this app has been careful to avoid. */
+  const closeActiveTab = useCallback(() => {
+    setTabState((s) => (s.activeId ? closeTab(s.tabs, s.activeId, s.activeId) : s))
+  }, [])
+  /**
+   * The sidebar's tree state belongs to the tab, so switching back to one shows
+   * the folders you left open rather than a collapsed tree.
+   *
+   * It takes an updater rather than a value: Sidebar cannot hold the current
+   * state (it does not own it any more), and the owner applying the update is
+   * the only version of this that stays stable. An update that changes nothing
+   * returns the same object, so a cached folder cannot re-render its way into a
+   * loop through the effect that loads it.
+   */
+  const setTree = useCallback((id: string, update: (t: TreeState) => TreeState) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === id)
+      if (!tab) return s
+      const tree = update(tab.tree)
+      if (tree === tab.tree) return s
+      return { ...s, tabs: s.tabs.map((t) => (t.id === id ? { ...t, tree } : t)) }
+    })
+  }, [])
+  /** Bound to the active tab, so Sidebar's handle is stable within a tab. */
+  const onTree = useCallback(
+    (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),
+    [activeId, setTree]
+  )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
   const openFromTree = useCallback(
     // No guard: unsaved text is kept in `buffers`, so leaving a file costs
     // nothing and there is nothing to ask about.
-    (p: string) => void (raw && window.prism.openWithin(raw.root, p).then(open)),
-    [open, raw]
+    (p: string) => void (active && window.prism.openWithin(active.root, p).then(open)),
+    [active, open]
   )
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
@@ -411,20 +468,20 @@ export default function App(): JSX.Element {
   const scope = useNavScope()
   const sort = useSort()
   const view = useMemo(() => {
-    if (!raw || rawIndex < 0 || !raw.files.length) return null
-    const ordered = sortFiles(raw.files, sort.field, sort.dir)
-    return scopeFiles(ordered, ordered.indexOf(raw.files[rawIndex]), scope)
-  }, [raw, rawIndex, scope, sort])
+    if (!active || rawIndex < 0 || !active.files.length) return null
+    const ordered = sortFiles(active.files, sort.field, sort.dir)
+    return scopeFiles(ordered, ordered.indexOf(active.files[rawIndex]), scope)
+  }, [active, rawIndex, scope, sort])
 
   const go = useCallback(
     (delta: number) => {
-      if (!raw || !view) return
+      if (!active || !view) return
       const next = Math.max(0, Math.min(view.files.length - 1, view.index + delta))
       if (next === view.index) return // already at the edge; not a navigation
-      setRawIndex(raw.files.indexOf(view.files[next]))
+      setRawIndex(active.files.indexOf(view.files[next]))
       setHasNavigated(true)
     },
-    [raw, view]
+    [active, setRawIndex, view]
   )
 
   const file = view?.files[view.index] ?? null
@@ -441,16 +498,16 @@ export default function App(): JSX.Element {
   // documents sit between - a folder of episodes plays like a season, whatever
   // else lives beside them. Stops quietly at the end of the folder.
   const advanceSameKind = useCallback(() => {
-    if (!raw || !view) return
+    if (!active || !view) return
     const current = view.files[view.index]
     if (!current) return
     for (let i = view.index + 1; i < view.files.length; i += 1) {
       if (view.files[i].kind === current.kind) {
-        setRawIndex(raw.files.indexOf(view.files[i]))
+        setRawIndex(active.files.indexOf(view.files[i]))
         return
       }
     }
-  }, [raw, view])
+  }, [active, setRawIndex, view])
 
   // A different file closes the editor (render-phase adjustment, the sidebar's
   // pattern): the pencil applies to what you were looking at, not what's next.
@@ -476,8 +533,8 @@ export default function App(): JSX.Element {
   }
 
   const reopen = useCallback(
-    (p: string) => void (raw && window.prism.openWithin(raw.root, p).then((payload) => payload && open(payload))),
-    [open, raw]
+    (p: string) => void (active && window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))),
+    [active, open]
   )
 
   const runRename = useCallback(
@@ -519,9 +576,9 @@ export default function App(): JSX.Element {
       const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
       const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
       if (next) reopen(next.path)
-      else setRaw(null)
+      else closeActiveTab()
     },
-    [file, reopen, view]
+    [closeActiveTab, file, reopen, view]
   )
 
   // App-level keys, in the capture phase so this runs before the player's own
@@ -665,7 +722,7 @@ export default function App(): JSX.Element {
         <TopBar
           // The tree already names (and highlights) the open file; the bar only
           // repeats it when the tree isn't there to say it.
-          name={sidebar && raw && !settingsOpen ? '' : (file?.name ?? '')}
+          name={sidebar && active && !settingsOpen ? '' : (file?.name ?? '')}
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen((v) => !v)}
@@ -691,10 +748,12 @@ export default function App(): JSX.Element {
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
-        {raw && !fullscreen && (
+        {active && !fullscreen && (
           <Sidebar
             open={sidebar}
-            root={raw.root}
+            root={active.root}
+            state={active.tree}
+            onTree={onTree}
             currentPath={file?.path ?? null}
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
