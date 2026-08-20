@@ -435,7 +435,10 @@ async function contextMenuScenario(fixtures) {
 
     // The flyout: hover "Open in", expect the two rows that exist on every
     // machine (the app list between them varies by what is installed).
-    await win.hover('[role="menuitem"]:has-text("Open in")')
+    // has-text is a substring match and "Open in split view" sits above
+    // "Open in" in the menu; exclude it rather than exact-match, because the
+    // item's text also carries its submenu chevron.
+    await win.hover('[role="menuitem"]:has-text("Open in"):not(:has-text("split"))')
     await win.waitForSelector('[role="menuitem"]:has-text("Choose another app…")', { timeout: 8000 })
     ok(true, 'Open in flyout opens')
     ok((await win.locator('[role="menuitem"]:has-text("Default app")').count()) === 1, 'flyout offers the default app')
@@ -449,6 +452,13 @@ async function contextMenuScenario(fixtures) {
       .catch(() => {})
     const appRows = await win.locator('[role="menu"]').nth(1).locator('[role="menuitem"]').count()
     console.log(`  info  flyout lists ${appRows - 2} discovered app(s) on this machine`)
+    ok(
+      await win
+        .locator('[role="menuitem"]:has-text("Open in split view")')
+        .isVisible()
+        .catch(() => false),
+      'files offer Open in split view'
+    )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
 
     // Duplicate makes "README (2).md" appear in the tree.
@@ -989,9 +999,13 @@ async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
-    // The button lives on the sidebar search row, with the folder button.
+    // The button lives on the sidebar's footer row now.
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(
+      !(await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'opening the terminal takes the FULL view: the document steps aside'
+    )
     await sleep(3000) // a cold pwsh takes a moment to prompt
     await win.keyboard.type('echo prism-e2e-marker')
     await win.keyboard.press('Enter')
@@ -1049,7 +1063,22 @@ async function terminalScenario(fixtures) {
 
     await win.screenshot({ path: join(SHOTS, 'terminal.png') })
 
+    // Ctrl+D splits - from the FILE side (in the shell it stays EOF), so step
+    // out of the terminal first by clicking the tree.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await sleep(300)
+    await win.keyboard.press('Control+d')
+    await sleep(500)
+    ok(
+      (await win.locator('.xterm').count()) === 1 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'Ctrl+D on a file makes the split: document AND terminal'
+    )
+    await win.screenshot({ path: join(SHOTS, 'terminal-split.png') })
+
     // exit ends the shell; the panel goes with it and the window stays.
+    await win.locator('.xterm').click()
+    await sleep(300)
     await win.keyboard.type('exit')
     await win.keyboard.press('Enter')
     await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })

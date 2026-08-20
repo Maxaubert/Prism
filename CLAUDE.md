@@ -117,9 +117,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
   check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
   it, which is what narrows the wall when a tab closes.
-- **A terminal, one per tab** (2026-08-20): docked bottom/top/left/right of the viewer
-  (right-click menu on the panel), resizable, toggled with `Ctrl+\`` and a sidebar
-  search-row button. cwd starts at the tab's root; hiding keeps the shell running; exit,
+- **A terminal, one per tab** (2026-08-20): opens FULL VIEW (the viewer steps aside but
+  stays mounted, so scroll/zoom/playback survive) via `Ctrl+\``, `Ctrl+Shift+T`, or the
+  sidebar FOOTER-row button (a new bottom row, one button so far). SPLIT is the deliberate
+  arrangement: `Ctrl+D` on a file, or right-click a file, "Open in split view" - docked
+  bottom/top/left/right (right-click menu on the panel), resizable. Ctrl+D sits behind the
+  typing guard so in the shell it stays EOF. The terminal wears the style (reads
+  --p-bg/--p-text/--p-accent-hi live): void means a black terminal. cwd starts at the tab's root; hiding keeps the shell running; exit,
   tab close, or quit kill it; rerooting keeps it. pwsh by default, Settings picks from what
   the machine has. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it

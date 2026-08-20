@@ -102,6 +102,7 @@ export function Sidebar({
   onOpenFolder,
   onToggleTerm,
   termOpen,
+  onOpenSplit,
   state,
   onTree
 }: {
@@ -125,10 +126,11 @@ export function Sidebar({
    *  with sort and filter: those narrow what you are looking at, this changes
    *  it, and they do not belong in one cluster. */
   onOpenFolder: () => void
-  /** Toggle this tab's terminal. Lives with the folder button: both are about
-   *  the place, not the list. */
+  /** Toggle this tab's terminal (full view). Lives in the footer row. */
   onToggleTerm: () => void
   termOpen: boolean
+  /** Show a file with the terminal split beside it (the context menu verb). */
+  onOpenSplit: (path: string) => void
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -442,22 +444,6 @@ export function Sidebar({
             <path d="M12 11v5m2.5-2.5h-5" />
           </svg>
         </button>
-        <button
-          className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border transition-colors ${
-            termOpen
-              ? 'border-[color:var(--p-accent-hi)] text-[var(--p-accent-hi)]'
-              : 'border-[color:var(--p-line)] text-[var(--p-icon)] hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]'
-          }`}
-          onClick={onToggleTerm}
-          title="Terminal (Ctrl+`)"
-          aria-label="Terminal"
-          aria-pressed={termOpen}
-        >
-          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
-          </svg>
-        </button>
         <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
           <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
             <circle cx="11" cy="11" r="6.5" />
@@ -536,6 +522,26 @@ export function Sidebar({
             </TreeProvider>
           )}
         </div>
+        {/* The footer row: the sidebar's actions on the place itself. One
+            button today; a row so the next one has somewhere to live. */}
+        <div className="flex h-9 shrink-0 items-center gap-1.5 border-t border-[color:var(--p-line)] px-2">
+          <button
+            className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border transition-colors ${
+              termOpen
+                ? 'border-[color:var(--p-accent-hi)] text-[var(--p-accent-hi)]'
+                : 'border-[color:var(--p-line)] text-[var(--p-icon)] hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]'
+            }`}
+            onClick={onToggleTerm}
+            title="Terminal (Ctrl+`)"
+            aria-label="Terminal"
+            aria-pressed={termOpen}
+          >
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Drag the edge to resize; double-click snaps back to the default. The hit
@@ -574,6 +580,12 @@ export function Sidebar({
             // Files also go places: another app, Explorer, the clipboard.
             ...(!menu.isFolder
               ? [
+                  {
+                    // The deliberate arrangement: this file, terminal beside it.
+                    label: 'Open in split view',
+                    icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                    onPick: () => onOpenSplit(menu.path)
+                  },
                   {
                     label: 'Open in',
                     icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,

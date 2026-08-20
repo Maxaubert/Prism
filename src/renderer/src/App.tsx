@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
-import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
 import { TermDock } from './components/TermDock'
@@ -539,16 +539,26 @@ export default function App(): JSX.Element {
     },
     [dockEdge]
   )
-  /** The sidebar button and Ctrl+`: first press spawns, after that it is
-   *  visibility. The shell itself only dies to exit, tab close, or quit. */
-  const toggleTerm = useCallback(() => {
-    setTabState((s) => {
-      const tab = s.tabs.find((t) => t.id === s.activeId)
-      if (!tab) return s
-      const term = tab.term ? { ...tab.term, open: !tab.term.open } : { id: nextTermId(), open: true }
-      return { ...s, tabs: setTabTerm(s.tabs, tab.id, term) }
-    })
-  }, [])
+  /** Apply a term-view transition to the active tab, spawning ids as needed.
+   *  The shell itself only dies to exit, tab close, or quit. */
+  const applyTermView = useCallback(
+    (fn: typeof toggleTermView) =>
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab) return s
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, fn(tab.term, nextTermId())) }
+      }),
+    []
+  )
+  /** The sidebar button and Ctrl+`: full view, the terminal's home. */
+  const toggleTerm = useCallback(() => applyTermView(toggleTermView), [applyTermView])
+  /** Ctrl+Shift+T: open full, unconditionally (never hides). */
+  const openTermFull = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
+    [applyTermView]
+  )
+  /** Ctrl+D on a file, and the tree's "Open in split view". */
+  const toggleTermSplit = useCallback(() => applyTermView(splitTermView), [applyTermView])
   // The shell ended: typed exit, or died. App owns this rather than the panel,
   // because it must be heard even while the panel is hidden or another tab is
   // in front - the tab's term slot has to clear either way.
@@ -608,6 +618,15 @@ export default function App(): JSX.Element {
     [active, open]
   )
 
+  /** The context menu: show THIS file, with the terminal beside it. */
+  const openFileSplit = useCallback(
+    (p: string) => {
+      openFromTree(p)
+      applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
+    },
+    [applyTermView, openFromTree]
+  )
+
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
   // The visible list: the siblings that belong with the open file under the
@@ -633,6 +652,7 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+  const termView = active?.term?.view ?? 'hidden'
 
   // Whether the open document currently holds focus. Documents mark their own
   // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
@@ -748,11 +768,21 @@ export default function App(): JSX.Element {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
       } else if (e.key === '`' && e.ctrlKey) {
-        // NOT behind the typing guard: this is one of two keys Prism claims
-        // over a focused terminal (F11 is the other). Everything else,
-        // Escape and Ctrl+W included, belongs to the shell.
+        // NOT behind the typing guard: one of the few keys Prism claims over
+        // a focused terminal (F11 and Ctrl+Shift+T are the others).
+        // Everything else, Escape and Ctrl+W included, belongs to the shell.
         e.preventDefault()
         toggleTerm()
+      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && e.shiftKey) {
+        // Also claimed while the shell is focused: it never hides, it only
+        // brings the terminal to full view, so it cannot eat typed text.
+        e.preventDefault()
+        openTermFull()
+      } else if ((e.code === 'KeyD' || e.key === 'd' || e.key === 'D') && e.ctrlKey && !e.shiftKey && !typing) {
+        // Split, from the FILE side. Behind the typing guard on purpose: in
+        // the shell Ctrl+D stays the shell's (EOF, delete-char-or-exit).
+        e.preventDefault()
+        toggleTermSplit()
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
         e.preventDefault()
         newTab()
@@ -823,7 +853,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, settingsOpen, setup, stepTab, togglePanel, toggleTerm])
+  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, toggleTermSplit])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -936,7 +966,8 @@ export default function App(): JSX.Element {
             root={active.root}
             onOpenFolder={rerootHere}
             onToggleTerm={toggleTerm}
-            termOpen={active.term?.open ?? false}
+            termOpen={termView !== 'hidden'}
+            onOpenSplit={openFileSplit}
             state={active.tree}
             onTree={onTree}
             currentPath={file?.path ?? null}
@@ -960,7 +991,12 @@ export default function App(): JSX.Element {
         <div
           className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
             washed ? 'p-wash' : ''
-          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
+          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''} ${
+            // Full view: the terminal takes the whole area, but the viewer
+            // stays MOUNTED so scroll, zoom and playback survive the visit -
+            // the same reason hidden shells stay alive.
+            termView === 'full' ? 'hidden' : ''
+          }`}
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
@@ -989,12 +1025,14 @@ export default function App(): JSX.Element {
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
         </div>
-        {/* The tab's shell, when it is open. Only the ACTIVE tab's panel is in
-            the DOM; hidden tabs' sessions stay alive in the store, and coming
-            back reattaches them with scrollback intact. Fullscreen is for
-            watching: no dock, like the rest of the chrome. */}
-        {active?.term?.open && !fullscreen && (
+        {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
+            in the DOM; hidden tabs' sessions stay alive in the store, and
+            coming back reattaches them with scrollback intact. Full view is
+            the terminal's home; split is the dock. Fullscreen is for watching:
+            no terminal, like the rest of the chrome. */}
+        {active?.term && termView !== 'hidden' && !fullscreen && (
           <TermDock
+            mode={termView}
             edge={dockEdge}
             size={termSizes[dockAxis(dockEdge)]}
             onResize={resizeTermPanel}

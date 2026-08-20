@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
+import { readTermTheme, watchTermTheme } from '../lib/termTheme'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -21,6 +22,13 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>()
+
+// One watcher restyles every running shell when the style repaints :root, so
+// switching to void turns live terminals black without a respawn. Module
+// scope, like the sessions it dresses.
+watchTermTheme((t) => {
+  for (const s of sessions.values()) s.term.options.theme = t
+})
 
 /** Kill a session's renderer half: the xterm instance and its element. Main's
  *  pty half is killed separately (term:kill) or already exited. */
@@ -40,12 +48,9 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     allowProposedApi: true, // unicode11 needs it
     fontFamily: '"Cascadia Mono", Consolas, monospace',
     fontSize: 13,
-    theme: {
-      background: '#0b0b0f',
-      foreground: '#d7dae1',
-      cursor: '#5b5bd6',
-      selectionBackground: '#5b5bd644'
-    }
+    // The terminal wears the style: void gets a black terminal, a light style
+    // a light one. Live switches are handled by the watcher above.
+    theme: readTermTheme()
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
@@ -145,5 +150,5 @@ export default function TerminalPanel({
     }
   }, [sessionId, root, shellId])
 
-  return <div ref={box} className="h-full w-full min-h-0 min-w-0 bg-[#0b0b0f] p-1" />
+  return <div ref={box} className="h-full w-full min-h-0 min-w-0 bg-[var(--p-bg)] p-1" />
 }
