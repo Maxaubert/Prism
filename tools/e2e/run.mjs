@@ -43,7 +43,7 @@ async function seedProfile() {
   await offscreen(app)
   await win.evaluate((kv) => {
     for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
-  }, { 'prism.onboarded': '1', 'prism.sidebar': '1' })
+  }, { 'prism.onboarded': '1', 'prism.sidebar': '1', 'prism.tabs.confirmClose': '0' })
   await sleep(300)
   await app.close()
   await sleep(900) // let the single-instance lock go
@@ -904,6 +904,33 @@ async function tabsScenario(fixtures) {
     await handoff(join(fixtures, 'notes.txt'))
     ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
 
+    // The ask-before-closing option: on, Ctrl+W asks; Cancel keeps the tab;
+    // asking again and confirming closes it. (Seeded off for every other flow.)
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
+    // Aim Ctrl+W at the code tab, so the fixtures tab (which the rest of the
+    // scenario leans on) stays put.
+    await tabRows().last().click()
+    await sleep(300)
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
+      'with the option on, closing a tab asks first'
+    )
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    await sleep(300)
+    ok((await tabRows().count()) === 2, 'Cancel keeps the tab')
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Close tab")').click()
+    await sleep(400)
+    ok((await tabRows().count()) === 1, 'confirming closes it')
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
+    // recreate the code tab, restoring the order the flow below expects
+    await handoff(join(fixtures, 'code', 'bad.json'))
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(400)
+
     // Closing back to one leaves the strip, and the tab, in place.
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
@@ -1060,6 +1087,21 @@ async function terminalScenario(fixtures) {
       { timeout: 10000 }
     )
     ok(true, 'the shell was untouched by the tab keys')
+
+    // Ctrl+W pierces the shell too: with the ask option on, the question
+    // appears while the terminal is focused, and Cancel keeps everything.
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
+      'Ctrl+W asks from inside the terminal'
+    )
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    await sleep(300)
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
+    await win.locator('.xterm').click()
 
     // The terminal button's own menu: split, and clear.
     await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })

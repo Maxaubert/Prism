@@ -20,6 +20,7 @@ import {
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
+import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -770,6 +771,7 @@ function Select({
 function GeneralTab(): JSX.Element {
   const size = useTreeSize()
   const follow = useAutoScroll()
+  const confirmClose = useConfirmCloseTabs()
   const side = useTreeSide()
   // The shells main detected, fetched when the tab first shows. `saved` may
   // name one that no longer exists; the select then shows the real default,
@@ -811,6 +813,13 @@ function GeneralTab(): JSX.Element {
         hint="The sidebar follows the file you are viewing."
       >
         <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
+      </Pref>
+      <Pref
+        id="confirm-close"
+        label="Ask before closing tabs"
+        hint="Ctrl+W and the tab's X confirm first. Unsaved text always asks."
+      >
+        <Switch on={confirmClose} onChange={setConfirmCloseTabs} label="Ask before closing tabs" />
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
