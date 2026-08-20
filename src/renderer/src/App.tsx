@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
-import { closeTab, receiveFile, type TabState, type TreeState } from './lib/tabs'
+import { closeTab, receiveFile, rerootTab, sameRoot, type TabState, type TreeState } from './lib/tabs'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -60,6 +60,10 @@ type Ask =
   // window's, because the stake is the same: leave that tab and the only route
   // back to those buffers is gone, even though the window stays open.
   | { kind: 'close-tab'; id: string; names: readonly string[] }
+  // Pointing a tab at a different folder strands its unsaved text exactly as
+  // closing it would, so it asks the same question and carries the payload it
+  // will apply on the way through.
+  | { kind: 'reroot'; id: string; names: readonly string[]; payload: OpenPayload }
 
 function TopBar({
   name,
@@ -68,7 +72,6 @@ function TopBar({
   onToggleSettings,
   panelOpen,
   onTogglePanel,
-  onOpenFolder,
   setup,
   wash,
   editable,
@@ -85,9 +88,6 @@ function TopBar({
   /** The left-hand panel of whatever is on screen: the tree, or the rail. */
   panelOpen: boolean
   onTogglePanel: () => void
-  /** Choose a folder to root in. The other button about "what am I looking at",
-   *  so it sits beside the panel toggle. */
-  onOpenFolder: () => void
   /** First-run setup is up: the bar keeps the name and the window buttons, and
    *  drops the controls for an app you haven't met yet. */
   setup: boolean
@@ -124,19 +124,6 @@ function TopBar({
         <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <path d="M9 4v16" />
-        </svg>
-      </button>
-      )}
-      {!setup && (
-      <button
-        className="no-drag grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        onClick={onOpenFolder}
-        title="Open folder (Ctrl+T)"
-        aria-label="Open folder"
-      >
-        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          <path d="M12 11v5m2.5-2.5h-5" />
         </svg>
       </button>
       )}
@@ -445,6 +432,7 @@ export default function App(): JSX.Element {
    *  every other one infers it from whatever file arrived. */
   const openFolder = useCallback(() => void window.prism.openFolder().then(open), [open])
 
+
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a
    *  reflex keystroke is the failure this app has been careful to avoid. */
@@ -458,6 +446,28 @@ export default function App(): JSX.Element {
       .filter((b) => b.path.toLowerCase().startsWith(r))
       .map((b) => baseName(b.path))
   }, [])
+  const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
+    setTabState((s) => rerootTab(s.tabs, id, p, nextTabId()))
+    setHasNavigated(false)
+  }, [])
+  /**
+   * The sidebar's folder button: this tab becomes that folder, rather than a new
+   * tab beside it. The strip's `+` is the one that accumulates.
+   *
+   * It asks first when the tab holds unsaved text, because the consequence is
+   * the close-a-tab consequence: the route back to those buffers goes with the
+   * root. A folder already open in another tab switches there instead, so the
+   * one-tab-per-root rule the arriving-file logic leans on still holds.
+   */
+  const rerootHere = useCallback(() => {
+    void window.prism.openFolder().then((p) => {
+      if (!p) return
+      const here = tabs.find((t) => t.id === activeId)
+      const names = here && !sameRoot(here.root, p.root) ? dirtyUnder(here.root) : []
+      if (names.length && activeId) setAsk({ kind: 'reroot', id: activeId, names, payload: p })
+      else applyReroot(activeId, p)
+    })
+  }, [activeId, applyReroot, dirtyUnder, tabs])
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -798,7 +808,6 @@ export default function App(): JSX.Element {
           onToggleSettings={() => setSettingsOpen((v) => !v)}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
-          onOpenFolder={openFolder}
           setup={setup}
           wash={washed}
           // Only markdown takes the pencil. Code and plain text have no
@@ -836,6 +845,7 @@ export default function App(): JSX.Element {
           <Sidebar
             open={sidebar}
             root={active.root}
+            onOpenFolder={rerootHere}
             state={active.tree}
             onTree={onTree}
             currentPath={file?.path ?? null}
@@ -1009,6 +1019,56 @@ export default function App(): JSX.Element {
                   }
                   setAsk(null)
                   forceCloseTab(ask.id)
+                })()
+              }
+            }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'reroot' && (
+        <Dialog
+          title={ask.names.length > 1 ? `${ask.names.length} files have unsaved changes` : 'Unsaved changes'}
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
+              {ask.names.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              Opening another folder here is the last way back to them.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            {
+              label: 'Discard',
+              onPick: () => {
+                const tab = tabs.find((t) => t.id === ask.id)
+                if (tab) {
+                  const r = tab.root.toLowerCase()
+                  for (const key of [...buffers.current.keys()]) {
+                    if (key.startsWith(r)) buffers.current.delete(key)
+                  }
+                  syncDirty()
+                }
+                setAsk(null)
+                applyReroot(ask.id, ask.payload)
+              }
+            },
+            {
+              label: 'Save all changes',
+              primary: true,
+              onPick: () => {
+                void (async () => {
+                  const failed = await saveAll()
+                  if (failed.length) {
+                    setAsk({
+                      kind: 'failed',
+                      message: `Couldn't save ${failed.map(baseName).join(', ')}.`
+                    })
+                    return
+                  }
+                  setAsk(null)
+                  applyReroot(ask.id, ask.payload)
                 })()
               }
             }

@@ -102,8 +102,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
   arriving from outside reuses a tab whose root already holds it (five photos from one
   folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
-  in `tabs.json`; a root that is gone is dropped without a word. The strip is absent at one
-  tab, so a single quick-look meets exactly the old chrome. `Ctrl+W` closes a tab and the
+  in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
+  FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
+  opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
+  strip's `+` (and `Ctrl+T`) ADDS a tab, the sidebar's folder button (on the search row, left
+  of the search box, away from sort/filter which narrow rather than change) REPLACES the
+  current tab root. Rerooting onto a folder another tab already holds switches there instead,
+  keeping one tab per root. `Ctrl+W` closes a tab and the
   last one leaves an EMPTY WINDOW rather than quitting: Prism is resident and a window that
   vanishes under a reflex keystroke is the failure the close flow exists to prevent.
   Closing a tab holding unsaved text asks, like the window does.
