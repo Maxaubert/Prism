@@ -127,7 +127,11 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   void window.prism.termSpawn(id, root, shellId).then((ok) => {
     if (!ok && sessions.has(id)) {
       term.write('\x1b[31mCould not start the shell.\x1b[0m\r\n')
+      return
     }
+    // The spawn is done: re-assert the real size once. The first fit can race
+    // a slow spawn, and a static window will never resize on its own.
+    if (sessions.has(id)) window.prism.termResize(id, term.cols, term.rows)
   })
   return session
 }
