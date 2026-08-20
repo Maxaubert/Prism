@@ -501,11 +501,15 @@ if (!app.requestSingleInstanceLock()) {
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
     // spawn: the shell STARTS in an open root (it may leave; that is a shell).
     ipcMain.handle('term:shells', () => detectShells())
-    ipcMain.handle('term:spawn', (_e, id: string, root: string, shellId?: string) =>
-      insideAnyRoot(root) || isAnyRoot(root)
-        ? spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a))
-        : false
-    )
+    ipcMain.handle('term:spawn', async (_e, id: string, root: string, shellId?: string) => {
+      if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
+      const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a))
+      // Warm the agent-poll pipeline now: the first CIM query is the slow one
+      // (cold WMI), and running it while the user is still typing their first
+      // command means the dot can appear on the poll that actually matters.
+      if (ok) setTimeout(pollAgents, 300)
+      return ok
+    })
     ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
@@ -513,9 +517,15 @@ if (!app.requestSingleInstanceLock()) {
     // The agent poll behind the tab dots. Every 2.5s WHILE shells exist, one
     // CIM query lists processes and each session's tree is checked for an AI
     // CLI (agentDetect). Only changes cross the bridge.
+    //
+    // The timeout is generous on purpose: a COLD WMI service can take well
+    // over ten seconds on its first query, and an 8s timeout killed it, only
+    // to try again cold - a kill-retry loop that delayed the first dot by
+    // half a minute. Warm, the query is ~250ms; letting one slow first call
+    // finish is what warms it.
     const agentState = new Map<string, boolean>()
     let agentBusy = false
-    setInterval(() => {
+    const pollAgents = (): void => {
       const pids = livePids()
       if (!pids.length || agentBusy) return
       agentBusy = true
@@ -526,7 +536,7 @@ if (!app.requestSingleInstanceLock()) {
           '-Command',
           'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
         ],
-        { windowsHide: true, timeout: 8000, maxBuffer: 32 * 1024 * 1024 },
+        { windowsHide: true, timeout: 30000, maxBuffer: 32 * 1024 * 1024 },
         (err, stdout) => {
           agentBusy = false
           if (err || !stdout) return
@@ -549,7 +559,8 @@ if (!app.requestSingleInstanceLock()) {
           for (const id of [...agentState.keys()]) if (!live.has(id)) agentState.delete(id)
         }
       )
-    }, 2500)
+    }
+    setInterval(pollAgents, 2500)
     // The terminal's clickable links. http(s) only, checked on both sides.
     ipcMain.on('shell:open-external', (_e, url: string) => {
       if (/^https?:/i.test(url)) void shell.openExternal(url)

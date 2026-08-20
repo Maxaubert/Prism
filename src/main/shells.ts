@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process'
+import { execFile } from 'child_process'
 import type { ShellDef } from '@shared/types'
 
 // The shells this machine actually has. Prism never execs a renderer-supplied
@@ -29,17 +29,25 @@ export function shellById(id: string | undefined, list: ShellDef[]): ShellDef {
   )
 }
 
-const probe = (exe: string): boolean =>
-  spawnSync('where', [exe], { windowsHide: true, timeout: 5000 }).status === 0
+// Async on purpose: these probes ran spawnSync once, and a cold `where` or
+// `wsl` call blocked the WHOLE main process at the first terminal spawn -
+// every IPC stalled and the app felt frozen for seconds. Nothing here is
+// worth stopping the world for.
+const run = (exe: string, args: string[]): Promise<{ ok: boolean; stdout: Buffer }> =>
+  new Promise((done) =>
+    execFile(exe, args, { windowsHide: true, timeout: 8000, encoding: 'buffer' }, (err, stdout) =>
+      done({ ok: !err, stdout: stdout ?? Buffer.alloc(0) })
+    )
+  )
 
 let cached: Promise<ShellDef[]> | null = null
 
 /** Detect once per run. Prism is resident, but a newly installed shell only
  *  matters for NEW terminals, and a restart is an acceptable price for that. */
 export function detectShells(): Promise<ShellDef[]> {
-  cached ??= Promise.resolve().then(() => {
+  cached ??= (async () => {
     const list: ShellDef[] = []
-    if (probe('pwsh.exe'))
+    if ((await run('where', ['pwsh.exe'])).ok)
       list.push({
         id: 'pwsh',
         name: 'PowerShell 7',
@@ -67,13 +75,13 @@ export function detectShells(): Promise<ShellDef[]> {
     list.push({ id: 'powershell', name: 'Windows PowerShell', exe: 'powershell.exe', args: ['-NoLogo'] })
     list.push({ id: 'cmd', name: 'Command Prompt', exe: 'cmd.exe', args: [] })
     // wsl -l -q prints UTF-16LE. --cd . starts the distro in the pty's cwd.
-    const wsl = spawnSync('wsl.exe', ['-l', '-q'], { windowsHide: true, timeout: 5000 })
-    if (wsl.status === 0 && wsl.stdout) {
+    const wsl = await run('wsl.exe', ['-l', '-q'])
+    if (wsl.ok && wsl.stdout.length) {
       for (const name of parseWslList(wsl.stdout.toString('ucs2').replace(/\0/g, ''))) {
         list.push({ id: `wsl-${name}`, name: `WSL: ${name}`, exe: 'wsl.exe', args: ['-d', name, '--cd', '.'] })
       }
     }
     return list
-  })
+  })()
   return cached
 }
