@@ -156,6 +156,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that
   list is the only thing deciding what Windows will offer Prism for.
+  That list only governs the RECOMMENDED half of "Open with" (2026-08-20). The dialog's
+  "More apps" section is every installed application, unfiltered, so Prism can be pointed at
+  a `.zip` no matter what we register, and no app can remove itself from it: the only lever,
+  `NoOpenWith`, is all-or-nothing and would drop the 143 types we do support. Hence
+  `UnsupportedView`, which names the file and the format instead of leaving an empty window.
 
 **Out of scope (v1):** playlists / library / collections, editing, casting, streaming URLs,
 subtitles (planned later), office-doc rendering beyond PDF (planned later), cross-platform

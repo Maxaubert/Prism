@@ -17,6 +17,7 @@ import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
 import { PdfView } from './components/pdf/PdfView'
+import { UnsupportedView } from './components/UnsupportedView'
 // CodeMirror is ~770KB of editor that a folder of photos never needs. Splitting
 // it out keeps it off the launch path, which is the whole point of the resident
 // single-instance model: the window has to be there the instant you ask.
@@ -265,7 +266,11 @@ function Viewer({
         </Suspense>
       )
     default:
-      return <div className="text-[var(--color-dim)]">Can&apos;t preview this file type yet.</div>
+      // Windows can always hand us a file we don't show: the "Choose another
+      // app" dialog lists every installed application, not just the ones
+      // registered for the type. Say so plainly instead of leaving an empty
+      // window with a grey line in it.
+      return <UnsupportedView file={file} />
   }
 }
 
