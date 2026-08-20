@@ -15,7 +15,7 @@ import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
 import { listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, insideAnyRoot, isAnyRoot, syncRoots, validRoot } from './roots'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import { killAll, killTerm, resizeTerm, spawnTerm, writeTerm } from './terminal'
@@ -504,12 +504,17 @@ if (!app.requestSingleInstanceLock()) {
       if (/^https?:/i.test(url)) void shell.openExternal(url)
     })
 
-    // The renderer owns the tab list; main only persists it and keeps the wall
-    // in step, so a root whose tab was closed stops being reachable.
-    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => {
-      syncRoots(state.tabs.map((t) => t.root))
-      saveTabs(state)
-    })
+    // The renderer owns the tab list; main persists it. The root wall is NOT
+    // rebuilt from this snapshot: a report races payloads still in flight, and
+    // replacing the set once tore out a root main had just registered for a
+    // file the renderer had not seen yet - whose listDir was then refused and
+    // cached as unreadable. Additions stay main's (the payload builders);
+    // removals arrive explicitly below, and a snapshot cannot remove what it
+    // never knew about.
+    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
+    // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
+    // one at a time, from the owner of the tab list.
+    ipcMain.on('roots:drop', (_e, root: string) => dropRoot(root))
     // The three navigation handlers take the root they act in, because they are
     // per-tab operations and the renderer always knows which tab asked. Both the
     // root and the path have to hold up: naming a root you never opened gets you

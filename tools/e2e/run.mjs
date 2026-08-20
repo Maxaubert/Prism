@@ -961,6 +961,28 @@ async function tabsScenario(fixtures) {
   } finally {
     await app.close()
   }
+
+  // Explorer-opens-a-file WITH saved tabs to restore: the new tab's root must
+  // survive the restore traffic. This raced once: the first restored tab's
+  // report replaced main's root set while the new file's payload was still in
+  // flight, its listDir was refused, and the sidebar cached "can't read".
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'code', 'nested', 'level-two', 'buried.py'), true))
+  try {
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(800) // let the tree load (or cache a refusal, when broken)
+    ok(
+      await win
+        .locator('[role="treeitem"]:has-text("buried.py")')
+        .isVisible()
+        .catch(() => false),
+      'a file opened alongside restored tabs still gets its folder tree'
+    )
+    const note = ((await win.locator('aside').textContent()) ?? '').includes("can't read")
+    ok(!note, 'and the sidebar does not claim the folder is unreadable')
+  } finally {
+    await app.close()
+  }
 }
 
 async function terminalScenario(fixtures) {

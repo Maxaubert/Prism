@@ -1,6 +1,6 @@
 import { join, sep } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, openRoots, resetRoots, syncRoots, validRoot } from './roots'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, openRoots, resetRoots, validRoot } from './roots'
 
 const A = join('C:', 'shoot')
 const B = join('D:', 'docs')
@@ -35,24 +35,25 @@ describe('the open-root set', () => {
   })
 })
 
-describe('syncRoots', () => {
-  it('replaces the set rather than merging into it', () => {
-    addRoot(A)
-    syncRoots([B])
-    expect(openRoots()).toEqual([B])
-  })
-  it('makes a closed tab root unreachable, which is the whole point', () => {
+describe('explicit drops (never a bulk replace)', () => {
+  // A bulk replace from the renderer raced payloads still in flight and tore
+  // out roots main had just registered; removal is one root at a time now.
+  it('a dropped root becomes unreachable; the others stand', () => {
     addRoot(A)
     addRoot(B)
-    syncRoots([B])
+    dropRoot(A)
     expect(insideAnyRoot(join(A, 'a.jpg'))).toBe(false)
     expect(insideAnyRoot(join(B, 'r.md'))).toBe(true)
   })
-  it('an empty list closes the wall completely', () => {
+  it('dropping matches case-insensitively, like everything on this wall', () => {
     addRoot(A)
-    syncRoots([])
+    dropRoot(A.toUpperCase())
     expect(openRoots()).toEqual([])
-    expect(insideAnyRoot(join(A, 'a.jpg'))).toBe(false)
+  })
+  it('dropping a root that is not open changes nothing', () => {
+    addRoot(A)
+    dropRoot(B)
+    expect(openRoots()).toEqual([A])
   })
 })
 
