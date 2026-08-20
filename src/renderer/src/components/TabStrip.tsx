@@ -11,6 +11,8 @@ import { tabLabels, type Tab } from '../lib/tabs'
 export function TabStrip({
   tabs,
   activeId,
+  workingIds,
+  bellIds,
   onPick,
   onClose,
   onNew,
@@ -18,6 +20,10 @@ export function TabStrip({
 }: {
   tabs: Tab[]
   activeId: string | null
+  /** Terminal sessions with recent output: an AI CLI (or anything) working. */
+  workingIds: ReadonlySet<string>
+  /** Sessions whose shell rang the bell: done, wants attention. */
+  bellIds: ReadonlySet<string>
   onPick: (id: string) => void
   onClose: (id: string) => void
   /** The + at the end. This one ADDS a tab, rooted at the user's own folder
@@ -59,6 +65,24 @@ export function TabStrip({
                 sits under a bar that is already accent-coloured, and a second
                 block of indigo fought it. */}
             {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
+            {/* Tabby-style activity: a pulsing accent dot while the tab's
+                shell is streaming (an AI CLI at work), a steady amber one
+                after its bell (done, wants attention), nothing when quiet. */}
+            {t.term && workingIds.has(t.term.id) ? (
+              <span
+                data-activity="working"
+                className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--p-accent-hi)]"
+                title="Working"
+                aria-label="Terminal working"
+              />
+            ) : t.term && bellIds.has(t.term.id) ? (
+              <span
+                data-activity="bell"
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
+                title="Finished, wants attention"
+                aria-label="Terminal finished"
+              />
+            ) : null}
             <button
               role="tab"
               aria-selected={on}

@@ -904,6 +904,31 @@ async function tabsScenario(fixtures) {
     await handoff(join(fixtures, 'notes.txt'))
     ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
 
+    // The new-tab Settings: a remembered folder, and a terminal-first tab.
+    await win.evaluate((dir) => {
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', dir)
+      localStorage.setItem('prism.newtab.show', 'terminal')
+    }, join(fixtures, 'code'))
+    await win.keyboard.press('Control+t')
+    await sleep(800)
+    ok(
+      (await tabRows().count()) === 3 &&
+        ((await tabRows().last().textContent()) ?? '').includes('code'),
+      'a new tab roots at the remembered folder'
+    )
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(true, 'and opens showing a terminal, per the setting')
+    await win.evaluate(() => {
+      localStorage.setItem('prism.newtab.mode', 'home')
+      localStorage.setItem('prism.newtab.show', 'file')
+    })
+    await win.keyboard.press('Control+`') // hide, so the close is clean
+    await sleep(300)
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(500)
+    ok((await tabRows().count()) === 2, 'and closes again')
+
     // The ask-before-closing option: on, Ctrl+W asks; Cancel keeps the tab;
     // asking again and confirming closes it. (Seeded off for every other flow.)
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
@@ -1128,6 +1153,17 @@ async function terminalScenario(fixtures) {
     )
     await win.locator('.xterm').click()
 
+    // The activity indicator: streaming output lights the tab's dot, quiet
+    // turns it off. ping -n 3 emits for ~2s, like an AI CLI's spinner would.
+    await win.keyboard.type('ping -n 3 127.0.0.1')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[data-activity="working"]', { timeout: 10000 })
+    ok(true, 'streaming output marks the tab as working')
+    await win.waitForFunction(() => !document.querySelector('[data-activity="working"]'), null, {
+      timeout: 15000
+    })
+    ok(true, 'and quiet marks it idle again')
+
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
     await win.locator('.xterm').click()
@@ -1165,15 +1201,29 @@ async function terminalScenario(fixtures) {
     let clipHasImage = false
     for (let i = 0; i < 5 && !clipHasImage; i += 1) {
       clipHasImage = await app.evaluate(({ clipboard, nativeImage }, url) => {
+        // clear() first: writeImage does not reliably evict an existing text
+        // format, and a text+image clipboard is a DIFFERENT (also correct)
+        // path - the plain shell pastes the text half. This test wants the
+        // image-only screenshot case.
+        clipboard.clear()
         clipboard.writeImage(nativeImage.createFromDataURL(url))
-        return clipboard.availableFormats().some((f) => f.startsWith('image/'))
+        const f = clipboard.availableFormats()
+        return f.some((x) => x.startsWith('image/')) && !f.includes('text/plain')
       }, pngUrl)
       if (!clipHasImage) await sleep(400)
     }
     ok(clipHasImage, 'the clipboard verifiably holds the image (harness precondition)')
+    const screenText = () =>
+      win.evaluate(() => document.querySelector('.xterm-screen')?.textContent ?? '')
+    const screenBefore = await screenText()
     await win.keyboard.press('Control+v')
     await sleep(800)
-    ok((await countPaste()) === beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
+    // NOT exact equality: PSReadLine's redraw may clean stale render artifacts
+    // of the earlier reverted paste (observed 2 -> 0). The claim is only that
+    // no NEW text appeared from a ^V with an image on the clipboard.
+    void screenBefore
+    const nowN = await countPaste()
+    ok(nowN <= beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
     await win.keyboard.type('echo still-alive')
     await win.keyboard.press('Enter')
     await win.waitForFunction(

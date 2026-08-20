@@ -17,6 +17,10 @@ const api = {
   openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
   /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
   openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
+  /** A new tab rooted at a remembered folder (the Settings choice). */
+  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:root', dir),
+  /** Choose a folder without opening it: the Settings picker. */
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
   tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>

@@ -21,6 +21,7 @@ import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
+import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -772,6 +773,18 @@ function GeneralTab(): JSX.Element {
   const size = useTreeSize()
   const follow = useAutoScroll()
   const confirmClose = useConfirmCloseTabs()
+  const tabMode = useNewTabMode()
+  const tabFolder = useNewTabFolder()
+  const tabShow = useNewTabShow()
+  // Picking "A chosen folder" opens the chooser right away; cancelling keeps
+  // whatever was set before rather than leaving a mode with no folder.
+  const pickTabMode = (v: string): void => {
+    if (v === 'folder') {
+      void window.prism.pickFolder().then((dir) => {
+        if (dir) setNewTabMode('folder', dir)
+      })
+    } else setNewTabMode(v as 'home' | 'ask')
+  }
   const side = useTreeSide()
   // The shells main detected, fetched when the tab first shows. `saved` may
   // name one that no longer exists; the select then shows the real default,
@@ -820,6 +833,33 @@ function GeneralTab(): JSX.Element {
         hint="Ctrl+W and the tab's X confirm first. Unsaved text always asks."
       >
         <Switch on={confirmClose} onChange={setConfirmCloseTabs} label="Ask before closing tabs" />
+      </Pref>
+      <Pref
+        id="newtab-mode"
+        label="New tabs open in"
+        hint={tabMode === 'folder' && tabFolder ? tabFolder : 'Where the + and Ctrl+T land.'}
+      >
+        <Select
+          id="newtab-mode"
+          value={tabMode}
+          onChange={pickTabMode}
+          options={[
+            { id: 'home', name: 'Your user folder' },
+            { id: 'folder', name: 'A chosen folder…' },
+            { id: 'ask', name: 'Always ask' }
+          ]}
+        />
+      </Pref>
+      <Pref id="newtab-show" label="New tabs show" hint="What a fresh tab puts on screen.">
+        <Select
+          id="newtab-show"
+          value={tabShow}
+          onChange={(v) => setNewTabShow(v as NewTabShow)}
+          options={[
+            { id: 'file', name: 'First file in the folder' },
+            { id: 'terminal', name: 'A terminal' }
+          ]}
+        />
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />

@@ -485,6 +485,15 @@ if (!app.requestSingleInstanceLock()) {
     // it lands somewhere sensible - the user's own folder - and the sidebar's
     // folder button is where choosing happens.
     ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
+    // The Settings "new tabs open in" folder: stored renderer-side, opened
+    // here. folderPayload refuses a path that no longer exists, and the
+    // renderer falls back to home when it does.
+    ipcMain.handle('open:root', (_e, dir: string): OpenPayload | null => folderPayload(dir))
+    // Choose a folder WITHOUT opening it - the Settings picker.
+    ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
+      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
+    })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
     /* ----- the terminal ----- */
 

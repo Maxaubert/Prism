@@ -5,6 +5,7 @@ import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTe
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
+import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -441,6 +442,7 @@ export default function App(): JSX.Element {
       if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
     }
     heldRoots.current = now
+    activeTermIdRef.current = tabs.find((t) => t.id === activeId)?.term?.id ?? null
     // Mount says nothing (there is nothing to persist and no root to drop);
     // once a tab has existed, an empty list is real news: the last tab closed.
     if (tabs.length) hadTabs.current = true
@@ -467,9 +469,26 @@ export default function App(): JSX.Element {
    * tabs on one folder.
    */
   const newTab = useCallback(() => {
-    void window.prism.openHome().then((p) => {
-      if (!p) return
+    // Where the tab roots is a Settings choice: the user folder (instant), a
+    // remembered folder (instant; falls back to home if it is gone), or the
+    // chooser every time. What it shows is a second choice: the folder's
+    // first file, or a terminal already open in full view.
+    const mode = newTabMode()
+    const request =
+      mode === 'ask'
+        ? window.prism.openFolder()
+        : mode === 'folder'
+          ? window.prism.openRoot(newTabFolder()).then((p) => p ?? window.prism.openHome())
+          : window.prism.openHome()
+    void request.then((p) => {
+      if (!p) return // ask-mode cancelled: no tab
       setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      if (newTabShow() === 'terminal')
+        setTabState((s) => {
+          const tab = s.tabs.find((t) => t.id === s.activeId)
+          if (!tab || tab.term) return s
+          return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: nextTermId(), view: 'full' }) }
+        })
       setHasNavigated(false)
     })
   }, [])
@@ -530,7 +549,7 @@ export default function App(): JSX.Element {
         setAsk({
           kind: 'close-tab-confirm',
           id,
-          label: tab.root.split(/[\/]/).filter(Boolean).pop() ?? tab.root
+          label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root
         })
       else forceCloseTab(id)
     },
@@ -577,6 +596,50 @@ export default function App(): JSX.Element {
   )
   /** Ctrl+D on a file, and the tree's "Open in split view". */
   const toggleTermSplit = useCallback(() => applyTermView(splitTermView), [applyTermView])
+  /**
+   * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
+   * continuously while an AI CLI works (its spinner repaints), so recent
+   * output is "working" and quiet is "idle" - no process inspection needed.
+   * The bell (BEL in the stream; Claude Code can ring it when it finishes)
+   * marks "done, wants attention" until that tab is visited.
+   */
+  const lastOutput = useRef(new Map<string, number>())
+  const [bells, setBells] = useState<ReadonlySet<string>>(new Set())
+  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
+  // The active tab's session, for the tick below: visiting a tab answers its
+  // bell (cleared on the next tick, not synchronously in an effect).
+  const activeTermIdRef = useRef<string | null>(null)
+  useEffect(
+    () =>
+      window.prism.onTermData((id, data) => {
+        lastOutput.current.set(id, Date.now())
+        if (data.includes('\x07')) setBells((b) => (b.has(id) ? b : new Set(b).add(id)))
+      }),
+    []
+  )
+  // One slow tick derives "working" from recency; state only changes when the
+  // set actually changes, so idle terminals cost nothing.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = Date.now()
+      setWorkingIds((prev) => {
+        const next = new Set<string>()
+        for (const [id, at] of lastOutput.current) if (now - at < 2000) next.add(id)
+        if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
+        return next
+      })
+      const visited = activeTermIdRef.current
+      if (visited)
+        setBells((b) => {
+          if (!b.has(visited)) return b
+          const next = new Set(b)
+          next.delete(visited)
+          return next
+        })
+    }, 700)
+    return () => clearInterval(t)
+  }, [])
+
   // The shell ended: typed exit, or died. App owns this rather than the panel,
   // because it must be heard even while the panel is hidden or another tab is
   // in front - the tab's term slot has to clear either way.
@@ -584,6 +647,7 @@ export default function App(): JSX.Element {
     () =>
       window.prism.onTermExit((id) => {
         disposeSession(id)
+        lastOutput.current.delete(id)
         setTabState((s) => {
           const tab = s.tabs.find((t) => t.term?.id === id)
           return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
@@ -1009,6 +1073,8 @@ export default function App(): JSX.Element {
         <TabStrip
           tabs={tabs}
           activeId={activeId}
+          workingIds={workingIds}
+          bellIds={bells}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}
