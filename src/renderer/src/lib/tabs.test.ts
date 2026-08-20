@@ -116,6 +116,21 @@ describe('tabLabels', () => {
     expect(tabLabels(tabs)).toEqual(['assets — shoot', 'assets — docs', 'music'])
   })
 
+
+  it('two tabs on the SAME folder stay plainly named: there is nothing to tell apart', () => {
+    const home = 'C:@Users@Admin'.split('@').join(String.fromCharCode(92))
+    expect(tabLabels([tabOf(home, []), tabOf(home, [])])).toEqual(['Admin', 'Admin'])
+  })
+  it('same-root pairs stay plain even in mixed company', () => {
+    const home = 'C:@Users@Admin'.split('@').join(String.fromCharCode(92))
+    const other = 'D:@backup@Admin'.split('@').join(String.fromCharCode(92))
+    expect(tabLabels([tabOf(home, []), tabOf(home, []), tabOf(other, [])])).toEqual([
+      'Admin — Users',
+      'Admin — Users',
+      'Admin — backup'
+    ])
+  })
+
   it('falls back to the whole path for a drive root, which has no basename', () => {
     expect(tabLabels([tabOf('C:\\', [])])).toEqual(['C:\\'])
   })

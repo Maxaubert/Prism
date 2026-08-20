@@ -1088,6 +1088,14 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'the shell was untouched by the tab keys')
 
+    // Ctrl+B toggles the sidebar from inside the shell too.
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('aside[aria-hidden="true"]').count()) === 1, 'Ctrl+B shuts the sidebar from the terminal')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('aside[aria-hidden="false"]').count()) === 1, 'and brings it back')
+
     // Ctrl+W pierces the shell too: with the ask option on, the question
     // appears while the terminal is focused, and Cancel keeps everything.
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))

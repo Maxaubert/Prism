@@ -818,9 +818,10 @@ export default function App(): JSX.Element {
       // not a textarea, and the arrows there belong to the caret, not the folder.
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
       // A focused terminal is typing too (xterm's hidden textarea), but the
-      // tab-management hotkeys still belong to Prism there: no shell uses
-      // Ctrl+T, Ctrl+Tab or Ctrl+digits. The keys shells DO live on - Ctrl+C,
-      // Ctrl+D (EOF), Ctrl+W (delete-word), Ctrl+B (vim, tmux), Ctrl+S (XOFF),
+      // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
+      // still belong to Prism there, by request - which does cost the shell
+      // Ctrl+W (delete-word) and Ctrl+B (vim page-up, tmux's prefix). The
+      // keys shells truly live on - Ctrl+C, Ctrl+D (EOF), Ctrl+S (XOFF),
       // Escape, the arrows - stay the shell's; only the search box, a rename
       // and the text editor keep the full typing shield.
       const inTerm = !!el && !!el.closest('.xterm')
@@ -862,7 +863,7 @@ export default function App(): JSX.Element {
       } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         jumpTab(Number(e.key))
-      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
+      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         togglePanel()
       } else if (e.key === 'Escape') {
