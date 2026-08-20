@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, setTabTerm, tabLabels, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -197,14 +197,31 @@ describe('the terminal slot', () => {
   it('setTabTerm writes only the named tab', () => {
     const a = tabOf(SHOOT, [])
     const b = tabOf(DOCS, [])
-    const next = setTabTerm([a, b], a.id, { id: 's1', open: true })
-    expect(next[0].term).toEqual({ id: 's1', open: true })
+    const next = setTabTerm([a, b], a.id, { id: 's1', view: 'full' })
+    expect(next[0].term).toEqual({ id: 's1', view: 'full' })
     expect(next[1].term).toBeNull()
+  })
+
+  it('toggle: absent opens FULL - full view is the terminal home', () => {
+    expect(toggleTermView(null, 'n')).toEqual({ id: 'n', view: 'full' })
+  })
+  it('toggle: hidden shows full again, visible hides, from either mode', () => {
+    expect(toggleTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'full' })
+    expect(toggleTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+    expect(toggleTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+  })
+  it('split: absent spawns straight into split, beside the file', () => {
+    expect(splitTermView(null, 'n')).toEqual({ id: 'n', view: 'split' })
+  })
+  it('split: folds back to the file alone; any other state becomes split', () => {
+    expect(splitTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+    expect(splitTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'split' })
+    expect(splitTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'split' })
   })
   it('rerooting keeps the shell: a dev server survives the tree moving', () => {
     const shoot = tabOf(SHOOT, ['C:@shoot@a.jpg'.split('@').join(String.fromCharCode(92))])
-    const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', open: true })
+    const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', view: 'split' })
     const r = rerootTab(withTerm, shoot.id, payload(DOCS, []), 'x')
-    expect(r.tabs[0].term).toEqual({ id: 's1', open: true })
+    expect(r.tabs[0].term).toEqual({ id: 's1', view: 'split' })
   })
 })

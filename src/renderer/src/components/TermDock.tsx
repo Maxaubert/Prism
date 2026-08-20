@@ -14,6 +14,7 @@ const EDGE_NAMES: Array<{ edge: DockEdge; label: string }> = [
 ]
 
 export function TermDock({
+  mode,
   edge,
   size,
   onResize,
@@ -22,6 +23,9 @@ export function TermDock({
   root,
   shellId
 }: {
+  /** `full` takes the whole viewer area: no handle, no size, and the dock menu
+   *  waits for split (where an edge means something). */
+  mode: 'full' | 'split'
   edge: DockEdge
   size: number
   onResize: (px: number) => void
@@ -90,25 +94,30 @@ export function TermDock({
 
   // The handle paints the panel's own dark, not transparency: an unpainted
   // strip over the wrapper read as a bright line across the dock.
-  const handleBase = 'shrink-0 no-drag z-10 bg-[#0b0b0f] transition-colors'
+  const handleBase = 'shrink-0 no-drag z-10 bg-[var(--p-bg)] transition-colors'
   const handleAxis = vertical
     ? `${handleBase} h-1 w-full cursor-ns-resize`
     : `${handleBase} w-1 h-full cursor-ew-resize`
   // The handle hugs the inner edge; flex order puts it before the terminal for
   // bottom/right (panel is last child) and after it for top/left (reversed).
   const inner = edge === 'bottom' || edge === 'right'
+  const full = mode === 'full'
 
   return (
     <div
       ref={panel}
       data-term-panel
-      className={`relative flex shrink-0 bg-[#0b0b0f] border-[var(--p-divider)] ${vertical ? 'flex-col' : 'flex-row'} ${
-        { bottom: 'border-t', top: 'border-b', left: 'border-r', right: 'border-l' }[edge]
+      className={`relative flex bg-[var(--p-bg)] ${vertical ? 'flex-col' : 'flex-row'} ${
+        full
+          ? 'min-h-0 min-w-0 flex-1'
+          : `shrink-0 border-[var(--p-divider)] ${
+              { bottom: 'border-t', top: 'border-b', left: 'border-r', right: 'border-l' }[edge]
+            }`
       }`}
-      style={vertical ? { height: size } : { width: size }}
+      style={full ? undefined : vertical ? { height: size } : { width: size }}
       onContextMenu={(e) => {
         e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
+        if (!full) setMenu({ x: e.clientX, y: e.clientY })
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -116,13 +125,13 @@ export function TermDock({
       }}
       onDrop={onDrop}
     >
-      {inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
+      {!full && inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
       <div className="min-h-0 min-w-0 flex-1">
         <Suspense fallback={<div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">Starting shell…</div>}>
           <TerminalPanel sessionId={sessionId} root={root} shellId={shellId} />
         </Suspense>
       </div>
-      {!inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
+      {!full && !inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
 
       {menu && (
         <div

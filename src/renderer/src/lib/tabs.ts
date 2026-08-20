@@ -1,5 +1,7 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
 
+export type TermView = 'hidden' | 'full' | 'split'
+
 /**
  * The tab list, as pure data.
  *
@@ -30,9 +32,10 @@ export interface Tab {
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
   tree: TreeState
-  /** The tab's shell, if one was ever opened. `open` is only visibility:
-   *  a hidden terminal keeps running. Null until the first toggle. */
-  term: { id: string; open: boolean } | null
+  /** The tab's shell, if one was ever opened. `view` is only visibility - a
+   *  hidden terminal keeps running. `full` replaces the viewer; `split` shares
+   *  with it (the dock). Null until the first open. */
+  term: { id: string; view: TermView } | null
 }
 
 /** A tree with only its root open and nothing loaded. */
@@ -53,6 +56,26 @@ export function newTab(p: OpenPayload, id: string): Tab {
     tree: emptyTree(p.root),
     term: null
   }
+}
+
+/**
+ * The visibility transitions, pure so they can be tested:
+ *   - toggle (`Ctrl+\``, the sidebar button): anything visible hides; hidden
+ *     or absent opens FULL. Full view is the terminal's home; split is the
+ *     deliberate arrangement.
+ *   - split (`Ctrl+D`, the context menu): a file on screen gains the terminal
+ *     beside it; already split folds back to the file alone.
+ * `wantTerm` returns what the tab's term should become; the caller supplies
+ * the id for a shell that does not exist yet.
+ */
+export function toggleTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+  if (!term) return { id: newId, view: 'full' }
+  return { ...term, view: term.view === 'hidden' ? 'full' : 'hidden' }
+}
+
+export function splitTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+  if (!term) return { id: newId, view: 'split' }
+  return { ...term, view: term.view === 'split' ? 'hidden' : 'split' }
 }
 
 /** Write one tab's terminal slot; every other tab is untouched. */
