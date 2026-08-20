@@ -1,5 +1,6 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult } from '@shared/types'
+import type { ShellDef } from '../main/shells'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -82,6 +83,49 @@ const api = {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
     ipcRenderer.on('open:file', listener)
     return () => ipcRenderer.removeListener('open:file', listener)
+  },
+
+  /* ----- the terminal ----- */
+
+  /** The shells main detected; the only things term:spawn will ever launch. */
+  termShells: (): Promise<ShellDef[]> => ipcRenderer.invoke('term:shells'),
+  termSpawn: (id: string, root: string, shellId?: string): Promise<boolean> =>
+    ipcRenderer.invoke('term:spawn', id, root, shellId),
+  termInput: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
+  termResize: (id: string, cols: number, rows: number): void =>
+    ipcRenderer.send('term:resize', id, cols, rows),
+  termKill: (id: string): void => ipcRenderer.send('term:kill', id),
+  onTermData: (cb: (id: string, data: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string, data: string): void => cb(id, data)
+    ipcRenderer.on('term:data', listener)
+    return () => ipcRenderer.removeListener('term:data', listener)
+  },
+  onTermExit: (cb: (id: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string): void => cb(id)
+    ipcRenderer.on('term:exit', listener)
+    return () => ipcRenderer.removeListener('term:exit', listener)
+  },
+  /**
+   * What the clipboard holds RIGHT NOW, for the terminal's paste rule. An
+   * image forwards the ^V key (a clipboard-aware TUI like Claude Code reads
+   * the image itself); text becomes a bracketed paste; copied files paste as
+   * quoted paths. The decision itself is pure and lives in lib/termPaste.
+   */
+  readClipboard: (): { image: boolean; text: string; files: string[] } => {
+    const formats = clipboard.availableFormats()
+    const files = formats.includes('FileNameW')
+      ? clipboard
+          .readBuffer('FileNameW')
+          .toString('ucs2')
+          .replace(/\0+$/, '')
+          .split('\0')
+          .filter(Boolean)
+      : []
+    return { image: formats.some((f) => f.startsWith('image/')), text: clipboard.readText(), files }
+  },
+  /** The web-links addon's click-through: external URLs go to the OS browser. */
+  openExternal: (url: string): void => {
+    if (/^https?:/i.test(url)) ipcRenderer.send('shell:open-external', url)
   },
 
   // frameless window controls
