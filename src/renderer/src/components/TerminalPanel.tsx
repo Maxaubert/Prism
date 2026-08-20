@@ -89,7 +89,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     if (
       e.ctrlKey &&
       !e.altKey &&
-      (e.key === 'Tab' || e.key === 't' || e.key === 'T' || e.key === 'w' || e.key === 'W' || /^[1-9]$/.test(e.key))
+      (e.key === 'Tab' || /^[twb]$/i.test(e.key) || /^[1-9]$/.test(e.key))
     ) {
       return false
     }

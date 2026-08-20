@@ -199,12 +199,19 @@ function parentOf(p: string): string {
  */
 export function tabLabels(tabs: readonly Tab[]): string[] {
   const bases = tabs.map((t) => baseOf(t.root))
-  const seen = new Map<string, number>()
-  bases.forEach((b) => seen.set(b, (seen.get(b) ?? 0) + 1))
+  // A collision means one basename over DIFFERENT roots. Two tabs on the very
+  // same folder (the + allows that) have nothing to tell apart, so they keep
+  // the plain name rather than both growing an identical suffix.
+  const rootsByBase = new Map<string, Set<string>>()
+  tabs.forEach((t, i) => {
+    const set = rootsByBase.get(bases[i]) ?? new Set<string>()
+    set.add(t.root.toLowerCase())
+    rootsByBase.set(bases[i], set)
+  })
   return tabs.map((t, i) => {
     const b = bases[i]
     if (!b) return t.root
-    if ((seen.get(b) ?? 0) < 2) return b
+    if ((rootsByBase.get(b)?.size ?? 0) < 2) return b
     const parent = parentOf(t.root)
     return parent ? `${b} — ${parent}` : b
   })
