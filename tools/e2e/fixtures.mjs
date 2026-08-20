@@ -128,6 +128,14 @@ export function buildFixtures() {
     )
     if (r.status !== 0) throw new Error('ffmpeg is needed to build the player fixtures')
   }
+  // A file Prism cannot show, in its own folder so the root counts the filter
+  // scenario asserts on stay put. It is never listed by listDir, so opening it
+  // is the only way to reach it - which is exactly the case being tested.
+  mkdirSync(join(FIXTURES, 'misc'), { recursive: true })
+  const zip = Buffer.alloc(2048)
+  zip.write('PK', 'latin1')
+  writeFileSync(join(FIXTURES, 'misc', 'archive.zip'), zip)
+
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),
     '1\r\n00:00:00,200 --> 00:00:01,300\r\nHELLO SUBS\r\n'
