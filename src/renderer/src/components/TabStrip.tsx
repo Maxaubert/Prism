@@ -68,33 +68,34 @@ export function TabStrip({
             {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
             {/* The AI dots, agent-scoped: only a shell hosting Claude Code or
                 kin gets one. Blue pulsing = the agent is streaming an answer;
-                amber = it finished and waits. A plain terminal shows nothing,
-                but the SLOT stays for any tab with a shell, transparent, so
-                the label never shifts as states come and go. */}
-            {t.term && (
+                amber = it finished and waits. The SLOT is on EVERY tab from
+                birth, transparent until it means something, so a tab's width
+                never changes - not when a terminal opens, not when an agent
+                appears. */}
+            {(
               <span
                 data-activity={
-                  !agentIds.has(t.term.id)
+                  !t.term || !agentIds.has(t.term.id)
                     ? 'none'
                     : workingIds.has(t.term.id)
                       ? 'working'
                       : 'done'
                 }
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  !agentIds.has(t.term.id)
+                  !t.term || !agentIds.has(t.term.id)
                     ? 'bg-transparent'
                     : workingIds.has(t.term.id)
                       ? 'animate-pulse bg-[var(--p-accent-hi)]'
                       : 'bg-amber-400'
                 }`}
                 title={
-                  !agentIds.has(t.term.id)
+                  !t.term || !agentIds.has(t.term.id)
                     ? undefined
                     : workingIds.has(t.term.id)
                       ? 'Claude is working'
                       : 'Finished - waiting for you'
                 }
-                aria-hidden={!agentIds.has(t.term.id)}
+                aria-hidden={!t.term || !agentIds.has(t.term.id)}
               />
             )}
             <button

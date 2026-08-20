@@ -388,6 +388,16 @@ async function sortScenario(fixtures) {
     await sleep(150)
     ok(((await firstRow()) ?? '').includes('ep1.en.srt'), 'name ascending is back to normal')
     await win.screenshot({ path: join(SHOTS, 'sorting.png') })
+
+    // Settings grew a Terminal tab: shell, theme, font size live there.
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Terminal")')
+    await sleep(300)
+    ok(
+      (await win.locator('#term-theme').count()) === 1 && (await win.locator('#term-font').count()) === 1,
+      'the Terminal settings tab offers theme and font size'
+    )
   } finally {
     await app.close()
   }
@@ -1024,9 +1034,32 @@ async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
+    // The base font size pref applies to new terminals (125% of 13 = 16px).
+    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '125'))
+    // A tab's width must not change when its terminal opens: the dot slot is
+    // there from birth. Measure before and after.
+    const tabWidth = () =>
+      win.evaluate(() => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getBoundingClientRect().width ?? 0)
+    const widthBefore = await tabWidth()
     // The button lives on the sidebar's footer row now.
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(Math.abs((await tabWidth()) - widthBefore) < 1, 'opening a terminal does not widen the tab')
+    ok(
+      (await win.evaluate(() => document.querySelector('.xterm')?.querySelector('.xterm-rows') && getComputedStyle(document.querySelector('.xterm .xterm-rows')).fontSize)) === '16px',
+      'the Settings base font size applies (125% = 16px)'
+    )
+    // Ctrl+scroll zooms this one session, unpersisted.
+    await win.locator('.xterm').hover()
+    await win.keyboard.down('Control')
+    await win.mouse.wheel(0, -240)
+    await win.keyboard.up('Control')
+    await sleep(400)
+    ok(
+      (await win.evaluate(() => getComputedStyle(document.querySelector('.xterm .xterm-rows')).fontSize)) !== '16px',
+      'Ctrl+scroll zooms the session text'
+    )
+    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '100'))
     ok(
       !(await win.locator('.p-md h1').first().isVisible().catch(() => false)),
       'opening the terminal takes the FULL view: the document steps aside'
