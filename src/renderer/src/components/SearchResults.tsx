@@ -9,12 +9,15 @@ import { iconColour, KindIcon } from './TreeRows'
 // debounce, and draws rows the tree's shape.
 
 export function SearchResults({
+  root,
   query,
   refreshKey,
   currentPath,
   size,
   onOpen
 }: {
+  /** The tab's root: what gets walked, and what main checks the search against. */
+  root: string
   query: string
   /** Bumped after a rename/delete, so stale hits don't linger. */
   refreshKey: number
@@ -28,7 +31,7 @@ export function SearchResults({
   useEffect(() => {
     let alive = true
     const t = setTimeout(() => {
-      void window.prism.searchTree(query).then((r) => {
+      void window.prism.searchTree(root, query).then((r) => {
         if (alive) setFound({ q: query, ...r })
       })
     }, 180)
@@ -36,7 +39,7 @@ export function SearchResults({
       alive = false
       clearTimeout(t)
     }
-  }, [query, refreshKey])
+  }, [root, query, refreshKey])
 
   const ready = found?.q === query ? found : null
 
