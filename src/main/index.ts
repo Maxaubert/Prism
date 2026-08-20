@@ -17,6 +17,8 @@ import { Readable } from 'stream'
 import { listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, insideAnyRoot, isAnyRoot, syncRoots, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
+import { detectShells } from './shells'
+import { killAll, killTerm, resizeTerm, spawnTerm, writeTerm } from './terminal'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -461,6 +463,9 @@ if (!app.requestSingleInstanceLock()) {
 
   pendingOpen = pathFromArgv(process.argv)
 
+  // Every shell dies with the app; a pty with no window is an orphan.
+  app.on('will-quit', () => killAll())
+
   app.whenReady().then(() => {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
 
@@ -481,6 +486,24 @@ if (!app.requestSingleInstanceLock()) {
     // folder button is where choosing happens.
     ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
+    /* ----- the terminal ----- */
+
+    // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
+    // spawn: the shell STARTS in an open root (it may leave; that is a shell).
+    ipcMain.handle('term:shells', () => detectShells())
+    ipcMain.handle('term:spawn', (_e, id: string, root: string, shellId?: string) =>
+      insideAnyRoot(root) || isAnyRoot(root)
+        ? spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a))
+        : false
+    )
+    ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
+    ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
+    ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
+    // The terminal's clickable links. http(s) only, checked on both sides.
+    ipcMain.on('shell:open-external', (_e, url: string) => {
+      if (/^https?:/i.test(url)) void shell.openExternal(url)
+    })
+
     // The renderer owns the tab list; main only persists it and keeps the wall
     // in step, so a root whose tab was closed stops being reachable.
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => {
