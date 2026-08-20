@@ -117,6 +117,18 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
   check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
   it, which is what narrows the wall when a tab closes.
+- **A terminal, one per tab** (2026-08-20): docked bottom/top/left/right of the viewer
+  (right-click menu on the panel), resizable, toggled with `Ctrl+\`` and a sidebar
+  search-row button. cwd starts at the tab's root; hiding keeps the shell running; exit,
+  tab close, or quit kill it; rerooting keeps it. pwsh by default, Settings picks from what
+  the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  the line that remains is that Prism never generates a command: main spawns only shells it
+  detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
+  the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing
+  that key is how other terminals break image paste), copied files paste as quoted paths,
+  text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
+  dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
+  F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
@@ -196,7 +208,9 @@ works, that the associations still register, and that the resident app actually 
   syntax-error squiggles across ~150 languages, which is not a thing to hand-roll),
   `react-markdown` +
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
-  `heic-convert` (HEIC decode).
+  `heic-convert` (HEIC decode), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
+  its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it).
 
 ## Working with me
 
