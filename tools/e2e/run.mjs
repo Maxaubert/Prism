@@ -1155,6 +1155,21 @@ async function terminalScenario(fixtures) {
 
     // The activity indicator: streaming output lights the tab's dot, quiet
     // turns it off. ping -n 3 emits for ~2s, like an AI CLI's spinner would.
+    // The pty must be the WINDOW's size, not the 80x24 spawn default: a
+    // dropped first resize is how Ink UIs end up drawing a tiny layout in the
+    // middle of a maximized window.
+    await win.keyboard.type('"COLS=$($Host.UI.RawUI.BufferSize.Width)"')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => /COLS=\d+/.test(document.querySelector('.xterm')?.textContent ?? ''),
+      null,
+      { timeout: 10000 }
+    )
+    const cols = Number(
+      /COLS=(\d+)/.exec((await win.locator('.xterm').textContent()) ?? '')?.[1] ?? 0
+    )
+    ok(cols > 90, `the shell was born at the window's size, not 80x24 (cols=${cols})`)
+
     // The dots are AGENT-scoped now: a plain terminal never shows one, no
     // matter how hard it streams.
     ok(

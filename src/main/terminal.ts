@@ -47,6 +47,13 @@ interface Session {
 
 const sessions = new Map<string, Session>()
 
+// The size each session SHOULD be, remembered even before its shell exists.
+// The renderer's first fit can land while the spawn is still resolving (cold
+// first runs take seconds), and a dropped first resize left the pty at 80x24
+// inside a maximized window - Ink UIs then draw a tiny layout mid-screen and
+// nothing ever corrects it, because a static window fires no further resizes.
+const desiredSize = new Map<string, { cols: number; rows: number }>()
+
 type Send = (channel: string, ...args: unknown[]) => void
 
 /**
@@ -60,10 +67,11 @@ export async function spawnTerm(id: string, root: string, shellId: string | unde
   if (!def) return false
   try {
     const pty = await import('node-pty')
+    const size = desiredSize.get(id) ?? { cols: 80, rows: 24 }
     const p = pty.spawn(def.exe, def.args, {
       name: 'xterm-color',
-      cols: 80,
-      rows: 24,
+      cols: size.cols,
+      rows: size.rows,
       cwd: root,
       env: process.env as Record<string, string>,
       useConpty: true
@@ -86,16 +94,27 @@ export function writeTerm(id: string, data: string): void {
   sessions.get(id)?.pty.write(data)
 }
 
-export function resizeTerm(id: string, cols: number, rows: number): void {
+export function resizeTerm(id: string, cols: number, rows: number, attempt = 0): void {
   if (cols < 2 || rows < 1 || !Number.isInteger(cols) || !Number.isInteger(rows)) return
+  desiredSize.set(id, { cols, rows })
+  const s = sessions.get(id)
+  if (!s) return // spawn in flight: it will be born at desiredSize
   try {
-    sessions.get(id)?.pty.resize(cols, rows)
+    s.pty.resize(cols, rows)
   } catch {
-    /* a dying pty can refuse a resize; the exit event is on its way */
+    // ConPTY can transiently refuse (heavy output mid-resize). A swallowed
+    // FINAL resize is how a layout stays wrong until the user jiggles the
+    // window, so retry while this is still the wanted size.
+    if (attempt < 5)
+      setTimeout(() => {
+        const want = desiredSize.get(id)
+        if (want && want.cols === cols && want.rows === rows) resizeTerm(id, cols, rows, attempt + 1)
+      }, 300)
   }
 }
 
 export function killTerm(id: string): void {
+  desiredSize.delete(id)
   const s = sessions.get(id)
   if (!s) return
   sessions.delete(id) // first, so the exit handler's delete is a no-op
