@@ -888,10 +888,16 @@ async function tabsScenario(fixtures) {
     // The strip is there from the first tab, so the + is always reachable.
     await win.waitForSelector(strip, { timeout: 10000 })
     ok((await tabRows().count()) === 1, 'one folder still shows as a tab')
-    ok(
-      (await win.locator(`${strip} [aria-label="New tab"]`).count()) === 1,
-      'and the + is reachable at one tab'
-    )
+    // The + no longer opens a dialog, so the suite can actually press it: a tab
+    // arrives rooted at the user's own folder, with nothing to answer first.
+    await win.locator(`${strip} [aria-label="New tab"]`).click()
+    await sleep(700)
+    ok((await tabRows().count()) === 2, 'the + spawns a tab without a dialog')
+    const home = (await tabRows().last().getAttribute('title')) ?? ''
+    ok(/Users/i.test(home), `and roots it at the user folder (said: "${home}")`)
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(400)
+    ok((await tabRows().count()) === 1, 'and it closes again')
 
     // A second root, opened deliberately. The dialog is native and cannot be
     // driven, so the scenario asks for the same payload the button asks for.

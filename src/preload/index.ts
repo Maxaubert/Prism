@@ -15,6 +15,8 @@ const api = {
   /** Choose a FOLDER to root in. The only way to name a root deliberately;
    *  every other route infers it from the file that arrived. */
   openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
+  /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
+  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
   /** Report the tab strip. Main persists it and keeps the root wall in step, so
    *  a root whose tab was closed stops being reachable. */
   tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>

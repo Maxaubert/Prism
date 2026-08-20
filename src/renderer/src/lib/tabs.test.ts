@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { closeTab, emptyTree, newTab, receiveFile, rerootTab, tabLabels, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, tabLabels, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -169,5 +169,23 @@ describe('rerootTab', () => {
     expect(r.tabs).toHaveLength(1)
     expect(r.tabs[0].id).toBe('fresh')
     expect(r.activeId).toBe('fresh')
+  })
+})
+
+describe('addTab', () => {
+  it('always spawns, even onto a root that is already open', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const r = addTab([shoot], payload(SHOOT, ['C:\\shoot\\a.jpg']), 'second')
+    // Deliberately unlike receiveFile: + is an explicit "give me a tab", not
+    // "show me this file", so it must never silently do nothing.
+    expect(r.tabs).toHaveLength(2)
+    expect(r.activeId).toBe('second')
+  })
+
+  it('puts the new tab at the end and makes it active', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const r = addTab([shoot], payload(DOCS, ['D:\\docs\\r.md']), 'n')
+    expect(r.tabs.map((t) => t.root)).toEqual([SHOOT, DOCS])
+    expect(r.activeId).toBe('n')
   })
 })

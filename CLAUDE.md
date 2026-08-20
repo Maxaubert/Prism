@@ -105,9 +105,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
   FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
   opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
-  strip's `+` (and `Ctrl+T`) ADDS a tab, the sidebar's folder button (on the search row, left
-  of the search box, away from sort/filter which narrow rather than change) REPLACES the
-  current tab root. Rerooting onto a folder another tab already holds switches there instead,
+  strip's `+` (and `Ctrl+T`) ADDS a tab instantly, rooted at the user's home folder with no
+  dialog, and spawns unconditionally (pressing + must never appear to do nothing); the
+  sidebar's folder button (on the search row, left of the search box, away from sort/filter
+  which narrow rather than change) opens the chooser and REPLACES the current tab root. Rerooting onto a folder another tab already holds switches there instead,
   keeping one tab per root. `Ctrl+W` closes a tab and the
   last one leaves an EMPTY WINDOW rather than quitting: Prism is resident and a window that
   vanishes under a reflex keystroke is the failure the close flow exists to prevent.
