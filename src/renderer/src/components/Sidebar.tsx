@@ -100,6 +100,8 @@ export function Sidebar({
   onNav,
   wash,
   onOpenFolder,
+  onToggleTerm,
+  termOpen,
   state,
   onTree
 }: {
@@ -123,6 +125,10 @@ export function Sidebar({
    *  with sort and filter: those narrow what you are looking at, this changes
    *  it, and they do not belong in one cluster. */
   onOpenFolder: () => void
+  /** Toggle this tab's terminal. Lives with the folder button: both are about
+   *  the place, not the list. */
+  onToggleTerm: () => void
+  termOpen: boolean
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -434,6 +440,22 @@ export function Sidebar({
           <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             <path d="M12 11v5m2.5-2.5h-5" />
+          </svg>
+        </button>
+        <button
+          className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border transition-colors ${
+            termOpen
+              ? 'border-[color:var(--p-accent-hi)] text-[var(--p-accent-hi)]'
+              : 'border-[color:var(--p-line)] text-[var(--p-icon)] hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]'
+          }`}
+          onClick={onToggleTerm}
+          title="Terminal (Ctrl+`)"
+          aria-label="Terminal"
+          aria-pressed={termOpen}
+        >
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
           </svg>
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
