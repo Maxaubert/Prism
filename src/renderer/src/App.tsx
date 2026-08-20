@@ -414,17 +414,24 @@ export default function App(): JSX.Element {
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
-  // Tell main what is open, whenever it changes. It persists the strip for next
-  // launch and, more importantly, narrows the root wall to match: a root whose
-  // tab has been closed must stop being reachable.
-  //
-  // Not before the first tab exists, though. On mount there are none, and main
-  // has ALREADY registered the root of the file it is about to deliver: an
-  // eager empty report raced that and tore the wall down under the launch file,
-  // which then could not be read. Once a tab has existed, an empty list is real
-  // news (the last tab closed) and is sent.
+  // Tell main what is open, whenever it changes: persistence for next launch.
+  // The root wall is deliberately NOT rebuilt from this snapshot. A report
+  // races payloads still in flight (a restore, plus a file Explorer just
+  // opened), and replacing the set once tore out a root main had registered
+  // for a tab this renderer had not built yet - whose listDir was refused and
+  // cached as "can't read this folder". Instead the wall shrinks only by
+  // explicit drops: a root that stopped being held by ANY tab. A diff against
+  // what we last held cannot remove what we never knew about.
+  const heldRoots = useRef<readonly string[]>([])
   const hadTabs = useRef(false)
   useEffect(() => {
+    const now = tabs.map((t) => t.root)
+    for (const was of heldRoots.current) {
+      if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
+    }
+    heldRoots.current = now
+    // Mount says nothing (there is nothing to persist and no root to drop);
+    // once a tab has existed, an empty list is real news: the last tab closed.
     if (tabs.length) hadTabs.current = true
     else if (!hadTabs.current) return
     window.prism.tabsChanged(

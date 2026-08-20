@@ -17,10 +17,12 @@ const api = {
   openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
   /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
   openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
-  /** Report the tab strip. Main persists it and keeps the root wall in step, so
-   *  a root whose tab was closed stops being reachable. */
+  /** Report the tab strip, for persistence only. The root wall is never
+   *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
   tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>
     ipcRenderer.send('tabs:changed', { tabs, active }),
+  /** A root no longer held by any tab. The one way the wall shrinks. */
+  dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a
   // root that is not open as well as a path from a different one.
