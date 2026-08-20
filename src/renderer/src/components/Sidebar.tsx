@@ -103,6 +103,8 @@ export function Sidebar({
   onToggleTerm,
   termOpen,
   onOpenSplit,
+  splitPath,
+  onRemoveSplit,
   state,
   onTree
 }: {
@@ -131,6 +133,10 @@ export function Sidebar({
   termOpen: boolean
   /** Show a file with the terminal split beside it (the context menu verb). */
   onOpenSplit: (path: string) => void
+  /** The file currently sharing the split, if the split is on. Its context
+   *  menu offers the way OUT instead of the way in. */
+  splitPath: string | null
+  onRemoveSplit: () => void
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -580,12 +586,20 @@ export function Sidebar({
             // Files also go places: another app, Explorer, the clipboard.
             ...(!menu.isFolder
               ? [
-                  {
-                    // The deliberate arrangement: this file, terminal beside it.
-                    label: 'Open in split view',
-                    icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
-                    onPick: () => onOpenSplit(menu.path)
-                  },
+                  // The deliberate arrangement: this file, terminal beside
+                  // it - or, for the file already sharing the split, the way
+                  // back out.
+                  splitPath && splitPath.toLowerCase() === menu.path.toLowerCase()
+                    ? {
+                        label: 'Remove from split view',
+                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14M6.5 10.5l2 1.5-2 1.5" />,
+                        onPick: onRemoveSplit
+                      }
+                    : {
+                        label: 'Open in split view',
+                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                        onPick: () => onOpenSplit(menu.path)
+                      },
                   {
                     label: 'Open in',
                     icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,

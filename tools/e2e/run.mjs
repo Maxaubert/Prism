@@ -1063,10 +1063,17 @@ async function terminalScenario(fixtures) {
 
     await win.screenshot({ path: join(SHOTS, 'terminal.png') })
 
-    // Ctrl+D splits - from the FILE side (in the shell it stays EOF), so step
-    // out of the terminal first by clicking the tree.
+    // Clicking a file over a FULL terminal means "show me this file": the
+    // shell hides (still running) and the file takes the room.
     await win.locator('[role="treeitem"]:has-text("README.md")').click()
-    await sleep(300)
+    await sleep(500)
+    ok(
+      (await win.locator('.xterm').count()) === 0 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'clicking a file collapses a full terminal to the file'
+    )
+
+    // Ctrl+D splits - from the FILE side (in the shell it stays EOF).
     await win.keyboard.press('Control+d')
     await sleep(500)
     ok(
@@ -1076,7 +1083,44 @@ async function terminalScenario(fixtures) {
     )
     await win.screenshot({ path: join(SHOTS, 'terminal-split.png') })
 
+    // The file sharing the split offers the way OUT in its context menu.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      await win
+        .locator('[role="menuitem"]:has-text("Remove from split view")')
+        .isVisible()
+        .catch(() => false),
+      'the split file context menu flips to Remove from split view'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The file pane's X: the file steps out, the terminal takes the full view.
+    await win.locator('[aria-label="Remove the file from the split"]').click()
+    await sleep(400)
+    ok(
+      (await win.locator('.xterm').count()) === 1 &&
+        !(await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'the file pane X leaves the terminal in full view'
+    )
+
+    // Back to split, then the terminal pane's X: the file gets the room.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await sleep(400)
+    await win.keyboard.press('Control+d')
+    await sleep(400)
+    await win.locator('[aria-label="Remove the terminal from the split"]').click()
+    await sleep(400)
+    ok(
+      (await win.locator('.xterm').count()) === 0 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'the terminal pane X leaves the file alone'
+    )
+
     // exit ends the shell; the panel goes with it and the window stays.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
     await win.locator('.xterm').click()
     await sleep(300)
     await win.keyboard.type('exit')
