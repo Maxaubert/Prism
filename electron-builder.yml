@@ -16,6 +16,11 @@ files:
   - '!tools/**'
   - '!build/**'
   - '!dist/**'
+# node-pty is the app's first native module. Its .node binaries, the conpty
+# helper dir and winpty-agent.exe must live on the real file system - Windows
+# cannot spawn an exe or load a DLL out of an asar archive.
+asarUnpack:
+  - node_modules/node-pty/**
 extraResources:
   - from: build/icon.ico
     to: icon.ico
