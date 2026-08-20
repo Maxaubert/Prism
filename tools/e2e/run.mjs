@@ -1155,14 +1155,42 @@ async function terminalScenario(fixtures) {
 
     // The activity indicator: streaming output lights the tab's dot, quiet
     // turns it off. ping -n 3 emits for ~2s, like an AI CLI's spinner would.
+    // The spawn banner must NOT have lit the dot: working means sustained
+    // streaming, and the banner is one short burst.
+    ok(
+      (await win.locator('[data-activity="working"]').count()) === 0,
+      'opening a terminal does not flash the working dot'
+    )
     await win.keyboard.type('ping -n 3 127.0.0.1')
     await win.keyboard.press('Enter')
     await win.waitForSelector('[data-activity="working"]', { timeout: 10000 })
-    ok(true, 'streaming output marks the tab as working')
+    ok(true, 'sustained streaming marks the tab as working')
     await win.waitForFunction(() => !document.querySelector('[data-activity="working"]'), null, {
       timeout: 15000
     })
     ok(true, 'and quiet marks it idle again')
+
+    // The bell: rings amber, and visiting the tab does NOT clear it - only
+    // genuine work does. This tab is active the whole time, which proves it.
+    await win.keyboard.type('[console]::Write([char]7)')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[data-activity="bell"]', { timeout: 10000 })
+    ok(true, 'the bell turns the dot amber')
+    await sleep(2500)
+    ok(
+      (await win.locator('[data-activity="bell"]').count()) === 1,
+      'and it persists on the visited tab'
+    )
+    await win.keyboard.type('ping -n 3 127.0.0.1')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[data-activity="working"]', { timeout: 10000 })
+    await win.waitForFunction(() => !document.querySelector('[data-activity="working"]'), null, {
+      timeout: 15000
+    })
+    ok(
+      (await win.locator('[data-activity="bell"]').count()) === 0,
+      'real work retires the bell'
+    )
 
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))

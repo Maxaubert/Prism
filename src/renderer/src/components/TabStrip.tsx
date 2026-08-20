@@ -66,23 +66,33 @@ export function TabStrip({
                 block of indigo fought it. */}
             {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
             {/* Tabby-style activity: a pulsing accent dot while the tab's
-                shell is streaming (an AI CLI at work), a steady amber one
-                after its bell (done, wants attention), nothing when quiet. */}
-            {t.term && workingIds.has(t.term.id) ? (
+                shell is genuinely streaming (an AI CLI at work), a steady
+                amber one after its bell (done - it stays until real work
+                resumes), transparent when quiet. The slot is ALWAYS there for
+                a tab with a shell, so the label never shifts as states come
+                and go. */}
+            {t.term && (
               <span
-                data-activity="working"
-                className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--p-accent-hi)]"
-                title="Working"
-                aria-label="Terminal working"
+                data-activity={
+                  workingIds.has(t.term.id) ? 'working' : bellIds.has(t.term.id) ? 'bell' : 'idle'
+                }
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  workingIds.has(t.term.id)
+                    ? 'animate-pulse bg-[var(--p-accent-hi)]'
+                    : bellIds.has(t.term.id)
+                      ? 'bg-amber-400'
+                      : 'bg-transparent'
+                }`}
+                title={
+                  workingIds.has(t.term.id)
+                    ? 'Working'
+                    : bellIds.has(t.term.id)
+                      ? 'Finished, wants attention'
+                      : undefined
+                }
+                aria-hidden={!workingIds.has(t.term.id) && !bellIds.has(t.term.id)}
               />
-            ) : t.term && bellIds.has(t.term.id) ? (
-              <span
-                data-activity="bell"
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
-                title="Finished, wants attention"
-                aria-label="Terminal finished"
-              />
-            ) : null}
+            )}
             <button
               role="tab"
               aria-selected={on}

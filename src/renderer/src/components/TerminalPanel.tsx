@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
 import { readTermTheme, watchTermTheme } from '../lib/termTheme'
+import { suppressActivity } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -153,6 +154,8 @@ export default function TerminalPanel({
       // A hidden or zero-sized panel would fit to nonsense; the observer fires
       // again when it has real bounds.
       if (!host.clientWidth || !host.clientHeight) return
+      // The redraw this resize provokes is us, not the shell working.
+      suppressActivity(sessionId)
       s.fit.fit()
       window.prism.termResize(sessionId, s.term.cols, s.term.rows)
     }
