@@ -335,7 +335,7 @@ function ColourWell({
         }}
         spellCheck={false}
         aria-label="Hex value"
-        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-preview)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
       />
       <label
         className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
@@ -365,7 +365,7 @@ function Segmented<T extends string>({
   options: Array<{ id: T; name: string }>
 }): JSX.Element {
   return (
-    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-preview)] p-[3px]">
+    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-line)] bg-[var(--p-control)] p-[3px]">
       {options.map((o) => {
         const on = o.id === value
         return (
@@ -760,7 +760,7 @@ function Select({
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 min-w-[168px] rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-preview)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-dim2)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+      className="h-8 min-w-[168px] rounded-lg border border-[color:var(--p-line)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
     >
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -770,6 +770,75 @@ function Select({
     </select>
   )
 }
+
+/** A theme as a miniature terminal: prompt, coloured ls output, cursor. The
+ *  point is the SYNTAX colours - a swatch row says nothing about how a real
+ *  session will read. The follow-style card paints itself with the live CSS
+ *  variables, so it always shows what following the style currently means. */
+function TermThemeCard({
+  id,
+  name,
+  on,
+  bg,
+  fg,
+  cursor,
+  ansi,
+  onPick
+}: {
+  id: string
+  name: string
+  on: boolean
+  bg: string
+  fg: string
+  cursor: string
+  ansi: { green: string; yellow: string; blue: string; cyan: string; red: string }
+  onPick: () => void
+}): JSX.Element {
+  return (
+    <button
+      data-term-card={id}
+      aria-pressed={on}
+      onClick={onPick}
+      className={`group flex w-[196px] flex-col overflow-hidden rounded-md border text-left transition-colors ${
+        on
+          ? 'border-[color:var(--p-accent-hi)] ring-1 ring-[var(--p-accent)]/45'
+          : 'border-[color:var(--p-line)] hover:border-[color:var(--p-divider)]'
+      }`}
+    >
+      <div
+        className="h-[92px] w-full px-2.5 py-2 font-mono text-[10.5px] leading-[1.5]"
+        style={{ background: bg, color: fg }}
+      >
+        <div>
+          <span style={{ color: ansi.green }}>you@pc</span>
+          <span style={{ color: fg }}>:</span>
+          <span style={{ color: ansi.blue }}>~/app</span>
+          <span style={{ color: ansi.red }}>$</span> ls
+          <span className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]" style={{ background: cursor }} />
+        </div>
+        <div>
+          <span style={{ color: ansi.blue }}>src</span>  <span style={{ color: ansi.blue }}>docs</span>{'  '}
+          <span style={{ color: ansi.green }}>run.sh</span>
+        </div>
+        <div>
+          <span style={{ color: ansi.yellow }}>notes.md</span>  <span style={{ color: ansi.cyan }}>a.link</span>
+        </div>
+        <div style={{ color: fg }}>12 files</div>
+      </div>
+      <div
+        className={`border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
+          on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
+        }`}
+      >
+        {name}
+      </div>
+    </button>
+  )
+}
+
+// Standard ANSI, for cards whose theme doesn't bring its own (the
+// follow-style card): xterm's defaults, what those sessions actually use.
+const DEFAULT_ANSI = { green: '#0dbc79', yellow: '#e5e510', blue: '#3b8eea', cyan: '#11a8cd', red: '#f14c4c' }
 
 function TerminalTab(): JSX.Element {
   // The shells main detected, fetched when the tab first shows. `saved` may
@@ -800,21 +869,43 @@ function TerminalTab(): JSX.Element {
           />
         </Pref>
       )}
-      <Pref
-        id="term-theme"
-        label="Theme"
-        hint="Follow style wears the app's look; presets are whole palettes."
-      >
-        <Select
-          id="term-theme"
-          value={themeId}
-          onChange={setTermThemeId}
-          options={[
-            { id: 'style', name: 'Follow style' },
-            ...TERM_PRESETS.map((p) => ({ id: p.id, name: p.name }))
-          ]}
-        />
-      </Pref>
+      <div className="border-b border-[color:var(--p-line)] py-2.5">
+        <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
+        <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
+          Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <TermThemeCard
+            id="style"
+            name="Follow style"
+            on={themeId === 'style'}
+            bg="var(--p-bg)"
+            fg="var(--p-text)"
+            cursor="var(--p-accent-hi)"
+            ansi={DEFAULT_ANSI}
+            onPick={() => setTermThemeId('style')}
+          />
+          {TERM_PRESETS.map((p) => (
+            <TermThemeCard
+              key={p.id}
+              id={p.id}
+              name={p.name}
+              on={themeId === p.id}
+              bg={p.theme.background}
+              fg={p.theme.foreground}
+              cursor={p.theme.cursor}
+              ansi={{
+                green: p.theme.green ?? DEFAULT_ANSI.green,
+                yellow: p.theme.yellow ?? DEFAULT_ANSI.yellow,
+                blue: p.theme.blue ?? DEFAULT_ANSI.blue,
+                cyan: p.theme.cyan ?? DEFAULT_ANSI.cyan,
+                red: p.theme.red ?? DEFAULT_ANSI.red
+              }}
+              onPick={() => setTermThemeId(p.id)}
+            />
+          ))}
+        </div>
+      </div>
       <Pref
         id="term-font"
         label="Font size"
@@ -1225,7 +1316,7 @@ export function Settings({
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-9 z-40"
+      className="fixed inset-x-0 bottom-0 top-[68px] z-40"
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
       <div className="flex h-full w-full" style={{ zoom: size.zoom }}>

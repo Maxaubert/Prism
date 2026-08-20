@@ -424,6 +424,10 @@ export function derive(style: Style): Record<string, string> {
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
     '--p-preview': stage,
+    // Form controls (selects, switches, small buttons). Quieter than the
+    // stage: on true black the 13% wash read as a light grey block, and the
+    // controls want to sit INTO the page, not on a platform.
+    '--p-control': mix(bg, style.text, light ? 0.09 : 0.05),
     // The unfilled part of a progress bar, and any other inert track: it sits
     // ON the stage, so a divider-strength grey disappears there.
     '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
