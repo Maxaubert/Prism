@@ -806,6 +806,13 @@ export default function App(): JSX.Element {
       // isContentEditable covers the code editor: CodeMirror types into a div,
       // not a textarea, and the arrows there belong to the caret, not the folder.
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
+      // A focused terminal is typing too (xterm's hidden textarea), but the
+      // tab-management hotkeys still belong to Prism there: no shell uses
+      // Ctrl+T, Ctrl+Tab or Ctrl+digits. The keys shells DO live on - Ctrl+C,
+      // Ctrl+D (EOF), Ctrl+W (delete-word), Ctrl+B (vim, tmux), Ctrl+S (XOFF),
+      // Escape, the arrows - stay the shell's; only the search box, a rename
+      // and the text editor keep the full typing shield.
+      const inTerm = !!el && !!el.closest('.xterm')
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
@@ -828,7 +835,7 @@ export default function App(): JSX.Element {
         // the shell Ctrl+D stays the shell's (EOF, delete-char-or-exit).
         e.preventDefault()
         toggleTermSplit()
-      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
+      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         newTab()
       } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && !typing) {
@@ -838,10 +845,10 @@ export default function App(): JSX.Element {
         // prevent. The last tab leaves an empty window instead.
         e.preventDefault()
         closeActiveTab()
-      } else if (e.key === 'Tab' && e.ctrlKey && !typing) {
+      } else if (e.key === 'Tab' && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         stepTab(e.shiftKey ? -1 : 1)
-      } else if (e.ctrlKey && !typing && /^[1-9]$/.test(e.key)) {
+      } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         jumpTab(Number(e.key))
       } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {

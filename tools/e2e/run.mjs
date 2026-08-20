@@ -1033,6 +1033,34 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'RightArrow accepts the suggestion and it runs')
 
+    // Tab-management hotkeys pierce a focused shell: Ctrl+T spawns a tab from
+    // inside the terminal, Ctrl+Tab cycles back to this one.
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+t')
+    await sleep(700)
+    ok(
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      'Ctrl+T works while the terminal is focused'
+    )
+    await win.keyboard.press('Control+Tab')
+    await sleep(400)
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    await sleep(500)
+    ok(
+      (await win.locator('[role="tablist"]').count()) === 0 ||
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+      'and the spawned tab closes again'
+    )
+    await win.locator('.xterm').click()
+    await win.keyboard.type('echo still-here')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-here'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'the shell was untouched by the tab keys')
+
     // The terminal button's own menu: split, and clear.
     await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })

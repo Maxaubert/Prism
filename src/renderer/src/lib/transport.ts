@@ -21,7 +21,9 @@ export const TRANSPORT_GROUPS = ['Line', 'Compact', 'Waveform', 'Segmented'] as 
 
 export type TransportStyle = (typeof TRANSPORT_STYLES)[number]['id']
 
-export const DEFAULT_TRANSPORT_STYLE: TransportStyle = 'slim'
+// Inline is the default (2026-08-20): one row, everything visible, no style
+// depends on hover to find the controls. A saved choice always wins.
+export const DEFAULT_TRANSPORT_STYLE: TransportStyle = 'inline'
 export const TRANSPORT_KEY = 'prism.transport.style'
 
 export function loadTransportStyle(): TransportStyle {

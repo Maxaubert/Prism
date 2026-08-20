@@ -26,7 +26,7 @@ export interface BarFx {
 }
 
 type ScrubLook =
-  | { kind: 'line'; h: number; glow?: boolean; top?: boolean }
+  | { kind: 'line'; h: number; glow?: boolean; top?: boolean; ballAbove?: boolean }
   | { kind: 'wave'; bold?: boolean }
   | { kind: 'seg' }
 
@@ -114,8 +114,17 @@ function Scrubber({
             />
           </div>
           <div
-            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100"
-            style={{ left: `${pct}%`, top: look.top ? look.h / 2 : '50%' }}
+            className={`absolute h-3 w-3 -translate-x-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100 ${
+              look.ballAbove ? '' : '-translate-y-1/2'
+            }`}
+            // ballAbove rests the ball ON the line instead of centring across
+            // it: a line pinned to the window's bottom edge would otherwise
+            // sink half the ball below the frame, clipped when maximised.
+            style={
+              look.ballAbove
+                ? { left: `${pct}%`, bottom: 0 }
+                : { left: `${pct}%`, top: look.top ? look.h / 2 : '50%' }
+            }
           />
         </>
       )}
@@ -261,7 +270,7 @@ export function Transport({
       return (
         <div className="pointer-events-auto w-full bg-gradient-to-t from-black/80 to-transparent px-4 pb-0 pt-10">
           <div className="mb-3 px-0">{stdRow}</div>
-          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true }} peaks={peaks} bar={bar} className="h-[2px]" />
+          <Scrubber c={c} look={{ kind: 'line', h: 2, glow: true, ballAbove: true }} peaks={peaks} bar={bar} className="h-[2px]" />
         </div>
       )
 
