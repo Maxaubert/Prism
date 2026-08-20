@@ -963,6 +963,81 @@ async function tabsScenario(fixtures) {
   }
 }
 
+async function terminalScenario(fixtures) {
+  console.log('terminal')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    // The button lives on the sidebar search row, with the folder button.
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3000) // a cold pwsh takes a moment to prompt
+    await win.keyboard.type('echo prism-e2e-marker')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('prism-e2e-marker'),
+      null,
+      { timeout: 15000 }
+    )
+    ok(true, 'the shell echoes back through the pty')
+
+    // Hide, then show: same session, scrollback intact, shell still alive.
+    await win.keyboard.press('Control+`')
+    await sleep(300)
+    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` hides the panel')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
+    await sleep(300)
+    ok(
+      ((await win.locator('.xterm').textContent()) ?? '').includes('prism-e2e-marker'),
+      'reopening shows the same shell, scrollback intact'
+    )
+
+    // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
+    await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+v')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('paste-marker'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'text on the clipboard becomes a bracketed paste')
+    await win.keyboard.press('Escape') // clear the pasted line (PSReadLine)
+
+    // The image half: Ctrl+V with an image forwards the ^V key instead of
+    // pasting text, so nothing appears - and the shell stays healthy.
+    const before = (await win.locator('.xterm').textContent()) ?? ''
+    await app.evaluate(({ clipboard, nativeImage }) => {
+      const png =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP8z8Dwn4EBTAEAHhcCAd6P9ToAAAAASUVORK5CYII='
+      clipboard.writeImage(nativeImage.createFromDataURL(png))
+    })
+    await win.keyboard.press('Control+v')
+    await sleep(800)
+    const after = (await win.locator('.xterm').textContent()) ?? ''
+    ok(after === before, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
+    await win.keyboard.type('echo still-alive')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-alive'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'and the shell is untroubled by it')
+
+    await win.screenshot({ path: join(SHOTS, 'terminal.png') })
+
+    // exit ends the shell; the panel goes with it and the window stays.
+    await win.keyboard.type('exit')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
+    ok(true, 'exit closes the panel')
+    ok(!win.isClosed(), 'window survives the shell')
+  } finally {
+    await app.close()
+  }
+}
+
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
@@ -988,6 +1063,8 @@ try {
   await playerScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
+  await sleep(900)
+  await terminalScenario(fixtures)
 } catch (e) {
   failures += 1
   console.error('scenario crashed:', e)
