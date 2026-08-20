@@ -171,6 +171,13 @@ truly hidden window stops answering clicks and screenshots, so parking it is the
 `npm run package` builds the NSIS installer;
 version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user, GitHub Releases.
 
+**Installing is the LAST verification step, every time work is finished** - after tests,
+typecheck, lint and e2e, and not something to ask about first. Tests and e2e drive the built
+bundle, never the shipped app: packaging and installing is what proves the installer still
+works, that the associations still register, and that the resident app actually launches.
+`npm run package`, then install `dist/Prism-Setup-x64-<version>.exe` silently with `/S`
+(per-user, no elevation), closing any running Prism first. Report the installed version.
+
 ## Conventions
 
 - TypeScript, `sealed`-by-default mindset, small focused files, feature-not-layer organization.
