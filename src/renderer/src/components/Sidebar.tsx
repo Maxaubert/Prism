@@ -99,6 +99,7 @@ export function Sidebar({
   onDelete,
   onNav,
   wash,
+  onOpenFolder,
   state,
   onTree
 }: {
@@ -118,6 +119,10 @@ export function Sidebar({
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
   /** Whether the style's light reaches the panel. Follows the window. */
   wash: boolean
+  /** Point this tab at a different folder. Beside the search box rather than
+   *  with sort and filter: those narrow what you are looking at, this changes
+   *  it, and they do not belong in one cluster. */
+  onOpenFolder: () => void
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -419,7 +424,19 @@ export function Sidebar({
         {/* The search box: a hairline and nothing else, so it wears whatever
             the style wears (a filled grey panel glowed on true black). The
             accent arrives with focus. Escape clears. */}
-        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
+        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5">
+        <button
+          className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
+          onClick={onOpenFolder}
+          title="Open a different folder in this tab"
+          aria-label="Open folder"
+        >
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <path d="M12 11v5m2.5-2.5h-5" />
+          </svg>
+        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
           <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
             <circle cx="11" cy="11" r="6.5" />
             <path d="M16 16l4.5 4.5" />
@@ -451,6 +468,7 @@ export function Sidebar({
               </svg>
             </button>
           )}
+        </div>
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div

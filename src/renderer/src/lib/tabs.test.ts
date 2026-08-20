@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { closeTab, emptyTree, newTab, receiveFile, tabLabels, type Tab } from './tabs'
+import { closeTab, emptyTree, newTab, receiveFile, rerootTab, tabLabels, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -126,5 +126,48 @@ describe('emptyTree', () => {
     const t = emptyTree(SHOOT)
     expect([...t.expanded]).toEqual([SHOOT])
     expect(t.children).toEqual({})
+  })
+})
+
+describe('rerootTab', () => {
+  it('replaces the tab root in place, keeping its id and its position', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const music = tabOf('E:\\music', ['E:\\music\\s.mp3'])
+    const r = rerootTab([shoot, music], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'unused')
+    expect(r.tabs).toHaveLength(2)
+    expect(r.tabs[0].id).toBe(shoot.id) // same tab, not a new one beside it
+    expect(r.tabs[0].root).toBe(DOCS)
+    expect(r.tabs[0].files.map((v) => v.name)).toEqual(['r.md'])
+    expect(r.activeId).toBe(shoot.id)
+  })
+
+  it('gives the rerooted tab a fresh tree: the old folders are not in it', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    shoot.tree.expanded.add('C:\\shoot\\sub')
+    const r = rerootTab([shoot], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'x')
+    expect([...r.tabs[0].tree.expanded]).toEqual([DOCS])
+  })
+
+  it('switches to the tab that already holds that root instead of duplicating it', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const docs = tabOf(DOCS, ['D:\\docs\\r.md'])
+    const r = rerootTab([shoot, docs], shoot.id, payload(DOCS, ['D:\\docs\\r.md']), 'x')
+    expect(r.tabs).toHaveLength(2)
+    expect(r.tabs[0].root).toBe(SHOOT) // the tab you clicked from is left alone
+    expect(r.activeId).toBe(docs.id)
+  })
+
+  it('rerooting a tab onto its own root is a no-op it stays on', () => {
+    const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const r = rerootTab([shoot], shoot.id, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'x')
+    expect(r.tabs).toHaveLength(1)
+    expect(r.activeId).toBe(shoot.id)
+  })
+
+  it('with no tab to reroot it simply opens one', () => {
+    const r = rerootTab([], null, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'fresh')
+    expect(r.tabs).toHaveLength(1)
+    expect(r.tabs[0].id).toBe('fresh')
+    expect(r.activeId).toBe('fresh')
   })
 })

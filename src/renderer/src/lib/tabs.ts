@@ -38,7 +38,7 @@ export function emptyTree(root: string): TreeState {
 }
 
 /** Windows does not distinguish roots by case, so neither does a tab. */
-const sameRoot = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+export const sameRoot = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
 /** A tab from a payload main just built. */
 export function newTab(p: OpenPayload, id: string): Tab {
@@ -82,6 +82,34 @@ export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): T
   }
   const spawned = newTab(p, id)
   return { tabs: [...tabs, spawned], activeId: spawned.id }
+}
+
+/**
+ * Point one tab at a different folder, in place.
+ *
+ * This is what the sidebar's folder button does, as against the strip's `+`:
+ * the tab you are in becomes that folder, keeping its id and its place in the
+ * strip, so "open a folder" is a move rather than an accumulation. The tree
+ * starts fresh, because the folders the old root had open mean nothing here.
+ *
+ * If another tab is already that folder, it wins: switching to it keeps one tab
+ * per root, which is the invariant `receiveFile` leans on to know that a file
+ * arriving from outside has a home. Rerooting a tab onto its own root is then
+ * naturally a no-op you simply stay on.
+ */
+export function rerootTab(
+  tabs: readonly Tab[],
+  id: string | null,
+  p: OpenPayload,
+  newId: string
+): TabState {
+  const already = tabs.find((t) => sameRoot(t.root, p.root))
+  if (already) return { tabs: tabs.slice(), activeId: already.id }
+  const i = tabs.findIndex((t) => t.id === id)
+  if (i < 0) return receiveFile(tabs, p, newId)
+  const next = tabs.slice()
+  next[i] = { ...newTab(p, tabs[i].id) }
+  return { tabs: next, activeId: tabs[i].id }
 }
 
 /**

@@ -4,10 +4,9 @@ import { tabLabels, type Tab } from '../lib/tabs'
 /**
  * The open projects, as a row under the title bar.
  *
- * Shown only when there are two or more. One tab is exactly the chrome Prism
- * has always had, so someone quick-looking a single photo never meets a
- * workspace element; the row appearing and going is the honest signal that the
- * state it describes exists.
+ * Present from the first tab, so the `+` is always somewhere to reach and the
+ * chrome never shifts under you when a second folder opens. It goes only when
+ * there is nothing open at all, where EmptyState is already offering the way in.
  */
 export function TabStrip({
   tabs,
@@ -21,13 +20,14 @@ export function TabStrip({
   activeId: string | null
   onPick: (id: string) => void
   onClose: (id: string) => void
-  /** The + at the end: the same verb as the title bar's folder button. */
+  /** The + at the end. This one ADDS a tab; the sidebar's folder button
+   *  replaces the current one. Different verbs, so different labels. */
   onNew: () => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
 }): JSX.Element | null {
-  if (tabs.length < 2) return null
+  if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
   // mousedown so a stray middle press while scrolling does not lose a tab.
@@ -84,8 +84,8 @@ export function TabStrip({
       })}
       <button
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        title="Open folder (Ctrl+T)"
-        aria-label="Open folder"
+        title="Open a folder in a new tab (Ctrl+T)"
+        aria-label="New tab"
         onClick={onNew}
       >
         <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>

@@ -881,12 +881,17 @@ async function handoff(file) {
 
 async function tabsScenario(fixtures) {
   console.log('project tabs')
-  // One tab is exactly the old chrome: no strip at all.
   let { app, win } = await launch(join(fixtures, 'README.md'))
   const strip = '[role="tablist"]'
   const tabRows = () => win.locator(`${strip} [role="tab"]`)
   try {
-    ok((await win.locator(strip).count()) === 0, 'one tab draws no strip')
+    // The strip is there from the first tab, so the + is always reachable.
+    await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 1, 'one folder still shows as a tab')
+    ok(
+      (await win.locator(`${strip} [aria-label="New tab"]`).count()) === 1,
+      'and the + is reachable at one tab'
+    )
 
     // A second root, opened deliberately. The dialog is native and cannot be
     // driven, so the scenario asks for the same payload the button asks for.
@@ -910,10 +915,23 @@ async function tabsScenario(fixtures) {
     await handoff(join(fixtures, 'notes.txt'))
     ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
 
-    // Closing takes the strip with it when one tab is left.
+    // Closing back to one leaves the strip, and the tab, in place.
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
-    ok((await win.locator(strip).count()) === 0, 'closing back to one tab removes the strip')
+    ok((await tabRows().count()) === 1, 'closing back to one tab keeps the strip')
+
+    // The sidebar's folder button REPLACES this tab root rather than adding one.
+    // The dialog it opens is native, so the reroot itself is unit-tested; what
+    // is checked here is that the button is where it should be, beside search.
+    ok(
+      (await win.locator('[aria-label="Search files"]').count()) === 1 &&
+        (await win.locator('aside [aria-label="Open folder"]').count()) === 1,
+      'the folder button sits on the search row, not the title bar'
+    )
+    ok(
+      (await win.locator('[aria-label="Open folder"]').count()) === 1,
+      'and is the only one: it has left the title bar'
+    )
   } finally {
     await app.close()
   }
