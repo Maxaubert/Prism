@@ -6,6 +6,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
+import { activitySuppressed } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -442,7 +443,6 @@ export default function App(): JSX.Element {
       if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
     }
     heldRoots.current = now
-    activeTermIdRef.current = tabs.find((t) => t.id === activeId)?.term?.id ?? null
     // Mount says nothing (there is nothing to persist and no root to drop);
     // once a tab has existed, an empty list is real news: the last tab closed.
     if (tabs.length) hadTabs.current = true
@@ -598,44 +598,47 @@ export default function App(): JSX.Element {
   const toggleTermSplit = useCallback(() => applyTermView(splitTermView), [applyTermView])
   /**
    * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
-   * continuously while an AI CLI works (its spinner repaints), so recent
-   * output is "working" and quiet is "idle" - no process inspection needed.
-   * The bell (BEL in the stream; Claude Code can ring it when it finishes)
-   * marks "done, wants attention" until that tab is visited.
+   * continuously while an AI CLI works (its spinner repaints). "Working" is
+   * SUSTAINED streaming - over 1.2s of it without a 1.5s gap - so a spawn
+   * banner, a prompt redraw on revisiting a tab, or a keystroke's echo (all
+   * short bursts) never light the dot. The bell (BEL in the stream; Claude
+   * Code can ring it when it finishes) marks "done" and STAYS until the
+   * shell genuinely works again - visiting the tab does not clear it.
    */
-  const lastOutput = useRef(new Map<string, number>())
+  const outputRuns = useRef(new Map<string, { start: number; last: number }>())
   const [bells, setBells] = useState<ReadonlySet<string>>(new Set())
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
-  // The active tab's session, for the tick below: visiting a tab answers its
-  // bell (cleared on the next tick, not synchronously in an effect).
-  const activeTermIdRef = useRef<string | null>(null)
   useEffect(
     () =>
       window.prism.onTermData((id, data) => {
-        lastOutput.current.set(id, Date.now())
+        if (!activitySuppressed(id)) {
+          const now = Date.now()
+          const run = outputRuns.current.get(id)
+          if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
+          else run.last = now
+        }
         if (data.includes('\x07')) setBells((b) => (b.has(id) ? b : new Set(b).add(id)))
       }),
     []
   )
-  // One slow tick derives "working" from recency; state only changes when the
-  // set actually changes, so idle terminals cost nothing.
+  // One slow tick derives "working" from the runs; state only changes when
+  // the set actually changes, so idle terminals cost nothing. ENTERING
+  // "working" is what retires a bell: the shell is genuinely busy again.
   useEffect(() => {
     const t = setInterval(() => {
       const now = Date.now()
       setWorkingIds((prev) => {
         const next = new Set<string>()
-        for (const [id, at] of lastOutput.current) if (now - at < 2000) next.add(id)
+        for (const [id, run] of outputRuns.current) {
+          if (now - run.last < 2000 && run.last - run.start > 1200) next.add(id)
+        }
         if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
+        setBells((b) => {
+          const kept = [...b].filter((id) => !next.has(id))
+          return kept.length === b.size ? b : new Set(kept)
+        })
         return next
       })
-      const visited = activeTermIdRef.current
-      if (visited)
-        setBells((b) => {
-          if (!b.has(visited)) return b
-          const next = new Set(b)
-          next.delete(visited)
-          return next
-        })
     }, 700)
     return () => clearInterval(t)
   }, [])
@@ -647,7 +650,7 @@ export default function App(): JSX.Element {
     () =>
       window.prism.onTermExit((id) => {
         disposeSession(id)
-        lastOutput.current.delete(id)
+        outputRuns.current.delete(id)
         setTabState((s) => {
           const tab = s.tabs.find((t) => t.term?.id === id)
           return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
