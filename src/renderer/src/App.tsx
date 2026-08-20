@@ -399,8 +399,8 @@ export default function App(): JSX.Element {
   const openFromTree = useCallback(
     // No guard: unsaved text is kept in `buffers`, so leaving a file costs
     // nothing and there is nothing to ask about.
-    (p: string) => void window.prism.openWithin(p).then(open),
-    [open]
+    (p: string) => void (raw && window.prism.openWithin(raw.root, p).then(open)),
+    [open, raw]
   )
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
@@ -476,8 +476,8 @@ export default function App(): JSX.Element {
   }
 
   const reopen = useCallback(
-    (p: string) => void window.prism.openWithin(p).then((payload) => payload && open(payload)),
-    [open]
+    (p: string) => void (raw && window.prism.openWithin(raw.root, p).then((payload) => payload && open(payload))),
+    [open, raw]
   )
 
   const runRename = useCallback(

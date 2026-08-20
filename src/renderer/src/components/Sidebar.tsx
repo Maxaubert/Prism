@@ -151,9 +151,9 @@ export function Sidebar({
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(async (p: string, force = false): Promise<void> => {
-    const listing = (await window.prism.listDir(p)) ?? { folders: [], files: [], unreadable: true }
+    const listing = (await window.prism.listDir(root, p)) ?? { folders: [], files: [], unreadable: true }
     setState((s) => (s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }))
-  }, [])
+  }, [root])
 
   const toggle = useCallback(
     (p: string) => {
@@ -452,6 +452,7 @@ export function Sidebar({
         >
           {query.trim() ? (
             <SearchResults
+              root={root}
               query={query.trim()}
               refreshKey={refreshKey}
               currentPath={currentPath}
@@ -595,6 +596,7 @@ export function Sidebar({
 
       {props && (
         <PropertiesDialog
+          root={root}
           path={props.path}
           name={props.name}
           kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '', props.name)}
