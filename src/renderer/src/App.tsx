@@ -4,6 +4,7 @@ import { preloadImage } from './lib/imageLoader'
 import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
+import { confirmCloseTabs } from './lib/tabPrefs'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -70,6 +71,9 @@ type Ask =
   // window's, because the stake is the same: leave that tab and the only route
   // back to those buffers is gone, even though the window stays open.
   | { kind: 'close-tab'; id: string; names: readonly string[] }
+  // The plain "sure?" for a clean tab, on by default and switchable in
+  // Settings. Dirty tabs take the unsaved-changes question above instead.
+  | { kind: 'close-tab-confirm'; id: string; label: string }
   // Pointing a tab at a different folder strands its unsaved text exactly as
   // closing it would, so it asks the same question and carries the payload it
   // will apply on the way through.
@@ -519,8 +523,15 @@ export default function App(): JSX.Element {
   const closeOneTab = useCallback(
     (id: string) => {
       const tab = tabs.find((t) => t.id === id)
-      const names = tab ? dirtyUnder(tab.root) : []
+      if (!tab) return
+      const names = dirtyUnder(tab.root)
       if (names.length) setAsk({ kind: 'close-tab', id, names })
+      else if (confirmCloseTabs())
+        setAsk({
+          kind: 'close-tab-confirm',
+          id,
+          label: tab.root.split(/[\/]/).filter(Boolean).pop() ?? tab.root
+        })
       else forceCloseTab(id)
     },
     [dirtyUnder, forceCloseTab, tabs]
@@ -838,7 +849,7 @@ export default function App(): JSX.Element {
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         newTab()
-      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && !typing) {
+      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && (!typing || inTerm)) {
         // Deliberately does NOT take the window on the last tab. Prism is
         // resident, and a window that vanishes under a reflex keystroke -
         // with unsaved text in it - is the failure the close flow exists to
@@ -1184,6 +1195,30 @@ export default function App(): JSX.Element {
                   setAsk(null)
                   window.prism.close(true)
                 })()
+              }
+            }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'close-tab-confirm' && (
+        <Dialog
+          title="Close this tab?"
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.label}</span> closes, and its shell (if one is
+              running) goes with it. Settings can turn this question off.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            {
+              label: 'Close tab',
+              primary: true,
+              onPick: () => {
+                setAsk(null)
+                forceCloseTab(ask.id)
               }
             }
           ]}
