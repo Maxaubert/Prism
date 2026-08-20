@@ -2,7 +2,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { scopeFiles, useNavScope } from './lib/navScope'
-import { addTab, closeTab, receiveFile, rerootTab, sameRoot, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, type TabState, type TreeState } from './lib/tabs'
+import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
+import { savedShellId } from './lib/termPrefs'
+import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -34,6 +37,14 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 // persisted. A counter is enough and, unlike a path, survives a rename.
 let tabSeq = 0
 const nextTabId = (): string => `tab-${(tabSeq += 1)}`
+let termSeq = 0
+const nextTermId = (): string => `term-${(termSeq += 1)}`
+
+/** The renderer half of ending a shell. Lazy: if a session exists, the chunk
+ *  that owns the store is already loaded, so this import is always a cache hit. */
+const disposeSession = (id: string): void => {
+  void import('./components/TerminalPanel').then((m) => m.disposeTermSession(id))
+}
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -450,7 +461,16 @@ export default function App(): JSX.Element {
    *  window with it: Prism is resident, and a window that vanishes under a
    *  reflex keystroke is the failure this app has been careful to avoid. */
   const forceCloseTab = useCallback((id: string) => {
-    setTabState((s) => closeTab(s.tabs, id, s.activeId))
+    setTabState((s) => {
+      // The tab's shell dies with it, both halves: main's pty and the
+      // renderer's xterm instance.
+      const tab = s.tabs.find((t) => t.id === id)
+      if (tab?.term) {
+        window.prism.termKill(tab.term.id)
+        disposeSession(tab.term.id)
+      }
+      return closeTab(s.tabs, id, s.activeId)
+    })
   }, [])
   /** Unsaved buffers living under a tab's root, as their names are spelled. */
   const dirtyUnder = useCallback((root: string): string[] => {
@@ -495,6 +515,47 @@ export default function App(): JSX.Element {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
   const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+
+  /* ----- the terminal ----- */
+
+  const [dockEdge, setDockEdge] = useState<DockEdge>(loadDock)
+  const [termSizes, setTermSizes] = useState(() => ({ x: loadTermSize('x'), y: loadTermSize('y') }))
+  const pickDock = useCallback((edge: DockEdge) => {
+    setDockEdge(edge)
+    saveDock(edge)
+  }, [])
+  const resizeTermPanel = useCallback(
+    (px: number) => {
+      const axis = dockAxis(dockEdge)
+      setTermSizes((s) => ({ ...s, [axis]: px }))
+      saveTermSize(axis, px)
+    },
+    [dockEdge]
+  )
+  /** The sidebar button and Ctrl+`: first press spawns, after that it is
+   *  visibility. The shell itself only dies to exit, tab close, or quit. */
+  const toggleTerm = useCallback(() => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      const term = tab.term ? { ...tab.term, open: !tab.term.open } : { id: nextTermId(), open: true }
+      return { ...s, tabs: setTabTerm(s.tabs, tab.id, term) }
+    })
+  }, [])
+  // The shell ended: typed exit, or died. App owns this rather than the panel,
+  // because it must be heard even while the panel is hidden or another tab is
+  // in front - the tab's term slot has to clear either way.
+  useEffect(
+    () =>
+      window.prism.onTermExit((id) => {
+        disposeSession(id)
+        setTabState((s) => {
+          const tab = s.tabs.find((t) => t.term?.id === id)
+          return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
+        })
+      }),
+    []
+  )
   /** Step the active tab by `delta`, wrapping, so Ctrl+Tab cycles. */
   const stepTab = useCallback((delta: number) => {
     setTabState((s) => {
@@ -679,6 +740,12 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
+      } else if (e.key === '`' && e.ctrlKey) {
+        // NOT behind the typing guard: this is one of two keys Prism claims
+        // over a focused terminal (F11 is the other). Everything else,
+        // Escape and Ctrl+W included, belongs to the shell.
+        e.preventDefault()
+        toggleTerm()
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
         e.preventDefault()
         newTab()
@@ -749,7 +816,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, settingsOpen, setup, stepTab, togglePanel])
+  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, settingsOpen, setup, stepTab, togglePanel, toggleTerm])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -787,6 +854,8 @@ export default function App(): JSX.Element {
       e.preventDefault()
       setDragging(false)
       if (setup) return
+      // A drop on the terminal panel types the path there; it is not an open.
+      if ((e.target as HTMLElement | null)?.closest?.('[data-term-panel]')) return
       const f = e.dataTransfer?.files?.[0]
       if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
     }
@@ -859,6 +928,8 @@ export default function App(): JSX.Element {
             open={sidebar}
             root={active.root}
             onOpenFolder={rerootHere}
+            onToggleTerm={toggleTerm}
+            termOpen={active.term?.open ?? false}
             state={active.tree}
             onTree={onTree}
             currentPath={file?.path ?? null}
@@ -876,7 +947,11 @@ export default function App(): JSX.Element {
           />
         )}
         <div
-          className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
+          className="flex min-w-0 min-h-0 flex-1"
+          style={{ flexDirection: dockFlex(dockEdge) }}
+        >
+        <div
+          className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
             washed ? 'p-wash' : ''
           } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
         >
@@ -906,6 +981,22 @@ export default function App(): JSX.Element {
           )}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
+        </div>
+        {/* The tab's shell, when it is open. Only the ACTIVE tab's panel is in
+            the DOM; hidden tabs' sessions stay alive in the store, and coming
+            back reattaches them with scrollback intact. Fullscreen is for
+            watching: no dock, like the rest of the chrome. */}
+        {active?.term?.open && !fullscreen && (
+          <TermDock
+            edge={dockEdge}
+            size={termSizes[dockAxis(dockEdge)]}
+            onResize={resizeTermPanel}
+            onDockPick={pickDock}
+            sessionId={active.term.id}
+            root={active.root}
+            shellId={savedShellId()}
+          />
+        )}
         </div>
       </div>
       <Settings
