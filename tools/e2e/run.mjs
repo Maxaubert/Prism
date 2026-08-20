@@ -344,27 +344,20 @@ async function pdfScenario(fixtures) {
   }
 }
 
-async function filterScenario(fixtures) {
-  console.log('navigation filter')
+async function sortScenario(fixtures) {
+  console.log('sorting')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
-    const funnel = win.locator('[aria-label="Navigation filter"]')
-    await funnel.waitFor({ timeout: 10000 })
-    // File rows in the tree (folders have aria-expanded, files don't).
+    // File rows in the tree (folders have aria-expanded, files don't). No
+    // filter any more (removed 2026-08-20: a forgotten filter read as missing
+    // files) - every viewable sibling is always listed.
     const fileRows = win.locator('[role="treeitem"]:not([aria-expanded])')
-
-    const fillOf = () => funnel.locator('svg').getAttribute('fill')
-    ok((await fillOf()) === 'currentColor', 'default scope (group) shows a filled funnel')
-    // Docs group: README.md + sample.pdf + notes.txt + ep1.en.srt = "x / 4".
-    ok(await win.locator('text=/\\/ 4$/').first().isVisible().catch(() => false), 'group scope lists 4 documents')
-    ok((await fileRows.count()) === 4, 'group scope shows 4 file rows in the tree')
-
-    await funnel.click()
-    await win.click('[role="menuitemradio"]:has-text("All in one")')
-    await sleep(200)
-    ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
-    ok(await win.locator('text=/\\/ 9$/').first().isVisible().catch(() => false), 'all scope lists 9 files')
-    ok((await fileRows.count()) === 9, 'all scope shows all 9 file rows in the tree')
+    await fileRows.first().waitFor({ timeout: 10000 })
+    ok((await fileRows.count()) === 9, 'the tree lists every viewable file, unfiltered')
+    ok(
+      (await win.locator('[aria-label="Navigation filter"]').count()) === 0,
+      'the funnel is gone'
+    )
 
     // Sorting: Playnite's shape, one direction pair for every field. Size
     // ascending puts the smallest first; flipping to descending, the biggest.
@@ -375,7 +368,7 @@ async function filterScenario(fixtures) {
     await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Size")`)
     await sleep(250)
     ok(((await firstRow()) ?? '').includes('notes.txt'), 'size ascending puts the smallest file first')
-    const rootFiles = readdirSync(fixtures).filter((n) => statSync(join(fixtures, n)).isFile() && !/\.srt$/i.test(n))
+    const rootFiles = readdirSync(fixtures).filter((n) => statSync(join(fixtures, n)).isFile())
     const sizeOf = (n) => statSync(join(fixtures, n)).size
     const maxSize = Math.max(...rootFiles.map(sizeOf))
     await sortBtn.click()
@@ -394,27 +387,7 @@ async function filterScenario(fixtures) {
     await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Name")`)
     await sleep(150)
     ok(((await firstRow()) ?? '').includes('ep1.en.srt'), 'name ascending is back to normal')
-
-    await funnel.click()
-    await win.click('[role="menuitemradio"]:has-text("Per file type")')
-    await sleep(200)
-    ok((await fillOf()) === 'currentColor', 'per-type shows a filled funnel')
-    // Text kind: README.md + notes.txt + ep1.en.srt.
-    ok(await win.locator('text=/\\/ 3$/').first().isVisible().catch(() => false), 'per-type lists the 3 text files')
-    ok((await fileRows.count()) === 3, 'per-type shows the 3 text rows in the tree')
-    ok(
-      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
-      'the open file row survives every filter'
-    )
-    await win.screenshot({ path: join(SHOTS, 'filter.png') })
-
-    // Settings shows the same value: the two controls share the store.
-    await win.click('[aria-label="Settings"]')
-    await sleep(400)
-    await win.click('button:has-text("General")') // settings opens on Style
-    await sleep(300)
-    ok((await win.inputValue('#nav-scope').catch(() => '')) === 'type', 'Settings select agrees')
-    await win.screenshot({ path: join(SHOTS, 'filter-settings.png') })
+    await win.screenshot({ path: join(SHOTS, 'sorting.png') })
   } finally {
     await app.close()
   }
@@ -1214,7 +1187,7 @@ try {
   await sleep(900) // let the single-instance lock go
   await pdfScenario(fixtures)
   await sleep(900)
-  await filterScenario(fixtures)
+  await sortScenario(fixtures)
   await sleep(900)
   await contextMenuScenario(fixtures)
   await sleep(900)

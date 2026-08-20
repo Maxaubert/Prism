@@ -19,7 +19,6 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
-import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import {
   setAutoScroll,
@@ -769,11 +768,9 @@ function Select({
 }
 
 function GeneralTab(): JSX.Element {
-  const scope = useNavScope()
   const size = useTreeSize()
   const follow = useAutoScroll()
   const side = useTreeSide()
-  const current = NAV_SCOPES.find((s) => s.id === scope)
   // The shells main detected, fetched when the tab first shows. `saved` may
   // name one that no longer exists; the select then shows the real default,
   // which is also what a new terminal would actually launch.
@@ -800,14 +797,6 @@ function GeneralTab(): JSX.Element {
           />
         </Pref>
       )}
-      <Pref id="nav-scope" label="Navigation mode" hint={current?.hint}>
-        <Select
-          id="nav-scope"
-          value={scope}
-          onChange={(v) => setNavScope(v as NavScope)}
-          options={NAV_SCOPES}
-        />
-      </Pref>
       <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
         <Select
           id="tree-size"

@@ -68,7 +68,6 @@ export function visibleRows<F extends FileEntry>(
     Record<string, { folders: ReadonlyArray<FileEntry>; files: readonly F[]; unreadable?: boolean }>
   >,
   opts: {
-    fileVisible: (f: F) => boolean
     orderFiles: (files: F[]) => readonly F[]
     /** Folders follow the sort direction only when the field is name. */
     foldersReversed: boolean
@@ -86,7 +85,7 @@ export function visibleRows<F extends FileEntry>(
       out.push({ path: f.path, name: f.name, isFolder: true })
       if (expanded.has(f.path)) walk(f.path)
     }
-    for (const f of opts.orderFiles(listing.files.filter(opts.fileVisible))) {
+    for (const f of opts.orderFiles([...listing.files])) {
       out.push({ path: f.path, name: f.name, isFolder: false })
     }
   }

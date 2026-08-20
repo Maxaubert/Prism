@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { scopeFiles, useNavScope } from './lib/navScope'
 import { addTab, closeTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
@@ -262,7 +261,7 @@ function Viewer({
   }
 }
 
-function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
+function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
       {/* A hairline and nothing else, so the window's own material carries
@@ -275,11 +274,19 @@ function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
           <path d="M12 11v6m0 0l-2.2-2.2M12 17l2.2-2.2" />
         </svg>
       </div>
-      <div className="text-lg font-semibold">Open a file to view it</div>
+      <div className="text-lg font-semibold">Open a file or folder to view it</div>
       <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
-      <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
-        Browse…
-      </button>
+      <div className="flex items-center gap-2">
+        <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
+          Open file…
+        </button>
+        <button
+          className="no-drag rounded-xl border border-[color:var(--p-line)] px-4 py-2 text-sm font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-accent-hi)]"
+          onClick={onOpenFolder}
+        >
+          Open folder…
+        </button>
+      </div>
     </div>
   )
 }
@@ -667,16 +674,16 @@ export default function App(): JSX.Element {
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
-  // The visible list: the siblings that belong with the open file under the
-  // current scope, in the chosen order, and its position among them. Sorting
-  // reuses the same file objects, so mapping back to rawIndex keeps working.
-  const scope = useNavScope()
+  // The visible list: every viewable sibling, in the chosen order, and the
+  // open file's position among them. Sorting reuses the same file objects, so
+  // mapping back to rawIndex keeps working. (A kind filter lived here once,
+  // removed 2026-08-20: a forgotten filter read as missing files.)
   const sort = useSort()
   const view = useMemo(() => {
     if (!active || rawIndex < 0 || !active.files.length) return null
-    const ordered = sortFiles(active.files, sort.field, sort.dir)
-    return scopeFiles(ordered, ordered.indexOf(active.files[rawIndex]), scope)
-  }, [active, rawIndex, scope, sort])
+    const files = sortFiles(active.files, sort.field, sort.dir)
+    return { files, index: Math.max(0, files.indexOf(active.files[rawIndex])) }
+  }, [active, rawIndex, sort])
 
   const go = useCallback(
     (delta: number) => {
@@ -1062,7 +1069,7 @@ export default function App(): JSX.Element {
           ) : file ? (
             <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
           ) : (
-            <EmptyState onOpen={browse} />
+            <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
           )}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}

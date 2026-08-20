@@ -3,11 +3,9 @@ import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
-import { matchesScope, useNavScope } from '../lib/navScope'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
-import { FilterMenu } from './FilterMenu'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -313,27 +311,6 @@ export function Sidebar({
     [onRename]
   )
 
-  // The navigation filter, applied to the rows too: files that don't belong
-  // with the open file under the current scope disappear from the tree. The
-  // open file itself always shows, and with nothing open there is no anchor to
-  // filter around, so everything shows.
-  const scope = useNavScope()
-  const anchorKind = useMemo(() => {
-    if (!currentPath) return null
-    const ext = /\.[^.\\/]*$/.exec(currentPath)?.[0] ?? ''
-    return fileKind(ext, /[^\\/]*$/.exec(currentPath)?.[0] ?? '')
-  }, [currentPath])
-  const fileVisible = useCallback(
-    (f: ViewerFile): boolean => {
-      // 'other' means Prism was pointed at a file the tree wouldn't even list;
-      // it has no family, and hiding the whole tree around it helps nobody.
-      if (!currentPath || !anchorKind || anchorKind === 'other') return true
-      if (f.path.toLowerCase() === currentPath.toLowerCase()) return true
-      return matchesScope(f.kind, anchorKind, scope)
-    },
-    [currentPath, anchorKind, scope]
-  )
-
   /* ---------- the keyboard cursor ---------- */
 
   // Which row the arrows are on. Normally that is the open file, but it parts
@@ -353,11 +330,10 @@ export function Sidebar({
   const rows = useMemo(
     () =>
       visibleRows(root, state.expanded, state.children, {
-        fileVisible,
         orderFiles: (files) => sortFiles(files as ViewerFile[], sort.field, sort.dir),
         foldersReversed: sort.field === 'name' && sort.dir === 'desc'
       }),
-    [root, state.expanded, state.children, fileVisible, sort]
+    [root, state.expanded, state.children, sort]
   )
 
   /** Put the cursor on a row: folders only highlight, files open. */
@@ -441,7 +417,6 @@ export function Sidebar({
           </span>
           <div className="flex items-center">
             <SortMenu />
-            <FilterMenu />
           </div>
         </div>
         {/* The search box: a hairline and nothing else, so it wears whatever
@@ -517,8 +492,7 @@ export function Sidebar({
                 cursor: at,
                 size,
                 editing,
-                fileVisible,
-                onToggle: toggle,
+                        onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
                 onSubmitRename: submitRename,
@@ -538,14 +512,12 @@ export function Sidebar({
           )}
         </div>
         {/* The footer row: the sidebar's actions on the place itself. One
-            button today; a row so the next one has somewhere to live. */}
-        <div className="flex h-9 shrink-0 items-center gap-1.5 border-t border-[color:var(--p-line)] px-2">
+            button today, right-aligned; a row so the next one has a home. The
+            state reads through the GLYPH, not a border: outlined shut, filled
+            open, the way the tab-strip accent belongs to the state it marks. */}
+        <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
           <button
-            className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border transition-colors ${
-              termOpen
-                ? 'border-[color:var(--p-accent-hi)] text-[var(--p-accent-hi)]'
-                : 'border-[color:var(--p-line)] text-[var(--p-icon)] hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]'
-            }`}
+            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
             onClick={onToggleTerm}
             onContextMenu={(e) => {
               e.preventDefault()
@@ -555,10 +527,17 @@ export function Sidebar({
             aria-label="Terminal"
             aria-pressed={termOpen}
           >
-            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
-            </svg>
+            {termOpen ? (
+              <svg viewBox="0 0 24 24" width={14} height={14} aria-hidden>
+                <rect x="3" y="5" width="18" height="14" rx="2" fill="var(--p-accent-hi)" />
+                <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" fill="none" stroke="var(--p-side)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
+              </svg>
+            )}
           </button>
         </div>
       </div>

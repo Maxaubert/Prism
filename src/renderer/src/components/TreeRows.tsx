@@ -281,11 +281,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const pad = 4 + depth * t.size.indent
   if (listing.unreadable) return <Note text="can't read this folder" pad={pad} />
   if (!listing.folders.length && !listing.files.length) return <Note text="empty" pad={pad} />
-  // The navigation filter narrows the rows the same way it narrows the arrows,
-  // and the sort orders them the same way it orders the paging.
-  const files = sortFiles(listing.files.filter(t.fileVisible), sort.field, sort.dir)
-  if (!listing.folders.length && !files.length)
-    return <Note text="nothing matches the filter" pad={pad} />
+  // The sort orders the rows the same way it orders the paging.
+  const files = sortFiles(listing.files, sort.field, sort.dir)
   // Folders sort by name (they have no size or kind worth ordering by) and
   // follow the direction only when the field is name, the way Explorer does.
   const folders =

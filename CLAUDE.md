@@ -47,12 +47,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
-- **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
-  with a scope setting (all / media vs documents / one file type) in Settings → General and as
-  a filter button in the sidebar header (filled funnel = filter active). The scope also hides
-  non-matching file rows in the tree (2026-08-08); folders and the open file always show. A
-  sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
-  name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
+- **Folder navigation**: from the opened file, page through sibling viewable files (arrow
+  keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
+  2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
+  fresh decision. A sort menu sits in the sidebar header (2026-08-12, Playnite-shaped: one
+  asc/desc pair, then name / date modified / size / type); tree rows and arrow-paging share
+  the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
   always page the folder. **FOCUS decides the vertical keys, for every kind, and nothing
   auto-focuses a document any more** (2026-08-17): opening a pdf, a README or a code file
