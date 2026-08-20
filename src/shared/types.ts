@@ -71,6 +71,8 @@ export type RenameResult =
  * (the folder Prism was opened in) that the sidebar tree is bounded by. */
 export interface OpenPayload {
   files: ViewerFile[]
+  /** Which of `files` to show. -1 when a folder was opened and it holds nothing
+   *  viewable: the tree is still rooted there, the viewer just has no file. */
   index: number
   root: string
 }
