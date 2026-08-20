@@ -6,7 +6,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { activitySuppressed } from './lib/termActivity'
+import { activitySuppressed, isTouched } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -487,7 +487,9 @@ export default function App(): JSX.Element {
         setTabState((s) => {
           const tab = s.tabs.find((t) => t.id === s.activeId)
           if (!tab || tab.term) return s
-          return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: nextTermId(), view: 'full' }) }
+          const termId = nextTermId()
+          termRoots.current.set(termId, tab.root)
+          return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
         })
       setHasNavigated(false)
     })
@@ -505,6 +507,7 @@ export default function App(): JSX.Element {
       if (tab?.term) {
         window.prism.termKill(tab.term.id)
         disposeSession(tab.term.id)
+        termRoots.current.delete(tab.term.id)
       }
       return closeTab(s.tabs, id, s.activeId)
     })
@@ -517,7 +520,23 @@ export default function App(): JSX.Element {
       .map((b) => baseName(b.path))
   }, [])
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
-    setTabState((s) => rerootTab(s.tabs, id, p, nextTabId()))
+    setTabState((s) => {
+      const next = rerootTab(s.tabs, id, p, nextTabId())
+      // The terminal policy on a folder change: an UNTOUCHED shell simply
+      // follows - killed and respawned in the new folder, view kept. A
+      // touched one (a Claude session, half-typed work) stays where it was;
+      // Clear later re-syncs it.
+      const tab = next.tabs.find((t) => t.id === id)
+      if (tab?.term && !isTouched(tab.term.id) && !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)) {
+        window.prism.termKill(tab.term.id)
+        disposeSession(tab.term.id)
+        termRoots.current.delete(tab.term.id)
+        const termId = nextTermId()
+        termRoots.current.set(termId, p.root)
+        return { ...next, tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view }) }
+      }
+      return next
+    })
     setHasNavigated(false)
   }, [])
   /**
@@ -578,12 +597,18 @@ export default function App(): JSX.Element {
   )
   /** Apply a term-view transition to the active tab, spawning ids as needed.
    *  The shell itself only dies to exit, tab close, or quit. */
+  /** Where each live session was SPAWNED, for the reroot policy: an untouched
+   *  shell whose folder no longer matches its tab gets replaced; Clear also
+   *  re-syncs a stale one. */
+  const termRoots = useRef(new Map<string, string>())
   const applyTermView = useCallback(
     (fn: typeof toggleTermView) =>
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab) return s
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, fn(tab.term, nextTermId())) }
+        const next = fn(tab.term, nextTermId())
+        if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, next) }
       }),
     []
   )
@@ -598,32 +623,44 @@ export default function App(): JSX.Element {
   const toggleTermSplit = useCallback(() => applyTermView(splitTermView), [applyTermView])
   /**
    * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
-   * continuously while an AI CLI works (its spinner repaints). "Working" is
-   * SUSTAINED streaming - over 1.2s of it without a 1.5s gap - so a spawn
-   * banner, a prompt redraw on revisiting a tab, or a keystroke's echo (all
-   * short bursts) never light the dot. The bell (BEL in the stream; Claude
-   * Code can ring it when it finishes) marks "done" and STAYS until the
-   * shell genuinely works again - visiting the tab does not clear it.
+   * continuously while an AI CLI works (its spinner repaints). The dots are
+   * AGENT-SCOPED: main polls each shell's process tree for Claude Code and
+   * kin, and a plain terminal never shows one (the bell was tried and
+   * abandoned - PSReadLine dings on every invalid key). With an agent
+   * present: blue while streaming is SUSTAINED (over 1.2s without a 1.5s
+   * gap, so banners, redraws and echoes never light it), amber while quiet -
+   * a finished answer, waiting.
    */
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
-  const [bells, setBells] = useState<ReadonlySet<string>>(new Set())
+  const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
   useEffect(
     () =>
-      window.prism.onTermData((id, data) => {
+      window.prism.onTermAgent((id, present) =>
+        setAgentIds((prev) => {
+          if (present === prev.has(id)) return prev
+          const next = new Set(prev)
+          if (present) next.add(id)
+          else next.delete(id)
+          return next
+        })
+      ),
+    []
+  )
+  useEffect(
+    () =>
+      window.prism.onTermData((id) => {
         if (!activitySuppressed(id)) {
           const now = Date.now()
           const run = outputRuns.current.get(id)
           if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
           else run.last = now
         }
-        if (data.includes('\x07')) setBells((b) => (b.has(id) ? b : new Set(b).add(id)))
       }),
     []
   )
   // One slow tick derives "working" from the runs; state only changes when
-  // the set actually changes, so idle terminals cost nothing. ENTERING
-  // "working" is what retires a bell: the shell is genuinely busy again.
+  // the set actually changes, so idle terminals cost nothing.
   useEffect(() => {
     const t = setInterval(() => {
       const now = Date.now()
@@ -633,10 +670,6 @@ export default function App(): JSX.Element {
           if (now - run.last < 2000 && run.last - run.start > 1200) next.add(id)
         }
         if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
-        setBells((b) => {
-          const kept = [...b].filter((id) => !next.has(id))
-          return kept.length === b.size ? b : new Set(kept)
-        })
         return next
       })
     }, 700)
@@ -651,6 +684,13 @@ export default function App(): JSX.Element {
       window.prism.onTermExit((id) => {
         disposeSession(id)
         outputRuns.current.delete(id)
+        termRoots.current.delete(id)
+        setAgentIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
         setTabState((s) => {
           const tab = s.tabs.find((t) => t.term?.id === id)
           return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
@@ -725,8 +765,21 @@ export default function App(): JSX.Element {
     [applyTermView]
   )
   const clearTerm = useCallback(() => {
-    const id = active?.term?.id
-    if (id) void import('./components/TerminalPanel').then((m) => m.clearTermSession(id))
+    const term = active?.term
+    if (!term || !active) return
+    const spawnedAt = termRoots.current.get(term.id)
+    if (spawnedAt && !sameRoot(spawnedAt, active.root)) {
+      // The tab moved folders while this shell was busy being kept; Clear is
+      // the user resetting things, so it re-syncs: fresh shell, tab's folder.
+      window.prism.termKill(term.id)
+      disposeSession(term.id)
+      termRoots.current.delete(term.id)
+      const termId = nextTermId()
+      termRoots.current.set(termId, active.root)
+      setTabState((s) => ({ ...s, tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view }) }))
+    } else {
+      void import('./components/TerminalPanel').then((m) => m.clearTermSession(term.id))
+    }
   }, [active])
 
   /** The split's X buttons and the context menu's "Remove from split view".
@@ -1077,7 +1130,7 @@ export default function App(): JSX.Element {
           tabs={tabs}
           activeId={activeId}
           workingIds={workingIds}
-          bellIds={bells}
+          agentIds={agentIds}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}

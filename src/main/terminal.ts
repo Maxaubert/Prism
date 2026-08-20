@@ -106,6 +106,11 @@ export function killTerm(id: string): void {
   }
 }
 
+/** The live sessions' shell pids, for the agent poll. */
+export function livePids(): Array<{ id: string; pid: number }> {
+  return [...sessions.entries()].map(([id, s]) => ({ id, pid: s.pty.pid }))
+}
+
 /** Quit: every shell dies with the app. */
 export function killAll(): void {
   for (const id of [...sessions.keys()]) killTerm(id)

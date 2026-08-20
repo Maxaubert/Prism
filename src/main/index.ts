@@ -18,7 +18,8 @@ import { listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
-import { killAll, killTerm, resizeTerm, spawnTerm, writeTerm } from './terminal'
+import { killAll, killTerm, livePids, resizeTerm, spawnTerm, writeTerm } from './terminal'
+import { treeHasAgent, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -508,6 +509,47 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
+
+    // The agent poll behind the tab dots. Every 2.5s WHILE shells exist, one
+    // CIM query lists processes and each session's tree is checked for an AI
+    // CLI (agentDetect). Only changes cross the bridge.
+    const agentState = new Map<string, boolean>()
+    let agentBusy = false
+    setInterval(() => {
+      const pids = livePids()
+      if (!pids.length || agentBusy) return
+      agentBusy = true
+      execFile(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
+        ],
+        { windowsHide: true, timeout: 8000, maxBuffer: 32 * 1024 * 1024 },
+        (err, stdout) => {
+          agentBusy = false
+          if (err || !stdout) return
+          let rows: ProcRow[] = []
+          try {
+            const raw = JSON.parse(stdout) as Array<{ ProcessId: number; ParentProcessId: number; CommandLine: string | null }>
+            rows = raw.map((r) => ({ pid: r.ProcessId, ppid: r.ParentProcessId, cmd: r.CommandLine ?? '' }))
+          } catch {
+            return
+          }
+          for (const { id, pid } of livePids()) {
+            const has = treeHasAgent(rows, pid)
+            if (agentState.get(id) !== has) {
+              agentState.set(id, has)
+              mainWindow?.webContents.send('term:agent', id, has)
+            }
+          }
+          // forget sessions that ended
+          const live = new Set(livePids().map((s) => s.id))
+          for (const id of [...agentState.keys()]) if (!live.has(id)) agentState.delete(id)
+        }
+      )
+    }, 2500)
     // The terminal's clickable links. http(s) only, checked on both sides.
     ipcMain.on('shell:open-external', (_e, url: string) => {
       if (/^https?:/i.test(url)) void shell.openExternal(url)

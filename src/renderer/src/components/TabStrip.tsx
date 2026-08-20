@@ -12,7 +12,7 @@ export function TabStrip({
   tabs,
   activeId,
   workingIds,
-  bellIds,
+  agentIds,
   onPick,
   onClose,
   onNew,
@@ -20,10 +20,11 @@ export function TabStrip({
 }: {
   tabs: Tab[]
   activeId: string | null
-  /** Terminal sessions with recent output: an AI CLI (or anything) working. */
+  /** Sessions with SUSTAINED recent output (the working half of the dot). */
   workingIds: ReadonlySet<string>
-  /** Sessions whose shell rang the bell: done, wants attention. */
-  bellIds: ReadonlySet<string>
+  /** Sessions whose shell currently hosts an AI CLI. The dots exist only for
+   *  these: a plain terminal never shows one. */
+  agentIds: ReadonlySet<string>
   onPick: (id: string) => void
   onClose: (id: string) => void
   /** The + at the end. This one ADDS a tab, rooted at the user's own folder
@@ -65,32 +66,35 @@ export function TabStrip({
                 sits under a bar that is already accent-coloured, and a second
                 block of indigo fought it. */}
             {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
-            {/* Tabby-style activity: a pulsing accent dot while the tab's
-                shell is genuinely streaming (an AI CLI at work), a steady
-                amber one after its bell (done - it stays until real work
-                resumes), transparent when quiet. The slot is ALWAYS there for
-                a tab with a shell, so the label never shifts as states come
-                and go. */}
+            {/* The AI dots, agent-scoped: only a shell hosting Claude Code or
+                kin gets one. Blue pulsing = the agent is streaming an answer;
+                amber = it finished and waits. A plain terminal shows nothing,
+                but the SLOT stays for any tab with a shell, transparent, so
+                the label never shifts as states come and go. */}
             {t.term && (
               <span
                 data-activity={
-                  workingIds.has(t.term.id) ? 'working' : bellIds.has(t.term.id) ? 'bell' : 'idle'
+                  !agentIds.has(t.term.id)
+                    ? 'none'
+                    : workingIds.has(t.term.id)
+                      ? 'working'
+                      : 'done'
                 }
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                  workingIds.has(t.term.id)
-                    ? 'animate-pulse bg-[var(--p-accent-hi)]'
-                    : bellIds.has(t.term.id)
-                      ? 'bg-amber-400'
-                      : 'bg-transparent'
+                  !agentIds.has(t.term.id)
+                    ? 'bg-transparent'
+                    : workingIds.has(t.term.id)
+                      ? 'animate-pulse bg-[var(--p-accent-hi)]'
+                      : 'bg-amber-400'
                 }`}
                 title={
-                  workingIds.has(t.term.id)
-                    ? 'Working'
-                    : bellIds.has(t.term.id)
-                      ? 'Finished, wants attention'
-                      : undefined
+                  !agentIds.has(t.term.id)
+                    ? undefined
+                    : workingIds.has(t.term.id)
+                      ? 'Claude is working'
+                      : 'Finished - waiting for you'
                 }
-                aria-hidden={!workingIds.has(t.term.id) && !bellIds.has(t.term.id)}
+                aria-hidden={!agentIds.has(t.term.id)}
               />
             )}
             <button
