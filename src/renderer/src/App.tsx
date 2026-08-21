@@ -468,6 +468,20 @@ export default function App(): JSX.Element {
     )
   }, [tabs, activeId])
 
+  // Pre-warm: a tab in front with no shell probably gets one soon. After a
+  // short dwell, main starts it; opening the terminal then ADOPTS a running
+  // shell instead of paying pwsh's startup at the click. The xterm chunk is
+  // prefetched once at idle for the same reason.
+  useEffect(() => {
+    if (!active || active.kind === 'settings' || active.term) return
+    const t = setTimeout(() => window.prism.termPrewarm(active.root, savedShellId()), 900)
+    return () => clearTimeout(t)
+  }, [active])
+  useEffect(() => {
+    const t = setTimeout(() => void import('./components/TerminalPanel'), 4000)
+    return () => clearTimeout(t)
+  }, [])
+
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   // Main held the window open because the editor is dirty; ask, then answer it.

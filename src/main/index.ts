@@ -18,7 +18,7 @@ import { listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
-import { killAll, killTerm, livePids, resizeTerm, spawnTerm, writeTerm } from './terminal'
+import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
 import { treeHasAgent, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
@@ -467,6 +467,15 @@ if (!app.requestSingleInstanceLock()) {
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => killAll())
 
+  // Warm the terminal's fixed costs shortly after launch: the native module
+  // import and the shell probe both belong off every later click path.
+  app.whenReady().then(() =>
+    setTimeout(() => {
+      void import('node-pty')
+      void detectShells()
+    }, 2500)
+  )
+
   app.whenReady().then(() => {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
 
@@ -513,6 +522,11 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
+    // The renderer says which root is in front and shell-less; main starts
+    // its shell ahead of the click. Best-effort, walled like term:spawn.
+    ipcMain.on('term:prewarm', (_e, root: string, shellId?: string) => {
+      if (insideAnyRoot(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
+    })
 
     // The agent poll behind the tab dots. Every 2.5s WHILE shells exist, one
     // CIM query lists processes and each session's tree is checked for an AI
@@ -540,7 +554,7 @@ if (!app.requestSingleInstanceLock()) {
         (err, stdout) => {
           agentBusy = false
           if (err || !stdout) return
-          let rows: ProcRow[] = []
+          let rows: ProcRow[]
           try {
             const raw = JSON.parse(stdout) as Array<{ ProcessId: number; ParentProcessId: number; CommandLine: string | null }>
             rows = raw.map((r) => ({ pid: r.ProcessId, ppid: r.ParentProcessId, cmd: r.CommandLine ?? '' }))
@@ -576,7 +590,10 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.
-    ipcMain.on('roots:drop', (_e, root: string) => dropRoot(root))
+    ipcMain.on('roots:drop', (_e, root: string) => {
+      dropRoot(root)
+      killWarm(root) // a warm spare for a closed tab is an orphan
+    })
     // The three navigation handlers take the root they act in, because they are
     // per-tab operations and the renderer always knows which tab asked. Both the
     // root and the path have to hold up: naming a root you never opened gets you
