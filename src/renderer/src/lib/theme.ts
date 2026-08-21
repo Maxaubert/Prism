@@ -521,8 +521,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
       : style.borders === 'strong'
         ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
         : style.borders === 'faint'
-          ? // Half a hairline: edges that separate without asserting.
-            rgba(ink, style.mode === 'light' ? 0.05 : 0.035)
+          ? // A third of a hairline: edges you sense more than see.
+            rgba(ink, style.mode === 'light' ? 0.035 : 0.022)
           : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
 
   // A hairline that exists whatever the style says about edges. Settings lists
