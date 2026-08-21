@@ -424,7 +424,7 @@ function Segmented<T extends string>({
   options: Array<{ id: T; name: string }>
 }): JSX.Element {
   return (
-    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-line)] bg-[var(--p-control)] p-[3px]">
+    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-control)] p-[3px]">
       {options.map((o) => {
         const on = o.id === value
         return (
@@ -611,9 +611,10 @@ const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'strong', name: 'Strong' }
 ]
 
-const FONT_OPTIONS: Array<{ id: FontId; name: string }> = (Object.keys(FONTS) as FontId[]).map(
-  (id) => ({ id, name: FONTS[id].name })
-)
+// Each option set in its own face, so the picker previews what it names.
+const FONT_OPTIONS: Array<{ id: FontId; name: string; style: React.CSSProperties }> = (
+  Object.keys(FONTS) as FontId[]
+).map((id) => ({ id, name: FONTS[id].name, style: { fontFamily: FONTS[id].stack } }))
 
 const MODE_OPTIONS: Array<{ id: Mode; name: string }> = [
   { id: 'dark', name: 'Dark' },
@@ -861,6 +862,9 @@ function Pref({
 
 /** A native select - keyboard and screen-reader behaviour for free, and Chromium
  *  renders its popup in the right scheme because :root sets color-scheme. */
+/** A styled dropdown, not a native select: the popup wears the app's own menu
+ *  look (flat panel, hover token, a check on the active row), and each option
+ *  can carry a style - which is how the font pickers preview their faces. */
 function Select({
   id,
   value,
@@ -870,21 +874,82 @@ function Select({
   id: string
   value: string
   onChange: (v: string) => void
-  options: Array<{ id: string; name: string }>
+  options: Array<{ id: string; name: string; style?: React.CSSProperties }>
 }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (): void => setOpen(false)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        close()
+      }
+    }
+    const onDown = (e: PointerEvent): void => {
+      if (!box.current?.contains(e.target as Node)) close()
+    }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('blur', close)
+    }
+  }, [open])
+  const cur = options.find((o) => o.id === value)
   return (
-    <select
-      id={id}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-8 min-w-[168px] rounded-lg border border-[color:var(--p-line)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
-    >
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.name}
-        </option>
-      ))}
-    </select>
+    <div ref={box} className="relative">
+      <button
+        id={id}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-8 min-w-[168px] items-center justify-between gap-2 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      >
+        <span className="truncate" style={cur?.style}>
+          {cur?.name ?? value}
+        </span>
+        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-[var(--p-dim)] transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-labelledby={id}
+          className="absolute right-0 z-40 mt-1 max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+        >
+          {options.map((o) => {
+            const on = o.id === value
+            return (
+              <button
+                key={o.id}
+                role="option"
+                aria-selected={on}
+                onClick={() => {
+                  onChange(o.id)
+                  setOpen(false)
+                }}
+                className={`flex h-[28px] w-full items-center justify-between gap-4 whitespace-nowrap px-[11px] text-left text-[12px] transition-colors hover:bg-[var(--p-hover)] ${
+                  on ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+                }`}
+                style={o.style}
+              >
+                {o.name}
+                {on && (
+                  <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4.5 12.5l5 5 10-11" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1345,7 +1410,7 @@ function TerminalTab(): JSX.Element {
           id="term-font-family"
           value={fontId}
           onChange={setTermFontId}
-          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name }))}
+          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name, style: { fontFamily: f.stack } }))}
         />
       </Pref>
       <Pref

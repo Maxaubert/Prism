@@ -409,7 +409,10 @@ export function derive(style: Style): Record<string, string> {
     // Form controls (selects, switches, small buttons). Quieter than the
     // stage: on true black the 13% wash read as a light grey block, and the
     // controls want to sit INTO the page, not on a platform.
-    '--p-control': mix(bg, style.text, light ? 0.09 : 0.05),
+    // Quieter on dark than it was (5% read harsh on true black); the control
+    // border follows --p-divider now too, so Void's controls sit into the
+    // page instead of outlined in white.
+    '--p-control': mix(bg, style.text, light ? 0.09 : 0.035),
     // The unfilled part of a progress bar, and any other inert track: it sits
     // ON the stage, so a divider-strength grey disappears there.
     '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
