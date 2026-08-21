@@ -85,6 +85,10 @@ export interface OpenPayload {
    *  startup command - the ONE command Prism ever writes itself (owner
    *  decision, 2026-08-21), and never typed on screen. */
   agentResume?: string
+  /** Restore only: this payload rebuilds a SAVED tab. It always becomes its
+   *  own tab - the arriving-file rule folds same-root payloads into one, and
+   *  folding a restore silently deletes a tab the user had. */
+  restore?: boolean
 }
 
 /** A shell main detected on this machine; the only things term:spawn launches. */
