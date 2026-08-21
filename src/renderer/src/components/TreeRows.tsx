@@ -11,26 +11,14 @@ import { useTree } from '../lib/treeContext'
 const panelColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-side-flat').trim() || '#0e1016'
 
-// A muted colour per kind, so a long list sorts itself by eye before you read a
-// single name. Low saturation on purpose: the media is the star, not the tree.
-const TINT: Record<FileKind, string> = {
-  image: '#6fb2a8',
-  video: '#8f8ae0',
-  audio: '#d3a06a',
-  pdf: '#cf7f88',
-  text: '#8d93a1',
-  other: '#8d93a1'
-}
 const accentColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
 
-/** Folders wear the folder token (a picker in Settings); files wear the kind
- *  tints while the style keeps them, or the flat file token once a colour is
- *  chosen. theme.ts owns the mode flag and both tokens. */
+/** Folders wear the folder token, files the file token - both pickers in
+ *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
+ *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
 export function iconColour(kind: FileKind | 'folder'): string {
-  if (kind === 'folder') return 'var(--p-tree-folder)'
-  if (document.documentElement.dataset.icons !== 'kind') return 'var(--p-tree-file)'
-  return TINT[kind]
+  return kind === 'folder' ? 'var(--p-tree-folder)' : 'var(--p-tree-file)'
 }
 
 type Size = (typeof TREE_SIZES)[number]

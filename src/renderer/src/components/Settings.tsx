@@ -717,7 +717,7 @@ function StyleTab(): JSX.Element {
           <Pref
             id="c-file-icon"
             label="File icons"
-            hint="One colour for every file icon. Reset returns the per-kind tints."
+            hint="One colour for every file icon; the kind shows in the shape."
           >
             <ColourWell
               id="c-file-icon"
