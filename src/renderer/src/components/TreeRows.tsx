@@ -251,7 +251,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             onCursor
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
               : onMenuHl
-                ? 'bg-[var(--p-hover)] text-[var(--p-text)]'
+                ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
                 : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
@@ -349,7 +349,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 onCursor
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
                   : onMenuHl
-                    ? `bg-[var(--p-hover)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
+                    ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
                     : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
                         unsaved ? 'font-bold text-[var(--p-text)]' : ''
                       }`
