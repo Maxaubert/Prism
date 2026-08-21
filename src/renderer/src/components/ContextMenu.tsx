@@ -123,10 +123,12 @@ export function ContextMenu({
     if (!el || !menu || !sub) return
     const r = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
-    // The panels share ONE hairline: the flyout's left border sits exactly on
-    // the menu's right border (or mirrored, when flipped to the left).
-    let fx = menuRect.right - 1
-    if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 1
+    // The flyout is a LAYER, not an extension: like every native submenu
+    // (Windows 11, macOS), it overlaps the parent by a few pixels and casts
+    // its shadow onto it. Butting the panels edge-to-edge read as one panel
+    // with a seam down it; the overlap is what makes it read as a card above.
+    let fx = menuRect.right - 6
+    if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 6
     const firstTop = el.querySelector('[role="menuitem"]')?.getBoundingClientRect().top ?? r.top
     let fy = sub.y + (sub.anchorY - firstTop)
     fy = Math.max(8, Math.min(fy, window.innerHeight - r.height - 8))
@@ -207,7 +209,9 @@ export function ContextMenu({
         <div
           ref={fly}
           role="menu"
-          style={{ left: sub.x, top: sub.y }}
+          // Ambient shadow on top of the panel's own: the overlapped strip of
+          // the parent visibly sits UNDER this card, whichever side it opens.
+          style={{ left: sub.x, top: sub.y, boxShadow: '0 10px 28px rgba(0,0,0,.5), 0 0 14px rgba(0,0,0,.4)' }}
           onPointerEnter={cancelClose}
           className={`pointer-events-auto absolute min-w-[176px] max-w-[260px] ${PANEL}`}
         >

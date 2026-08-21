@@ -538,7 +538,8 @@ async function contextMenuScenario(fixtures) {
       const surface = p.top + parseFloat(getComputedStyle(parent).borderTopWidth || '0')
       return {
         v: first.getBoundingClientRect().top - surface,
-        h: flyPanel.getBoundingClientRect().left - (menu.getBoundingClientRect().right - 1)
+        // Native-submenu layering: the flyout overlaps the parent by 6px.
+        h: flyPanel.getBoundingClientRect().left - (menu.getBoundingClientRect().right - 6)
       }
     })
     ok(
