@@ -38,6 +38,20 @@ export function termBaseFontPx(): number {
   return Math.round((TERM_BASE_FONT_PX * termFontPct()) / 100)
 }
 
+const ACRYLIC_KEY = 'prism.term.acrylic'
+
+/** Whether the follow-style terminal shares the window's acrylic background
+ *  (its own canvas goes transparent, the app surface shows through). On by
+ *  default; presets keep their own opaque colours either way. */
+export function termAcrylic(): boolean {
+  return localStorage.getItem(ACRYLIC_KEY) !== '0'
+}
+
+export function setTermAcrylic(on: boolean): void {
+  localStorage.setItem(ACRYLIC_KEY, on ? '1' : '0')
+  notify()
+}
+
 const AGENT_IND_KEY = 'prism.term.agentIndicator'
 
 export type AgentIndicator = 'off' | 'minimal' | 'full'
@@ -111,6 +125,9 @@ export function useTermThemeId(): string {
 }
 export function useTermFontPct(): number {
   return useSyncExternalStore(sub, termFontPct)
+}
+export function useTermAcrylic(): boolean {
+  return useSyncExternalStore(sub, termAcrylic)
 }
 export function useAgentIndicator(): AgentIndicator {
   return useSyncExternalStore(sub, agentIndicator)

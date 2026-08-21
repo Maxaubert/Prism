@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
-import { onTermLookChange, termBaseFontPx, termThemeId } from '../lib/termLook'
+import { onTermLookChange, termAcrylic, termBaseFontPx, termThemeId } from '../lib/termLook'
 import { forgetSession, markTouched, suppressActivity } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
@@ -27,6 +27,15 @@ interface Session {
 
 const sessions = new Map<string, Session>()
 
+/** The theme as painted: follow-style with the acrylic share on drops its own
+ *  canvas colour so the window's material shows through the panel behind it.
+ *  Presets keep their opaque colours - their background IS the theme. */
+function currentTermTheme(): ReturnType<typeof resolveTermTheme> {
+  const theme = { ...resolveTermTheme(termThemeId()) }
+  if (termThemeId() === 'style' && termAcrylic()) theme.background = '#00000000'
+  return theme
+}
+
 /** Refit a session and tell the pty its new geometry. */
 function refitSession(id: string, s: Session): void {
   if (!s.el.clientWidth || !s.el.clientHeight) return
@@ -40,7 +49,7 @@ function refitSession(id: string, s: Session): void {
 // changing (preset theme, base font size). A session the user Ctrl+scrolled
 // keeps its own font; everything else follows the base.
 function applyLook(): void {
-  const theme = resolveTermTheme(termThemeId())
+  const theme = currentTermTheme()
   const base = termBaseFontPx()
   for (const [id, s] of sessions) {
     s.term.options.theme = theme
@@ -87,12 +96,13 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     cursorBlink: true,
     scrollback: 10000,
     allowProposedApi: true, // unicode11 needs it
+    allowTransparency: true, // the acrylic share paints a see-through canvas
     fontFamily: '"Cascadia Mono", Consolas, monospace',
     // The Settings base size; Ctrl+scroll can zoom this one session later.
     fontSize: termBaseFontPx(),
     // Follow-style by default, or the chosen preset. Live switches of either
     // are handled by applyLook above.
-    theme: resolveTermTheme(termThemeId())
+    theme: currentTermTheme()
   })
   const fit = new FitAddon()
   term.loadAddon(fit)

@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermFontPct, setTermThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, normalizeColor } from '../lib/termAnsi'
 import {
@@ -971,6 +971,7 @@ function TerminalTab(): JSX.Element {
   const themeId = useTermThemeId()
   const fontPct = useTermFontPct()
   const agentInd = useAgentIndicator()
+  const acrylicOn = useTermAcrylic()
   const agentCol = useAgentColor()
   // The follow-style card mirrors the LIVE style, derived ANSI included, and
   // repaints when the style does.
@@ -1118,6 +1119,13 @@ function TerminalTab(): JSX.Element {
           />
         )}
       </div>
+      <Pref
+        id="term-acrylic"
+        label="Acrylic terminal background"
+        hint="Follow-style shares the window's acrylic; off gives the terminal its own solid surface. Preset themes keep their colours either way."
+      >
+        <Switch on={acrylicOn} onChange={setTermAcrylic} label="Acrylic terminal background" />
+      </Pref>
       <Pref
         id="agent-indicator"
         label="Agent indicator"
