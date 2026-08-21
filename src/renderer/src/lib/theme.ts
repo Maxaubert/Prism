@@ -69,11 +69,10 @@ export const STYLES: Style[] = [
   {
     id: 'aurora',
     name: 'Aurora',
-    blurb: "Glass over deep space, lit by its own accent. Prism's default.",
+    blurb: "Glass over deep space. Prism's default.",
     mode: 'dark',
     material: 'acrylic',
-    // Glass and a wash together: the desktop comes through the surfaces, the
-    // accent glows over them. 0.6575 is 35 on the Acrylic slider.
+    // 0.6575 is 35 on the Acrylic slider.
     glass: 0.6575,
     bg: '#0b0d12',
     // One surface for the whole window. Turning the glass off shouldn't hand
@@ -88,12 +87,10 @@ export const STYLES: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    // Hairline edges everywhere by default (owner decision, 2026-08-08): the
-    // chrome traces itself even before the material or the wash separates it.
-    borders: 'faint',
-    // The light that gives the style its name: two soft glows, opposite corners,
-    // in whatever the accent currently is.
-    wash: true
+    // Faint edges everywhere by default: the chrome traces itself even before
+    // the material separates it. The accent glow the style launched with was
+    // removed 2026-08-21: the glass alone is the look.
+    borders: 'faint'
   },
   {
     id: 'default',
@@ -190,30 +187,9 @@ export const STYLES: Style[] = [
 ]
 
 const LIGHT: Style[] = [
-  // Daybreak leads: setMode picks the first style of a mode, so the light half
-  // of the app opens on Aurora's daylight twin rather than plain Paper.
-  {
-    id: 'daybreak',
-    name: 'Daybreak',
-    blurb: 'Aurora in daylight: the same glow, over solid white.',
-    mode: 'light',
-    // Solid, not glass. Acrylic over a light desktop pulls the whole window
-    // grey, and grey is the one thing a light style cannot afford: artwork with
-    // white in it stops reading as white. The glow stays; the translucency goes.
-    material: 'solid',
-    bg: '#fbfcfe',
-    side: '#fbfcfe',
-    title: '#fbfcfe',
-    text: '#0f1319',
-    iconMode: 'kind',
-    icon: '#6b7280',
-    accent: 'prism',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'faint',
-    wash: true
-  },
+  // Paper leads: setMode picks the first style of a mode. Daybreak (Aurora's
+  // daylight twin) was deleted 2026-08-21 with the accent glow it existed
+  // for - glowless it was a flat-white copy of Paper.
   {
     id: 'paper',
     name: 'Paper',

@@ -234,5 +234,8 @@ export default function TerminalPanel({
     }
   }, [sessionId, root, shellId])
 
-  return <div ref={box} data-term-region className="h-full w-full min-h-0 min-w-0 bg-[var(--p-bg)] p-1" />
+  // No background of its own: TermDock already paints --p-bg, and a second
+  // translucent coat here stacked into a visibly darker panel than the rest
+  // of the window (the acrylic terminal made it obvious).
+  return <div ref={box} data-term-region className="h-full w-full min-h-0 min-w-0 p-1" />
 }
