@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
 import { fileKind } from '@shared/fileKind'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
@@ -690,8 +690,6 @@ export default function App(): JSX.Element {
     () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
     [applyTermView]
   )
-  /** Ctrl+D on a file, and the tree's "Open in split view". */
-  const toggleTermSplit = useCallback(() => applyTermView(splitTermView), [applyTermView])
   /**
    * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
    * continuously while an AI CLI works (its spinner repaints). The dots are
@@ -1094,21 +1092,21 @@ export default function App(): JSX.Element {
         // brings the terminal to full view, so it cannot eat typed text.
         e.preventDefault()
         openTermFull()
-      } else if ((e.code === 'KeyD' || e.key === 'd' || e.key === 'D') && e.ctrlKey && !e.shiftKey && !typing) {
-        // Split, from the FILE side. Behind the typing guard on purpose: in
-        // the shell Ctrl+D stays the shell's (EOF, delete-char-or-exit).
-        e.preventDefault()
-        toggleTermSplit()
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         newTab()
       } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && (!typing || inTerm)) {
-        // Deliberately does NOT take the window on the last tab. Prism is
-        // resident, and a window that vanishes under a reflex keystroke -
-        // with unsaved text in it - is the failure the close flow exists to
-        // prevent. The last tab leaves an empty window instead.
+        // Close the innermost thing first: split panes pop LIFO (tabs within
+        // the tab), and only with none left does Ctrl+W reach the tab itself.
+        // It still never takes the window on the last tab: Prism is resident,
+        // and a window that vanishes under a reflex keystroke - with unsaved
+        // text in it - is the failure the close flow exists to prevent.
         e.preventDefault()
-        closeActiveTab()
+        if (active && active.panes.length > 0) {
+          unpinSplitId(active.panes[active.panes.length - 1].id)
+        } else {
+          closeActiveTab()
+        }
       } else if (e.key === 'Tab' && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         stepTab(e.shiftKey ? -1 : 1)
@@ -1169,7 +1167,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, toggleTermSplit])
+  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, unpinSplitId])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
