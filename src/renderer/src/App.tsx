@@ -532,14 +532,48 @@ export default function App(): JSX.Element {
 
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
-  // Counts fullscreen TRANSITIONS (not the boot state), driving the settle
-  // animation on the viewer container.
-  const [fsSettle, setFsSettle] = useState(0)
+  /**
+   * Fullscreen as a GROW, not a cut: the rect the viewer occupied is recorded
+   * at request time (setFs), and once the OS has swapped the frame, the viewer
+   * animates from that old rect into its new one (FLIP) - entering, it swells
+   * to fill the screen; leaving, it settles back into the window. When no rect
+   * was recorded, a small scale-and-fade stands in.
+   */
+  const viewerBox = useRef<HTMLDivElement>(null)
+  const fsRect = useRef<DOMRect | null>(null)
   const fsPrev = useRef(false)
+  const setFs = useCallback((on: boolean) => {
+    fsRect.current = viewerBox.current?.getBoundingClientRect() ?? null
+    window.prism.setFullscreen(on)
+  }, [])
   useEffect(() => {
-    if (fsPrev.current !== fullscreen) {
-      fsPrev.current = fullscreen
-      setFsSettle((n) => n + 1)
+    if (fsPrev.current === fullscreen) return
+    fsPrev.current = fullscreen
+    const el = viewerBox.current
+    const prev = fsRect.current
+    fsRect.current = null
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const now = el.getBoundingClientRect()
+    if (prev && prev.width > 8 && now.width > 8 && now.height > 8) {
+      el.animate(
+        [
+          {
+            transformOrigin: '0 0',
+            transform: `translate(${prev.left - now.left}px, ${prev.top - now.top}px) scale(${prev.width / now.width}, ${prev.height / now.height})`,
+            opacity: 0.9
+          },
+          { transformOrigin: '0 0', transform: 'none', opacity: 1 }
+        ],
+        { duration: 300, easing: 'cubic-bezier(.16,1,.3,1)' }
+      )
+    } else {
+      el.animate(
+        [
+          { transform: 'scale(0.982)', opacity: 0.5 },
+          { transform: 'none', opacity: 1 }
+        ],
+        { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)' }
+      )
     }
   }, [fullscreen])
   // Main held the window open because the editor is dirty; ask, then answer it.
@@ -1081,7 +1115,7 @@ export default function App(): JSX.Element {
     })
   }, [active])
 
-  const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
+  const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
   // The visible list: every viewable sibling, in the chosen order, and the
   // open file's position among them. Sorting reuses the same file objects, so
@@ -1228,7 +1262,7 @@ export default function App(): JSX.Element {
       if (setup) return
       if (e.key === 'F11') {
         e.preventDefault()
-        window.prism.setFullscreen(!fullscreen)
+        setFs(!fullscreen)
       } else if (e.key === '`' && e.ctrlKey) {
         // NOT behind the typing guard: one of the few keys Prism claims over
         // a focused terminal (F11 and Ctrl+Shift+T are the others).
@@ -1281,7 +1315,7 @@ export default function App(): JSX.Element {
           ;(document.activeElement as HTMLElement | null)?.blur()
           return
         }
-        if (fullscreen) window.prism.setFullscreen(false)
+        if (fullscreen) setFs(false)
         else window.prism.close()
       } else if (e.key === 'PageDown' || e.key === 'PageUp') {
         // Same rule as the arrows: the document has these only once it has
@@ -1478,15 +1512,7 @@ export default function App(): JSX.Element {
             // the same reason hidden shells stay alive.
             termView === 'full' ? 'hidden' : ''
           }`}
-          // Fullscreen is an instant OS frame swap; the viewer SETTLES into it
-          // (and back out) with one quick scale-and-fade instead of a hard
-          // cut. Two identical keyframes alternate so every toggle restarts
-          // the animation without remounting anything - playback never blinks.
-          style={
-            fsSettle > 0
-              ? { animation: `${fsSettle % 2 ? 'p-fs-a' : 'p-fs-b'} 220ms cubic-bezier(.16,1,.3,1)` }
-              : undefined
-          }
+          ref={viewerBox}
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
