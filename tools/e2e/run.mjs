@@ -1538,6 +1538,34 @@ async function terminalScenario(fixtures) {
   }
 }
 
+async function unsupportedScenario(fixtures) {
+  console.log('unsupported file')
+  // Windows hands Prism a .zip whenever someone picks it out of "More apps",
+  // which lists every installed application regardless of SupportedTypes. The
+  // window must say so rather than sit empty.
+  const { app, win } = await launch(join(fixtures, 'misc', 'archive.zip'))
+  try {
+    await win.waitForFunction(
+      () => /can.t show ZIP files/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 10000 }
+    )
+    const text = ((await win.textContent('body')) ?? '').replace(/\s+/g, ' ')
+    ok(/can.t show ZIP files/.test(text), 'the panel names the format')
+    ok(/archive\.zip/.test(text), 'the panel names the file')
+    ok(/2\.0 KB/.test(text), 'the panel carries the size')
+    // The file is not viewable, so nothing lists it: the panel is all there is.
+    ok(
+      (await win.locator('[role="treeitem"]:not([aria-expanded])').count()) === 0,
+      'an unviewable file gets no tree row'
+    )
+    await win.screenshot({ path: join(SHOTS, 'unsupported.png') })
+    ok(!win.isClosed(), 'window survives an unopenable file')
+  } finally {
+    await app.close()
+  }
+}
+
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
@@ -1565,6 +1593,8 @@ try {
   await tabsScenario(fixtures)
   await sleep(900)
   await terminalScenario(fixtures)
+  await sleep(900)
+  await unsupportedScenario(fixtures)
 } catch (e) {
   failures += 1
   console.error('scenario crashed:', e)
