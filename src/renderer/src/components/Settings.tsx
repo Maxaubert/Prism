@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, TERM_FONTS, applyCustomExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termFontId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, TERM_FONTS, applyCustomExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
@@ -460,6 +460,39 @@ const GRID_SM = 'grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-2.5 [&
 
 /** A selectable tile — the shell every picker card shares. A div rather than a
  *  button so a card can carry its own controls (a preset's delete). */
+/** The one save button, worn identically by the style and terminal tabs:
+ *  accent while there is something to save, quietly grey when there is not. */
+function SaveButton({ dirty, onClick, title }: { dirty: boolean; onClick: () => void; title: string }): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!dirty}
+      title={dirty ? title : 'Nothing to save yet'}
+      className={`shrink-0 rounded-[var(--p-radius-sm)] border px-3 py-1 text-[11.5px] font-semibold transition ${
+        dirty
+          ? 'border-[var(--p-accent)] bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
+          : 'cursor-default border-[color:var(--p-line)] bg-[var(--p-hover)] text-[var(--p-dim2)]'
+      }`}
+    >
+      Save changes
+    </button>
+  )
+}
+
+/** A shared section head: title, one line under it, and the save button in the
+ *  top-right corner - the style and terminal tabs read the same. */
+function ThemeHead({ sub, save }: { sub: string; save: ReactNode }): JSX.Element {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
+        <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">{sub}</p>
+      </div>
+      {save}
+    </div>
+  )
+}
+
 function Tile({
   on,
   onClick,
@@ -608,6 +641,11 @@ function StyleTab(): JSX.Element {
         </Pref>
       </div>
 
+      <ThemeHead
+        sub="Pick a style; the controls below edit the one you are on."
+        save={<SaveButton dirty={dirty} onClick={savePreset} title="Keep this edit as a preset" />}
+      />
+
       {/* Once a colour is changed nothing here is selected: what is on screen is
           no longer any of these. Clicking one is how you go back to it. */}
       <div className={GRID}>
@@ -662,26 +700,9 @@ function StyleTab(): JSX.Element {
         })}
       </div>
 
-      <Section
-        title="This style"
-        // Always there, so the page never moves and you can see what the edit
-        // would do. Idle it is drawn from the theme's own quiet parts rather
-        // than dimmed with opacity, which leaves a button looking broken.
-        action={
-          <button
-            onClick={savePreset}
-            disabled={!dirty}
-            title={dirty ? 'Keep this edit as a preset' : 'Nothing to save yet'}
-            className={`rounded-[var(--p-radius-sm)] border px-3 py-1 text-[11.5px] font-semibold transition ${
-              dirty
-                ? 'border-[var(--p-accent)] bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
-                : 'cursor-default border-[color:var(--p-line)] bg-[var(--p-hover)] text-[var(--p-dim2)]'
-            }`}
-          >
-            Save as preset
-          </button>
-        }
-      >
+      {/* The save button lives in the ThemeHead above, where the terminal tab
+          also keeps its own - the two tabs read the same. */}
+      <Section title="This style">
         <div className={ROWS}>
           <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
             <Select
@@ -1090,27 +1111,33 @@ function TerminalTab(): JSX.Element {
       appMode === 'light' ? lum(b.bg) - lum(a.bg) : lum(a.bg) - lum(b.bg)
     )
   }, [appMode])
-  // "Save changes", like the style wall's preset button: the WHOLE terminal
-  // setup - palette of the selected theme, font, size, indicator, acrylic -
-  // lands in the Custom slot, reselectable after any style switch.
-  const saveTermSetup = (): void => {
+  // "Save changes", like the style wall's: the WHOLE terminal setup - palette
+  // of the selected theme, font, size, indicator, acrylic - lands in the
+  // Custom slot, reselectable after any style switch. Dirty means the current
+  // setup differs from what Custom holds (or nothing is saved yet), so the
+  // button greys out exactly like the style tab's.
+  const buildTermSetup = (): CustomTermTheme => {
     const t = resolveTermTheme(termThemeId())
     const ansi: Record<string, string> = {}
     for (const k of ANSI_KEYS) {
       const v = t[k]
       if (typeof v === 'string') ansi[k] = v
     }
-    saveCustomTermTheme({
+    return {
       bg: normalizeColor(t.background, '#101215'),
       fg: normalizeColor(t.foreground, '#e3e6ea'),
       cursor: normalizeColor(t.cursor, '#5b5bd6'),
       ansi,
-      font: termFontId(),
+      font: fontId,
       fontPct,
       indicator: agentInd,
       indicatorColor: agentCol,
       acrylic: acrylicOn
-    })
+    }
+  }
+  const termDirty = !custom || JSON.stringify(buildTermSetup()) !== JSON.stringify(custom)
+  const saveTermSetup = (): void => {
+    saveCustomTermTheme(buildTermSetup())
     setTermThemeId('custom')
   }
   // The editor popup, seeded from the SELECTED theme. One Edit button: the
@@ -1157,21 +1184,16 @@ function TerminalTab(): JSX.Element {
         </Pref>
       )}
       <div className="border-b border-[color:var(--p-line)] py-2.5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
-            <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
-              Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
-            </p>
-          </div>
-          <button
-            onClick={saveTermSetup}
-            title="Keep the whole terminal setup - theme, font, indicator, acrylic - as Custom"
-            className="shrink-0 rounded-[var(--p-radius-sm)] border border-[var(--p-accent)] bg-[var(--p-accent)] px-3 py-1 text-[11.5px] font-semibold text-[var(--p-on-accent)] transition hover:brightness-110"
-          >
-            Save changes
-          </button>
-        </div>
+        <ThemeHead
+          sub="Follow style wears the app's look; presets are whole palettes, ANSI colours included."
+          save={
+            <SaveButton
+              dirty={termDirty}
+              onClick={saveTermSetup}
+              title="Keep the whole terminal setup - theme, font, indicator, acrylic - as Custom"
+            />
+          }
+        />
         <div
           ref={themeWall}
           // Ease OPEN only: the transition class is present exactly when the
