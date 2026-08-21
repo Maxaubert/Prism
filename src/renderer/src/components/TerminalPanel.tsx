@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
-import { onTermLookChange, termAcrylic, termBaseFontPx, termThemeId } from '../lib/termLook'
+import { onTermLookChange, termAcrylic, termBaseFontPx, termFontStack, termThemeId } from '../lib/termLook'
 import { forgetSession, markTouched, suppressActivity } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
@@ -51,13 +51,15 @@ function refitSession(id: string, s: Session): void {
 function applyLook(): void {
   const theme = currentTermTheme()
   const base = termBaseFontPx()
+  const family = termFontStack()
   for (const [id, s] of sessions) {
     s.term.options.theme = theme
     const want = s.fontOverride ?? base
-    if (s.term.options.fontSize !== want) {
-      s.term.options.fontSize = want
-      refitSession(id, s)
-    }
+    const sizeChanged = s.term.options.fontSize !== want
+    const familyChanged = s.term.options.fontFamily !== family
+    if (sizeChanged) s.term.options.fontSize = want
+    if (familyChanged) s.term.options.fontFamily = family
+    if (sizeChanged || familyChanged) refitSession(id, s)
   }
 }
 watchTermTheme(applyLook)
@@ -97,7 +99,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     scrollback: 10000,
     allowProposedApi: true, // unicode11 needs it
     allowTransparency: true, // the acrylic share paints a see-through canvas
-    fontFamily: '"Cascadia Mono", Consolas, monospace',
+    fontFamily: termFontStack(),
     // The Settings base size; Ctrl+scroll can zoom this one session later.
     fontSize: termBaseFontPx(),
     // Follow-style by default, or the chosen preset. Live switches of either

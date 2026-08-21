@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './vizStore'
+import { setTermThemeId } from './termLook'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -771,6 +772,9 @@ export function setStyle(id: string): void {
   draft = {}
   saveJson(DRAFT_KEY, draft)
   localStorage.setItem(KEY, current)
+  // A new style brings its own terminal: the terminal theme returns to
+  // follow-style. A saved Custom terminal setup stays saved and reselectable.
+  setTermThemeId('style')
   apply()
 }
 

@@ -64,7 +64,7 @@ export function mixHex(a: string, b: string, t: number): string {
   return rgbToHex(ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t)
 }
 
-function luminance(hex: string): number {
+export function luminance(hex: string): number {
   const lin = (n: number): number => {
     const c = n / 255
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)

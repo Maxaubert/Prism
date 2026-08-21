@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
 import type { VizTheme } from '../lib/viz/core'
@@ -22,9 +22,9 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontPct, setTermThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, TERM_FONTS, applyCustomExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termFontId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
-import { deriveAnsi, normalizeColor } from '../lib/termAnsi'
+import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
   setAutoScroll,
   setTreeSide,
@@ -1070,6 +1070,7 @@ function TerminalTab(): JSX.Element {
     : (shells[0]?.id ?? '')
   const themeId = useTermThemeId()
   const fontPct = useTermFontPct()
+  const fontId = useTermFontId()
   const agentInd = useAgentIndicator()
   const acrylicOn = useTermAcrylic()
   const agentCol = useAgentColor()
@@ -1079,6 +1080,39 @@ function TerminalTab(): JSX.Element {
   useEffect(() => watchTermTheme(() => setStyleTheme(readTermTheme())), [])
   const styleAnsi = deriveAnsi(styleTheme.background, styleTheme.foreground)
   const custom = useCustomTermTheme()
+  // Presets ordered by brightness, direction set by the app's mode: on a
+  // light style the wall runs light to dark, on a dark one dark to light -
+  // the themes nearest your own look lead.
+  const appMode = useMode()
+  const sortedPresets = useMemo(() => {
+    const lum = (bg: string): number => luminance(normalizeColor(bg, '#000000'))
+    return [...TERM_PRESETS].sort((a, b) =>
+      appMode === 'light' ? lum(b.bg) - lum(a.bg) : lum(a.bg) - lum(b.bg)
+    )
+  }, [appMode])
+  // "Save changes", like the style wall's preset button: the WHOLE terminal
+  // setup - palette of the selected theme, font, size, indicator, acrylic -
+  // lands in the Custom slot, reselectable after any style switch.
+  const saveTermSetup = (): void => {
+    const t = resolveTermTheme(termThemeId())
+    const ansi: Record<string, string> = {}
+    for (const k of ANSI_KEYS) {
+      const v = t[k]
+      if (typeof v === 'string') ansi[k] = v
+    }
+    saveCustomTermTheme({
+      bg: normalizeColor(t.background, '#101215'),
+      fg: normalizeColor(t.foreground, '#e3e6ea'),
+      cursor: normalizeColor(t.cursor, '#5b5bd6'),
+      ansi,
+      font: termFontId(),
+      fontPct,
+      indicator: agentInd,
+      indicatorColor: agentCol,
+      acrylic: acrylicOn
+    })
+    setTermThemeId('custom')
+  }
   // The editor popup, seeded from the SELECTED theme. One Edit button: the
   // per-card pencils read as altering that preset, and presets never change -
   // editing always lands in the Custom slot.
@@ -1123,10 +1157,21 @@ function TerminalTab(): JSX.Element {
         </Pref>
       )}
       <div className="border-b border-[color:var(--p-line)] py-2.5">
-        <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
-        <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
-          Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
+            <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
+              Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
+            </p>
+          </div>
+          <button
+            onClick={saveTermSetup}
+            title="Keep the whole terminal setup - theme, font, indicator, acrylic - as Custom"
+            className="shrink-0 rounded-[var(--p-radius-sm)] border border-[var(--p-accent)] bg-[var(--p-accent)] px-3 py-1 text-[11.5px] font-semibold text-[var(--p-on-accent)] transition hover:brightness-110"
+          >
+            Save changes
+          </button>
+        </div>
         <div
           ref={themeWall}
           // Ease OPEN only: the transition class is present exactly when the
@@ -1165,11 +1210,16 @@ function TerminalTab(): JSX.Element {
                 cyan: custom.ansi.cyan ?? '#42b3c2',
                 red: custom.ansi.red ?? '#e05561'
               }}
-              onPick={() => setTermThemeId('custom')}
+              onPick={() => {
+                setTermThemeId('custom')
+                // The saved setup is more than the palette: font, indicator,
+                // acrylic come back with it when the save captured them.
+                applyCustomExtras(custom)
+              }}
               onEdit={() => editFrom('custom')}
             />
           )}
-          {TERM_PRESETS.map((p) => {
+          {sortedPresets.map((p) => {
             const t = resolveTermTheme(p.id)
             return (
               <TermThemeCard
@@ -1247,6 +1297,14 @@ function TerminalTab(): JSX.Element {
         hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
       >
         <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
+      </Pref>
+      <Pref id="term-font-family" label="Font" hint="The terminal's typeface. A face you don't have falls back quietly.">
+        <Select
+          id="term-font-family"
+          value={fontId}
+          onChange={setTermFontId}
+          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name }))}
+        />
       </Pref>
       <Pref
         id="term-font"
