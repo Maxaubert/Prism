@@ -136,6 +136,13 @@ function createSession(id: string, root: string, shellId: string | undefined): S
 
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
+    // Ctrl+C over a SELECTION copies it, the way Windows Terminal does; with
+    // nothing selected it stays the interrupt every shell expects.
+    if ((e.key === 'c' || e.key === 'C') && e.ctrlKey && !e.shiftKey && !e.altKey && term.hasSelection()) {
+      void navigator.clipboard.writeText(term.getSelection())
+      term.clearSelection()
+      return false
+    }
     // Prism's tab-management keys work over a focused shell (no shell uses
     // them): returning false keeps xterm from also feeding bytes to the pty.
     // App's window listener does the actual work.
@@ -176,7 +183,12 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   const session: Session = { term, fit, el, unsub }
   sessions.set(id, session)
 
-  void window.prism.termSpawn(id, root, shellId).then((ok) => {
+  // A session restored over a Claude conversation launches straight into it:
+  // the resume id rides the SPAWN (main builds it into the shell's startup
+  // command), so nothing is ever visibly typed.
+  const resume = takeResume(id)
+  if (resume) markTouched(id) // a claude session from the first moment
+  void window.prism.termSpawn(id, root, shellId, resume ?? undefined).then((ok) => {
     if (!ok && sessions.has(id)) {
       term.write('\x1b[31mCould not start the shell.\x1b[0m\r\n')
       return
@@ -184,16 +196,6 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     // The spawn is done: re-assert the real size once. The first fit can race
     // a slow spawn, and a static window will never resize on its own.
     if (sessions.has(id)) window.prism.termResize(id, term.cols, term.rows)
-    // A session restored over a Claude conversation resumes it: the ONE
-    // command Prism ever writes itself (owner decision, 2026-08-21 - claude
-    // rebuilds the conversation per folder from its own store). The delay
-    // lets the prompt and the PSReadLine bootstrap land first.
-    if (sessions.has(id) && takeResume(id)) {
-      markTouched(id) // it is a claude session from the first moment
-      setTimeout(() => {
-        if (sessions.has(id)) window.prism.termInput(id, 'claude --continue\r')
-      }, 1200)
-    }
   })
   return session
 }

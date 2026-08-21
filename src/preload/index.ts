@@ -96,8 +96,8 @@ const api = {
 
   /** The shells main detected; the only things term:spawn will ever launch. */
   termShells: (): Promise<ShellDef[]> => ipcRenderer.invoke('term:shells'),
-  termSpawn: (id: string, root: string, shellId?: string): Promise<boolean> =>
-    ipcRenderer.invoke('term:spawn', id, root, shellId),
+  termSpawn: (id: string, root: string, shellId?: string, resume?: string): Promise<boolean> =>
+    ipcRenderer.invoke('term:spawn', id, root, shellId, resume),
   termInput: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
   termResize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send('term:resize', id, cols, rows),

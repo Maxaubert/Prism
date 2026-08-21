@@ -80,10 +80,11 @@ export interface OpenPayload {
    *  that lived as a Claude session must come back as a terminal, not as an
    *  empty viewer. */
   term?: 'full' | 'split'
-  /** Restore only: the terminal hosted a Claude session at close - the fresh
-   *  shell resumes it with `claude --continue`, the ONE command Prism ever
-   *  writes itself (owner decision, 2026-08-21). */
-  agentResume?: boolean
+  /** Restore only: the SESSION ID of the Claude conversation the terminal
+   *  hosted at close. The fresh shell launches `claude --resume <id>` as its
+   *  startup command - the ONE command Prism ever writes itself (owner
+   *  decision, 2026-08-21), and never typed on screen. */
+  agentResume?: string
 }
 
 /** A shell main detected on this machine; the only things term:spawn launches. */

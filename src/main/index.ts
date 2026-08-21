@@ -10,7 +10,7 @@ import {
   utilityProcess
 } from 'electron'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
@@ -264,6 +264,32 @@ function sendOpen(p: string): void {
 
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
 
+/**
+ * The newest Claude session recorded for `root`, from claude's own store:
+ * ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl. The encoding is
+ * claude's (every non-alphanumeric character becomes a dash). Null when the
+ * folder has no sessions - then nothing is resumed.
+ */
+function latestClaudeSession(root: string): string | null {
+  const enc = root.replace(/[^A-Za-z0-9]/g, '-')
+  const dir = join(app.getPath('home'), '.claude', 'projects', enc)
+  try {
+    let best: string | null = null
+    let bestM = 0
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.jsonl')) continue
+      const m = statSync(join(dir, f)).mtimeMs
+      if (m > bestM) {
+        bestM = m
+        best = f
+      }
+    }
+    return best ? best.slice(0, -'.jsonl'.length) : null
+  } catch {
+    return null
+  }
+}
+
 /** Restore last session's strip: register each surviving root so the wall
  *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
 function restoreTabs(): OpenPayload[] {
@@ -271,8 +297,13 @@ function restoreTabs(): OpenPayload[] {
   const out: OpenPayload[] = []
   for (const t of saved.tabs) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
-    if (payload)
-      out.push(t.term ? { ...payload, term: t.term, ...(t.agent ? { agentResume: true } : {}) } : payload)
+    if (payload) {
+      // A claude session resumes by ID - the newest session claude itself
+      // recorded for this folder. No session on disk means no resume at all:
+      // never a bare `--continue` guessing at a conversation.
+      const resume = t.agent && t.term ? latestClaudeSession(t.root) : null
+      out.push(t.term ? { ...payload, term: t.term, ...(resume ? { agentResume: resume } : {}) } : payload)
+    }
   }
   // The active tab goes last: the renderer applies these in order through the
   // same arriving-file rule as everything else, and that rule leaves the tab it
@@ -511,9 +542,13 @@ if (!app.requestSingleInstanceLock()) {
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
     // spawn: the shell STARTS in an open root (it may leave; that is a shell).
     ipcMain.handle('term:shells', () => detectShells())
-    ipcMain.handle('term:spawn', async (_e, id: string, root: string, shellId?: string) => {
+    ipcMain.handle('term:spawn', async (_e, id: string, root: string, shellId?: string, resume?: string) => {
       if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
-      const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a))
+      // The resume id came from main's own scan of ~/.claude/projects, but it
+      // crossed the renderer on the way back - shape-check it again before it
+      // goes anywhere near a command line.
+      const safeResume = resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume) ? resume : undefined
+      const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a), safeResume)
       // Warm the agent-poll pipeline now: the first CIM query is the slow one
       // (cold WMI), and running it while the user is still typing their first
       // command means the dot can appear on the poll that actually matters.

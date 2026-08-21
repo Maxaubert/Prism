@@ -147,14 +147,38 @@ type Send = (channel: string, ...args: unknown[]) => void
  * twice; the first shell wins). node-pty is imported here rather than at module
  * top so the resident window's launch path never touches the native module.
  */
-export async function spawnTerm(id: string, root: string, shellId: string | undefined, send: Send): Promise<boolean> {
+/**
+ * A restored Claude session rides the shell's OWN startup command, so nothing
+ * is ever visibly typed: claude appears the way a banner does. Claude resumes
+ * by SESSION ID (main resolved it from claude's store; the bare --continue
+ * guessed and missed). pwsh appends to its bootstrap; the others get their
+ * native startup-command forms. WSL is left alone - claude-in-WSL is another
+ * world's store.
+ */
+function withResume(def: { exe: string; args: string[]; id: string }, resume: string): { exe: string; args: string[] } {
+  const cmd = `claude --resume ${resume}`
+  if (def.id === 'pwsh' && def.args.length > 0)
+    return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`] }
+  if (def.id === 'powershell') return { exe: def.exe, args: [...def.args, '-NoExit', '-Command', cmd] }
+  if (def.id === 'cmd') return { exe: def.exe, args: ['/K', cmd] }
+  return { exe: def.exe, args: def.args }
+}
+
+export async function spawnTerm(
+  id: string,
+  root: string,
+  shellId: string | undefined,
+  send: Send,
+  resume?: string
+): Promise<boolean> {
   if (sessions.has(id)) return false
   const def = shellById(shellId, await detectShells())
   if (!def) return false
   // Adopt the warm shell when it matches: replay what it printed while
   // waiting (the banner, the prompt), then wire it up like any session.
+  // Never for a resume: the warm shell was spawned without the command.
   const w = warm.get(rootKey(root))
-  if (w && !w.exited && w.defId === def.id) {
+  if (!resume && w && !w.exited && w.defId === def.id) {
     warm.delete(rootKey(root))
     w.sub.dispose()
     if (w.buf) send('term:data', id, w.buf)
@@ -175,7 +199,8 @@ export async function spawnTerm(id: string, root: string, shellId: string | unde
   try {
     const pty = await import('node-pty')
     const size = desiredSize.get(id) ?? { cols: 80, rows: 24 }
-    const p = pty.spawn(def.exe, def.args, {
+    const launch = resume ? withResume(def, resume) : def
+    const p = pty.spawn(launch.exe, launch.args, {
       ...PTY_OPTS,
       cols: size.cols,
       rows: size.rows,
