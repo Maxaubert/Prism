@@ -569,9 +569,18 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   }
 }
 
-/** The tree's folder colour, overrides and defaults resolved. */
-export const folderIconOf = (s: Style): string =>
-  s.folderIcon ?? (s.iconMode === 'kind' ? '#9aa0f0' : s.iconMode === 'custom' ? s.icon : dimmed(s.text, s.bg, 0.38, 4.5))
+/** The tree's folder colour: the chosen one, or the style's ACCENT by default
+ *  (owner decision, 2026-08-21) - stepped toward readability against the
+ *  panel the same way --p-accent-hi is, so a dark accent on a dark style
+ *  still reads. Changing the accent recolours the folders with it. */
+export const folderIconOf = (s: Style): string => {
+  if (s.folderIcon) return s.folderIcon
+  let c = paletteOf(s.accent)[0]
+  for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
+    c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
+  }
+  return c
+}
 
 /** The tree's flat file colour. In a kind-tinted style it stands in for the
  *  per-kind palette (the picker needs one swatch); painting it only happens
