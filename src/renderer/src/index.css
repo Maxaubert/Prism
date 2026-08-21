@@ -282,3 +282,9 @@ input[type='color']::-webkit-color-swatch {
      the document after this sheet - equal specificity would lose on order. */
   background-color: transparent !important;
 }
+
+/* The fullscreen settle: the viewer eases into (and out of) the swapped frame
+   with one quick scale-and-fade. Two identical names, so alternating between
+   them restarts the run on every toggle without touching the DOM. */
+@keyframes p-fs-a { from { transform: scale(0.982); opacity: 0.5 } to { transform: none; opacity: 1 } }
+@keyframes p-fs-b { from { transform: scale(0.982); opacity: 0.5 } to { transform: none; opacity: 1 } }
