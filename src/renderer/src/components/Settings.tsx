@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, setTermFontPct, setTermThemeId, useTermFontPct, useTermThemeId } from '../lib/termLook'
+import { FONT_PCTS, saveCustomTermTheme, setTermFontPct, setTermThemeId, useCustomTermTheme, useTermFontPct, useTermThemeId, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi } from '../lib/termAnsi'
 import {
@@ -678,8 +678,9 @@ function StyleTab(): JSX.Element {
               Selection, progress bar and visualizer.
             </p>
           </div>
-          {/* Always the colour that is actually on screen, whether it came from a
-              swatch or from here. */}
+          {/* One picker, like Background and Text: the accent is a colour you
+              choose, not a scheme you browse. (The swatch grid lived here
+              until 2026-08-21.) */}
           <ColourWell
             id="c-accent"
             value={paletteOf(style.accent)[0]}
@@ -688,19 +689,6 @@ function StyleTab(): JSX.Element {
             onReset={() => setOverride('accent', null)}
           />
         </div>
-        <div className="h-2" />
-        <Swatches
-          items={visibleThemes().map((th) => ({
-            id: th.id,
-            name: th.name,
-            fill:
-              th.palette.length > 1
-                ? `linear-gradient(90deg, ${th.palette.join(', ')})`
-                : th.palette[0]
-          }))}
-          selectedId={style.accent}
-          onPick={(id) => setOverride('accent', id)}
-        />
       </Section>
     </div>
   )
@@ -784,7 +772,8 @@ function TermThemeCard({
   fg,
   cursor,
   ansi,
-  onPick
+  onPick,
+  onEdit
 }: {
   id: string
   name: string
@@ -794,6 +783,8 @@ function TermThemeCard({
   cursor: string
   ansi: { green: string; yellow: string; blue: string; cyan: string; red: string }
   onPick: () => void
+  /** Open the colour editor seeded from this theme; Save lands in Custom. */
+  onEdit: () => void
 }): JSX.Element {
   return (
     <button
@@ -827,13 +818,116 @@ function TermThemeCard({
         <div style={{ color: fg }}>12 files</div>
       </div>
       <div
-        className={`border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
+        className={`flex items-center justify-between border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
           on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
         }`}
       >
-        {name}
+        <span>{name}</span>
+        <span
+          role="button"
+          tabIndex={0}
+          data-edit-theme={id}
+          className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+          title="Edit colours (saves as Custom)"
+          aria-label={`Edit ${name}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.stopPropagation()
+              onEdit()
+            }
+          }}
+        >
+          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M15 5l4 4L8 20H4v-4z" />
+          </svg>
+        </span>
       </div>
     </button>
+  )
+}
+
+const ANSI_KEYS = [
+  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'
+] as const
+
+/** The Tabby-style editor: every colour of a theme, individually, with the
+ *  live preview beside them. Save lands in the single Custom slot. */
+function TermThemeEditor({
+  seed,
+  onSave,
+  onCancel
+}: {
+  seed: CustomTermTheme
+  onSave: (t: CustomTermTheme) => void
+  onCancel: () => void
+}): JSX.Element {
+  const [draft, setDraft] = useState<CustomTermTheme>(seed)
+  const set = (k: string, v: string): void =>
+    setDraft((d) =>
+      k === 'bg' || k === 'fg' || k === 'cursor'
+        ? { ...d, [k]: v }
+        : { ...d, ansi: { ...d.ansi, [k]: v } }
+    )
+  const well = (label: string, key: string, value: string): JSX.Element => (
+    <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]">
+      <span className="w-[86px] truncate">{label}</span>
+      <input
+        type="color"
+        aria-label={label}
+        value={value}
+        onChange={(e) => set(key, e.target.value)}
+        className="h-6 w-9 cursor-pointer rounded border border-[color:var(--p-line)] bg-transparent p-[1px]"
+      />
+    </label>
+  )
+  return (
+    <div data-theme-editor className="mt-3 rounded-md border border-[color:var(--p-line)] p-4">
+      <div className="flex flex-wrap items-start gap-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+          {well('Background', 'bg', draft.bg)}
+          {well('Foreground', 'fg', draft.fg)}
+          {well('Cursor', 'cursor', draft.cursor)}
+          {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
+        </div>
+        <TermThemeCard
+          id="custom-preview"
+          name="Custom"
+          on
+          bg={draft.bg}
+          fg={draft.fg}
+          cursor={draft.cursor}
+          ansi={{
+            green: draft.ansi.green ?? '#8cc265',
+            yellow: draft.ansi.yellow ?? '#d1a54b',
+            blue: draft.ansi.blue ?? '#4aa5f0',
+            cyan: draft.ansi.cyan ?? '#42b3c2',
+            red: draft.ansi.red ?? '#e05561'
+          }}
+          onPick={() => {}}
+          onEdit={() => {}}
+        />
+      </div>
+      <div className="mt-4 flex gap-2">
+        <button
+          className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
+          onClick={() => onSave(draft)}
+        >
+          Save as Custom
+        </button>
+        <button
+          className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -856,6 +950,18 @@ function TerminalTab(): JSX.Element {
   const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
   useEffect(() => watchTermTheme(() => setStyleTheme(readTermTheme())), [])
   const styleAnsi = deriveAnsi(styleTheme.background, styleTheme.foreground)
+  const custom = useCustomTermTheme()
+  // The editor, seeded from whichever theme's pencil was clicked.
+  const [editing, setEditing] = useState<CustomTermTheme | null>(null)
+  const editFrom = (id: string): void => {
+    const t = resolveTermTheme(id)
+    const ansi: Record<string, string> = {}
+    for (const k of ANSI_KEYS) {
+      const v = t[k]
+      if (typeof v === 'string') ansi[k] = v
+    }
+    setEditing({ bg: t.background, fg: t.foreground, cursor: t.cursor, ansi })
+  }
   return (
     <div className={ROWS}>
       {shells.length > 0 && (
@@ -886,7 +992,27 @@ function TerminalTab(): JSX.Element {
             cursor={styleTheme.cursor}
             ansi={styleAnsi}
             onPick={() => setTermThemeId('style')}
+            onEdit={() => editFrom('style')}
           />
+          {custom && (
+            <TermThemeCard
+              id="custom"
+              name="Custom"
+              on={themeId === 'custom'}
+              bg={custom.bg}
+              fg={custom.fg}
+              cursor={custom.cursor}
+              ansi={{
+                green: custom.ansi.green ?? '#8cc265',
+                yellow: custom.ansi.yellow ?? '#d1a54b',
+                blue: custom.ansi.blue ?? '#4aa5f0',
+                cyan: custom.ansi.cyan ?? '#42b3c2',
+                red: custom.ansi.red ?? '#e05561'
+              }}
+              onPick={() => setTermThemeId('custom')}
+              onEdit={() => editFrom('custom')}
+            />
+          )}
           {TERM_PRESETS.map((p) => {
             const t = resolveTermTheme(p.id)
             return (
@@ -906,10 +1032,22 @@ function TerminalTab(): JSX.Element {
                   red: t.red ?? ''
                 }}
                 onPick={() => setTermThemeId(p.id)}
+                onEdit={() => editFrom(p.id)}
               />
             )
           })}
         </div>
+        {editing && (
+          <TermThemeEditor
+            seed={editing}
+            onSave={(t) => {
+              saveCustomTermTheme(t)
+              setTermThemeId('custom')
+              setEditing(null)
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        )}
       </div>
       <Pref
         id="term-font"

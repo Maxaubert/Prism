@@ -400,8 +400,25 @@ async function sortScenario(fixtures) {
     await win.click('button:has-text("Terminal")')
     await sleep(300)
     ok(
-      (await win.locator('[data-term-card]').count()) >= 6 && (await win.locator('#term-font').count()) === 1,
-      'the Terminal settings page offers theme preview cards and font size'
+      (await win.locator('[data-term-card]').count()) >= 30 && (await win.locator('#term-font').count()) === 1,
+      'the Terminal settings page offers 30+ theme cards and font size'
+    )
+
+    // The editor: pencil on a card, change the background, save - it becomes
+    // THE Custom theme (one slot), selected.
+    await win.locator('[data-term-card="bright-lights"]').hover()
+    await win.locator('[data-edit-theme="bright-lights"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    await win.locator('[data-theme-editor] input[aria-label="Background"]').fill('#123456')
+    await win.locator('button:has-text("Save as Custom")').click()
+    await sleep(400)
+    ok(
+      (await win.locator('[data-term-card="custom"][aria-pressed="true"]').count()) === 1,
+      'saving lands in the single Custom slot, selected'
+    )
+    ok(
+      (await win.evaluate(() => JSON.parse(localStorage.getItem('prism.term.custom') ?? '{}').bg)) === '#123456',
+      'with the edited colour kept'
     )
     // Flip away to the folder tab and back: the strip is the way around.
     await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
