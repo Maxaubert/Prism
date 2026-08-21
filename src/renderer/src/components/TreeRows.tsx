@@ -11,26 +11,14 @@ import { useTree } from '../lib/treeContext'
 const panelColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-side-flat').trim() || '#0e1016'
 
-// A muted colour per kind, so a long list sorts itself by eye before you read a
-// single name. Low saturation on purpose: the media is the star, not the tree.
-const TINT: Record<FileKind, string> = {
-  image: '#6fb2a8',
-  video: '#8f8ae0',
-  audio: '#d3a06a',
-  pdf: '#cf7f88',
-  text: '#8d93a1',
-  other: '#8d93a1'
-}
-const FOLDER_TINT = '#9aa0f0'
-
 const accentColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
 
-/** Kind tints when the style asks for them, otherwise the style's icon colour. */
+/** Folders wear the folder token, files the file token - both pickers in
+ *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
+ *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
 export function iconColour(kind: FileKind | 'folder'): string {
-  const mode = document.documentElement.dataset.icons
-  if (mode !== 'kind') return 'var(--p-icon)'
-  return kind === 'folder' ? FOLDER_TINT : TINT[kind]
+  return kind === 'folder' ? 'var(--p-tree-folder)' : 'var(--p-tree-file)'
 }
 
 type Size = (typeof TREE_SIZES)[number]
@@ -215,6 +203,8 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
   const pad = 4 + depth * t.size.indent
   // The cursor carries the accent wherever it goes, folders included.
   const onCursor = !!t.cursor && t.cursor.toLowerCase() === path.toLowerCase()
+  // The right-clicked row keeps its hover look while its menu is up.
+  const onMenuHl = !!t.menuPath && t.menuPath.toLowerCase() === path.toLowerCase()
   return (
     <li role="none">
       {t.editing === path ? (
@@ -248,12 +238,14 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
             onCursor
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-              : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+              : onMenuHl
+                ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
+                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
           <Chevron open={open} />
-          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : FOLDER_TINT} />
+          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
           <Label name={name} />
         </button>
       )}
@@ -281,11 +273,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const pad = 4 + depth * t.size.indent
   if (listing.unreadable) return <Note text="can't read this folder" pad={pad} />
   if (!listing.folders.length && !listing.files.length) return <Note text="empty" pad={pad} />
-  // The navigation filter narrows the rows the same way it narrows the arrows,
-  // and the sort orders them the same way it orders the paging.
-  const files = sortFiles(listing.files.filter(t.fileVisible), sort.field, sort.dir)
-  if (!listing.folders.length && !files.length)
-    return <Note text="nothing matches the filter" pad={pad} />
+  // The sort orders the rows the same way it orders the paging.
+  const files = sortFiles(listing.files, sort.field, sort.dir)
   // Folders sort by name (they have no size or kind worth ordering by) and
   // follow the direction only when the field is name, the way Explorer does.
   const folders =
@@ -323,6 +312,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         // second highlight competing with the first was more noise than help.
         // `aria-selected` still says so for anything reading the tree.
         const onCursor = !!t.cursor && f.path.toLowerCase() === t.cursor.toLowerCase()
+        // The right-clicked row keeps its hover look while its menu is up.
+        const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
         return (
           <li key={f.path} role="none">
             <button
@@ -345,9 +336,11 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
                 onCursor
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
-                  : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
-                      unsaved ? 'font-bold text-[var(--p-text)]' : ''
-                    }`
+                  : onMenuHl
+                    ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
+                    : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
+                        unsaved ? 'font-bold text-[var(--p-text)]' : ''
+                      }`
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
             >

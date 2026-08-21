@@ -2,12 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type Mouse
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
+import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
-import { matchesScope, useNavScope } from '../lib/navScope'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
-import { FilterMenu } from './FilterMenu'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -100,6 +99,15 @@ export function Sidebar({
   onNav,
   wash,
   onOpenFolder,
+  onToggleTerm,
+  termOpen,
+  onPinSplit,
+  onUnpinSplit,
+  pinnedPaths,
+  onOpenNewTab,
+  onTermNewTab,
+  onTermSplit,
+  onClearTerm,
   state,
   onTree
 }: {
@@ -123,6 +131,22 @@ export function Sidebar({
    *  with sort and filter: those narrow what you are looking at, this changes
    *  it, and they do not belong in one cluster. */
   onOpenFolder: () => void
+  /** Toggle this tab's terminal (full view). Lives in the footer row. */
+  onToggleTerm: () => void
+  termOpen: boolean
+  /** Pin a file as a split pane; no direction means the remembered one. */
+  onPinSplit: (path: string, dir?: SplitDir) => void
+  onUnpinSplit: (path: string) => void
+  /** Paths currently pinned: their menu offers the way OUT. */
+  pinnedPaths: readonly string[]
+  /** A fresh tab rooted at the file's folder. */
+  onOpenNewTab: (path: string) => void
+  /** The terminal button menu's "Open in new tab". */
+  onTermNewTab: () => void
+  /** The terminal button's own right-click menu. */
+  onTermSplit: () => void
+  /** Null while no shell exists: there is nothing to clear yet. */
+  onClearTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -144,6 +168,9 @@ export function Sidebar({
   // brings the tree back exactly as it was (its state never unmounts).
   const [query, setQuery] = useState('')
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
+  // The terminal button's right-click menu: its own tiny state, since the file
+  // menu carries a path and this one is about the tab's shell.
+  const [termMenu, setTermMenu] = useState<{ x: number; y: number } | null>(null)
   const panel = useRef<HTMLElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   // The file the tree has already been positioned for. Scrolling away by hand
@@ -290,27 +317,6 @@ export function Sidebar({
     [onRename]
   )
 
-  // The navigation filter, applied to the rows too: files that don't belong
-  // with the open file under the current scope disappear from the tree. The
-  // open file itself always shows, and with nothing open there is no anchor to
-  // filter around, so everything shows.
-  const scope = useNavScope()
-  const anchorKind = useMemo(() => {
-    if (!currentPath) return null
-    const ext = /\.[^.\\/]*$/.exec(currentPath)?.[0] ?? ''
-    return fileKind(ext, /[^\\/]*$/.exec(currentPath)?.[0] ?? '')
-  }, [currentPath])
-  const fileVisible = useCallback(
-    (f: ViewerFile): boolean => {
-      // 'other' means Prism was pointed at a file the tree wouldn't even list;
-      // it has no family, and hiding the whole tree around it helps nobody.
-      if (!currentPath || !anchorKind || anchorKind === 'other') return true
-      if (f.path.toLowerCase() === currentPath.toLowerCase()) return true
-      return matchesScope(f.kind, anchorKind, scope)
-    },
-    [currentPath, anchorKind, scope]
-  )
-
   /* ---------- the keyboard cursor ---------- */
 
   // Which row the arrows are on. Normally that is the open file, but it parts
@@ -330,11 +336,10 @@ export function Sidebar({
   const rows = useMemo(
     () =>
       visibleRows(root, state.expanded, state.children, {
-        fileVisible,
         orderFiles: (files) => sortFiles(files as ViewerFile[], sort.field, sort.dir),
         foldersReversed: sort.field === 'name' && sort.dir === 'desc'
       }),
-    [root, state.expanded, state.children, fileVisible, sort]
+    [root, state.expanded, state.children, sort]
   )
 
   /** Put the cursor on a row: folders only highlight, files open. */
@@ -418,7 +423,6 @@ export function Sidebar({
           </span>
           <div className="flex items-center">
             <SortMenu />
-            <FilterMenu />
           </div>
         </div>
         {/* The search box: a hairline and nothing else, so it wears whatever
@@ -494,8 +498,8 @@ export function Sidebar({
                 cursor: at,
                 size,
                 editing,
-                fileVisible,
-                onToggle: toggle,
+                menuPath: menu?.path ?? null,
+                        onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
                 onSubmitRename: submitRename,
@@ -513,6 +517,32 @@ export function Sidebar({
               )}
             </TreeProvider>
           )}
+        </div>
+        {/* The footer row: the sidebar's actions on the place itself. One
+            button today, right-aligned; a row so the next one has a home. The
+            state reads through the GLYPH, not a border: outlined shut, filled
+            open, the way the tab-strip accent belongs to the state it marks. */}
+        <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
+          {/* Bare prompt, frameless (picked from the button lab, 2026-08-21):
+              just the glyph. Hover brings the tree rows' grey tile; open tints
+              the glyph accent and nothing else. */}
+          <button
+            className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] transition-colors hover:bg-[var(--p-hover)] ${
+              termOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+            }`}
+            onClick={onToggleTerm}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setTermMenu({ x: e.clientX, y: e.clientY })
+            }}
+            title="Terminal (Ctrl+`)"
+            aria-label="Terminal"
+            aria-pressed={termOpen}
+          >
+            <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -543,6 +573,36 @@ export function Sidebar({
         />
       </div>
 
+      {termMenu && (
+        <ContextMenu
+          x={termMenu.x}
+          y={termMenu.y}
+          onClose={() => setTermMenu(null)}
+          items={[
+            {
+              label: 'Open in split view',
+              icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+              onPick: onTermSplit
+            },
+            {
+              label: 'Open in new tab',
+              icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
+              onPick: onTermNewTab
+            },
+            // Only once a shell exists: there is nothing to clear before that.
+            ...(onClearTerm
+              ? [
+                  {
+                    label: 'Clear terminal',
+                    icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
+                    onPick: onClearTerm
+                  }
+                ]
+              : [])
+          ]}
+        />
+      )}
+
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -552,6 +612,38 @@ export function Sidebar({
             // Files also go places: another app, Explorer, the clipboard.
             ...(!menu.isFolder
               ? [
+                  // Split panes are file-agnostic: pin any file beside the
+                  // live one. The parent click reuses the remembered
+                  // direction; the flyout names one. A pinned file's menu
+                  // offers the way back out instead.
+                  pinnedPaths.some((pp) => pp.toLowerCase() === menu.path.toLowerCase())
+                    ? {
+                        label: 'Remove from split view',
+                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14M6.5 10.5l2 1.5-2 1.5" />,
+                        onPick: () => onUnpinSplit(menu.path)
+                      }
+                    : {
+                        label: 'Open in split view',
+                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                        onPick: () => onPinSplit(menu.path),
+                        // The remembered direction wears a check: it is where a
+                        // bare click on the parent will put the file.
+                        children: (['left', 'right', 'top', 'bottom'] as const).map((d) => ({
+                          label: d[0].toUpperCase() + d.slice(1),
+                          icon:
+                            d === lastSplitDir() ? (
+                              <MenuIcon d="M5 12.5l4.5 4.5L19 7" />
+                            ) : (
+                              <span className="w-[13px] shrink-0" aria-hidden />
+                            ),
+                          onPick: () => onPinSplit(menu.path, d)
+                        }))
+                      },
+                  {
+                    label: 'Open in new tab',
+                    icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
+                    onPick: () => onOpenNewTab(menu.path)
+                  },
                   {
                     label: 'Open in',
                     icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,

@@ -24,6 +24,21 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a }, { root: b }], active: 1 })
   })
 
+  it('carries the terminal view, and only sane values of it', () => {
+    const a = folder('shoot')
+    const b = folder('docs')
+    const c = folder('code')
+    const saved = {
+      tabs: [{ root: a, term: 'full' }, { root: b, term: 'split' }, { root: c, term: 'sideways' }],
+      active: 0
+    }
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([
+      { root: a, term: 'full' },
+      { root: b, term: 'split' },
+      { root: c }
+    ])
+  })
+
   it('drops a root that is gone, without a word', () => {
     const a = folder('shoot')
     const saved: SavedTabs = { tabs: [{ root: a }, { root: join(box, 'deleted-last-week') }], active: 0 }

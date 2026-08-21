@@ -47,12 +47,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
-- **Folder navigation**: from the opened file, page through sibling viewable files (arrow keys),
-  with a scope setting (all / media vs documents / one file type) in Settings → General and as
-  a filter button in the sidebar header (filled funnel = filter active). The scope also hides
-  non-matching file rows in the tree (2026-08-08); folders and the open file always show. A
-  sort menu sits beside the filter (2026-08-12, Playnite-shaped: one asc/desc pair, then
-  name / date modified / size / type); tree rows and arrow-paging share the order. Documents own their
+- **Folder navigation**: from the opened file, page through sibling viewable files (arrow
+  keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
+  2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
+  fresh decision. A sort menu sits in the sidebar header (2026-08-12, Playnite-shaped: one
+  asc/desc pair, then name / date modified / size / type); tree rows and arrow-paging share
+  the order. Documents own their
   vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
   always page the folder. **FOCUS decides the vertical keys, for every kind, and nothing
   auto-focuses a document any more** (2026-08-17): opening a pdf, a README or a code file
@@ -117,6 +117,38 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
   check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
   it, which is what narrows the wall when a tab closes.
+- **A terminal, one per tab** (2026-08-20): opens FULL VIEW (the viewer steps aside but
+  stays mounted, so scroll/zoom/playback survive) via `Ctrl+\``, `Ctrl+Shift+T`, or the
+  sidebar FOOTER-row button (a new bottom row, one button so far). SPLIT is the deliberate
+  arrangement, menu-only (no hotkey, 2026-08-21): right-click a file, "Open in split view"
+  PINS file panes (up to 4 windows, FIFO, direction flyout with memory); the terminal's own
+  split docks bottom/top/left/right (right-click menus), resizable. Ctrl+W closes
+  innermost-first: pinned panes pop LIFO, then the tab itself. The terminal wears the style (reads
+  --p-bg/--p-text/--p-accent-hi live): void means a black terminal. Right-clicking the
+  terminal button offers split view and Clear terminal. Syntax highlighting and history
+  ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
+  spawn - including `-EnableScreenReaderMode:$false`, because automation tooling
+  false-positives the system screen-reader flag and PSReadLine then silently drops to a
+  plain renderer (diagnosed 2026-08-20; a real screen-reader user gets a Settings knob if
+  ever asked for). cwd starts at the tab's root; hiding keeps the shell running; exit,
+  tab close, or quit kill it; rerooting keeps it. A tab whose terminal was SHOWING at quit
+  reopens as a terminal (tabs.json remembers the view; the shell itself is fresh) - a
+  Claude-session tab must not come back as an empty viewer (2026-08-21). And a shell that
+  HOSTED CLAUDE at quit resumes the conversation BY SESSION ID: main reads the newest
+  session claude recorded for the folder (~/.claude/projects) and launches the shell with
+  `claude --resume <id>` as its STARTUP command - never typed on screen, never a bare
+  --continue guessing (no session on disk = no resume). That is the ONE command Prism
+  ever writes itself - an explicit owner exception (2026-08-21) to the line below,
+  claude-only (agent detection knows the kind; codex and kin are never resumed). Ctrl+C
+  over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
+  pwsh by default, Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  the line that remains is that Prism never generates a command: main spawns only shells it
+  detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
+  the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing
+  that key is how other terminals break image paste), copied files paste as quoted paths,
+  text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
+  dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
+  F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
@@ -196,7 +228,11 @@ works, that the associations still register, and that the resident app actually 
   syntax-error squiggles across ~150 languages, which is not a thing to hand-roll),
   `react-markdown` +
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
-  `heic-convert` (HEIC decode).
+  `heic-convert` (HEIC decode), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
+  its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it). Shells spawn
+  with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS
+  the whole app (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
 
 ## Working with me
 

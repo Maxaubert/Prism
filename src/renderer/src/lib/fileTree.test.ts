@@ -75,7 +75,6 @@ const listing = (
   files: files.map(entry)
 })
 const OPTS = {
-  fileVisible: (): boolean => true,
   orderFiles: <T,>(x: T[]): T[] => x,
   foldersReversed: false
 }
@@ -126,10 +125,6 @@ describe('visibleRows', () => {
   it('skips an unreadable folder rather than throwing', () => {
     const children = { ...CHILDREN, 'C:\\r\\img': { folders: [], files: [], unreadable: true } }
     expect(names(['C:\\r', 'C:\\r\\img'], children)).toEqual(['code', 'img', 'a.txt'])
-  })
-
-  it('applies the filter to files and never to folders', () => {
-    expect(names(['C:\\r'], CHILDREN, { ...OPTS, fileVisible: () => false })).toEqual(['code', 'img'])
   })
 
   it('takes its order from the caller, for files and folders alike', () => {

@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './vizStore'
+import { resetTermExtras, setTermThemeId } from './termLook'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -28,12 +29,16 @@ export interface Style {
   text: string
   iconMode: IconMode
   icon: string
+  /** Tree icon colours, when chosen: a fixed folder colour, and one colour for
+   *  every file icon (unset means the per-kind tints, iconMode permitting). */
+  folderIcon?: string
+  fileIcon?: string
   /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
   accent: string
   font: FontId
   size: '12' | '12.5' | '13.5'
   corners: '2' | '8' | '14'
-  borders: 'hairline' | 'none' | 'strong'
+  borders: 'hairline' | 'none' | 'strong' | 'faint'
   /** Surface alpha for acrylic and mica. Lower lets more of the frost through;
    *  omitted, a style takes the default for its mode. */
   glass?: number
@@ -46,7 +51,22 @@ export interface Style {
   base?: string
 }
 
-export type FontId = 'system' | 'segoe' | 'bahnschrift' | 'calibri' | 'trebuchet' | 'verdana' | 'georgia' | 'mono'
+export type FontId =
+  | 'system'
+  | 'segoe'
+  | 'bahnschrift'
+  | 'calibri'
+  | 'trebuchet'
+  | 'verdana'
+  | 'georgia'
+  | 'mono'
+  | 'arial'
+  | 'tahoma'
+  | 'candara'
+  | 'corbel'
+  | 'cambria'
+  | 'constantia'
+  | 'sitka'
 
 /**
  * One size for every style, literally. An x-height correction was tried here and
@@ -62,18 +82,24 @@ export const FONTS: Record<FontId, { name: string; stack: string }> = {
   trebuchet: { name: 'Trebuchet', stack: '"Trebuchet MS", system-ui, sans-serif' },
   verdana: { name: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
   georgia: { name: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
-  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' }
+  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' },
+  arial: { name: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
+  tahoma: { name: 'Tahoma', stack: 'Tahoma, Geneva, sans-serif' },
+  candara: { name: 'Candara', stack: 'Candara, Calibri, system-ui, sans-serif' },
+  corbel: { name: 'Corbel', stack: 'Corbel, Calibri, system-ui, sans-serif' },
+  cambria: { name: 'Cambria', stack: 'Cambria, Georgia, serif' },
+  constantia: { name: 'Constantia', stack: 'Constantia, Cambria, Georgia, serif' },
+  sitka: { name: 'Sitka Text', stack: '"Sitka Text", Constantia, Georgia, serif' }
 }
 
 export const STYLES: Style[] = [
   {
     id: 'aurora',
     name: 'Aurora',
-    blurb: "Glass over deep space, lit by its own accent. Prism's default.",
+    blurb: "Glass over deep space. Prism's default.",
     mode: 'dark',
     material: 'acrylic',
-    // Glass and a wash together: the desktop comes through the surfaces, the
-    // accent glows over them. 0.6575 is 35 on the Acrylic slider.
+    // 0.6575 is 35 on the Acrylic slider.
     glass: 0.6575,
     bg: '#0b0d12',
     // One surface for the whole window. Turning the glass off shouldn't hand
@@ -84,16 +110,16 @@ export const STYLES: Style[] = [
     text: '#f2f4f8',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 'prism',
+    // A brighter blue than the family indigo (owner pick, 2026-08-21); the
+    // folder icons follow it, as they do every accent.
+    accent: '#4682fb',
     font: 'system',
     size: '12.5',
     corners: '8',
-    // Hairline edges everywhere by default (owner decision, 2026-08-08): the
-    // chrome traces itself even before the material or the wash separates it.
-    borders: 'hairline',
-    // The light that gives the style its name: two soft glows, opposite corners,
-    // in whatever the accent currently is.
-    wash: true
+    // Faint edges everywhere by default: the chrome traces itself even before
+    // the material separates it. The accent glow the style launched with was
+    // removed 2026-08-21: the glass alone is the look.
+    borders: 'faint'
   },
   {
     id: 'default',
@@ -111,12 +137,12 @@ export const STYLES: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '2',
-    borders: 'hairline'
+    borders: 'faint'
   },
   {
     id: 'new-void',
     name: 'Void',
-    blurb: 'True black, edged in hairlines.',
+    blurb: 'True black, faintly edged.',
     mode: 'dark',
     material: 'oled',
     bg: '#000000',
@@ -129,8 +155,8 @@ export const STYLES: Style[] = [
     font: 'segoe',
     size: '12.5',
     corners: '2',
-    // On true black the hairlines are all the separation there is.
-    borders: 'hairline'
+    // On true black the edge lines are all the separation there is.
+    borders: 'faint'
   },
   {
     id: 'terminal',
@@ -142,13 +168,13 @@ export const STYLES: Style[] = [
     side: '#0d1117',
     title: '#11161d',
     text: '#d7e0d9',
-    iconMode: 'accent',
+    iconMode: 'custom',
     icon: '#3f9d54',
     accent: 's-green',
     font: 'mono',
     size: '12.5',
     corners: '2',
-    borders: 'hairline'
+    borders: 'faint'
   },
   {
     id: 'driftwood',
@@ -166,60 +192,43 @@ export const STYLES: Style[] = [
     font: 'calibri',
     size: '12.5',
     corners: '8',
-    borders: 'hairline'
+    borders: 'faint'
   },
 
   {
     id: 'acrylic-red',
     name: 'Ruby',
-    blurb: 'Glass, round corners, crimson.',
+    blurb: 'Solid night blue, round corners, crimson.',
     mode: 'dark',
-    material: 'acrylic',
+    // Solid since 2026-08-21 (the id predates the change and stays: it is a
+    // saved-settings key, not a description).
+    material: 'solid',
     bg: '#101420',
     side: '#141821',
     title: '#1a1f2b',
     text: '#eceef5',
-    iconMode: 'accent',
-    icon: '#8b5cf6',
+    iconMode: 'kind',
+    icon: '#8a8e99',
     accent: 's-crimson',
     font: 'system',
     size: '12.5',
     corners: '14',
-    borders: 'hairline'
+    borders: 'faint'
   }
 ]
 
 const LIGHT: Style[] = [
-  // Daybreak leads: setMode picks the first style of a mode, so the light half
-  // of the app opens on Aurora's daylight twin rather than plain Paper.
-  {
-    id: 'daybreak',
-    name: 'Daybreak',
-    blurb: 'Aurora in daylight: the same glow, over solid white.',
-    mode: 'light',
-    // Solid, not glass. Acrylic over a light desktop pulls the whole window
-    // grey, and grey is the one thing a light style cannot afford: artwork with
-    // white in it stops reading as white. The glow stays; the translucency goes.
-    material: 'solid',
-    bg: '#fbfcfe',
-    side: '#fbfcfe',
-    title: '#fbfcfe',
-    text: '#0f1319',
-    iconMode: 'kind',
-    icon: '#6b7280',
-    accent: 'prism',
-    font: 'system',
-    size: '12.5',
-    corners: '8',
-    borders: 'hairline',
-    wash: true
-  },
+  // Paper leads: setMode picks the first style of a mode. Daybreak (Aurora's
+  // daylight twin) was deleted 2026-08-21 with the accent glow it existed
+  // for - glowless it was a flat-white copy of Paper.
   {
     id: 'paper',
     name: 'Paper',
-    blurb: 'Acrylic over white, Prism blue.',
+    blurb: 'Solid white, Prism blue.',
     mode: 'light',
-    material: 'acrylic',
+    // No acrylic on light styles by default (owner decision, 2026-08-21):
+    // glass over a light desktop pulls the window grey. Frost is a slider away.
+    material: 'solid',
     bg: '#fbfbfc',
     side: '#eceef1',
     title: '#e1e3e8',
@@ -230,17 +239,14 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '8',
-    borders: 'hairline'
+    borders: 'faint'
   },
   {
     id: 'frost',
     name: 'Frost',
-    blurb: 'Glass, cool white, deep teal.',
+    blurb: 'Cool white, deep teal.',
     mode: 'light',
-    material: 'acrylic',
-    // Frost is the glassiest of the set: more of the desktop comes through than
-    // Paper lets past.
-    glass: 0.4,
+    material: 'solid',
     bg: '#f4f8fb',
     side: '#e9f0f6',
     title: '#e9f0f6',
@@ -251,7 +257,7 @@ const LIGHT: Style[] = [
     font: 'system',
     size: '12.5',
     corners: '14',
-    borders: 'hairline'
+    borders: 'faint'
   },
   {
     id: 'linen',
@@ -269,7 +275,7 @@ const LIGHT: Style[] = [
     font: 'calibri',
     size: '12.5',
     corners: '8',
-    borders: 'hairline'
+    borders: 'faint'
   },
   {
     id: 'orchid',
@@ -281,13 +287,13 @@ const LIGHT: Style[] = [
     side: '#efe4f7',
     title: '#e6d7f2',
     text: '#251a30',
-    iconMode: 'accent',
+    iconMode: 'custom',
     icon: '#6b21a8',
     accent: 'd-plum',
     font: 'trebuchet',
     size: '12.5',
     corners: '14',
-    borders: 'hairline'
+    borders: 'faint'
   }
 ]
 
@@ -424,6 +430,13 @@ export function derive(style: Style): Record<string, string> {
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
     '--p-preview': stage,
+    // Form controls (selects, switches, small buttons). Quieter than the
+    // stage: on true black the 13% wash read as a light grey block, and the
+    // controls want to sit INTO the page, not on a platform.
+    // Quieter on dark than it was (5% read harsh on true black); the control
+    // border follows --p-divider now too, so Void's controls sit into the
+    // page instead of outlined in white.
+    '--p-control': mix(bg, style.text, light ? 0.09 : 0.035),
     // The unfilled part of a progress bar, and any other inert track: it sits
     // ON the stage, so a divider-strength grey disappears there.
     '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
@@ -516,20 +529,21 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
       ? 'transparent'
       : style.borders === 'strong'
         ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
-        : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
+        : style.borders === 'faint'
+          ? // A third of a hairline: edges you sense more than see.
+            rgba(ink, style.mode === 'light' ? 0.035 : 0.022)
+          : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
 
   // A hairline that exists whatever the style says about edges. Settings lists
   // need their rows separated even in a style that draws no chrome lines.
   const listLine = rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
 
-  const icon =
-    style.iconMode === 'text'
-      ? style.text
-      : style.iconMode === 'accent'
-        ? accent
-        : style.iconMode === 'custom'
-          ? style.icon
-          : dimmed(style.text, style.bg, 0.38, 4.5)
+  // CHROME icons (buttons: sort, terminal, close) are SHARED, not styled: one
+  // dim derivation from the style's own ink, every style. iconMode used to
+  // reach here too, and Ruby's accent mode painted every control red at rest -
+  // a difference no user could edit away (owner decision, 2026-08-21).
+  // iconMode still shapes the TREE's default icon colours below.
+  const icon = dimmed(style.text, style.bg, 0.38, 4.5)
 
   // The wash comes from the accent, so picking a colour tints the whole window
   // with it. Lighter styles take less: the same alpha over white is a stain.
@@ -549,7 +563,15 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-side-flat': style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg,
     '--p-title': title,
     '--p-icon': icon,
+    // The tree's icon colours, both user-pickable. The folder default is the
+    // family indigo (kind styles) or the style's own icon tone; the file token
+    // only paints when the tree is NOT in per-kind tints.
+    '--p-tree-folder': folderIconOf(style),
+    '--p-tree-file': fileIconOf(style),
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
+    // The held highlight (a row whose context menu is open): the hover look,
+    // five points stronger, so it reads as "this one" rather than "passing by".
+    '--p-hover-hi': rgba(ink, style.mode === 'light' ? 0.12 : 0.11),
     '--p-divider': divider,
     '--p-line': listLine,
     // `none` is a valid background-image, so a style without a wash draws none.
@@ -558,7 +580,11 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
         ` radial-gradient(54% 52% at 80% 78%, ${rgba(washB, washAlpha * 0.9)}, transparent 72%)`
       : 'none',
     '--p-radius': style.corners + 'px',
-    '--p-radius-sm': Math.max(2, Number(style.corners) - 2) + 'px',
+    // SHARED, not styled: small controls (the folder button, tree rows) keep
+    // one shape everywhere. Deriving this from the style's corners turned
+    // Ruby's 26px buttons into circles - a control shape the user cannot edit
+    // must not vary by theme (owner decision, 2026-08-21).
+    '--p-radius-sm': '3px',
     // The style's face, worn by the sidebar and the title bar only. Terminal in
     // mono is a look; Settings in mono is a mistake, and every long line of
     // running text in the app lives outside the chrome.
@@ -570,10 +596,30 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   }
 }
 
+/** The tree's folder colour: the chosen one, or the style's ACCENT by default
+ *  (owner decision, 2026-08-21) - stepped toward readability against the
+ *  panel the same way --p-accent-hi is, so a dark accent on a dark style
+ *  still reads. Changing the accent recolours the folders with it. */
+export const folderIconOf = (s: Style): string => {
+  if (s.folderIcon) return s.folderIcon
+  let c = paletteOf(s.accent)[0]
+  for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
+    c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
+  }
+  return c
+}
+
+/** The tree's file colour: the chosen one, or ONE per-mode grey for every
+ *  style (owner decision, 2026-08-21) - the same dim ink derivation the
+ *  chrome icons use, which is what Void always looked like. The file's KIND
+ *  still shows in the glyph's shape; colour no longer carries it. */
+export const fileIconOf = (s: Style): string =>
+  s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
+
 function paint(style: Style): void {
   const r = document.documentElement.style
   for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
-  document.documentElement.dataset.icons = style.iconMode
+
   document.documentElement.dataset.mode = style.mode
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
@@ -600,6 +646,9 @@ export interface Overrides {
   /** The chrome's edge lines. On glass they are often the only thing still
    *  cutting the window into pieces, so they are yours to turn off. */
   borders?: Style['borders']
+  corners?: Style['corners']
+  folderIcon?: string
+  fileIcon?: string
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -657,7 +706,17 @@ export const allStyles = (): Style[] => [...STYLES, ...presets]
 
 /** Are we looking at an edited style rather than a saved one? */
 export const isEdited = (): boolean =>
-  !!(draft.accent || draft.bg || draft.text || draft.font || draft.borders || draft.acrylic !== undefined)
+  !!(
+    draft.accent ||
+    draft.bg ||
+    draft.text ||
+    draft.font ||
+    draft.borders ||
+    draft.corners ||
+    draft.folderIcon ||
+    draft.fileIcon ||
+    draft.acrylic !== undefined
+  )
 
 function edited(s: Style): Style {
   if (!isEdited()) return s
@@ -667,7 +726,10 @@ function edited(s: Style): Style {
     bg: draft.bg ?? s.bg,
     text: draft.text ?? s.text,
     font: draft.font ?? s.font,
-    borders: draft.borders ?? s.borders
+    borders: draft.borders ?? s.borders,
+    corners: draft.corners ?? s.corners,
+    folderIcon: draft.folderIcon ?? s.folderIcon,
+    fileIcon: draft.fileIcon ?? s.fileIcon
   }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
@@ -737,13 +799,21 @@ export function setStyle(id: string): void {
   draft = {}
   saveJson(DRAFT_KEY, draft)
   localStorage.setItem(KEY, current)
+  // A new style brings its own terminal: the terminal theme returns to
+  // follow-style with stock settings. A saved Custom setup stays saved and
+  // reselectable.
+  setTermThemeId('style')
+  resetTermExtras()
   apply()
 }
 
 /** Change one colour role of what is on screen, or clear it with null. */
-export function setOverride(role: 'accent' | 'bg' | 'text' | 'font' | 'borders', value: string | null): void {
+export function setOverride(
+  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'corners' | 'folderIcon' | 'fileIcon',
+  value: string | null
+): void {
   const next: Overrides = { ...draft }
-  if (value) next[role] = value as FontId & Style['borders'] & string
+  if (value) next[role] = value as FontId & Style['borders'] & Style['corners'] & string
   else delete next[role]
   draft = next
   saveJson(DRAFT_KEY, draft)

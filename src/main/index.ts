@@ -10,13 +10,16 @@ import {
   utilityProcess
 } from 'electron'
 import { basename, dirname, extname, join, resolve } from 'path'
-import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
 import { listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, insideAnyRoot, isAnyRoot, syncRoots, validRoot } from './roots'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
+import { detectShells } from './shells'
+import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
+import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -261,28 +264,86 @@ function sendOpen(p: string): void {
 
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
 
+/**
+ * The newest Claude session recorded for `root`, from claude's own store:
+ * ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl. The encoding is
+ * claude's (every non-alphanumeric character becomes a dash). Null when the
+ * folder has no sessions - then nothing is resumed.
+ */
+function claudeSessions(root: string): string[] {
+  const enc = root.replace(/[^A-Za-z0-9]/g, '-')
+  const dir = join(app.getPath('home'), '.claude', 'projects', enc)
+  try {
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ id: f.slice(0, -'.jsonl'.length), m: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+      .map((s) => s.id)
+  } catch {
+    return []
+  }
+}
+
 /** Restore last session's strip: register each surviving root so the wall
  *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
 function restoreTabs(): OpenPayload[] {
   const saved = readTabs(TABS_STATE())
   const out: OpenPayload[] = []
-  for (const t of saved.tabs) {
+  // Two tabs on the SAME root can each hold their own claude conversation;
+  // they take the folder's sessions newest-first, one each, never the same
+  // one twice. (Which conversation belonged to which tab is unknowable after
+  // the fact - newest-first in strip order is the honest guess.)
+  const taken = new Map<string, number>()
+  for (const [i, t] of saved.tabs.entries()) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
-    if (payload) out.push(payload)
+    if (payload) {
+      // A claude session resumes by ID - a session claude itself recorded for
+      // this folder. No session on disk means no resume at all: never a bare
+      // `--continue` guessing at a conversation.
+      let resume: string | null = null
+      if (t.agent && t.term) {
+        const key = t.root.toLowerCase()
+        const n = taken.get(key) ?? 0
+        resume = claudeSessions(t.root)[n] ?? null
+        if (resume) taken.set(key, n + 1)
+      }
+      // SAVED order, exactly: the old active-goes-last splice scrambled the
+      // strip. The active one carries a flag instead and the renderer brings
+      // it to the front without moving it.
+      out.push({
+        ...payload,
+        restore: true,
+        ...(i === saved.active ? { restoreActive: true } : {}),
+        ...(t.term ? { term: t.term } : {}),
+        ...(resume ? { agentResume: resume } : {})
+      })
+    }
   }
-  // The active tab goes last: the renderer applies these in order through the
-  // same arriving-file rule as everything else, and that rule leaves the tab it
-  // just handled in front.
-  const front = out.splice(saved.active, 1)
-  return [...out, ...front]
+  return out
 }
 
 /** Save on a delay, as the window state does: switching tabs with the arrow
  *  keys fires this continuously and the disk need not hear about each one. */
 let tabsTimer: NodeJS.Timeout | null = null
+let tabsPending: SavedTabs | null = null
 function saveTabs(state: SavedTabs): void {
+  tabsPending = state
   if (tabsTimer) clearTimeout(tabsTimer)
-  tabsTimer = setTimeout(() => writeTabs(TABS_STATE(), state), 400)
+  tabsTimer = setTimeout(() => {
+    tabsTimer = null
+    if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
+  }, 400)
+}
+
+/** Close flushes the debounce: a report still in its 400ms window (an agent
+ *  flag lands up to 2.5s after claude appears) must not die with the app -
+ *  a lost last write is a Claude session that never resumes. */
+function flushTabs(): void {
+  if (tabsTimer) {
+    clearTimeout(tabsTimer)
+    tabsTimer = null
+  }
+  if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
 }
 
 /**
@@ -361,6 +422,7 @@ function watchWindowState(win: BrowserWindow): void {
   win.on('maximize', save)
   win.on('unmaximize', save)
   win.on('close', save)
+  win.on('close', flushTabs)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
   // taskbar, Escape. Unsaved text stops all of them until the user answers.
   win.on('close', (e) => {
@@ -461,6 +523,18 @@ if (!app.requestSingleInstanceLock()) {
 
   pendingOpen = pathFromArgv(process.argv)
 
+  // Every shell dies with the app; a pty with no window is an orphan.
+  app.on('will-quit', () => killAll())
+
+  // Warm the terminal's fixed costs shortly after launch: the native module
+  // import and the shell probe both belong off every later click path.
+  app.whenReady().then(() =>
+    setTimeout(() => {
+      void import('node-pty')
+      void detectShells()
+    }, 2500)
+  )
+
   app.whenReady().then(() => {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
 
@@ -480,12 +554,109 @@ if (!app.requestSingleInstanceLock()) {
     // it lands somewhere sensible - the user's own folder - and the sidebar's
     // folder button is where choosing happens.
     ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
+    // The Settings "new tabs open in" folder: stored renderer-side, opened
+    // here. folderPayload refuses a path that no longer exists, and the
+    // renderer falls back to home when it does.
+    ipcMain.handle('open:root', (_e, dir: string): OpenPayload | null => folderPayload(dir))
+    // Choose a folder WITHOUT opening it - the Settings picker.
+    ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
+      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
+    })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
-    // The renderer owns the tab list; main only persists it and keeps the wall
-    // in step, so a root whose tab was closed stops being reachable.
-    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => {
-      syncRoots(state.tabs.map((t) => t.root))
-      saveTabs(state)
+    /* ----- the terminal ----- */
+
+    // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
+    // spawn: the shell STARTS in an open root (it may leave; that is a shell).
+    ipcMain.handle('term:shells', () => detectShells())
+    ipcMain.handle('term:spawn', async (_e, id: string, root: string, shellId?: string, resume?: string) => {
+      if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
+      // The resume id came from main's own scan of ~/.claude/projects, but it
+      // crossed the renderer on the way back - shape-check it again before it
+      // goes anywhere near a command line.
+      const safeResume = resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume) ? resume : undefined
+      const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a), safeResume)
+      // Warm the agent-poll pipeline now: the first CIM query is the slow one
+      // (cold WMI), and running it while the user is still typing their first
+      // command means the dot can appear on the poll that actually matters.
+      if (ok) setTimeout(pollAgents, 300)
+      return ok
+    })
+    ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
+    ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
+    ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
+    // The renderer says which root is in front and shell-less; main starts
+    // its shell ahead of the click. Best-effort, walled like term:spawn.
+    ipcMain.on('term:prewarm', (_e, root: string, shellId?: string) => {
+      if (insideAnyRoot(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
+    })
+
+    // The agent poll behind the tab dots. Every 2.5s WHILE shells exist, one
+    // CIM query lists processes and each session's tree is checked for an AI
+    // CLI (agentDetect). Only changes cross the bridge.
+    //
+    // The timeout is generous on purpose: a COLD WMI service can take well
+    // over ten seconds on its first query, and an 8s timeout killed it, only
+    // to try again cold - a kill-retry loop that delayed the first dot by
+    // half a minute. Warm, the query is ~250ms; letting one slow first call
+    // finish is what warms it.
+    const agentState = new Map<string, boolean>()
+    let agentBusy = false
+    const pollAgents = (): void => {
+      const pids = livePids()
+      if (!pids.length || agentBusy) return
+      agentBusy = true
+      execFile(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
+        ],
+        { windowsHide: true, timeout: 30000, maxBuffer: 32 * 1024 * 1024 },
+        (err, stdout) => {
+          agentBusy = false
+          if (err || !stdout) return
+          let rows: ProcRow[]
+          try {
+            const raw = JSON.parse(stdout) as Array<{ ProcessId: number; ParentProcessId: number; CommandLine: string | null }>
+            rows = raw.map((r) => ({ pid: r.ProcessId, ppid: r.ParentProcessId, cmd: r.CommandLine ?? '' }))
+          } catch {
+            return
+          }
+          for (const { id, pid } of livePids()) {
+            const kind = treeAgentKind(rows, pid)
+            const has = kind !== null
+            if (agentState.get(id) !== has) {
+              agentState.set(id, has)
+              mainWindow?.webContents.send('term:agent', id, has, kind)
+            }
+          }
+          // forget sessions that ended
+          const live = new Set(livePids().map((s) => s.id))
+          for (const id of [...agentState.keys()]) if (!live.has(id)) agentState.delete(id)
+        }
+      )
+    }
+    setInterval(pollAgents, 2500)
+    // The terminal's clickable links. http(s) only, checked on both sides.
+    ipcMain.on('shell:open-external', (_e, url: string) => {
+      if (/^https?:/i.test(url)) void shell.openExternal(url)
+    })
+
+    // The renderer owns the tab list; main persists it. The root wall is NOT
+    // rebuilt from this snapshot: a report races payloads still in flight, and
+    // replacing the set once tore out a root main had just registered for a
+    // file the renderer had not seen yet - whose listDir was then refused and
+    // cached as unreadable. Additions stay main's (the payload builders);
+    // removals arrive explicitly below, and a snapshot cannot remove what it
+    // never knew about.
+    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
+    // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
+    // one at a time, from the owner of the tab list.
+    ipcMain.on('roots:drop', (_e, root: string) => {
+      dropRoot(root)
+      killWarm(root) // a warm spare for a closed tab is an orphan
     })
     // The three navigation handlers take the root they act in, because they are
     // per-tab operations and the renderer always knows which tab asked. Both the

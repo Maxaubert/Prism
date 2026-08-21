@@ -12,7 +12,8 @@ export interface MenuItem {
   danger?: boolean
   disabled?: boolean
   icon?: JSX.Element
-  /** Ignored on rows that carry children; the flyout is the action. */
+  /** On a childless row, the action. On a row WITH children it makes the
+   *  parent itself clickable too (e.g. "last used" defaults). */
   onPick?: () => void
   /** One level of flyout, opened on hover. */
   children?: MenuItem[]
@@ -110,16 +111,28 @@ export function ContextMenu({
   // would push it off screen, and never below the bottom. Re-clamped from the
   // row's anchor whenever its CONTENT changes too: the app list lands async,
   // and a list that grew after the first clamp would run off the screen.
+  //
+  // Alignment is MEASURED, not assumed: render wherever, read where the first
+  // row actually landed, and shift by the exact delta so its top edge meets
+  // the parent row's visible surface (sub.anchorY). No border/padding
+  // arithmetic to drift out of date, and fractional DPI scaling cancels
+  // because both sides of the delta come from the same rendered layout.
   useLayoutEffect(() => {
     const el = fly.current
     const menu = box.current
     if (!el || !menu || !sub) return
-    const { width: w, height: h } = el.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
-    let fx = menuRect.right - 2
-    if (fx + w > window.innerWidth - 8) fx = menuRect.left - w + 2
-    const fy = Math.max(8, Math.min(sub.anchorY, window.innerHeight - h - 8))
-    if (fx !== sub.x || fy !== sub.y) setSub({ ...sub, x: fx, y: fy })
+    // The flyout is a LAYER, not an extension: like every native submenu
+    // (Windows 11, macOS), it overlaps the parent by a few pixels and casts
+    // its shadow onto it. Butting the panels edge-to-edge read as one panel
+    // with a seam down it; the overlap is what makes it read as a card above.
+    let fx = menuRect.right - 6
+    if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 6
+    const firstTop = el.querySelector('[role="menuitem"]')?.getBoundingClientRect().top ?? r.top
+    let fy = sub.y + (sub.anchorY - firstTop)
+    fy = Math.max(8, Math.min(fy, window.innerHeight - r.height - 8))
+    if (Math.abs(fx - sub.x) > 0.01 || Math.abs(fy - sub.y) > 0.01) setSub({ ...sub, x: fx, y: fy })
   }, [sub, subItems?.length])
 
   useEffect(() => {
@@ -147,7 +160,10 @@ export function ContextMenu({
   }, [onClose])
 
   const pick = (it: MenuItem): void => {
-    if (it.children || it.disabled) return
+    if (it.disabled) return
+    // A parent that brings its own onPick is clickable (the flyout stays the
+    // hover); one without is flyout-only, like "Open in".
+    if (it.children && !it.onPick) return
     it.onPick?.()
     onClose()
   }
@@ -167,8 +183,11 @@ export function ContextMenu({
     cancelClose()
     if (sub?.index === index) return
     const r = el.getBoundingClientRect()
-    const anchorY = r.top - 5
-    setSub({ index, anchorY, x: window.innerWidth, y: anchorY }) // clamped after measure
+    // The anchor is the parent row's VISIBLE surface: its rect top plus its
+    // own divider border, when it has one. The layout effect above then moves
+    // the flyout until its first row's top measures exactly here.
+    const anchorY = r.top + parseFloat(getComputedStyle(el).borderTopWidth || '0')
+    setSub({ index, anchorY, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
   }
 
   return (
@@ -190,7 +209,9 @@ export function ContextMenu({
         <div
           ref={fly}
           role="menu"
-          style={{ left: sub.x, top: sub.y }}
+          // Ambient shadow on top of the panel's own: the overlapped strip of
+          // the parent visibly sits UNDER this card, whichever side it opens.
+          style={{ left: sub.x, top: sub.y, boxShadow: '0 10px 28px rgba(0,0,0,.5), 0 0 14px rgba(0,0,0,.4)' }}
           onPointerEnter={cancelClose}
           className={`pointer-events-auto absolute min-w-[176px] max-w-[260px] ${PANEL}`}
         >

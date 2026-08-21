@@ -1,4 +1,7 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
+import type { PinnedPane } from './panes'
+
+export type TermView = 'hidden' | 'full' | 'split'
 
 /**
  * The tab list, as pure data.
@@ -23,6 +26,10 @@ export interface TreeState {
 export interface Tab {
   /** Stable for the tab's life; the React key and the id every action names. */
   id: string
+  /** The one non-folder tab: the Settings page riding the strip so it can be
+   *  flipped to and from like anything else. Not persisted, never confirmed
+   *  on close, owns no root. */
+  kind?: 'settings'
   /** Absolute. The folder the tree is bounded by and main checks against. */
   root: string
   /** The root folder's viewable files, as main listed them. */
@@ -30,6 +37,12 @@ export interface Tab {
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
   tree: TreeState
+  /** The tab's shell, if one was ever opened. `view` is only visibility - a
+   *  hidden terminal keeps running. `full` replaces the viewer; `split` shares
+   *  with it (the dock). Null until the first open. */
+  term: { id: string; view: TermView } | null
+  /** Split-view pins: up to three fixed files beside the live pane. */
+  panes: PinnedPane[]
 }
 
 /** A tree with only its root open and nothing loaded. */
@@ -47,8 +60,52 @@ export function newTab(p: OpenPayload, id: string): Tab {
     root: p.root,
     files: p.files,
     index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
-    tree: emptyTree(p.root)
+    tree: emptyTree(p.root),
+    term: null,
+    panes: []
   }
+}
+
+/** Write one tab's pinned panes; every other tab is untouched. */
+export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPane[]): Tab[] {
+  return tabs.map((t) => (t.id === tabId ? { ...t, panes } : t))
+}
+
+/**
+ * The visibility transitions, pure so they can be tested:
+ *   - toggle (`Ctrl+\``, the sidebar button): anything visible hides; hidden
+ *     or absent opens FULL. Full view is the terminal's home; split is the
+ *     deliberate arrangement.
+ *   - split (`Ctrl+D`, the context menu): a file on screen gains the terminal
+ *     beside it; already split folds back to the file alone.
+ * `wantTerm` returns what the tab's term should become; the caller supplies
+ * the id for a shell that does not exist yet.
+ */
+export function toggleTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+  if (!term) return { id: newId, view: 'full' }
+  return { ...term, view: term.view === 'hidden' ? 'full' : 'hidden' }
+}
+
+export function splitTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+  if (!term) return { id: newId, view: 'split' }
+  return { ...term, view: term.view === 'split' ? 'hidden' : 'split' }
+}
+
+/** Write one tab's terminal slot; every other tab is untouched. */
+export function setTabTerm(
+  tabs: readonly Tab[],
+  tabId: string,
+  term: Tab['term']
+): Tab[] {
+  return tabs.map((t) => (t.id === tabId ? { ...t, term } : t))
+}
+
+/** Open the Settings tab: activate the existing one, or add it at the end. */
+export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
+  const existing = tabs.find((t) => t.kind === 'settings')
+  if (existing) return { tabs: tabs.slice(), activeId: existing.id }
+  const tab: Tab = { id, kind: 'settings', root: '', files: [], index: -1, tree: emptyTree(''), term: null, panes: [] }
+  return { tabs: [...tabs, tab], activeId: id }
 }
 
 export interface TabState {
@@ -83,7 +140,7 @@ export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabSta
  * left, not a reload.
  */
 export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  const hit = tabs.findIndex((t) => sameRoot(t.root, p.root))
+  const hit = tabs.findIndex((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
   if (hit >= 0) {
     const next = tabs.slice()
     const was = next[hit]
@@ -121,7 +178,10 @@ export function rerootTab(
   const i = tabs.findIndex((t) => t.id === id)
   if (i < 0) return receiveFile(tabs, p, newId)
   const next = tabs.slice()
-  next[i] = { ...newTab(p, tabs[i].id) }
+  // The shell survives the move: killing a dev server because the tree changed
+  // folders would be worse. Its cwd is visibly the old one; exit + reopen gets
+  // the new root. Everything else (files, index, tree) starts fresh.
+  next[i] = { ...newTab(p, tabs[i].id), term: tabs[i].term }
   return { tabs: next, activeId: tabs[i].id }
 }
 
@@ -159,13 +219,20 @@ function parentOf(p: string): string {
  * A drive root has no basename, so it keeps its whole path.
  */
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const bases = tabs.map((t) => baseOf(t.root))
-  const seen = new Map<string, number>()
-  bases.forEach((b) => seen.set(b, (seen.get(b) ?? 0) + 1))
+  const bases = tabs.map((t) => (t.kind === 'settings' ? 'Settings' : baseOf(t.root)))
+  // A collision means one basename over DIFFERENT roots. Two tabs on the very
+  // same folder (the + allows that) have nothing to tell apart, so they keep
+  // the plain name rather than both growing an identical suffix.
+  const rootsByBase = new Map<string, Set<string>>()
+  tabs.forEach((t, i) => {
+    const set = rootsByBase.get(bases[i]) ?? new Set<string>()
+    set.add(t.root.toLowerCase())
+    rootsByBase.set(bases[i], set)
+  })
   return tabs.map((t, i) => {
     const b = bases[i]
     if (!b) return t.root
-    if ((seen.get(b) ?? 0) < 2) return b
+    if ((rootsByBase.get(b)?.size ?? 0) < 2) return b
     const parent = parentOf(t.root)
     return parent ? `${b} — ${parent}` : b
   })

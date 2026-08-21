@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
 import type { VizTheme } from '../lib/viz/core'
@@ -19,7 +19,12 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
-import { NAV_SCOPES, setNavScope, useNavScope, type NavScope } from '../lib/navScope'
+import { savedShellId, saveShellId } from '../lib/termPrefs'
+import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
+import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
+import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
+import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
   setAutoScroll,
   setTreeSide,
@@ -38,6 +43,8 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
+  fileIconOf,
+  folderIconOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -278,6 +285,70 @@ function SwitchItem({
  * from anywhere else. It is held as text while you edit and only applied when
  * it parses, so half-typed values don't repaint the app on every keystroke.
  */
+/** "#abc", "abc", "#aabbcc" → "#aabbcc"; anything else → null. */
+function parseHexInput(raw: string): string | null {
+  const hex = '#' + raw.trim().replace(/^#/, '')
+  const full = /^#[0-9a-f]{3}$/i.test(hex)
+    ? '#' +
+      hex
+        .slice(1)
+        .split('')
+        .map((c) => c + c)
+        .join('')
+    : hex
+  return /^#[0-9a-f]{6}$/i.test(full) ? full.toLowerCase() : null
+}
+
+/** The compact colour control: a hex field and a swatch. Every place a colour
+ *  is chosen carries the field - a picker without one strands anyone pasting
+ *  a code from elsewhere. */
+function HexSwatch({
+  label,
+  value,
+  onChange
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? value
+  const commit = (raw: string): void => {
+    setDraft(null)
+    const full = parseHexInput(raw)
+    if (full) onChange(full)
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <input
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(text)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit(text)
+          else if (e.key === 'Escape') setDraft(null)
+        }}
+        spellCheck={false}
+        aria-label={`${label} hex value`}
+        className="w-[64px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1 py-0.5 text-center font-mono text-[10.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      />
+      <label
+        className="relative block h-6 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
+        style={{ background: value }}
+        title="Pick a colour"
+      >
+        <input
+          type="color"
+          aria-label={label}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </label>
+    </span>
+  )
+}
+
 function ColourWell({
   id,
   value,
@@ -298,17 +369,9 @@ function ColourWell({
   const text = draft ?? value
 
   const commit = (raw: string): void => {
-    const hex = '#' + raw.trim().replace(/^#/, '')
-    const full = /^#[0-9a-f]{3}$/i.test(hex)
-      ? '#' +
-        hex
-          .slice(1)
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : hex
     setDraft(null) // either it took, or the field goes back to the colour
-    if (/^#[0-9a-f]{6}$/i.test(full)) onChange(full.toLowerCase())
+    const full = parseHexInput(raw)
+    if (full) onChange(full)
   }
 
   return (
@@ -331,7 +394,7 @@ function ColourWell({
         }}
         spellCheck={false}
         aria-label="Hex value"
-        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-preview)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
       />
       <label
         className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
@@ -361,7 +424,7 @@ function Segmented<T extends string>({
   options: Array<{ id: T; name: string }>
 }): JSX.Element {
   return (
-    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-preview)] p-[3px]">
+    <div className="inline-flex gap-0.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-control)] p-[3px]">
       {options.map((o) => {
         const on = o.id === value
         return (
@@ -397,6 +460,39 @@ const GRID_SM = 'grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-2.5 [&
 
 /** A selectable tile — the shell every picker card shares. A div rather than a
  *  button so a card can carry its own controls (a preset's delete). */
+/** The one save button, worn identically by the style and terminal tabs:
+ *  accent while there is something to save, quietly grey when there is not. */
+function SaveButton({ dirty, onClick, title }: { dirty: boolean; onClick: () => void; title: string }): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!dirty}
+      title={dirty ? title : 'Nothing to save yet'}
+      className={`shrink-0 rounded-[var(--p-radius-sm)] border px-3 py-1 text-[11.5px] font-semibold transition ${
+        dirty
+          ? 'border-[var(--p-accent)] bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
+          : 'cursor-default border-[color:var(--p-line)] bg-[var(--p-hover)] text-[var(--p-dim2)]'
+      }`}
+    >
+      Save changes
+    </button>
+  )
+}
+
+/** A shared section head: title, one line under it, and the save button in the
+ *  top-right corner - the style and terminal tabs read the same. */
+function ThemeHead({ sub, save }: { sub: string; save: ReactNode }): JSX.Element {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Theme</div>
+        <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">{sub}</p>
+      </div>
+      {save}
+    </div>
+  )
+}
+
 function Tile({
   on,
   onClick,
@@ -502,15 +598,23 @@ function PlayerTab({
 /* ---------- style ---------- */
 
 
+const CORNER_OPTIONS: Array<{ id: Style['corners']; name: string }> = [
+  { id: '2', name: 'Square' },
+  { id: '8', name: 'Soft' },
+  { id: '14', name: 'Round' }
+]
+
 const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'none', name: 'None' },
+  { id: 'faint', name: 'Faint' },
   { id: 'hairline', name: 'Hairline' },
   { id: 'strong', name: 'Strong' }
 ]
 
-const FONT_OPTIONS: Array<{ id: FontId; name: string }> = (Object.keys(FONTS) as FontId[]).map(
-  (id) => ({ id, name: FONTS[id].name })
-)
+// Each option set in its own face, so the picker previews what it names.
+const FONT_OPTIONS: Array<{ id: FontId; name: string; style: React.CSSProperties }> = (
+  Object.keys(FONTS) as FontId[]
+).map((id) => ({ id, name: FONTS[id].name, style: { fontFamily: FONTS[id].stack } }))
 
 const MODE_OPTIONS: Array<{ id: Mode; name: string }> = [
   { id: 'dark', name: 'Dark' },
@@ -538,18 +642,33 @@ function StyleTab(): JSX.Element {
         </Pref>
       </div>
 
+      <ThemeHead
+        sub="Pick a style; the controls below edit the one you are on."
+        save={<SaveButton dirty={dirty} onClick={savePreset} title="Keep this edit as a preset" />}
+      />
+
       {/* Once a colour is changed nothing here is selected: what is on screen is
           no longer any of these. Clicking one is how you go back to it. */}
       <div className={GRID}>
         {list.map((st) => {
-          const on = st.id === selected
+          // The CURRENT style's card is live: it renders the edited style, so
+          // turning Void white turns its card white with it. It also stays
+          // selected through an edit - the user reads it as "my theme", and a
+          // wall with nothing selected read as a bug. Clicking it while edited
+          // does nothing (setStyle would silently revert the edits); every
+          // other card still shows its saved self and gives what it shows.
+          const live = st.id === style.id
+          const on = st.id === (selected ?? style.id)
           return (
-            <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
-              {/* Always the SAVED style, never the live draft: an edit deselects
-                  every card, and a deselected card that keeps tracking the edit
-                  (accent included) claims to be a style it no longer is.
-                  Clicking it must give exactly what it shows. */}
-              <StyleMini st={st} />
+            <Tile
+              key={st.id}
+              on={on}
+              onClick={() => {
+                if (live && selected === null) return
+                setStyle(st.id)
+              }}
+            >
+              <StyleMini st={live ? style : st} />
               <div className="flex items-center justify-between gap-2">
                 <TileFooter name={st.name} on={on} />
                 {st.custom && (
@@ -582,26 +701,9 @@ function StyleTab(): JSX.Element {
         })}
       </div>
 
-      <Section
-        title="This style"
-        // Always there, so the page never moves and you can see what the edit
-        // would do. Idle it is drawn from the theme's own quiet parts rather
-        // than dimmed with opacity, which leaves a button looking broken.
-        action={
-          <button
-            onClick={savePreset}
-            disabled={!dirty}
-            title={dirty ? 'Keep this edit as a preset' : 'Nothing to save yet'}
-            className={`rounded-[var(--p-radius-sm)] border px-3 py-1 text-[11.5px] font-semibold transition ${
-              dirty
-                ? 'border-[var(--p-accent)] bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
-                : 'cursor-default border-[color:var(--p-line)] bg-[var(--p-hover)] text-[var(--p-dim2)]'
-            }`}
-          >
-            Save as preset
-          </button>
-        }
-      >
+      {/* The save button lives in the ThemeHead above, where the terminal tab
+          also keeps its own - the two tabs read the same. */}
+      <Section title="This style">
         <div className={ROWS}>
           <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
             <Select
@@ -665,6 +767,38 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('text', null)}
             />
           </Pref>
+          {/* No Panel picker: the window is deliberately ONE surface - the
+              sidebar and title bar derive from Background (variablesFor), so a
+              separate panel colour would be a control that does nothing. */}
+          <Pref id="c-corners" label="Corners" hint="How round the window's larger surfaces are.">
+            <Segmented
+              value={style.corners}
+              onChange={(v) => setOverride('corners', v)}
+              options={CORNER_OPTIONS}
+            />
+          </Pref>
+          <Pref id="c-folder-icon" label="Folder icons" hint="The folder rows in the tree.">
+            <ColourWell
+              id="c-folder-icon"
+              value={folderIconOf(style)}
+              custom={!!edits.folderIcon}
+              onChange={(v) => setOverride('folderIcon', v)}
+              onReset={() => setOverride('folderIcon', null)}
+            />
+          </Pref>
+          <Pref
+            id="c-file-icon"
+            label="File icons"
+            hint="One colour for every file icon; the kind shows in the shape."
+          >
+            <ColourWell
+              id="c-file-icon"
+              value={fileIconOf(style)}
+              custom={!!edits.fileIcon}
+              onChange={(v) => setOverride('fileIcon', v)}
+              onReset={() => setOverride('fileIcon', null)}
+            />
+          </Pref>
         </div>
         <div className="mt-4 flex items-center justify-between gap-6">
           <div>
@@ -673,8 +807,9 @@ function StyleTab(): JSX.Element {
               Selection, progress bar and visualizer.
             </p>
           </div>
-          {/* Always the colour that is actually on screen, whether it came from a
-              swatch or from here. */}
+          {/* One picker, like Background and Text: the accent is a colour you
+              choose, not a scheme you browse. (The swatch grid lived here
+              until 2026-08-21.) */}
           <ColourWell
             id="c-accent"
             value={paletteOf(style.accent)[0]}
@@ -683,19 +818,6 @@ function StyleTab(): JSX.Element {
             onReset={() => setOverride('accent', null)}
           />
         </div>
-        <div className="h-2" />
-        <Swatches
-          items={visibleThemes().map((th) => ({
-            id: th.id,
-            name: th.name,
-            fill:
-              th.palette.length > 1
-                ? `linear-gradient(90deg, ${th.palette.join(', ')})`
-                : th.palette[0]
-          }))}
-          selectedId={style.accent}
-          onPick={(id) => setOverride('accent', id)}
-        />
       </Section>
     </div>
   )
@@ -740,6 +862,9 @@ function Pref({
 
 /** A native select - keyboard and screen-reader behaviour for free, and Chromium
  *  renders its popup in the right scheme because :root sets color-scheme. */
+/** A styled dropdown, not a native select: the popup wears the app's own menu
+ *  look (flat panel, hover token, a check on the active row), and each option
+ *  can carry a style - which is how the font pickers preview their faces. */
 function Select({
   id,
   value,
@@ -749,40 +874,582 @@ function Select({
   id: string
   value: string
   onChange: (v: string) => void
-  options: Array<{ id: string; name: string }>
+  options: Array<{ id: string; name: string; style?: React.CSSProperties }>
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (): void => setOpen(false)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        close()
+      }
+    }
+    const onDown = (e: PointerEvent): void => {
+      if (!box.current?.contains(e.target as Node)) close()
+    }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('blur', close)
+    }
+  }, [open])
+  const cur = options.find((o) => o.id === value)
+  return (
+    <div ref={box} className="relative">
+      <button
+        id={id}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-8 min-w-[168px] items-center justify-between gap-2 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      >
+        <span className="truncate" style={cur?.style}>
+          {cur?.name ?? value}
+        </span>
+        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-[var(--p-dim)] transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          aria-labelledby={id}
+          className="absolute right-0 z-40 mt-1 max-h-[300px] min-w-full overflow-y-auto rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]"
+        >
+          {options.map((o) => {
+            const on = o.id === value
+            return (
+              <button
+                key={o.id}
+                role="option"
+                aria-selected={on}
+                onClick={() => {
+                  onChange(o.id)
+                  setOpen(false)
+                }}
+                className={`flex h-[28px] w-full items-center justify-between gap-4 whitespace-nowrap px-[11px] text-left text-[12px] transition-colors hover:bg-[var(--p-hover)] ${
+                  on ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+                }`}
+                style={o.style}
+              >
+                {o.name}
+                {on && (
+                  <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M4.5 12.5l5 5 10-11" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A theme as a miniature terminal: prompt, coloured ls output, cursor. The
+ *  point is the SYNTAX colours - a swatch row says nothing about how a real
+ *  session will read. The follow-style card paints itself with the live CSS
+ *  variables, so it always shows what following the style currently means. */
+function TermThemeCard({
+  id,
+  name,
+  on,
+  bg,
+  fg,
+  cursor,
+  ansi,
+  onPick,
+  onEdit
+}: {
+  id: string
+  name: string
+  on: boolean
+  bg: string
+  fg: string
+  cursor: string
+  ansi: { green: string; yellow: string; blue: string; cyan: string; red: string }
+  onPick: () => void
+  /** Rendered as a pencil on the SELECTED card only. */
+  onEdit?: () => void
 }): JSX.Element {
   return (
-    <select
-      id={id}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-8 min-w-[168px] rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-preview)] px-2.5 text-[12px] font-medium text-[var(--p-text)] transition-colors hover:border-[color:var(--p-dim2)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+    <button
+      data-term-card={id}
+      aria-pressed={on}
+      onClick={onPick}
+      className={`group flex w-[196px] flex-col overflow-hidden rounded-md border text-left transition-colors ${
+        on
+          ? 'border-[color:var(--p-accent-hi)] ring-1 ring-[var(--p-accent)]/45'
+          : 'border-[color:var(--p-line)] hover:border-[color:var(--p-divider)]'
+      }`}
     >
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>
-          {o.name}
-        </option>
-      ))}
-    </select>
+      <div
+        className="h-[92px] w-full px-2.5 py-2 font-mono text-[10.5px] leading-[1.5]"
+        style={{ background: bg, color: fg }}
+      >
+        <div>
+          <span style={{ color: ansi.green }}>you@pc</span>
+          <span style={{ color: fg }}>:</span>
+          <span style={{ color: ansi.blue }}>~/app</span>
+          <span style={{ color: ansi.red }}>$</span> ls
+          <span className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]" style={{ background: cursor }} />
+        </div>
+        <div>
+          <span style={{ color: ansi.blue }}>src</span>  <span style={{ color: ansi.blue }}>docs</span>{'  '}
+          <span style={{ color: ansi.green }}>run.sh</span>
+        </div>
+        <div>
+          <span style={{ color: ansi.yellow }}>notes.md</span>  <span style={{ color: ansi.cyan }}>a.link</span>
+        </div>
+        <div style={{ color: fg }}>12 files</div>
+      </div>
+      <div
+        className={`flex items-center justify-between border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
+          on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
+        }`}
+      >
+        <span>{name}</span>
+        {/* Only the SELECTED theme wears the pencil: editing starts from what
+            you are using, and saving lands in the Custom slot. */}
+        {on && onEdit && (
+          <span
+            role="button"
+            tabIndex={0}
+            data-edit-theme={id}
+            className="grid h-5 w-5 place-items-center rounded text-[var(--p-accent-hi)] hover:bg-white/10"
+            title="Edit colours (saves as Custom)"
+            aria-label={`Edit ${name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                onEdit()
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M15 5l4 4L8 20H4v-4z" />
+            </svg>
+          </span>
+        )}
+      </div>
+    </button>
+  )
+}
+
+const ANSI_KEYS = [
+  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'
+] as const
+
+/** The Tabby-style editor: every colour of a theme, individually, with the
+ *  live preview beside them. Save lands in the single Custom slot. */
+function TermThemeEditor({
+  seed,
+  onSave,
+  onCancel
+}: {
+  seed: CustomTermTheme
+  onSave: (t: CustomTermTheme) => void
+  onCancel: () => void
+}): JSX.Element {
+  const [draft, setDraft] = useState<CustomTermTheme>(seed)
+  const set = (k: string, v: string): void =>
+    setDraft((d) =>
+      k === 'bg' || k === 'fg' || k === 'cursor'
+        ? { ...d, [k]: v }
+        : { ...d, ansi: { ...d.ansi, [k]: v } }
+    )
+  const well = (label: string, key: string, value: string): JSX.Element => (
+    <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]">
+      <span className="w-[86px] truncate">{label}</span>
+      <HexSwatch label={label} value={value} onChange={(v) => set(key, v)} />
+    </label>
+  )
+  return (
+    // A popup, not an inline section: below the 39-card grid the editor sat
+    // out of view. data-owns-escape keeps App's window Escape away; the
+    // backdrop and Escape both cancel.
+    <div
+      data-theme-editor
+      data-owns-escape
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-[3px]"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          onCancel()
+        }
+      }}
+      role="dialog"
+      aria-label="Edit terminal colours"
+    >
+      <div className="max-h-[85vh] overflow-y-auto rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_18px_48px_rgba(0,0,0,.55)]">
+      <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
+      <div className="flex flex-wrap items-start gap-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+          {well('Background', 'bg', draft.bg)}
+          {well('Foreground', 'fg', draft.fg)}
+          {well('Cursor', 'cursor', draft.cursor)}
+          {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
+        </div>
+        <TermThemeCard
+          id="custom-preview"
+          name="Custom"
+          on
+          bg={draft.bg}
+          fg={draft.fg}
+          cursor={draft.cursor}
+          ansi={{
+            green: draft.ansi.green ?? '#8cc265',
+            yellow: draft.ansi.yellow ?? '#d1a54b',
+            blue: draft.ansi.blue ?? '#4aa5f0',
+            cyan: draft.ansi.cyan ?? '#42b3c2',
+            red: draft.ansi.red ?? '#e05561'
+          }}
+          onPick={() => {}}
+        />
+      </div>
+      <div className="mt-4 flex gap-2">
+        <button
+          className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
+          onClick={() => onSave(draft)}
+        >
+          Save as Custom
+        </button>
+        <button
+          className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+      </div>
+      </div>
+    </div>
+  )
+}
+
+function TerminalTab(): JSX.Element {
+  // The shells main detected, fetched when the tab first shows. `saved` may
+  // name one that no longer exists; the select then shows the real default,
+  // which is also what a new terminal would actually launch.
+  const [shells, setShells] = useState<Array<{ id: string; name: string }>>([])
+  const [shellChoice, setShellChoice] = useState(() => savedShellId() ?? '')
+  useEffect(() => {
+    void window.prism.termShells().then(setShells)
+  }, [])
+  const shellValue = shells.some((sh) => sh.id === shellChoice)
+    ? shellChoice
+    : (shells[0]?.id ?? '')
+  const themeId = useTermThemeId()
+  const fontPct = useTermFontPct()
+  const fontId = useTermFontId()
+  const agentInd = useAgentIndicator()
+  const acrylicOn = useTermAcrylic()
+  const agentCol = useAgentColor()
+  // The follow-style card mirrors the LIVE style, derived ANSI included, and
+  // repaints when the style does.
+  const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
+  useEffect(() => watchTermTheme(() => setStyleTheme(readTermTheme())), [])
+  const styleAnsi = deriveAnsi(styleTheme.background, styleTheme.foreground)
+  const custom = useCustomTermTheme()
+  // Presets ordered by brightness, direction set by the app's mode: on a
+  // light style the wall runs light to dark, on a dark one dark to light -
+  // the themes nearest your own look lead.
+  const appMode = useMode()
+  const sortedPresets = useMemo(() => {
+    const lum = (bg: string): number => luminance(normalizeColor(bg, '#000000'))
+    return [...TERM_PRESETS].sort((a, b) =>
+      appMode === 'light' ? lum(b.bg) - lum(a.bg) : lum(a.bg) - lum(b.bg)
+    )
+  }, [appMode])
+  // "Save changes", like the style wall's: the WHOLE terminal setup - palette
+  // of the selected theme, font, size, indicator, acrylic - lands in the
+  // Custom slot, reselectable after any style switch. Dirty means the current
+  // setup differs from what Custom holds (or nothing is saved yet), so the
+  // button greys out exactly like the style tab's.
+  const buildTermSetup = (): CustomTermTheme => {
+    const t = resolveTermTheme(termThemeId())
+    const ansi: Record<string, string> = {}
+    for (const k of ANSI_KEYS) {
+      const v = t[k]
+      if (typeof v === 'string') ansi[k] = v
+    }
+    return {
+      bg: normalizeColor(t.background, '#101215'),
+      fg: normalizeColor(t.foreground, '#e3e6ea'),
+      cursor: normalizeColor(t.cursor, '#5b5bd6'),
+      ansi,
+      font: fontId,
+      fontPct,
+      indicator: agentInd,
+      indicatorColor: agentCol,
+      acrylic: acrylicOn
+    }
+  }
+  // Dirty = the SETTINGS deviate from the selected theme's stock: any theme
+  // arrives with the defaults, a Custom arrives with what it saved. Comparing
+  // whole palettes kept the button lit forever - the palette IS the selection.
+  const extras = { font: fontId, fontPct, indicator: agentInd, indicatorColor: agentCol, acrylic: acrylicOn }
+  const baseline =
+    themeId === 'custom' && custom
+      ? {
+          font: custom.font ?? TERM_EXTRA_DEFAULTS.font,
+          fontPct: custom.fontPct ?? TERM_EXTRA_DEFAULTS.fontPct,
+          indicator: custom.indicator ?? TERM_EXTRA_DEFAULTS.indicator,
+          indicatorColor: custom.indicatorColor ?? TERM_EXTRA_DEFAULTS.indicatorColor,
+          acrylic: custom.acrylic ?? TERM_EXTRA_DEFAULTS.acrylic
+        }
+      : TERM_EXTRA_DEFAULTS
+  const termDirty = JSON.stringify(extras) !== JSON.stringify(baseline)
+  const saveTermSetup = (): void => {
+    saveCustomTermTheme(buildTermSetup())
+    setTermThemeId('custom')
+  }
+  // The editor popup, seeded from the SELECTED theme. One Edit button: the
+  // per-card pencils read as altering that preset, and presets never change -
+  // editing always lands in the Custom slot.
+  const [editing, setEditing] = useState<CustomTermTheme | null>(null)
+  // Measured at click time, so the expand can ANIMATE: max-height can't
+  // tween to 'none', only to a number, and the content's real height is the
+  // honest one. 268px is the two collapsed rows.
+  const [wallHeight, setWallHeight] = useState(268)
+  const allThemes = wallHeight !== 268
+  const themeWall = useRef<HTMLDivElement>(null)
+  const toggleWall = (): void =>
+    setWallHeight(allThemes ? 268 : (themeWall.current?.scrollHeight ?? 2400))
+  const editFrom = (id: string): void => {
+    const t = resolveTermTheme(id)
+    const ansi: Record<string, string> = {}
+    for (const k of ANSI_KEYS) {
+      const v = t[k]
+      if (typeof v === 'string') ansi[k] = v
+    }
+    // Normalised: an acrylic follow-style publishes rgba(), and a colour
+    // input handed rgba() silently renders black.
+    setEditing({
+      bg: normalizeColor(t.background, '#101215'),
+      fg: normalizeColor(t.foreground, '#e3e6ea'),
+      cursor: normalizeColor(t.cursor, '#5b5bd6'),
+      ansi
+    })
+  }
+  return (
+    <div className={ROWS}>
+      {shells.length > 0 && (
+        <Pref id="term-shell" label="Shell" hint="Applies to new terminals.">
+          <Select
+            id="term-shell"
+            value={shellValue}
+            onChange={(v) => {
+              setShellChoice(v)
+              saveShellId(v)
+            }}
+            options={shells}
+          />
+        </Pref>
+      )}
+      <div className="border-b border-[color:var(--p-line)] py-2.5">
+        <ThemeHead
+          sub="Follow style wears the app's look; presets are whole palettes, ANSI colours included."
+          save={
+            <SaveButton
+              dirty={termDirty}
+              onClick={saveTermSetup}
+              title="Keep the whole terminal setup - theme, font, indicator, acrylic - as Custom"
+            />
+          }
+        />
+        <div
+          ref={themeWall}
+          // Ease OPEN only: the transition class is present exactly when the
+          // expanded height applies, so collapsing snaps shut instantly.
+          className={`relative mt-3 overflow-hidden ${
+            allThemes ? 'transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]' : ''
+          }`}
+          // Two card rows by default: 39 themes as one wall buried the font
+          // row below them. The snap-open eased in 240ms rather than jumping.
+          style={{ maxHeight: wallHeight }}
+        >
+        <div className="flex flex-wrap gap-3">
+          <TermThemeCard
+            id="style"
+            name="Follow style"
+            on={themeId === 'style'}
+            bg={styleTheme.background}
+            fg={styleTheme.foreground}
+            cursor={styleTheme.cursor}
+            ansi={styleAnsi}
+            onPick={() => {
+              setTermThemeId('style')
+              resetTermExtras() // the theme is the whole setup
+            }}
+            onEdit={() => editFrom('style')}
+          />
+          {custom && (
+            <TermThemeCard
+              id="custom"
+              name="Custom"
+              on={themeId === 'custom'}
+              bg={custom.bg}
+              fg={custom.fg}
+              cursor={custom.cursor}
+              ansi={{
+                green: custom.ansi.green ?? '#8cc265',
+                yellow: custom.ansi.yellow ?? '#d1a54b',
+                blue: custom.ansi.blue ?? '#4aa5f0',
+                cyan: custom.ansi.cyan ?? '#42b3c2',
+                red: custom.ansi.red ?? '#e05561'
+              }}
+              onPick={() => {
+                setTermThemeId('custom')
+                // The saved setup is more than the palette: font, indicator,
+                // acrylic come back with it when the save captured them.
+                applyCustomExtras(custom)
+              }}
+              onEdit={() => editFrom('custom')}
+            />
+          )}
+          {sortedPresets.map((p) => {
+            const t = resolveTermTheme(p.id)
+            return (
+              <TermThemeCard
+                key={p.id}
+                id={p.id}
+                name={p.name}
+                on={themeId === p.id}
+                bg={t.background}
+                fg={t.foreground}
+                cursor={t.cursor}
+                ansi={{
+                  green: t.green ?? '',
+                  yellow: t.yellow ?? '',
+                  blue: t.blue ?? '',
+                  cyan: t.cyan ?? '',
+                  red: t.red ?? ''
+                }}
+                onPick={() => {
+                  setTermThemeId(p.id)
+                  resetTermExtras() // the theme is the whole setup
+                }}
+                onEdit={() => editFrom(p.id)}
+              />
+            )
+          })}
+        </div>
+        </div>
+        <div className="mt-2 flex justify-center">
+          <button
+            aria-expanded={allThemes}
+            aria-label={allThemes ? 'Show fewer themes' : `Show all ${TERM_PRESETS.length + (custom ? 2 : 1)} themes`}
+            title={allThemes ? 'Show fewer' : 'Show all themes'}
+            className="grid h-7 w-10 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+            onClick={toggleWall}
+          >
+            <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${allThemes ? 'rotate-180' : ''}`} aria-hidden>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+        {editing && (
+          <TermThemeEditor
+            seed={editing}
+            onSave={(t) => {
+              saveCustomTermTheme(t)
+              setTermThemeId('custom')
+              setEditing(null)
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        )}
+      </div>
+      {/* Mirrors the style tab's order under its wall: Font first, then the
+          material, then the extras. The two tabs should read the same. */}
+      <Pref id="term-font-family" label="Font" hint="The terminal's typeface. A face you don't have falls back quietly.">
+        <Select
+          id="term-font-family"
+          value={fontId}
+          onChange={setTermFontId}
+          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name, style: { fontFamily: f.stack } }))}
+        />
+      </Pref>
+      <Pref
+        id="term-font"
+        label="Font size"
+        hint="The base for every terminal. Ctrl+scroll zooms one session only."
+      >
+        <Select
+          id="term-font"
+          value={String(fontPct)}
+          onChange={(v) => setTermFontPct(Number(v))}
+          options={FONT_PCTS.map((p) => ({ id: String(p), name: `${p}%` }))}
+        />
+      </Pref>
+      <Pref
+        id="term-acrylic"
+        label="Acrylic terminal background"
+        hint="Follow-style shares the window's acrylic; off gives the terminal its own solid surface. Preset themes keep their colours either way."
+      >
+        <Switch on={acrylicOn} onChange={setTermAcrylic} label="Acrylic terminal background" />
+      </Pref>
+      <Pref
+        id="agent-indicator"
+        label="Agent indicator"
+        hint="How a tab shows Claude or codex working. Idle tabs stay default."
+      >
+        <Segmented
+          value={agentInd}
+          onChange={(v) => setAgentIndicator(v as AgentIndicator)}
+          options={[
+            { id: 'off', name: 'Off' },
+            { id: 'minimal', name: 'Minimal' },
+            { id: 'full', name: 'Full' }
+          ]}
+        />
+      </Pref>
+      <Pref
+        id="agent-color"
+        label="Indicator colour"
+        hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
+      >
+        <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
+      </Pref>
+    </div>
   )
 }
 
 function GeneralTab(): JSX.Element {
-  const scope = useNavScope()
   const size = useTreeSize()
   const follow = useAutoScroll()
+  const confirmClose = useConfirmCloseTabs()
+  const tabMode = useNewTabMode()
+  const tabFolder = useNewTabFolder()
+  const tabShow = useNewTabShow()
+  // Picking "A chosen folder" opens the chooser right away; cancelling keeps
+  // whatever was set before rather than leaving a mode with no folder.
+  const pickTabMode = (v: string): void => {
+    if (v === 'folder') {
+      void window.prism.pickFolder().then((dir) => {
+        if (dir) setNewTabMode('folder', dir)
+      })
+    } else setNewTabMode(v as 'home' | 'ask')
+  }
   const side = useTreeSide()
-  const current = NAV_SCOPES.find((s) => s.id === scope)
   return (
     <div className={ROWS}>
-      <Pref id="nav-scope" label="Navigation mode" hint={current?.hint}>
-        <Select
-          id="nav-scope"
-          value={scope}
-          onChange={(v) => setNavScope(v as NavScope)}
-          options={NAV_SCOPES}
-        />
-      </Pref>
       <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
         <Select
           id="tree-size"
@@ -797,6 +1464,40 @@ function GeneralTab(): JSX.Element {
         hint="The sidebar follows the file you are viewing."
       >
         <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
+      </Pref>
+      <Pref
+        id="confirm-close"
+        label="Ask before closing tabs"
+        hint="Ctrl+W and the tab's X confirm first. Unsaved text always asks."
+      >
+        <Switch on={confirmClose} onChange={setConfirmCloseTabs} label="Ask before closing tabs" />
+      </Pref>
+      <Pref
+        id="newtab-mode"
+        label="New tabs open in"
+        hint={tabMode === 'folder' && tabFolder ? tabFolder : 'Where the + and Ctrl+T land.'}
+      >
+        <Select
+          id="newtab-mode"
+          value={tabMode}
+          onChange={pickTabMode}
+          options={[
+            { id: 'home', name: 'Your user folder' },
+            { id: 'folder', name: 'A chosen folder…' },
+            { id: 'ask', name: 'Always ask' }
+          ]}
+        />
+      </Pref>
+      <Pref id="newtab-show" label="New tabs show" hint="What a fresh tab puts on screen.">
+        <Select
+          id="newtab-show"
+          value={tabShow}
+          onChange={(v) => setNewTabShow(v as NewTabShow)}
+          options={[
+            { id: 'file', name: 'First file in the folder' },
+            { id: 'terminal', name: 'A terminal' }
+          ]}
+        />
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
@@ -1013,7 +1714,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'style' | 'general' | 'player' | 'visualizer' | 'about'
+type TabId = 'style' | 'general' | 'terminal' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg
@@ -1049,6 +1750,12 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
     )
   },
   {
+    id: 'terminal',
+    label: 'Terminal',
+    title: 'Terminal',
+    icon: <Ico d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M13 15h4" />
+  },
+  {
     id: 'player',
     label: 'Progress bar',
     title: 'Progress bar',
@@ -1071,7 +1778,7 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
 // The rail is grouped rather than one flat list: five entries split two ways
 // says more about where a setting lives than five in a row does.
 const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
-  { name: 'Behaviour', tabs: ['general'] },
+  { name: 'Behaviour', tabs: ['general', 'terminal'] },
   { name: 'Look', tabs: ['style', 'visualizer', 'player'] },
   { name: '', tabs: ['about'] }
 ]
@@ -1118,7 +1825,7 @@ export function Settings({
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-9 z-40"
+      className="fixed inset-x-0 bottom-0 top-[68px] z-40"
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
       <div className="flex h-full w-full" style={{ zoom: size.zoom }}>
@@ -1192,6 +1899,8 @@ export function Settings({
               <StyleTab />
             ) : tab === 'general' ? (
               <GeneralTab />
+            ) : tab === 'terminal' ? (
+              <TerminalTab />
             ) : tab === 'player' ? (
               <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
             ) : tab === 'visualizer' ? (
