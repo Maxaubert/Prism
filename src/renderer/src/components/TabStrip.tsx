@@ -89,7 +89,10 @@ export function TabStrip({
             key={t.id}
             data-agent={working ? indicator : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
-            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 px-2.5 transition-colors ${
+            // Hairline side edges in the divider token: they separate flush
+            // tabs when the style draws edges, and vanish (the token goes
+            // transparent) when it doesn't.
+            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors first:border-l ${
               loud
                 ? ''
                 : on
