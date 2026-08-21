@@ -906,15 +906,29 @@ export default function App(): JSX.Element {
    * FIFO-evicts the oldest pin.
    */
   const paneSeq = useRef(0)
-  const pinSplit = useCallback((path: string, dir?: SplitDir) => {
-    const d = dir ?? lastSplitDir()
-    saveSplitDir(d)
-    setTabState((s) => {
-      const tab = s.tabs.find((t) => t.id === s.activeId)
-      if (!tab || tab.kind === 'settings') return s
-      return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, `pane-${(paneSeq.current += 1)}`, path, d)) }
-    })
-  }, [])
+  const pinSplit = useCallback(
+    (path: string, dir?: SplitDir) => {
+      const d = dir ?? lastSplitDir()
+      saveSplitDir(d)
+      // Over a FULL terminal, "open in split view" means: this file, beside
+      // the shell. The terminal drops to its split, docked on the side
+      // OPPOSITE the one picked for the file, and the file opens live -
+      // nothing gets pinned, this is the terminal/file split.
+      if (active && active.kind !== 'settings' && active.term?.view === 'full') {
+        const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const
+        pickDock(opposite[d])
+        applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
+        void window.prism.openWithin(active.root, path).then((p) => p && open(p))
+        return
+      }
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.kind === 'settings') return s
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, `pane-${(paneSeq.current += 1)}`, path, d)) }
+      })
+    },
+    [active, applyTermView, open, pickDock]
+  )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {
       const tab = s.tabs.find((t) => t.id === s.activeId)

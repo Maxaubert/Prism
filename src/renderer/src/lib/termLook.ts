@@ -40,13 +40,15 @@ export function termBaseFontPx(): number {
 
 const AGENT_IND_KEY = 'prism.term.agentIndicator'
 
-export type AgentIndicator = 'minimal' | 'full'
+export type AgentIndicator = 'off' | 'minimal' | 'full'
 
-/** How a working agent shows on its tab: a left edge bar, or the whole tab
- *  turning. Full is the default - the point of the indicator is to be seen
- *  across a row of tabs. Idle always looks default; only WORKING paints. */
+/** How a working agent shows on its tab: not at all, an icon plus a left edge
+ *  bar, or the whole tab turning. Full is the default - the point of the
+ *  indicator is to be seen across a row of tabs. Idle always looks default;
+ *  only WORKING paints. */
 export function agentIndicator(): AgentIndicator {
-  return localStorage.getItem(AGENT_IND_KEY) === 'minimal' ? 'minimal' : 'full'
+  const v = localStorage.getItem(AGENT_IND_KEY)
+  return v === 'minimal' || v === 'off' ? v : 'full'
 }
 
 export function setAgentIndicator(v: AgentIndicator): void {

@@ -1122,25 +1122,25 @@ function TerminalTab(): JSX.Element {
         label="Agent indicator"
         hint="How a tab shows Claude or codex working. Idle tabs stay default."
       >
-        <Select
-          id="agent-indicator"
+        <Segmented
           value={agentInd}
           onChange={(v) => setAgentIndicator(v as AgentIndicator)}
           options={[
-            { id: 'full', name: 'Full - tab turns orange' },
-            { id: 'minimal', name: 'Minimal - edge bar' }
+            { id: 'off', name: 'Off' },
+            { id: 'minimal', name: 'Minimal' },
+            { id: 'full', name: 'Full' }
           ]}
         />
       </Pref>
       <Pref
         id="agent-color"
-        label="Working colour"
-        hint="The fill (full) and icon tint (minimal) while an agent works."
+        label="Indicator colour"
+        hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
       >
         <input
           id="agent-color"
           type="color"
-          aria-label="Working colour"
+          aria-label="Indicator colour"
           value={agentCol}
           onChange={(e) => setAgentColor(e.target.value)}
           className="h-7 w-10 cursor-pointer rounded border border-[color:var(--p-line)] bg-transparent"
