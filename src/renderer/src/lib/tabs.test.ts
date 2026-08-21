@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, receiveFile, rerootTab, tabLabels, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabPanes, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -116,6 +116,21 @@ describe('tabLabels', () => {
     expect(tabLabels(tabs)).toEqual(['assets — shoot', 'assets — docs', 'music'])
   })
 
+
+  it('two tabs on the SAME folder stay plainly named: there is nothing to tell apart', () => {
+    const home = 'C:@Users@Admin'.split('@').join(String.fromCharCode(92))
+    expect(tabLabels([tabOf(home, []), tabOf(home, [])])).toEqual(['Admin', 'Admin'])
+  })
+  it('same-root pairs stay plain even in mixed company', () => {
+    const home = 'C:@Users@Admin'.split('@').join(String.fromCharCode(92))
+    const other = 'D:@backup@Admin'.split('@').join(String.fromCharCode(92))
+    expect(tabLabels([tabOf(home, []), tabOf(home, []), tabOf(other, [])])).toEqual([
+      'Admin — Users',
+      'Admin — Users',
+      'Admin — backup'
+    ])
+  })
+
   it('falls back to the whole path for a drive root, which has no basename', () => {
     expect(tabLabels([tabOf('C:\\', [])])).toEqual(['C:\\'])
   })
@@ -187,5 +202,76 @@ describe('addTab', () => {
     const r = addTab([shoot], payload(DOCS, ['D:\\docs\\r.md']), 'n')
     expect(r.tabs.map((t) => t.root)).toEqual([SHOOT, DOCS])
     expect(r.activeId).toBe('n')
+  })
+})
+
+describe('the terminal slot', () => {
+  it('a new tab has no terminal', () => {
+    expect(tabOf(SHOOT, []).term).toBeNull()
+  })
+  it('setTabTerm writes only the named tab', () => {
+    const a = tabOf(SHOOT, [])
+    const b = tabOf(DOCS, [])
+    const next = setTabTerm([a, b], a.id, { id: 's1', view: 'full' })
+    expect(next[0].term).toEqual({ id: 's1', view: 'full' })
+    expect(next[1].term).toBeNull()
+  })
+
+  it('toggle: absent opens FULL - full view is the terminal home', () => {
+    expect(toggleTermView(null, 'n')).toEqual({ id: 'n', view: 'full' })
+  })
+  it('toggle: hidden shows full again, visible hides, from either mode', () => {
+    expect(toggleTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'full' })
+    expect(toggleTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+    expect(toggleTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+  })
+  it('split: absent spawns straight into split, beside the file', () => {
+    expect(splitTermView(null, 'n')).toEqual({ id: 'n', view: 'split' })
+  })
+  it('split: folds back to the file alone; any other state becomes split', () => {
+    expect(splitTermView({ id: 's', view: 'split' }, 'n')).toEqual({ id: 's', view: 'hidden' })
+    expect(splitTermView({ id: 's', view: 'full' }, 'n')).toEqual({ id: 's', view: 'split' })
+    expect(splitTermView({ id: 's', view: 'hidden' }, 'n')).toEqual({ id: 's', view: 'split' })
+  })
+  it('rerooting keeps the shell: a dev server survives the tree moving', () => {
+    const shoot = tabOf(SHOOT, ['C:@shoot@a.jpg'.split('@').join(String.fromCharCode(92))])
+    const withTerm = setTabTerm([shoot], shoot.id, { id: 's1', view: 'split' })
+    const r = rerootTab(withTerm, shoot.id, payload(DOCS, []), 'x')
+    expect(r.tabs[0].term).toEqual({ id: 's1', view: 'split' })
+  })
+})
+
+describe('the settings tab', () => {
+  it('opens once and re-activates after that', () => {
+    const a = tabOf(SHOOT, [])
+    const first = openSettingsTab([a], 'set-1')
+    expect(first.tabs).toHaveLength(2)
+    expect(first.tabs[1].kind).toBe('settings')
+    const again = openSettingsTab(first.tabs, 'set-2')
+    expect(again.tabs).toHaveLength(2)
+    expect(again.activeId).toBe('set-1')
+  })
+  it('is labelled Settings and never swallows an arriving file', () => {
+    const st = openSettingsTab([], 's').tabs
+    expect(tabLabels(st)).toEqual(['Settings'])
+    const r = receiveFile(st, payload(SHOOT, []), 'n')
+    expect(r.tabs).toHaveLength(2)
+    expect(r.tabs[1].kind).toBeUndefined()
+  })
+})
+
+describe('the pinned panes slot', () => {
+  it('starts empty, writes only the named tab, and rerooting clears it', () => {
+    const a = tabOf(SHOOT, [])
+    const b = tabOf(DOCS, [])
+    expect(a.panes).toEqual([])
+    const next = setTabPanes([a, b], a.id, [{ id: 'p1', path: 'x', dir: 'right' }])
+    expect(next[0].panes).toHaveLength(1)
+    expect(next[1].panes).toEqual([])
+    const r = rerootTab(next, a.id, payload(DOCS, []), 'n')
+    // wait - DOCS is already open in tab b, so reroot SWITCHES; use a fresh root
+    const r2 = rerootTab(next, a.id, payload('E:' + String.fromCharCode(92) + 'elsewhere', []), 'n')
+    expect(r2.tabs[0].panes).toEqual([]) // pinned files belong to the old folder
+    void r
   })
 })

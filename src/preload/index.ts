@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult } from '@shared/types'
+import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -17,10 +17,18 @@ const api = {
   openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
   /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
   openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
-  /** Report the tab strip. Main persists it and keeps the root wall in step, so
-   *  a root whose tab was closed stops being reachable. */
-  tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>
-    ipcRenderer.send('tabs:changed', { tabs, active }),
+  /** A new tab rooted at a remembered folder (the Settings choice). */
+  openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:root', dir),
+  /** Choose a folder without opening it: the Settings picker. */
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
+  /** Report the tab strip, for persistence only. The root wall is never
+   *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
+  tabsChanged: (
+    tabs: Array<{ root: string; file?: string; term?: 'full' | 'split' }>,
+    active: number
+  ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
+  /** A root no longer held by any tab. The one way the wall shrinks. */
+  dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a
   // root that is not open as well as a path from a different one.
@@ -82,6 +90,59 @@ const api = {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
     ipcRenderer.on('open:file', listener)
     return () => ipcRenderer.removeListener('open:file', listener)
+  },
+
+  /* ----- the terminal ----- */
+
+  /** The shells main detected; the only things term:spawn will ever launch. */
+  termShells: (): Promise<ShellDef[]> => ipcRenderer.invoke('term:shells'),
+  termSpawn: (id: string, root: string, shellId?: string, resume?: string): Promise<boolean> =>
+    ipcRenderer.invoke('term:spawn', id, root, shellId, resume),
+  termInput: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
+  termResize: (id: string, cols: number, rows: number): void =>
+    ipcRenderer.send('term:resize', id, cols, rows),
+  termKill: (id: string): void => ipcRenderer.send('term:kill', id),
+  /** Start the active root's shell ahead of the click. Best-effort. */
+  termPrewarm: (root: string, shellId?: string): void =>
+    ipcRenderer.send('term:prewarm', root, shellId),
+  onTermData: (cb: (id: string, data: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string, data: string): void => cb(id, data)
+    ipcRenderer.on('term:data', listener)
+    return () => ipcRenderer.removeListener('term:data', listener)
+  },
+  /** An AI CLI (Claude Code, codex...) appeared or left a session's shell. */
+  onTermAgent: (cb: (id: string, present: boolean, kind?: 'claude' | 'other' | null) => void): (() => void) => {
+    const listener = (_: unknown, id: string, present: boolean, kind?: 'claude' | 'other' | null): void =>
+      cb(id, present, kind)
+    ipcRenderer.on('term:agent', listener)
+    return () => ipcRenderer.removeListener('term:agent', listener)
+  },
+  onTermExit: (cb: (id: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string): void => cb(id)
+    ipcRenderer.on('term:exit', listener)
+    return () => ipcRenderer.removeListener('term:exit', listener)
+  },
+  /**
+   * What the clipboard holds RIGHT NOW, for the terminal's paste rule. An
+   * image forwards the ^V key (a clipboard-aware TUI like Claude Code reads
+   * the image itself); text becomes a bracketed paste; copied files paste as
+   * quoted paths. The decision itself is pure and lives in lib/termPaste.
+   */
+  readClipboard: (): { image: boolean; text: string; files: string[] } => {
+    const formats = clipboard.availableFormats()
+    const files = formats.includes('FileNameW')
+      ? clipboard
+          .readBuffer('FileNameW')
+          .toString('ucs2')
+          .replace(/\0+$/, '')
+          .split('\0')
+          .filter(Boolean)
+      : []
+    return { image: formats.some((f) => f.startsWith('image/')), text: clipboard.readText(), files }
+  },
+  /** The web-links addon's click-through: external URLs go to the OS browser. */
+  openExternal: (url: string): void => {
+    if (/^https?:/i.test(url)) ipcRenderer.send('shell:open-external', url)
   },
 
   // frameless window controls

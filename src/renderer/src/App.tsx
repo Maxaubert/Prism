@@ -1,8 +1,15 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { scopeFiles, useNavScope } from './lib/navScope'
-import { addTab, closeTab, receiveFile, rerootTab, sameRoot, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
+import { fileKind } from '@shared/fileKind'
+import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
+import { savedShellId } from './lib/termPrefs'
+import { confirmCloseTabs } from './lib/tabPrefs'
+import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
+import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
+import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -34,6 +41,14 @@ import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/tr
 // persisted. A counter is enough and, unlike a path, survives a rename.
 let tabSeq = 0
 const nextTabId = (): string => `tab-${(tabSeq += 1)}`
+let termSeq = 0
+const nextTermId = (): string => `term-${(termSeq += 1)}`
+
+/** The renderer half of ending a shell. Lazy: if a session exists, the chunk
+ *  that owns the store is already loaded, so this import is always a cache hit. */
+const disposeSession = (id: string): void => {
+  void import('./components/TerminalPanel').then((m) => m.disposeTermSession(id))
+}
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
 // or dialog), routes by kind to a viewer, and pages through the folder. Video,
@@ -60,6 +75,9 @@ type Ask =
   // window's, because the stake is the same: leave that tab and the only route
   // back to those buffers is gone, even though the window stays open.
   | { kind: 'close-tab'; id: string; names: readonly string[] }
+  // The plain "sure?" for a clean tab, on by default and switchable in
+  // Settings. Dirty tabs take the unsaved-changes question above instead.
+  | { kind: 'close-tab-confirm'; id: string; label: string }
   // Pointing a tab at a different folder strands its unsaved text exactly as
   // closing it would, so it asks the same question and carries the payload it
   // will apply on the way through.
@@ -251,7 +269,46 @@ function Viewer({
   }
 }
 
-function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
+/** One pinned split pane: a fixed file, independent of paging, with its X. */
+function PinnedPaneView({
+  paneId,
+  path,
+  area,
+  onClose,
+  viewerProps
+}: {
+  paneId: string
+  path: string
+  area: string
+  onClose: () => void
+  viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
+}): JSX.Element {
+  const name = path.split(/[\\/]/).pop() ?? path
+  const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
+  const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
+  return (
+    <div
+      data-pane="pinned"
+      data-pane-id={paneId}
+      className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+      style={{ gridArea: area }}
+    >
+      <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      <button
+        className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
+        onClick={onClose}
+        title="Remove from split view"
+        aria-label={`Remove ${name} from split view`}
+      >
+        <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
+function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
       {/* A hairline and nothing else, so the window's own material carries
@@ -264,11 +321,19 @@ function EmptyState({ onOpen }: { onOpen: () => void }): JSX.Element {
           <path d="M12 11v6m0 0l-2.2-2.2M12 17l2.2-2.2" />
         </svg>
       </div>
-      <div className="text-lg font-semibold">Open a file to view it</div>
+      <div className="text-lg font-semibold">Open a file or folder to view it</div>
       <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
-      <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
-        Browse…
-      </button>
+      <div className="flex items-center gap-2">
+        <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
+          Open file…
+        </button>
+        <button
+          className="no-drag rounded-xl border border-[color:var(--p-line)] px-4 py-2 text-sm font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-accent-hi)]"
+          onClick={onOpenFolder}
+        >
+          Open folder…
+        </button>
+      </div>
     </div>
   )
 }
@@ -287,6 +352,16 @@ export default function App(): JSX.Element {
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   const rawIndex = active?.index ?? -1
+  const settingsOpen = active?.kind === 'settings'
+  const openSettings = useCallback(() => {
+    setTabState((s) => openSettingsTab(s.tabs, `settings-${(settingsSeq.current += 1)}`))
+  }, [])
+  const closeSettingsTab = useCallback(() => {
+    setTabState((s) => {
+      const st = s.tabs.find((t) => t.kind === 'settings')
+      return st ? closeTab(s.tabs, st.id, s.activeId) : s
+    })
+  }, [])
   /** Point the active tab at another of its files. */
   const setRawIndex = useCallback(
     (i: number) =>
@@ -303,7 +378,11 @@ export default function App(): JSX.Element {
   const [dragging, setDragging] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Settings rides the strip as a tab of its own kind, so it can be flipped
+  // to and from like any other. `settingsOpen` is simply "the settings tab is
+  // in front"; the page itself stays mounted underneath either way, keeping
+  // its own internal state.
+  const settingsSeq = useRef(0)
   // Setup launches with --setup, which shows the guide even here, where it has
   // been through once already.
   const [setup, setSetup] = useState(
@@ -399,28 +478,52 @@ export default function App(): JSX.Element {
    */
   const open = useCallback((p: OpenPayload | null) => {
     if (!p) return
-    setTabState((s) => receiveFile(s.tabs, p, nextTabId()))
+    setTabState((s) => {
+      // A RESTORED tab is always its own tab: receiveFile's same-root fold is
+      // for files arriving from outside, and folding a restore silently
+      // deleted one of two tabs that shared a root.
+      const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
+      // For a restore the tab in question is the one just appended; for an
+      // arrival it is whichever tab the payload landed in (now active).
+      const target = p.restore ? st.tabs[st.tabs.length - 1] : st.tabs.find((t) => t.id === st.activeId)
+      let tabs = st.tabs
+      // A restored tab that was showing its terminal comes back AS a terminal:
+      // a fresh shell at the root (sessions die with the app), same view.
+      if (p.term && target && !target.term) {
+        const termId = nextTermId()
+        termRoots.current.set(termId, target.root)
+        // The shell hosted a Claude session at close: the fresh one launches
+        // straight into it (spawn carries the id; see TerminalPanel). The
+        // session spawns NOW, tab in front or not - every tab's conversation
+        // resumes at launch, not when its tab is first visited.
+        if (p.agentResume) markResume(termId, p.agentResume)
+        const root = target.root
+        void import('./components/TerminalPanel').then((m) => m.ensureTermSession(termId, root, savedShellId()))
+        tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
+      }
+      // Background restores keep the focus where it is: restore arrives in
+      // SAVED ORDER now (no more active-goes-last splice, which scrambled the
+      // strip), and only the saved active tab takes the front.
+      const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
+      return { tabs, activeId }
+    })
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
-  // Tell main what is open, whenever it changes. It persists the strip for next
-  // launch and, more importantly, narrows the root wall to match: a root whose
-  // tab has been closed must stop being reachable.
-  //
-  // Not before the first tab exists, though. On mount there are none, and main
-  // has ALREADY registered the root of the file it is about to deliver: an
-  // eager empty report raced that and tore the wall down under the launch file,
-  // which then could not be read. Once a tab has existed, an empty list is real
-  // news (the last tab closed) and is sent.
-  const hadTabs = useRef(false)
+
+  // Pre-warm: a tab in front with no shell probably gets one soon. After a
+  // short dwell, main starts it; opening the terminal then ADOPTS a running
+  // shell instead of paying pwsh's startup at the click. The xterm chunk is
+  // prefetched once at idle for the same reason.
   useEffect(() => {
-    if (tabs.length) hadTabs.current = true
-    else if (!hadTabs.current) return
-    window.prism.tabsChanged(
-      tabs.map((t) => ({ root: t.root, file: t.files[t.index]?.path })),
-      Math.max(0, tabs.findIndex((t) => t.id === activeId))
-    )
-  }, [tabs, activeId])
+    if (!active || active.kind === 'settings' || active.term) return
+    const t = setTimeout(() => window.prism.termPrewarm(active.root, savedShellId()), 900)
+    return () => clearTimeout(t)
+  }, [active])
+  useEffect(() => {
+    const t = setTimeout(() => void import('./components/TerminalPanel'), 4000)
+    return () => clearTimeout(t)
+  }, [])
 
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
@@ -438,9 +541,28 @@ export default function App(): JSX.Element {
    * tabs on one folder.
    */
   const newTab = useCallback(() => {
-    void window.prism.openHome().then((p) => {
-      if (!p) return
+    // Where the tab roots is a Settings choice: the user folder (instant), a
+    // remembered folder (instant; falls back to home if it is gone), or the
+    // chooser every time. What it shows is a second choice: the folder's
+    // first file, or a terminal already open in full view.
+    const mode = newTabMode()
+    const request =
+      mode === 'ask'
+        ? window.prism.openFolder()
+        : mode === 'folder'
+          ? window.prism.openRoot(newTabFolder()).then((p) => p ?? window.prism.openHome())
+          : window.prism.openHome()
+    void request.then((p) => {
+      if (!p) return // ask-mode cancelled: no tab
       setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      if (newTabShow() === 'terminal')
+        setTabState((s) => {
+          const tab = s.tabs.find((t) => t.id === s.activeId)
+          if (!tab || tab.term) return s
+          const termId = nextTermId()
+          termRoots.current.set(termId, tab.root)
+          return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+        })
       setHasNavigated(false)
     })
   }, [])
@@ -450,7 +572,17 @@ export default function App(): JSX.Element {
    *  window with it: Prism is resident, and a window that vanishes under a
    *  reflex keystroke is the failure this app has been careful to avoid. */
   const forceCloseTab = useCallback((id: string) => {
-    setTabState((s) => closeTab(s.tabs, id, s.activeId))
+    setTabState((s) => {
+      // The tab's shell dies with it, both halves: main's pty and the
+      // renderer's xterm instance.
+      const tab = s.tabs.find((t) => t.id === id)
+      if (tab?.term) {
+        window.prism.termKill(tab.term.id)
+        disposeSession(tab.term.id)
+        termRoots.current.delete(tab.term.id)
+      }
+      return closeTab(s.tabs, id, s.activeId)
+    })
   }, [])
   /** Unsaved buffers living under a tab's root, as their names are spelled. */
   const dirtyUnder = useCallback((root: string): string[] => {
@@ -460,7 +592,23 @@ export default function App(): JSX.Element {
       .map((b) => baseName(b.path))
   }, [])
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
-    setTabState((s) => rerootTab(s.tabs, id, p, nextTabId()))
+    setTabState((s) => {
+      const next = rerootTab(s.tabs, id, p, nextTabId())
+      // The terminal policy on a folder change: an UNTOUCHED shell simply
+      // follows - killed and respawned in the new folder, view kept. A
+      // touched one (a Claude session, half-typed work) stays where it was;
+      // Clear later re-syncs it.
+      const tab = next.tabs.find((t) => t.id === id)
+      if (tab?.term && !isTouched(tab.term.id) && !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)) {
+        window.prism.termKill(tab.term.id)
+        disposeSession(tab.term.id)
+        termRoots.current.delete(tab.term.id)
+        const termId = nextTermId()
+        termRoots.current.set(termId, p.root)
+        return { ...next, tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view }) }
+      }
+      return next
+    })
     setHasNavigated(false)
   }, [])
   /**
@@ -485,8 +633,19 @@ export default function App(): JSX.Element {
   const closeOneTab = useCallback(
     (id: string) => {
       const tab = tabs.find((t) => t.id === id)
-      const names = tab ? dirtyUnder(tab.root) : []
+      if (!tab) return
+      if (tab.kind === 'settings') {
+        forceCloseTab(id)
+        return
+      }
+      const names = dirtyUnder(tab.root)
       if (names.length) setAsk({ kind: 'close-tab', id, names })
+      else if (confirmCloseTabs())
+        setAsk({
+          kind: 'close-tab-confirm',
+          id,
+          label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root
+        })
       else forceCloseTab(id)
     },
     [dirtyUnder, forceCloseTab, tabs]
@@ -495,6 +654,183 @@ export default function App(): JSX.Element {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
   const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+
+  /* ----- the terminal ----- */
+
+  const [dockEdge, setDockEdge] = useState<DockEdge>(loadDock)
+  const [termSizes, setTermSizes] = useState(() => ({ x: loadTermSize('x'), y: loadTermSize('y') }))
+  const pickDock = useCallback((edge: DockEdge) => {
+    setDockEdge(edge)
+    saveDock(edge)
+  }, [])
+  const resizeTermPanel = useCallback(
+    (px: number) => {
+      const axis = dockAxis(dockEdge)
+      setTermSizes((s) => ({ ...s, [axis]: px }))
+      saveTermSize(axis, px)
+    },
+    [dockEdge]
+  )
+  /** Apply a term-view transition to the active tab, spawning ids as needed.
+   *  The shell itself only dies to exit, tab close, or quit. */
+  /** Where each live session was SPAWNED, for the reroot policy: an untouched
+   *  shell whose folder no longer matches its tab gets replaced; Clear also
+   *  re-syncs a stale one. */
+  const termRoots = useRef(new Map<string, string>())
+  const applyTermView = useCallback(
+    (fn: typeof toggleTermView) =>
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.kind === 'settings') return s
+        const next = fn(tab.term, nextTermId())
+        if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, next) }
+      }),
+    []
+  )
+  /** The sidebar button and Ctrl+`: full view, the terminal's home. */
+  const toggleTerm = useCallback(() => applyTermView(toggleTermView), [applyTermView])
+  /** Ctrl+Shift+T: open full, unconditionally (never hides). */
+  const openTermFull = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
+    [applyTermView]
+  )
+  /**
+   * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
+   * continuously while an AI CLI works (its spinner repaints). The dots are
+   * AGENT-SCOPED: main polls each shell's process tree for Claude Code and
+   * kin, and a plain terminal never shows one (the bell was tried and
+   * abandoned - PSReadLine dings on every invalid key). With an agent
+   * present: blue while streaming is SUSTAINED (over 1.2s without a 1.5s
+   * gap, so banners, redraws and echoes never light it), amber while quiet -
+   * a finished answer, waiting.
+   */
+  const outputRuns = useRef(new Map<string, { start: number; last: number }>())
+  const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
+  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
+  /** Which agent each session hosts - resume is claude-only. */
+  const agentKinds = useRef(new Map<string, 'claude' | 'other'>())
+  useEffect(
+    () =>
+      window.prism.onTermAgent((id, present, kind) => {
+        if (present && (kind === 'claude' || kind === 'other')) agentKinds.current.set(id, kind)
+        else if (!present) agentKinds.current.delete(id)
+        if (present) {
+          // An agent's BIRTH state is idle: its startup paint (banner, welcome
+          // box, the loading spinners after it) is a stream, but it is not the
+          // agent answering anything. Wipe the run and suppress scoring long
+          // enough to outlast the whole startup animation, so the indicator
+          // only ever means a real answer underway.
+          outputRuns.current.delete(id)
+          suppressActivity(id, 4000)
+          setWorkingIds((prev) => {
+            if (!prev.has(id)) return prev
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        }
+        setAgentIds((prev) => {
+          if (present === prev.has(id)) return prev
+          const next = new Set(prev)
+          if (present) next.add(id)
+          else next.delete(id)
+          return next
+        })
+      }),
+    []
+  )
+  useEffect(
+    () =>
+      window.prism.onTermData((id) => {
+        // Output on the heels of a keystroke is that keystroke's echo (the TUI
+        // repainting its input box), so typing at an idle agent never scores.
+        if (!activitySuppressed(id) && !inputEcho(id)) {
+          const now = Date.now()
+          const run = outputRuns.current.get(id)
+          if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
+          else run.last = now
+        }
+      }),
+    []
+  )
+  // Tell main what is open, whenever it changes: persistence for next launch.
+  // The root wall is deliberately NOT rebuilt from this snapshot. A report
+  // races payloads still in flight (a restore, plus a file Explorer just
+  // opened), and replacing the set once tore out a root main had registered
+  // for a tab this renderer had not built yet - whose listDir was refused and
+  // cached as "can't read this folder". Instead the wall shrinks only by
+  // explicit drops: a root that stopped being held by ANY tab. A diff against
+  // what we last held cannot remove what we never knew about.
+  const heldRoots = useRef<readonly string[]>([])
+  const hadTabs = useRef(false)
+  useEffect(() => {
+    const folderTabs = tabs.filter((t) => t.kind !== 'settings')
+    const now = folderTabs.map((t) => t.root)
+    for (const was of heldRoots.current) {
+      if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
+    }
+    heldRoots.current = now
+    // Mount says nothing (there is nothing to persist and no root to drop);
+    // once a tab has existed, an empty list is real news: the last tab closed.
+    if (folderTabs.length) hadTabs.current = true
+    else if (!hadTabs.current) return
+    window.prism.tabsChanged(
+      folderTabs.map((t) => ({
+        root: t.root,
+        file: t.files[t.index]?.path,
+        // A visible terminal is part of what the tab IS: a Claude-session tab
+        // must reopen as a terminal next launch, not as an empty viewer.
+        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        // ...and one hosting CLAUDE resumes the conversation on restore.
+        agent:
+          t.term && t.term.view !== 'hidden' && agentIds.has(t.term.id) && agentKinds.current.get(t.term.id) === 'claude'
+            ? true
+            : undefined
+      })),
+      Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
+    )
+  }, [tabs, activeId, agentIds])
+
+  // One slow tick derives "working" from the runs; state only changes when
+  // the set actually changes, so idle terminals cost nothing.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = Date.now()
+      setWorkingIds((prev) => {
+        const next = new Set<string>()
+        for (const [id, run] of outputRuns.current) {
+          if (now - run.last < 2000 && run.last - run.start > 1200) next.add(id)
+        }
+        if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
+        return next
+      })
+    }, 700)
+    return () => clearInterval(t)
+  }, [])
+
+  // The shell ended: typed exit, or died. App owns this rather than the panel,
+  // because it must be heard even while the panel is hidden or another tab is
+  // in front - the tab's term slot has to clear either way.
+  useEffect(
+    () =>
+      window.prism.onTermExit((id) => {
+        disposeSession(id)
+        outputRuns.current.delete(id)
+        termRoots.current.delete(id)
+        setAgentIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setTabState((s) => {
+          const tab = s.tabs.find((t) => t.term?.id === id)
+          return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
+        })
+      }),
+    []
+  )
   /** Step the active tab by `delta`, wrapping, so Ctrl+Tab cycles. */
   const stepTab = useCallback((delta: number) => {
     setTabState((s) => {
@@ -536,22 +872,212 @@ export default function App(): JSX.Element {
   const openFromTree = useCallback(
     // No guard: unsaved text is kept in `buffers`, so leaving a file costs
     // nothing and there is nothing to ask about.
-    (p: string) => void (active && window.prism.openWithin(active.root, p).then(open)),
+    (p: string) =>
+      void (
+        active &&
+        window.prism.openWithin(active.root, p).then((payload) => {
+          if (!payload) return
+          open(payload)
+          setPaneFocus('live') // the clicked file is the live pane's
+          // Clicking a file means "show me this file". Over a FULL terminal
+          // that hides the shell (still running) and gives the file the room;
+          // in split the file simply lands in its pane, terminal untouched.
+          setTabState((s) => {
+            const tab = s.tabs.find((t) => t.id === s.activeId)
+            return tab?.term?.view === 'full'
+              ? { ...s, tabs: setTabTerm(s.tabs, tab.id, { ...tab.term, view: 'hidden' }) }
+              : s
+          })
+        })
+      ),
     [active, open]
   )
 
+  /** The terminal button's own context menu. */
+  const openTermSplit = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' })),
+    [applyTermView]
+  )
+  const clearTerm = useCallback(() => {
+    const term = active?.term
+    if (!term || !active) return
+    const spawnedAt = termRoots.current.get(term.id)
+    if (spawnedAt && !sameRoot(spawnedAt, active.root)) {
+      // The tab moved folders while this shell was busy being kept; Clear is
+      // the user resetting things, so it re-syncs: fresh shell, tab's folder.
+      window.prism.termKill(term.id)
+      disposeSession(term.id)
+      termRoots.current.delete(term.id)
+      const termId = nextTermId()
+      termRoots.current.set(termId, active.root)
+      setTabState((s) => ({ ...s, tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view }) }))
+    } else {
+      void import('./components/TerminalPanel').then((m) => m.clearTermSession(term.id))
+    }
+  }, [active])
+
+  /** The split's X buttons and the context menu's "Remove from split view".
+   *  Closing ONE window of a split leaves the others standing: with pinned
+   *  panes up, closing the live file promotes the OLDEST pin into the live
+   *  slot and the terminal (if any) stays where it is. Only with nothing else
+   *  on the file side does closing the file hand the terminal the full view;
+   *  closing the TERMINAL pane always just leaves the files. */
+  const closeFilePane = useCallback(() => {
+    const first = active?.panes[0]
+    if (active && first) {
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab) return s
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, first.id)) }
+      })
+      void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
+      setPaneFocus('live')
+      return
+    }
+    applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
+  }, [active, applyTermView, open])
+  const closeTermPane = useCallback(
+    () => applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
+    [applyTermView]
+  )
+
+  /**
+   * Split-view pins: "Open in split view" adds the file as a pane beside the
+   * live one - agnostic of what else is showing, files beside files. The
+   * direction is remembered, a bare click reuses it, and the fourth window
+   * FIFO-evicts the oldest pin.
+   */
+  /**
+   * Which window of a split the user is IN: the live pane, a pinned pane (by
+   * id), or the terminal. The sidebar's selected row follows it - the file in
+   * the focused window is the one marked, and a focused terminal marks none.
+   * Tracked from real pointer-downs and focus, so it needs no plumbing through
+   * the viewers: each region wears a data attribute and the listener resolves
+   * the innermost one.
+   */
+  const [paneFocus, setPaneFocus] = useState<'live' | 'term' | string>('live')
+  // Opening a file in split view refocuses the terminal panel as it re-docks;
+  // that focus is mechanical, not the user choosing the shell, and must not
+  // steal the selection from the file that was just opened.
+  const ignoreTermFocusUntil = useRef(0)
+  useEffect(() => {
+    const resolve = (target: EventTarget | null): void => {
+      const el = target instanceof Element ? target : null
+      const region = el?.closest('[data-pane], [data-term-region]')
+      if (!region) return
+      if (region.hasAttribute('data-term-region')) {
+        if (Date.now() >= ignoreTermFocusUntil.current) setPaneFocus('term')
+        return
+      }
+      const kind = region.getAttribute('data-pane')
+      if (kind === 'pinned') setPaneFocus(region.getAttribute('data-pane-id') ?? 'live')
+      else setPaneFocus('live')
+    }
+    const down = (e: PointerEvent): void => resolve(e.target)
+    const focus = (e: FocusEvent): void => resolve(e.target)
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('focusin', focus, true)
+    return () => {
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('focusin', focus, true)
+    }
+  }, [])
+  // The focused thing can vanish: its pane unpinned, the terminal hidden, the
+  // tab switched. Focus falls back to the live pane rather than pointing at
+  // nothing.
+  useEffect(() => setPaneFocus('live'), [activeId])
+  useEffect(() => {
+    setPaneFocus((f) => {
+      if (f === 'term') return active?.term && active.term.view !== 'hidden' ? f : 'live'
+      if (f !== 'live' && !active?.panes.some((pn) => pn.id === f)) return 'live'
+      return f
+    })
+  }, [active])
+
+  const paneSeq = useRef(0)
+  const pinSplit = useCallback(
+    (path: string, dir?: SplitDir) => {
+      const d = dir ?? lastSplitDir()
+      saveSplitDir(d)
+      // Over a FULL terminal, "open in split view" means: this file, beside
+      // the shell. The terminal drops to its split, docked on the side
+      // OPPOSITE the one picked for the file, and the file opens live -
+      // nothing gets pinned, this is the terminal/file split.
+      if (active && active.kind !== 'settings' && active.term?.view === 'full') {
+        const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const
+        pickDock(opposite[d])
+        applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
+        void window.prism.openWithin(active.root, path).then((p) => p && open(p))
+        // The just-opened file is the one selected, not the shell the re-dock
+        // is about to mechanically refocus.
+        ignoreTermFocusUntil.current = Date.now() + 800
+        setPaneFocus('live')
+        return
+      }
+      // A re-pin keeps its pane (pinPane moves it), so focus its EXISTING id.
+      const already = active?.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
+      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.kind === 'settings') return s
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, paneId, path, d)) }
+      })
+      setPaneFocus(paneId) // the freshly pinned file is where the eye went
+    },
+    [active, applyTermView, open, pickDock]
+  )
+  const unpinSplitId = useCallback((paneId: string) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, paneId)) }
+    })
+  }, [])
+  const unpinSplitPath = useCallback((path: string) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      const hit = tab.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
+      return hit ? { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, hit.id)) } : s
+    })
+  }, [])
+
+  /** "Open in new tab": a fresh tab rooted at the file's folder, like an
+   *  Explorer open would make, spawned unconditionally. */
+  const openInNewTab = useCallback((path: string) => {
+    void window.prism.openPath(path).then((p) => {
+      if (p) setTabState((s) => addTab(s.tabs, p, nextTabId()))
+    })
+  }, [])
+  /** The terminal menu's version: a new tab on the same root, shell in front. */
+  const openTermInNewTab = useCallback(() => {
+    const root = active?.root
+    if (!root) return
+    void window.prism.openRoot(root).then((p) => {
+      if (!p) return
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.term) return s
+        const termId = nextTermId()
+        termRoots.current.set(termId, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+      })
+    })
+  }, [active])
+
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
-  // The visible list: the siblings that belong with the open file under the
-  // current scope, in the chosen order, and its position among them. Sorting
-  // reuses the same file objects, so mapping back to rawIndex keeps working.
-  const scope = useNavScope()
+  // The visible list: every viewable sibling, in the chosen order, and the
+  // open file's position among them. Sorting reuses the same file objects, so
+  // mapping back to rawIndex keeps working. (A kind filter lived here once,
+  // removed 2026-08-20: a forgotten filter read as missing files.)
   const sort = useSort()
   const view = useMemo(() => {
     if (!active || rawIndex < 0 || !active.files.length) return null
-    const ordered = sortFiles(active.files, sort.field, sort.dir)
-    return scopeFiles(ordered, ordered.indexOf(active.files[rawIndex]), scope)
-  }, [active, rawIndex, scope, sort])
+    const files = sortFiles(active.files, sort.field, sort.dir)
+    return { files, index: Math.max(0, files.indexOf(active.files[rawIndex])) }
+  }, [active, rawIndex, sort])
 
   const go = useCallback(
     (delta: number) => {
@@ -565,6 +1091,7 @@ export default function App(): JSX.Element {
   )
 
   const file = view?.files[view.index] ?? null
+  const termView = active?.term?.view ?? 'hidden'
 
   // Whether the open document currently holds focus. Documents mark their own
   // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
@@ -673,29 +1200,53 @@ export default function App(): JSX.Element {
       // isContentEditable covers the code editor: CodeMirror types into a div,
       // not a textarea, and the arrows there belong to the caret, not the folder.
       const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
+      // A focused terminal is typing too (xterm's hidden textarea), but the
+      // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
+      // still belong to Prism there, by request - which does cost the shell
+      // Ctrl+W (delete-word) and Ctrl+B (vim page-up, tmux's prefix). The
+      // keys shells truly live on - Ctrl+C, Ctrl+D (EOF), Ctrl+S (XOFF),
+      // Escape, the arrows - stay the shell's; only the search box, a rename
+      // and the text editor keep the full typing shield.
+      const inTerm = !!el && !!el.closest('.xterm')
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
       if (e.key === 'F11') {
         e.preventDefault()
         window.prism.setFullscreen(!fullscreen)
-      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && !typing) {
+      } else if (e.key === '`' && e.ctrlKey) {
+        // NOT behind the typing guard: one of the few keys Prism claims over
+        // a focused terminal (F11 and Ctrl+Shift+T are the others).
+        // Everything else, Escape and Ctrl+W included, belongs to the shell.
+        e.preventDefault()
+        toggleTerm()
+      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && e.shiftKey) {
+        // Also claimed while the shell is focused: it never hides, it only
+        // brings the terminal to full view, so it cannot eat typed text.
+        e.preventDefault()
+        openTermFull()
+      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         newTab()
-      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && !typing) {
-        // Deliberately does NOT take the window on the last tab. Prism is
-        // resident, and a window that vanishes under a reflex keystroke -
-        // with unsaved text in it - is the failure the close flow exists to
-        // prevent. The last tab leaves an empty window instead.
+      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && (!typing || inTerm)) {
+        // Close the innermost thing first: split panes pop LIFO (tabs within
+        // the tab), and only with none left does Ctrl+W reach the tab itself.
+        // It still never takes the window on the last tab: Prism is resident,
+        // and a window that vanishes under a reflex keystroke - with unsaved
+        // text in it - is the failure the close flow exists to prevent.
         e.preventDefault()
-        closeActiveTab()
-      } else if (e.key === 'Tab' && e.ctrlKey && !typing) {
+        if (active && active.panes.length > 0) {
+          unpinSplitId(active.panes[active.panes.length - 1].id)
+        } else {
+          closeActiveTab()
+        }
+      } else if (e.key === 'Tab' && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         stepTab(e.shiftKey ? -1 : 1)
-      } else if (e.ctrlKey && !typing && /^[1-9]$/.test(e.key)) {
+      } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         jumpTab(Number(e.key))
-      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && !typing) {
+      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && (!typing || inTerm)) {
         e.preventDefault()
         togglePanel()
       } else if (e.key === 'Escape') {
@@ -749,7 +1300,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, settingsOpen, setup, stepTab, togglePanel])
+  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, unpinSplitId])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -787,6 +1338,8 @@ export default function App(): JSX.Element {
       e.preventDefault()
       setDragging(false)
       if (setup) return
+      // A drop on the terminal panel types the path there; it is not an open.
+      if ((e.target as HTMLElement | null)?.closest?.('[data-term-panel]')) return
       const f = e.dataTransfer?.files?.[0]
       if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
     }
@@ -805,7 +1358,9 @@ export default function App(): JSX.Element {
   const washed = settingsOpen || setup || !file || file.kind === 'audio'
 
   const many = (view?.files.length ?? 0) > 1
-  const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
+  // No folder position over a FULL terminal either: it counts a file that
+  // isn't on screen.
+  const pos = many && termView !== 'full' ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
@@ -814,11 +1369,12 @@ export default function App(): JSX.Element {
       {!fullscreen && (
         <TopBar
           // The tree already names (and highlights) the open file; the bar only
-          // repeats it when the tree isn't there to say it.
-          name={sidebar && active && !settingsOpen ? '' : (file?.name ?? '')}
+          // repeats it when the tree isn't there to say it. A FULL terminal
+          // names nothing: the file it would name is not what's on screen.
+          name={(sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')}
           pos={pos}
           settingsOpen={settingsOpen}
-          onToggleSettings={() => setSettingsOpen((v) => !v)}
+          onToggleSettings={openSettings}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
           setup={setup}
@@ -839,6 +1395,9 @@ export default function App(): JSX.Element {
         <TabStrip
           tabs={tabs}
           activeId={activeId}
+          workingIds={workingIds}
+          agentIds={agentIds}
+          onDropFile={openInNewTab}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}
@@ -854,14 +1413,30 @@ export default function App(): JSX.Element {
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
-        {active && !fullscreen && (
+        {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar}
             root={active.root}
             onOpenFolder={rerootHere}
+            onToggleTerm={toggleTerm}
+            termOpen={termView !== 'hidden'}
+            onPinSplit={pinSplit}
+            onUnpinSplit={unpinSplitPath}
+            pinnedPaths={active.panes.map((pn) => pn.path)}
+            onOpenNewTab={openInNewTab}
+            onTermNewTab={openTermInNewTab}
+            onTermSplit={openTermSplit}
+            onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
             onTree={onTree}
-            currentPath={file?.path ?? null}
+            // The selected row follows the FOCUSED window of a split: a pinned
+            // pane marks its file, the terminal marks nothing, the live pane
+            // (and the no-split default) marks the open file.
+            currentPath={
+              paneFocus === 'term'
+                ? null
+                : (active.panes.find((pn) => pn.id === paneFocus)?.path ?? file?.path ?? null)
+            }
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
             dirtyPaths={dirtyPaths}
@@ -876,46 +1451,140 @@ export default function App(): JSX.Element {
           />
         )}
         <div
-          className={`group relative flex min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
+          className="flex min-w-0 min-h-0 flex-1"
+          style={{ flexDirection: dockFlex(dockEdge) }}
+        >
+        <div
+          className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
             washed ? 'p-wash' : ''
-          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''}`}
+          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''} ${
+            // Full view: the terminal takes the whole area, but the viewer
+            // stays MOUNTED so scroll, zoom and playback survive the visit -
+            // the same reason hidden shells stay alive.
+            termView === 'full' ? 'hidden' : ''
+          }`}
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {file && editMode && file.kind === 'text' ? (
-            <Suspense fallback={<EditorLoading />}>
-              <CodeView
-                path={file.path}
-                name={file.name}
-                onClose={() => setEditMode(false)}
-                onSaved={() => {
-                  setEditMode(false)
-                  setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
-                }}
-                onBuffer={onBuffer}
-                getPending={getPending}
-              />
-            </Suspense>
-          ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
-          ) : (
-            <EmptyState onOpen={browse} />
-          )}
+          {(() => {
+            const liveContent =
+              file && editMode && file.kind === 'text' ? (
+                <Suspense fallback={<EditorLoading />}>
+                  <CodeView
+                    path={file.path}
+                    name={file.name}
+                    onClose={() => setEditMode(false)}
+                    onSaved={() => {
+                      setEditMode(false)
+                      setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
+                    }}
+                    onBuffer={onBuffer}
+                    getPending={getPending}
+                  />
+                </Suspense>
+              ) : file ? (
+                <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
+              ) : (
+                <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
+              )
+            const pins = active?.panes ?? []
+            if (!pins.length || fullscreen) return liveContent
+            // The quadrant grid: the live pane plus up to three pinned files,
+            // hairline-separated, one window per corner at the full four.
+            const areas = paneAreas(pins)
+            return (
+              <div
+                className="grid h-full w-full gap-px bg-[var(--p-divider)]"
+                style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
+              >
+                <div
+                  data-pane="live"
+                  className="group/live relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+                  style={{ gridArea: areas.live }}
+                >
+                  {liveContent}
+                  {/* Its own X, like every pinned pane: closing the live
+                      window promotes the oldest pin, the rest stand. */}
+                  <button
+                    className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/live:opacity-100"
+                    onClick={closeFilePane}
+                    title="Remove from split view"
+                    aria-label="Remove the open file from split view"
+                  >
+                    <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
+                </div>
+                {pins.map((pn, i) => (
+                  <PinnedPaneView
+                    key={pn.id}
+                    paneId={pn.id}
+                    path={pn.path}
+                    area={areas.pinned[i]}
+                    onClose={() => unpinSplitId(pn.id)}
+                    viewerProps={{
+                      onToggleFullscreen: toggleFullscreen,
+                      fullscreen,
+                      transportStyle,
+                      onOpenLocal: openFromTree,
+                      onAutoAdvance: () => {},
+                      onBuffer,
+                      getPending
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          })()}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
+          {/* The region-level X only when the region IS one window: with the
+              pane grid up, each window carries its own. */}
+          {termView === 'split' && !fullscreen && !active?.panes.length && (
+            <button
+              className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+              onClick={closeFilePane}
+              title="Remove from split view"
+              aria-label="Remove the file from the split"
+            >
+              <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          )}
+        </div>
+        {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
+            in the DOM; hidden tabs' sessions stay alive in the store, and
+            coming back reattaches them with scrollback intact. Full view is
+            the terminal's home; split is the dock. Fullscreen is for watching:
+            no terminal, like the rest of the chrome. */}
+        {active?.term && termView !== 'hidden' && !fullscreen && (
+          <TermDock
+            mode={termView}
+            onClose={closeTermPane}
+            edge={dockEdge}
+            size={termSizes[dockAxis(dockEdge)]}
+            onResize={resizeTermPanel}
+            onDockPick={pickDock}
+            sessionId={active.term.id}
+            root={active.root}
+            shellId={savedShellId()}
+          />
+        )}
         </div>
       </div>
       <Settings
         open={settingsOpen}
         onShowSetup={() => {
-          setSettingsOpen(false)
+          closeSettingsTab()
           setSetup(true)
         }}
         compactRail={compactRail}
-        onClose={() => setSettingsOpen(false)}
+        onClose={closeSettingsTab}
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
       />
@@ -979,6 +1648,30 @@ export default function App(): JSX.Element {
                   setAsk(null)
                   window.prism.close(true)
                 })()
+              }
+            }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'close-tab-confirm' && (
+        <Dialog
+          title="Close this tab?"
+          body={
+            <>
+              <span className="text-[#d7dae1]">{ask.label}</span> closes, and its shell (if one is
+              running) goes with it. Settings can turn this question off.
+            </>
+          }
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            {
+              label: 'Close tab',
+              primary: true,
+              onPick: () => {
+                setAsk(null)
+                forceCloseTab(ask.id)
               }
             }
           ]}

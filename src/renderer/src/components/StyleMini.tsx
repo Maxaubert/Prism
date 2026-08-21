@@ -16,19 +16,15 @@ export function StyleMini({ st }: { st: Style }): JSX.Element {
   const frosted = glassA < 1
   // The same numbers variablesFor uses, so the card's glow matches the window's.
   const washA = st.mode === 'light' ? 0.28 : 0.22
-  // The real gradient runs down the chrome from a lightened bg (variablesFor);
-  // the viewer stays flat. It was drawn from `side`, and only on the panel.
+  // ONE surface, like the real window: variablesFor derives panel and title
+  // from `bg` (the Style's side/title fields are legacy), so the card must
+  // too - drawing them from the old fields left the mini's panel stale when
+  // the Background was edited, while the actual window followed.
   const gradBg = `linear-gradient(180deg, ${mix(st.bg, '#ffffff', 0.06)}, ${st.bg})`
-  const side = tint
-    ? mix(st.side, accent, 0.1)
-    : grad
-      ? gradBg
-      : frosted
-        ? rgba(st.side, glassA)
-        : st.side
-  const title = tint ? mix(st.title, accent, 0.12) : grad ? gradBg : frosted ? rgba(st.title, glassA) : st.title
   const bg = tint ? mix(st.bg, accent, 0.07) : frosted ? rgba(st.bg, glassA) : st.bg
-  const dim = mix(st.text, st.side, 0.5)
+  const side = grad ? gradBg : bg
+  const title = side
+  const dim = mix(st.text, st.bg, 0.5)
   const line = (w: string, c: string): JSX.Element => (
     <span className="block h-[3px] rounded-[2px]" style={{ width: w, background: c }} />
   )

@@ -16,6 +16,15 @@ files:
   - '!tools/**'
   - '!build/**'
   - '!dist/**'
+# node-pty is the app's first native module. Its .node binaries, the conpty
+# helper dir and winpty-agent.exe must live on the real file system - Windows
+# cannot spawn an exe or load a DLL out of an asar archive.
+asarUnpack:
+  - node_modules/node-pty/**
+# ...and it needs NO rebuild: 1.1.0 ships N-API prebuilds that load under this
+# Electron unchanged (proved by the Task-1 smoke probe). Left on, the default
+# @electron/rebuild insists on recompiling from source and dies in node-gyp.
+npmRebuild: false
 extraResources:
   - from: build/icon.ico
     to: icon.ico

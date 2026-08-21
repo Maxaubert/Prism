@@ -80,10 +80,11 @@ video::cue {
   --p-on-accent: #ffffff;
   --p-icon: #868d96;
   --p-hover: rgba(255, 255, 255, 0.06);
+  --p-hover-hi: rgba(255, 255, 255, 0.11);
   --p-divider: rgba(255, 255, 255, 0.07);
   --p-line: rgba(255, 255, 255, 0.09);
   --p-radius: 2px;
-  --p-radius-sm: 2px;
+  --p-radius-sm: 3px;
   --p-font: 'Segoe UI', system-ui, sans-serif;
   --p-font-ui: 'Segoe UI', system-ui, sans-serif;
   --p-size: 12.5px;
@@ -255,4 +256,29 @@ body {
    Settings above all, stays on the face it was designed in. */
 .p-styled-font {
   font-family: var(--p-font);
+}
+
+/* Colour pickers: the control is the swatch. Chromium nests a padded inner
+   rectangle by default, which reads as a box inside a box. */
+input[type='color'] {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+/* xterm's stock stylesheet paints .xterm-viewport solid black (a macOS
+   scrollbar-opacity workaround). The THEME background lives on the scrollable
+   element above it, so the black was invisible - until the acrylic share made
+   the theme transparent and the black showed through as "every terminal is
+   black". The panel behind the terminal owns the surface; this layer stays
+   clear. */
+.xterm .xterm-viewport {
+  /* !important because xterm.css rides the LAZY terminal chunk and lands in
+     the document after this sheet - equal specificity would lose on order. */
+  background-color: transparent !important;
 }

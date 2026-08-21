@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Prism Terminal Theme Lab</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #101215; color: #e3e6ea; font: 13px/1.5 "Segoe UI", sans-serif; padding: 28px; }
+  h1 { font-size: 18px; margin-bottom: 2px; }
+  .sub { color: #8a8e99; margin-bottom: 20px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .panel { border: 1px solid rgba(255,255,255,.09); border-radius: 8px; padding: 16px; min-width: 260px; }
+  label { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
+  input[type=color] { width: 54px; height: 28px; border: 1px solid rgba(255,255,255,.12); border-radius: 4px; background: none; padding: 1px; }
+  input[type=text] { width: 90px; background: #0b0c0e; color: inherit; border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 3px 6px; font-family: Consolas, monospace; }
+  .term { width: 620px; border-radius: 8px; padding: 16px 18px; font: 13px/1.55 "Cascadia Mono", Consolas, monospace; border: 1px solid rgba(255,255,255,.09); white-space: pre-wrap; }
+  .sw { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 14px; }
+  .sw div { height: 34px; border-radius: 4px; display: flex; align-items: flex-end; justify-content: center; font: 9px Consolas, monospace; padding-bottom: 2px; }
+  .ratios { margin-top: 14px; font-family: Consolas, monospace; font-size: 11px; color: #8a8e99; column-count: 2; }
+  .ratios b.bad { color: #ff6e6e; }
+  button { background: #5b5bd6; color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font-weight: 600; cursor: pointer; margin-top: 14px; }
+  .presetRow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .presetRow button { margin: 0; padding: 4px 10px; background: #23252c; font-weight: 500; }
+</style>
+</head>
+<body>
+<h1>Prism Terminal Theme Lab</h1>
+<p class="sub">Pick a background; the sixteen ANSI colours adapt by contrast ratio, exactly as in Prism.
+The algorithm mirrors <code>src/renderer/src/lib/termAnsi.ts</code> - change it there, re-mirror here.</p>
+
+<div class="row">
+  <div class="panel">
+    <div class="presetRow" id="presets"></div>
+    <label>Background <span><input id="bgHex" type="text" /> <input id="bg" type="color" /></span></label>
+    <label>Foreground <span><input id="fgHex" type="text" /> <input id="fg" type="color" /></span></label>
+    <label>Cursor <span><input id="curHex" type="text" /> <input id="cur" type="color" /></span></label>
+    <button id="copy">Copy as preset JSON</button>
+    <div class="ratios" id="ratios"></div>
+  </div>
+
+  <div>
+    <div class="term" id="term"></div>
+    <div class="sw" id="sw" style="width:620px"></div>
+  </div>
+</div>
+
+<script>
+// ===== mirrored from src/renderer/src/lib/termAnsi.ts =====
+const FLOOR = 3
+const hexToRgb = (hex) => {
+  const h = hex.replace('#', '')
+  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)]
+}
+const rgbToHex = (r, g, b) => '#' + [r, g, b].map((n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0')).join('')
+const mixHex = (a, b, t) => {
+  const A = hexToRgb(a), B = hexToRgb(b)
+  return rgbToHex(A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t)
+}
+const lum = (hex) => {
+  const lin = (n) => { const c = n / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) }
+  const [r, g, b] = hexToRgb(hex)
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+const contrast = (a, b) => { const la = lum(a), lb = lum(b); return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05) }
+const SEEDS = {
+  red: '#e05561', green: '#8cc265', yellow: '#d1a54b', blue: '#4aa5f0', magenta: '#c162de', cyan: '#42b3c2',
+  bright: { red: '#ff616e', green: '#a5e075', yellow: '#f0c366', blue: '#4dc4ff', magenta: '#de73ff', cyan: '#4cd1e0' }
+}
+function ensureContrast(colour, bg, floor = FLOOR) {
+  if (contrast(colour, bg) >= floor) return colour
+  const towards = contrast('#ffffff', bg) >= contrast('#000000', bg) ? '#ffffff' : '#000000'
+  let c = colour
+  for (let i = 0; i < 24 && contrast(c, bg) < floor; i += 1) c = mixHex(c, towards, 0.08)
+  return contrast(c, bg) >= floor ? c : towards
+}
+function deriveAnsi(bg, fg) {
+  const dark = lum(bg) <= 0.35
+  const a = (c) => ensureContrast(c, bg)
+  return {
+    black: mixHex(bg, fg, dark ? 0.18 : 0.25), brightBlack: ensureContrast(mixHex(bg, fg, 0.55), bg),
+    white: ensureContrast(mixHex(fg, bg, 0.18), bg), brightWhite: ensureContrast(fg, bg),
+    red: a(SEEDS.red), green: a(SEEDS.green), yellow: a(SEEDS.yellow), blue: a(SEEDS.blue),
+    magenta: a(SEEDS.magenta), cyan: a(SEEDS.cyan),
+    brightRed: a(SEEDS.bright.red), brightGreen: a(SEEDS.bright.green), brightYellow: a(SEEDS.bright.yellow),
+    brightBlue: a(SEEDS.bright.blue), brightMagenta: a(SEEDS.bright.magenta), brightCyan: a(SEEDS.bright.cyan)
+  }
+}
+// ===== end mirror =====
+
+const PRESETS = [
+  { id: 'pitch', name: 'Pitch', bg: '#000000', fg: '#e6e6e6', cur: '#ffffff' },
+  { id: 'ink', name: 'Ink', bg: '#0d1117', fg: '#dbe2ea', cur: '#7aa5d8' },
+  { id: 'cinder', name: 'Cinder', bg: '#191214', fg: '#e8dcd8', cur: '#e0955e' },
+  { id: 'denim', name: 'Denim', bg: '#142033', fg: '#d9e4f2', cur: '#8fb7e8' },
+  { id: 'paper', name: 'Paper', bg: '#f6f4ee', fg: '#2a2620', cur: '#3a63c2' },
+  { id: 'red-test', name: 'Red (the bug case)', bg: '#7a1111', fg: '#f5e9e9', cur: '#ffffff' }
+]
+const $ = (id) => document.getElementById(id)
+const state = { bg: '#101215', fg: '#e3e6ea', cur: '#7c7cf0' }
+
+function render() {
+  const A = deriveAnsi(state.bg, state.fg)
+  const span = (t, c, bgc) => `<span style="color:${c}${bgc ? `;background:${bgc}` : ''}">${t}</span>`
+  $('term').style.background = state.bg
+  $('term').style.color = state.fg
+  $('term').innerHTML =
+    span('you@pc', A.green) + ':' + span('~/app', A.brightBlue) + span('$', A.red) + ' ls -la' +
+    `<span style="display:inline-block;width:7px;height:14px;transform:translateY(2px);background:${state.cur}"></span>\n` +
+    `drwxr-xr-x  ${span('src', A.blue)}   ${span('docs', A.blue)}   ${span('node_modules', A.brightBlack)}\n` +
+    `-rwxr-xr-x  ${span('run.sh', A.green)}   ${span('notes.md', A.yellow)}   ${span('a.link', A.cyan)}\n` +
+    `-rw-r--r--  ${span('img.png', A.magenta)}   ${span('ERROR in build', A.brightRed)}\n` +
+    span('warning:', A.brightYellow) + ' 2 issues   ' + span('ok: 41 passed', A.brightGreen) + '\n' +
+    span('selected text', state.fg, state.cur + '55') + '  12 files, 3 dirs'
+  const order = ['black','red','green','yellow','blue','magenta','cyan','white','brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightMagenta','brightCyan','brightWhite']
+  $('sw').innerHTML = order.map((k) => `<div style="background:${A[k]};color:${contrast(A[k], '#000') > 4 ? '#000' : '#fff'}">${A[k]}</div>`).join('')
+  $('ratios').innerHTML = order.map((k) => {
+    const r = contrast(A[k], state.bg)
+    return `${k.padEnd(14, ' ')} <b class="${r < 3 && k !== 'black' ? 'bad' : ''}">${r.toFixed(2)}:1</b>`
+  }).join('<br>')
+  for (const [k, el, elh] of [['bg', $('bg'), $('bgHex')], ['fg', $('fg'), $('fgHex')], ['cur', $('cur'), $('curHex')]]) {
+    el.value = state[k]
+    elh.value = state[k]
+  }
+}
+for (const k of ['bg', 'fg', 'cur']) {
+  $(k).addEventListener('input', (e) => { state[k] = e.target.value; render() })
+  $(k + 'Hex').addEventListener('change', (e) => { if (/^#[0-9a-f]{6}$/i.test(e.target.value)) { state[k] = e.target.value; render() } })
+}
+$('presets').innerHTML = PRESETS.map((p, i) => `<button data-i="${i}">${p.name}</button>`).join('')
+$('presets').addEventListener('click', (e) => {
+  const p = PRESETS[e.target.dataset.i]
+  if (p) { state.bg = p.bg; state.fg = p.fg; state.cur = p.cur; render() }
+})
+$('copy').addEventListener('click', () => {
+  navigator.clipboard.writeText(JSON.stringify({ bg: state.bg, fg: state.fg, cursor: state.cur }, null, 2))
+  $('copy').textContent = 'Copied'
+  setTimeout(() => ($('copy').textContent = 'Copy as preset JSON'), 1200)
+})
+render()
+</script>
+</body>
+</html>

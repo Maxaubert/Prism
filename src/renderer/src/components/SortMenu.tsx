@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { DEFAULT_SORT, SORT_FIELDS, setSortDir, setSortField, useSort } from '../lib/sortPrefs'
+import { SORT_FIELDS, setSortDir, setSortField, useSort } from '../lib/sortPrefs'
 
 // The sidebar's handle on folder order, beside the filter. Playnite's shape:
 // one Ascending/Descending pair at the top, a rule, then the fields - one
-// direction toggle for the menu, not one per field. Accented while the order
-// is anything but the default name-ascending.
+// direction toggle for the menu, not one per field. The button stays
+// icon-coloured whatever is applied; the menu's check carries the state.
 
 const MENU_W = 156
 
@@ -12,7 +12,7 @@ export function SortMenu(): JSX.Element {
   const sort = useSort()
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const box = useRef<HTMLDivElement>(null)
-  const nonDefault = sort.field !== DEFAULT_SORT.field || sort.dir !== DEFAULT_SORT.dir
+
 
   const toggle = (e: { currentTarget: HTMLElement }): void => {
     if (open) {
@@ -74,9 +74,9 @@ export function SortMenu(): JSX.Element {
   return (
     <div ref={box} className="no-drag relative">
       <button
-        className={`grid h-6 w-7 place-items-center rounded transition-colors hover:bg-white/10 ${
-          nonDefault ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-        }`}
+        // Icon-coloured like its neighbours, whatever sort is applied: the
+        // menu's check says what is set, the button need not shout it.
+        className="grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
         onClick={toggle}
         title={`Sort: ${SORT_FIELDS.find((s) => s.id === sort.field)?.name}, ${sort.dir === 'asc' ? 'ascending' : 'descending'}`}
         aria-label="Sort order"

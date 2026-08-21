@@ -43,7 +43,7 @@ async function seedProfile() {
   await offscreen(app)
   await win.evaluate((kv) => {
     for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
-  }, { 'prism.onboarded': '1', 'prism.sidebar': '1' })
+  }, { 'prism.onboarded': '1', 'prism.sidebar': '1', 'prism.tabs.confirmClose': '0' })
   await sleep(300)
   await app.close()
   await sleep(900) // let the single-instance lock go
@@ -344,27 +344,20 @@ async function pdfScenario(fixtures) {
   }
 }
 
-async function filterScenario(fixtures) {
-  console.log('navigation filter')
+async function sortScenario(fixtures) {
+  console.log('sorting')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
-    const funnel = win.locator('[aria-label="Navigation filter"]')
-    await funnel.waitFor({ timeout: 10000 })
-    // File rows in the tree (folders have aria-expanded, files don't).
+    // File rows in the tree (folders have aria-expanded, files don't). No
+    // filter any more (removed 2026-08-20: a forgotten filter read as missing
+    // files) - every viewable sibling is always listed.
     const fileRows = win.locator('[role="treeitem"]:not([aria-expanded])')
-
-    const fillOf = () => funnel.locator('svg').getAttribute('fill')
-    ok((await fillOf()) === 'currentColor', 'default scope (group) shows a filled funnel')
-    // Docs group: README.md + sample.pdf + notes.txt + ep1.en.srt = "x / 4".
-    ok(await win.locator('text=/\\/ 4$/').first().isVisible().catch(() => false), 'group scope lists 4 documents')
-    ok((await fileRows.count()) === 4, 'group scope shows 4 file rows in the tree')
-
-    await funnel.click()
-    await win.click('[role="menuitemradio"]:has-text("All in one")')
-    await sleep(200)
-    ok((await fillOf()) === 'none', 'all-in-one shows an outlined funnel')
-    ok(await win.locator('text=/\\/ 9$/').first().isVisible().catch(() => false), 'all scope lists 9 files')
-    ok((await fileRows.count()) === 9, 'all scope shows all 9 file rows in the tree')
+    await fileRows.first().waitFor({ timeout: 10000 })
+    ok((await fileRows.count()) === 9, 'the tree lists every viewable file, unfiltered')
+    ok(
+      (await win.locator('[aria-label="Navigation filter"]').count()) === 0,
+      'the funnel is gone'
+    )
 
     // Sorting: Playnite's shape, one direction pair for every field. Size
     // ascending puts the smallest first; flipping to descending, the biggest.
@@ -375,7 +368,7 @@ async function filterScenario(fixtures) {
     await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Size")`)
     await sleep(250)
     ok(((await firstRow()) ?? '').includes('notes.txt'), 'size ascending puts the smallest file first')
-    const rootFiles = readdirSync(fixtures).filter((n) => statSync(join(fixtures, n)).isFile() && !/\.srt$/i.test(n))
+    const rootFiles = readdirSync(fixtures).filter((n) => statSync(join(fixtures, n)).isFile())
     const sizeOf = (n) => statSync(join(fixtures, n)).size
     const maxSize = Math.max(...rootFiles.map(sizeOf))
     await sortBtn.click()
@@ -394,27 +387,84 @@ async function filterScenario(fixtures) {
     await win.click(`${sortMenu} [role="menuitemradio"]:has-text("Name")`)
     await sleep(150)
     ok(((await firstRow()) ?? '').includes('ep1.en.srt'), 'name ascending is back to normal')
+    await win.screenshot({ path: join(SHOTS, 'sorting.png') })
 
-    await funnel.click()
-    await win.click('[role="menuitemradio"]:has-text("Per file type")')
-    await sleep(200)
-    ok((await fillOf()) === 'currentColor', 'per-type shows a filled funnel')
-    // Text kind: README.md + notes.txt + ep1.en.srt.
-    ok(await win.locator('text=/\\/ 3$/').first().isVisible().catch(() => false), 'per-type lists the 3 text files')
-    ok((await fileRows.count()) === 3, 'per-type shows the 3 text rows in the tree')
-    ok(
-      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
-      'the open file row survives every filter'
-    )
-    await win.screenshot({ path: join(SHOTS, 'filter.png') })
-
-    // Settings shows the same value: the two controls share the store.
+    // Settings opens as a TAB on the strip now, so it can be flipped to and
+    // from; its rail grew a Terminal page with theme cards and font size.
     await win.click('[aria-label="Settings"]')
     await sleep(400)
-    await win.click('button:has-text("General")') // settings opens on Style
+    ok(
+      await win.locator('[role="tab"]:has-text("Settings")').isVisible().catch(() => false),
+      'the cog opens Settings as a tab on the strip'
+    )
+    await win.click('button:has-text("Terminal")')
     await sleep(300)
-    ok((await win.inputValue('#nav-scope').catch(() => '')) === 'type', 'Settings select agrees')
-    await win.screenshot({ path: join(SHOTS, 'filter-settings.png') })
+    ok(
+      (await win.locator('[data-term-card]').count()) >= 30 && (await win.locator('#term-font').count()) === 1,
+      'the Terminal settings page offers 30+ theme cards and font size'
+    )
+
+    // Two rows by default, the rest behind the arrow.
+    ok(
+      (await win.locator('button[aria-expanded="false"][aria-label^="Show all"]').count()) === 1,
+      'the theme wall is collapsed to two rows behind a centred arrow'
+    )
+    // The pencil lives on the SELECTED card only: select bright-lights, its
+    // pencil appears, edit, save - the one Custom slot.
+    await win.locator('button[aria-label^="Show all"]').click()
+    await sleep(200)
+    await win.locator('[data-term-card="bright-lights"]').click()
+    ok(
+      (await win.locator('[data-edit-theme]').count()) === 1 &&
+        (await win.locator('[data-edit-theme="bright-lights"]').count()) === 1,
+      'only the selected theme wears the pencil'
+    )
+    // The acrylic regression: the DEFAULT style publishes an rgba background,
+    // which once turned every follow-style hue pure black. The follow-style
+    // card's editor must seed real colours.
+    await win.locator('[data-term-card="style"]').click()
+    await win.locator('[data-edit-theme="style"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    const styleRed = await win.locator('[data-theme-editor] input[aria-label="red"]').inputValue()
+    const styleBg = await win.locator('[data-theme-editor] input[aria-label="Background"]').inputValue()
+    ok(
+      /^#[0-9a-f]{6}$/i.test(styleBg) && styleRed !== '#000000',
+      `follow-style seeds real colours on the acrylic default (bg=${styleBg}, red=${styleRed})`
+    )
+    await win.locator('[data-theme-editor] button:has-text("Cancel")').click()
+    await sleep(300)
+
+    await win.locator('[data-term-card="bright-lights"]').click()
+    await win.locator('[data-edit-theme="bright-lights"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    await win.locator('[data-theme-editor] input[aria-label="Background"]').fill('#123456')
+    await win.locator('button:has-text("Save as Custom")').click()
+    await sleep(400)
+    ok(
+      (await win.locator('[data-term-card="custom"][aria-pressed="true"]').count()) === 1,
+      'saving lands in the single Custom slot, selected'
+    )
+    ok(
+      (await win.evaluate(() => JSON.parse(localStorage.getItem('prism.term.custom') ?? '{}').bg)) === '#123456',
+      'with the edited colour kept'
+    )
+    // Flip away to the folder tab and back: the strip is the way around.
+    await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(300)
+    ok(
+      await win.locator('.p-md h1').first().isVisible().catch(() => false),
+      'flipping to the folder tab shows the document again'
+    )
+    await win.locator('[role="tab"]:has-text("Settings")').click()
+    await sleep(300)
+    ok((await win.locator('[data-term-card]').count()) >= 6, 'and back to Settings, same page')
+    // Close it like any tab.
+    await win.locator('[role="tab"]:has-text("Settings")').locator('..').locator('[aria-label^="Close"]').click()
+    await sleep(300)
+    ok(
+      (await win.locator('[role="tab"]:has-text("Settings")').count()) === 0,
+      'the Settings tab closes like any other'
+    )
   } finally {
     await app.close()
   }
@@ -435,7 +485,10 @@ async function contextMenuScenario(fixtures) {
 
     // The flyout: hover "Open in", expect the two rows that exist on every
     // machine (the app list between them varies by what is installed).
-    await win.hover('[role="menuitem"]:has-text("Open in")')
+    // has-text is a substring match and "Open in split view" / "Open in new
+    // tab" sit above "Open in"; exclude them rather than exact-match, because
+    // the item's text also carries its submenu chevron.
+    await win.hover('[role="menuitem"]:has-text("Open in"):not(:has-text("split")):not(:has-text("new tab"))')
     await win.waitForSelector('[role="menuitem"]:has-text("Choose another app…")', { timeout: 8000 })
     ok(true, 'Open in flyout opens')
     ok((await win.locator('[role="menuitem"]:has-text("Default app")').count()) === 1, 'flyout offers the default app')
@@ -449,11 +502,97 @@ async function contextMenuScenario(fixtures) {
       .catch(() => {})
     const appRows = await win.locator('[role="menu"]').nth(1).locator('[role="menuitem"]').count()
     console.log(`  info  flyout lists ${appRows - 2} discovered app(s) on this machine`)
+    ok(
+      await win
+        .locator('[role="menuitem"]:has-text("Open in split view")')
+        .isVisible()
+        .catch(() => false),
+      'files offer Open in split view'
+    )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
-
-    // Duplicate makes "README (2).md" appear in the tree.
     await win.keyboard.press('Escape')
-    await sleep(200)
+    await sleep(300)
+
+    // Split panes are file-agnostic: pin notes.txt to the RIGHT of the live
+    // pane via the flyout, and both files render at once.
+    const notesRow = win.locator('[role="treeitem"]:has-text("notes.txt")')
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    // Park the cursor off the menu first: opening leaves it over the top rows,
+    // whose own flyout churns open/shut under a moving hover and starves the
+    // actionability check.
+    await win.mouse.move(700, 500)
+    await sleep(400)
+    await win.hover('[role="menuitem"]:has-text("Open in split view")')
+    await win.waitForSelector('[role="menuitem"]:has-text("Right")', { timeout: 5000 })
+    // The flyout meets its parent EXACTLY: first row's top on the parent row's
+    // visible surface, panel borders sharing one hairline. Measured, because
+    // constants here have drifted twice.
+    const align = await win.evaluate(() => {
+      const [menu, flyPanel] = document.querySelectorAll('[role="menu"]')
+      const parent = [...menu.querySelectorAll('[role="menuitem"]')].find((el) =>
+        el.textContent.includes('Open in split view')
+      )
+      const first = flyPanel.querySelector('[role="menuitem"]')
+      const p = parent.getBoundingClientRect()
+      const surface = p.top + parseFloat(getComputedStyle(parent).borderTopWidth || '0')
+      return {
+        v: first.getBoundingClientRect().top - surface,
+        // Native-submenu layering: the flyout overlaps the parent by 6px.
+        h: flyPanel.getBoundingClientRect().left - (menu.getBoundingClientRect().right - 6)
+      }
+    })
+    ok(
+      Math.abs(align.v) < 0.02 && Math.abs(align.h) < 0.02,
+      `the flyout aligns with its parent row exactly (v=${align.v.toFixed(3)} h=${align.h.toFixed(3)})`
+    )
+    await win.locator('[role="menuitem"]:has-text("Right")').click()
+    await sleep(600)
+    ok(
+      (await win.locator('[data-pane="live"]').count()) === 1 &&
+        (await win.locator('[data-pane="pinned"]').count()) === 1,
+      'the flyout pins the file beside the live pane'
+    )
+    // Its menu now offers the way out.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Remove from split view")').count()) === 1,
+      'a pinned file offers Remove from split view'
+    )
+    await win.locator('[role="menuitem"]:has-text("Remove from split view")').click()
+    await sleep(400)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'and removing restores one pane')
+
+    // Ctrl+W closes innermost-first: with a pin up it pops the pane (LIFO)
+    // and the tab survives.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
+    await sleep(500)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 1, 'a bare click pins with the remembered direction')
+    await win.keyboard.press('Control+w')
+    await sleep(400)
+    ok(
+      (await win.locator('[data-pane="pinned"]').count()) === 0 &&
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+      'Ctrl+W pops the pinned pane first; the tab stays'
+    )
+
+    // Open in new tab, from the same menu.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    await sleep(700)
+    ok(
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      'Open in new tab spawns a tab'
+    )
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    await sleep(400)
+
+    // Duplicate makes "README (2).md" appear in the tree. (No Escape first:
+    // the menu is already closed, and a bare-window Escape closes Prism.)
     await row.click({ button: 'right' })
     await win.click('[role="menuitem"]:has-text("Duplicate")')
     await win.waitForSelector('[role="treeitem"]:has-text("README (2).md")', { timeout: 8000 })
@@ -921,6 +1060,58 @@ async function tabsScenario(fixtures) {
     await handoff(join(fixtures, 'notes.txt'))
     ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
 
+    // The new-tab Settings: a remembered folder, and a terminal-first tab.
+    await win.evaluate((dir) => {
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', dir)
+      localStorage.setItem('prism.newtab.show', 'terminal')
+    }, join(fixtures, 'code'))
+    await win.keyboard.press('Control+t')
+    await sleep(800)
+    ok(
+      (await tabRows().count()) === 3 &&
+        ((await tabRows().last().textContent()) ?? '').includes('code'),
+      'a new tab roots at the remembered folder'
+    )
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(true, 'and opens showing a terminal, per the setting')
+    await win.evaluate(() => {
+      localStorage.setItem('prism.newtab.mode', 'home')
+      localStorage.setItem('prism.newtab.show', 'file')
+    })
+    await win.keyboard.press('Control+`') // hide, so the close is clean
+    await sleep(300)
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(500)
+    ok((await tabRows().count()) === 2, 'and closes again')
+
+    // The ask-before-closing option: on, Ctrl+W asks; Cancel keeps the tab;
+    // asking again and confirming closes it. (Seeded off for every other flow.)
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
+    // Aim Ctrl+W at the code tab, so the fixtures tab (which the rest of the
+    // scenario leans on) stays put.
+    await tabRows().last().click()
+    await sleep(300)
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
+      'with the option on, closing a tab asks first'
+    )
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    await sleep(300)
+    ok((await tabRows().count()) === 2, 'Cancel keeps the tab')
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Close tab")').click()
+    await sleep(400)
+    ok((await tabRows().count()) === 1, 'confirming closes it')
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
+    // recreate the code tab, restoring the order the flow below expects
+    await handoff(join(fixtures, 'code', 'bad.json'))
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(400)
+
     // Closing back to one leaves the strip, and the tab, in place.
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
@@ -961,6 +1152,390 @@ async function tabsScenario(fixtures) {
   } finally {
     await app.close()
   }
+
+  // Explorer-opens-a-file WITH saved tabs to restore: the new tab's root must
+  // survive the restore traffic. This raced once: the first restored tab's
+  // report replaced main's root set while the new file's payload was still in
+  // flight, its listDir was refused, and the sidebar cached "can't read".
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'code', 'nested', 'level-two', 'buried.py'), true))
+  try {
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(800) // let the tree load (or cache a refusal, when broken)
+    ok(
+      await win
+        .locator('[role="treeitem"]:has-text("buried.py")')
+        .isVisible()
+        .catch(() => false),
+      'a file opened alongside restored tabs still gets its folder tree'
+    )
+    const note = ((await win.locator('aside').textContent()) ?? '').includes("can't read")
+    ok(!note, 'and the sidebar does not claim the folder is unreadable')
+  } finally {
+    await app.close()
+  }
+}
+
+async function terminalScenario(fixtures) {
+  console.log('terminal')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    // The base font size pref applies to new terminals (125% of 13 = 16px).
+    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '125'))
+    // A tab's width must not change when its terminal opens: the dot slot is
+    // there from birth. Measure before and after.
+    const tabWidth = () =>
+      win.evaluate(() => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getBoundingClientRect().width ?? 0)
+    const widthBefore = await tabWidth()
+    // The button lives on the sidebar's footer row now.
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(Math.abs((await tabWidth()) - widthBefore) < 1, 'opening a terminal does not widen the tab')
+    ok(
+      (await win.evaluate(() => document.querySelector('.xterm')?.querySelector('.xterm-rows') && getComputedStyle(document.querySelector('.xterm .xterm-rows')).fontSize)) === '16px',
+      'the Settings base font size applies (125% = 16px)'
+    )
+    // Ctrl+scroll zooms this one session, unpersisted.
+    await win.locator('.xterm').hover()
+    await win.keyboard.down('Control')
+    await win.mouse.wheel(0, -240)
+    await win.keyboard.up('Control')
+    await sleep(400)
+    ok(
+      (await win.evaluate(() => getComputedStyle(document.querySelector('.xterm .xterm-rows')).fontSize)) !== '16px',
+      'Ctrl+scroll zooms the session text'
+    )
+    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '100'))
+    ok(
+      !(await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'opening the terminal takes the FULL view: the document steps aside'
+    )
+    await sleep(3000) // a cold pwsh takes a moment to prompt
+    await win.keyboard.type('echo prism-e2e-marker')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('prism-e2e-marker'),
+      null,
+      { timeout: 15000 }
+    )
+    ok(true, 'the shell echoes back through the pty')
+
+    // Hide, then show: same session, scrollback intact, shell still alive.
+    await win.keyboard.press('Control+`')
+    await sleep(300)
+    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` hides the panel')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
+    await sleep(300)
+    ok(
+      ((await win.locator('.xterm').textContent()) ?? '').includes('prism-e2e-marker'),
+      'reopening shows the same shell, scrollback intact'
+    )
+
+    const countMarker = async () =>
+      (((await win.locator('.xterm').textContent()) ?? '').match(/prism-e2e-marker/g) ?? []).length
+
+    // PSReadLine renders the input line in colour; through the pty that
+    // arrives as SGR and xterm draws it as styled spans. White-on-dark only
+    // would mean the highlighting chain is broken somewhere.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('echo hi')
+    await sleep(600)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('.xterm [class*="xterm-fg-"]').length)) > 0,
+      'the input line is syntax-highlighted (PSReadLine colours reach xterm)'
+    )
+    await win.keyboard.press('Escape') // RevertLine: a clean prompt again
+    await sleep(300)
+
+    // The ghost suggestion: history holds the earlier echo, so its prefix
+    // summons the rest as inline text, and RightArrow accepts the whole line.
+    const base = await countMarker()
+    await win.keyboard.type('echo pri')
+    await sleep(1200)
+    ok((await countMarker()) >= base + 1, 'typing a prefix shows the history suggestion as ghost text')
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      (n) => ((document.querySelector('.xterm')?.textContent ?? '').match(/prism-e2e-marker/g) ?? []).length >= n,
+      base + 2,
+      { timeout: 10000 }
+    )
+    ok(true, 'RightArrow accepts the suggestion and it runs')
+
+    // Tab-management hotkeys pierce a focused shell: Ctrl+T spawns a tab from
+    // inside the terminal, Ctrl+Tab cycles back to this one.
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+t')
+    await sleep(700)
+    ok(
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      'Ctrl+T works while the terminal is focused'
+    )
+    await win.keyboard.press('Control+Tab')
+    await sleep(400)
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    await sleep(500)
+    ok(
+      (await win.locator('[role="tablist"]').count()) === 0 ||
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+      'and the spawned tab closes again'
+    )
+    await win.locator('.xterm').click()
+    await win.keyboard.type('echo still-here')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-here'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'the shell was untouched by the tab keys')
+
+    // Ctrl+B toggles the sidebar from inside the shell too.
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('aside[aria-hidden="true"]').count()) === 1, 'Ctrl+B shuts the sidebar from the terminal')
+    await win.keyboard.press('Control+b')
+    await sleep(400)
+    ok((await win.locator('aside[aria-hidden="false"]').count()) === 1, 'and brings it back')
+
+    // Ctrl+W pierces the shell too: with the ask option on, the question
+    // appears while the terminal is focused, and Cancel keeps everything.
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+w')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
+      'Ctrl+W asks from inside the terminal'
+    )
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    await sleep(300)
+    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
+    await win.locator('.xterm').click()
+
+    // The terminal button's own menu: split, and clear.
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open in split view")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 1,
+      'right-clicking the terminal button offers split and clear'
+    )
+    await win.locator('[role="menuitem"]:has-text("Clear terminal")').click()
+    await sleep(500)
+    ok((await countMarker()) === 0, 'Clear terminal wipes screen and scrollback')
+    ok(
+      ((await win.locator('.xterm').textContent()) ?? '').includes('PS '),
+      'but the prompt (same shell, same cwd) is still there'
+    )
+    await win.locator('.xterm').click()
+
+    // The activity indicator: streaming output lights the tab's dot, quiet
+    // turns it off. ping -n 3 emits for ~2s, like an AI CLI's spinner would.
+    // The pty must be the WINDOW's size, not the 80x24 spawn default: a
+    // dropped first resize is how Ink UIs end up drawing a tiny layout in the
+    // middle of a maximized window.
+    await win.keyboard.type('"COLS=$($Host.UI.RawUI.BufferSize.Width)"')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => /COLS=\d+/.test(document.querySelector('.xterm')?.textContent ?? ''),
+      null,
+      { timeout: 10000 }
+    )
+    const cols = Number(
+      /COLS=(\d+)/.exec((await win.locator('.xterm').textContent()) ?? '')?.[1] ?? 0
+    )
+    ok(cols > 90, `the shell was born at the window's size, not 80x24 (cols=${cols})`)
+
+    // The dots are AGENT-scoped now: a plain terminal never shows one, no
+    // matter how hard it streams.
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+      'a plain terminal shows no indicator'
+    )
+    await win.keyboard.type('ping -n 3 127.0.0.1')
+    await win.keyboard.press('Enter')
+    await sleep(3500)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+      'even sustained streaming lights nothing without an agent'
+    )
+
+    // A real agent: claude starts, the poll finds it in the shell's process
+    // tree, a dot appears; leaving claude retires it. Nothing is submitted.
+    await win.keyboard.type('claude')
+    await win.keyboard.press('Enter')
+    // Detection is invisible while idle now: presence is a data attribute,
+    // and the tab PAINTS only while the agent genuinely works.
+    await win.waitForSelector('[data-agent-present]', { timeout: 30000 })
+    ok(true, 'claude in the shell is detected')
+    await sleep(1500)
+    ok(
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+      'and an idle claude leaves the tab looking default'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    // Exit can need more than one nudge (a double-Ctrl+C confirm, focus
+    // wobble); keep nudging until the process is genuinely gone.
+    let dotGone = false
+    for (let i = 0; i < 6 && !dotGone; i += 1) {
+      await win.locator('.xterm').click()
+      await win.keyboard.press('Control+c')
+      await sleep(500)
+      await win.keyboard.press('Control+c')
+      dotGone = await win
+        .waitForFunction(() => !document.querySelector('[data-agent-present]'), null, {
+          timeout: 7000
+        })
+        .then(() => true)
+        .catch(() => false)
+    }
+    if (!dotGone)
+      console.log(
+        '  TERM TAIL:',
+        JSON.stringify(((await win.locator('.xterm').textContent()) ?? '').slice(-400))
+      )
+    ok(dotGone, 'claude leaving clears the detection')
+
+    // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
+    await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
+    await win.locator('.xterm').click()
+    await win.keyboard.press('Control+v')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('paste-marker'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'text on the clipboard becomes a bracketed paste')
+    await win.keyboard.press('Escape') // clear the pasted line (PSReadLine)
+
+    // The image half: Ctrl+V with an image forwards the ^V key instead of
+    // pasting text, so nothing appears - and the shell stays healthy.
+    // The previous clipboard TEXT must not reappear: with an image on the
+    // clipboard the ^V key is forwarded for the TUI to read, and nothing gets
+    // text-pasted. (Exact before/after equality is too strict now that
+    // PSReadLine actively redraws the input line.)
+    const countPaste = async () =>
+      (((await win.locator('.xterm').textContent()) ?? '').match(/paste-marker/g) ?? []).length
+    const beforeN = await countPaste()
+    // The Windows clipboard is a shared resource and writeImage can silently
+    // lose the race to whoever holds it open; write until it verifiably took.
+    // A canvas-made PNG is valid by construction (hand-rolled base64 proved
+    // twice today that it is not).
+    const pngUrl = await win.evaluate(() => {
+      const c = document.createElement('canvas')
+      c.width = 8
+      c.height = 8
+      const g = c.getContext('2d')
+      g.fillStyle = '#c0392b'
+      g.fillRect(0, 0, 8, 8)
+      return c.toDataURL('image/png')
+    })
+    let clipHasImage = false
+    for (let i = 0; i < 5 && !clipHasImage; i += 1) {
+      clipHasImage = await app.evaluate(({ clipboard, nativeImage }, url) => {
+        // clear() first: writeImage does not reliably evict an existing text
+        // format, and a text+image clipboard is a DIFFERENT (also correct)
+        // path - the plain shell pastes the text half. This test wants the
+        // image-only screenshot case.
+        clipboard.clear()
+        clipboard.writeImage(nativeImage.createFromDataURL(url))
+        const f = clipboard.availableFormats()
+        return f.some((x) => x.startsWith('image/')) && !f.includes('text/plain')
+      }, pngUrl)
+      if (!clipHasImage) await sleep(400)
+    }
+    ok(clipHasImage, 'the clipboard verifiably holds the image (harness precondition)')
+    const screenText = () =>
+      win.evaluate(() => document.querySelector('.xterm-screen')?.textContent ?? '')
+    const screenBefore = await screenText()
+    await win.keyboard.press('Control+v')
+    await sleep(800)
+    // NOT exact equality: PSReadLine's redraw may clean stale render artifacts
+    // of the earlier reverted paste (observed 2 -> 0). The claim is only that
+    // no NEW text appeared from a ^V with an image on the clipboard.
+    void screenBefore
+    const nowN = await countPaste()
+    ok(nowN <= beforeN, 'an image on the clipboard pastes no text (the ^V key is forwarded)')
+    await win.keyboard.type('echo still-alive')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('still-alive'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'and the shell is untroubled by it')
+
+    await win.screenshot({ path: join(SHOTS, 'terminal.png') })
+
+    // Clicking a file over a FULL terminal means "show me this file": the
+    // shell hides (still running) and the file takes the room.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await sleep(500)
+    ok(
+      (await win.locator('.xterm').count()) === 0 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'clicking a file collapses a full terminal to the file'
+    )
+
+    // The terminal split is menu-only now (Ctrl+D retired): the terminal
+    // button's right-click menu opens it.
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
+    await sleep(500)
+    ok(
+      (await win.locator('.xterm').count()) === 1 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'the terminal menu makes the split: document AND terminal'
+    )
+    await win.screenshot({ path: join(SHOTS, 'terminal-split.png') })
+
+    // (The context-menu "Remove from split view" now belongs to PINNED file
+    // panes, tested in the context-menu scenario; a terminal split leaves the
+    // file's menu offering "Open in split view" as usual.)
+
+    // The file pane's X: the file steps out, the terminal takes the full view.
+    await win.locator('[aria-label="Remove the file from the split"]').click()
+    await sleep(400)
+    ok(
+      (await win.locator('.xterm').count()) === 1 &&
+        !(await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'the file pane X leaves the terminal in full view'
+    )
+
+    // Back to split (via the menu), then the terminal pane's X: the file
+    // gets the room.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await sleep(400)
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
+    await sleep(400)
+    await win.locator('[aria-label="Remove the terminal from the split"]').click()
+    await sleep(400)
+    ok(
+      (await win.locator('.xterm').count()) === 0 &&
+        (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
+      'the terminal pane X leaves the file alone'
+    )
+
+    // exit ends the shell; the panel goes with it and the window stays.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
+    await win.locator('.xterm').click()
+    await sleep(300)
+    await win.keyboard.type('exit')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
+    ok(true, 'exit closes the panel')
+    ok(!win.isClosed(), 'window survives the shell')
+  } finally {
+    await app.close()
+  }
 }
 
 rmSync(PROFILE, { recursive: true, force: true })
@@ -973,7 +1548,7 @@ try {
   await sleep(900) // let the single-instance lock go
   await pdfScenario(fixtures)
   await sleep(900)
-  await filterScenario(fixtures)
+  await sortScenario(fixtures)
   await sleep(900)
   await contextMenuScenario(fixtures)
   await sleep(900)
@@ -988,6 +1563,8 @@ try {
   await playerScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
+  await sleep(900)
+  await terminalScenario(fixtures)
 } catch (e) {
   failures += 1
   console.error('scenario crashed:', e)

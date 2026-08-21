@@ -1,5 +1,7 @@
 import type { JSX, MouseEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
+import { useAgentColor, useAgentIndicator } from '../lib/termLook'
+import { contrastRatio } from '../lib/termAnsi'
 
 /**
  * The open projects, as a row under the title bar.
@@ -11,13 +13,21 @@ import { tabLabels, type Tab } from '../lib/tabs'
 export function TabStrip({
   tabs,
   activeId,
+  workingIds,
+  agentIds,
   onPick,
   onClose,
   onNew,
+  onDropFile,
   wash
 }: {
   tabs: Tab[]
   activeId: string | null
+  /** Sessions with SUSTAINED recent output: with an agent present, this IS
+   *  the indicator. Idle looks default - only working paints. */
+  workingIds: ReadonlySet<string>
+  /** Sessions whose shell currently hosts an AI CLI (Claude Code, codex). */
+  agentIds: ReadonlySet<string>
   onPick: (id: string) => void
   onClose: (id: string) => void
   /** The + at the end. This one ADDS a tab, rooted at the user's own folder
@@ -25,10 +35,19 @@ export function TabStrip({
    *  opens a chooser, and it replaces the current tab. Different verbs, so
    *  different labels. */
   onNew: () => void
+  /** A file dropped on the strip opens in a new tab. */
+  onDropFile: (path: string) => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
 }): JSX.Element | null {
+  const indicator = useAgentIndicator()
+  const agentColor = useAgentColor()
+  // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
+  // contrast maths picks black on the default orange, but white-on-orange is
+  // the look; black only wins on genuinely light fills (contrast vs black of
+  // 12 is a ~0.55 luminance threshold).
+  const onAgent = contrastRatio('#000000', agentColor) < 12 ? '#ffffff' : '#000000'
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -43,22 +62,80 @@ export function TabStrip({
     <div
       role="tablist"
       aria-label="Open folders"
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-px overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] px-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onDrop={(e) => {
+        // Dropping a file here opens it in a NEW tab; stopPropagation keeps
+        // the window-level drop from opening it in the current one.
+        e.preventDefault()
+        e.stopPropagation()
+        const f = e.dataTransfer.files?.[0]
+        if (f) onDropFile(window.prism.getDroppedPath(f))
+      }}
+      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
+        // The agent indicator: paints ONLY while the agent is genuinely
+        // working - the whole tab filled (full) or just the brain icon tinted
+        // (minimal). Idle shows nothing.
+        const working =
+          indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
+        const loud = working && indicator === 'full'
         return (
           <div
             key={t.id}
-            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 rounded-t px-2.5 transition-colors ${
-              on ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]' : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
+            data-agent={working ? indicator : undefined}
+            data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
+            // Hairline side edges in the divider token: they separate flush
+            // tabs when the style draws edges, and vanish (the token goes
+            // transparent) when it doesn't. Right edges only: the first tab
+            // sits flush against the window's left side, no line before it.
+            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
+              loud
+                ? ''
+                : on
+                  ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]'
+                  : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
+            style={loud ? { background: agentColor, color: onAgent } : undefined}
+            // The WHOLE tab is the click target, not just the label: the
+            // padding, the icon slot and the slack around a short name all
+            // pick the tab. The close button stops propagation to opt out.
+            onClick={() => onPick(t.id)}
             onAuxClick={(e) => auxClose(e, t.id)}
           >
-            {/* The accent is a rule along the top rather than a fill: the strip
-                sits under a bar that is already accent-coloured, and a second
-                block of indigo fought it. */}
-            {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
+            {/* The active mark: an accent rule along the top. It yields while
+                the working fill is up - two signals on one tab would fight. */}
+            {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
+            {/* Minimal working mark: the tinted brain plus a bar down the LEFT
+                edge, so a working tab reads at a glance even when narrow. */}
+            {working && indicator === 'minimal' && (
+              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: agentColor }} aria-hidden />
+            )}
+            {/* A permanent icon slot: the brain appears in it while the
+                agent works (tinted in minimal, on-colour in full) and it is
+                transparent otherwise - so the tab NEVER changes width. */}
+            <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!working}>
+              {working && (
+                <svg
+                  data-activity="working"
+                  viewBox="0 0 24 24"
+                  width={13}
+                  height={13}
+                  fill="none"
+                  stroke={indicator === 'full' ? 'currentColor' : agentColor}
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-label="Agent working"
+                >
+                  <path d="M9.5 4a2.7 2.7 0 0 0-2.7 2.7c-1.5.3-2.6 1.6-2.6 3.2 0 .8.3 1.6.8 2.1a3.2 3.2 0 0 0 1.3 5.4A2.9 2.9 0 0 0 9.2 20c.5 0 1-.1 1.3-.4V4.5A2.6 2.6 0 0 0 9.5 4zM14.5 4a2.7 2.7 0 0 1 2.7 2.7c1.5.3 2.6 1.6 2.6 3.2 0 .8-.3 1.6-.8 2.1a3.2 3.2 0 0 1-1.3 5.4A2.9 2.9 0 0 1 14.8 20c-.5 0-1-.1-1.3-.4V4.5a2.6 2.6 0 0 1 1-.5z" />
+                </svg>
+              )}
+            </span>
             <button
               role="tab"
               aria-selected={on}
@@ -75,7 +152,10 @@ export function TabStrip({
               }`}
               title={`Close ${labels[i]} (Ctrl+W)`}
               aria-label={`Close ${labels[i]}`}
-              onClick={() => onClose(t.id)}
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose(t.id)
+              }}
             >
               <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
                 <path d="M6 6l12 12M18 6L6 18" />

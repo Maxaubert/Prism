@@ -17,6 +17,12 @@ export interface SavedTab {
   root: string
   /** The file that tab was showing. Absent if it was showing none. */
   file?: string
+  /** The terminal was showing, in this view. The shell itself dies with the
+   *  app; this remembers only that the tab should come back AS a terminal. */
+  term?: 'full' | 'split'
+  /** The shell hosted a CLAUDE session when the strip was saved: restore may
+   *  resume it (`claude --continue` rebuilds the conversation per folder). */
+  agent?: boolean
 }
 
 export interface SavedTabs {
@@ -63,11 +69,14 @@ export function parseTabs(raw: string): SavedTabs {
   const tabs: SavedTab[] = []
   for (const entry of list) {
     if (!entry || typeof entry !== 'object') continue
-    const { root, file } = entry as { root?: unknown; file?: unknown }
+    const { root, file, term, agent } = entry as { root?: unknown; file?: unknown; term?: unknown; agent?: unknown }
     if (typeof root !== 'string' || !isFolder(root)) continue
-    tabs.push(
-      typeof file === 'string' && existsSync(file) ? { root, file } : { root }
-    )
+    const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
+    if (term === 'full' || term === 'split') {
+      tab.term = term
+      if (agent === true) tab.agent = true // only meaningful with a terminal
+    }
+    tabs.push(tab)
   }
   // Follow the tab that was in front, not the index it happened to sit at.
   const active = tabs.findIndex((t) => t.root === activeRoot)

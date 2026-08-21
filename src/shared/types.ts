@@ -75,4 +75,29 @@ export interface OpenPayload {
    *  viewable: the tree is still rooted there, the viewer just has no file. */
   index: number
   root: string
+  /** Restore only: the tab had a terminal showing in this view when the app
+   *  closed, so reopen one (a fresh shell - sessions die with the app). A tab
+   *  that lived as a Claude session must come back as a terminal, not as an
+   *  empty viewer. */
+  term?: 'full' | 'split'
+  /** Restore only: the SESSION ID of the Claude conversation the terminal
+   *  hosted at close. The fresh shell launches `claude --resume <id>` as its
+   *  startup command - the ONE command Prism ever writes itself (owner
+   *  decision, 2026-08-21), and never typed on screen. */
+  agentResume?: string
+  /** Restore only: this payload rebuilds a SAVED tab. It always becomes its
+   *  own tab - the arriving-file rule folds same-root payloads into one, and
+   *  folding a restore silently deletes a tab the user had. */
+  restore?: boolean
+  /** Restore only: this saved tab was the ACTIVE one - it takes the front.
+   *  The rest restore behind whatever is already showing. */
+  restoreActive?: boolean
+}
+
+/** A shell main detected on this machine; the only things term:spawn launches. */
+export interface ShellDef {
+  id: string
+  name: string
+  exe: string
+  args: string[]
 }
