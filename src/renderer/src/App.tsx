@@ -271,11 +271,13 @@ function Viewer({
 
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
 function PinnedPaneView({
+  paneId,
   path,
   area,
   onClose,
   viewerProps
 }: {
+  paneId: string
   path: string
   area: string
   onClose: () => void
@@ -287,6 +289,7 @@ function PinnedPaneView({
   return (
     <div
       data-pane="pinned"
+      data-pane-id={paneId}
       className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
       style={{ gridArea: area }}
     >
@@ -850,6 +853,7 @@ export default function App(): JSX.Element {
         window.prism.openWithin(active.root, p).then((payload) => {
           if (!payload) return
           open(payload)
+          setPaneFocus('live') // the clicked file is the live pane's
           // Clicking a file means "show me this file". Over a FULL terminal
           // that hides the shell (still running) and gives the file the room;
           // in split the file simply lands in its pane, terminal untouched.
@@ -905,6 +909,53 @@ export default function App(): JSX.Element {
    * direction is remembered, a bare click reuses it, and the fourth window
    * FIFO-evicts the oldest pin.
    */
+  /**
+   * Which window of a split the user is IN: the live pane, a pinned pane (by
+   * id), or the terminal. The sidebar's selected row follows it - the file in
+   * the focused window is the one marked, and a focused terminal marks none.
+   * Tracked from real pointer-downs and focus, so it needs no plumbing through
+   * the viewers: each region wears a data attribute and the listener resolves
+   * the innermost one.
+   */
+  const [paneFocus, setPaneFocus] = useState<'live' | 'term' | string>('live')
+  // Opening a file in split view refocuses the terminal panel as it re-docks;
+  // that focus is mechanical, not the user choosing the shell, and must not
+  // steal the selection from the file that was just opened.
+  const ignoreTermFocusUntil = useRef(0)
+  useEffect(() => {
+    const resolve = (target: EventTarget | null): void => {
+      const el = target instanceof Element ? target : null
+      const region = el?.closest('[data-pane], [data-term-region]')
+      if (!region) return
+      if (region.hasAttribute('data-term-region')) {
+        if (Date.now() >= ignoreTermFocusUntil.current) setPaneFocus('term')
+        return
+      }
+      const kind = region.getAttribute('data-pane')
+      if (kind === 'pinned') setPaneFocus(region.getAttribute('data-pane-id') ?? 'live')
+      else setPaneFocus('live')
+    }
+    const down = (e: PointerEvent): void => resolve(e.target)
+    const focus = (e: FocusEvent): void => resolve(e.target)
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('focusin', focus, true)
+    return () => {
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('focusin', focus, true)
+    }
+  }, [])
+  // The focused thing can vanish: its pane unpinned, the terminal hidden, the
+  // tab switched. Focus falls back to the live pane rather than pointing at
+  // nothing.
+  useEffect(() => setPaneFocus('live'), [activeId])
+  useEffect(() => {
+    setPaneFocus((f) => {
+      if (f === 'term') return active?.term && active.term.view !== 'hidden' ? f : 'live'
+      if (f !== 'live' && !active?.panes.some((pn) => pn.id === f)) return 'live'
+      return f
+    })
+  }, [active])
+
   const paneSeq = useRef(0)
   const pinSplit = useCallback(
     (path: string, dir?: SplitDir) => {
@@ -919,13 +970,21 @@ export default function App(): JSX.Element {
         pickDock(opposite[d])
         applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
         void window.prism.openWithin(active.root, path).then((p) => p && open(p))
+        // The just-opened file is the one selected, not the shell the re-dock
+        // is about to mechanically refocus.
+        ignoreTermFocusUntil.current = Date.now() + 800
+        setPaneFocus('live')
         return
       }
+      // A re-pin keeps its pane (pinPane moves it), so focus its EXISTING id.
+      const already = active?.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
+      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
-        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, `pane-${(paneSeq.current += 1)}`, path, d)) }
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, paneId, path, d)) }
       })
+      setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
     [active, applyTermView, open, pickDock]
   )
@@ -1329,7 +1388,14 @@ export default function App(): JSX.Element {
             onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
             onTree={onTree}
-            currentPath={file?.path ?? null}
+            // The selected row follows the FOCUSED window of a split: a pinned
+            // pane marks its file, the terminal marks nothing, the live pane
+            // (and the no-split default) marks the open file.
+            currentPath={
+              paneFocus === 'term'
+                ? null
+                : (active.panes.find((pn) => pn.id === paneFocus)?.path ?? file?.path ?? null)
+            }
             // Only the open file can hold unsaved text, so one flag is enough
             // to mark the one row that needs marking.
             dirtyPaths={dirtyPaths}
@@ -1403,6 +1469,7 @@ export default function App(): JSX.Element {
                 {pins.map((pn, i) => (
                   <PinnedPaneView
                     key={pn.id}
+                    paneId={pn.id}
                     path={pn.path}
                     area={areas.pinned[i]}
                     onClose={() => unpinSplitId(pn.id)}

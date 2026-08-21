@@ -215,6 +215,8 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
   const pad = 4 + depth * t.size.indent
   // The cursor carries the accent wherever it goes, folders included.
   const onCursor = !!t.cursor && t.cursor.toLowerCase() === path.toLowerCase()
+  // The right-clicked row keeps its hover look while its menu is up.
+  const onMenuHl = !!t.menuPath && t.menuPath.toLowerCase() === path.toLowerCase()
   return (
     <li role="none">
       {t.editing === path ? (
@@ -248,7 +250,9 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
             onCursor
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-              : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+              : onMenuHl
+                ? 'bg-[var(--p-hover)] text-[var(--p-text)]'
+                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
@@ -320,6 +324,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         // second highlight competing with the first was more noise than help.
         // `aria-selected` still says so for anything reading the tree.
         const onCursor = !!t.cursor && f.path.toLowerCase() === t.cursor.toLowerCase()
+        // The right-clicked row keeps its hover look while its menu is up.
+        const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
         return (
           <li key={f.path} role="none">
             <button
@@ -342,9 +348,11 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
                 onCursor
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
-                  : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
-                      unsaved ? 'font-bold text-[var(--p-text)]' : ''
-                    }`
+                  : onMenuHl
+                    ? `bg-[var(--p-hover)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
+                    : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
+                        unsaved ? 'font-bold text-[var(--p-text)]' : ''
+                      }`
               }`}
               style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
             >

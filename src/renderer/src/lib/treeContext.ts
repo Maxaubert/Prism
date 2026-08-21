@@ -17,6 +17,9 @@ export interface TreeApi {
   size: (typeof TREE_SIZES)[number]
   /** Path of the file being renamed right now, if any. */
   editing: string | null
+  /** The row whose context menu is open: it holds the hover highlight while
+   *  the menu is up, so the menu visibly belongs to it. */
+  menuPath: string | null
   /** The navigation filter, applied to the rows as well: a file row renders
    *  only when this says so. Folders always render. */
   onToggle: (path: string) => void
