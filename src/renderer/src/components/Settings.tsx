@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, saveCustomTermTheme, setTermFontPct, setTermThemeId, useCustomTermTheme, useTermFontPct, useTermThemeId, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, saveCustomTermTheme, setAgentIndicator, setTermFontPct, setTermThemeId, useAgentIndicator, useCustomTermTheme, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, normalizeColor } from '../lib/termAnsi'
 import {
@@ -969,6 +969,7 @@ function TerminalTab(): JSX.Element {
     : (shells[0]?.id ?? '')
   const themeId = useTermThemeId()
   const fontPct = useTermFontPct()
+  const agentInd = useAgentIndicator()
   // The follow-style card mirrors the LIVE style, derived ANSI included, and
   // repaints when the style does.
   const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
@@ -1115,6 +1116,21 @@ function TerminalTab(): JSX.Element {
           />
         )}
       </div>
+      <Pref
+        id="agent-indicator"
+        label="Agent indicator"
+        hint="How a tab shows Claude or codex working. Idle tabs stay default."
+      >
+        <Select
+          id="agent-indicator"
+          value={agentInd}
+          onChange={(v) => setAgentIndicator(v as AgentIndicator)}
+          options={[
+            { id: 'full', name: 'Full - tab turns orange' },
+            { id: 'minimal', name: 'Minimal - edge bar' }
+          ]}
+        />
+      </Pref>
       <Pref
         id="term-font"
         label="Font size"

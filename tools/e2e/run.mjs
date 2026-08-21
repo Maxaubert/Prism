@@ -1273,14 +1273,14 @@ async function terminalScenario(fixtures) {
     // The dots are AGENT-scoped now: a plain terminal never shows one, no
     // matter how hard it streams.
     ok(
-      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length)) === 0,
-      'a plain terminal shows no dot'
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+      'a plain terminal shows no indicator'
     )
     await win.keyboard.type('ping -n 3 127.0.0.1')
     await win.keyboard.press('Enter')
     await sleep(3500)
     ok(
-      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length)) === 0,
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
       'even sustained streaming lights nothing without an agent'
     )
 
@@ -1288,11 +1288,14 @@ async function terminalScenario(fixtures) {
     // tree, a dot appears; leaving claude retires it. Nothing is submitted.
     await win.keyboard.type('claude')
     await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-activity="working"], [data-activity="done"]', { timeout: 30000 })
-    // The dot must be BORN amber: startup painting is not the agent working.
+    // Detection is invisible while idle now: presence is a data attribute,
+    // and the tab PAINTS only while the agent genuinely works.
+    await win.waitForSelector('[data-agent-present]', { timeout: 30000 })
+    ok(true, 'claude in the shell is detected')
+    await sleep(1500)
     ok(
-      (await win.evaluate(() => document.querySelector('[data-activity="working"],[data-activity="done"]')?.getAttribute('data-activity'))) === 'done',
-      'claude in the shell brings the dot, and it starts amber (idle)'
+      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+      'and an idle claude leaves the tab looking default'
     )
     await win.keyboard.press('Escape')
     await sleep(400)
@@ -1305,11 +1308,9 @@ async function terminalScenario(fixtures) {
       await sleep(500)
       await win.keyboard.press('Control+c')
       dotGone = await win
-        .waitForFunction(
-          () => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length === 0,
-          null,
-          { timeout: 7000 }
-        )
+        .waitForFunction(() => !document.querySelector('[data-agent-present]'), null, {
+          timeout: 7000
+        })
         .then(() => true)
         .catch(() => false)
     }
@@ -1318,7 +1319,7 @@ async function terminalScenario(fixtures) {
         '  TERM TAIL:',
         JSON.stringify(((await win.locator('.xterm').textContent()) ?? '').slice(-400))
       )
-    ok(dotGone, 'claude leaving retires the dot')
+    ok(dotGone, 'claude leaving clears the detection')
 
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))

@@ -38,6 +38,22 @@ export function termBaseFontPx(): number {
   return Math.round((TERM_BASE_FONT_PX * termFontPct()) / 100)
 }
 
+const AGENT_IND_KEY = 'prism.term.agentIndicator'
+
+export type AgentIndicator = 'minimal' | 'full'
+
+/** How a working agent shows on its tab: a left edge bar, or the whole tab
+ *  turning. Full is the default - the point of the indicator is to be seen
+ *  across a row of tabs. Idle always looks default; only WORKING paints. */
+export function agentIndicator(): AgentIndicator {
+  return localStorage.getItem(AGENT_IND_KEY) === 'minimal' ? 'minimal' : 'full'
+}
+
+export function setAgentIndicator(v: AgentIndicator): void {
+  localStorage.setItem(AGENT_IND_KEY, v)
+  notify()
+}
+
 const CUSTOM_KEY = 'prism.term.custom'
 
 export interface CustomTermTheme {
@@ -79,6 +95,9 @@ export function useTermThemeId(): string {
 }
 export function useTermFontPct(): number {
   return useSyncExternalStore(sub, termFontPct)
+}
+export function useAgentIndicator(): AgentIndicator {
+  return useSyncExternalStore(sub, agentIndicator)
 }
 export function useCustomTermTheme(): CustomTermTheme | null {
   // Cache per notify tick: useSyncExternalStore needs a stable snapshot.
