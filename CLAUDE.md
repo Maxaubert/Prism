@@ -212,7 +212,12 @@ Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position
 off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
 truly hidden window stops answering clicks and screenshots, so parking it is the way.
 `npm run package` builds the NSIS installer;
-version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user, GitHub Releases.
+version lives in `package.json`. **Releasing is automated** (2026-08-21):
+`.github/workflows/release.yml` builds and publishes on every push to main - a new
+`package.json` version creates release `v<version>` with generated notes, a push on an existing
+version replaces that release's installer in place. Bump the version when a release should be
+NEW; CI gates are typecheck + unit tests only (the e2e needs this machine). Unsigned, per-user,
+GitHub Releases.
 
 **Installing is the LAST verification step, every time work is finished** - after tests,
 typecheck, lint and e2e, and not something to ask about first. Tests and e2e drive the built

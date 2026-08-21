@@ -1,0 +1,59 @@
+# Every push to main ships: build the NSIS installer and publish it as a
+# GitHub Release named after package.json's version. A NEW version creates the
+# release (with generated notes from the merged PRs); a push on an EXISTING
+# version replaces that release's installer in place, so the download always
+# matches main.
+#
+# The gates here are typecheck + unit tests. The e2e suite deliberately does
+# NOT run on CI: it drives real windows, real shells and a real claude CLI on
+# the dev machine, none of which exist on a runner. It remains the local
+# pre-PR gate (CLAUDE.md).
+name: release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-main
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      # Unsigned, per-user NSIS; node-pty ships N-API prebuilds so no native
+      # toolchain is involved (npmRebuild is false in the builder config).
+      - run: npm run package
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $exe = "dist/Prism-Setup-x64-$v.exe"
+          if (-not (Test-Path $exe)) { throw "installer not found: $exe" }
+          gh release view "v$v" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "v$v" $exe --clobber
+            Write-Host "updated the v$v installer in place"
+          } else {
+            gh release create "v$v" $exe --title "Prism $v" --generate-notes --latest
+            Write-Host "created release v$v"
+          }
