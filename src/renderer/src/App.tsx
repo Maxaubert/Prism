@@ -533,48 +533,29 @@ export default function App(): JSX.Element {
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
-   * Fullscreen as a GROW, not a cut: the rect the viewer occupied is recorded
-   * at request time (setFs), and once the OS has swapped the frame, the viewer
-   * animates from that old rect into its new one (FLIP) - entering, it swells
-   * to fill the screen; leaving, it settles back into the window. When no rect
-   * was recorded, a small scale-and-fade stands in.
+   * Fullscreen the way the streaming services do it: a quick fade to black,
+   * the frame swaps behind the dark, and the picture fades back in. The black
+   * covers the ENTIRE window (chrome included), so nothing is seen jumping.
+   * Reduced-motion gets the instant swap.
    */
-  const viewerBox = useRef<HTMLDivElement>(null)
-  const fsRect = useRef<DOMRect | null>(null)
-  const fsPrev = useRef(false)
+  const [fsVeil, setFsVeil] = useState(false)
   const setFs = useCallback((on: boolean) => {
-    fsRect.current = viewerBox.current?.getBoundingClientRect() ?? null
-    window.prism.setFullscreen(on)
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      window.prism.setFullscreen(on)
+      return
+    }
+    setFsVeil(true)
+    // Ask for the swap once the veil is opaque; the fade-out runs when the
+    // fullscreen state lands (effect below).
+    setTimeout(() => window.prism.setFullscreen(on), 140)
   }, [])
+  const fsPrev = useRef(false)
   useEffect(() => {
     if (fsPrev.current === fullscreen) return
     fsPrev.current = fullscreen
-    const el = viewerBox.current
-    const prev = fsRect.current
-    fsRect.current = null
-    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const now = el.getBoundingClientRect()
-    if (prev && prev.width > 8 && now.width > 8 && now.height > 8) {
-      el.animate(
-        [
-          {
-            transformOrigin: '0 0',
-            transform: `translate(${prev.left - now.left}px, ${prev.top - now.top}px) scale(${prev.width / now.width}, ${prev.height / now.height})`,
-            opacity: 0.9
-          },
-          { transformOrigin: '0 0', transform: 'none', opacity: 1 }
-        ],
-        { duration: 300, easing: 'cubic-bezier(.16,1,.3,1)' }
-      )
-    } else {
-      el.animate(
-        [
-          { transform: 'scale(0.982)', opacity: 0.5 },
-          { transform: 'none', opacity: 1 }
-        ],
-        { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)' }
-      )
-    }
+    // The frame has swapped under the veil: hold one beat, then lift it.
+    const t = setTimeout(() => setFsVeil(false), 120)
+    return () => clearTimeout(t)
   }, [fullscreen])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
@@ -1512,7 +1493,6 @@ export default function App(): JSX.Element {
             // the same reason hidden shells stay alive.
             termView === 'full' ? 'hidden' : ''
           }`}
-          ref={viewerBox}
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
@@ -1627,6 +1607,14 @@ export default function App(): JSX.Element {
         )}
         </div>
       </div>
+      {/* The fullscreen veil: black over everything for the swap. Always in
+          the DOM so its opacity can transition both ways. */}
+      <div
+        aria-hidden
+        className={`pointer-events-none fixed inset-0 z-[90] bg-black transition-opacity ${
+          fsVeil ? 'opacity-100 duration-[140ms]' : 'opacity-0 duration-[240ms]'
+        }`}
+      />
       <Settings
         open={settingsOpen}
         onShowSetup={() => {

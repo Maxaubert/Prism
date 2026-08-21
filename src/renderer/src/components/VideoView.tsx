@@ -4,14 +4,14 @@ import { usePlayerPrefs } from '../lib/playerPrefs'
 import { useSubtitles } from '../lib/useSubtitles'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
-import { IconFull, IconPause, IconPlay } from './icons'
+import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { resolveVizTheme } from '../lib/theme'
 
 // The video player: the shared media hook + Transport, on a black stage with a
-// video frame, an auto-hiding control overlay, click-to-play with a center flash,
+// video frame, an auto-hiding control overlay, click-to-play,
 // and fullscreen. Everything transport-related lives in the shared pieces; this
 // file only adds the video-specific stage behaviour.
 
@@ -38,7 +38,6 @@ export function VideoView({
   const v = useViz()
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   const [chromeOn, setChromeOn] = useState(true)
-  const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The chrome never hides while the settings menu is open: an invisible menu
   // would keep eating clicks and the first Escape.
@@ -80,12 +79,9 @@ export function VideoView({
     }
   }, [])
 
-  // Click toggles play with a brief center flash; keyboard toggles quietly.
-  const clickToggle = (): void => {
-    setFlash(c.playing ? 'pause' : 'play')
-    setTimeout(() => setFlash(null), 450)
-    c.togglePlay()
-  }
+  // Click toggles play quietly - no centre icon at all (owner decision,
+  // 2026-08-22): the transport says the state, the picture stays clean.
+  const clickToggle = (): void => c.togglePlay()
 
   return (
     <div
@@ -116,18 +112,6 @@ export function VideoView({
           <track key={subtitles.vttUrl} default kind="subtitles" src={subtitles.vttUrl} label="Subtitles" />
         )}
       </video>
-
-      {/* center play/pause flash only - the momentary pulse when you toggle.
-          The RESTING play badge that used to sit over a paused frame was
-          removed (owner decision, 2026-08-22): a paused film should be the
-          picture, not chrome. */}
-      {flash && (
-        <div className="pointer-events-none absolute grid place-items-center">
-          <div className="grid h-20 w-20 place-items-center rounded-full bg-[var(--p-title)]/85 text-[var(--p-text)] backdrop-blur-sm">
-            <div className="scale-[1.6]">{c.playing ? IconPause : IconPlay}</div>
-          </div>
-        </div>
-      )}
 
       {c.error && (
         <div className="absolute inset-0 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center text-sm text-[var(--p-text-soft)]">

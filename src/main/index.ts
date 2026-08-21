@@ -37,6 +37,13 @@ import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from
 // every frame on the composited path makes playing and paused identical (at
 // the cost of the overlay's punchier HDR mapping during playback).
 app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
+// ...and the second half of the same bug: on an HDR desktop Windows applies
+// its SDR-brightness boost to composited content but not to what rides the
+// video pipeline, so the two states of one frame can still differ. Forcing
+// the window to one sRGB profile makes Chromium hand Windows the same kind
+// of pixels in every state - playing and paused match. The cost: HDR videos
+// are tone-mapped to SDR inside Prism rather than passed through.
+app.commandLine.appendSwitch('force-color-profile', 'srgb')
 
 const MEDIA_SCHEME = 'fsmedia'
 protocol.registerSchemesAsPrivileged([
