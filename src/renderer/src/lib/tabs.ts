@@ -1,4 +1,5 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
+import type { PinnedPane } from './panes'
 
 export type TermView = 'hidden' | 'full' | 'split'
 
@@ -40,6 +41,8 @@ export interface Tab {
    *  hidden terminal keeps running. `full` replaces the viewer; `split` shares
    *  with it (the dock). Null until the first open. */
   term: { id: string; view: TermView } | null
+  /** Split-view pins: up to three fixed files beside the live pane. */
+  panes: PinnedPane[]
 }
 
 /** A tree with only its root open and nothing loaded. */
@@ -58,8 +61,14 @@ export function newTab(p: OpenPayload, id: string): Tab {
     files: p.files,
     index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
     tree: emptyTree(p.root),
-    term: null
+    term: null,
+    panes: []
   }
+}
+
+/** Write one tab's pinned panes; every other tab is untouched. */
+export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPane[]): Tab[] {
+  return tabs.map((t) => (t.id === tabId ? { ...t, panes } : t))
 }
 
 /**
@@ -95,7 +104,7 @@ export function setTabTerm(
 export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
   const existing = tabs.find((t) => t.kind === 'settings')
   if (existing) return { tabs: tabs.slice(), activeId: existing.id }
-  const tab: Tab = { id, kind: 'settings', root: '', files: [], index: -1, tree: emptyTree(''), term: null }
+  const tab: Tab = { id, kind: 'settings', root: '', files: [], index: -1, tree: emptyTree(''), term: null, panes: [] }
   return { tabs: [...tabs, tab], activeId: id }
 }
 

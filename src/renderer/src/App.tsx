@@ -1,7 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, splitTermView, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
+import { fileKind } from '@shared/fileKind'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
@@ -265,6 +267,42 @@ function Viewer({
     default:
       return <div className="text-[var(--color-dim)]">Can&apos;t preview this file type yet.</div>
   }
+}
+
+/** One pinned split pane: a fixed file, independent of paging, with its X. */
+function PinnedPaneView({
+  path,
+  area,
+  onClose,
+  viewerProps
+}: {
+  path: string
+  area: string
+  onClose: () => void
+  viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
+}): JSX.Element {
+  const name = path.split(/[\\/]/).pop() ?? path
+  const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
+  const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
+  return (
+    <div
+      data-pane="pinned"
+      className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+      style={{ gridArea: area }}
+    >
+      <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      <button
+        className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
+        onClick={onClose}
+        title="Remove from split view"
+        aria-label={`Remove ${name} from split view`}
+      >
+        <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+  )
 }
 
 function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder: () => void }): JSX.Element {
@@ -841,14 +879,61 @@ export default function App(): JSX.Element {
     [applyTermView]
   )
 
-  /** The context menu: show THIS file, with the terminal beside it. */
-  const openFileSplit = useCallback(
-    (p: string) => {
-      openFromTree(p)
-      applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' }))
-    },
-    [applyTermView, openFromTree]
-  )
+  /**
+   * Split-view pins: "Open in split view" adds the file as a pane beside the
+   * live one - agnostic of what else is showing, files beside files. The
+   * direction is remembered, a bare click reuses it, and the fourth window
+   * FIFO-evicts the oldest pin.
+   */
+  const paneSeq = useRef(0)
+  const pinSplit = useCallback((path: string, dir?: SplitDir) => {
+    const d = dir ?? lastSplitDir()
+    saveSplitDir(d)
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab || tab.kind === 'settings') return s
+      return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, `pane-${(paneSeq.current += 1)}`, path, d)) }
+    })
+  }, [])
+  const unpinSplitId = useCallback((paneId: string) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, paneId)) }
+    })
+  }, [])
+  const unpinSplitPath = useCallback((path: string) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeId)
+      if (!tab) return s
+      const hit = tab.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
+      return hit ? { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, hit.id)) } : s
+    })
+  }, [])
+
+  /** "Open in new tab": a fresh tab rooted at the file's folder, like an
+   *  Explorer open would make, spawned unconditionally. */
+  const openInNewTab = useCallback((path: string) => {
+    void window.prism.openPath(path).then((p) => {
+      if (p) setTabState((s) => addTab(s.tabs, p, nextTabId()))
+    })
+  }, [])
+  /** The terminal menu's version: a new tab on the same root, shell in front. */
+  const openTermInNewTab = useCallback(() => {
+    const root = active?.root
+    if (!root) return
+    void window.prism.openRoot(root).then((p) => {
+      if (!p) return
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.term) return s
+        const termId = nextTermId()
+        termRoots.current.set(termId, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+      })
+    })
+  }, [active])
 
   const toggleFullscreen = useCallback(() => window.prism.setFullscreen(!fullscreen), [fullscreen])
 
@@ -1178,6 +1263,7 @@ export default function App(): JSX.Element {
           activeId={activeId}
           workingIds={workingIds}
           agentIds={agentIds}
+          onDropFile={openInNewTab}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}
@@ -1200,9 +1286,11 @@ export default function App(): JSX.Element {
             onOpenFolder={rerootHere}
             onToggleTerm={toggleTerm}
             termOpen={termView !== 'hidden'}
-            onOpenSplit={openFileSplit}
-            splitPath={termView === 'split' ? (file?.path ?? null) : null}
-            onRemoveSplit={closeFilePane}
+            onPinSplit={pinSplit}
+            onUnpinSplit={unpinSplitPath}
+            pinnedPaths={active.panes.map((pn) => pn.path)}
+            onOpenNewTab={openInNewTab}
+            onTermNewTab={openTermInNewTab}
             onTermSplit={openTermSplit}
             onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
@@ -1240,25 +1328,64 @@ export default function App(): JSX.Element {
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {file && editMode && file.kind === 'text' ? (
-            <Suspense fallback={<EditorLoading />}>
-              <CodeView
-                path={file.path}
-                name={file.name}
-                onClose={() => setEditMode(false)}
-                onSaved={() => {
-                  setEditMode(false)
-                  setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
-                }}
-                onBuffer={onBuffer}
-                getPending={getPending}
-              />
-            </Suspense>
-          ) : file ? (
-            <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
-          ) : (
-            <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
-          )}
+          {(() => {
+            const liveContent =
+              file && editMode && file.kind === 'text' ? (
+                <Suspense fallback={<EditorLoading />}>
+                  <CodeView
+                    path={file.path}
+                    name={file.name}
+                    onClose={() => setEditMode(false)}
+                    onSaved={() => {
+                      setEditMode(false)
+                      setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
+                    }}
+                    onBuffer={onBuffer}
+                    getPending={getPending}
+                  />
+                </Suspense>
+              ) : file ? (
+                <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
+              ) : (
+                <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
+              )
+            const pins = active?.panes ?? []
+            if (!pins.length || fullscreen) return liveContent
+            // The quadrant grid: the live pane plus up to three pinned files,
+            // hairline-separated, one window per corner at the full four.
+            const areas = paneAreas(pins)
+            return (
+              <div
+                className="grid h-full w-full gap-px bg-[var(--p-divider)]"
+                style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
+              >
+                <div
+                  data-pane="live"
+                  className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+                  style={{ gridArea: areas.live }}
+                >
+                  {liveContent}
+                </div>
+                {pins.map((pn, i) => (
+                  <PinnedPaneView
+                    key={pn.id}
+                    path={pn.path}
+                    area={areas.pinned[i]}
+                    onClose={() => unpinSplitId(pn.id)}
+                    viewerProps={{
+                      onToggleFullscreen: toggleFullscreen,
+                      fullscreen,
+                      transportStyle,
+                      onOpenLocal: openFromTree,
+                      onAutoAdvance: () => {},
+                      onBuffer,
+                      getPending
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          })()}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
           {termView === 'split' && !fullscreen && (

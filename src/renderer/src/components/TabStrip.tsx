@@ -18,6 +18,7 @@ export function TabStrip({
   onPick,
   onClose,
   onNew,
+  onDropFile,
   wash
 }: {
   tabs: Tab[]
@@ -34,15 +35,19 @@ export function TabStrip({
    *  opens a chooser, and it replaces the current tab. Different verbs, so
    *  different labels. */
   onNew: () => void
+  /** A file dropped on the strip opens in a new tab. */
+  onDropFile: (path: string) => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
   const agentColor = useAgentColor()
-  // Full mode fills the tab with the chosen colour; the text picks whichever
-  // of white or black actually reads on it.
-  const onAgent = contrastRatio('#ffffff', agentColor) >= contrastRatio('#000000', agentColor) ? '#ffffff' : '#000000'
+  // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
+  // contrast maths picks black on the default orange, but white-on-orange is
+  // the look; black only wins on genuinely light fills (contrast vs black of
+  // 12 is a ~0.55 luminance threshold).
+  const onAgent = contrastRatio('#000000', agentColor) < 12 ? '#ffffff' : '#000000'
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -57,6 +62,18 @@ export function TabStrip({
     <div
       role="tablist"
       aria-label="Open folders"
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onDrop={(e) => {
+        // Dropping a file here opens it in a NEW tab; stopPropagation keeps
+        // the window-level drop from opening it in the current one.
+        e.preventDefault()
+        e.stopPropagation()
+        const f = e.dataTransfer.files?.[0]
+        if (f) onDropFile(window.prism.getDroppedPath(f))
+      }}
       className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] px-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {

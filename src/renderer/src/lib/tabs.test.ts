@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabPanes, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -257,5 +257,21 @@ describe('the settings tab', () => {
     const r = receiveFile(st, payload(SHOOT, []), 'n')
     expect(r.tabs).toHaveLength(2)
     expect(r.tabs[1].kind).toBeUndefined()
+  })
+})
+
+describe('the pinned panes slot', () => {
+  it('starts empty, writes only the named tab, and rerooting clears it', () => {
+    const a = tabOf(SHOOT, [])
+    const b = tabOf(DOCS, [])
+    expect(a.panes).toEqual([])
+    const next = setTabPanes([a, b], a.id, [{ id: 'p1', path: 'x', dir: 'right' }])
+    expect(next[0].panes).toHaveLength(1)
+    expect(next[1].panes).toEqual([])
+    const r = rerootTab(next, a.id, payload(DOCS, []), 'n')
+    // wait - DOCS is already open in tab b, so reroot SWITCHES; use a fresh root
+    const r2 = rerootTab(next, a.id, payload('E:' + String.fromCharCode(92) + 'elsewhere', []), 'n')
+    expect(r2.tabs[0].panes).toEqual([]) // pinned files belong to the old folder
+    void r
   })
 })
