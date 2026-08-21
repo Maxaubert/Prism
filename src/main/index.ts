@@ -19,7 +19,7 @@ import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
-import { treeHasAgent, type ProcRow } from './agentDetect'
+import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -271,7 +271,8 @@ function restoreTabs(): OpenPayload[] {
   const out: OpenPayload[] = []
   for (const t of saved.tabs) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
-    if (payload) out.push(t.term ? { ...payload, term: t.term } : payload)
+    if (payload)
+      out.push(t.term ? { ...payload, term: t.term, ...(t.agent ? { agentResume: true } : {}) } : payload)
   }
   // The active tab goes last: the renderer applies these in order through the
   // same arriving-file rule as everything else, and that rule leaves the tab it
@@ -562,10 +563,11 @@ if (!app.requestSingleInstanceLock()) {
             return
           }
           for (const { id, pid } of livePids()) {
-            const has = treeHasAgent(rows, pid)
+            const kind = treeAgentKind(rows, pid)
+            const has = kind !== null
             if (agentState.get(id) !== has) {
               agentState.set(id, has)
-              mainWindow?.webContents.send('term:agent', id, has)
+              mainWindow?.webContents.send('term:agent', id, has, kind)
             }
           }
           // forget sessions that ended

@@ -133,8 +133,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   ever asked for). cwd starts at the tab's root; hiding keeps the shell running; exit,
   tab close, or quit kill it; rerooting keeps it. A tab whose terminal was SHOWING at quit
   reopens as a terminal (tabs.json remembers the view; the shell itself is fresh) - a
-  Claude-session tab must not come back as an empty viewer (2026-08-21). pwsh by default,
-  Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  Claude-session tab must not come back as an empty viewer (2026-08-21). And a shell that
+  HOSTED CLAUDE at quit resumes the conversation: the fresh shell is sent
+  `claude --continue` (claude rebuilds it per folder from its own store). That is the ONE
+  command Prism ever writes itself - an explicit owner exception (2026-08-21) to the line
+  below, claude-only (agent detection knows the kind; codex and kin are never resumed).
+  pwsh by default, Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
   the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing

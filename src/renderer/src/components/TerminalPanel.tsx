@@ -6,7 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import { onTermLookChange, termAcrylic, termBaseFontPx, termFontStack, termThemeId } from '../lib/termLook'
-import { forgetSession, markTouched, suppressActivity } from '../lib/termActivity'
+import { forgetSession, markTouched, suppressActivity, takeResume } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -184,6 +184,16 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     // The spawn is done: re-assert the real size once. The first fit can race
     // a slow spawn, and a static window will never resize on its own.
     if (sessions.has(id)) window.prism.termResize(id, term.cols, term.rows)
+    // A session restored over a Claude conversation resumes it: the ONE
+    // command Prism ever writes itself (owner decision, 2026-08-21 - claude
+    // rebuilds the conversation per folder from its own store). The delay
+    // lets the prompt and the PSReadLine bootstrap land first.
+    if (sessions.has(id) && takeResume(id)) {
+      markTouched(id) // it is a claude session from the first moment
+      setTimeout(() => {
+        if (sessions.has(id)) window.prism.termInput(id, 'claude --continue\r')
+      }, 1200)
+    }
   })
   return session
 }

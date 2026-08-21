@@ -8,7 +8,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { activitySuppressed, inputEcho, isTouched, suppressActivity } from './lib/termActivity'
+import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -487,6 +487,9 @@ export default function App(): JSX.Element {
         if (tab && !tab.term) {
           const termId = nextTermId()
           termRoots.current.set(termId, tab.root)
+          // The shell hosted a Claude session at close: the fresh one resumes
+          // it once it is up (see TerminalPanel).
+          if (p.agentResume) markResume(termId)
           return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: p.term }) }
         }
       }
@@ -495,38 +498,6 @@ export default function App(): JSX.Element {
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
-  // Tell main what is open, whenever it changes: persistence for next launch.
-  // The root wall is deliberately NOT rebuilt from this snapshot. A report
-  // races payloads still in flight (a restore, plus a file Explorer just
-  // opened), and replacing the set once tore out a root main had registered
-  // for a tab this renderer had not built yet - whose listDir was refused and
-  // cached as "can't read this folder". Instead the wall shrinks only by
-  // explicit drops: a root that stopped being held by ANY tab. A diff against
-  // what we last held cannot remove what we never knew about.
-  const heldRoots = useRef<readonly string[]>([])
-  const hadTabs = useRef(false)
-  useEffect(() => {
-    const folderTabs = tabs.filter((t) => t.kind !== 'settings')
-    const now = folderTabs.map((t) => t.root)
-    for (const was of heldRoots.current) {
-      if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
-    }
-    heldRoots.current = now
-    // Mount says nothing (there is nothing to persist and no root to drop);
-    // once a tab has existed, an empty list is real news: the last tab closed.
-    if (folderTabs.length) hadTabs.current = true
-    else if (!hadTabs.current) return
-    window.prism.tabsChanged(
-      folderTabs.map((t) => ({
-        root: t.root,
-        file: t.files[t.index]?.path,
-        // A visible terminal is part of what the tab IS: a Claude-session tab
-        // must reopen as a terminal next launch, not as an empty viewer.
-        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined
-      })),
-      Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
-    )
-  }, [tabs, activeId])
 
   // Pre-warm: a tab in front with no shell probably gets one soon. After a
   // short dwell, main starts it; opening the terminal then ADOPTS a running
@@ -725,9 +696,13 @@ export default function App(): JSX.Element {
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
   const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
+  /** Which agent each session hosts - resume is claude-only. */
+  const agentKinds = useRef(new Map<string, 'claude' | 'other'>())
   useEffect(
     () =>
-      window.prism.onTermAgent((id, present) => {
+      window.prism.onTermAgent((id, present, kind) => {
+        if (present && (kind === 'claude' || kind === 'other')) agentKinds.current.set(id, kind)
+        else if (!present) agentKinds.current.delete(id)
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
           // box, the loading spinners after it) is a stream, but it is not the
@@ -767,6 +742,44 @@ export default function App(): JSX.Element {
       }),
     []
   )
+  // Tell main what is open, whenever it changes: persistence for next launch.
+  // The root wall is deliberately NOT rebuilt from this snapshot. A report
+  // races payloads still in flight (a restore, plus a file Explorer just
+  // opened), and replacing the set once tore out a root main had registered
+  // for a tab this renderer had not built yet - whose listDir was refused and
+  // cached as "can't read this folder". Instead the wall shrinks only by
+  // explicit drops: a root that stopped being held by ANY tab. A diff against
+  // what we last held cannot remove what we never knew about.
+  const heldRoots = useRef<readonly string[]>([])
+  const hadTabs = useRef(false)
+  useEffect(() => {
+    const folderTabs = tabs.filter((t) => t.kind !== 'settings')
+    const now = folderTabs.map((t) => t.root)
+    for (const was of heldRoots.current) {
+      if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
+    }
+    heldRoots.current = now
+    // Mount says nothing (there is nothing to persist and no root to drop);
+    // once a tab has existed, an empty list is real news: the last tab closed.
+    if (folderTabs.length) hadTabs.current = true
+    else if (!hadTabs.current) return
+    window.prism.tabsChanged(
+      folderTabs.map((t) => ({
+        root: t.root,
+        file: t.files[t.index]?.path,
+        // A visible terminal is part of what the tab IS: a Claude-session tab
+        // must reopen as a terminal next launch, not as an empty viewer.
+        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        // ...and one hosting CLAUDE resumes the conversation on restore.
+        agent:
+          t.term && t.term.view !== 'hidden' && agentIds.has(t.term.id) && agentKinds.current.get(t.term.id) === 'claude'
+            ? true
+            : undefined
+      })),
+      Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
+    )
+  }, [tabs, activeId, agentIds])
+
   // One slow tick derives "working" from the runs; state only changes when
   // the set actually changes, so idle terminals cost nothing.
   useEffect(() => {
