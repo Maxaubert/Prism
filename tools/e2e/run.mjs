@@ -525,6 +525,26 @@ async function contextMenuScenario(fixtures) {
     await sleep(400)
     await win.hover('[role="menuitem"]:has-text("Open in split view")')
     await win.waitForSelector('[role="menuitem"]:has-text("Right")', { timeout: 5000 })
+    // The flyout meets its parent EXACTLY: first row's top on the parent row's
+    // visible surface, panel borders sharing one hairline. Measured, because
+    // constants here have drifted twice.
+    const align = await win.evaluate(() => {
+      const [menu, flyPanel] = document.querySelectorAll('[role="menu"]')
+      const parent = [...menu.querySelectorAll('[role="menuitem"]')].find((el) =>
+        el.textContent.includes('Open in split view')
+      )
+      const first = flyPanel.querySelector('[role="menuitem"]')
+      const p = parent.getBoundingClientRect()
+      const surface = p.top + parseFloat(getComputedStyle(parent).borderTopWidth || '0')
+      return {
+        v: first.getBoundingClientRect().top - surface,
+        h: flyPanel.getBoundingClientRect().left - (menu.getBoundingClientRect().right - 1)
+      }
+    })
+    ok(
+      Math.abs(align.v) < 0.02 && Math.abs(align.h) < 0.02,
+      `the flyout aligns with its parent row exactly (v=${align.v.toFixed(3)} h=${align.h.toFixed(3)})`
+    )
     await win.locator('[role="menuitem"]:has-text("Right")').click()
     await sleep(600)
     ok(

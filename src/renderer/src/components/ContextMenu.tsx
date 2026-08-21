@@ -111,16 +111,26 @@ export function ContextMenu({
   // would push it off screen, and never below the bottom. Re-clamped from the
   // row's anchor whenever its CONTENT changes too: the app list lands async,
   // and a list that grew after the first clamp would run off the screen.
+  //
+  // Alignment is MEASURED, not assumed: render wherever, read where the first
+  // row actually landed, and shift by the exact delta so its top edge meets
+  // the parent row's visible surface (sub.anchorY). No border/padding
+  // arithmetic to drift out of date, and fractional DPI scaling cancels
+  // because both sides of the delta come from the same rendered layout.
   useLayoutEffect(() => {
     const el = fly.current
     const menu = box.current
     if (!el || !menu || !sub) return
-    const { width: w, height: h } = el.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
-    let fx = menuRect.right - 2
-    if (fx + w > window.innerWidth - 8) fx = menuRect.left - w + 2
-    const fy = Math.max(8, Math.min(sub.anchorY, window.innerHeight - h - 8))
-    if (fx !== sub.x || fy !== sub.y) setSub({ ...sub, x: fx, y: fy })
+    // The panels share ONE hairline: the flyout's left border sits exactly on
+    // the menu's right border (or mirrored, when flipped to the left).
+    let fx = menuRect.right - 1
+    if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 1
+    const firstTop = el.querySelector('[role="menuitem"]')?.getBoundingClientRect().top ?? r.top
+    let fy = sub.y + (sub.anchorY - firstTop)
+    fy = Math.max(8, Math.min(fy, window.innerHeight - r.height - 8))
+    if (Math.abs(fx - sub.x) > 0.01 || Math.abs(fy - sub.y) > 0.01) setSub({ ...sub, x: fx, y: fy })
   }, [sub, subItems?.length])
 
   useEffect(() => {
@@ -171,11 +181,11 @@ export function ContextMenu({
     cancelClose()
     if (sub?.index === index) return
     const r = el.getBoundingClientRect()
-    // Align the flyout's FIRST ROW with the parent row: rows sit directly
-    // inside the panel, so only the panel's 1px border stands above the first
-    // one - the panel goes exactly 1px above the anchor.
-    const anchorY = r.top - 1
-    setSub({ index, anchorY, x: window.innerWidth, y: anchorY }) // clamped after measure
+    // The anchor is the parent row's VISIBLE surface: its rect top plus its
+    // own divider border, when it has one. The layout effect above then moves
+    // the flyout until its first row's top measures exactly here.
+    const anchorY = r.top + parseFloat(getComputedStyle(el).borderTopWidth || '0')
+    setSub({ index, anchorY, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
   }
 
   return (
