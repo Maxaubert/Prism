@@ -546,7 +546,11 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
         ` radial-gradient(54% 52% at 80% 78%, ${rgba(washB, washAlpha * 0.9)}, transparent 72%)`
       : 'none',
     '--p-radius': style.corners + 'px',
-    '--p-radius-sm': Math.max(2, Number(style.corners) - 2) + 'px',
+    // SHARED, not styled: small controls (the folder button, tree rows) keep
+    // one shape everywhere. Deriving this from the style's corners turned
+    // Ruby's 26px buttons into circles - a control shape the user cannot edit
+    // must not vary by theme (owner decision, 2026-08-21).
+    '--p-radius-sm': '3px',
     // The style's face, worn by the sidebar and the title bar only. Terminal in
     // mono is a look; Settings in mono is a mistake, and every long line of
     // running text in the app lives outside the chrome.

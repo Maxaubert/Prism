@@ -84,7 +84,7 @@ video::cue {
   --p-divider: rgba(255, 255, 255, 0.07);
   --p-line: rgba(255, 255, 255, 0.09);
   --p-radius: 2px;
-  --p-radius-sm: 2px;
+  --p-radius-sm: 3px;
   --p-font: 'Segoe UI', system-ui, sans-serif;
   --p-font-ui: 'Segoe UI', system-ui, sans-serif;
   --p-size: 12.5px;
