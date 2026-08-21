@@ -111,8 +111,9 @@ const api = {
     return () => ipcRenderer.removeListener('term:data', listener)
   },
   /** An AI CLI (Claude Code, codex...) appeared or left a session's shell. */
-  onTermAgent: (cb: (id: string, present: boolean) => void): (() => void) => {
-    const listener = (_: unknown, id: string, present: boolean): void => cb(id, present)
+  onTermAgent: (cb: (id: string, present: boolean, kind?: 'claude' | 'other' | null) => void): (() => void) => {
+    const listener = (_: unknown, id: string, present: boolean, kind?: 'claude' | 'other' | null): void =>
+      cb(id, present, kind)
     ipcRenderer.on('term:agent', listener)
     return () => ipcRenderer.removeListener('term:agent', listener)
   },
