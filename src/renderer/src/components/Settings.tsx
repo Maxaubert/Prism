@@ -1376,6 +1376,28 @@ function TerminalTab(): JSX.Element {
           />
         )}
       </div>
+      {/* Mirrors the style tab's order under its wall: Font first, then the
+          material, then the extras. The two tabs should read the same. */}
+      <Pref id="term-font-family" label="Font" hint="The terminal's typeface. A face you don't have falls back quietly.">
+        <Select
+          id="term-font-family"
+          value={fontId}
+          onChange={setTermFontId}
+          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name, style: { fontFamily: f.stack } }))}
+        />
+      </Pref>
+      <Pref
+        id="term-font"
+        label="Font size"
+        hint="The base for every terminal. Ctrl+scroll zooms one session only."
+      >
+        <Select
+          id="term-font"
+          value={String(fontPct)}
+          onChange={(v) => setTermFontPct(Number(v))}
+          options={FONT_PCTS.map((p) => ({ id: String(p), name: `${p}%` }))}
+        />
+      </Pref>
       <Pref
         id="term-acrylic"
         label="Acrylic terminal background"
@@ -1404,26 +1426,6 @@ function TerminalTab(): JSX.Element {
         hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
       >
         <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
-      </Pref>
-      <Pref id="term-font-family" label="Font" hint="The terminal's typeface. A face you don't have falls back quietly.">
-        <Select
-          id="term-font-family"
-          value={fontId}
-          onChange={setTermFontId}
-          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name, style: { fontFamily: f.stack } }))}
-        />
-      </Pref>
-      <Pref
-        id="term-font"
-        label="Font size"
-        hint="The base for every terminal. Ctrl+scroll zooms one session only."
-      >
-        <Select
-          id="term-font"
-          value={String(fontPct)}
-          onChange={(v) => setTermFontPct(Number(v))}
-          options={FONT_PCTS.map((p) => ({ id: String(p), name: `${p}%` }))}
-        />
       </Pref>
     </div>
   )
