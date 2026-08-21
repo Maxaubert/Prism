@@ -1333,7 +1333,9 @@ export default function App(): JSX.Element {
   const washed = settingsOpen || setup || !file || file.kind === 'audio'
 
   const many = (view?.files.length ?? 0) > 1
-  const pos = many ? `${view!.index + 1} / ${view!.files.length}` : ''
+  // No folder position over a FULL terminal either: it counts a file that
+  // isn't on screen.
+  const pos = many && termView !== 'full' ? `${view!.index + 1} / ${view!.files.length}` : ''
 
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
@@ -1342,8 +1344,9 @@ export default function App(): JSX.Element {
       {!fullscreen && (
         <TopBar
           // The tree already names (and highlights) the open file; the bar only
-          // repeats it when the tree isn't there to say it.
-          name={sidebar && active && !settingsOpen ? '' : (file?.name ?? '')}
+          // repeats it when the tree isn't there to say it. A FULL terminal
+          // names nothing: the file it would name is not what's on screen.
+          name={(sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')}
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={openSettings}
