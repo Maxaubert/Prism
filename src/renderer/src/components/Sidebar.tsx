@@ -523,8 +523,10 @@ export function Sidebar({
             state reads through the GLYPH, not a border: outlined shut, filled
             open, the way the tab-strip accent belongs to the state it marks. */}
         <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
+          {/* The glyph IS the square: the drawn frame fills the button rather
+              than sitting as a small icon inside a second, bordered one. */}
           <button
-            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
+            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
             onClick={onToggleTerm}
             onContextMenu={(e) => {
               e.preventDefault()
@@ -535,14 +537,14 @@ export function Sidebar({
             aria-pressed={termOpen}
           >
             {termOpen ? (
-              <svg viewBox="0 0 24 24" width={14} height={14} aria-hidden>
-                <rect x="3" y="5" width="18" height="14" rx="2" fill="var(--p-accent-hi)" />
-                <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" fill="none" stroke="var(--p-side)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <svg viewBox="0 0 24 24" width={26} height={26} aria-hidden>
+                <rect x="1.5" y="1.5" width="21" height="21" rx="3.5" fill="var(--p-accent-hi)" />
+                <path d="M7 8.8l3.6 3.2L7 15.2M13.5 16.5H18" fill="none" stroke="var(--p-side)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" />
+              <svg viewBox="0 0 24 24" width={26} height={26} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <rect x="1.5" y="1.5" width="21" height="21" rx="3.5" />
+                <path d="M7 8.8l3.6 3.2L7 15.2M13.5 16.5H18" strokeWidth="1.8" />
               </svg>
             )}
           </button>
