@@ -498,6 +498,7 @@ export function Sidebar({
                 cursor: at,
                 size,
                 editing,
+                menuPath: menu?.path ?? null,
                         onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,

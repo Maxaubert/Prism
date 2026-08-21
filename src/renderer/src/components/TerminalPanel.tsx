@@ -224,5 +224,5 @@ export default function TerminalPanel({
     }
   }, [sessionId, root, shellId])
 
-  return <div ref={box} className="h-full w-full min-h-0 min-w-0 bg-[var(--p-bg)] p-1" />
+  return <div ref={box} data-term-region className="h-full w-full min-h-0 min-w-0 bg-[var(--p-bg)] p-1" />
 }
