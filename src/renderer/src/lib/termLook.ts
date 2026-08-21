@@ -8,7 +8,7 @@ const THEME_KEY = 'prism.term.theme'
 const FONT_KEY = 'prism.term.fontPct'
 
 export const TERM_BASE_FONT_PX = 13
-export const FONT_PCTS = [80, 90, 100, 110, 125, 150] as const
+export const FONT_PCTS = [80, 90, 100, 110, 125, 150, 175, 200] as const
 
 let listeners: Array<() => void> = []
 const notify = (): void => listeners.forEach((l) => l())
@@ -35,7 +35,13 @@ export const TERM_FONTS = [
   { id: 'fira', name: 'Fira Code', stack: '"Fira Code", "Cascadia Mono", Consolas, monospace' },
   { id: 'source', name: 'Source Code Pro', stack: '"Source Code Pro", "Cascadia Mono", Consolas, monospace' },
   { id: 'lucida', name: 'Lucida Console', stack: '"Lucida Console", Consolas, monospace' },
-  { id: 'courier', name: 'Courier New', stack: '"Courier New", Courier, monospace' }
+  { id: 'courier', name: 'Courier New', stack: '"Courier New", Courier, monospace' },
+  { id: 'ibm-plex', name: 'IBM Plex Mono', stack: '"IBM Plex Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'roboto-mono', name: 'Roboto Mono', stack: '"Roboto Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'ubuntu-mono', name: 'Ubuntu Mono', stack: '"Ubuntu Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'hack', name: 'Hack', stack: 'Hack, "Cascadia Mono", Consolas, monospace' },
+  { id: 'iosevka', name: 'Iosevka', stack: 'Iosevka, "Iosevka Term", "Cascadia Mono", Consolas, monospace' },
+  { id: 'dejavu', name: 'DejaVu Sans Mono', stack: '"DejaVu Sans Mono", "Cascadia Mono", Consolas, monospace' }
 ] as const
 
 export function termFontId(): string {

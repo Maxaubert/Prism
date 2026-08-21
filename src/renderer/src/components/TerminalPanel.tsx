@@ -69,7 +69,9 @@ onTermLookChange(applyLook)
 function zoomSession(id: string, delta: number): void {
   const s = sessions.get(id)
   if (!s) return
-  const next = Math.max(7, Math.min(40, (s.fontOverride ?? termBaseFontPx()) + delta))
+  // Up to ~500% of the stock 13px: the Settings base caps at 200%, the wheel
+  // deliberately goes further - a session zoom is a moment, not a layout.
+  const next = Math.max(7, Math.min(64, (s.fontOverride ?? termBaseFontPx()) + delta))
   s.fontOverride = next
   s.term.options.fontSize = next
   refitSession(id, s)

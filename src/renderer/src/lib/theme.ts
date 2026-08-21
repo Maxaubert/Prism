@@ -51,7 +51,22 @@ export interface Style {
   base?: string
 }
 
-export type FontId = 'system' | 'segoe' | 'bahnschrift' | 'calibri' | 'trebuchet' | 'verdana' | 'georgia' | 'mono'
+export type FontId =
+  | 'system'
+  | 'segoe'
+  | 'bahnschrift'
+  | 'calibri'
+  | 'trebuchet'
+  | 'verdana'
+  | 'georgia'
+  | 'mono'
+  | 'arial'
+  | 'tahoma'
+  | 'candara'
+  | 'corbel'
+  | 'cambria'
+  | 'constantia'
+  | 'sitka'
 
 /**
  * One size for every style, literally. An x-height correction was tried here and
@@ -67,7 +82,14 @@ export const FONTS: Record<FontId, { name: string; stack: string }> = {
   trebuchet: { name: 'Trebuchet', stack: '"Trebuchet MS", system-ui, sans-serif' },
   verdana: { name: 'Verdana', stack: 'Verdana, Geneva, sans-serif' },
   georgia: { name: 'Georgia', stack: 'Georgia, "Times New Roman", serif' },
-  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' }
+  mono: { name: 'Mono', stack: '"Cascadia Mono", Consolas, ui-monospace, monospace' },
+  arial: { name: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
+  tahoma: { name: 'Tahoma', stack: 'Tahoma, Geneva, sans-serif' },
+  candara: { name: 'Candara', stack: 'Candara, Calibri, system-ui, sans-serif' },
+  corbel: { name: 'Corbel', stack: 'Corbel, Calibri, system-ui, sans-serif' },
+  cambria: { name: 'Cambria', stack: 'Cambria, Georgia, serif' },
+  constantia: { name: 'Constantia', stack: 'Constantia, Cambria, Georgia, serif' },
+  sitka: { name: 'Sitka Text', stack: '"Sitka Text", Constantia, Georgia, serif' }
 }
 
 export const STYLES: Style[] = [
