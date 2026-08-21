@@ -294,7 +294,7 @@ function restoreTabs(): OpenPayload[] {
   // one twice. (Which conversation belonged to which tab is unknowable after
   // the fact - newest-first in strip order is the honest guess.)
   const taken = new Map<string, number>()
-  for (const t of saved.tabs) {
+  for (const [i, t] of saved.tabs.entries()) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
     if (payload) {
       // A claude session resumes by ID - a session claude itself recorded for
@@ -307,26 +307,43 @@ function restoreTabs(): OpenPayload[] {
         resume = claudeSessions(t.root)[n] ?? null
         if (resume) taken.set(key, n + 1)
       }
-      out.push(
-        t.term
-          ? { ...payload, restore: true, term: t.term, ...(resume ? { agentResume: resume } : {}) }
-          : { ...payload, restore: true }
-      )
+      // SAVED order, exactly: the old active-goes-last splice scrambled the
+      // strip. The active one carries a flag instead and the renderer brings
+      // it to the front without moving it.
+      out.push({
+        ...payload,
+        restore: true,
+        ...(i === saved.active ? { restoreActive: true } : {}),
+        ...(t.term ? { term: t.term } : {}),
+        ...(resume ? { agentResume: resume } : {})
+      })
     }
   }
-  // The active tab goes last: the renderer applies these in order through the
-  // same arriving-file rule as everything else, and that rule leaves the tab it
-  // just handled in front.
-  const front = out.splice(saved.active, 1)
-  return [...out, ...front]
+  return out
 }
 
 /** Save on a delay, as the window state does: switching tabs with the arrow
  *  keys fires this continuously and the disk need not hear about each one. */
 let tabsTimer: NodeJS.Timeout | null = null
+let tabsPending: SavedTabs | null = null
 function saveTabs(state: SavedTabs): void {
+  tabsPending = state
   if (tabsTimer) clearTimeout(tabsTimer)
-  tabsTimer = setTimeout(() => writeTabs(TABS_STATE(), state), 400)
+  tabsTimer = setTimeout(() => {
+    tabsTimer = null
+    if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
+  }, 400)
+}
+
+/** Close flushes the debounce: a report still in its 400ms window (an agent
+ *  flag lands up to 2.5s after claude appears) must not die with the app -
+ *  a lost last write is a Claude session that never resumes. */
+function flushTabs(): void {
+  if (tabsTimer) {
+    clearTimeout(tabsTimer)
+    tabsTimer = null
+  }
+  if (tabsPending) writeTabs(TABS_STATE(), tabsPending)
 }
 
 /**
@@ -405,6 +422,7 @@ function watchWindowState(win: BrowserWindow): void {
   win.on('maximize', save)
   win.on('unmaximize', save)
   win.on('close', save)
+  win.on('close', flushTabs)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
   // taskbar, Escape. Unsaved text stops all of them until the user answers.
   win.on('close', (e) => {
