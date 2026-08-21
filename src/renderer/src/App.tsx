@@ -488,8 +488,12 @@ export default function App(): JSX.Element {
           const termId = nextTermId()
           termRoots.current.set(termId, tab.root)
           // The shell hosted a Claude session at close: the fresh one launches
-          // straight into it (spawn carries the id; see TerminalPanel).
+          // straight into it (spawn carries the id; see TerminalPanel). The
+          // session spawns NOW, tab in front or not - every tab's conversation
+          // resumes at launch, not when its tab is first visited.
           if (p.agentResume) markResume(termId, p.agentResume)
+          const root = tab.root
+          void import('./components/TerminalPanel').then((m) => m.ensureTermSession(termId, root, savedShellId()))
           return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: p.term }) }
         }
       }

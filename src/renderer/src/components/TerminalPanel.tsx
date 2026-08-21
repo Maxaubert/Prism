@@ -83,6 +83,14 @@ export function clearTermSession(id: string): void {
   sessions.get(id)?.term.clear()
 }
 
+/** Spawn a session WITHOUT waiting for its panel: a restored background tab's
+ *  Claude session must resume now, not when the tab is first visited. The
+ *  xterm lives against its detached element (the same way hidden tabs keep
+ *  theirs) and the panel simply attaches it later, scrollback intact. */
+export function ensureTermSession(id: string, root: string, shellId: string | undefined): void {
+  if (!sessions.has(id)) createSession(id, root, shellId)
+}
+
 /** Kill a session's renderer half: the xterm instance and its element. Main's
  *  pty half is killed separately (term:kill) or already exited. */
 export function disposeTermSession(id: string): void {
@@ -125,10 +133,35 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     markTouched(id) // user input: the reroot policy leaves this shell alone
     window.prism.termInput(id, d)
   })
+  // A resuming session shows a quiet spinner until claude's first paint:
+  // the ~4s between an empty terminal and the conversation appearing read
+  // as broken without one. Claude's own screen setup then paints over it.
+  const resume = takeResume(id)
+  let spin: ReturnType<typeof setInterval> | null = null
+  if (resume) {
+    markTouched(id) // a claude session from the first moment
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    let i = 0
+    term.write('\x1b[2m⠋ Resuming Claude session…\x1b[0m')
+    spin = setInterval(() => {
+      term.write(`\r\x1b[2m${frames[(i += 1) % frames.length]} Resuming Claude session…\x1b[0m`)
+    }, 120)
+  }
+  const stopSpin = (): void => {
+    if (spin) {
+      clearInterval(spin)
+      spin = null
+      term.write('\r\x1b[2K')
+    }
+  }
   const unsub = [
     window.prism.onTermData((forId, data) => {
-      if (forId === id) term.write(data)
-    })
+      if (forId === id) {
+        stopSpin()
+        term.write(data)
+      }
+    }),
+    stopSpin
     // Exit is App's to handle: it owns the tab's term slot and must hear the
     // exit even while this panel is hidden. App disposes us via
     // disposeTermSession, so nothing is subscribed here.
@@ -186,8 +219,6 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // A session restored over a Claude conversation launches straight into it:
   // the resume id rides the SPAWN (main builds it into the shell's startup
   // command), so nothing is ever visibly typed.
-  const resume = takeResume(id)
-  if (resume) markTouched(id) // a claude session from the first moment
   void window.prism.termSpawn(id, root, shellId, resume ?? undefined).then((ok) => {
     if (!ok && sessions.has(id)) {
       term.write('\x1b[31mCould not start the shell.\x1b[0m\r\n')
