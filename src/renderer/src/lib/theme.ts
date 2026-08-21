@@ -169,9 +169,11 @@ export const STYLES: Style[] = [
   {
     id: 'acrylic-red',
     name: 'Ruby',
-    blurb: 'Glass, round corners, crimson.',
+    blurb: 'Solid night blue, round corners, crimson.',
     mode: 'dark',
-    material: 'acrylic',
+    // Solid since 2026-08-21 (the id predates the change and stays: it is a
+    // saved-settings key, not a description).
+    material: 'solid',
     bg: '#101420',
     side: '#141821',
     title: '#1a1f2b',

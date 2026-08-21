@@ -548,14 +548,24 @@ function StyleTab(): JSX.Element {
           no longer any of these. Clicking one is how you go back to it. */}
       <div className={GRID}>
         {list.map((st) => {
-          const on = st.id === selected
+          // The CURRENT style's card is live: it renders the edited style, so
+          // turning Void white turns its card white with it. It also stays
+          // selected through an edit - the user reads it as "my theme", and a
+          // wall with nothing selected read as a bug. Clicking it while edited
+          // does nothing (setStyle would silently revert the edits); every
+          // other card still shows its saved self and gives what it shows.
+          const live = st.id === style.id
+          const on = st.id === (selected ?? style.id)
           return (
-            <Tile key={st.id} on={on} onClick={() => setStyle(st.id)}>
-              {/* Always the SAVED style, never the live draft: an edit deselects
-                  every card, and a deselected card that keeps tracking the edit
-                  (accent included) claims to be a style it no longer is.
-                  Clicking it must give exactly what it shows. */}
-              <StyleMini st={st} />
+            <Tile
+              key={st.id}
+              on={on}
+              onClick={() => {
+                if (live && selected === null) return
+                setStyle(st.id)
+              }}
+            >
+              <StyleMini st={live ? style : st} />
               <div className="flex items-center justify-between gap-2">
                 <TileFooter name={st.name} on={on} />
                 {st.custom && (
