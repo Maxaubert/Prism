@@ -8,7 +8,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseTabs } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { activitySuppressed, isTouched, suppressActivity } from './lib/termActivity'
+import { activitySuppressed, inputEcho, isTouched, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -727,11 +727,12 @@ export default function App(): JSX.Element {
       window.prism.onTermAgent((id, present) => {
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
-          // box) is a stream, but it is not the agent answering anything. Wipe
-          // the run and suppress scoring briefly so the dot is born amber and
-          // blue only ever means a real answer underway.
+          // box, the loading spinners after it) is a stream, but it is not the
+          // agent answering anything. Wipe the run and suppress scoring long
+          // enough to outlast the whole startup animation, so the indicator
+          // only ever means a real answer underway.
           outputRuns.current.delete(id)
-          suppressActivity(id, 1500)
+          suppressActivity(id, 4000)
           setWorkingIds((prev) => {
             if (!prev.has(id)) return prev
             const next = new Set(prev)
@@ -752,7 +753,9 @@ export default function App(): JSX.Element {
   useEffect(
     () =>
       window.prism.onTermData((id) => {
-        if (!activitySuppressed(id)) {
+        // Output on the heels of a keystroke is that keystroke's echo (the TUI
+        // repainting its input box), so typing at an idle agent never scores.
+        if (!activitySuppressed(id) && !inputEcho(id)) {
           const now = Date.now()
           const run = outputRuns.current.get(id)
           if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })

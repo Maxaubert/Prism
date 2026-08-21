@@ -897,7 +897,7 @@ function TermThemeEditor({
     <div
       data-theme-editor
       data-owns-escape
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-[3px]"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}

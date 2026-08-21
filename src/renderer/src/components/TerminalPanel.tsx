@@ -136,13 +136,17 @@ function createSession(id: string, root: string, shellId: string | undefined): S
       // Newline-without-submit, the continuation form Claude Code accepts
       // everywhere. This is what /terminal-setup exists to configure; here it
       // simply works.
+      markTouched(id) // input like any other: its repaint is echo, not work
       window.prism.termInput(id, '\\\r')
       return false
     }
     if ((e.key === 'v' || e.key === 'V') && e.ctrlKey && !e.shiftKey) {
       const decision = decidePaste(window.prism.readClipboard())
       // An image forwards the ^V byte: the TUI reads the clipboard itself.
-      if (decision.kind === 'key') window.prism.termInput(id, '\x16')
+      if (decision.kind === 'key') {
+        markTouched(id)
+        window.prism.termInput(id, '\x16')
+      }
       else if (decision.kind === 'text') term.paste(decision.data)
       return false
     }
