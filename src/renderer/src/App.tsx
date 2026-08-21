@@ -532,6 +532,16 @@ export default function App(): JSX.Element {
 
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
+  // Counts fullscreen TRANSITIONS (not the boot state), driving the settle
+  // animation on the viewer container.
+  const [fsSettle, setFsSettle] = useState(0)
+  const fsPrev = useRef(false)
+  useEffect(() => {
+    if (fsPrev.current !== fullscreen) {
+      fsPrev.current = fullscreen
+      setFsSettle((n) => n + 1)
+    }
+  }, [fullscreen])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
@@ -1468,6 +1478,15 @@ export default function App(): JSX.Element {
             // the same reason hidden shells stay alive.
             termView === 'full' ? 'hidden' : ''
           }`}
+          // Fullscreen is an instant OS frame swap; the viewer SETTLES into it
+          // (and back out) with one quick scale-and-fade instead of a hard
+          // cut. Two identical keyframes alternate so every toggle restarts
+          // the animation without remounting anything - playback never blinks.
+          style={
+            fsSettle > 0
+              ? { animation: `${fsSettle % 2 ? 'p-fs-a' : 'p-fs-b'} 220ms cubic-bezier(.16,1,.3,1)` }
+              : undefined
+          }
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
