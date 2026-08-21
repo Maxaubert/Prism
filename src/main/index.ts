@@ -14,7 +14,9 @@ import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } f
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
-import { isInsideRoot, isRoot, listDir, searchFiles, toViewerFile } from './dirList'
+import { listDir, searchFiles, toViewerFile } from './dirList'
+import { addRoot, insideAnyRoot, isAnyRoot, syncRoots, validRoot } from './roots'
+import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -198,24 +200,37 @@ async function serveMedia(request: Request): Promise<Response> {
   })
 }
 
-// The folder Prism was opened in. The sidebar tree is bounded by it and every
-// directory request is checked against it, so the renderer can never walk out.
-// Only an open from outside (launch argv, handoff, dialog, drag) moves it.
-let sessionRoot = ''
-
-/** Build the open payload for a path: the folder's viewable siblings, the index
- * of the opened file (so the renderer can arrow through them), and the session
- * root. `reroot` is set for opens that come from outside the app. */
-function buildPayload(p: string, reroot: boolean): OpenPayload | null {
+/**
+ * Build the open payload for a path: the folder's viewable siblings, the index
+ * of the opened file (so the renderer can arrow through them), and the root.
+ *
+ * `root` is the tab's existing root, for a click inside a tree that must not
+ * move. Omitted, the file's own folder becomes a root: that is what an open
+ * from outside (launch argv, handoff, dialog, drag) does, and the renderer
+ * decides from `root` whether that lands in an existing tab or a new one.
+ */
+function buildPayload(p: string, root?: string): OpenPayload | null {
   if (!existsSync(p)) return null
   const dir = dirname(p)
-  if (reroot || !sessionRoot) sessionRoot = dir
+  if (root === undefined) addRoot(dir)
+  const here = root ?? dir
   const files = listDir(dir).files
   const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
   // An opened file the tree wouldn't list (an unknown extension) still shows,
   // alone: you asked for this file, so you get it.
-  if (idx < 0) return { files: [toViewerFile(p)], index: 0, root: sessionRoot }
-  return { files, index: idx, root: sessionRoot }
+  if (idx < 0) return { files: [toViewerFile(p)], index: 0, root: here }
+  return { files, index: idx, root: here }
+}
+
+/** Build the open payload for a FOLDER the user chose: the tree roots there and
+ *  the viewer shows its first viewable file. A folder holding nothing Prism can
+ *  show still opens - you get its tree and an empty viewer, which is a usable
+ *  place to browse from rather than a refusal. */
+function folderPayload(dir: string): OpenPayload | null {
+  if (!existsSync(dir)) return null
+  addRoot(dir)
+  const files = listDir(dir).files
+  return { files, index: files.length ? 0 : -1, root: dir }
 }
 
 /** The file path an OS "open" passed us, if any (last argv entry that's a file). */
@@ -240,8 +255,34 @@ let editorDirty = false
 let closeConfirmed = false
 
 function sendOpen(p: string): void {
-  const payload = buildPayload(p, true) // came from outside: it becomes the root
+  const payload = buildPayload(p) // came from outside: it becomes the root
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
+}
+
+const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
+
+/** Restore last session's strip: register each surviving root so the wall
+ *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
+function restoreTabs(): OpenPayload[] {
+  const saved = readTabs(TABS_STATE())
+  const out: OpenPayload[] = []
+  for (const t of saved.tabs) {
+    const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
+    if (payload) out.push(payload)
+  }
+  // The active tab goes last: the renderer applies these in order through the
+  // same arriving-file rule as everything else, and that rule leaves the tab it
+  // just handled in front.
+  const front = out.splice(saved.active, 1)
+  return [...out, ...front]
+}
+
+/** Save on a delay, as the window state does: switching tabs with the arrow
+ *  keys fires this continuously and the disk need not hear about each one. */
+let tabsTimer: NodeJS.Timeout | null = null
+function saveTabs(state: SavedTabs): void {
+  if (tabsTimer) clearTimeout(tabsTimer)
+  tabsTimer = setTimeout(() => writeTabs(TABS_STATE(), state), 400)
 }
 
 /**
@@ -391,8 +432,12 @@ function createWindow(): void {
   if (devUrl) void mainWindow.loadURL(devUrl)
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 
-  // Deliver any file the app was launched with, once the renderer is ready.
+  // Rebuild last session's strip, then deliver whatever the app was launched
+  // with. Order matters: the launch file goes through the same arriving-file
+  // rule as everything else, so double-clicking a photo in a folder that was
+  // already open lands in that tab rather than opening a second copy of it.
   mainWindow.webContents.on('did-finish-load', () => {
+    for (const payload of restoreTabs()) mainWindow?.webContents.send('open:file', payload)
     if (pendingOpen) {
       sendOpen(pendingOpen)
       pendingOpen = null
@@ -422,26 +467,48 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await dialog.showOpenDialog({ properties: ['openFile'] })
       if (r.canceled || !r.filePaths.length) return null
-      return buildPayload(r.filePaths[0], true)
+      return buildPayload(r.filePaths[0])
     })
-    ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p, true))
-    // A click in the sidebar tree. Inside the root only, and it leaves the root
-    // alone: the tree you clicked from stays the tree you're in.
-    ipcMain.handle('open:within', (_e, p: string): OpenPayload | null =>
-      isInsideRoot(sessionRoot, p) ? buildPayload(p, false) : null
+    // Choosing a folder rather than a file: the other way in, and the only one
+    // that names the root deliberately instead of inferring it from a file.
+    ipcMain.handle('open:folder', async (): Promise<OpenPayload | null> => {
+      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      if (r.canceled || !r.filePaths.length) return null
+      return folderPayload(r.filePaths[0])
+    })
+    // A new tab, with nothing to answer first. The + is meant to be instant, so
+    // it lands somewhere sensible - the user's own folder - and the sidebar's
+    // folder button is where choosing happens.
+    ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
+    ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
+    // The renderer owns the tab list; main only persists it and keeps the wall
+    // in step, so a root whose tab was closed stops being reachable.
+    ipcMain.on('tabs:changed', (_e, state: SavedTabs) => {
+      syncRoots(state.tabs.map((t) => t.root))
+      saveTabs(state)
+    })
+    // The three navigation handlers take the root they act in, because they are
+    // per-tab operations and the renderer always knows which tab asked. Both the
+    // root and the path have to hold up: naming a root you never opened gets you
+    // nothing, and neither does a path from a DIFFERENT open root.
+    //
+    // A click in the sidebar tree. It leaves the root alone: the tree you
+    // clicked from stays the tree you're in.
+    ipcMain.handle('open:within', (_e, root: string, p: string): OpenPayload | null =>
+      validRoot(root, p) ? buildPayload(p, root) : null
     )
-    ipcMain.handle('dir:list', (_e, p: string): DirListing | null =>
-      isInsideRoot(sessionRoot, p) ? listDir(p) : null
+    ipcMain.handle('dir:list', (_e, root: string, p: string): DirListing | null =>
+      validRoot(root, p) ? listDir(p) : null
     )
-    // The sidebar's search: the whole session root, bounded, never outside it.
-    ipcMain.handle('search:files', (_e, query: string) =>
-      sessionRoot ? searchFiles(sessionRoot, query) : { hits: [], truncated: false }
+    // The sidebar's search: that tab's whole root, bounded, never outside it.
+    ipcMain.handle('search:files', (_e, root: string, query: string) =>
+      validRoot(root, root) ? searchFiles(root, query) : { hits: [], truncated: false }
     )
     // File operations. Inside the root only, and nothing is ever destroyed: an
     // overwritten or deleted file goes to the Recycle Bin.
     // The root itself is off limits: renaming or binning the folder the tree is
     // rooted in would pull the ground out from under the window.
-    const editable = (p: string): boolean => isInsideRoot(sessionRoot, p) && !isRoot(sessionRoot, p)
+    const editable = (p: string): boolean => insideAnyRoot(p) && !isAnyRoot(p)
 
     ipcMain.handle(
       'file:rename',
@@ -463,7 +530,7 @@ if (!app.requestSingleInstanceLock()) {
     // renderer from inside the session root, and opening one from outside
     // re-roots first, so this refuses nothing the app legitimately asks for.
     ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
-      if (!isInsideRoot(sessionRoot, p)) return null
+      if (!insideAnyRoot(p)) return null
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')
       } catch {
@@ -473,7 +540,7 @@ if (!app.requestSingleInstanceLock()) {
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
     ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<boolean> => {
-      if (!isInsideRoot(sessionRoot, p) || !existsSync(p)) return false
+      if (!insideAnyRoot(p) || !existsSync(p)) return false
       if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text') return false
       try {
         await writeFile(p, text, 'utf-8')
@@ -488,7 +555,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'file:stat',
       (_e, p: string): { size: number; mtimeMs: number; isFolder: boolean } | null => {
-        if (!isInsideRoot(sessionRoot, p)) return null
+        if (!insideAnyRoot(p)) return null
         try {
           const st = statSync(p)
           return { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() }
@@ -503,24 +570,24 @@ if (!app.requestSingleInstanceLock()) {
     // Sidecar tracks for a video (same name, same folder or Subs/), and their
     // text as WebVTT. Same wall as everything else: inside the root only.
     ipcMain.handle('subs:for', (_e, p: string): SubTrack[] =>
-      isInsideRoot(sessionRoot, p) ? sidecarsFor(p) : []
+      insideAnyRoot(p) ? sidecarsFor(p) : []
     )
     ipcMain.handle('subs:read', (_e, p: string): string | null =>
-      isInsideRoot(sessionRoot, p) ? readAsVtt(p) : null
+      insideAnyRoot(p) ? readAsVtt(p) : null
     )
 
     /* ----- context-menu verbs ----- */
 
     ipcMain.on('file:show-in-explorer', (_e, p: string) => {
-      if (isInsideRoot(sessionRoot, p)) shell.showItemInFolder(p)
+      if (insideAnyRoot(p)) shell.showItemInFolder(p)
     })
     ipcMain.on('file:open-default', (_e, p: string) => {
-      if (isInsideRoot(sessionRoot, p)) void shell.openPath(p)
+      if (insideAnyRoot(p)) void shell.openPath(p)
     })
     // The Windows "how do you want to open this?" chooser, which also reaches
     // the store apps the submenu can't launch.
     ipcMain.on('file:open-chooser', (_e, p: string) => {
-      if (!isInsideRoot(sessionRoot, p)) return
+      if (!insideAnyRoot(p)) return
       spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
         detached: true,
         stdio: 'ignore'
@@ -538,7 +605,7 @@ if (!app.requestSingleInstanceLock()) {
       return hit && Date.now() - hit.at < OPEN_WITH_TTL ? hit.list : null
     }
     ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
-      if (!isInsideRoot(sessionRoot, p)) return []
+      if (!insideAnyRoot(p)) return []
       const ext = extname(p).toLowerCase()
       if (!ext) return []
       let list = cachedApps(ext)
@@ -558,7 +625,7 @@ if (!app.requestSingleInstanceLock()) {
       )
     })
     ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
-      if (!isInsideRoot(sessionRoot, p)) return false
+      if (!insideAnyRoot(p)) return false
       // The expired list still answers a launch: the menu the user is clicking
       // was built from it moments ago.
       const c = openWithCache.get(extname(p).toLowerCase())?.list.find((x) => x.exe === exe)
@@ -574,7 +641,7 @@ if (!app.requestSingleInstanceLock()) {
     // The real file onto the clipboard (a drop list, so Ctrl+V in Explorer
     // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
     ipcMain.handle('file:copy-clip', (_e, p: string): Promise<boolean> => {
-      if (!isInsideRoot(sessionRoot, p)) return Promise.resolve(false)
+      if (!insideAnyRoot(p)) return Promise.resolve(false)
       const quoted = p.replace(/'/g, "''")
       return new Promise((done) => {
         execFile(
@@ -587,7 +654,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
-      if (!isInsideRoot(sessionRoot, p)) return null
+      if (!insideAnyRoot(p)) return null
       try {
         if (!statSync(p).isFile()) return null // folders are a different feature
         const dir = dirname(p)

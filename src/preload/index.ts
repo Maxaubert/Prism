@@ -12,13 +12,28 @@ const api = {
   openDialog: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:dialog'),
   /** Build a payload for a dropped/known path (drag-and-drop). */
   openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:path', path),
-  /** Open a file the sidebar tree lists. Inside the session root only, and the
-   *  root is left alone (unlike openPath, which re-roots). */
-  openWithin: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:within', path),
-  /** Children of a folder for the sidebar tree; null if outside the root. */
-  listDir: (path: string): Promise<DirListing | null> => ipcRenderer.invoke('dir:list', path),
-  /** Name search under the session root: bounded, breadth-first, capped. */
-  searchTree: (query: string): Promise<SearchResult> => ipcRenderer.invoke('search:files', query),
+  /** Choose a FOLDER to root in. The only way to name a root deliberately;
+   *  every other route infers it from the file that arrived. */
+  openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
+  /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
+  openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
+  /** Report the tab strip. Main persists it and keeps the root wall in step, so
+   *  a root whose tab was closed stops being reachable. */
+  tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>
+    ipcRenderer.send('tabs:changed', { tabs, active }),
+  // The three navigation calls name the root they act in. They are per-tab
+  // operations, the caller always knows which tab is asking, and main refuses a
+  // root that is not open as well as a path from a different one.
+  /** Open a file the sidebar tree lists. Inside `root` only, and it leaves the
+   *  root alone (unlike openPath, which opens a root of its own). */
+  openWithin: (root: string, path: string): Promise<OpenPayload | null> =>
+    ipcRenderer.invoke('open:within', root, path),
+  /** Children of a folder for the sidebar tree; null if outside `root`. */
+  listDir: (root: string, path: string): Promise<DirListing | null> =>
+    ipcRenderer.invoke('dir:list', root, path),
+  /** Name search under `root`: bounded, breadth-first, capped. */
+  searchTree: (root: string, query: string): Promise<SearchResult> =>
+    ipcRenderer.invoke('search:files', root, query),
   /** Rename a file in place. `onClash` decides what a taken name does: 'ask'
    *  reports the clash back so the user can choose. */
   renameFile: (path: string, name: string, onClash: OnClash): Promise<RenameResult> =>

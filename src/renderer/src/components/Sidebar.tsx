@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
-import type { DirListing, OpenWithApp, ViewerFile } from '@shared/types'
+import type { OpenWithApp, ViewerFile } from '@shared/types'
+import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { matchesScope, useNavScope } from '../lib/navScope'
@@ -30,12 +31,6 @@ const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MI
 function loadWidth(): number {
   const v = Number(localStorage.getItem(WIDTH_KEY))
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
-}
-
-interface TreeState {
-  expanded: Set<string>
-  /** path -> its children, once loaded. Absent means "not loaded yet". */
-  children: Record<string, DirListing>
 }
 
 /**
@@ -103,7 +98,10 @@ export function Sidebar({
   onRename,
   onDelete,
   onNav,
-  wash
+  wash,
+  onOpenFolder,
+  state,
+  onTree
 }: {
   open: boolean
   root: string
@@ -121,8 +119,22 @@ export function Sidebar({
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
   /** Whether the style's light reaches the panel. Follows the window. */
   wash: boolean
+  /** Point this tab at a different folder. Beside the search box rather than
+   *  with sort and filter: those narrow what you are looking at, this changes
+   *  it, and they do not belong in one cluster. */
+  onOpenFolder: () => void
+  /** The tree's expanded folders and loaded children. Owned by the tab. */
+  state: TreeState
+  onTree: (update: (s: TreeState) => TreeState) => void
 }): JSX.Element {
-  const [state, setState] = useState<TreeState>({ expanded: new Set([root]), children: {} })
+  // The tree's state belongs to the TAB, not to this component. Owned here it
+  // reset on every tab switch, which made a tab feel like a reload rather than
+  // a place you left, so App holds it and hands it down.
+  //
+  // Updates go up as functions, never as values: this component no longer holds
+  // the current state, so only the owner can apply one. That is also what keeps
+  // this handle stable, which the loading effect below depends on.
+  const setState = onTree
   const [revealed, setRevealed] = useState<string | null>(null)
   const [width, setWidth] = useState(loadWidth)
   const [dragging, setDragging] = useState(false)
@@ -151,16 +163,16 @@ export function Sidebar({
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(async (p: string, force = false): Promise<void> => {
-    const listing = (await window.prism.listDir(p)) ?? { folders: [], files: [], unreadable: true }
+    const listing = (await window.prism.listDir(root, p)) ?? { folders: [], files: [], unreadable: true }
     setState((s) => (s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }))
-  }, [])
+  }, [root, setState])
 
   const toggle = useCallback(
     (p: string) => {
       setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
       void load(p)
     },
-    [load]
+    [load, setState]
   )
 
   // Reveal: when the open file changes, expand every folder between the root and
@@ -412,7 +424,19 @@ export function Sidebar({
         {/* The search box: a hairline and nothing else, so it wears whatever
             the style wears (a filled grey panel glowed on true black). The
             accent arrives with focus. Escape clears. */}
-        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
+        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5">
+        <button
+          className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
+          onClick={onOpenFolder}
+          title="Open a different folder in this tab"
+          aria-label="Open folder"
+        >
+          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <path d="M12 11v5m2.5-2.5h-5" />
+          </svg>
+        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
           <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
             <circle cx="11" cy="11" r="6.5" />
             <path d="M16 16l4.5 4.5" />
@@ -445,6 +469,7 @@ export function Sidebar({
             </button>
           )}
         </div>
+        </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
           ref={scroller}
@@ -452,6 +477,7 @@ export function Sidebar({
         >
           {query.trim() ? (
             <SearchResults
+              root={root}
               query={query.trim()}
               refreshKey={refreshKey}
               currentPath={currentPath}
@@ -595,6 +621,7 @@ export function Sidebar({
 
       {props && (
         <PropertiesDialog
+          root={root}
           path={props.path}
           name={props.name}
           kind={fileKind(/\.[^.\\/]*$/.exec(props.name)?.[0] ?? '', props.name)}

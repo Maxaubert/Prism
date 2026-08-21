@@ -10,6 +10,8 @@
  * .e2e/shots for eyeballing; assertions throw, and the script exits non-zero.
  */
 import { _electron as electron } from 'playwright-core'
+import { spawn } from 'node:child_process'
+import electronPath from 'electron'
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -77,7 +79,13 @@ async function offscreen(app) {
  * it had. Sleeping and hoping made roughly one run in four type into the wrong
  * file; waiting for the selected row settles it.
  */
-async function launch(file) {
+async function launch(file, keepTabs = false) {
+  // Every scenario but the tab one expects a single-root world. The profile is
+  // shared across scenarios (it is wiped once, at the start), so last
+  // scenario's strip would restore into this one and change what the tree
+  // counts. Forgetting it is the isolation; the tab scenario opts out, because
+  // surviving a restart is the thing it is checking.
+  if (!keepTabs) rmSync(join(PROFILE, 'tabs.json'), { force: true })
   const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
@@ -854,6 +862,107 @@ async function playerScenario(fixtures) {
   }
 }
 
+/**
+ * A real second launch, the way an Explorer double-click arrives: Prism is
+ * single-instance, so this process hands its path to the running window and
+ * exits. Nothing test-only is involved, which is the point - this IS the route
+ * a new tab is supposed to come in through.
+ */
+async function handoff(file) {
+  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, file], {
+    stdio: 'ignore'
+  })
+  await new Promise((done) => {
+    child.on('exit', done)
+    setTimeout(done, 6000) // it should quit on its own; never hang the suite
+  })
+  await sleep(600)
+}
+
+async function tabsScenario(fixtures) {
+  console.log('project tabs')
+  let { app, win } = await launch(join(fixtures, 'README.md'))
+  const strip = '[role="tablist"]'
+  const tabRows = () => win.locator(`${strip} [role="tab"]`)
+  try {
+    // The strip is there from the first tab, so the + is always reachable.
+    await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 1, 'one folder still shows as a tab')
+    // The + no longer opens a dialog, so the suite can actually press it: a tab
+    // arrives rooted at the user's own folder, with nothing to answer first.
+    await win.locator(`${strip} [aria-label="New tab"]`).click()
+    await sleep(700)
+    ok((await tabRows().count()) === 2, 'the + spawns a tab without a dialog')
+    const home = (await tabRows().last().getAttribute('title')) ?? ''
+    ok(/Users/i.test(home), `and roots it at the user folder (said: "${home}")`)
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(400)
+    ok((await tabRows().count()) === 1, 'and it closes again')
+
+    // A second root, opened deliberately. The dialog is native and cannot be
+    // driven, so the scenario asks for the same payload the button asks for.
+    await handoff(join(fixtures, 'code', 'bad.json'))
+    await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 2, 'a second root opens a second tab')
+    const labels = await tabRows().allTextContents()
+    ok(labels.some((l) => /code/.test(l)), 'the new tab is named for its folder')
+
+    // Switching: the tree and the viewer both follow.
+    await tabRows().first().click()
+    await sleep(400)
+    ok(
+      (await win.locator('[role="treeitem"][aria-selected="true"]').textContent())?.includes('README.md') ?? false,
+      'switching back restores that tab file'
+    )
+    ok((await win.locator('.p-md h1').count()) >= 1, 'and its viewer')
+    await win.screenshot({ path: join(SHOTS, 'tabs.png') })
+
+    // A file from a root already open reuses its tab rather than duplicating it.
+    await handoff(join(fixtures, 'notes.txt'))
+    ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
+
+    // Closing back to one leaves the strip, and the tab, in place.
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(400)
+    ok((await tabRows().count()) === 1, 'closing back to one tab keeps the strip')
+
+    // The sidebar's folder button REPLACES this tab root rather than adding one.
+    // The dialog it opens is native, so the reroot itself is unit-tested; what
+    // is checked here is that the button is where it should be, beside search.
+    ok(
+      (await win.locator('[aria-label="Search files"]').count()) === 1 &&
+        (await win.locator('aside [aria-label="Open folder"]').count()) === 1,
+      'the folder button sits on the search row, not the title bar'
+    )
+    ok(
+      (await win.locator('[aria-label="Open folder"]').count()) === 1,
+      'and is the only one: it has left the title bar'
+    )
+  } finally {
+    await app.close()
+  }
+
+  // ...and the strip survives a restart. Two roots, then relaunch the same
+  // profile without forgetting them.
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md')))
+  try {
+    await handoff(join(fixtures, 'code', 'bad.json'))
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(700) // the save is on a 400ms debounce
+  } finally {
+    await app.close()
+  }
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md'), true))
+  try {
+    await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 2, 'the strip comes back after a restart')
+  } finally {
+    await app.close()
+  }
+}
+
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
@@ -877,6 +986,8 @@ try {
   await unsavedScenario(fixtures)
   await sleep(900)
   await playerScenario(fixtures)
+  await sleep(900)
+  await tabsScenario(fixtures)
 } catch (e) {
   failures += 1
   console.error('scenario crashed:', e)
