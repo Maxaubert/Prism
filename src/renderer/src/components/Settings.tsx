@@ -24,7 +24,7 @@ import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
 import { FONT_PCTS, saveCustomTermTheme, setTermFontPct, setTermThemeId, useCustomTermTheme, useTermFontPct, useTermThemeId, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
-import { deriveAnsi } from '../lib/termAnsi'
+import { deriveAnsi, normalizeColor } from '../lib/termAnsi'
 import {
   setAutoScroll,
   setTreeSide,
@@ -994,7 +994,14 @@ function TerminalTab(): JSX.Element {
       const v = t[k]
       if (typeof v === 'string') ansi[k] = v
     }
-    setEditing({ bg: t.background, fg: t.foreground, cursor: t.cursor, ansi })
+    // Normalised: an acrylic follow-style publishes rgba(), and a colour
+    // input handed rgba() silently renders black.
+    setEditing({
+      bg: normalizeColor(t.background, '#101215'),
+      fg: normalizeColor(t.foreground, '#e3e6ea'),
+      cursor: normalizeColor(t.cursor, '#5b5bd6'),
+      ansi
+    })
   }
   return (
     <div className={ROWS}>

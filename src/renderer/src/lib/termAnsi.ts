@@ -28,6 +28,24 @@ export interface Ansi16 {
 
 /* ---------- small colour maths, self-contained on purpose ---------- */
 
+/**
+ * Any CSS colour a style can publish, flattened to opaque #rrggbb: #rgb,
+ * #rrggbb, #rrggbbaa, rgb() and rgba(). Alpha is dropped - an acrylic
+ * surface's tint is the best stand-in for what text actually sits on.
+ * Unparseable input returns the fallback: the maths must NEVER see NaN,
+ * which is exactly how every hue once walked itself to pure black.
+ */
+export function normalizeColor(input: string, fallback: string): string {
+  const v = input.trim()
+  let m = /^#([0-9a-f]{3})$/i.exec(v)
+  if (m) return '#' + m[1].split('').map((c) => c + c).join('').toLowerCase()
+  m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(v)
+  if (m) return '#' + m[1].toLowerCase()
+  m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(v)
+  if (m) return rgbToHex(Number(m[1]), Number(m[2]), Number(m[3]))
+  return fallback
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
   const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
@@ -111,7 +129,9 @@ export function ensureContrast(colour: string, bg: string, floor = ANSI_CONTRAST
  * from the background and foreground themselves, so they always belong to the
  * theme; the twelve hues are the seeds pushed to readability.
  */
-export function deriveAnsi(bg: string, fg: string): Ansi16 {
+export function deriveAnsi(rawBg: string, rawFg: string): Ansi16 {
+  const bg = normalizeColor(rawBg, '#101215')
+  const fg = normalizeColor(rawFg, '#e3e6ea')
   const dark = luminance(bg) <= 0.35
   const adapt = (c: string): string => ensureContrast(c, bg)
   return {
