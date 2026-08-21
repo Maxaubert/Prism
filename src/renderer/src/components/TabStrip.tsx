@@ -66,7 +66,11 @@ export function TabStrip({
             key={t.id}
             data-agent={working ? indicator : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
-            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 rounded-t px-2.5 transition-colors ${
+            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 px-2.5 transition-colors ${
+              // The orange fill keeps the tab's SQUARE shape: with rounding,
+              // a filled tab mid-strip read as a floating bubble.
+              loud ? 'rounded-none' : 'rounded-t'
+            } ${
               loud
                 ? 'bg-[#f97316] text-white'
                 : on
