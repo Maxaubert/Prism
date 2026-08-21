@@ -171,7 +171,10 @@ export function ContextMenu({
     cancelClose()
     if (sub?.index === index) return
     const r = el.getBoundingClientRect()
-    const anchorY = r.top - 5
+    // Align the flyout's FIRST ROW with the parent row: the sub-panel's row
+    // starts 3px inside it (1px border + 2px padding), so the panel sits 3px
+    // above the anchor - no more, or the whole flyout rides up.
+    const anchorY = r.top - 3
     setSub({ index, anchorY, x: window.innerWidth, y: anchorY }) // clamped after measure
   }
 

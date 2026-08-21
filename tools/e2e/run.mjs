@@ -518,6 +518,11 @@ async function contextMenuScenario(fixtures) {
     const notesRow = win.locator('[role="treeitem"]:has-text("notes.txt")')
     await notesRow.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    // Park the cursor off the menu first: opening leaves it over the top rows,
+    // whose own flyout churns open/shut under a moving hover and starves the
+    // actionability check.
+    await win.mouse.move(700, 500)
+    await sleep(400)
     await win.hover('[role="menuitem"]:has-text("Open in split view")')
     await win.waitForSelector('[role="menuitem"]:has-text("Right")', { timeout: 5000 })
     await win.locator('[role="menuitem"]:has-text("Right")').click()
@@ -537,6 +542,21 @@ async function contextMenuScenario(fixtures) {
     await win.locator('[role="menuitem"]:has-text("Remove from split view")').click()
     await sleep(400)
     ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'and removing restores one pane')
+
+    // Ctrl+W closes innermost-first: with a pin up it pops the pane (LIFO)
+    // and the tab survives.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
+    await sleep(500)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 1, 'a bare click pins with the remembered direction')
+    await win.keyboard.press('Control+w')
+    await sleep(400)
+    ok(
+      (await win.locator('[data-pane="pinned"]').count()) === 0 &&
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+      'Ctrl+W pops the pinned pane first; the tab stays'
+    )
 
     // Open in new tab, from the same menu.
     await notesRow.click({ button: 'right' })
@@ -1440,13 +1460,16 @@ async function terminalScenario(fixtures) {
       'clicking a file collapses a full terminal to the file'
     )
 
-    // Ctrl+D splits - from the FILE side (in the shell it stays EOF).
-    await win.keyboard.press('Control+d')
+    // The terminal split is menu-only now (Ctrl+D retired): the terminal
+    // button's right-click menu opens it.
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
     await sleep(500)
     ok(
       (await win.locator('.xterm').count()) === 1 &&
         (await win.locator('.p-md h1').first().isVisible().catch(() => false)),
-      'Ctrl+D on a file makes the split: document AND terminal'
+      'the terminal menu makes the split: document AND terminal'
     )
     await win.screenshot({ path: join(SHOTS, 'terminal-split.png') })
 
@@ -1463,10 +1486,13 @@ async function terminalScenario(fixtures) {
       'the file pane X leaves the terminal in full view'
     )
 
-    // Back to split, then the terminal pane's X: the file gets the room.
+    // Back to split (via the menu), then the terminal pane's X: the file
+    // gets the room.
     await win.locator('[role="treeitem"]:has-text("README.md")').click()
     await sleep(400)
-    await win.keyboard.press('Control+d')
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
     await sleep(400)
     await win.locator('[aria-label="Remove the terminal from the split"]').click()
     await sleep(400)

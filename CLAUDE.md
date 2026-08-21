@@ -120,9 +120,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **A terminal, one per tab** (2026-08-20): opens FULL VIEW (the viewer steps aside but
   stays mounted, so scroll/zoom/playback survive) via `Ctrl+\``, `Ctrl+Shift+T`, or the
   sidebar FOOTER-row button (a new bottom row, one button so far). SPLIT is the deliberate
-  arrangement: `Ctrl+D` on a file, or right-click a file, "Open in split view" - docked
-  bottom/top/left/right (right-click menu on the panel), resizable. Ctrl+D sits behind the
-  typing guard so in the shell it stays EOF. The terminal wears the style (reads
+  arrangement, menu-only (no hotkey, 2026-08-21): right-click a file, "Open in split view"
+  PINS file panes (up to 4 windows, FIFO, direction flyout with memory); the terminal's own
+  split docks bottom/top/left/right (right-click menus), resizable. Ctrl+W closes
+  innermost-first: pinned panes pop LIFO, then the tab itself. The terminal wears the style (reads
   --p-bg/--p-text/--p-accent-hi live): void means a black terminal. Right-clicking the
   terminal button offers split view and Clear terminal. Syntax highlighting and history
   ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
