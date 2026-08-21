@@ -1280,15 +1280,29 @@ async function terminalScenario(fixtures) {
     )
     await win.keyboard.press('Escape')
     await sleep(400)
-    await win.keyboard.press('Control+c')
-    await sleep(600)
-    await win.keyboard.press('Control+c')
-    await win.waitForFunction(
-      () => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length === 0,
-      null,
-      { timeout: 20000 }
-    )
-    ok(true, 'claude leaving retires the dot')
+    // Exit can need more than one nudge (a double-Ctrl+C confirm, focus
+    // wobble); keep nudging until the process is genuinely gone.
+    let dotGone = false
+    for (let i = 0; i < 6 && !dotGone; i += 1) {
+      await win.locator('.xterm').click()
+      await win.keyboard.press('Control+c')
+      await sleep(500)
+      await win.keyboard.press('Control+c')
+      dotGone = await win
+        .waitForFunction(
+          () => document.querySelectorAll('[data-activity="working"],[data-activity="done"]').length === 0,
+          null,
+          { timeout: 7000 }
+        )
+        .then(() => true)
+        .catch(() => false)
+    }
+    if (!dotGone)
+      console.log(
+        '  TERM TAIL:',
+        JSON.stringify(((await win.locator('.xterm').textContent()) ?? '').slice(-400))
+      )
+    ok(dotGone, 'claude leaving retires the dot')
 
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
