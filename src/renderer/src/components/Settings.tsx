@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, saveCustomTermTheme, setAgentIndicator, setTermFontPct, setTermThemeId, useAgentIndicator, useCustomTermTheme, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermFontPct, setTermThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, normalizeColor } from '../lib/termAnsi'
 import {
@@ -970,6 +970,7 @@ function TerminalTab(): JSX.Element {
   const themeId = useTermThemeId()
   const fontPct = useTermFontPct()
   const agentInd = useAgentIndicator()
+  const agentCol = useAgentColor()
   // The follow-style card mirrors the LIVE style, derived ANSI included, and
   // repaints when the style does.
   const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
@@ -1129,6 +1130,20 @@ function TerminalTab(): JSX.Element {
             { id: 'full', name: 'Full - tab turns orange' },
             { id: 'minimal', name: 'Minimal - edge bar' }
           ]}
+        />
+      </Pref>
+      <Pref
+        id="agent-color"
+        label="Working colour"
+        hint="The fill (full) and icon tint (minimal) while an agent works."
+      >
+        <input
+          id="agent-color"
+          type="color"
+          aria-label="Working colour"
+          value={agentCol}
+          onChange={(e) => setAgentColor(e.target.value)}
+          className="h-7 w-10 cursor-pointer rounded border border-[color:var(--p-line)] bg-transparent"
         />
       </Pref>
       <Pref

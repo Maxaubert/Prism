@@ -54,6 +54,20 @@ export function setAgentIndicator(v: AgentIndicator): void {
   notify()
 }
 
+const AGENT_COLOR_KEY = 'prism.term.agentColor'
+const AGENT_COLOR_DEFAULT = '#f97316'
+
+/** The working colour: the full tab's fill, the minimal icon's tint. */
+export function agentColor(): string {
+  const v = localStorage.getItem(AGENT_COLOR_KEY)
+  return v && /^#[0-9a-f]{6}$/i.test(v) ? v : AGENT_COLOR_DEFAULT
+}
+
+export function setAgentColor(hex: string): void {
+  localStorage.setItem(AGENT_COLOR_KEY, hex)
+  notify()
+}
+
 const CUSTOM_KEY = 'prism.term.custom'
 
 export interface CustomTermTheme {
@@ -98,6 +112,9 @@ export function useTermFontPct(): number {
 }
 export function useAgentIndicator(): AgentIndicator {
   return useSyncExternalStore(sub, agentIndicator)
+}
+export function useAgentColor(): string {
+  return useSyncExternalStore(sub, agentColor)
 }
 export function useCustomTermTheme(): CustomTermTheme | null {
   // Cache per notify tick: useSyncExternalStore needs a stable snapshot.

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { agentIndicator, customTermTheme, saveCustomTermTheme, setAgentIndicator, setTermFontPct, setTermThemeId, termBaseFontPx, termFontPct, termThemeId } from './termLook'
+import { agentColor, agentIndicator, customTermTheme, setAgentColor, saveCustomTermTheme, setAgentIndicator, setTermFontPct, setTermThemeId, termBaseFontPx, termFontPct, termThemeId } from './termLook'
 
 beforeEach(() => localStorage.clear())
 
@@ -45,5 +45,15 @@ describe('the agent indicator', () => {
   it('garbage reads as the default', () => {
     localStorage.setItem('prism.term.agentIndicator', 'soup')
     expect(agentIndicator()).toBe('full')
+  })
+})
+
+describe('the working colour', () => {
+  it('defaults to orange and round-trips a pick; garbage falls back', () => {
+    expect(agentColor()).toBe('#f97316')
+    setAgentColor('#22c55e')
+    expect(agentColor()).toBe('#22c55e')
+    localStorage.setItem('prism.term.agentColor', 'soup')
+    expect(agentColor()).toBe('#f97316')
   })
 })
