@@ -39,7 +39,10 @@ jobs:
 
       # Unsigned, per-user NSIS; node-pty ships N-API prebuilds so no native
       # toolchain is involved (npmRebuild is false in the builder config).
-      - run: npm run package
+      # --publish never: on CI electron-builder tries to publish ITSELF and
+      # fails wanting a token - the gh step below owns publishing.
+      - run: npm run build
+      - run: npx electron-builder --win --publish never
 
       - name: Publish
         shell: pwsh
