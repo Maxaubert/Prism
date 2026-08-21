@@ -74,7 +74,7 @@ export function TabStrip({
         const f = e.dataTransfer.files?.[0]
         if (f) onDropFile(window.prism.getDroppedPath(f))
       }}
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] px-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
@@ -91,8 +91,9 @@ export function TabStrip({
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
-            // transparent) when it doesn't.
-            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors first:border-l ${
+            // transparent) when it doesn't. Right edges only: the first tab
+            // sits flush against the window's left side, no line before it.
+            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
               loud
                 ? ''
                 : on
