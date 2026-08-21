@@ -47,6 +47,81 @@ interface Session {
 
 const sessions = new Map<string, Session>()
 
+/**
+ * Warm shells, one per recently-active root (two at most). Opening a terminal
+ * used to pay the whole bill at the click - chunk, pty, pwsh startup, the
+ * PSReadLine bootstrap - about a second of it. Now the shell for the active
+ * tab is started AHEAD of the click; term:spawn adopts it and replays the
+ * banner it buffered, so the prompt is simply there.
+ */
+interface WarmShell {
+  pty: IPty
+  defId: string
+  buf: string
+  sub: { dispose(): void }
+  exited: boolean
+}
+const warm = new Map<string, WarmShell>()
+const rootKey = (root: string): string => root.toLowerCase()
+
+export async function prewarmShell(root: string, shellId: string | undefined): Promise<void> {
+  const key = rootKey(root)
+  if (warm.has(key)) return
+  const def = shellById(shellId, await detectShells())
+  if (!def) return
+  if (warm.has(key)) return // a second call raced the await
+  // Two warm shells at most: evict the other root's.
+  for (const [k, w] of warm) {
+    if (warm.size < 2) break
+    warm.delete(k)
+    try {
+      w.sub.dispose()
+      w.pty.kill()
+    } catch {
+      /* already gone */
+    }
+  }
+  try {
+    const pty = await import('node-pty')
+    const size = desiredSize.get('') ?? { cols: 80, rows: 24 }
+    const p = pty.spawn(def.exe, def.args, {
+      name: 'xterm-color',
+      cols: size.cols,
+      rows: size.rows,
+      cwd: root,
+      env: process.env as Record<string, string>,
+      useConpty: true
+    })
+    const w: WarmShell = { pty: p, defId: def.id, buf: '', sub: { dispose: () => {} }, exited: false }
+    w.sub = p.onData((d) => {
+      // The banner and prompt, kept for replay. Capped: a warm shell should
+      // be quiet, and a runaway one is not worth adopting anyway.
+      if (w.buf.length < 65536) w.buf += d
+    })
+    p.onExit(() => {
+      w.exited = true
+      warm.delete(key)
+    })
+    warm.set(key, w)
+  } catch {
+    /* prewarm is best-effort; the click path still works cold */
+  }
+}
+
+function killWarm(root?: string): void {
+  for (const [k, w] of warm) {
+    if (root !== undefined && k !== rootKey(root)) continue
+    warm.delete(k)
+    try {
+      w.sub.dispose()
+      w.pty.kill()
+    } catch {
+      /* already gone */
+    }
+  }
+}
+export { killWarm }
+
 // The size each session SHOULD be, remembered even before its shell exists.
 // The renderer's first fit can land while the spawn is still resolving (cold
 // first runs take seconds), and a dropped first resize left the pty at 80x24
@@ -65,6 +140,25 @@ export async function spawnTerm(id: string, root: string, shellId: string | unde
   if (sessions.has(id)) return false
   const def = shellById(shellId, await detectShells())
   if (!def) return false
+  // Adopt the warm shell when it matches: replay what it printed while
+  // waiting (the banner, the prompt), then wire it up like any session.
+  const w = warm.get(rootKey(root))
+  if (w && !w.exited && w.defId === def.id) {
+    warm.delete(rootKey(root))
+    w.sub.dispose()
+    if (w.buf) send('term:data', id, w.buf)
+    const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
+    w.pty.onData((d) => batcher.push(d))
+    w.pty.onExit(() => {
+      batcher.flush()
+      sessions.delete(id)
+      send('term:exit', id)
+    })
+    sessions.set(id, { pty: w.pty, batcher })
+    const want = desiredSize.get(id)
+    if (want) resizeTerm(id, want.cols, want.rows)
+    return true
+  }
   try {
     const pty = await import('node-pty')
     const size = desiredSize.get(id) ?? { cols: 80, rows: 24 }
@@ -130,7 +224,8 @@ export function livePids(): Array<{ id: string; pid: number }> {
   return [...sessions.entries()].map(([id, s]) => ({ id, pid: s.pty.pid }))
 }
 
-/** Quit: every shell dies with the app. */
+/** Quit: every shell dies with the app, warm spares included. */
 export function killAll(): void {
+  killWarm()
   for (const id of [...sessions.keys()]) killTerm(id)
 }

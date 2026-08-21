@@ -256,3 +256,16 @@ body {
 .p-styled-font {
   font-family: var(--p-font);
 }
+
+/* Colour pickers: the control is the swatch. Chromium nests a padded inner
+   rectangle by default, which reads as a box inside a box. */
+input[type='color'] {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}

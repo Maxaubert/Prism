@@ -100,6 +100,9 @@ const api = {
   termResize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send('term:resize', id, cols, rows),
   termKill: (id: string): void => ipcRenderer.send('term:kill', id),
+  /** Start the active root's shell ahead of the click. Best-effort. */
+  termPrewarm: (root: string, shellId?: string): void =>
+    ipcRenderer.send('term:prewarm', root, shellId),
   onTermData: (cb: (id: string, data: string) => void): (() => void) => {
     const listener = (_: unknown, id: string, data: string): void => cb(id, data)
     ipcRenderer.on('term:data', listener)
