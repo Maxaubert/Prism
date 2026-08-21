@@ -134,10 +134,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   tab close, or quit kill it; rerooting keeps it. A tab whose terminal was SHOWING at quit
   reopens as a terminal (tabs.json remembers the view; the shell itself is fresh) - a
   Claude-session tab must not come back as an empty viewer (2026-08-21). And a shell that
-  HOSTED CLAUDE at quit resumes the conversation: the fresh shell is sent
-  `claude --continue` (claude rebuilds it per folder from its own store). That is the ONE
-  command Prism ever writes itself - an explicit owner exception (2026-08-21) to the line
-  below, claude-only (agent detection knows the kind; codex and kin are never resumed).
+  HOSTED CLAUDE at quit resumes the conversation BY SESSION ID: main reads the newest
+  session claude recorded for the folder (~/.claude/projects) and launches the shell with
+  `claude --resume <id>` as its STARTUP command - never typed on screen, never a bare
+  --continue guessing (no session on disk = no resume). That is the ONE command Prism
+  ever writes itself - an explicit owner exception (2026-08-21) to the line below,
+  claude-only (agent detection knows the kind; codex and kin are never resumed). Ctrl+C
+  over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
   pwsh by default, Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on

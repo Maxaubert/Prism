@@ -487,9 +487,9 @@ export default function App(): JSX.Element {
         if (tab && !tab.term) {
           const termId = nextTermId()
           termRoots.current.set(termId, tab.root)
-          // The shell hosted a Claude session at close: the fresh one resumes
-          // it once it is up (see TerminalPanel).
-          if (p.agentResume) markResume(termId)
+          // The shell hosted a Claude session at close: the fresh one launches
+          // straight into it (spawn carries the id; see TerminalPanel).
+          if (p.agentResume) markResume(termId, p.agentResume)
           return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: p.term }) }
         }
       }

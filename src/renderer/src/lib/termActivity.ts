@@ -41,20 +41,21 @@ export function isTouched(id: string): boolean {
   return touchedIds.has(id)
 }
 
-// Sessions born to RESUME a Claude conversation: the restore flow marks them,
-// the terminal panel sends `claude --continue` once the shell is up. This is
-// the one command Prism ever writes itself (owner decision, 2026-08-21).
-const resumeIds = new Set<string>()
+// Sessions born to RESUME a Claude conversation, mapped to the conversation's
+// session id: the restore flow marks them, the spawn carries the id so main
+// launches the shell with `claude --resume <id>` as its startup command -
+// never typed on screen (owner decision, 2026-08-21).
+const resumeIds = new Map<string, string>()
 
-export function markResume(id: string): void {
-  resumeIds.add(id)
+export function markResume(id: string, session: string): void {
+  resumeIds.set(id, session)
 }
 
-/** One-shot: true exactly once per marked session. */
-export function takeResume(id: string): boolean {
-  const has = resumeIds.has(id)
+/** One-shot: the session id exactly once per marked terminal. */
+export function takeResume(id: string): string | null {
+  const session = resumeIds.get(id) ?? null
   resumeIds.delete(id)
-  return has
+  return session
 }
 
 /** A session ended: forget everything about it. */
