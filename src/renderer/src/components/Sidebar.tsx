@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type Mouse
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
+import type { SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
@@ -100,9 +101,11 @@ export function Sidebar({
   onOpenFolder,
   onToggleTerm,
   termOpen,
-  onOpenSplit,
-  splitPath,
-  onRemoveSplit,
+  onPinSplit,
+  onUnpinSplit,
+  pinnedPaths,
+  onOpenNewTab,
+  onTermNewTab,
   onTermSplit,
   onClearTerm,
   state,
@@ -131,12 +134,15 @@ export function Sidebar({
   /** Toggle this tab's terminal (full view). Lives in the footer row. */
   onToggleTerm: () => void
   termOpen: boolean
-  /** Show a file with the terminal split beside it (the context menu verb). */
-  onOpenSplit: (path: string) => void
-  /** The file currently sharing the split, if the split is on. Its context
-   *  menu offers the way OUT instead of the way in. */
-  splitPath: string | null
-  onRemoveSplit: () => void
+  /** Pin a file as a split pane; no direction means the remembered one. */
+  onPinSplit: (path: string, dir?: SplitDir) => void
+  onUnpinSplit: (path: string) => void
+  /** Paths currently pinned: their menu offers the way OUT. */
+  pinnedPaths: readonly string[]
+  /** A fresh tab rooted at the file's folder. */
+  onOpenNewTab: (path: string) => void
+  /** The terminal button menu's "Open in new tab". */
+  onTermNewTab: () => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
   /** Null while no shell exists: there is nothing to clear yet. */
@@ -580,6 +586,11 @@ export function Sidebar({
               icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
               onPick: onTermSplit
             },
+            {
+              label: 'Open in new tab',
+              icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
+              onPick: onTermNewTab
+            },
             // Only once a shell exists: there is nothing to clear before that.
             ...(onClearTerm
               ? [
@@ -603,20 +614,30 @@ export function Sidebar({
             // Files also go places: another app, Explorer, the clipboard.
             ...(!menu.isFolder
               ? [
-                  // The deliberate arrangement: this file, terminal beside
-                  // it - or, for the file already sharing the split, the way
-                  // back out.
-                  splitPath && splitPath.toLowerCase() === menu.path.toLowerCase()
+                  // Split panes are file-agnostic: pin any file beside the
+                  // live one. The parent click reuses the remembered
+                  // direction; the flyout names one. A pinned file's menu
+                  // offers the way back out instead.
+                  pinnedPaths.some((pp) => pp.toLowerCase() === menu.path.toLowerCase())
                     ? {
                         label: 'Remove from split view',
                         icon: <MenuIcon d="M4 5h16v14H4zM13 5v14M6.5 10.5l2 1.5-2 1.5" />,
-                        onPick: onRemoveSplit
+                        onPick: () => onUnpinSplit(menu.path)
                       }
                     : {
                         label: 'Open in split view',
                         icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
-                        onPick: () => onOpenSplit(menu.path)
+                        onPick: () => onPinSplit(menu.path),
+                        children: (['left', 'right', 'top', 'bottom'] as const).map((d) => ({
+                          label: d[0].toUpperCase() + d.slice(1),
+                          onPick: () => onPinSplit(menu.path, d)
+                        }))
                       },
+                  {
+                    label: 'Open in new tab',
+                    icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
+                    onPick: () => onOpenNewTab(menu.path)
+                  },
                   {
                     label: 'Open in',
                     icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,

@@ -485,10 +485,10 @@ async function contextMenuScenario(fixtures) {
 
     // The flyout: hover "Open in", expect the two rows that exist on every
     // machine (the app list between them varies by what is installed).
-    // has-text is a substring match and "Open in split view" sits above
-    // "Open in" in the menu; exclude it rather than exact-match, because the
-    // item's text also carries its submenu chevron.
-    await win.hover('[role="menuitem"]:has-text("Open in"):not(:has-text("split"))')
+    // has-text is a substring match and "Open in split view" / "Open in new
+    // tab" sit above "Open in"; exclude them rather than exact-match, because
+    // the item's text also carries its submenu chevron.
+    await win.hover('[role="menuitem"]:has-text("Open in"):not(:has-text("split")):not(:has-text("new tab"))')
     await win.waitForSelector('[role="menuitem"]:has-text("Choose another app…")', { timeout: 8000 })
     ok(true, 'Open in flyout opens')
     ok((await win.locator('[role="menuitem"]:has-text("Default app")').count()) === 1, 'flyout offers the default app')
@@ -510,10 +510,48 @@ async function contextMenuScenario(fixtures) {
       'files offer Open in split view'
     )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
-
-    // Duplicate makes "README (2).md" appear in the tree.
     await win.keyboard.press('Escape')
-    await sleep(200)
+    await sleep(300)
+
+    // Split panes are file-agnostic: pin notes.txt to the RIGHT of the live
+    // pane via the flyout, and both files render at once.
+    const notesRow = win.locator('[role="treeitem"]:has-text("notes.txt")')
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.hover('[role="menuitem"]:has-text("Open in split view")')
+    await win.waitForSelector('[role="menuitem"]:has-text("Right")', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Right")').click()
+    await sleep(600)
+    ok(
+      (await win.locator('[data-pane="live"]').count()) === 1 &&
+        (await win.locator('[data-pane="pinned"]').count()) === 1,
+      'the flyout pins the file beside the live pane'
+    )
+    // Its menu now offers the way out.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Remove from split view")').count()) === 1,
+      'a pinned file offers Remove from split view'
+    )
+    await win.locator('[role="menuitem"]:has-text("Remove from split view")').click()
+    await sleep(400)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'and removing restores one pane')
+
+    // Open in new tab, from the same menu.
+    await notesRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
+    await sleep(700)
+    ok(
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      'Open in new tab spawns a tab'
+    )
+    await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
+    await sleep(400)
+
+    // Duplicate makes "README (2).md" appear in the tree. (No Escape first:
+    // the menu is already closed, and a bare-window Escape closes Prism.)
     await row.click({ button: 'right' })
     await win.click('[role="menuitem"]:has-text("Duplicate")')
     await win.waitForSelector('[role="treeitem"]:has-text("README (2).md")', { timeout: 8000 })
@@ -1412,18 +1450,9 @@ async function terminalScenario(fixtures) {
     )
     await win.screenshot({ path: join(SHOTS, 'terminal-split.png') })
 
-    // The file sharing the split offers the way OUT in its context menu.
-    await win.locator('[role="treeitem"]:has-text("README.md")').click({ button: 'right' })
-    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    ok(
-      await win
-        .locator('[role="menuitem"]:has-text("Remove from split view")')
-        .isVisible()
-        .catch(() => false),
-      'the split file context menu flips to Remove from split view'
-    )
-    await win.keyboard.press('Escape')
-    await sleep(300)
+    // (The context-menu "Remove from split view" now belongs to PINNED file
+    // panes, tested in the context-menu scenario; a terminal split leaves the
+    // file's menu offering "Open in split view" as usual.)
 
     // The file pane's X: the file steps out, the terminal takes the full view.
     await win.locator('[aria-label="Remove the file from the split"]').click()

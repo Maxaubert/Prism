@@ -12,7 +12,8 @@ export interface MenuItem {
   danger?: boolean
   disabled?: boolean
   icon?: JSX.Element
-  /** Ignored on rows that carry children; the flyout is the action. */
+  /** On a childless row, the action. On a row WITH children it makes the
+   *  parent itself clickable too (e.g. "last used" defaults). */
   onPick?: () => void
   /** One level of flyout, opened on hover. */
   children?: MenuItem[]
@@ -147,7 +148,10 @@ export function ContextMenu({
   }, [onClose])
 
   const pick = (it: MenuItem): void => {
-    if (it.children || it.disabled) return
+    if (it.disabled) return
+    // A parent that brings its own onPick is clickable (the flyout stays the
+    // hover); one without is flyout-only, like "Open in".
+    if (it.children && !it.onPick) return
     it.onPick?.()
     onClose()
   }
