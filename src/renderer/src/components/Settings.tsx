@@ -1018,7 +1018,11 @@ function TerminalTab(): JSX.Element {
         </p>
         <div
           ref={themeWall}
-          className="relative mt-3 overflow-hidden transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]"
+          // Ease OPEN only: the transition class is present exactly when the
+          // expanded height applies, so collapsing snaps shut instantly.
+          className={`relative mt-3 overflow-hidden ${
+            allThemes ? 'transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]' : ''
+          }`}
           // Two card rows by default: 39 themes as one wall buried the font
           // row below them. The snap-open eased in 240ms rather than jumping.
           style={{ maxHeight: wallHeight }}
