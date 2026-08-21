@@ -270,3 +270,15 @@ input[type='color']::-webkit-color-swatch {
   border: none;
   border-radius: 3px;
 }
+
+/* xterm's stock stylesheet paints .xterm-viewport solid black (a macOS
+   scrollbar-opacity workaround). The THEME background lives on the scrollable
+   element above it, so the black was invisible - until the acrylic share made
+   the theme transparent and the black showed through as "every terminal is
+   black". The panel behind the terminal owns the surface; this layer stays
+   clear. */
+.xterm .xterm-viewport {
+  /* !important because xterm.css rides the LAZY terminal chunk and lands in
+     the document after this sheet - equal specificity would lose on order. */
+  background-color: transparent !important;
+}
