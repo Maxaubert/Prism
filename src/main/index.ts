@@ -271,7 +271,7 @@ function restoreTabs(): OpenPayload[] {
   const out: OpenPayload[] = []
   for (const t of saved.tabs) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
-    if (payload) out.push(payload)
+    if (payload) out.push(t.term ? { ...payload, term: t.term } : payload)
   }
   // The active tab goes last: the renderer applies these in order through the
   // same arriving-file rule as everything else, and that rule leaves the tab it

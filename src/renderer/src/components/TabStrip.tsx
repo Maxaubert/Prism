@@ -96,6 +96,10 @@ export function TabStrip({
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
             style={loud ? { background: agentColor, color: onAgent } : undefined}
+            // The WHOLE tab is the click target, not just the label: the
+            // padding, the icon slot and the slack around a short name all
+            // pick the tab. The close button stops propagation to opt out.
+            onClick={() => onPick(t.id)}
             onAuxClick={(e) => auxClose(e, t.id)}
           >
             {/* The active mark: an accent rule along the top. It yields while
@@ -138,7 +142,10 @@ export function TabStrip({
               }`}
               title={`Close ${labels[i]} (Ctrl+W)`}
               aria-label={`Close ${labels[i]}`}
-              onClick={() => onClose(t.id)}
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose(t.id)
+              }}
             >
               <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
                 <path d="M6 6l12 12M18 6L6 18" />

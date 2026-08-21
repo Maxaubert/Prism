@@ -475,7 +475,20 @@ export default function App(): JSX.Element {
    */
   const open = useCallback((p: OpenPayload | null) => {
     if (!p) return
-    setTabState((s) => receiveFile(s.tabs, p, nextTabId()))
+    setTabState((s) => {
+      const st = receiveFile(s.tabs, p, nextTabId())
+      // A restored tab that was showing its terminal comes back AS a terminal:
+      // a fresh shell at the root (sessions die with the app), same view.
+      if (p.term) {
+        const tab = st.tabs.find((t) => t.id === st.activeId)
+        if (tab && !tab.term) {
+          const termId = nextTermId()
+          termRoots.current.set(termId, tab.root)
+          return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: p.term }) }
+        }
+      }
+      return st
+    })
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])
 
@@ -501,7 +514,13 @@ export default function App(): JSX.Element {
     if (folderTabs.length) hadTabs.current = true
     else if (!hadTabs.current) return
     window.prism.tabsChanged(
-      folderTabs.map((t) => ({ root: t.root, file: t.files[t.index]?.path })),
+      folderTabs.map((t) => ({
+        root: t.root,
+        file: t.files[t.index]?.path,
+        // A visible terminal is part of what the tab IS: a Claude-session tab
+        // must reopen as a terminal next launch, not as an empty viewer.
+        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined
+      })),
       Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
     )
   }, [tabs, activeId])
