@@ -78,14 +78,14 @@ async function probeText(path: string): Promise<PropRow[]> {
 }
 
 /** The rows for one file (or folder), most interesting first. */
-export async function propsFor(path: string, name: string, kind: FileKind, isFolder: boolean): Promise<PropRow[]> {
+export async function propsFor(root: string, path: string, name: string, kind: FileKind, isFolder: boolean): Promise<PropRow[]> {
   const url = window.prism.mediaUrl(path)
   const ext = /\.[^.\\/]+$/.exec(name)?.[0]?.slice(1).toUpperCase()
 
   const [stat, special] = await Promise.all([
     window.prism.statFile(path),
     isFolder
-      ? window.prism.listDir(path).then((l): PropRow[] =>
+      ? window.prism.listDir(root, path).then((l): PropRow[] =>
           l && !l.unreadable
             ? [{ label: 'Contents', value: `${l.folders.length} folders, ${l.files.length} files` }]
             : []

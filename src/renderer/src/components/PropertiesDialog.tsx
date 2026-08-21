@@ -8,12 +8,15 @@ import { Dialog } from './Dialog'
 // image, pages for a PDF, words for a document - and lives in lib/fileProps.
 
 export function PropertiesDialog({
+  root,
   path,
   name,
   kind,
   isFolder,
   onClose
 }: {
+  /** The tab's root: a folder's contents row is a listDir, which is walled. */
+  root: string
   path: string
   name: string
   kind: FileKind
@@ -24,11 +27,11 @@ export function PropertiesDialog({
 
   useEffect(() => {
     let alive = true
-    void propsFor(path, name, kind, isFolder).then((r) => alive && setRows(r))
+    void propsFor(root, path, name, kind, isFolder).then((r) => alive && setRows(r))
     return () => {
       alive = false
     }
-  }, [path, name, kind, isFolder])
+  }, [root, path, name, kind, isFolder])
 
   return (
     <Dialog

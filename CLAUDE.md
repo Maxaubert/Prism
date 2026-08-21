@@ -96,6 +96,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Prism's writes are therefore: rename, bin,
   duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
   fresh decision, not a natural next step.
+- **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
+  whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
+  choose a folder, and several roots stay open as tabs. **A tab is a root and a current
+  file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
+  arriving from outside reuses a tab whose root already holds it (five photos from one
+  folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
+  in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
+  FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
+  opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
+  strip's `+` (and `Ctrl+T`) ADDS a tab instantly, rooted at the user's home folder with no
+  dialog, and spawns unconditionally (pressing + must never appear to do nothing); the
+  sidebar's folder button (on the search row, left of the search box, away from sort/filter
+  which narrow rather than change) opens the chooser and REPLACES the current tab root. Rerooting onto a folder another tab already holds switches there instead,
+  keeping one tab per root. `Ctrl+W` closes a tab and the
+  last one leaves an EMPTY WINDOW rather than quitting: Prism is resident and a window that
+  vanishes under a reflex keystroke is the failure the close flow exists to prevent.
+  Closing a tab holding unsaved text asks, like the window does.
+  The root wall is a set now (`src/main/roots.ts`), not one string. Navigation handlers
+  (`open:within`, `dir:list`, `search:files`) name their root and get the strict per-tab
+  check; everything else checks `insideAnyRoot`. The renderer owns the tab list and reports
+  it, which is what narrows the wall when a tab closes.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
@@ -155,6 +176,13 @@ off the taskbar) so it never covers what you are doing. Electron has no headless
 truly hidden window stops answering clicks and screenshots, so parking it is the way.
 `npm run package` builds the NSIS installer;
 version lives in `package.json`; tag + `gh release` to ship. Unsigned, per-user, GitHub Releases.
+
+**Installing is the LAST verification step, every time work is finished** - after tests,
+typecheck, lint and e2e, and not something to ask about first. Tests and e2e drive the built
+bundle, never the shipped app: packaging and installing is what proves the installer still
+works, that the associations still register, and that the resident app actually launches.
+`npm run package`, then install `dist/Prism-Setup-x64-<version>.exe` silently with `/S`
+(per-user, no elevation), closing any running Prism first. Report the installed version.
 
 ## Conventions
 
