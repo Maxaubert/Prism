@@ -89,6 +89,27 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
   })
 
+  it('restores the SECOND of two tabs on the same folder as active (field bug)', () => {
+    const a = folder('shoot')
+    const saved: SavedTabs = {
+      tabs: [{ root: a }, { root: a, term: 'full', agent: true }],
+      active: 1
+    }
+    expect(parseTabs(JSON.stringify(saved))).toEqual({
+      tabs: [{ root: a }, { root: a, term: 'full', agent: true }],
+      active: 1
+    })
+  })
+
+  it('falls back to the first tab when the active tab was dropped with no twin', () => {
+    const a = folder('shoot')
+    const f = join(box, 'now-a-file')
+    writeFileSync(f, 'x')
+    // active names a root that no longer restores; a twin of it survives at 1
+    const saved: SavedTabs = { tabs: [{ root: join(box, 'gone') }, { root: a }, { root: f }], active: 2 }
+    expect(parseTabs(JSON.stringify(saved)).active).toBe(0)
+  })
+
   it('clamps an active index that points nowhere', () => {
     const a = folder('shoot')
     expect(parseTabs(JSON.stringify({ tabs: [{ root: a }], active: 9 })).active).toBe(0)
