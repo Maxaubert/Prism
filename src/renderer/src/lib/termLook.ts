@@ -129,6 +129,27 @@ export interface CustomTermTheme {
   acrylic?: boolean
 }
 
+/** What every non-colour terminal setting is out of the box. Picking any
+ *  theme returns to these; deviating from them is what "Save changes" saves. */
+export const TERM_EXTRA_DEFAULTS = {
+  font: 'cascadia',
+  fontPct: 100,
+  indicator: 'full' as AgentIndicator,
+  indicatorColor: AGENT_COLOR_DEFAULT,
+  acrylic: true
+}
+
+/** Selecting a theme overwrites the terminal settings with their defaults:
+ *  the theme is the whole setup, not just the palette. */
+export function resetTermExtras(): void {
+  localStorage.removeItem(FONT_FAMILY_KEY)
+  localStorage.removeItem(FONT_KEY)
+  localStorage.removeItem(AGENT_IND_KEY)
+  localStorage.removeItem(AGENT_COLOR_KEY)
+  localStorage.removeItem(ACRYLIC_KEY)
+  notify()
+}
+
 /** Re-apply the non-colour half of a saved Custom setup, when it has one. */
 export function applyCustomExtras(t: CustomTermTheme | null): void {
   if (!t) return

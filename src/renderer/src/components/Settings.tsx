@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, TERM_FONTS, applyCustomExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
@@ -1135,7 +1135,21 @@ function TerminalTab(): JSX.Element {
       acrylic: acrylicOn
     }
   }
-  const termDirty = !custom || JSON.stringify(buildTermSetup()) !== JSON.stringify(custom)
+  // Dirty = the SETTINGS deviate from the selected theme's stock: any theme
+  // arrives with the defaults, a Custom arrives with what it saved. Comparing
+  // whole palettes kept the button lit forever - the palette IS the selection.
+  const extras = { font: fontId, fontPct, indicator: agentInd, indicatorColor: agentCol, acrylic: acrylicOn }
+  const baseline =
+    themeId === 'custom' && custom
+      ? {
+          font: custom.font ?? TERM_EXTRA_DEFAULTS.font,
+          fontPct: custom.fontPct ?? TERM_EXTRA_DEFAULTS.fontPct,
+          indicator: custom.indicator ?? TERM_EXTRA_DEFAULTS.indicator,
+          indicatorColor: custom.indicatorColor ?? TERM_EXTRA_DEFAULTS.indicatorColor,
+          acrylic: custom.acrylic ?? TERM_EXTRA_DEFAULTS.acrylic
+        }
+      : TERM_EXTRA_DEFAULTS
+  const termDirty = JSON.stringify(extras) !== JSON.stringify(baseline)
   const saveTermSetup = (): void => {
     saveCustomTermTheme(buildTermSetup())
     setTermThemeId('custom')
@@ -1214,7 +1228,10 @@ function TerminalTab(): JSX.Element {
             fg={styleTheme.foreground}
             cursor={styleTheme.cursor}
             ansi={styleAnsi}
-            onPick={() => setTermThemeId('style')}
+            onPick={() => {
+              setTermThemeId('style')
+              resetTermExtras() // the theme is the whole setup
+            }}
             onEdit={() => editFrom('style')}
           />
           {custom && (
@@ -1259,7 +1276,10 @@ function TerminalTab(): JSX.Element {
                   cyan: t.cyan ?? '',
                   red: t.red ?? ''
                 }}
-                onPick={() => setTermThemeId(p.id)}
+                onPick={() => {
+                  setTermThemeId(p.id)
+                  resetTermExtras() // the theme is the whole setup
+                }}
                 onEdit={() => editFrom(p.id)}
               />
             )
