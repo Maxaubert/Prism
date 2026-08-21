@@ -1,4 +1,4 @@
-import { deriveAnsi, type Ansi16 } from './termAnsi'
+import { deriveAnsi, normalizeColor, type Ansi16 } from './termAnsi'
 import { customTermTheme } from './termLook'
 
 // The terminal wears the style. Styles publish their surfaces as CSS custom
@@ -15,13 +15,22 @@ export interface TermTheme extends Partial<Ansi16> {
 
 /** Pure: style surfaces in, xterm theme out. Fallbacks are the app's default
  *  dark, for the moment before the style has painted. */
-export function buildTermTheme(bg: string, text: string, accent: string): TermTheme {
+export function buildTermTheme(bg: string, text: string, accent: string, flatBg?: string): TermTheme {
   const b = bg.trim() || '#0b0b0f'
   const t = text.trim() || '#d7dae1'
   const a = accent.trim() || '#5b5bd6'
   // The ANSI sixteen are DERIVED from the base, not assumed: edit a style's
   // background toward red and red text adapts instead of vanishing into it.
-  return { background: b, foreground: t, cursor: a, selectionBackground: `${a}55`, ...deriveAnsi(b, t) }
+  // The maths run against the FLAT surface: an acrylic style publishes an
+  // rgba() background, which is fine to PAINT but not to measure against -
+  // unparsed it turned every hue pure black.
+  return {
+    background: b,
+    foreground: t,
+    cursor: a,
+    selectionBackground: `${a}55`,
+    ...deriveAnsi(normalizeColor(flatBg?.trim() || b, '#101215'), t)
+  }
 }
 
 /** What the current style says, right now. */
@@ -30,7 +39,10 @@ export function readTermTheme(): TermTheme {
   return buildTermTheme(
     cs.getPropertyValue('--p-bg'),
     cs.getPropertyValue('--p-text'),
-    cs.getPropertyValue('--p-accent-hi')
+    cs.getPropertyValue('--p-accent-hi'),
+    // The flat twin of --p-bg: guaranteed hex, exists exactly because
+    // "the contrast maths read it, and neither wants an rgba".
+    cs.getPropertyValue('--p-side-flat')
   )
 }
 

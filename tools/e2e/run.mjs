@@ -419,6 +419,22 @@ async function sortScenario(fixtures) {
         (await win.locator('[data-edit-theme="bright-lights"]').count()) === 1,
       'only the selected theme wears the pencil'
     )
+    // The acrylic regression: the DEFAULT style publishes an rgba background,
+    // which once turned every follow-style hue pure black. The follow-style
+    // card's editor must seed real colours.
+    await win.locator('[data-term-card="style"]').click()
+    await win.locator('[data-edit-theme="style"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    const styleRed = await win.locator('[data-theme-editor] input[aria-label="red"]').inputValue()
+    const styleBg = await win.locator('[data-theme-editor] input[aria-label="Background"]').inputValue()
+    ok(
+      /^#[0-9a-f]{6}$/i.test(styleBg) && styleRed !== '#000000',
+      `follow-style seeds real colours on the acrylic default (bg=${styleBg}, red=${styleRed})`
+    )
+    await win.locator('[data-theme-editor] button:has-text("Cancel")').click()
+    await sleep(300)
+
+    await win.locator('[data-term-card="bright-lights"]').click()
     await win.locator('[data-edit-theme="bright-lights"]').click()
     await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
     await win.locator('[data-theme-editor] input[aria-label="Background"]').fill('#123456')

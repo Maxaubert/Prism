@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ANSI_CONTRAST_FLOOR, contrastRatio, deriveAnsi, ensureContrast } from './termAnsi'
+import { ANSI_CONTRAST_FLOOR, contrastRatio, deriveAnsi, ensureContrast, normalizeColor } from './termAnsi'
 
 const HUES = [
   'red',
@@ -83,5 +83,32 @@ describe('hue identity survives adaptation', () => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(a.red.slice(i, i + 2), 16))
     expect(r).toBeGreaterThan(g)
     expect(r).toBeGreaterThan(b)
+  })
+})
+
+describe('normalizeColor: every shape a style can publish', () => {
+  it('passes hex through, expands #rgb, drops #rrggbbaa alpha', () => {
+    expect(normalizeColor('#101215', '#000000')).toBe('#101215')
+    expect(normalizeColor('#abc', '#000000')).toBe('#aabbcc')
+    expect(normalizeColor('#10121580', '#000000')).toBe('#101215')
+  })
+  it('flattens rgb() and rgba() - the acrylic case', () => {
+    expect(normalizeColor('rgba(16, 18, 21, 0.6575)', '#000000')).toBe('#101215')
+    expect(normalizeColor('rgb(255,0,0)', '#000000')).toBe('#ff0000')
+  })
+  it('unparseable input takes the fallback, never NaN maths', () => {
+    expect(normalizeColor('transparent', '#101215')).toBe('#101215')
+    expect(normalizeColor('', '#101215')).toBe('#101215')
+  })
+})
+
+describe('the acrylic regression: rgba background must not blacken the palette', () => {
+  it('derives readable hues against the flattened surface', () => {
+    const a = deriveAnsi('rgba(16, 18, 21, 0.6575)', '#e8eaf0')
+    expect(a.red).not.toBe('#000000')
+    expect(a.green).not.toBe('#000000')
+    for (const h of ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan'] as const) {
+      expect(contrastRatio(a[h], '#101215'), h).toBeGreaterThanOrEqual(ANSI_CONTRAST_FLOOR - 0.01)
+    }
   })
 })
