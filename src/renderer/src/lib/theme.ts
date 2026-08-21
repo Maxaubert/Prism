@@ -110,7 +110,9 @@ export const STYLES: Style[] = [
     text: '#f2f4f8',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 'prism',
+    // A brighter blue than the family indigo (owner pick, 2026-08-21); the
+    // folder icons follow it, as they do every accent.
+    accent: '#4682fb',
     font: 'system',
     size: '12.5',
     corners: '8',
