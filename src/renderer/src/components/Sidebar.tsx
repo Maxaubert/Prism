@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type Mouse
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
-import type { SplitDir } from '../lib/panes'
+import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
@@ -628,8 +628,16 @@ export function Sidebar({
                         label: 'Open in split view',
                         icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
                         onPick: () => onPinSplit(menu.path),
+                        // The remembered direction wears a check: it is where a
+                        // bare click on the parent will put the file.
                         children: (['left', 'right', 'top', 'bottom'] as const).map((d) => ({
                           label: d[0].toUpperCase() + d.slice(1),
+                          icon:
+                            d === lastSplitDir() ? (
+                              <MenuIcon d="M5 12.5l4.5 4.5L19 7" />
+                            ) : (
+                              <span className="w-[13px] shrink-0" aria-hidden />
+                            ),
                           onPick: () => onPinSplit(menu.path, d)
                         }))
                       },

@@ -81,7 +81,8 @@ export function TabStrip({
         // The agent indicator: paints ONLY while the agent is genuinely
         // working - the whole tab filled (full) or just the brain icon tinted
         // (minimal). Idle shows nothing.
-        const working = !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
+        const working =
+          indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
         const loud = working && indicator === 'full'
         return (
           <div
@@ -105,6 +106,11 @@ export function TabStrip({
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
+            {/* Minimal working mark: the tinted brain plus a bar down the LEFT
+                edge, so a working tab reads at a glance even when narrow. */}
+            {working && indicator === 'minimal' && (
+              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: agentColor }} aria-hidden />
+            )}
             {/* A permanent icon slot: the brain appears in it while the
                 agent works (tinted in minimal, on-colour in full) and it is
                 transparent otherwise - so the tab NEVER changes width. */}
