@@ -199,9 +199,11 @@ const LIGHT: Style[] = [
   {
     id: 'paper',
     name: 'Paper',
-    blurb: 'Acrylic over white, Prism blue.',
+    blurb: 'Solid white, Prism blue.',
     mode: 'light',
-    material: 'acrylic',
+    // No acrylic on light styles by default (owner decision, 2026-08-21):
+    // glass over a light desktop pulls the window grey. Frost is a slider away.
+    material: 'solid',
     bg: '#fbfbfc',
     side: '#eceef1',
     title: '#e1e3e8',
@@ -217,12 +219,9 @@ const LIGHT: Style[] = [
   {
     id: 'frost',
     name: 'Frost',
-    blurb: 'Glass, cool white, deep teal.',
+    blurb: 'Cool white, deep teal.',
     mode: 'light',
-    material: 'acrylic',
-    // Frost is the glassiest of the set: more of the desktop comes through than
-    // Paper lets past.
-    glass: 0.4,
+    material: 'solid',
     bg: '#f4f8fb',
     side: '#e9f0f6',
     title: '#e9f0f6',
@@ -582,19 +581,17 @@ export const folderIconOf = (s: Style): string => {
   return c
 }
 
-/** The tree's flat file colour. In a kind-tinted style it stands in for the
- *  per-kind palette (the picker needs one swatch); painting it only happens
- *  once the user picks, or in styles whose icons were never kind-tinted. */
+/** The tree's file colour: the chosen one, or ONE per-mode grey for every
+ *  style (owner decision, 2026-08-21) - the same dim ink derivation the
+ *  chrome icons use, which is what Void always looked like. The file's KIND
+ *  still shows in the glyph's shape; colour no longer carries it. */
 export const fileIconOf = (s: Style): string =>
-  s.fileIcon ?? (s.iconMode === 'custom' ? s.icon : s.iconMode === 'kind' ? '#8d93a1' : dimmed(s.text, s.bg, 0.38, 4.5))
+  s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
 
 function paint(style: Style): void {
   const r = document.documentElement.style
   for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
-  // 'kind' keeps the per-kind file tints; a chosen file colour (or a style
-  // whose icons were never kind-tinted) goes flat through --p-tree-file.
-  document.documentElement.dataset.icons =
-    !style.fileIcon && style.iconMode === 'kind' ? 'kind' : 'flat'
+
   document.documentElement.dataset.mode = style.mode
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
