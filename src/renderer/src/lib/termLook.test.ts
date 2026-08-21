@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { customTermTheme, saveCustomTermTheme, setTermFontPct, setTermThemeId, termBaseFontPx, termFontPct, termThemeId } from './termLook'
+import { agentIndicator, customTermTheme, saveCustomTermTheme, setAgentIndicator, setTermFontPct, setTermThemeId, termBaseFontPx, termFontPct, termThemeId } from './termLook'
 
 beforeEach(() => localStorage.clear())
 
@@ -33,5 +33,17 @@ describe('the one custom theme', () => {
   it('a corrupt save reads as no custom theme', () => {
     localStorage.setItem('prism.term.custom', '{nope')
     expect(customTermTheme()).toBeNull()
+  })
+})
+
+describe('the agent indicator', () => {
+  it('defaults to full and round-trips minimal', () => {
+    expect(agentIndicator()).toBe('full')
+    setAgentIndicator('minimal')
+    expect(agentIndicator()).toBe('minimal')
+  })
+  it('garbage reads as the default', () => {
+    localStorage.setItem('prism.term.agentIndicator', 'soup')
+    expect(agentIndicator()).toBe('full')
   })
 })
