@@ -483,24 +483,29 @@ export default function App(): JSX.Element {
       // for files arriving from outside, and folding a restore silently
       // deleted one of two tabs that shared a root.
       const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
+      // For a restore the tab in question is the one just appended; for an
+      // arrival it is whichever tab the payload landed in (now active).
+      const target = p.restore ? st.tabs[st.tabs.length - 1] : st.tabs.find((t) => t.id === st.activeId)
+      let tabs = st.tabs
       // A restored tab that was showing its terminal comes back AS a terminal:
       // a fresh shell at the root (sessions die with the app), same view.
-      if (p.term) {
-        const tab = st.tabs.find((t) => t.id === st.activeId)
-        if (tab && !tab.term) {
-          const termId = nextTermId()
-          termRoots.current.set(termId, tab.root)
-          // The shell hosted a Claude session at close: the fresh one launches
-          // straight into it (spawn carries the id; see TerminalPanel). The
-          // session spawns NOW, tab in front or not - every tab's conversation
-          // resumes at launch, not when its tab is first visited.
-          if (p.agentResume) markResume(termId, p.agentResume)
-          const root = tab.root
-          void import('./components/TerminalPanel').then((m) => m.ensureTermSession(termId, root, savedShellId()))
-          return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: p.term }) }
-        }
+      if (p.term && target && !target.term) {
+        const termId = nextTermId()
+        termRoots.current.set(termId, target.root)
+        // The shell hosted a Claude session at close: the fresh one launches
+        // straight into it (spawn carries the id; see TerminalPanel). The
+        // session spawns NOW, tab in front or not - every tab's conversation
+        // resumes at launch, not when its tab is first visited.
+        if (p.agentResume) markResume(termId, p.agentResume)
+        const root = target.root
+        void import('./components/TerminalPanel').then((m) => m.ensureTermSession(termId, root, savedShellId()))
+        tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
       }
-      return st
+      // Background restores keep the focus where it is: restore arrives in
+      // SAVED ORDER now (no more active-goes-last splice, which scrambled the
+      // strip), and only the saved active tab takes the front.
+      const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
+      return { tabs, activeId }
     })
     setHasNavigated(false) // a fresh open starts in "opened directly" mode
   }, [])

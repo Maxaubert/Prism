@@ -89,6 +89,9 @@ export interface OpenPayload {
    *  own tab - the arriving-file rule folds same-root payloads into one, and
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
+  /** Restore only: this saved tab was the ACTIVE one - it takes the front.
+   *  The rest restore behind whatever is already showing. */
+  restoreActive?: boolean
 }
 
 /** A shell main detected on this machine; the only things term:spawn launches. */
