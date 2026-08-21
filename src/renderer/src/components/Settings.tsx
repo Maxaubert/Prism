@@ -745,15 +745,9 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('text', null)}
             />
           </Pref>
-          <Pref id="c-panel" label="Panel" hint="The sidebar and title bar together.">
-            <ColourWell
-              id="c-panel"
-              value={style.side}
-              custom={!!edits.panel}
-              onChange={(v) => setOverride('panel', v)}
-              onReset={() => setOverride('panel', null)}
-            />
-          </Pref>
+          {/* No Panel picker: the window is deliberately ONE surface - the
+              sidebar and title bar derive from Background (variablesFor), so a
+              separate panel colour would be a control that does nothing. */}
           <Pref id="c-corners" label="Corners" hint="How round the window's larger surfaces are.">
             <Segmented
               value={style.corners}

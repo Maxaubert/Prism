@@ -618,8 +618,6 @@ export interface Overrides {
   /** The chrome's edge lines. On glass they are often the only thing still
    *  cutting the window into pieces, so they are yours to turn off. */
   borders?: Style['borders']
-  /** The sidebar and title bar together: the one panel tone. */
-  panel?: string
   corners?: Style['corners']
   folderIcon?: string
   fileIcon?: string
@@ -686,7 +684,6 @@ export const isEdited = (): boolean =>
     draft.text ||
     draft.font ||
     draft.borders ||
-    draft.panel ||
     draft.corners ||
     draft.folderIcon ||
     draft.fileIcon ||
@@ -702,10 +699,6 @@ function edited(s: Style): Style {
     text: draft.text ?? s.text,
     font: draft.font ?? s.font,
     borders: draft.borders ?? s.borders,
-    // One panel tone for the sidebar AND the title bar: two pickers for two
-    // strips of chrome would be more knobs than look.
-    side: draft.panel ?? s.side,
-    title: draft.panel ?? s.title,
     corners: draft.corners ?? s.corners,
     folderIcon: draft.folderIcon ?? s.folderIcon,
     fileIcon: draft.fileIcon ?? s.fileIcon
@@ -783,7 +776,7 @@ export function setStyle(id: string): void {
 
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
-  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'panel' | 'corners' | 'folderIcon' | 'fileIcon',
+  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'corners' | 'folderIcon' | 'fileIcon',
   value: string | null
 ): void {
   const next: Overrides = { ...draft }
