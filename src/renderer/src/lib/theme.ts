@@ -33,7 +33,7 @@ export interface Style {
   font: FontId
   size: '12' | '12.5' | '13.5'
   corners: '2' | '8' | '14'
-  borders: 'hairline' | 'none' | 'strong'
+  borders: 'hairline' | 'none' | 'strong' | 'faint'
   /** Surface alpha for acrylic and mica. Lower lets more of the frost through;
    *  omitted, a style takes the default for its mode. */
   glass?: number
@@ -520,7 +520,10 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
       ? 'transparent'
       : style.borders === 'strong'
         ? rgba(ink, style.mode === 'light' ? 0.18 : 0.16)
-        : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
+        : style.borders === 'faint'
+          ? // Half a hairline: edges that separate without asserting.
+            rgba(ink, style.mode === 'light' ? 0.05 : 0.035)
+          : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
 
   // A hairline that exists whatever the style says about edges. Settings lists
   // need their rows separated even in a style that draws no chrome lines.
