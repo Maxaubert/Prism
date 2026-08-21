@@ -75,6 +75,11 @@ export interface OpenPayload {
    *  viewable: the tree is still rooted there, the viewer just has no file. */
   index: number
   root: string
+  /** Restore only: the tab had a terminal showing in this view when the app
+   *  closed, so reopen one (a fresh shell - sessions die with the app). A tab
+   *  that lived as a Claude session must come back as a terminal, not as an
+   *  empty viewer. */
+  term?: 'full' | 'split'
 }
 
 /** A shell main detected on this machine; the only things term:spawn launches. */

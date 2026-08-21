@@ -131,8 +131,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   false-positives the system screen-reader flag and PSReadLine then silently drops to a
   plain renderer (diagnosed 2026-08-20; a real screen-reader user gets a Settings knob if
   ever asked for). cwd starts at the tab's root; hiding keeps the shell running; exit,
-  tab close, or quit kill it; rerooting keeps it. pwsh by default, Settings picks from what
-  the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  tab close, or quit kill it; rerooting keeps it. A tab whose terminal was SHOWING at quit
+  reopens as a terminal (tabs.json remembers the view; the shell itself is fresh) - a
+  Claude-session tab must not come back as an empty viewer (2026-08-21). pwsh by default,
+  Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
   the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing

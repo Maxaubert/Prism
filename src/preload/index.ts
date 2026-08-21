@@ -23,8 +23,10 @@ const api = {
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
-  tabsChanged: (tabs: Array<{ root: string; file?: string }>, active: number): void =>
-    ipcRenderer.send('tabs:changed', { tabs, active }),
+  tabsChanged: (
+    tabs: Array<{ root: string; file?: string; term?: 'full' | 'split' }>,
+    active: number
+  ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
   dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
   // The three navigation calls name the root they act in. They are per-tab
