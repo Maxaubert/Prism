@@ -509,6 +509,7 @@ function PlayerTab({
 
 const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'none', name: 'None' },
+  { id: 'faint', name: 'Faint' },
   { id: 'hairline', name: 'Hairline' },
   { id: 'strong', name: 'Strong' }
 ]
