@@ -479,7 +479,10 @@ export default function App(): JSX.Element {
   const open = useCallback((p: OpenPayload | null) => {
     if (!p) return
     setTabState((s) => {
-      const st = receiveFile(s.tabs, p, nextTabId())
+      // A RESTORED tab is always its own tab: receiveFile's same-root fold is
+      // for files arriving from outside, and folding a restore silently
+      // deleted one of two tabs that shared a root.
+      const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
       // A restored tab that was showing its terminal comes back AS a terminal:
       // a fresh shell at the root (sessions die with the app), same view.
       if (p.term) {

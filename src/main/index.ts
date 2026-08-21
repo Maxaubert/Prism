@@ -270,23 +270,17 @@ const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
  * claude's (every non-alphanumeric character becomes a dash). Null when the
  * folder has no sessions - then nothing is resumed.
  */
-function latestClaudeSession(root: string): string | null {
+function claudeSessions(root: string): string[] {
   const enc = root.replace(/[^A-Za-z0-9]/g, '-')
   const dir = join(app.getPath('home'), '.claude', 'projects', enc)
   try {
-    let best: string | null = null
-    let bestM = 0
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.jsonl')) continue
-      const m = statSync(join(dir, f)).mtimeMs
-      if (m > bestM) {
-        bestM = m
-        best = f
-      }
-    }
-    return best ? best.slice(0, -'.jsonl'.length) : null
+    return readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ id: f.slice(0, -'.jsonl'.length), m: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.m - a.m)
+      .map((s) => s.id)
   } catch {
-    return null
+    return []
   }
 }
 
@@ -295,14 +289,29 @@ function latestClaudeSession(root: string): string | null {
 function restoreTabs(): OpenPayload[] {
   const saved = readTabs(TABS_STATE())
   const out: OpenPayload[] = []
+  // Two tabs on the SAME root can each hold their own claude conversation;
+  // they take the folder's sessions newest-first, one each, never the same
+  // one twice. (Which conversation belonged to which tab is unknowable after
+  // the fact - newest-first in strip order is the honest guess.)
+  const taken = new Map<string, number>()
   for (const t of saved.tabs) {
     const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
     if (payload) {
-      // A claude session resumes by ID - the newest session claude itself
-      // recorded for this folder. No session on disk means no resume at all:
-      // never a bare `--continue` guessing at a conversation.
-      const resume = t.agent && t.term ? latestClaudeSession(t.root) : null
-      out.push(t.term ? { ...payload, term: t.term, ...(resume ? { agentResume: resume } : {}) } : payload)
+      // A claude session resumes by ID - a session claude itself recorded for
+      // this folder. No session on disk means no resume at all: never a bare
+      // `--continue` guessing at a conversation.
+      let resume: string | null = null
+      if (t.agent && t.term) {
+        const key = t.root.toLowerCase()
+        const n = taken.get(key) ?? 0
+        resume = claudeSessions(t.root)[n] ?? null
+        if (resume) taken.set(key, n + 1)
+      }
+      out.push(
+        t.term
+          ? { ...payload, restore: true, term: t.term, ...(resume ? { agentResume: resume } : {}) }
+          : { ...payload, restore: true }
+      )
     }
   }
   // The active tab goes last: the renderer applies these in order through the
