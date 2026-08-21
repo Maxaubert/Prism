@@ -404,10 +404,15 @@ async function sortScenario(fixtures) {
       'the Terminal settings page offers 30+ theme cards and font size'
     )
 
-    // The editor: pencil on a card, change the background, save - it becomes
-    // THE Custom theme (one slot), selected.
-    await win.locator('[data-term-card="bright-lights"]').hover()
-    await win.locator('[data-edit-theme="bright-lights"]').click()
+    // Two rows by default, the rest behind the arrow.
+    ok(
+      (await win.locator('button[aria-expanded="false"]:has-text("Show all")').count()) === 1,
+      'the theme wall is collapsed to two rows behind a show-all'
+    )
+    // The single Edit button seeds from the SELECTED theme: select
+    // bright-lights, edit, change the background, save - the one Custom slot.
+    await win.locator('[data-term-card="bright-lights"]').click()
+    await win.locator('button:has-text("Edit colours")').click()
     await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
     await win.locator('[data-theme-editor] input[aria-label="Background"]').fill('#123456')
     await win.locator('button:has-text("Save as Custom")').click()

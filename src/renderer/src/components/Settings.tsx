@@ -772,8 +772,7 @@ function TermThemeCard({
   fg,
   cursor,
   ansi,
-  onPick,
-  onEdit
+  onPick
 }: {
   id: string
   name: string
@@ -783,8 +782,6 @@ function TermThemeCard({
   cursor: string
   ansi: { green: string; yellow: string; blue: string; cyan: string; red: string }
   onPick: () => void
-  /** Open the colour editor seeded from this theme; Save lands in Custom. */
-  onEdit: () => void
 }): JSX.Element {
   return (
     <button
@@ -818,34 +815,11 @@ function TermThemeCard({
         <div style={{ color: fg }}>12 files</div>
       </div>
       <div
-        className={`flex items-center justify-between border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
+        className={`border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
           on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
         }`}
       >
-        <span>{name}</span>
-        <span
-          role="button"
-          tabIndex={0}
-          data-edit-theme={id}
-          className="grid h-5 w-5 place-items-center rounded text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
-          title="Edit colours (saves as Custom)"
-          aria-label={`Edit ${name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onEdit()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              e.stopPropagation()
-              onEdit()
-            }
-          }}
-        >
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M15 5l4 4L8 20H4v-4z" />
-          </svg>
-        </span>
+        {name}
       </div>
     </button>
   )
@@ -887,7 +861,27 @@ function TermThemeEditor({
     </label>
   )
   return (
-    <div data-theme-editor className="mt-3 rounded-md border border-[color:var(--p-line)] p-4">
+    // A popup, not an inline section: below the 39-card grid the editor sat
+    // out of view. data-owns-escape keeps App's window Escape away; the
+    // backdrop and Escape both cancel.
+    <div
+      data-theme-editor
+      data-owns-escape
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          onCancel()
+        }
+      }}
+      role="dialog"
+      aria-label="Edit terminal colours"
+    >
+      <div className="max-h-[85vh] overflow-y-auto rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_18px_48px_rgba(0,0,0,.55)]">
+      <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
       <div className="flex flex-wrap items-start gap-6">
         <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
           {well('Background', 'bg', draft.bg)}
@@ -910,7 +904,6 @@ function TermThemeEditor({
             red: draft.ansi.red ?? '#e05561'
           }}
           onPick={() => {}}
-          onEdit={() => {}}
         />
       </div>
       <div className="mt-4 flex gap-2">
@@ -926,6 +919,7 @@ function TermThemeEditor({
         >
           Cancel
         </button>
+      </div>
       </div>
     </div>
   )
@@ -951,8 +945,11 @@ function TerminalTab(): JSX.Element {
   useEffect(() => watchTermTheme(() => setStyleTheme(readTermTheme())), [])
   const styleAnsi = deriveAnsi(styleTheme.background, styleTheme.foreground)
   const custom = useCustomTermTheme()
-  // The editor, seeded from whichever theme's pencil was clicked.
+  // The editor popup, seeded from the SELECTED theme. One Edit button: the
+  // per-card pencils read as altering that preset, and presets never change -
+  // editing always lands in the Custom slot.
   const [editing, setEditing] = useState<CustomTermTheme | null>(null)
+  const [allThemes, setAllThemes] = useState(false)
   const editFrom = (id: string): void => {
     const t = resolveTermTheme(id)
     const ansi: Record<string, string> = {}
@@ -982,7 +979,13 @@ function TerminalTab(): JSX.Element {
         <p className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
           Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
         </p>
-        <div className="mt-3 flex flex-wrap gap-3">
+        <div
+          className="relative mt-3 overflow-hidden"
+          // Two card rows by default: 39 themes as one wall buried the font
+          // row below them. Expanded shows everything.
+          style={allThemes ? undefined : { maxHeight: 268 }}
+        >
+        <div className="flex flex-wrap gap-3">
           <TermThemeCard
             id="style"
             name="Follow style"
@@ -992,7 +995,6 @@ function TerminalTab(): JSX.Element {
             cursor={styleTheme.cursor}
             ansi={styleAnsi}
             onPick={() => setTermThemeId('style')}
-            onEdit={() => editFrom('style')}
           />
           {custom && (
             <TermThemeCard
@@ -1010,7 +1012,6 @@ function TerminalTab(): JSX.Element {
                 red: custom.ansi.red ?? '#e05561'
               }}
               onPick={() => setTermThemeId('custom')}
-              onEdit={() => editFrom('custom')}
             />
           )}
           {TERM_PRESETS.map((p) => {
@@ -1032,10 +1033,29 @@ function TerminalTab(): JSX.Element {
                   red: t.red ?? ''
                 }}
                 onPick={() => setTermThemeId(p.id)}
-                onEdit={() => editFrom(p.id)}
               />
             )
           })}
+        </div>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            aria-expanded={allThemes}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[color:var(--p-line)] px-3 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+            onClick={() => setAllThemes((v) => !v)}
+          >
+            <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={allThemes ? 'rotate-180' : ''} aria-hidden>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+            {allThemes ? 'Show fewer' : `Show all ${TERM_PRESETS.length + (custom ? 2 : 1)} themes`}
+          </button>
+          <button
+            className="h-8 rounded-lg border border-[color:var(--p-line)] px-3 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+            title="Edit the selected theme's colours; saving creates your Custom theme"
+            onClick={() => editFrom(themeId)}
+          >
+            Edit colours…
+          </button>
         </div>
         {editing && (
           <TermThemeEditor
