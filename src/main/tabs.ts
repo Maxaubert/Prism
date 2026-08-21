@@ -67,20 +67,26 @@ export function parseTabs(raw: string): SavedTabs {
       : undefined
 
   const tabs: SavedTab[] = []
-  for (const entry of list) {
-    if (!entry || typeof entry !== 'object') continue
+  // The active tab is tracked by POSITION through the filtering, not re-found
+  // by root afterwards: two tabs on one folder are legal (the strip's + allows
+  // them), and a root lookup would always crown the first twin.
+  let active = -1
+  list.forEach((entry, i) => {
+    if (!entry || typeof entry !== 'object') return
     const { root, file, term, agent } = entry as { root?: unknown; file?: unknown; term?: unknown; agent?: unknown }
-    if (typeof root !== 'string' || !isFolder(root)) continue
+    if (typeof root !== 'string' || !isFolder(root)) return
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
     if (term === 'full' || term === 'split') {
       tab.term = term
       if (agent === true) tab.agent = true // only meaningful with a terminal
     }
+    if (i === wasActive) active = tabs.length
     tabs.push(tab)
-  }
-  // Follow the tab that was in front, not the index it happened to sit at.
-  const active = tabs.findIndex((t) => t.root === activeRoot)
-  return { tabs, active: active >= 0 ? active : 0 }
+  })
+  // The tab that was in front is gone (or the index named nowhere): follow its
+  // root to a surviving twin, else fall back to the first tab.
+  if (active < 0) active = Math.max(0, tabs.findIndex((t) => t.root === activeRoot))
+  return { tabs, active }
 }
 
 export function readTabs(path: string): SavedTabs {
