@@ -23,6 +23,35 @@ export function setTermThemeId(id: string): void {
   notify()
 }
 
+const FONT_FAMILY_KEY = 'prism.term.font'
+
+/** Monospace faces worth offering on Windows; each falls back to the stack's
+ *  next face when not installed, so picking a missing one degrades quietly. */
+export const TERM_FONTS = [
+  { id: 'cascadia', name: 'Cascadia Mono', stack: '"Cascadia Mono", Consolas, monospace' },
+  { id: 'cascadia-code', name: 'Cascadia Code', stack: '"Cascadia Code", "Cascadia Mono", Consolas, monospace' },
+  { id: 'consolas', name: 'Consolas', stack: 'Consolas, "Cascadia Mono", monospace' },
+  { id: 'jetbrains', name: 'JetBrains Mono', stack: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'fira', name: 'Fira Code', stack: '"Fira Code", "Cascadia Mono", Consolas, monospace' },
+  { id: 'source', name: 'Source Code Pro', stack: '"Source Code Pro", "Cascadia Mono", Consolas, monospace' },
+  { id: 'lucida', name: 'Lucida Console', stack: '"Lucida Console", Consolas, monospace' },
+  { id: 'courier', name: 'Courier New', stack: '"Courier New", Courier, monospace' }
+] as const
+
+export function termFontId(): string {
+  const v = localStorage.getItem(FONT_FAMILY_KEY)
+  return TERM_FONTS.some((f) => f.id === v) ? (v as string) : 'cascadia'
+}
+
+export function setTermFontId(id: string): void {
+  localStorage.setItem(FONT_FAMILY_KEY, id)
+  notify()
+}
+
+export function termFontStack(): string {
+  return TERM_FONTS.find((f) => f.id === termFontId())?.stack ?? TERM_FONTS[0].stack
+}
+
 export function termFontPct(): number {
   const v = Number(localStorage.getItem(FONT_KEY))
   return FONT_PCTS.includes(v as (typeof FONT_PCTS)[number]) ? v : 100
@@ -91,6 +120,24 @@ export interface CustomTermTheme {
   fg: string
   cursor: string
   ansi: Record<string, string>
+  /** The rest of the terminal setup, captured by "Save changes": the look is
+   *  more than the palette. All optional - older saves carry colours only. */
+  font?: string
+  fontPct?: number
+  indicator?: AgentIndicator
+  indicatorColor?: string
+  acrylic?: boolean
+}
+
+/** Re-apply the non-colour half of a saved Custom setup, when it has one. */
+export function applyCustomExtras(t: CustomTermTheme | null): void {
+  if (!t) return
+  if (t.font) setTermFontId(t.font)
+  if (t.fontPct) localStorage.setItem(FONT_KEY, String(t.fontPct))
+  if (t.indicator) localStorage.setItem(AGENT_IND_KEY, t.indicator)
+  if (t.indicatorColor) localStorage.setItem(AGENT_COLOR_KEY, t.indicatorColor)
+  if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
+  notify()
 }
 
 /** The user's ONE custom theme, or null before any save. Saving overwrites:
@@ -125,6 +172,9 @@ export function useTermThemeId(): string {
 }
 export function useTermFontPct(): number {
   return useSyncExternalStore(sub, termFontPct)
+}
+export function useTermFontId(): string {
+  return useSyncExternalStore(sub, termFontId)
 }
 export function useTermAcrylic(): boolean {
   return useSyncExternalStore(sub, termAcrylic)
