@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
 import type { VizTheme } from '../lib/viz/core'
@@ -979,7 +979,14 @@ function TerminalTab(): JSX.Element {
   // per-card pencils read as altering that preset, and presets never change -
   // editing always lands in the Custom slot.
   const [editing, setEditing] = useState<CustomTermTheme | null>(null)
-  const [allThemes, setAllThemes] = useState(false)
+  // Measured at click time, so the expand can ANIMATE: max-height can't
+  // tween to 'none', only to a number, and the content's real height is the
+  // honest one. 268px is the two collapsed rows.
+  const [wallHeight, setWallHeight] = useState(268)
+  const allThemes = wallHeight !== 268
+  const themeWall = useRef<HTMLDivElement>(null)
+  const toggleWall = (): void =>
+    setWallHeight(allThemes ? 268 : (themeWall.current?.scrollHeight ?? 2400))
   const editFrom = (id: string): void => {
     const t = resolveTermTheme(id)
     const ansi: Record<string, string> = {}
@@ -1010,10 +1017,11 @@ function TerminalTab(): JSX.Element {
           Follow style wears the app&apos;s look; presets are whole palettes, ANSI colours included.
         </p>
         <div
-          className="relative mt-3 overflow-hidden"
+          ref={themeWall}
+          className="relative mt-3 overflow-hidden transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]"
           // Two card rows by default: 39 themes as one wall buried the font
-          // row below them. Expanded shows everything.
-          style={allThemes ? undefined : { maxHeight: 268 }}
+          // row below them. The snap-open eased in 240ms rather than jumping.
+          style={{ maxHeight: wallHeight }}
         >
         <div className="flex flex-wrap gap-3">
           <TermThemeCard
@@ -1077,7 +1085,7 @@ function TerminalTab(): JSX.Element {
             aria-label={allThemes ? 'Show fewer themes' : `Show all ${TERM_PRESETS.length + (custom ? 2 : 1)} themes`}
             title={allThemes ? 'Show fewer' : 'Show all themes'}
             className="grid h-7 w-10 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-            onClick={() => setAllThemes((v) => !v)}
+            onClick={toggleWall}
           >
             <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${allThemes ? 'rotate-180' : ''}`} aria-hidden>
               <path d="M6 9l6 6 6-6" />
