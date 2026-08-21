@@ -57,13 +57,13 @@ export function TabStrip({
     <div
       role="tablist"
       aria-label="Open folders"
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-px overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] px-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] px-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
         // The agent indicator: paints ONLY while the agent is genuinely
-        // working, and how loudly is the Settings choice - a bar on the left
-        // edge, or the whole tab in orange with a brain.
+        // working - the whole tab filled (full) or just the brain icon tinted
+        // (minimal). Idle shows nothing.
         const working = !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
         const loud = working && indicator === 'full'
         return (
@@ -72,10 +72,6 @@ export function TabStrip({
             data-agent={working ? indicator : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
             className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 px-2.5 transition-colors ${
-              // The colour fill keeps the tab's SQUARE shape: with rounding,
-              // a filled tab mid-strip read as a floating bubble.
-              loud ? 'rounded-none' : 'rounded-t'
-            } ${
               loud
                 ? ''
                 : on
@@ -85,6 +81,9 @@ export function TabStrip({
             style={loud ? { background: agentColor, color: onAgent } : undefined}
             onAuxClick={(e) => auxClose(e, t.id)}
           >
+            {/* The active mark: an accent rule along the top. It yields while
+                the working fill is up - two signals on one tab would fight. */}
+            {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
             {/* A permanent icon slot: the brain appears in it while the
                 agent works (tinted in minimal, on-colour in full) and it is
                 transparent otherwise - so the tab NEVER changes width. */}
