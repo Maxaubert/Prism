@@ -285,6 +285,70 @@ function SwitchItem({
  * from anywhere else. It is held as text while you edit and only applied when
  * it parses, so half-typed values don't repaint the app on every keystroke.
  */
+/** "#abc", "abc", "#aabbcc" → "#aabbcc"; anything else → null. */
+function parseHexInput(raw: string): string | null {
+  const hex = '#' + raw.trim().replace(/^#/, '')
+  const full = /^#[0-9a-f]{3}$/i.test(hex)
+    ? '#' +
+      hex
+        .slice(1)
+        .split('')
+        .map((c) => c + c)
+        .join('')
+    : hex
+  return /^#[0-9a-f]{6}$/i.test(full) ? full.toLowerCase() : null
+}
+
+/** The compact colour control: a hex field and a swatch. Every place a colour
+ *  is chosen carries the field - a picker without one strands anyone pasting
+ *  a code from elsewhere. */
+function HexSwatch({
+  label,
+  value,
+  onChange
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? value
+  const commit = (raw: string): void => {
+    setDraft(null)
+    const full = parseHexInput(raw)
+    if (full) onChange(full)
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <input
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit(text)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit(text)
+          else if (e.key === 'Escape') setDraft(null)
+        }}
+        spellCheck={false}
+        aria-label={`${label} hex value`}
+        className="w-[64px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1 py-0.5 text-center font-mono text-[10.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      />
+      <label
+        className="relative block h-6 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
+        style={{ background: value }}
+        title="Pick a colour"
+      >
+        <input
+          type="color"
+          aria-label={label}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+      </label>
+    </span>
+  )
+}
+
 function ColourWell({
   id,
   value,
@@ -305,17 +369,9 @@ function ColourWell({
   const text = draft ?? value
 
   const commit = (raw: string): void => {
-    const hex = '#' + raw.trim().replace(/^#/, '')
-    const full = /^#[0-9a-f]{3}$/i.test(hex)
-      ? '#' +
-        hex
-          .slice(1)
-          .split('')
-          .map((c) => c + c)
-          .join('')
-      : hex
     setDraft(null) // either it took, or the field goes back to the colour
-    if (/^#[0-9a-f]{6}$/i.test(full)) onChange(full.toLowerCase())
+    const full = parseHexInput(raw)
+    if (full) onChange(full)
   }
 
   return (
@@ -938,13 +994,7 @@ function TermThemeEditor({
   const well = (label: string, key: string, value: string): JSX.Element => (
     <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]">
       <span className="w-[86px] truncate">{label}</span>
-      <input
-        type="color"
-        aria-label={label}
-        value={value}
-        onChange={(e) => set(key, e.target.value)}
-        className="h-6 w-9 cursor-pointer rounded border border-[color:var(--p-line)] bg-transparent"
-      />
+      <HexSwatch label={label} value={value} onChange={(v) => set(key, v)} />
     </label>
   )
   return (
@@ -1202,14 +1252,7 @@ function TerminalTab(): JSX.Element {
         label="Indicator colour"
         hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
       >
-        <input
-          id="agent-color"
-          type="color"
-          aria-label="Indicator colour"
-          value={agentCol}
-          onChange={(e) => setAgentColor(e.target.value)}
-          className="h-7 w-10 cursor-pointer rounded border border-[color:var(--p-line)] bg-transparent"
-        />
+        <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
       </Pref>
       <Pref
         id="term-font"
