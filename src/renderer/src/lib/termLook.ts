@@ -38,6 +38,33 @@ export function termBaseFontPx(): number {
   return Math.round((TERM_BASE_FONT_PX * termFontPct()) / 100)
 }
 
+const CUSTOM_KEY = 'prism.term.custom'
+
+export interface CustomTermTheme {
+  bg: string
+  fg: string
+  cursor: string
+  ansi: Record<string, string>
+}
+
+/** The user's ONE custom theme, or null before any save. Saving overwrites:
+ *  like Tabby, there is a single Custom slot, edited and re-saved. */
+export function customTermTheme(): CustomTermTheme | null {
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY)
+    if (!raw) return null
+    const v = JSON.parse(raw) as CustomTermTheme
+    return typeof v.bg === 'string' && typeof v.fg === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+export function saveCustomTermTheme(theme: CustomTermTheme): void {
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(theme))
+  notify()
+}
+
 export function onTermLookChange(cb: () => void): () => void {
   listeners.push(cb)
   return () => {
@@ -52,4 +79,14 @@ export function useTermThemeId(): string {
 }
 export function useTermFontPct(): number {
   return useSyncExternalStore(sub, termFontPct)
+}
+export function useCustomTermTheme(): CustomTermTheme | null {
+  // Cache per notify tick: useSyncExternalStore needs a stable snapshot.
+  return useSyncExternalStore(sub, customSnapshot)
+}
+let customCache: { raw: string | null; value: CustomTermTheme | null } = { raw: null, value: null }
+function customSnapshot(): CustomTermTheme | null {
+  const raw = localStorage.getItem(CUSTOM_KEY)
+  if (raw !== customCache.raw) customCache = { raw, value: customTermTheme() }
+  return customCache.value
 }
