@@ -28,10 +28,11 @@ const FONT_FAMILY_KEY = 'prism.term.font'
 /** Monospace faces worth offering on Windows; each falls back to the stack's
  *  next face when not installed, so picking a missing one degrades quietly. */
 export const TERM_FONTS = [
-  { id: 'cascadia', name: 'Cascadia Mono', stack: '"Cascadia Mono", Consolas, monospace' },
+  { id: 'cascadia', name: 'Cascadia Mono', stack: '"Cascadia Mono", "JetBrainsMono NF", Consolas, monospace' },
   { id: 'cascadia-code', name: 'Cascadia Code', stack: '"Cascadia Code", "Cascadia Mono", Consolas, monospace' },
   { id: 'consolas', name: 'Consolas', stack: 'Consolas, "Cascadia Mono", monospace' },
-  { id: 'jetbrains', name: 'JetBrains Mono', stack: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace' },
+  { id: 'jetbrains', name: 'JetBrains Mono', stack: '"JetBrains Mono", "JetBrainsMono NF", "Cascadia Mono", Consolas, monospace' },
+  { id: 'jetbrains-nf', name: 'JetBrainsMono Nerd Font', stack: '"JetBrainsMono NF", "JetBrains Mono", "Cascadia Mono", Consolas, monospace' },
   { id: 'fira', name: 'Fira Code', stack: '"Fira Code", "Cascadia Mono", Consolas, monospace' },
   { id: 'source', name: 'Source Code Pro', stack: '"Source Code Pro", "Cascadia Mono", Consolas, monospace' },
   { id: 'lucida', name: 'Lucida Console', stack: '"Lucida Console", Consolas, monospace' },
