@@ -21,16 +21,16 @@ const TINT: Record<FileKind, string> = {
   text: '#8d93a1',
   other: '#8d93a1'
 }
-const FOLDER_TINT = '#9aa0f0'
-
 const accentColour = (): string =>
   getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
 
-/** Kind tints when the style asks for them, otherwise the style's icon colour. */
+/** Folders wear the folder token (a picker in Settings); files wear the kind
+ *  tints while the style keeps them, or the flat file token once a colour is
+ *  chosen. theme.ts owns the mode flag and both tokens. */
 export function iconColour(kind: FileKind | 'folder'): string {
-  const mode = document.documentElement.dataset.icons
-  if (mode !== 'kind') return 'var(--p-icon)'
-  return kind === 'folder' ? FOLDER_TINT : TINT[kind]
+  if (kind === 'folder') return 'var(--p-tree-folder)'
+  if (document.documentElement.dataset.icons !== 'kind') return 'var(--p-tree-file)'
+  return TINT[kind]
 }
 
 type Size = (typeof TREE_SIZES)[number]
@@ -257,7 +257,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
           <Chevron open={open} />
-          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : FOLDER_TINT} />
+          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
           <Label name={name} />
         </button>
       )}

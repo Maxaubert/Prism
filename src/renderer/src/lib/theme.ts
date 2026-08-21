@@ -28,6 +28,10 @@ export interface Style {
   text: string
   iconMode: IconMode
   icon: string
+  /** Tree icon colours, when chosen: a fixed folder colour, and one colour for
+   *  every file icon (unset means the per-kind tints, iconMode permitting). */
+  folderIcon?: string
+  fileIcon?: string
   /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
   accent: string
   font: FontId
@@ -139,7 +143,7 @@ export const STYLES: Style[] = [
     side: '#0d1117',
     title: '#11161d',
     text: '#d7e0d9',
-    iconMode: 'accent',
+    iconMode: 'custom',
     icon: '#3f9d54',
     accent: 's-green',
     font: 'mono',
@@ -178,8 +182,8 @@ export const STYLES: Style[] = [
     side: '#141821',
     title: '#1a1f2b',
     text: '#eceef5',
-    iconMode: 'accent',
-    icon: '#8b5cf6',
+    iconMode: 'kind',
+    icon: '#8a8e99',
     accent: 's-crimson',
     font: 'system',
     size: '12.5',
@@ -259,7 +263,7 @@ const LIGHT: Style[] = [
     side: '#efe4f7',
     title: '#e6d7f2',
     text: '#251a30',
-    iconMode: 'accent',
+    iconMode: 'custom',
     icon: '#6b21a8',
     accent: 'd-plum',
     font: 'trebuchet',
@@ -507,14 +511,12 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   // need their rows separated even in a style that draws no chrome lines.
   const listLine = rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
 
-  const icon =
-    style.iconMode === 'text'
-      ? style.text
-      : style.iconMode === 'accent'
-        ? accent
-        : style.iconMode === 'custom'
-          ? style.icon
-          : dimmed(style.text, style.bg, 0.38, 4.5)
+  // CHROME icons (buttons: sort, terminal, close) are SHARED, not styled: one
+  // dim derivation from the style's own ink, every style. iconMode used to
+  // reach here too, and Ruby's accent mode painted every control red at rest -
+  // a difference no user could edit away (owner decision, 2026-08-21).
+  // iconMode still shapes the TREE's default icon colours below.
+  const icon = dimmed(style.text, style.bg, 0.38, 4.5)
 
   // The wash comes from the accent, so picking a colour tints the whole window
   // with it. Lighter styles take less: the same alpha over white is a stain.
@@ -534,6 +536,11 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-side-flat': style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg,
     '--p-title': title,
     '--p-icon': icon,
+    // The tree's icon colours, both user-pickable. The folder default is the
+    // family indigo (kind styles) or the style's own icon tone; the file token
+    // only paints when the tree is NOT in per-kind tints.
+    '--p-tree-folder': folderIconOf(style),
+    '--p-tree-file': fileIconOf(style),
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
     // The held highlight (a row whose context menu is open): the hover look,
     // five points stronger, so it reads as "this one" rather than "passing by".
@@ -562,10 +569,23 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   }
 }
 
+/** The tree's folder colour, overrides and defaults resolved. */
+export const folderIconOf = (s: Style): string =>
+  s.folderIcon ?? (s.iconMode === 'kind' ? '#9aa0f0' : s.iconMode === 'custom' ? s.icon : dimmed(s.text, s.bg, 0.38, 4.5))
+
+/** The tree's flat file colour. In a kind-tinted style it stands in for the
+ *  per-kind palette (the picker needs one swatch); painting it only happens
+ *  once the user picks, or in styles whose icons were never kind-tinted. */
+export const fileIconOf = (s: Style): string =>
+  s.fileIcon ?? (s.iconMode === 'custom' ? s.icon : s.iconMode === 'kind' ? '#8d93a1' : dimmed(s.text, s.bg, 0.38, 4.5))
+
 function paint(style: Style): void {
   const r = document.documentElement.style
   for (const [k, v] of Object.entries(variablesFor(style))) r.setProperty(k, v)
-  document.documentElement.dataset.icons = style.iconMode
+  // 'kind' keeps the per-kind file tints; a chosen file colour (or a style
+  // whose icons were never kind-tinted) goes flat through --p-tree-file.
+  document.documentElement.dataset.icons =
+    !style.fileIcon && style.iconMode === 'kind' ? 'kind' : 'flat'
   document.documentElement.dataset.mode = style.mode
   // A translucent style needs the window itself to be transparent, which only
   // the main process can arrange.
@@ -592,6 +612,11 @@ export interface Overrides {
   /** The chrome's edge lines. On glass they are often the only thing still
    *  cutting the window into pieces, so they are yours to turn off. */
   borders?: Style['borders']
+  /** The sidebar and title bar together: the one panel tone. */
+  panel?: string
+  corners?: Style['corners']
+  folderIcon?: string
+  fileIcon?: string
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -649,7 +674,18 @@ export const allStyles = (): Style[] => [...STYLES, ...presets]
 
 /** Are we looking at an edited style rather than a saved one? */
 export const isEdited = (): boolean =>
-  !!(draft.accent || draft.bg || draft.text || draft.font || draft.borders || draft.acrylic !== undefined)
+  !!(
+    draft.accent ||
+    draft.bg ||
+    draft.text ||
+    draft.font ||
+    draft.borders ||
+    draft.panel ||
+    draft.corners ||
+    draft.folderIcon ||
+    draft.fileIcon ||
+    draft.acrylic !== undefined
+  )
 
 function edited(s: Style): Style {
   if (!isEdited()) return s
@@ -659,7 +695,14 @@ function edited(s: Style): Style {
     bg: draft.bg ?? s.bg,
     text: draft.text ?? s.text,
     font: draft.font ?? s.font,
-    borders: draft.borders ?? s.borders
+    borders: draft.borders ?? s.borders,
+    // One panel tone for the sidebar AND the title bar: two pickers for two
+    // strips of chrome would be more knobs than look.
+    side: draft.panel ?? s.side,
+    title: draft.panel ?? s.title,
+    corners: draft.corners ?? s.corners,
+    folderIcon: draft.folderIcon ?? s.folderIcon,
+    fileIcon: draft.fileIcon ?? s.fileIcon
   }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
@@ -733,9 +776,12 @@ export function setStyle(id: string): void {
 }
 
 /** Change one colour role of what is on screen, or clear it with null. */
-export function setOverride(role: 'accent' | 'bg' | 'text' | 'font' | 'borders', value: string | null): void {
+export function setOverride(
+  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'panel' | 'corners' | 'folderIcon' | 'fileIcon',
+  value: string | null
+): void {
   const next: Overrides = { ...draft }
-  if (value) next[role] = value as FontId & Style['borders'] & string
+  if (value) next[role] = value as FontId & Style['borders'] & Style['corners'] & string
   else delete next[role]
   draft = next
   saveJson(DRAFT_KEY, draft)

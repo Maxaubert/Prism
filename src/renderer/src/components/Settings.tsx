@@ -43,6 +43,8 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
+  fileIconOf,
+  folderIconOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -507,6 +509,12 @@ function PlayerTab({
 /* ---------- style ---------- */
 
 
+const CORNER_OPTIONS: Array<{ id: Style['corners']; name: string }> = [
+  { id: '2', name: 'Square' },
+  { id: '8', name: 'Soft' },
+  { id: '14', name: 'Round' }
+]
+
 const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'none', name: 'None' },
   { id: 'faint', name: 'Faint' },
@@ -679,6 +687,44 @@ function StyleTab(): JSX.Element {
               custom={!!edits.text}
               onChange={(v) => setOverride('text', v)}
               onReset={() => setOverride('text', null)}
+            />
+          </Pref>
+          <Pref id="c-panel" label="Panel" hint="The sidebar and title bar together.">
+            <ColourWell
+              id="c-panel"
+              value={style.side}
+              custom={!!edits.panel}
+              onChange={(v) => setOverride('panel', v)}
+              onReset={() => setOverride('panel', null)}
+            />
+          </Pref>
+          <Pref id="c-corners" label="Corners" hint="How round the window's larger surfaces are.">
+            <Segmented
+              value={style.corners}
+              onChange={(v) => setOverride('corners', v)}
+              options={CORNER_OPTIONS}
+            />
+          </Pref>
+          <Pref id="c-folder-icon" label="Folder icons" hint="The folder rows in the tree.">
+            <ColourWell
+              id="c-folder-icon"
+              value={folderIconOf(style)}
+              custom={!!edits.folderIcon}
+              onChange={(v) => setOverride('folderIcon', v)}
+              onReset={() => setOverride('folderIcon', null)}
+            />
+          </Pref>
+          <Pref
+            id="c-file-icon"
+            label="File icons"
+            hint="One colour for every file icon. Reset returns the per-kind tints."
+          >
+            <ColourWell
+              id="c-file-icon"
+              value={fileIconOf(style)}
+              custom={!!edits.fileIcon}
+              onChange={(v) => setOverride('fileIcon', v)}
+              onReset={() => setOverride('fileIcon', null)}
             />
           </Pref>
         </div>
