@@ -43,7 +43,19 @@ export class OutputBatcher {
 interface Session {
   pty: IPty
   batcher: OutputBatcher
+  /** The onData/onExit subscriptions, disposed BEFORE the pty is killed so no
+   *  callback can fire into a session that is being torn down. */
+  subs: Array<{ dispose(): void }>
 }
+
+/**
+ * ConPTY teardown on the OS conhost can FAST-FAIL the whole process
+ * (0xc0000409) when a pty is killed mid-read - it took Prism down with it,
+ * no dialog, no ask (crashed 2026-08-21, same fault offset across four WER
+ * reports). node-pty ships its own conpty.dll with the fix; using it is the
+ * documented cure, and Windows 10 1809+ (our floor) is its requirement.
+ */
+const PTY_OPTS = { name: 'xterm-color', useConpty: true, useConptyDll: true } as const
 
 const sessions = new Map<string, Session>()
 
@@ -85,12 +97,11 @@ export async function prewarmShell(root: string, shellId: string | undefined): P
     const pty = await import('node-pty')
     const size = desiredSize.get('') ?? { cols: 80, rows: 24 }
     const p = pty.spawn(def.exe, def.args, {
-      name: 'xterm-color',
+      ...PTY_OPTS,
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>,
-      useConpty: true
+      env: process.env as Record<string, string>
     })
     const w: WarmShell = { pty: p, defId: def.id, buf: '', sub: { dispose: () => {} }, exited: false }
     w.sub = p.onData((d) => {
@@ -148,13 +159,15 @@ export async function spawnTerm(id: string, root: string, shellId: string | unde
     w.sub.dispose()
     if (w.buf) send('term:data', id, w.buf)
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
-    w.pty.onData((d) => batcher.push(d))
-    w.pty.onExit(() => {
-      batcher.flush()
-      sessions.delete(id)
-      send('term:exit', id)
-    })
-    sessions.set(id, { pty: w.pty, batcher })
+    const subs = [
+      w.pty.onData((d) => batcher.push(d)),
+      w.pty.onExit(() => {
+        batcher.flush()
+        sessions.delete(id)
+        send('term:exit', id)
+      })
+    ]
+    sessions.set(id, { pty: w.pty, batcher, subs })
     const want = desiredSize.get(id)
     if (want) resizeTerm(id, want.cols, want.rows)
     return true
@@ -163,21 +176,22 @@ export async function spawnTerm(id: string, root: string, shellId: string | unde
     const pty = await import('node-pty')
     const size = desiredSize.get(id) ?? { cols: 80, rows: 24 }
     const p = pty.spawn(def.exe, def.args, {
-      name: 'xterm-color',
+      ...PTY_OPTS,
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>,
-      useConpty: true
+      env: process.env as Record<string, string>
     })
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
-    p.onData((d) => batcher.push(d))
-    p.onExit(() => {
-      batcher.flush()
-      sessions.delete(id)
-      send('term:exit', id)
-    })
-    sessions.set(id, { pty: p, batcher })
+    const subs = [
+      p.onData((d) => batcher.push(d)),
+      p.onExit(() => {
+        batcher.flush()
+        sessions.delete(id)
+        send('term:exit', id)
+      })
+    ]
+    sessions.set(id, { pty: p, batcher, subs })
     return true
   } catch {
     return false // shell missing or ConPTY refused; the renderer shows the line
@@ -212,6 +226,17 @@ export function killTerm(id: string): void {
   const s = sessions.get(id)
   if (!s) return
   sessions.delete(id) // first, so the exit handler's delete is a no-op
+  // Handlers off before the kill: this teardown is ours, nothing should hear
+  // the pty's death throes or write into them.
+  for (const sub of s.subs) {
+    try {
+      sub.dispose()
+    } catch {
+      /* already gone */
+    }
+  }
+  // No flush: this death is ours (tab close, quit), nobody is listening, and
+  // at quit the webContents a flush would send into may already be gone.
   try {
     s.pty.kill()
   } catch {

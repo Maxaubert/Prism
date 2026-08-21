@@ -223,7 +223,9 @@ works, that the associations still register, and that the resident app actually 
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
   `heic-convert` (HEIC decode), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
   its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
-  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it).
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it). Shells spawn
+  with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS
+  the whole app (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
 
 ## Working with me
 
