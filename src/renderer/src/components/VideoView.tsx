@@ -39,10 +39,6 @@ export function VideoView({
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   const [chromeOn, setChromeOn] = useState(true)
   const [flash, setFlash] = useState<'play' | 'pause' | null>(null)
-  // Whether playback has ever begun. Videos autoplay, so the resting play icon
-  // should only appear once the user pauses a started video — never during the
-  // brief pre-autoplay moment (which otherwise flashes on every navigation).
-  const [started, setStarted] = useState(false)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The chrome never hides while the settings menu is open: an invisible menu
   // would keep eating clicks and the first Escape.
@@ -69,7 +65,6 @@ export function VideoView({
     onActivity: showChrome,
     onPlayChange: (playing) => {
       if (playing) {
-        setStarted(true)
         showChrome()
       } else {
         setChromeOn(true)
@@ -122,9 +117,11 @@ export function VideoView({
         )}
       </video>
 
-      {/* center play/pause flash + the resting play affordance, but only once a
-          video has started (so autoplay startup + navigation don't flash it) */}
-      {(flash || (started && !c.playing && !c.error)) && (
+      {/* center play/pause flash only - the momentary pulse when you toggle.
+          The RESTING play badge that used to sit over a paused frame was
+          removed (owner decision, 2026-08-22): a paused film should be the
+          picture, not chrome. */}
+      {flash && (
         <div className="pointer-events-none absolute grid place-items-center">
           <div className="grid h-20 w-20 place-items-center rounded-full bg-[var(--p-title)]/85 text-[var(--p-text)] backdrop-blur-sm">
             <div className="scale-[1.6]">{c.playing ? IconPause : IconPlay}</div>

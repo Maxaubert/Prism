@@ -31,6 +31,13 @@ import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from
 // (launch argv, single-instance forward, drag-drop, dialog). The viewer itself is
 // a placeholder in the renderer until prism-core lands (Phase 1).
 
+// On HDR displays Chromium plays video through a DirectComposition hardware
+// overlay whose tone mapping differs from the composited fallback it switches
+// to around a paused frame - the picture visibly brightens on pause. Keeping
+// every frame on the composited path makes playing and paused identical (at
+// the cost of the overlay's punchier HDR mapping during playback).
+app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
+
 const MEDIA_SCHEME = 'fsmedia'
 protocol.registerSchemesAsPrivileged([
   {
