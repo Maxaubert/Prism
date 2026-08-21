@@ -892,12 +892,25 @@ export default function App(): JSX.Element {
   }, [active])
 
   /** The split's X buttons and the context menu's "Remove from split view".
-   *  Closing the FILE pane leaves the terminal, which takes the full view;
-   *  closing the TERMINAL pane leaves the file. Either way the split is gone. */
-  const closeFilePane = useCallback(
-    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
-    [applyTermView]
-  )
+   *  Closing ONE window of a split leaves the others standing: with pinned
+   *  panes up, closing the live file promotes the OLDEST pin into the live
+   *  slot and the terminal (if any) stays where it is. Only with nothing else
+   *  on the file side does closing the file hand the terminal the full view;
+   *  closing the TERMINAL pane always just leaves the files. */
+  const closeFilePane = useCallback(() => {
+    const first = active?.panes[0]
+    if (active && first) {
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab) return s
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, first.id)) }
+      })
+      void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
+      setPaneFocus('live')
+      return
+    }
+    applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
+  }, [active, applyTermView, open])
   const closeTermPane = useCallback(
     () => applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
     [applyTermView]
@@ -1461,10 +1474,22 @@ export default function App(): JSX.Element {
               >
                 <div
                   data-pane="live"
-                  className="relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+                  className="group/live relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
                   style={{ gridArea: areas.live }}
                 >
                   {liveContent}
+                  {/* Its own X, like every pinned pane: closing the live
+                      window promotes the oldest pin, the rest stand. */}
+                  <button
+                    className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/live:opacity-100"
+                    onClick={closeFilePane}
+                    title="Remove from split view"
+                    aria-label="Remove the open file from split view"
+                  >
+                    <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                      <path d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                  </button>
                 </div>
                 {pins.map((pn, i) => (
                   <PinnedPaneView
@@ -1489,7 +1514,9 @@ export default function App(): JSX.Element {
           })()}
           {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
-          {termView === 'split' && !fullscreen && (
+          {/* The region-level X only when the region IS one window: with the
+              pane grid up, each window carries its own. */}
+          {termView === 'split' && !fullscreen && !active?.panes.length && (
             <button
               className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
               onClick={closeFilePane}

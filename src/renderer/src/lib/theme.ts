@@ -554,6 +554,9 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-title': title,
     '--p-icon': icon,
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
+    // The held highlight (a row whose context menu is open): the hover look,
+    // five points stronger, so it reads as "this one" rather than "passing by".
+    '--p-hover-hi': rgba(ink, style.mode === 'light' ? 0.12 : 0.11),
     '--p-divider': divider,
     '--p-line': listLine,
     // `none` is a valid background-image, so a style without a wash draws none.
