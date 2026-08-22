@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react'
 // Same tiny-store shape as tabPrefs.
 
 export type NewTabMode = 'home' | 'folder' | 'ask'
-export type NewTabShow = 'file' | 'terminal'
+export type NewTabShow = 'file' | 'terminal' | 'none'
 
 const MODE_KEY = 'prism.newtab.mode'
 const FOLDER_KEY = 'prism.newtab.folder'
@@ -24,7 +24,8 @@ export function newTabFolder(): string {
 }
 
 export function newTabShow(): NewTabShow {
-  return localStorage.getItem(SHOW_KEY) === 'terminal' ? 'terminal' : 'file'
+  const v = localStorage.getItem(SHOW_KEY)
+  return v === 'terminal' || v === 'none' ? v : 'file'
 }
 
 export function setNewTabMode(mode: NewTabMode, folder?: string): void {
