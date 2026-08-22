@@ -361,6 +361,16 @@ export function Sidebar({
     [onOpenFile]
   )
 
+  // A clicked folder takes the cursor with it, exactly as landing there by
+  // arrow does; the accent must not stay behind on whatever row had it.
+  const clickFolder = useCallback(
+    (path: string): void => {
+      setCursor(path)
+      toggle(path)
+    },
+    [toggle]
+  )
+
   // The tree's answer to an arrow key. Returns false when it has nothing to
   // say, and App pages the folder the old way instead: while the panel is shut,
   // while search has replaced the tree, or at the ends of the tree.
@@ -499,7 +509,7 @@ export function Sidebar({
                 size,
                 editing,
                 menuPath: menu?.path ?? null,
-                        onToggle: toggle,
+                onToggle: clickFolder,
                 onOpenFile,
                 onStartRename: setEditing,
                 onSubmitRename: submitRename,
