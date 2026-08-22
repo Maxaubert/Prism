@@ -540,17 +540,58 @@ export default function App(): JSX.Element {
    * take it (e.g. the viewer is display:none under a full terminal).
    */
   const viewerBox = useRef<HTMLDivElement>(null)
-  const setFs = useCallback((on: boolean) => {
-    if (on) {
-      const el = viewerBox.current
-      if (el) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => window.prism.setFullscreen(true))
-      else window.prism.setFullscreen(true)
-    } else if (document.fullscreenElement) {
-      void document.exitFullscreen()
-    } else {
-      window.prism.setFullscreen(false)
-    }
+  // The fade-to-black rides ON TOP of the DOM fullscreen: darken (150ms), do
+  // the swap under full black, lift (280ms) once the new frame has laid out.
+  // The veil lives INSIDE the viewer element - anything outside it stops
+  // rendering the moment the element goes fullscreen. Driven by transitionend
+  // and rAF, styled directly on the node, so nothing re-renders mid-fade.
+  const fsVeilEl = useRef<HTMLDivElement>(null)
+  const liftVeil = useCallback(() => {
+    const veil = fsVeilEl.current
+    if (!veil) return
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        veil.style.transition = 'opacity 280ms ease-out'
+        veil.style.opacity = '0'
+      })
+    )
   }, [])
+  const setFs = useCallback(
+    (on: boolean) => {
+      const doSwap = (): void => {
+        if (on) {
+          const el = viewerBox.current
+          if (el)
+            el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {
+              window.prism.setFullscreen(true)
+              liftVeil()
+            })
+          else window.prism.setFullscreen(true)
+        } else if (document.fullscreenElement) {
+          void document.exitFullscreen()
+        } else {
+          window.prism.setFullscreen(false)
+        }
+      }
+      const veil = fsVeilEl.current
+      if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        doSwap()
+        return
+      }
+      veil.style.transition = 'opacity 150ms ease-in'
+      veil.style.opacity = '1'
+      let fired = false
+      const done = (): void => {
+        if (fired) return
+        fired = true
+        doSwap()
+      }
+      veil.addEventListener('transitionend', done, { once: true })
+      setTimeout(done, 240) // transitionend can be swallowed; the swap may not
+      setTimeout(liftVeil, 1500) // and if the swap itself failed, never stay black
+    },
+    [liftVeil]
+  )
   useEffect(() => {
     // Element fullscreen is the source of truth; Escape exits it natively and
     // this keeps the app state honest either way.
@@ -558,6 +599,9 @@ export default function App(): JSX.Element {
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
+  // Whichever path changed the state (element, fallback, OS), the new frame is
+  // up: lift the veil over it.
+  useEffect(() => liftVeil(), [fullscreen, liftVeil])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
@@ -1496,6 +1540,12 @@ export default function App(): JSX.Element {
           }`}
           ref={viewerBox}
         >
+          {/* the fullscreen fade-to-black, inside the fullscreen element */}
+          <div
+            ref={fsVeilEl}
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-30 bg-black opacity-0 will-change-[opacity]"
+          />
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
               next one had decoded and flashed the window black between them.
