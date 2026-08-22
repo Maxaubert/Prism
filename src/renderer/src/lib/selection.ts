@@ -28,8 +28,11 @@ export function clickSelect(
   mods: { shift?: boolean; ctrl?: boolean }
 ): Selection {
   if (mods.shift) {
+    // The range MERGES with what is already marked (owner call 2026-08-22,
+    // deliberately not Explorer's replace): file 1 marked, then a shifted
+    // 4-to-2 keeps 1. A plain click is the way back to one.
     const anchor = sel.anchor ?? path
-    return { anchor, items: new Set(rangeOf(order, anchor, path)) }
+    return { anchor, items: new Set([...sel.items, ...rangeOf(order, anchor, path)]) }
   }
   if (mods.ctrl) {
     const items = new Set(sel.items)
@@ -40,7 +43,15 @@ export function clickSelect(
   return { anchor: path, items: new Set([path]) }
 }
 
-/** Dragging across rows: the swept range, anchor to wherever the pointer is. */
-export function sweepSelect(order: readonly string[], anchor: string, path: string): Selection {
-  return { anchor, items: new Set(rangeOf(order, anchor, path)) }
+/** Dragging across rows: the swept range, anchor to wherever the pointer is,
+ *  merged with whatever was selected when the sweep began (`base`) - so a
+ *  second sweep grows the pile rather than replacing it. Recomputed from the
+ *  base each move, so shrinking the sweep sheds only the sweep's own rows. */
+export function sweepSelect(
+  order: readonly string[],
+  anchor: string,
+  path: string,
+  base: ReadonlySet<string> = new Set()
+): Selection {
+  return { anchor, items: new Set([...base, ...rangeOf(order, anchor, path)]) }
 }

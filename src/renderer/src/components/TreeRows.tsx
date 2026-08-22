@@ -271,7 +271,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
               t.onDelete(path, name, true)
             }
           }}
-          className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
+          className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
             onCursor || t.selected.has(path)
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
               : onMenuHl
@@ -406,7 +406,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                   t.onDelete(f.path, f.name, false)
                 }
               }}
-              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
+              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none focus-visible:outline-none ${
                 onSel
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
                   : onMenuHl

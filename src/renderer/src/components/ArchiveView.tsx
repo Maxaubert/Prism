@@ -86,11 +86,18 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   // Explorer selection (2026-08-22), same grammar as the sidebar: click
   // selects, shift ranges, ctrl toggles, dragging sweeps, double click opens.
   const [sel, setSel] = useState<Selection>(emptySelection)
-  const sweep = useRef<{ from: string | null; live: boolean; consumed: boolean }>({
-    from: null,
-    live: false,
-    consumed: false
-  })
+  const sweep = useRef<{
+    from: string | null
+    live: boolean
+    consumed: boolean
+    base: ReadonlySet<string>
+  }>({ from: null, live: false, consumed: false, base: new Set() })
+  // Mirrored via effect (refs must not be written during render): the sweep
+  // reads it at pointer-down as the base it merges into.
+  const selRef = useRef(sel)
+  useEffect(() => {
+    selRef.current = sel
+  }, [sel])
   useEffect(() => {
     const up = (): void => {
       sweep.current.from = null
@@ -253,7 +260,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
       if (!s.live && path === s.from) return
       s.live = true
       s.consumed = true
-      setSel(sweepSelect(order, s.from, path))
+      setSel(sweepSelect(order, s.from, path, s.base))
     },
     [order]
   )
@@ -381,7 +388,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                       tabIndex={0}
                       aria-selected={sel.items.has(r.path)}
                       data-selected={sel.items.has(r.path) || undefined}
-                      className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none transition-colors ${
+                      className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none ${
                         sel.items.has(r.path)
                           ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                           : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
@@ -405,7 +412,8 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                       onClick={(e) => onRowClick(e, r.path)}
                       onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
                       onPointerDown={(e) => {
-                        if (e.button === 0) sweep.current = { from: r.path, live: false, consumed: false }
+                        if (e.button === 0)
+                          sweep.current = { from: r.path, live: false, consumed: false, base: selRef.current.items }
                       }}
                       onPointerEnter={() => onSweepOver(r.path)}
                       onContextMenu={(e) => {

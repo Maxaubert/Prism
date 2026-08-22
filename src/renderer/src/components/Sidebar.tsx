@@ -313,11 +313,18 @@ export function Sidebar({
     setSelFor(root)
     setSel(emptySelection)
   }
-  const sweep = useRef<{ from: string | null; live: boolean; consumed: boolean }>({
-    from: null,
-    live: false,
-    consumed: false
-  })
+  const sweep = useRef<{
+    from: string | null
+    live: boolean
+    consumed: boolean
+    base: ReadonlySet<string>
+  }>({ from: null, live: false, consumed: false, base: new Set() })
+  // What the sweep merges into: the selection as it stood at pointer-down.
+  // Mirrored via effect (refs must not be written during render).
+  const selRef = useRef(sel)
+  useEffect(() => {
+    selRef.current = sel
+  }, [sel])
   useEffect(() => {
     const up = (): void => {
       sweep.current.from = null
@@ -416,7 +423,7 @@ export function Sidebar({
     [order, sel]
   )
   const onSweepStart = useCallback((path: string): void => {
-    sweep.current = { from: path, live: false, consumed: false }
+    sweep.current = { from: path, live: false, consumed: false, base: selRef.current.items }
   }, [])
   const onSweepOver = useCallback(
     (path: string): void => {
@@ -425,7 +432,7 @@ export function Sidebar({
       if (!s.live && path === s.from) return
       s.live = true
       s.consumed = true
-      setSel(sweepSelect(order, s.from, path))
+      setSel(sweepSelect(order, s.from, path, s.base))
     },
     [order]
   )
