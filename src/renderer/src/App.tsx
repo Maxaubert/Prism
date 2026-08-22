@@ -533,30 +533,31 @@ export default function App(): JSX.Element {
   useEffect(() => window.prism.onOpenFile(open), [open])
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
-   * Fullscreen the way the streaming services do it: a quick fade to black,
-   * the frame swaps behind the dark, and the picture fades back in. The black
-   * covers the ENTIRE window (chrome included), so nothing is seen jumping.
-   * Reduced-motion gets the instant swap.
+   * Fullscreen the way YouTube actually does it: the DOM Fullscreen API on
+   * the viewer element, which gets Chromium's own built-in smooth transition
+   * for free - no hand-rolled veil, no animation of ours at all. The window
+   * fullscreen IPC survives only as the fallback for when the element can't
+   * take it (e.g. the viewer is display:none under a full terminal).
    */
-  const [fsVeil, setFsVeil] = useState(false)
+  const viewerBox = useRef<HTMLDivElement>(null)
   const setFs = useCallback((on: boolean) => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      window.prism.setFullscreen(on)
-      return
+    if (on) {
+      const el = viewerBox.current
+      if (el) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => window.prism.setFullscreen(true))
+      else window.prism.setFullscreen(true)
+    } else if (document.fullscreenElement) {
+      void document.exitFullscreen()
+    } else {
+      window.prism.setFullscreen(false)
     }
-    setFsVeil(true)
-    // Ask for the swap once the veil is opaque; the fade-out runs when the
-    // fullscreen state lands (effect below).
-    setTimeout(() => window.prism.setFullscreen(on), 140)
   }, [])
-  const fsPrev = useRef(false)
   useEffect(() => {
-    if (fsPrev.current === fullscreen) return
-    fsPrev.current = fullscreen
-    // The frame has swapped under the veil: hold one beat, then lift it.
-    const t = setTimeout(() => setFsVeil(false), 120)
-    return () => clearTimeout(t)
-  }, [fullscreen])
+    // Element fullscreen is the source of truth; Escape exits it natively and
+    // this keeps the app state honest either way.
+    const onChange = (): void => setFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
@@ -1493,6 +1494,7 @@ export default function App(): JSX.Element {
             // the same reason hidden shells stay alive.
             termView === 'full' ? 'hidden' : ''
           }`}
+          ref={viewerBox}
         >
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
@@ -1607,14 +1609,6 @@ export default function App(): JSX.Element {
         )}
         </div>
       </div>
-      {/* The fullscreen veil: black over everything for the swap. Always in
-          the DOM so its opacity can transition both ways. */}
-      <div
-        aria-hidden
-        className={`pointer-events-none fixed inset-0 z-[90] bg-black transition-opacity ${
-          fsVeil ? 'opacity-100 duration-[140ms]' : 'opacity-0 duration-[240ms]'
-        }`}
-      />
       <Settings
         open={settingsOpen}
         onShowSetup={() => {
