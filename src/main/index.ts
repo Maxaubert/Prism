@@ -23,9 +23,10 @@ import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
+import { archiveTooLarge, deleteMember, extractMember, listArchive, renameMember, type ArchiveEntry } from './archive'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
-import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -45,6 +46,11 @@ app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 // of pixels in every state - playing and paused match. The cost: HDR videos
 // are tone-mapped to SDR inside Prism rather than passed through.
 app.commandLine.appendSwitch('force-color-profile', 'srgb')
+
+// Archive members extracted to temp for viewing: each grant is one exact
+// path, made when archive:extract writes it. The reads that honour the root
+// wall (file:text, file:copy-clip) accept these too; writes never do.
+const extractedPaths = new Set<string>()
 
 const MEDIA_SCHEME = 'fsmedia'
 protocol.registerSchemesAsPrivileged([
@@ -732,7 +738,9 @@ if (!app.requestSingleInstanceLock()) {
     // renderer from inside the session root, and opening one from outside
     // re-roots first, so this refuses nothing the app legitimately asks for.
     ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
-      if (!insideAnyRoot(p)) return null
+      // Extracted archive members live in temp, outside every root; each one
+      // was granted individually when archive:extract wrote it.
+      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return null
       try {
         return (await import('fs/promises')).readFile(p, 'utf-8')
       } catch {
@@ -842,17 +850,100 @@ if (!app.requestSingleInstanceLock()) {
 
     // The real file onto the clipboard (a drop list, so Ctrl+V in Explorer
     // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
-    ipcMain.handle('file:copy-clip', (_e, p: string): Promise<boolean> => {
-      if (!insideAnyRoot(p)) return Promise.resolve(false)
-      const quoted = p.replace(/'/g, "''")
+    // One path or a multi-selection's worth: every one must pass the wall
+    // (roots, or an individually granted extracted member) or nothing copies.
+    ipcMain.handle('file:copy-clip', (_e, p: string | string[]): Promise<boolean> => {
+      const list = Array.isArray(p) ? p : [p]
+      if (
+        !list.length ||
+        list.some((x) => typeof x !== 'string' || (!insideAnyRoot(x) && !extractedPaths.has(x)))
+      )
+        return Promise.resolve(false)
+      const quoted = list.map((x) => `'${x.replace(/'/g, "''")}'`).join(',')
       return new Promise((done) => {
         execFile(
           'powershell.exe',
-          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath '${quoted}'`],
+          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath ${quoted}`],
           { windowsHide: true, timeout: 5000 },
           (err) => done(!err)
         )
       })
+    })
+
+    // The icon Windows itself shows for a file of this type - the user's own
+    // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
+    // extension; the tree shows it for archives (#68, revised 2026-08-22).
+    const extIconCache = new Map<string, string | null>()
+    ipcMain.handle('icon:for-ext', async (_e, p: string): Promise<string | null> => {
+      if (typeof p !== 'string' || !insideAnyRoot(p)) return null
+      const ext = extname(p).toLowerCase()
+      if (!ext) return null
+      const hit = extIconCache.get(ext)
+      if (hit !== undefined) return hit
+      try {
+        const img = await app.getFileIcon(p, { size: 'normal' })
+        const url = img.isEmpty() ? null : img.toDataURL()
+        extIconCache.set(ext, url)
+        return url
+      } catch {
+        extIconCache.set(ext, null)
+        return null
+      }
+    })
+
+    /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
+
+    // Every verb names the zip, which must sit inside a root and actually be
+    // an archive; the members have no independent existence on disk. Renames
+    // and deletes rewrite the container, so an oversized archive is refused
+    // rather than frozen over.
+    const archiveOk = (p: unknown): p is string =>
+      typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
+    ipcMain.handle('archive:list', (_e, p: string): ArchiveEntry[] | null => {
+      if (!archiveOk(p)) return null
+      try {
+        return listArchive(p)
+      } catch {
+        return null
+      }
+    })
+    type ExtractResult =
+      | { ok: true; path: string; kind: FileKind }
+      | { ok: false; reason: 'password' | 'aes' | 'failed' }
+    ipcMain.handle(
+      'archive:extract',
+      (_e, p: string, entry: string, password?: string): ExtractResult => {
+        if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
+        try {
+          if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+          const r = extractMember(p, entry, typeof password === 'string' ? password : undefined)
+          if (!r.ok) return r
+          extractedPaths.add(r.path)
+          return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
+        } catch {
+          return { ok: false, reason: 'failed' }
+        }
+      }
+    )
+    ipcMain.handle(
+      'archive:rename',
+      (_e, p: string, entry: string, name: string, password?: string): string => {
+        if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
+        try {
+          if (archiveTooLarge(statSync(p).size)) return 'failed'
+          return renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
+        } catch {
+          return 'failed'
+        }
+      }
+    )
+    ipcMain.handle('archive:delete', (_e, p: string, entry: string): boolean => {
+      if (!archiveOk(p) || typeof entry !== 'string') return false
+      try {
+        return !archiveTooLarge(statSync(p).size) && deleteMember(p, entry)
+      } catch {
+        return false
+      }
     })
 
     ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {

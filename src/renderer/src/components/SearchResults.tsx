@@ -65,7 +65,7 @@ export function SearchResults({
               }`}
               style={{ fontSize: size.font }}
             >
-              <KindIcon kind={h.kind} color={on ? 'var(--p-on-accent)' : iconColour(h.kind)} />
+              <KindIcon kind={h.kind} color={on ? 'var(--p-on-accent)' : iconColour(h.kind)} path={h.path} />
               <span className="min-w-0">
                 <span className="block truncate">{h.name}</span>
                 {h.dir && (

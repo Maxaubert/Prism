@@ -13,7 +13,7 @@ function fixture(): string {
   writeFileSync(join(root, 'a10.png'), '')
   writeFileSync(join(root, 'a9.png'), '')
   writeFileSync(join(root, 'notes.md'), '')
-  writeFileSync(join(root, 'archive.zip'), '') // not viewable
+  writeFileSync(join(root, 'archive.7z'), '') // not viewable (.zip is, since #68)
   writeFileSync(join(root, 'desktop.ini'), '') // system noise
   writeFileSync(join(root, '.hidden.jpg'), '')
   writeFileSync(join(root, 'sub', 'deep.mp4'), '')
@@ -104,7 +104,7 @@ describe('searchFiles', () => {
     mkdirSync(join(r, '$RECYCLE.BIN'))
     writeFileSync(join(r, 'poster.jpg'), '')
     writeFileSync(join(r, 'notes.md'), '')
-    writeFileSync(join(r, 'archive.zip'), '') // not viewable
+    writeFileSync(join(r, 'archive.7z'), '') // not viewable (.zip is, since #68)
     writeFileSync(join(r, 'season1', 'ep1.mp4'), '')
     writeFileSync(join(r, 'season1', 'ep2.mp4'), '')
     writeFileSync(join(r, 'season1', 'extras', 'ep1-bts.mp4'), '')

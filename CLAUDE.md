@@ -47,6 +47,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+- **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
+  SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
+  amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
+  name and totals, with the members in a bounded panel. Navigation is Explorer-shaped:
+  clicking a folder walks INTO it, the crumb row (fixed height, so the panel never jumps)
+  or Backspace climbs out - no collapsible tree, and NO hover quick-verbs (tried twice,
+  rejected twice). Verbs are right-click + F2/Delete: view (extracted to a temp file main
+  grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
+  delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
+  the dialog says so. Passwords: asked once per archive and remembered; ZipCrypto opens via
+  adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
+  args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
+  say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
+  archives (>600MB) list but refuse member operations.
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
   2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
@@ -94,8 +108,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   covers Alt+F4 and the taskbar, not just the X). A failed write cancels the close and names
   the file rather than closing over the top of it.
   Prism's writes are therefore: rename, bin,
-  duplicate, and the editor's save. Anything further (move, new folder, multi-select) is a
-  fresh decision, not a natural next step.
+  duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
+  zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
+  natural next step. Multi-select WAS that fresh decision (2026-08-22): shift ranges,
+  ctrl toggles, and dragging across rows sweeps a selection WITHOUT opening, in the tree
+  and the archive alike; right-click inside a multi-selection acts on all of it (copy
+  files, copy paths, delete N with one question). The tree KEEPS its quick-look single
+  click - a plain click still opens a file or expands a folder (double-click-to-open was
+  tried and rolled back the same day; only the ARCHIVE is double-click, where single
+  click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
+  file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
+  opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
+  one).
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
@@ -238,7 +263,8 @@ works, that the associations still register, and that the resident app actually 
   syntax-error squiggles across ~150 languages, which is not a thing to hand-roll),
   `react-markdown` +
   `remark-gfm` + `rehype-raw` + `rehype-sanitize` (markdown), `pdfjs-dist` (PDF),
-  `heic-convert` (HEIC decode), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
+  `heic-convert` (HEIC decode), `adm-zip` (the archive viewer: reading and rewriting zip
+  containers is not a thing to hand-roll; pure JS, no native code), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
   its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
   N-API prebuilds, and must stay asarUnpacked or Windows cannot load it). Shells spawn
   with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS

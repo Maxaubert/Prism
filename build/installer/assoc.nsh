@@ -50,6 +50,7 @@
   !insertmacro PRISM_PROGID "Prism.Audio" "Audio"
   !insertmacro PRISM_PROGID "Prism.Document" "Document"
   !insertmacro PRISM_PROGID "Prism.Text" "Text file"
+  !insertmacro PRISM_PROGID "Prism.Archive" "Archive"
 
   ; The same lists src/shared/fileKind.ts calls viewable - ALL of them. Code
   ; and config types were excluded once ("a .ts belongs to an editor"), but the
@@ -232,6 +233,8 @@
   !insertmacro PRISM_EXT "cmake"    "Prism.Text"
   !insertmacro PRISM_EXT "mk"       "Prism.Text"
 
+  !insertmacro PRISM_EXT "zip"      "Prism.Archive"
+
 
   ; the executable as an application in its own right, which is what the
   ; per-type "Choose another app" dialog looks up
@@ -258,6 +261,7 @@
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Video"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Audio"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Document"
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Archive"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Text"
   !insertmacro PRISM_UNEXT "png"  "Prism.Image"
   !insertmacro PRISM_UNEXT "jpg"  "Prism.Image"
@@ -306,5 +310,6 @@
   !insertmacro PRISM_UNEXT "ini"  "Prism.Text"
   !insertmacro PRISM_UNEXT "srt"  "Prism.Text"
   !insertmacro PRISM_UNEXT "vtt"  "Prism.Text"
+  !insertmacro PRISM_UNEXT "zip"  "Prism.Archive"
   System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, p 0, p 0)'
 !macroend

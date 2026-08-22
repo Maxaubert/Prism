@@ -1,5 +1,5 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -79,9 +79,43 @@ const api = {
   /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
   copyFileToClipboard: (path: string): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', path),
+  /** A multi-selection's copy: every file lands on the clipboard together. */
+  copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('file:copy-clip', paths),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
+
+  /** The system's own icon for this file's type (the user's association),
+   *  as a data URL; null when Windows has none to give. */
+  iconForExt: (path: string): Promise<string | null> => ipcRenderer.invoke('icon:for-ext', path),
+
+  /* ----- archives (zip): list, view, rename, delete members ----- */
+
+  /** Every entry in the archive (folders derived when the zip omits them). */
+  archiveList: (
+    path: string
+  ): Promise<Array<{ path: string; name: string; dir: boolean; size: number; encrypted?: boolean }> | null> =>
+    ipcRenderer.invoke('archive:list', path),
+  /** Extract one member to temp for viewing. 'password' means one is needed
+   *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
+  archiveExtract: (
+    path: string,
+    entry: string,
+    password?: string
+  ): Promise<{ ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
+    ipcRenderer.invoke('archive:extract', path, entry, password),
+  /** Rename one member in place (same folder). A taken name refuses. */
+  archiveRename: (
+    path: string,
+    entry: string,
+    name: string,
+    password?: string
+  ): Promise<'ok' | 'password' | 'aes' | 'failed'> =>
+    ipcRenderer.invoke('archive:rename', path, entry, name, password),
+  /** Remove one member. Permanent - no recycle bin inside a zip. */
+  archiveDelete: (path: string, entry: string): Promise<boolean> =>
+    ipcRenderer.invoke('archive:delete', path, entry),
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
