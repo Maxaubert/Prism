@@ -52,8 +52,7 @@ export function VideoView({
     setChromeOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
-      if (Date.now() > fsGuard.current && video.current && !video.current.paused && !menuOpen.current)
-        setChromeOn(false)
+      if (video.current && !video.current.paused && !menuOpen.current) setChromeOn(false)
     }, 2600)
   }, [])
 
@@ -81,11 +80,7 @@ export function VideoView({
 
   useEffect(() => {
     const onFs = (): void => {
-      // NOTHING hides the chrome around a fullscreen change - not the idle
-      // timer, not a synthetic mouseleave. The bar that was up stays up, and
-      // the normal rules resume a beat later.
-      fsGuard.current = Date.now() + 2000
-      setChromeOn(true)
+      fsGuard.current = Date.now() + 800
     }
     document.addEventListener('fullscreenchange', onFs)
     return () => {
