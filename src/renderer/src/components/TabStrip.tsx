@@ -1,4 +1,4 @@
-import type { JSX, MouseEvent } from 'react'
+import { useState, type DragEvent, type JSX, type MouseEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
@@ -10,6 +10,10 @@ import { contrastRatio } from '../lib/termAnsi'
  * chrome never shifts under you when a second folder opens. It goes only when
  * there is nothing open at all, where EmptyState is already offering the way in.
  */
+/** Set while a TAB is the thing being dragged, so a file drop still means
+ *  "open this" and a tab drop means "move it here". */
+const TAB_MIME = 'application/prism-tab'
+
 export function TabStrip({
   tabs,
   activeId,
@@ -20,6 +24,7 @@ export function TabStrip({
   onClose,
   onNew,
   onDropFile,
+  onReorder,
   wash
 }: {
   tabs: Tab[]
@@ -41,6 +46,8 @@ export function TabStrip({
   onNew: () => void
   /** A file dropped on the strip opens in a new tab. */
   onDropFile: (path: string) => void
+  /** A tab dragged along the strip lands in front of `toIndex` (#70). */
+  onReorder: (id: string, toIndex: number) => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
@@ -53,6 +60,8 @@ export function TabStrip({
   // the look; black only wins on genuinely light fills (contrast vs black of
   // 12 is a ~0.55 luminance threshold).
   const onTint = (c: string): string => (contrastRatio('#000000', c) < 12 ? '#ffffff' : '#000000')
+  // Where a dragged tab would land: the slot index, drawn as a hairline.
+  const [dropAt, setDropAt] = useState<number | null>(null)
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -76,9 +85,16 @@ export function TabStrip({
         // the window-level drop from opening it in the current one.
         e.preventDefault()
         e.stopPropagation()
+        const moved = e.dataTransfer.getData(TAB_MIME)
+        setDropAt(null)
+        if (moved) {
+          onReorder(moved, dropAt ?? tabs.length)
+          return
+        }
         const f = e.dataTransfer.files?.[0]
         if (f) onDropFile(window.prism.getDroppedPath(f))
       }}
+      onDragLeave={() => setDropAt(null)}
       className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
@@ -114,7 +130,27 @@ export function TabStrip({
             // pick the tab. The close button stops propagation to opt out.
             onClick={() => onPick(t.id)}
             onAuxClick={(e) => auxClose(e, t.id)}
+            // Tabs reorder by dragging (#70): the half of the tab the pointer
+            // is over decides which side of it the dragged tab lands.
+            draggable
+            onDragStart={(e: DragEvent) => {
+              e.dataTransfer.setData(TAB_MIME, t.id)
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => setDropAt(null)}
+            onDragOver={(e: DragEvent) => {
+              if (!e.dataTransfer.types.includes(TAB_MIME)) return
+              e.preventDefault()
+              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              setDropAt(e.clientX < box.left + box.width / 2 ? i : i + 1)
+            }}
           >
+            {dropAt === i && (
+              <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--p-accent-hi)]" aria-hidden />
+            )}
+            {dropAt === i + 1 && (
+              <span className="absolute inset-y-0 right-0 w-0.5 bg-[var(--p-accent-hi)]" aria-hidden />
+            )}
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}

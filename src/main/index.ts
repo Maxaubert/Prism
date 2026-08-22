@@ -23,7 +23,7 @@ import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
-import { addToArchive, archiveTooLarge, deleteMember, extractMember, extractTo, listArchive, moveMembers, renameMember, type ArchiveEntry } from './archive'
+import { addToArchive, archiveStat, archiveTooLarge, deleteMember, extractMember, extractTo, listArchive, moveMembers, renameMember, type ArchiveEntry, type ArchiveStat } from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
@@ -939,6 +939,9 @@ if (!app.requestSingleInstanceLock()) {
     // rather than frozen over.
     const archiveOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
+    ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null =>
+      archiveOk(p) ? archiveStat(p) : null
+    )
     ipcMain.handle('archive:list', (_e, p: string): ArchiveEntry[] | null => {
       if (!archiveOk(p)) return null
       try {

@@ -60,7 +60,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
-  archives (>600MB) list but refuse member operations.
+  archives (>600MB) list but refuse member operations. Properties on a zip reports what it
+  holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
   2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
@@ -126,6 +127,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   click - a plain click still opens a file or expands a folder (double-click-to-open was
   tried and rolled back the same day; only the ARCHIVE is double-click, where single
   click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  Search results speak the same selection language, multi right-click included.
+  Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
+  hairline showing where one would land.
   Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in

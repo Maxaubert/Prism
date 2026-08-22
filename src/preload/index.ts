@@ -126,6 +126,11 @@ const api = {
 
   /* ----- archives (zip): list, view, rename, delete members ----- */
 
+  /** What an archive holds, for the Properties dialog. */
+  archiveStat: (
+    path: string
+  ): Promise<{ files: number; folders: number; uncompressed: number; encryption: 'none' | 'zipcrypto' | 'aes' } | null> =>
+    ipcRenderer.invoke('archive:stat', path),
   /** Every entry in the archive (folders derived when the zip omits them). */
   archiveList: (
     path: string

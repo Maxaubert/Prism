@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, reorderTabs, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
 import { fileKind } from '@shared/fileKind'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
@@ -837,6 +837,12 @@ export default function App(): JSX.Element {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
   const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+  /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
+  const reorderTab = useCallback(
+    (id: string, toIndex: number) =>
+      setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
+    []
+  )
 
   /* ----- the terminal ----- */
 
@@ -1682,6 +1688,7 @@ export default function App(): JSX.Element {
           doneIds={doneIds}
           agentIds={agentIds}
           onDropFile={openInNewTab}
+          onReorder={reorderTab}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}

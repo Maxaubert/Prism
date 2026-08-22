@@ -67,6 +67,35 @@ async function probePdf(url: string): Promise<PropRow[]> {
   }
 }
 
+/** What a zip holds, how hard it squeezed, and whether it is locked (#70). */
+async function probeArchive(path: string, sizeOnDisk: number): Promise<PropRow[]> {
+  const st = await window.prism.archiveStat(path)
+  if (!st) return []
+  const rows: PropRow[] = [
+    {
+      label: 'Contents',
+      value: `${st.files} file${st.files === 1 ? '' : 's'}${st.folders ? `, ${st.folders} folder${st.folders === 1 ? '' : 's'}` : ''}`
+    },
+    { label: 'Uncompressed', value: formatBytes(st.uncompressed) }
+  ]
+  // The ratio is the point of an archive; it needs both numbers to mean
+  // anything, so it only appears when the file has been measured.
+  if (st.uncompressed > 0 && sizeOnDisk > 0) {
+    const saved = Math.max(0, Math.round((1 - sizeOnDisk / st.uncompressed) * 100))
+    rows.push({ label: 'Compression', value: `${saved}% smaller` })
+  }
+  rows.push({
+    label: 'Encryption',
+    value:
+      st.encryption === 'aes'
+        ? 'AES (needs 7-Zip)'
+        : st.encryption === 'zipcrypto'
+          ? 'Password protected'
+          : 'None'
+  })
+  return rows
+}
+
 async function probeText(path: string): Promise<PropRow[]> {
   const text = await window.prism.readText(path)
   if (text === null) return []
@@ -82,6 +111,9 @@ async function probeText(path: string): Promise<PropRow[]> {
 export async function propsFor(root: string, path: string, name: string, kind: FileKind, isFolder: boolean): Promise<PropRow[]> {
   const url = window.prism.mediaUrl(path)
   const ext = /\.[^.\\/]+$/.exec(name)?.[0]?.slice(1).toUpperCase()
+  // An archive's compression ratio needs its size on disk, so that stat is
+  // read first and the probe below is handed the number.
+  const size = kind === 'archive' && !isFolder ? ((await window.prism.statFile(path))?.size ?? 0) : 0
 
   const [stat, special] = await Promise.all([
     window.prism.statFile(path),
@@ -101,7 +133,9 @@ export async function propsFor(root: string, path: string, name: string, kind: F
               ? probePdf(url)
               : kind === 'text'
                 ? probeText(path)
-                : Promise.resolve([])
+                : kind === 'archive'
+                  ? probeArchive(path, size)
+                  : Promise.resolve([])
   ])
 
   const rows: PropRow[] = [

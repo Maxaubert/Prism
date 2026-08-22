@@ -2,7 +2,7 @@ import AdmZip from 'adm-zip'
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
 // Listing, viewing (extract one member to temp), renaming, deleting and
@@ -200,6 +200,42 @@ export function archiveTooLarge(sizeBytes: number): boolean {
   return sizeBytes > MAX_ARCHIVE_BYTES
 }
 
+/** What the Properties dialog says about an archive: what it holds, how hard
+ *  it squeezed, and whether it is locked. */
+export type ArchiveStat = {
+  files: number
+  folders: number
+  /** Bytes the members take once unpacked. */
+  uncompressed: number
+  encryption: 'none' | 'zipcrypto' | 'aes'
+}
+
+export function archiveStat(zipPath: string): ArchiveStat | null {
+  try {
+    const zip = new AdmZip(zipPath)
+    const folders = new Set<string>()
+    let files = 0
+    let uncompressed = 0
+    let encryption: ArchiveStat['encryption'] = 'none'
+    for (const e of zip.getEntries()) {
+      const p = norm(e.entryName)
+      if (!p) continue
+      for (let i = p.indexOf('/'); i > 0; i = p.indexOf('/', i + 1)) folders.add(p.slice(0, i))
+      if (e.isDirectory) {
+        folders.add(p)
+        continue
+      }
+      files += 1
+      uncompressed += e.header.size
+      if (e.header.method === AES_METHOD) encryption = 'aes'
+      else if ((e.header.flags & 1) === 1 && encryption === 'none') encryption = 'zipcrypto'
+    }
+    return { files, folders: folders.size, uncompressed, encryption }
+  } catch {
+    return null
+  }
+}
+
 /* ---------- drag and drop (#70): add, move within, extract out ---------- */
 
 /** True when any member is password protected. Rewriting such a container with
@@ -326,18 +362,25 @@ export function extractTo(
 ): { ok: true; written: number } | { ok: false; reason: MemberFail } {
   try {
     if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+    const base = resolve(destDir)
     const zip = new AdmZip(zipPath)
     const wanted = entryPaths.map(norm)
     let written = 0
     for (const e of zip.getEntries()) {
       if (e.isDirectory) continue
       const p = norm(e.entryName)
-      if (p.includes('../')) continue
       const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
       if (hit === undefined) continue
       const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
       const rel = parent ? p.slice(parent.length + 1) : p
-      const target = join(destDir, ...rel.split('/'))
+      // Zip Slip: a member can be named anything at all, so the only safe test
+      // is where the write would actually LAND. Absolute names, drive letters
+      // and any ".." that survives resolution are dropped, not sanitised.
+      if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
+      const target = resolve(base, ...rel.split('/'))
+      const inside = relative(base, target)
+      if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
+        continue
       const like = e as unknown as ZipEntryLike
       let data: Buffer
       if (like.header.method === AES_METHOD) {

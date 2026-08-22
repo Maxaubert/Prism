@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -194,3 +194,22 @@ function extractMemberText(zip: string, entry: string): string {
   const r = extractMember(zip, entry)
   return r.ok ? readFileSync(r.path, 'utf8') : ''
 }
+
+describe('zip slip', () => {
+  it('drops members whose name would land outside the destination', () => {
+    const evil = new AdmZip()
+    evil.addFile('../escape.txt', Buffer.from('nope'))
+    evil.addFile('sub/../../escape2.txt', Buffer.from('nope'))
+    evil.addFile('good.txt', Buffer.from('fine'))
+    const zip = join(mkdtempSync(join(tmpdir(), 'prism-slip-')), 'evil.zip')
+    evil.writeZip(zip)
+    const home = mkdtempSync(join(tmpdir(), 'prism-slip-out-'))
+    const dest = join(home, 'dest')
+    mkdirSync(dest)
+    const r = extractTo(zip, ['../escape.txt', 'sub/../../escape2.txt', 'good.txt'], dest)
+    expect(r).toMatchObject({ ok: true })
+    expect(existsSync(join(home, 'escape.txt'))).toBe(false)
+    expect(existsSync(join(home, 'escape2.txt'))).toBe(false)
+    expect(readFileSync(join(dest, 'good.txt'), 'utf8')).toBe('fine')
+  })
+})

@@ -616,6 +616,10 @@ export function Sidebar({
               currentPath={currentPath}
               size={size}
               onOpen={onOpenFile}
+              onMenu={(e, path, name) => onMenu(e, path, name, false)}
+              onMultiMenu={(e, paths) =>
+                setMenu({ x: e.clientX, y: e.clientY, path: paths[0], name: '', isFolder: false, multi: paths })
+              }
             />
           ) : (
             <TreeProvider
