@@ -39,11 +39,6 @@ export function VideoView({
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   const [chromeOn, setChromeOn] = useState(true)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Entering/leaving fullscreen reflows the stage and fires a synthetic
-  // mouseleave, which hid the chrome and made it re-appear a beat later - a
-  // pointless blink. Around a fullscreen change the chrome simply KEEPS the
-  // state it had.
-  const fsGuard = useRef(0)
   // The chrome never hides while the settings menu is open: an invisible menu
   // would keep eating clicks and the first Escape.
   const menuOpen = useRef(false)
@@ -79,12 +74,7 @@ export function VideoView({
   })
 
   useEffect(() => {
-    const onFs = (): void => {
-      fsGuard.current = Date.now() + 800
-    }
-    document.addEventListener('fullscreenchange', onFs)
     return () => {
-      document.removeEventListener('fullscreenchange', onFs)
       if (hideTimer.current) clearTimeout(hideTimer.current)
     }
   }, [])
@@ -97,7 +87,7 @@ export function VideoView({
     <div
       className="group relative flex h-full w-full items-center justify-center"
       onMouseMove={showChrome}
-      onMouseLeave={() => Date.now() > fsGuard.current && c.playing && !menuOpen.current && setChromeOn(false)}
+      onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
       <video
