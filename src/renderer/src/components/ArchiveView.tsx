@@ -60,31 +60,6 @@ function MemberView({ name, path, kind }: { name: string; path: string; kind: Fi
   }
 }
 
-/** One hover verb on a member row. Real buttons, so they cannot live inside
- *  a button row: the row itself is a div with the option role. */
-function Verb({ title, danger, onClick, children }: {
-  title: string
-  danger?: boolean
-  onClick: () => void
-  children: JSX.Element
-}): JSX.Element {
-  return (
-    <button
-      className={`no-drag grid h-[22px] w-[22px] shrink-0 place-items-center rounded-[3px] text-[var(--p-dim)] transition-colors ${
-        danger ? 'hover:bg-[#b4353f]/25 hover:text-[#f0a4ab]' : 'hover:bg-white/10 hover:text-[var(--p-text)]'
-      }`}
-      title={title}
-      aria-label={title}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 function LockBadge(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="var(--p-dim2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-label="Password protected">
@@ -154,7 +129,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
               }
             })
           else if (r === 'aes')
-            setOops(`"${entry.name}" is AES-encrypted. Prism can only open classic zip encryption; WinRAR or 7-Zip can open this one.`)
+            setOops(`"${entry.name}" is AES-encrypted, and opening that needs 7-Zip installed. With 7-Zip on this machine Prism opens it in place.`)
           else setOops(`Couldn't read "${entry.name}" from the archive.`)
         })
       }
@@ -270,8 +245,12 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
           <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
           <div className="mt-4 w-full max-w-[560px]">
-            {crumbs.length > 0 && (
-              <div data-archive-crumbs className="mb-1.5 flex items-center gap-1 px-1 text-[12px]">
+            {/* The crumb row keeps its height even at the root, where it is
+                empty: appearing and vanishing shoved the whole panel down a
+                line on every walk into a folder. */}
+            <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+              {crumbs.length > 0 && (
+                <>
                 <button
                   className="no-drag rounded px-1 py-0.5 text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
                   onClick={() => setCwd('')}
@@ -289,8 +268,9 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                     </button>
                   </span>
                 ))}
-              </div>
-            )}
+                </>
+              )}
+            </div>
             <div className="rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-1.5">
           {entries === null ? (
             <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
@@ -343,34 +323,6 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                         <KindIcon kind={fileKind(extOf(r.name), r.name)} color={iconColour(fileKind(extOf(r.name), r.name))} />
                       )}
                       <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                      {/* The quick verbs, on hover (and keyboard focus): the
-                          same four the right-click menu keeps carrying. */}
-                      {!r.dir && (
-                        <span className="hidden shrink-0 items-center gap-0.5 group-focus-within/row:flex group-hover/row:flex">
-                          <Verb title="View" onClick={() => view(r)}>
-                            <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                              <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
-                              <circle cx="12" cy="12" r="2.6" />
-                            </svg>
-                          </Verb>
-                          <Verb title="Copy file" onClick={() => copyOut(r)}>
-                            <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                              <rect x="9" y="9" width="11" height="11" rx="1.5" />
-                              <path d="M5 15V5a1.5 1.5 0 0 1 1.5-1.5H16" />
-                            </svg>
-                          </Verb>
-                          <Verb title="Rename (F2)" onClick={() => setEditing(r.path)}>
-                            <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
-                            </svg>
-                          </Verb>
-                          <Verb title="Delete from archive" danger onClick={() => setConfirmDel(r)}>
-                            <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
-                              <path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13" />
-                            </svg>
-                          </Verb>
-                        </span>
-                      )}
                       {r.encrypted && <LockBadge />}
                       {!r.dir && (
                         <span className="w-[72px] shrink-0 text-right text-[11px] tabular-nums text-[var(--p-dim2)]">

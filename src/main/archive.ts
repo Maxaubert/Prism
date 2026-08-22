@@ -1,5 +1,6 @@
 import AdmZip from 'adm-zip'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 
@@ -32,6 +33,45 @@ const AES_METHOD = 99
 const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
   if (e.header.method === AES_METHOD) return 'aes'
   return (e.header.flags & 1) === 1 || hasPassword ? 'password' : 'failed'
+}
+
+// AES-encrypted zips (7-Zip's and WinRAR's default) are beyond adm-zip, so
+// they go through the system's own 7-Zip when it is installed - args-only
+// execFile against a fixed detected path, the same enumerated-exe rule the
+// "Open in" menu holds to. Without 7-Zip the answer stays an honest 'aes'.
+const SEVEN_ZIP_PATHS = [
+  'C:\\Program Files\\7-Zip\\7z.exe',
+  'C:\\Program Files (x86)\\7-Zip\\7z.exe'
+]
+let sevenCache: string | null | undefined
+export function sevenZipExe(): string | null {
+  if (sevenCache === undefined) sevenCache = SEVEN_ZIP_PATHS.find((p) => existsSync(p)) ?? null
+  return sevenCache
+}
+
+/** Extract one member with 7z into a fresh temp dir. */
+function sevenExtract(
+  zipPath: string,
+  entryPath: string,
+  password: string
+): { ok: true; path: string } | { ok: false; reason: MemberFail } {
+  const exe = sevenZipExe()
+  if (!exe) return { ok: false, reason: 'aes' }
+  const dir = mkdtempSync(join(tmpdir(), 'prism-zip-'))
+  try {
+    // Switches first, then `--` so a member named "-something" inside a
+    // hostile zip can never be read as a 7z switch.
+    execFileSync(exe, ['e', `-o${dir}`, `-p${password}`, '-y', '--', zipPath, norm(entryPath)], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+      timeout: 30000
+    })
+  } catch (err) {
+    const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
+    return { ok: false, reason: /wrong password/i.test(stderr) ? 'password' : 'failed' }
+  }
+  const out = join(dir, basename(norm(entryPath)))
+  return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
 }
 
 type ZipEntryLike = {
@@ -85,12 +125,19 @@ export function extractMember(
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
   if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
+  const like = entry as unknown as ZipEntryLike
+  if (like.header.method === AES_METHOD) {
+    // The password question comes first even on the 7z route, so the prompt
+    // flow is identical whichever cipher the zip used.
+    if (!password) return { ok: false, reason: 'password' }
+    return sevenExtract(zipPath, entryPath, password)
+  }
   let data: Buffer
   try {
-    data = (entry as unknown as ZipEntryLike).getData(password)
+    data = like.getData(password)
     if (!data?.length && entry.header.size > 0) throw new Error('no data')
   } catch {
-    return { ok: false, reason: failOf(entry as unknown as ZipEntryLike, !!password) }
+    return { ok: false, reason: failOf(like, !!password) }
   }
   // The member's own basename, so the viewer's kind detection reads it; the
   // random temp dir keeps two same-named members from colliding.
@@ -116,12 +163,20 @@ export function renameMember(
   const target = folder + newName
   if (target === p) return 'ok'
   if (zip.getEntry(target)) return 'failed' // a taken name refuses, never overwrites
+  const like = entry as unknown as ZipEntryLike
   let data: Buffer
-  try {
-    data = (entry as unknown as ZipEntryLike).getData(password)
-    if (!data?.length && entry.header.size > 0) throw new Error('no data')
-  } catch {
-    return failOf(entry as unknown as ZipEntryLike, !!password)
+  if (like.header.method === AES_METHOD) {
+    if (!password) return 'password'
+    const r = sevenExtract(zipPath, p, password)
+    if (!r.ok) return r.reason
+    data = readFileSync(r.path)
+  } else {
+    try {
+      data = like.getData(password)
+      if (!data?.length && entry.header.size > 0) throw new Error('no data')
+    } catch {
+      return failOf(like, !!password)
+    }
   }
   zip.deleteFile(p)
   zip.addFile(target, data)

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { deleteMember, extractMember, listArchive, renameMember, validMemberName } from './archive'
+import { deleteMember, extractMember, listArchive, renameMember, sevenZipExe, validMemberName } from './archive'
 
 let zipPath: string
 
@@ -59,8 +59,17 @@ describe('password-protected archives', () => {
     if (!r.ok) throw new Error('expected ok')
     expect(readFileSync(r.path, 'utf8')).toBe('top secret')
   })
-  it('names AES as the reason it cannot open', () => {
-    expect(extractMember(aes, 'secret.txt', 'letmein')).toEqual({ ok: false, reason: 'aes' })
+  it('opens AES through the system 7-Zip, or names it honestly without one', () => {
+    // The password question comes first either way.
+    expect(extractMember(aes, 'secret.txt')).toEqual({ ok: false, reason: 'password' })
+    if (sevenZipExe()) {
+      expect(extractMember(aes, 'secret.txt', 'nope')).toEqual({ ok: false, reason: 'password' })
+      const r = extractMember(aes, 'secret.txt', 'letmein')
+      if (!r.ok) throw new Error('expected ok via 7z, got ' + r.reason)
+      expect(readFileSync(r.path, 'utf8')).toBe('top secret')
+    } else {
+      expect(extractMember(aes, 'secret.txt', 'letmein')).toEqual({ ok: false, reason: 'aes' })
+    }
   })
 })
 
