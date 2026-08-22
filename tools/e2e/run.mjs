@@ -12,7 +12,7 @@
 import { _electron as electron } from 'playwright-core'
 import { spawn } from 'node:child_process'
 import electronPath from 'electron'
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -1651,6 +1651,57 @@ async function selectionScenario(fixtures) {
   }
 }
 
+async function dragScenario(fixtures) {
+  console.log('drag and drop')
+  // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
+  // onto a sidebar folder EXTRACTS there. Both assert on the real filesystem.
+  const box = join(fixtures, 'dragbox')
+  rmSync(join(box, 'into', 'movable.txt'), { force: true })
+  if (!existsSync(join(box, 'movable.txt'))) writeFileSync(join(box, 'movable.txt'), 'drag me')
+  {
+    const { app, win } = await launch(join(box, 'anchor.txt'))
+    try {
+      await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 10000 })
+      await sleep(500)
+      await win
+        .locator('[role="treeitem"]:has-text("movable.txt")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      await win.waitForFunction(
+        () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
+        null,
+        { timeout: 8000 }
+      )
+      ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
+      ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
+  // Out of the archive, onto a folder in the sidebar.
+  const out = join(fixtures, 'zips', 'out')
+  rmSync(join(out, 'carry.txt'), { force: true })
+  {
+    const { app, win } = await launch(join(fixtures, 'zips', 'dragzip.zip'))
+    try {
+      await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 10000 })
+      await sleep(600)
+      await win
+        .locator('[role="listbox"] [role="option"]', { hasText: 'carry.txt' })
+        .first()
+        .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
+      await sleep(1800)
+      ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
+    } finally {
+      await app.close()
+    }
+  }
+  // This scenario runs two apps back to back; give the single-instance lock
+  // the same breathing room the runner leaves between scenarios, or the next
+  // launch forwards its file to a window that is already going away.
+  await sleep(900)
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism a .7z whenever someone picks it out of "More apps",
@@ -1711,6 +1762,8 @@ try {
   await archiveScenario(fixtures)
   await sleep(900)
   await selectionScenario(fixtures)
+  await sleep(900)
+  await dragScenario(fixtures)
   await sleep(900)
   await unsupportedScenario(fixtures)
 } catch (e) {

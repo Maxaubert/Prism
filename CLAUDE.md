@@ -110,7 +110,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
-  natural next step. Multi-select WAS that fresh decision (2026-08-22): shift ranges,
+  natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
+  ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
+  taken names asking cancel / keep both / replace. The same drag crosses surfaces: sidebar
+  rows dropped INTO an open archive are added to the zip at that folder, archive members
+  dropped on a sidebar folder are extracted there (sharing the archive's remembered
+  password via `lib/archivePass`), members dropped on an archive folder move inside the
+  zip, and files dragged from EXPLORER onto the archive panel are added to it. Folders
+  travel whole on every route. Rebuilding a password-protected zip is refused rather than
+  risked (adm-zip would re-emit those entries wrongly), and dropping on the window at
+  large still just opens the file. Multi-select WAS that fresh decision too (2026-08-22): shift ranges,
   ctrl toggles, and dragging across rows sweeps a selection WITHOUT opening, in the tree
   and the archive alike; right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single

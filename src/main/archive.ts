@@ -1,8 +1,8 @@
 import AdmZip from 'adm-zip'
 import { execFileSync } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { basename, join } from 'path'
+import { basename, dirname, join } from 'path'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
 // Listing, viewing (extract one member to temp), renaming, deleting and
@@ -198,4 +198,167 @@ export function deleteMember(zipPath: string, entryPath: string): boolean {
 
 export function archiveTooLarge(sizeBytes: number): boolean {
   return sizeBytes > MAX_ARCHIVE_BYTES
+}
+
+/* ---------- drag and drop (#70): add, move within, extract out ---------- */
+
+/** True when any member is password protected. Rewriting such a container with
+ *  adm-zip would re-emit those entries wrongly, so the write verbs that rebuild
+ *  it (add, move) refuse rather than quietly corrupting the archive. */
+export function hasEncrypted(zipPath: string): boolean {
+  return new AdmZip(zipPath).getEntries().some((e) => (e.header.flags & 1) === 1)
+}
+
+const joinIn = (folder: string, name: string): string => (folder ? `${norm(folder)}/${name}` : name)
+
+export type AddResult = { added: number; clashes: string[]; failed: string[] } | 'encrypted' | 'failed'
+
+/**
+ * Put real files and folders INTO the zip, under `destFolder` ('' is the root).
+ * Folders go in whole. A taken name comes back as a clash and nothing is
+ * written, unless `keepBoth` renames the arrivals instead.
+ */
+export function addToArchive(
+  zipPath: string,
+  srcPaths: readonly string[],
+  destFolder: string,
+  keepBoth = false
+): AddResult {
+  try {
+    if (hasEncrypted(zipPath)) return 'encrypted'
+    const zip = new AdmZip(zipPath)
+    const taken = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
+    const clashes: string[] = []
+    const failed: string[] = []
+    const jobs: Array<{ src: string; name: string; dir: boolean }> = []
+    for (const src of srcPaths) {
+      if (!existsSync(src)) {
+        failed.push(src)
+        continue
+      }
+      const name = basename(src)
+      const dir = statSync(src).isDirectory()
+      if (taken.has(joinIn(destFolder, name).toLowerCase())) {
+        if (!keepBoth) {
+          clashes.push(name)
+          continue
+        }
+        // "name (2)" inside the zip, the way the folder verbs spell it.
+        const ext = dir ? '' : (/\.[^.]*$/.exec(name)?.[0] ?? '')
+        const stem = ext ? name.slice(0, -ext.length) : name
+        let n = 2
+        let candidate = `${stem} (${n})${ext}`
+        while (taken.has(joinIn(destFolder, candidate).toLowerCase()) && n < 1000) {
+          n += 1
+          candidate = `${stem} (${n})${ext}`
+        }
+        jobs.push({ src, name: candidate, dir })
+      } else jobs.push({ src, name, dir })
+      taken.add(joinIn(destFolder, name).toLowerCase())
+    }
+    if (clashes.length && !keepBoth) return { added: 0, clashes, failed }
+    for (const j of jobs) {
+      try {
+        if (j.dir) zip.addLocalFolder(j.src, joinIn(destFolder, j.name))
+        else zip.addLocalFile(j.src, norm(destFolder), j.name)
+      } catch {
+        failed.push(j.src)
+      }
+    }
+    if (jobs.length) zip.writeZip(zipPath)
+    return { added: jobs.length - failed.length, clashes, failed }
+  } catch {
+    return 'failed'
+  }
+}
+
+/** Move members to another folder INSIDE the same zip; folders move whole. */
+export function moveMembers(
+  zipPath: string,
+  entryPaths: readonly string[],
+  destFolder: string
+): 'ok' | 'encrypted' | 'failed' {
+  try {
+    if (hasEncrypted(zipPath)) return 'encrypted'
+    const zip = new AdmZip(zipPath)
+    const dest = norm(destFolder)
+    const wanted = entryPaths.map(norm)
+    const moves: Array<{ from: string; to: string; data: Buffer }> = []
+    for (const e of zip.getEntries()) {
+      if (e.isDirectory) continue
+      const p = norm(e.entryName)
+      for (const w of wanted) {
+        // The dragged member itself, or anything beneath a dragged folder.
+        const under = p === w || p.startsWith(w + '/')
+        if (!under) continue
+        const parent = w.includes('/') ? w.slice(0, w.lastIndexOf('/')) : ''
+        const rel = parent ? p.slice(parent.length + 1) : p
+        const to = dest ? `${dest}/${rel}` : rel
+        if (to !== p) moves.push({ from: p, to, data: e.getData() })
+        break
+      }
+    }
+    if (!moves.length) return 'ok'
+    // A move onto a taken name is refused whole: an archive is not the place to
+    // discover half a move happened.
+    const existing = new Set(zip.getEntries().map((e) => norm(e.entryName).toLowerCase()))
+    if (moves.some((m) => existing.has(m.to.toLowerCase()))) return 'failed'
+    for (const m of moves) {
+      zip.deleteFile(m.from)
+      zip.addFile(m.to, m.data)
+    }
+    zip.writeZip(zipPath)
+    return 'ok'
+  } catch {
+    return 'failed'
+  }
+}
+
+/**
+ * Extract members OUT to a real folder, keeping the shape below a dragged
+ * folder. Encrypted members need the password, exactly as viewing one does.
+ */
+export function extractTo(
+  zipPath: string,
+  entryPaths: readonly string[],
+  destDir: string,
+  password?: string
+): { ok: true; written: number } | { ok: false; reason: MemberFail } {
+  try {
+    if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+    const zip = new AdmZip(zipPath)
+    const wanted = entryPaths.map(norm)
+    let written = 0
+    for (const e of zip.getEntries()) {
+      if (e.isDirectory) continue
+      const p = norm(e.entryName)
+      if (p.includes('../')) continue
+      const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
+      if (hit === undefined) continue
+      const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
+      const rel = parent ? p.slice(parent.length + 1) : p
+      const target = join(destDir, ...rel.split('/'))
+      const like = e as unknown as ZipEntryLike
+      let data: Buffer
+      if (like.header.method === AES_METHOD) {
+        if (!password) return { ok: false, reason: 'password' }
+        const r = sevenExtract(zipPath, p, password)
+        if (!r.ok) return { ok: false, reason: r.reason }
+        data = readFileSync(r.path)
+      } else {
+        try {
+          data = like.getData(password)
+          if (!data?.length && e.header.size > 0) throw new Error('no data')
+        } catch {
+          return { ok: false, reason: failOf(like, !!password) }
+        }
+      }
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, data)
+      written += 1
+    }
+    return { ok: true, written }
+  } catch {
+    return { ok: false, reason: 'failed' }
+  }
 }

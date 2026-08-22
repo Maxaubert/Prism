@@ -37,6 +37,8 @@ import {
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
+import { archivePassword } from './lib/archivePass'
+import type { DragPayload } from './lib/dragDrop'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
 // they are React keys and the handle every tab action names, never anything
@@ -71,6 +73,7 @@ const SETUP_KEY = 'prism.onboarded'
 type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'delete-many'; paths: string[] }
+  | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'close-dirty' }
@@ -1412,6 +1415,58 @@ export default function App(): JSX.Element {
     [closeActiveTab, file, reopen, view]
   )
 
+  /** A drop landed on a folder (#70): files move in, archive members extract
+   *  there. Moving asks about taken names before it touches anything. */
+  const runMove = useCallback(
+    async (paths: string[], dest: string, mode: 'ask' | 'keep-both' | 'replace'): Promise<void> => {
+      const r = await window.prism.moveEntries(paths, dest, mode)
+      if (mode === 'ask' && r.clashes.length) {
+        setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
+        return
+      }
+      setAsk(null)
+      setRefreshKey((n) => n + 1)
+      if (r.failed.length)
+        setAsk({
+          kind: 'failed',
+          message:
+            r.moved.length || r.clashes.length
+              ? `${r.failed.length} of ${paths.length} could not be moved.`
+              : 'Those can only be moved inside the folder Prism opened.'
+        })
+      else if (file?.path && paths.some((p) => within(file.path, p))) {
+        // What we were looking at moved: follow it to its new home.
+        const landed = r.moved.find((m) => m.toLowerCase().endsWith(baseName(file.path).toLowerCase()))
+        if (landed) reopen(landed)
+      }
+    },
+    [file, reopen]
+  )
+  const onDropInto = useCallback(
+    (dest: string, payload: DragPayload): void => {
+      if (payload.kind === 'files') {
+        void runMove(payload.paths, dest, 'ask')
+        return
+      }
+      // Members out of an archive: extracted where they were dropped, with the
+      // password the archive view already asked for, if it needed one.
+      void window.prism
+        .archiveExtractTo(payload.archive, payload.entries, dest, archivePassword(payload.archive))
+        .then((r) => {
+          if (r.ok) setRefreshKey((n) => n + 1)
+          else
+            setAsk({
+              kind: 'failed',
+              message:
+                r.reason === 'password'
+                  ? 'That archive is password protected. Open one of its files first to unlock it, then drag again.'
+                  : "Those members couldn't be extracted here."
+            })
+        })
+    },
+    [runMove]
+  )
+
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
   // freshly opened audio/video owns them for seeking (the player handles them).
@@ -1677,6 +1732,7 @@ export default function App(): JSX.Element {
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
+            onDropInto={onDropInto}
             wash={washed}
           />
         )}
@@ -1852,6 +1908,19 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Delete', danger: true, primary: true, onPick: () => void runDeleteMany(ask.paths) }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'move-clash' && (
+        <Dialog
+          title={ask.names.length > 1 ? `${ask.names.length} names are already taken` : `"${ask.names[0]}" is already there`}
+          body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Keep both', primary: true, onPick: () => void runMove(ask.paths, ask.dest, 'keep-both') },
+            { label: 'Replace', danger: true, onPick: () => void runMove(ask.paths, ask.dest, 'replace') }
           ]}
         />
       )}

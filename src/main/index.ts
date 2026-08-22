@@ -23,7 +23,8 @@ import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
-import { archiveTooLarge, deleteMember, extractMember, listArchive, renameMember, type ArchiveEntry } from './archive'
+import { addToArchive, archiveTooLarge, deleteMember, extractMember, extractTo, listArchive, moveMembers, renameMember, type ArchiveEntry } from './archive'
+import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
@@ -890,6 +891,45 @@ if (!app.requestSingleInstanceLock()) {
         return null
       }
     })
+
+    /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
+
+    // Every path, source and destination alike, must sit inside an open root:
+    // dragging is not a way out of the wall. Extracted archive members are
+    // granted individually, so a member dragged to a folder can be written.
+    const movable = (p: unknown): p is string =>
+      typeof p === 'string' && (insideAnyRoot(p) || extractedPaths.has(p))
+    ipcMain.handle(
+      'file:move',
+      async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
+        if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
+          return { moved: [], clashes: [], failed: Array.isArray(paths) ? paths : [] }
+        return moveEntries(paths, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
+          shell.trashItem(t)
+        )
+      }
+    )
+    ipcMain.handle(
+      'archive:add',
+      (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
+        if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
+        if (archiveTooLarge(statSync(zip).size)) return 'failed'
+        return addToArchive(zip, srcPaths, typeof destFolder === 'string' ? destFolder : '', !!keepBoth)
+      }
+    )
+    ipcMain.handle('archive:move-members', (_e, zip: string, entries: string[], destFolder: string) => {
+      if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
+      if (archiveTooLarge(statSync(zip).size)) return 'failed'
+      return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
+    })
+    ipcMain.handle(
+      'archive:extract-to',
+      (_e, zip: string, entries: string[], destDir: string, password?: string) => {
+        if (!archiveOk(zip) || !Array.isArray(entries) || !insideAnyRoot(destDir))
+          return { ok: false, reason: 'failed' }
+        return extractTo(zip, entries, destDir, typeof password === 'string' ? password : undefined)
+      }
+    )
 
     /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
 

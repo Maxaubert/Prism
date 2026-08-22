@@ -1,9 +1,9 @@
 import AdmZip from 'adm-zip'
-import { mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { deleteMember, extractMember, listArchive, renameMember, sevenZipExe, validMemberName } from './archive'
+import { addToArchive, deleteMember, extractMember, extractTo, hasEncrypted, listArchive, moveMembers, renameMember, sevenZipExe, validMemberName } from './archive'
 
 let zipPath: string
 
@@ -122,3 +122,75 @@ describe('validMemberName', () => {
     }
   })
 })
+
+describe('drag and drop (#70)', () => {
+  it('adds real files and whole folders into the zip, under a folder', () => {
+    const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
+    writeFileSync(join(src, 'new.txt'), 'fresh')
+    const r = addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
+    expect(r).toMatchObject({ added: 1, clashes: [] })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('docs/new.txt')
+    const back = extractMember(zipPath, 'docs/new.txt')
+    if (!back.ok) throw new Error('expected ok')
+    expect(readFileSync(back.path, 'utf8')).toBe('fresh')
+  })
+
+  it('reports a taken name and writes nothing, unless told to keep both', () => {
+    const src = mkdtempSync(join(tmpdir(), 'prism-add2-'))
+    writeFileSync(join(src, 'readme.txt'), 'other')
+    expect(addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
+      added: 0,
+      clashes: ['readme.txt']
+    })
+    expect(extractMemberText(zipPath, 'readme.txt')).toBe('hello')
+    expect(addToArchive(zipPath, [join(src, 'readme.txt')], '', true)).toMatchObject({ added: 1 })
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('readme (2).txt')
+  })
+
+  it('moves a member into another folder inside the zip', () => {
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toBe('ok')
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('docs/readme.txt')
+    expect(paths).not.toContain('readme.txt')
+  })
+
+  it('moves a folder whole, keeping its shape', () => {
+    expect(moveMembers(zipPath, ['docs/img'], '')).toBe('ok')
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('img/logo.png')
+    expect(paths).not.toContain('docs/img/logo.png')
+  })
+
+  it('extracts members out to a real folder, keeping the shape under a folder', () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-out-'))
+    const r = extractTo(zipPath, ['docs'], out)
+    expect(r).toEqual({ ok: true, written: 2 })
+    expect(readFileSync(join(out, 'docs', 'guide.md'), 'utf8')).toBe('# guide')
+    expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
+  })
+
+  it('refuses to rebuild a password-protected archive', () => {
+    const crypto = join(__dirname, 'fixtures', 'crypto.zip')
+    const copy = join(mkdtempSync(join(tmpdir(), 'prism-enc-')), 'c.zip')
+    writeFileSync(copy, readFileSync(crypto))
+    const src = mkdtempSync(join(tmpdir(), 'prism-enc-src-'))
+    writeFileSync(join(src, 'x.txt'), 'x')
+    expect(hasEncrypted(copy)).toBe(true)
+    expect(addToArchive(copy, [join(src, 'x.txt')], '')).toBe('encrypted')
+    expect(moveMembers(copy, ['secret.txt'], 'sub')).toBe('encrypted')
+  })
+
+  it('needs the password to extract an encrypted member out', () => {
+    const crypto = join(__dirname, 'fixtures', 'crypto.zip')
+    const out = mkdtempSync(join(tmpdir(), 'prism-out2-'))
+    expect(extractTo(crypto, ['secret.txt'], out)).toEqual({ ok: false, reason: 'password' })
+    expect(extractTo(crypto, ['secret.txt'], out, 'letmein')).toEqual({ ok: true, written: 1 })
+    expect(readFileSync(join(out, 'secret.txt'), 'utf8')).toBe('top secret')
+  })
+})
+
+/** Small helper: a member's text, for the clash assertions above. */
+function extractMemberText(zip: string, entry: string): string {
+  const r = extractMember(zip, entry)
+  return r.ok ? readFileSync(r.path, 'utf8') : ''
+}

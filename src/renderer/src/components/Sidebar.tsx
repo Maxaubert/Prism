@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react'
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
@@ -14,6 +14,7 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { DRAG_MIME, droppedPaths, getDrag, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -101,6 +102,7 @@ export function Sidebar({
   onRename,
   onDelete,
   onDeleteMany,
+  onDropInto,
   onNav,
   wash,
   onOpenFolder,
@@ -129,6 +131,9 @@ export function Sidebar({
   onDelete: (path: string, name: string, isFolder: boolean) => void
   /** A multi-selection's delete: one question, then every path to the bin. */
   onDeleteMany: (paths: string[]) => void
+  /** Something was dropped on a folder row: files to move in, or archive
+   *  members to extract there. App owns the questions either can raise. */
+  onDropInto: (destDir: string, payload: DragPayload) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -425,6 +430,34 @@ export function Sidebar({
   const onSweepStart = useCallback((path: string): void => {
     sweep.current = { from: path, live: false, consumed: false, base: selRef.current.items }
   }, [])
+
+  /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const onRowDragStart = useCallback(
+    (e: DragEvent, path: string): void => {
+      // Dragging a row that is part of a multi-selection takes all of it.
+      const items = selRef.current.items
+      setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
+      e.dataTransfer.setData(DRAG_MIME, 'files')
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    []
+  )
+  const onDropOn = useCallback(
+    (e: DragEvent, folderPath: string): void => {
+      setDropTarget(null)
+      const payload = getDrag()
+      setDrag(null)
+      if (payload) onDropInto(folderPath, payload)
+      else {
+        // Nothing of ours: Explorer, then. Its files are outside the root, so
+        // main will refuse them - App says so rather than failing silently.
+        const outside = droppedPaths(e.dataTransfer)
+        if (outside.length) onDropInto(folderPath, { kind: 'files', paths: outside })
+      }
+    },
+    [onDropInto]
+  )
   const onSweepOver = useCallback(
     (path: string): void => {
       const s = sweep.current
@@ -597,6 +630,10 @@ export function Sidebar({
                 menuPath: menu?.path ?? null,
                 selected: sel.items,
                 selJoin,
+                onRowDragStart,
+                dropTarget,
+                onDropHover: setDropTarget,
+                onDropOn,
                 onRowClick,
                 onSweepStart,
                 onSweepOver,

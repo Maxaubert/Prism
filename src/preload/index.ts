@@ -86,6 +86,40 @@ const api = {
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
 
+  /* ----- drag and drop (#70) ----- */
+
+  /** Move files and folders into another folder. 'ask' reports clashes and
+   *  moves nothing, so the user answers before anything happens. */
+  moveEntries: (
+    paths: string[],
+    destDir: string,
+    onClash: 'ask' | 'keep-both' | 'replace'
+  ): Promise<{ moved: string[]; clashes: Array<{ path: string; name: string }>; failed: string[] }> =>
+    ipcRenderer.invoke('file:move', paths, destDir, onClash),
+  /** Put real files and folders INTO a zip, under a folder ('' is the root). */
+  archiveAdd: (
+    zip: string,
+    srcPaths: string[],
+    destFolder: string,
+    keepBoth?: boolean
+  ): Promise<{ added: number; clashes: string[]; failed: string[] } | 'encrypted' | 'failed'> =>
+    ipcRenderer.invoke('archive:add', zip, srcPaths, destFolder, keepBoth),
+  /** Move members to another folder inside the same zip. */
+  archiveMoveMembers: (
+    zip: string,
+    entries: string[],
+    destFolder: string
+  ): Promise<'ok' | 'encrypted' | 'failed'> =>
+    ipcRenderer.invoke('archive:move-members', zip, entries, destFolder),
+  /** Extract members OUT to a real folder, keeping the shape under a folder. */
+  archiveExtractTo: (
+    zip: string,
+    entries: string[],
+    destDir: string,
+    password?: string
+  ): Promise<{ ok: true; written: number } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
+    ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password),
+
   /** The system's own icon for this file's type (the user's association),
    *  as a data URL; null when Windows has none to give. */
   iconForExt: (path: string): Promise<string | null> => ipcRenderer.invoke('icon:for-ext', path),

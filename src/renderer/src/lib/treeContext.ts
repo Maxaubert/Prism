@@ -1,4 +1,4 @@
-import { createContext, useContext, type MouseEvent } from 'react'
+import { createContext, useContext, type DragEvent, type MouseEvent } from 'react'
 import type { DirListing } from '@shared/types'
 import type { TREE_SIZES } from './treePrefs'
 
@@ -36,6 +36,14 @@ export interface TreeApi {
   onSweepStart: (path: string) => void
   /** Pointer entered a row while held down: the sweep grows. */
   onSweepOver: (path: string) => void
+  /* Drag and drop (#70). Every row is draggable; FOLDER rows are also drop
+     targets, taking files moved from elsewhere in the tree and members
+     extracted out of an archive. */
+  onRowDragStart: (e: DragEvent, path: string) => void
+  /** The folder row a drag is hovering, so it can light up. */
+  dropTarget: string | null
+  onDropHover: (path: string | null) => void
+  onDropOn: (e: DragEvent, folderPath: string) => void
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void
   onStartRename: (path: string) => void
