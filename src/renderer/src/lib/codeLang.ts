@@ -54,7 +54,8 @@ const SQL = parsed('SQL', async () => (await import('@codemirror/lang-sql')).sql
 const YAML = parsed('YAML', async () => (await import('@codemirror/lang-yaml')).yaml())
 const GO = parsed('Go', async () => (await import('@codemirror/lang-go')).go())
 const VUE = parsed('Vue', async () => (await import('@codemirror/lang-vue')).vue())
-const SASS = parsed('Sass', async () => (await import('@codemirror/lang-sass')).sass())
+// indented: true is what makes this Sass; the option defaults to SCSS syntax.
+const SASS = parsed('Sass', async () => (await import('@codemirror/lang-sass')).sass({ indented: true }))
 const SCSS = parsed('SCSS', async () => (await import('@codemirror/lang-sass')).sass({ indented: false }))
 const LESS = parsed('Less', async () => (await import('@codemirror/lang-less')).less())
 
