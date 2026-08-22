@@ -245,18 +245,19 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
           <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
           <div className="mt-4 w-full max-w-[560px]">
-            {/* The crumb row keeps its height even at the root, where it is
-                empty: appearing and vanishing shoved the whole panel down a
-                line on every walk into a folder. */}
+            {/* The crumb row is always present, root included: the archive
+                itself is the first crumb wherever you stand, so the path
+                reads the same coming back as it did going in (and the panel
+                never jumps a line). */}
             <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+              <button
+                className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+                onClick={() => setCwd('')}
+              >
+                {file.name}
+              </button>
               {crumbs.length > 0 && (
                 <>
-                <button
-                  className="no-drag rounded px-1 py-0.5 text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-                  onClick={() => setCwd('')}
-                >
-                  {file.name}
-                </button>
                 {crumbs.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
                     <span className="text-[var(--p-dim2)]">/</span>
