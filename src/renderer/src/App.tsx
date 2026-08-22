@@ -1550,7 +1550,7 @@ export default function App(): JSX.Element {
           <div
             ref={fsVeilEl}
             aria-hidden
-            className="pointer-events-none absolute inset-0 z-30 bg-black opacity-0 will-change-[opacity]"
+            className="pointer-events-none absolute inset-0 z-[200] bg-black opacity-0 will-change-[opacity]"
           />
           {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
