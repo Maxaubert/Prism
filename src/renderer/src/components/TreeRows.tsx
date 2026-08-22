@@ -274,8 +274,6 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // A plain click still expands, quick-look style; shift and ctrl
           // build a selection without touching the chevron state.
           onClick={(e) => t.onRowClick(e, path, true)}
-          onPointerDown={(e) => e.button === 0 && t.onSweepStart(path)}
-          onPointerEnter={() => t.onSweepOver(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -411,11 +409,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               // A plain click still OPENS, quick-look style (only archives
-              // are double-click); shift ranges, ctrl toggles and dragging
-              // sweeps all select WITHOUT opening.
+              // are double-click); shift ranges and ctrl toggles select
+              // WITHOUT opening.
               onClick={(e) => t.onRowClick(e, f.path, false)}
-              onPointerDown={(e) => e.button === 0 && t.onSweepStart(f.path)}
-              onPointerEnter={() => t.onSweepOver(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

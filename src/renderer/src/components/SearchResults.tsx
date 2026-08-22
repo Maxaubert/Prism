@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react'
 import type { SearchHit } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { iconColour, KindIcon } from './TreeRows'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 
 // What the sidebar shows while its search box holds a query: a flat list of
 // every match under the session root, subfolders included - files the tree
@@ -49,54 +49,22 @@ export function SearchResults({
   }, [root, query, refreshKey])
 
   // Hits select exactly like tree rows (#70): click selects and opens, shift
-  // ranges, ctrl toggles, dragging sweeps.
+  // ranges, ctrl toggles.
   const [sel, setSel] = useState<Selection>(emptySelection)
   const [selFor, setSelFor] = useState(query)
   if (selFor !== query) {
     setSelFor(query)
     setSel(emptySelection)
   }
-  const sweep = useRef<{ from: string | null; live: boolean; consumed: boolean; base: ReadonlySet<string> }>({
-    from: null,
-    live: false,
-    consumed: false,
-    base: new Set()
-  })
-  const selRef = useRef(sel)
-  useEffect(() => {
-    selRef.current = sel
-  }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
 
   const ready = found?.q === query ? found : null
   const order = useMemo(() => (ready?.hits ?? []).map((h) => h.path), [ready])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string): void => {
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       if (!e.shiftKey && !e.ctrlKey) onOpen(path)
     },
     [order, onOpen]
-  )
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from || (!s.live && path === s.from)) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
-    },
-    [order]
   )
   /** Shared edges lose their rounding, so a run of hits reads as one block. */
   const join = (path: string): { top: boolean; bottom: boolean } => {
@@ -126,11 +94,6 @@ export function SearchResults({
               aria-selected={on}
               data-selected={picked || undefined}
               onClick={(e) => onRowClick(e, h.path)}
-              onPointerDown={(e) => {
-                if (e.button === 0)
-                  sweep.current = { from: h.path, live: false, consumed: false, base: selRef.current.items }
-              }}
-              onPointerEnter={() => onSweepOver(h.path)}
               onContextMenu={(e) => {
                 e.preventDefault()
                 if (sel.items.has(h.path) && sel.items.size > 1) onMultiMenu(e, [...sel.items])

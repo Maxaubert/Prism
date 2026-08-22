@@ -32,10 +32,6 @@ export interface TreeApi {
    *  single-click; only archives are double-click); shift ranges and ctrl
    *  toggles select WITHOUT opening. */
   onRowClick: (e: MouseEvent, path: string, isFolder: boolean) => void
-  /** Pointer pressed on a row: a sweep may start here. */
-  onSweepStart: (path: string) => void
-  /** Pointer entered a row while held down: the sweep grows. */
-  onSweepOver: (path: string) => void
   /* Drag and drop (#70). Every row is draggable; FOLDER rows are also drop
      targets, taking files moved from elsewhere in the tree and members
      extracted out of an archive. */

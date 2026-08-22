@@ -9,7 +9,8 @@ import { uniqueName } from './fileOps'
 
 export type MoveClash = { path: string; name: string }
 export type MoveResult = {
-  moved: string[]
+  /** Where each one came from and landed: undo needs both halves. */
+  moved: Array<{ from: string; to: string }>
   /** Names already taken at the destination; with onClash 'ask' nothing moved. */
   clashes: MoveClash[]
   /** Paths that could not be moved at all (gone, locked, into themselves). */
@@ -79,7 +80,7 @@ export async function moveEntries(
         else await trash(target)
       }
       moveOne(p, target)
-      out.moved.push(target)
+      out.moved.push({ from: p, to: target })
     } catch {
       out.failed.push(p)
     }

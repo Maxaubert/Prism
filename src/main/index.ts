@@ -892,6 +892,36 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
 
+    // Undo's half of a delete: ask the shell for the items back. MoveHere
+    // rather than InvokeVerb, because the Restore verb's NAME is localised
+    // and the namespace move is not. Best effort: an item the user has since
+    // emptied simply is not there any more.
+    ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideAnyRoot(p)))
+        return Promise.resolve(false)
+      const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
+      const script = [
+        '$ErrorActionPreference = "SilentlyContinue"',
+        '$sh = New-Object -ComObject Shell.Application',
+        '$bin = $sh.Namespace(0xA)',
+        `foreach ($p in @(${list})) {`,
+        '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
+        '  $item = @($bin.Items() | Where-Object {',
+        '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
+        '  })[-1]',
+        '  if ($item) { $sh.Namespace($dir).MoveHere($item) }',
+        '}'
+      ].join('; ')
+      return new Promise((done) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-Command', script],
+          { windowsHide: true, timeout: 20000 },
+          (err) => done(!err)
+        )
+      })
+    })
+
     /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
 
     // Every path, source and destination alike, must sit inside an open root:

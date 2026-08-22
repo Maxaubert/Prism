@@ -39,6 +39,7 @@ import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import type { DragPayload } from './lib/dragDrop'
+import { describe as describeUndo, emptyUndo, redone, remember, undone, type UndoEntry, type UndoState } from './lib/undo'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
 // they are React keys and the handle every tab action names, never anything
@@ -248,6 +249,9 @@ const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
 
 /** The last segment of a path, either separator. */
 const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
+
+/** The folder a path lives in. Undo puts things back where they came from. */
+const parentDir = (p: string): string => p.replace(/[\\/][^\\/]*$/, '') || p
 
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
@@ -1355,8 +1359,23 @@ export default function App(): JSX.Element {
     [active, open]
   )
 
+  /* Undo and redo (2026-08-22), for the things Prism WRITES: moving,
+     renaming, binning and duplicating. The text editor keeps its own Ctrl+Z
+     inside a focused document; this stack only sees the file operations. */
+  const [undoState, setUndoState] = useState<UndoState>(emptyUndo)
+  // Undo is otherwise invisible when the change is off screen, so it says what
+  // it did for a moment. Deliberately not a dialog: nothing to answer.
+  const [undoNote, setUndoNote] = useState<string | null>(null)
+  const noteTimer = useRef<number | null>(null)
+  const flashUndo = useCallback((text: string): void => {
+    setUndoNote(text)
+    if (noteTimer.current) window.clearTimeout(noteTimer.current)
+    noteTimer.current = window.setTimeout(() => setUndoNote(null), 2600)
+  }, [])
+  const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
+
   const runRename = useCallback(
-    async (path: string, name: string, onClash: OnClash): Promise<void> => {
+    async (path: string, name: string, onClash: OnClash, track = true): Promise<void> => {
       const r = await window.prism.renameFile(path, name, onClash)
       if (!r.ok) {
         if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
@@ -1365,6 +1384,7 @@ export default function App(): JSX.Element {
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
+      if (track !== false) noteUndo({ kind: 'rename', from: path, to: r.path })
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
       const cur = file?.path
@@ -1372,7 +1392,7 @@ export default function App(): JSX.Element {
       if (within(cur, path)) reopen(r.path + cur.slice(path.length))
       else reopen(cur)
     },
-    [file, reopen]
+    [file, noteUndo, reopen]
   )
 
   const runDelete = useCallback(
@@ -1384,6 +1404,7 @@ export default function App(): JSX.Element {
         return
       }
       setRefreshKey((n) => n + 1)
+      noteUndo({ kind: 'trash', paths: [path] })
       const cur = file?.path
       if (!cur || !within(cur, path)) {
         if (cur) reopen(cur)
@@ -1396,7 +1417,7 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else closeActiveTab()
     },
-    [closeActiveTab, file, reopen, view]
+    [closeActiveTab, file, noteUndo, reopen, view]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
@@ -1408,6 +1429,7 @@ export default function App(): JSX.Element {
         if (!(await window.prism.trashFile(p))) failed += 1
       }
       setRefreshKey((n) => n + 1)
+      if (failed < paths.length) noteUndo({ kind: 'trash', paths })
       const cur = file?.path
       if (cur && paths.some((p) => within(cur, p))) {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
@@ -1418,13 +1440,18 @@ export default function App(): JSX.Element {
       if (failed)
         setAsk({ kind: 'failed', message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.` })
     },
-    [closeActiveTab, file, reopen, view]
+    [closeActiveTab, file, noteUndo, reopen, view]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
    *  there. Moving asks about taken names before it touches anything. */
   const runMove = useCallback(
-    async (paths: string[], dest: string, mode: 'ask' | 'keep-both' | 'replace'): Promise<void> => {
+    async (
+      paths: string[],
+      dest: string,
+      mode: 'ask' | 'keep-both' | 'replace',
+      track = true
+    ): Promise<void> => {
       const r = await window.prism.moveEntries(paths, dest, mode)
       if (mode === 'ask' && r.clashes.length) {
         setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
@@ -1432,6 +1459,7 @@ export default function App(): JSX.Element {
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
+      if (track && r.moved.length) noteUndo({ kind: 'move', items: r.moved })
       if (r.failed.length)
         setAsk({
           kind: 'failed',
@@ -1442,12 +1470,84 @@ export default function App(): JSX.Element {
         })
       else if (file?.path && paths.some((p) => within(file.path, p))) {
         // What we were looking at moved: follow it to its new home.
-        const landed = r.moved.find((m) => m.toLowerCase().endsWith(baseName(file.path).toLowerCase()))
-        if (landed) reopen(landed)
+        const landed = r.moved.find((m) => m.from.toLowerCase() === file.path.toLowerCase())
+        if (landed) reopen(landed.to)
       }
     },
-    [file, reopen]
+    [file, noteUndo, reopen]
   )
+
+  /** Reverse one action. Undo never asks: it puts things back beside whatever
+   *  has appeared in the meantime rather than overwriting it. */
+  const applyUndo = useCallback(
+    async (entry: UndoEntry): Promise<void> => {
+      switch (entry.kind) {
+        case 'move':
+          for (const it of entry.items) await runMove([it.to], parentDir(it.from), 'keep-both', false)
+          break
+        case 'rename':
+          await runRename(entry.to, baseName(entry.from), 'keep-both', false)
+          break
+        case 'trash': {
+          const ok = await window.prism.restoreFromBin(entry.paths)
+          setRefreshKey((n) => n + 1)
+          if (!ok)
+            setAsk({
+              kind: 'failed',
+              message: 'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+            })
+          break
+        }
+        case 'duplicate':
+          await window.prism.trashFile(entry.path)
+          setRefreshKey((n) => n + 1)
+          break
+      }
+    },
+    [runMove, runRename]
+  )
+  /** Do one again, after it was undone. */
+  const applyRedo = useCallback(
+    async (entry: UndoEntry): Promise<void> => {
+      switch (entry.kind) {
+        case 'move':
+          for (const it of entry.items) await runMove([it.from], parentDir(it.to), 'keep-both', false)
+          break
+        case 'rename':
+          await runRename(entry.from, baseName(entry.to), 'keep-both', false)
+          break
+        case 'trash':
+          for (const p of entry.paths) await window.prism.trashFile(p)
+          setRefreshKey((n) => n + 1)
+          break
+        case 'duplicate':
+          await window.prism.duplicateFile(entry.path.replace(/ \(\d+\)(\.[^.]*)?$/, '$1'))
+          setRefreshKey((n) => n + 1)
+          break
+      }
+    },
+    [runMove, runRename]
+  )
+  const undo = useCallback((): void => {
+    const step = undone(undoState)
+    if (!step) {
+      flashUndo('Nothing to undo')
+      return
+    }
+    setUndoState(step.state)
+    flashUndo(`Undid ${describeUndo(step.entry)}`)
+    void applyUndo(step.entry)
+  }, [applyUndo, flashUndo, undoState])
+  const redo = useCallback((): void => {
+    const step = redone(undoState)
+    if (!step) {
+      flashUndo('Nothing to redo')
+      return
+    }
+    setUndoState(step.state)
+    flashUndo(`Redid ${describeUndo(step.entry)}`)
+    void applyRedo(step.entry)
+  }, [applyRedo, flashUndo, undoState])
   const onDropInto = useCallback(
     (dest: string, payload: DragPayload): void => {
       if (payload.kind === 'files') {
@@ -1499,6 +1599,12 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
+      } else if (e.ctrlKey && !typing && !inTerm && /^[zy]$/i.test(e.key)) {
+        // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) undo Prism's OWN writes. Behind
+        // the typing guard, so the text editor and the shell keep their own.
+        e.preventDefault()
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
+        else undo()
       } else if (e.key === '`' && e.ctrlKey) {
         // NOT behind the typing guard: one of the few keys Prism claims over
         // a focused terminal (F11 and Ctrl+Shift+T are the others).
@@ -1585,7 +1691,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, unpinSplitId])
+  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, redo, settingsOpen, setup, stepTab, togglePanel, toggleTerm, undo, unpinSplitId])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -1740,6 +1846,7 @@ export default function App(): JSX.Element {
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             onDropInto={onDropInto}
+            onDuplicated={(copy) => noteUndo({ kind: 'duplicate', path: copy })}
             wash={washed}
           />
         )}
@@ -1917,6 +2024,17 @@ export default function App(): JSX.Element {
             { label: 'Delete', danger: true, primary: true, onPick: () => void runDeleteMany(ask.paths) }
           ]}
         />
+      )}
+
+      {/* What undo just did, said quietly and briefly: the change is often
+          off screen, and a dialog would be asking a question nobody has. */}
+      {undoNote && (
+        <div
+          role="status"
+          className="pointer-events-none fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
+        >
+          {undoNote}
+        </div>
       )}
 
       {ask?.kind === 'move-clash' && (

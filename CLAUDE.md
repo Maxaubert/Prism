@@ -108,6 +108,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `win.on('close')` until the user answers **Cancel / Discard / Save all changes** (which
   covers Alt+F4 and the taskbar, not just the X). A failed write cancels the close and names
   the file rather than closing over the top of it.
+  **Undo and redo** (2026-08-22, `lib/undo.ts`, pure and tested): Ctrl+Z / Ctrl+Y (and
+  Ctrl+Shift+Z) reverse Prism's own file writes - move, rename, bin, duplicate - and a
+  quiet pill says what went back. Undo NEVER asks and never overwrites: it puts things
+  beside whatever appeared meanwhile ('keep-both'), and a binned file comes back through
+  the shell's Recycle Bin namespace (MoveHere, not the localised Restore verb). Behind the
+  typing guard, so a focused editor and the terminal keep their own Ctrl+Z. Archive-internal
+  writes are deliberately NOT on the stack (a member delete is permanent anyway).
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
@@ -120,9 +127,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zip, and files dragged from EXPLORER onto the archive panel are added to it. Folders
   travel whole on every route. Rebuilding a password-protected zip is refused rather than
   risked (adm-zip would re-emit those entries wrongly), and dropping on the window at
-  large still just opens the file. Multi-select WAS that fresh decision too (2026-08-22): shift ranges,
-  ctrl toggles, and dragging across rows sweeps a selection WITHOUT opening, in the tree
-  and the archive alike; right-click inside a multi-selection acts on all of it (copy
+  large still just opens the file. Multi-select WAS that fresh decision too (2026-08-22): shift ranges and
+  ctrl toggles select WITHOUT opening, in the tree and the archive alike (drag-to-select
+  was tried and REMOVED the same day: dragging is for moving, and the sweep's pointer
+  state outlived real drags); right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single
   click - a plain click still opens a file or expands a folder (double-click-to-open was
   tried and rolled back the same day; only the ARCHIVE is double-click, where single

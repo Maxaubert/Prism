@@ -29,7 +29,7 @@ describe('insideSelf', () => {
 describe('moveEntries', () => {
   it('moves files and reports where they landed', async () => {
     const r = await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'ask', trash)
-    expect(r.moved).toEqual([join(root, 'dest', 'a.txt')])
+    expect(r.moved).toEqual([{ from: join(root, 'a.txt'), to: join(root, 'dest', 'a.txt') }])
     expect(existsSync(join(root, 'a.txt'))).toBe(false)
     expect(readFileSync(join(root, 'dest', 'a.txt'), 'utf8')).toBe('A')
   })
@@ -56,7 +56,7 @@ describe('moveEntries', () => {
   it("'keep-both' lands the arrival beside what was there", async () => {
     writeFileSync(join(root, 'dest', 'a.txt'), 'old')
     const r = await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'keep-both', trash)
-    expect(r.moved).toEqual([join(root, 'dest', 'a (2).txt')])
+    expect(r.moved).toEqual([{ from: join(root, 'a.txt'), to: join(root, 'dest', 'a (2).txt') }])
     expect(readFileSync(join(root, 'dest', 'a.txt'), 'utf8')).toBe('old')
   })
 

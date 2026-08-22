@@ -12,7 +12,7 @@ import { PdfView } from './pdf/PdfView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, droppedPaths, getDrag, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 
@@ -89,29 +89,15 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   // itself (meaning "this folder you are looking at").
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [addClash, setAddClash] = useState<{ paths: string[]; dest: string; names: string[] } | null>(null)
-  // Explorer selection (2026-08-22), same grammar as the sidebar: click
-  // selects, shift ranges, ctrl toggles, dragging sweeps, double click opens.
+  // The selection (2026-08-22): click selects, shift ranges, ctrl toggles,
+  // double click opens. No drag-to-select; dragging a row moves it.
   const [sel, setSel] = useState<Selection>(emptySelection)
-  const sweep = useRef<{
-    from: string | null
-    live: boolean
-    consumed: boolean
-    base: ReadonlySet<string>
-  }>({ from: null, live: false, consumed: false, base: new Set() })
-  // Mirrored via effect (refs must not be written during render): the sweep
-  // reads it at pointer-down as the base it merges into.
+  // Mirrored via effect (refs must not be written during render): a drag
+  // starting on a selected row carries the whole selection.
   const selRef = useRef(sel)
   useEffect(() => {
     selRef.current = sel
   }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
   /** Walking anywhere drops the selection: a new folder is a new slate. */
   const setCwd = useCallback((p: string): void => {
     setCwdRaw(p)
@@ -251,22 +237,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
     (e: { shiftKey: boolean; ctrlKey: boolean }, path: string): void => {
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
-    },
-    [order]
-  )
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from) return
-      if (!s.live && path === s.from) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
     },
     [order]
   )
@@ -465,8 +436,8 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                   <li key={r.path}>
                     {/* A div, not a button, so dialogs and menus can hold
                         buttons of their own; Enter activates by hand. Click
-                        SELECTS (shift ranges, ctrl toggles, dragging sweeps);
-                        double click is what opens or enters. */}
+                        SELECTS (shift ranges, ctrl toggles); double click is
+                        what opens or enters. */}
                     <div
                       role="option"
                       tabIndex={0}
@@ -501,11 +472,6 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                       {...(r.dir ? dropProps(r.path) : {})}
                       onClick={(e) => onRowClick(e, r.path)}
                       onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
-                      onPointerDown={(e) => {
-                        if (e.button === 0)
-                          sweep.current = { from: r.path, live: false, consumed: false, base: selRef.current.items }
-                      }}
-                      onPointerEnter={() => onSweepOver(r.path)}
                       onContextMenu={(e) => {
                         e.preventDefault()
                         const multi =

@@ -13,7 +13,7 @@ import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, droppedPaths, getDrag, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
@@ -103,6 +103,7 @@ export function Sidebar({
   onDelete,
   onDeleteMany,
   onDropInto,
+  onDuplicated,
   onNav,
   wash,
   onOpenFolder,
@@ -134,6 +135,8 @@ export function Sidebar({
   /** Something was dropped on a folder row: files to move in, or archive
    *  members to extract there. App owns the questions either can raise. */
   onDropInto: (destDir: string, payload: DragPayload) => void
+  /** A copy was just made: App remembers it, so Ctrl+Z can take it away. */
+  onDuplicated: (copyPath: string) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -309,8 +312,8 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  /* Explorer selection (2026-08-22): a click selects, shift ranges, ctrl
-     toggles, dragging sweeps. Opening is the double click's job. */
+  /* The selection (2026-08-22): a click opens as it always did; shift ranges
+     and ctrl toggles build a selection without opening. */
   const [sel, setSel] = useState<Selection>(emptySelection)
   // A new place starts clean (render-time reset, the cursorFor pattern).
   const [selFor, setSelFor] = useState(root)
@@ -318,26 +321,12 @@ export function Sidebar({
     setSelFor(root)
     setSel(emptySelection)
   }
-  const sweep = useRef<{
-    from: string | null
-    live: boolean
-    consumed: boolean
-    base: ReadonlySet<string>
-  }>({ from: null, live: false, consumed: false, base: new Set() })
-  // What the sweep merges into: the selection as it stood at pointer-down.
+  // What a drag carries when the dragged row is part of a selection.
   // Mirrored via effect (refs must not be written during render).
   const selRef = useRef(sel)
   useEffect(() => {
     selRef.current = sel
   }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
 
   const onMenu = useCallback(
     (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
@@ -395,15 +384,10 @@ export function Sidebar({
   )
 
   /** The flattened visible rows, top to bottom: the order shift-ranges and
-   *  sweeps count through. */
+   *  shift-ranges count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
-      // The click that ENDS a sweep must not collapse what the sweep built.
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
       // A plain click keeps the tree's quick-look reflex: it opens (or
@@ -427,9 +411,6 @@ export function Sidebar({
     },
     [order, sel]
   )
-  const onSweepStart = useCallback((path: string): void => {
-    sweep.current = { from: path, live: false, consumed: false, base: selRef.current.items }
-  }, [])
 
   /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -457,17 +438,6 @@ export function Sidebar({
       }
     },
     [onDropInto]
-  )
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from) return
-      if (!s.live && path === s.from) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
-    },
-    [order]
   )
 
   /** Put the cursor on a row: folders only highlight, files open. */
@@ -639,8 +609,6 @@ export function Sidebar({
                 onDropHover: setDropTarget,
                 onDropOn,
                 onRowClick,
-                onSweepStart,
-                onSweepOver,
                 onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
@@ -861,7 +829,10 @@ export function Sidebar({
                     icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
                     onPick: () =>
                       void window.prism.duplicateFile(menu.path).then((copy) => {
-                        if (copy) void load(parentDir(menu.path), true)
+                        if (copy) {
+                          onDuplicated(copy)
+                          void load(parentDir(menu.path), true)
+                        }
                       })
                   }
                 ]

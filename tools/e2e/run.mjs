@@ -1673,6 +1673,17 @@ async function dragScenario(fixtures) {
       )
       ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
+
+      // Undo (2026-08-22) puts it back, and redo sends it again.
+      await win.locator('aside').click({ position: { x: 20, y: 8 } })
+      await win.keyboard.press('Control+z')
+      await win.waitForFunction(() => /Undid/.test(document.body.textContent ?? ''), null, { timeout: 6000 })
+      await sleep(900)
+      ok(existsSync(join(box, 'movable.txt')), 'Ctrl+Z moved it back')
+      ok(!existsSync(join(box, 'into', 'movable.txt')), 'and it left the folder again')
+      await win.keyboard.press('Control+y')
+      await sleep(1200)
+      ok(existsSync(join(box, 'into', 'movable.txt')), 'Ctrl+Y sent it back in')
     } finally {
       await app.close()
     }

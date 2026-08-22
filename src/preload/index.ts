@@ -88,13 +88,19 @@ const api = {
 
   /* ----- drag and drop (#70) ----- */
 
+  /** Undo a delete: ask Windows for these paths back out of the Recycle Bin. */
+  restoreFromBin: (paths: string[]): Promise<boolean> => ipcRenderer.invoke('file:restore', paths),
   /** Move files and folders into another folder. 'ask' reports clashes and
    *  moves nothing, so the user answers before anything happens. */
   moveEntries: (
     paths: string[],
     destDir: string,
     onClash: 'ask' | 'keep-both' | 'replace'
-  ): Promise<{ moved: string[]; clashes: Array<{ path: string; name: string }>; failed: string[] }> =>
+  ): Promise<{
+    moved: Array<{ from: string; to: string }>
+    clashes: Array<{ path: string; name: string }>
+    failed: string[]
+  }> =>
     ipcRenderer.invoke('file:move', paths, destDir, onClash),
   /** Put real files and folders INTO a zip, under a folder ('' is the root). */
   archiveAdd: (
