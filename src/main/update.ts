@@ -51,9 +51,25 @@ export async function latestUpdate(): Promise<UpdateInfo | null> {
     : null
 }
 
-/** Only installers this repo's releases actually serve. */
+/** Only installers this repo's releases actually serve: parsed, not pattern
+ *  matched, so the checked fields are exactly what fetch will use. */
 export function isReleaseAssetUrl(url: string): boolean {
-  return new RegExp(`^https://github\\.com/${REPO}/releases/download/[^?#]+\\.exe$`, 'i').test(url)
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  return (
+    u.protocol === 'https:' &&
+    u.hostname === 'github.com' &&
+    u.pathname.startsWith(`/${REPO}/releases/download/`) &&
+    u.pathname.toLowerCase().endsWith('.exe') &&
+    !u.username &&
+    !u.password &&
+    !u.search &&
+    !u.hash
+  )
 }
 
 /**
@@ -95,6 +111,9 @@ export async function installUpdate(url: string, onPct: (pct: number) => void): 
     })
     await pipeline(body, createWriteStream(file))
     onPct(100)
+    // Single-quoted with quotes doubled, PowerShell's own escaping; both
+    // paths are ours (temp dir, execPath) but interpolation stays safe anyway.
+    const q = (s: string): string => `'${s.replace(/'/g, "''")}'`
     spawn(
       'powershell',
       [
@@ -102,7 +121,7 @@ export async function installUpdate(url: string, onPct: (pct: number) => void): 
         '-WindowStyle',
         'Hidden',
         '-Command',
-        `Start-Process -Wait -FilePath '${file}' -ArgumentList '/S'; Start-Process -FilePath '${process.execPath}'`
+        `Start-Process -Wait -FilePath ${q(file)} -ArgumentList '/S'; Start-Process -FilePath ${q(process.execPath)}`
       ],
       { detached: true, stdio: 'ignore' }
     ).unref()

@@ -33,4 +33,16 @@ describe('isReleaseAssetUrl', () => {
       isReleaseAssetUrl('http://github.com/Maxaubert/Prism/releases/download/v0.7.1/a.exe')
     ).toBe(false)
   })
+  it('rejects lookalikes: userinfo tricks, query strings, non-exe payloads', () => {
+    expect(
+      isReleaseAssetUrl('https://github.com@evil.com/Maxaubert/Prism/releases/download/v1/a.exe')
+    ).toBe(false)
+    expect(
+      isReleaseAssetUrl('https://github.com/Maxaubert/Prism/releases/download/v1/a.exe?x=1')
+    ).toBe(false)
+    expect(
+      isReleaseAssetUrl('https://github.com/Maxaubert/Prism/releases/download/v1/a.msi')
+    ).toBe(false)
+    expect(isReleaseAssetUrl('not a url')).toBe(false)
+  })
 })
