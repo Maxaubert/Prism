@@ -1381,22 +1381,23 @@ export default function App(): JSX.Element {
   const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
 
   const runRename = useCallback(
-    async (path: string, name: string, onClash: OnClash, track = true): Promise<void> => {
+    async (path: string, name: string, onClash: OnClash, track = true): Promise<string | null> => {
       const r = await window.prism.renameFile(path, name, onClash)
       if (!r.ok) {
         if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
         else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
-        return
+        return null
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
-      if (track !== false) noteUndo({ kind: 'rename', from: path, to: r.path })
+      if (track !== false) noteUndo({ kind: 'rename', from: path, to: r.path, replaced: r.replaced })
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
       const cur = file?.path
-      if (!cur) return
+      if (!cur) return r.path
       if (within(cur, path)) reopen(r.path + cur.slice(path.length))
       else reopen(cur)
+      return r.path
     },
     [file, noteUndo, reopen]
   )
@@ -1460,11 +1461,11 @@ export default function App(): JSX.Element {
       dest: string,
       mode: 'ask' | 'keep-both' | 'replace',
       track = true
-    ): Promise<void> => {
+    ): Promise<Array<{ from: string; to: string }>> => {
       const r = await window.prism.moveEntries(paths, dest, mode)
       if (mode === 'ask' && r.clashes.length) {
         setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
-        return
+        return []
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
@@ -1484,6 +1485,7 @@ export default function App(): JSX.Element {
             ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
             : `${r.failed.length} of ${paths.length} could not be moved.`
         })
+      return r.moved
     },
     [file, noteUndo, reopen]
   )
@@ -1491,18 +1493,29 @@ export default function App(): JSX.Element {
   /** Reverse one action. Undo never asks: it puts things back beside whatever
    *  has appeared in the meantime rather than overwriting it. */
   const applyUndo = useCallback(
-    async (entry: UndoEntry): Promise<void> => {
+    async (entry: UndoEntry): Promise<UndoEntry | void> => {
       switch (entry.kind) {
-        case 'move':
-          for (const it of entry.items) await runMove([it.to], parentDir(it.from), 'keep-both', false)
+        case 'move': {
+          // Undo lands beside whatever appeared meanwhile, so the file may now
+          // sit under a "(2)" name. The entry is corrected to where it REALLY
+          // is, or a redo would move a stranger.
+          const items: Array<{ from: string; to: string }> = []
+          for (const it of entry.items) {
+            const [back] = await runMove([it.to], parentDir(it.from), 'keep-both', false)
+            items.push(back ? { from: back.to, to: it.to } : it)
+          }
           // The name is free again only now, so the replaced file comes back
           // after the mover has left, not before.
           if (entry.replaced?.length) await window.prism.restoreFromBin(entry.replaced)
           setRefreshKey((n) => n + 1)
-          break
-        case 'rename':
-          await runRename(entry.to, baseName(entry.from), 'keep-both', false)
-          break
+          return { ...entry, items, replaced: undefined }
+        }
+        case 'rename': {
+          const back = await runRename(entry.to, baseName(entry.from), 'keep-both', false)
+          if (entry.replaced) await window.prism.restoreFromBin([entry.replaced])
+          setRefreshKey((n) => n + 1)
+          return back ? { ...entry, from: back, replaced: undefined } : entry
+        }
         case 'trash': {
           const ok = await window.prism.restoreFromBin(entry.paths)
           setRefreshKey((n) => n + 1)
@@ -1514,7 +1527,8 @@ export default function App(): JSX.Element {
           break
         }
         case 'duplicate':
-          await window.prism.trashFile(entry.path)
+          if (!(await window.prism.trashFile(entry.path)))
+            setAsk({ kind: 'failed', message: 'That copy could not be moved to the Recycle Bin.' })
           setRefreshKey((n) => n + 1)
           break
         case 'archive-in': {
@@ -1541,35 +1555,49 @@ export default function App(): JSX.Element {
   )
   /** Do one again, after it was undone. */
   const applyRedo = useCallback(
-    async (entry: UndoEntry): Promise<void> => {
+    async (entry: UndoEntry): Promise<UndoEntry | void> => {
       switch (entry.kind) {
-        case 'move':
-          for (const it of entry.items) await runMove([it.from], parentDir(it.to), 'keep-both', false)
-          break
-        case 'rename':
-          await runRename(entry.from, baseName(entry.to), 'keep-both', false)
-          break
+        case 'move': {
+          const items: Array<{ from: string; to: string }> = []
+          for (const it of entry.items) {
+            const [again] = await runMove([it.from], parentDir(it.to), 'keep-both', false)
+            items.push(again ? { from: it.from, to: again.to } : it)
+          }
+          return { ...entry, items }
+        }
+        case 'rename': {
+          const again = await runRename(entry.from, baseName(entry.to), 'keep-both', false)
+          return again ? { ...entry, to: again } : entry
+        }
         case 'trash':
           for (const p of entry.paths) await window.prism.trashFile(p)
           setRefreshKey((n) => n + 1)
           break
-        case 'duplicate':
-          await window.prism.duplicateFile(entry.path.replace(/ \(\d+\)(\.[^.]*)?$/, '$1'))
+        case 'duplicate': {
+          // Ask the SOURCE for another copy and remember the one it made: the
+          // name is chosen by the folder, not by us.
+          const copy = await window.prism.duplicateFile(entry.source)
           setRefreshKey((n) => n + 1)
-          break
+          if (!copy) {
+            setAsk({ kind: 'failed', message: 'That could not be duplicated again.' })
+            break
+          }
+          return { ...entry, path: copy }
+        }
         case 'archive-in': {
           const r = await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
           if (r === 'encrypted' || r === 'failed') {
             setAsk({
               kind: 'failed',
-              message: "That archive could not be written, so nothing was moved into it."
+              message: 'That archive could not be written, so nothing was moved into it.'
             })
             break
           }
-          // Bin only what actually landed - never the whole wish list.
+          // Bin only what actually landed - never the whole wish list - and
+          // remember the member names keep-both actually used.
           for (const a of r.added) await window.prism.trashFile(a.src)
           setRefreshKey((n) => n + 1)
-          break
+          return { ...entry, entries: r.added.map((a) => a.entry), originals: r.added.map((a) => a.src) }
         }
       }
     },
@@ -1579,9 +1607,25 @@ export default function App(): JSX.Element {
   // half a second; a held Ctrl+Z would otherwise run the next inverse against
   // a file the previous one has not put back yet.
   const undoChain = useRef<Promise<void>>(Promise.resolve())
-  const queueUndo = useCallback((run: () => Promise<void>): void => {
-    undoChain.current = undoChain.current.then(run).catch(() => {})
+  /** An inverse can land somewhere else than it left (a taken name). Patching
+   *  the entry by identity keeps the OTHER direction honest. */
+  const patchEntry = useCallback((was: UndoEntry, now: UndoEntry): void => {
+    setUndoState((u) => ({
+      past: u.past.map((e) => (e === was ? now : e)),
+      future: u.future.map((e) => (e === was ? now : e))
+    }))
   }, [])
+  const queueUndo = useCallback(
+    (entry: UndoEntry, run: () => Promise<UndoEntry | void>): void => {
+      undoChain.current = undoChain.current
+        .then(async () => {
+          const corrected = await run()
+          if (corrected) patchEntry(entry, corrected)
+        })
+        .catch(() => {})
+    },
+    [patchEntry]
+  )
   const undo = useCallback((): void => {
     const step = undone(undoState)
     if (!step) {
@@ -1590,7 +1634,7 @@ export default function App(): JSX.Element {
     }
     setUndoState(step.state)
     flashUndo(`Undid ${describeUndo(step.entry)}`)
-    queueUndo(() => applyUndo(step.entry))
+    queueUndo(step.entry, () => applyUndo(step.entry))
   }, [applyUndo, flashUndo, queueUndo, undoState])
   const redo = useCallback((): void => {
     const step = redone(undoState)
@@ -1600,7 +1644,7 @@ export default function App(): JSX.Element {
     }
     setUndoState(step.state)
     flashUndo(`Redid ${describeUndo(step.entry)}`)
-    queueUndo(() => applyRedo(step.entry))
+    queueUndo(step.entry, () => applyRedo(step.entry))
   }, [applyRedo, flashUndo, queueUndo, undoState])
   const onDropInto = useCallback(
     (dest: string, payload: DragPayload): void => {
@@ -1900,7 +1944,7 @@ export default function App(): JSX.Element {
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             onDropInto={onDropInto}
-            onDuplicated={(copy) => noteUndo({ kind: 'duplicate', path: copy })}
+            onDuplicated={(source, copy) => noteUndo({ kind: 'duplicate', source, path: copy })}
             wash={washed}
           />
         )}

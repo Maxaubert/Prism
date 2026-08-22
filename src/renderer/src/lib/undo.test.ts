@@ -43,9 +43,10 @@ describe('the undo stack', () => {
 
   it('keeps the history shallow', () => {
     let s = emptyUndo
-    for (let i = 0; i < 60; i += 1) s = remember(s, { kind: 'duplicate', path: `C:\\a\\${i}.txt` })
+    for (let i = 0; i < 60; i += 1)
+      s = remember(s, { kind: 'duplicate', source: 'C:\\a\\src.txt', path: `C:\\a\\${i}.txt` })
     expect(s.past.length).toBe(40)
-    expect(undone(s)!.entry).toEqual({ kind: 'duplicate', path: 'C:\\a\\59.txt' })
+    expect(undone(s)!.entry).toEqual({ kind: 'duplicate', source: 'C:\\a\\src.txt', path: 'C:\\a\\59.txt' })
   })
 
   it('names an archive move for the message too', () => {
@@ -58,6 +59,6 @@ describe('the undo stack', () => {
     expect(label(ren)).toBe('renaming old.txt')
     expect(label(bin)).toBe('deleting 2 items')
     expect(label(move)).toBe('moving f.txt')
-    expect(label({ kind: 'duplicate', path: 'C:\\a\\p.png' })).toBe('duplicating p.png')
+    expect(label({ kind: 'duplicate', source: 'C:\\a\\p.png', path: 'C:\\a\\p (2).png' })).toBe('duplicating p (2).png')
   })
 })

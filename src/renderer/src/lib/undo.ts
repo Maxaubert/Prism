@@ -9,11 +9,13 @@
 export type UndoEntry =
   /** Files and folders that landed somewhere new: undo moves each back. */
   | { kind: 'move'; items: Array<{ from: string; to: string }>; replaced?: string[] }
-  | { kind: 'rename'; from: string; to: string }
+  | { kind: 'rename'; from: string; to: string; replaced?: string }
   /** Sent to the Recycle Bin: undo asks Windows for them back. */
   | { kind: 'trash'; paths: string[] }
-  /** A copy made beside the original: undo bins the copy. */
-  | { kind: 'duplicate'; path: string }
+  /** A copy made beside the original: undo bins the copy, redo asks the
+   *  SOURCE for another one (reconstructing it from the copy's name guessed
+   *  wrong the moment a name was taken). */
+  | { kind: 'duplicate'; source: string; path: string }
   /** Files MOVED into an archive: the members went in and the originals went
    *  to the bin, so undo takes both halves back. */
   | { kind: 'archive-in'; zip: string; dest: string; entries: string[]; originals: string[] }

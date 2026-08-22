@@ -65,15 +65,19 @@ export async function renameFile(
   if (dirname(target) !== dir) return { ok: false, reason: 'invalid', message: 'A name cannot contain a folder path.' }
 
   // Changing only the capitalisation of the same file isn't a clash.
+  let replaced: string | undefined
   if (existsSync(target) && !sameFile(target, path)) {
     if (onClash === 'ask') return { ok: false, reason: 'clash', suggestion: uniqueName(dir, wanted) }
     if (onClash === 'keep-both') target = join(dir, uniqueName(dir, wanted))
-    else await trash(target)
+    else {
+      replaced = target
+      await trash(target)
+    }
   }
 
   try {
     renameSync(path, target)
-    return { ok: true, path: target }
+    return { ok: true, path: target, replaced }
   } catch (e) {
     return { ok: false, reason: 'failed', message: e instanceof Error ? e.message : String(e) }
   }

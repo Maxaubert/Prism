@@ -57,7 +57,9 @@ export interface OpenWithApp {
 export type OnClash = 'ask' | 'overwrite' | 'keep-both'
 
 export type RenameResult =
-  | { ok: true; path: string }
+  /** `replaced` names what an overwrite sent to the bin, so undo can
+   *  bring it back after the rename has been reversed. */
+  | { ok: true; path: string; replaced?: string }
   | {
       ok: false
       reason: 'invalid' | 'clash' | 'missing' | 'failed'

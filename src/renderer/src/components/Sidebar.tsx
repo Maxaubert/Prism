@@ -135,8 +135,9 @@ export function Sidebar({
   /** Something was dropped on a folder row: files to move in, or archive
    *  members to extract there. App owns the questions either can raise. */
   onDropInto: (destDir: string, payload: DragPayload) => void
-  /** A copy was just made: App remembers it, so Ctrl+Z can take it away. */
-  onDuplicated: (copyPath: string) => void
+  /** A copy was just made: App remembers the source AND the copy, so Ctrl+Z
+   *  can take it away and Ctrl+Y can ask for another one. */
+  onDuplicated: (source: string, copyPath: string) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -856,7 +857,7 @@ export function Sidebar({
                     onPick: () =>
                       void window.prism.duplicateFile(menu.path).then((copy) => {
                         if (copy) {
-                          onDuplicated(copy)
+                          onDuplicated(menu.path, copy)
                           void load(parentDir(menu.path), true)
                         }
                       })
