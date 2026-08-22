@@ -32,7 +32,9 @@ export function clickSelect(
     // The range MERGES with what is already marked (owner call 2026-08-22,
     // deliberately not Explorer's replace): file 1 marked, then a shifted
     // 4-to-2 keeps 1. A plain click is the way back to one.
-    const anchor = sel.anchor ?? path
+    // An anchor that has left the visible rows (its folder collapsed, the file
+    // was deleted) would range from nowhere, so the click re-anchors instead.
+    const anchor = sel.anchor && order.includes(sel.anchor) ? sel.anchor : path
     return { anchor, items: new Set([...sel.items, ...rangeOf(order, anchor, path)]) }
   }
   if (mods.ctrl) {

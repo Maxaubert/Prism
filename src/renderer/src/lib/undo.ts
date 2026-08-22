@@ -8,7 +8,7 @@
 
 export type UndoEntry =
   /** Files and folders that landed somewhere new: undo moves each back. */
-  | { kind: 'move'; items: Array<{ from: string; to: string }> }
+  | { kind: 'move'; items: Array<{ from: string; to: string }>; replaced?: string[] }
   | { kind: 'rename'; from: string; to: string }
   /** Sent to the Recycle Bin: undo asks Windows for them back. */
   | { kind: 'trash'; paths: string[] }

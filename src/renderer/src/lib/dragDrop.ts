@@ -30,8 +30,15 @@ export function droppedPaths(dt: DataTransfer | null): string[] {
   return [...dt.files].map((f) => window.prism.getDroppedPath(f)).filter(Boolean)
 }
 
-/** Every drop this app understands sets one of these; a drag carrying neither
- *  (a text selection, a link) must be left alone. */
-export function isPrismDrag(dt: DataTransfer | null): boolean {
-  return !!getDrag() || (dt?.types?.includes?.(DRAG_MIME) ?? false)
+/**
+ * The payload for THIS drop, or null when the drag did not come from Prism.
+ *
+ * The MIME type is the authority, not the module state: a drag that ended
+ * without a drop (Escape, released over the viewer) leaves `current` set, and
+ * trusting it made the NEXT drop - an Explorer file, a tab - move whatever was
+ * dragged before. The event carries its own truth; this only looks the
+ * payload up.
+ */
+export function dragPayload(dt: DataTransfer | null): DragPayload | null {
+  return dt?.types?.includes?.(DRAG_MIME) ? getDrag() : null
 }

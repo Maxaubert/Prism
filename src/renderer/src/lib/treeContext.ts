@@ -39,6 +39,8 @@ export interface TreeApi {
   /** The folder row a drag is hovering, so it can light up. */
   dropTarget: string | null
   onDropHover: (path: string | null) => void
+  /** The drag is over, dropped or not: forget what it carried. */
+  onDragDone: () => void
   onDropOn: (e: DragEvent, folderPath: string) => void
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void

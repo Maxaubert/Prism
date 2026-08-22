@@ -100,6 +100,10 @@ const api = {
     moved: Array<{ from: string; to: string }>
     clashes: Array<{ path: string; name: string }>
     failed: string[]
+    /** What 'replace' binned, so undo can bring it back. */
+    replaced: string[]
+    /** True when the ROOT WALL refused, which is a different message. */
+    refused?: boolean
   }> =>
     ipcRenderer.invoke('file:move', paths, destDir, onClash),
   /** Put real files and folders INTO a zip, under a folder ('' is the root). */

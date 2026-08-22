@@ -13,7 +13,7 @@ import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, droppedPaths, getDrag, setDrag } from '../lib/dragDrop'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 import type { UndoEntry } from '../lib/undo'
 
@@ -356,7 +356,7 @@ function ArchiveInner({
   const onDropInArchive = useCallback(
     (e: React.DragEvent, destFolder: string): void => {
       setDropTarget(null)
-      const payload = getDrag()
+      const payload = dragPayload(e.dataTransfer)
       setDrag(null)
       if (payload?.kind === 'members') {
         if (payload.archive.toLowerCase() !== file.path.toLowerCase()) {
@@ -405,10 +405,23 @@ function ArchiveInner({
     { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
     { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
   ]
-  const multiItems = (paths: string[]): MenuItem[] => [
-    { label: `Copy ${paths.length} files`, onPick: () => copyMany(paths) },
-    { label: `Delete ${paths.length} from archive`, danger: true, onPick: () => setConfirmDelMany(paths) }
-  ]
+  /** Only file members can be copied out or deleted; a folder in the
+   *  selection is carried by its members, and counting it made the labels
+   *  promise more than the verbs could do. */
+  const filesOf = (paths: string[]): string[] =>
+    paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
+  const multiItems = (paths: string[]): MenuItem[] => {
+    const files = filesOf(paths)
+    return [
+      { label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) },
+      {
+        label: `Delete ${files.length} from archive`,
+        danger: true,
+        disabled: !files.length,
+        onPick: () => setConfirmDelMany(files)
+      }
+    ]
+  }
 
   if (entries === 'error')
     return (
@@ -520,7 +533,10 @@ function ArchiveInner({
                       }
                       draggable
                       onDragStart={(e) => onRowDragStart(e, r.path)}
-                      onDragEnd={() => setDropTarget(null)}
+                      onDragEnd={() => {
+                        setDropTarget(null)
+                        setDrag(null)
+                      }}
                       {...(r.dir ? dropProps(r.path) : {})}
                       onClick={(e) => onRowClick(e, r.path)}
                       onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
@@ -542,7 +558,7 @@ function ArchiveInner({
                           setEditing(r.path)
                         } else if (e.key === 'Delete') {
                           e.preventDefault()
-                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany([...sel.items])
+                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany(filesOf([...sel.items]))
                           else if (!r.dir) setConfirmDel(r)
                         }
                       }}

@@ -1430,12 +1430,15 @@ export default function App(): JSX.Element {
   const runDeleteMany = useCallback(
     async (paths: string[]): Promise<void> => {
       setAsk(null)
-      let failed = 0
+      const binned: string[] = []
       for (const p of paths) {
-        if (!(await window.prism.trashFile(p))) failed += 1
+        if (await window.prism.trashFile(p)) binned.push(p)
       }
+      const failed = paths.length - binned.length
       setRefreshKey((n) => n + 1)
-      if (failed < paths.length) noteUndo({ kind: 'trash', paths })
+      // Only the ones that really went: undoing a path that never left would
+      // restore a file the user deliberately binned earlier.
+      if (binned.length) noteUndo({ kind: 'trash', paths: binned })
       const cur = file?.path
       if (cur && paths.some((p) => within(cur, p))) {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
@@ -1465,20 +1468,22 @@ export default function App(): JSX.Element {
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
-      if (track && r.moved.length) noteUndo({ kind: 'move', items: r.moved })
+      if (track && r.moved.length)
+        noteUndo({ kind: 'move', items: r.moved, replaced: r.replaced?.length ? r.replaced : undefined })
+      // Follow the open file FIRST, whatever else failed: it may have been
+      // inside a folder that moved, in which case only its prefix changed.
+      const cur = file?.path
+      if (cur) {
+        const landed = r.moved.find((m) => within(cur, m.from))
+        if (landed) reopen(landed.to + cur.slice(landed.from.length))
+      }
       if (r.failed.length)
         setAsk({
           kind: 'failed',
-          message:
-            r.moved.length || r.clashes.length
-              ? `${r.failed.length} of ${paths.length} could not be moved.`
-              : 'Those can only be moved inside the folder Prism opened.'
+          message: r.refused
+            ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
+            : `${r.failed.length} of ${paths.length} could not be moved.`
         })
-      else if (file?.path && paths.some((p) => within(file.path, p))) {
-        // What we were looking at moved: follow it to its new home.
-        const landed = r.moved.find((m) => m.from.toLowerCase() === file.path.toLowerCase())
-        if (landed) reopen(landed.to)
-      }
     },
     [file, noteUndo, reopen]
   )
@@ -1490,6 +1495,10 @@ export default function App(): JSX.Element {
       switch (entry.kind) {
         case 'move':
           for (const it of entry.items) await runMove([it.to], parentDir(it.from), 'keep-both', false)
+          // The name is free again only now, so the replaced file comes back
+          // after the mover has left, not before.
+          if (entry.replaced?.length) await window.prism.restoreFromBin(entry.replaced)
+          setRefreshKey((n) => n + 1)
           break
         case 'rename':
           await runRename(entry.to, baseName(entry.from), 'keep-both', false)
@@ -1510,9 +1519,20 @@ export default function App(): JSX.Element {
           break
         case 'archive-in': {
           // Both halves: the members leave the zip, the originals come back.
-          for (const e of entry.entries) await window.prism.archiveDelete(entry.zip, e)
+          // A folder member has no entry of its own, which deleteMember now
+          // handles by taking its subtree; a refusal is worth saying out loud
+          // rather than leaving a copy behind silently.
+          let stuck = 0
+          for (const e of entry.entries) {
+            if (!(await window.prism.archiveDelete(entry.zip, e))) stuck += 1
+          }
           if (entry.originals.length) await window.prism.restoreFromBin(entry.originals)
           setRefreshKey((n) => n + 1)
+          if (stuck)
+            setAsk({
+              kind: 'failed',
+              message: `${stuck} of ${entry.entries.length} could not be taken back out of the archive.`
+            })
           break
         }
       }
@@ -1537,15 +1557,31 @@ export default function App(): JSX.Element {
           await window.prism.duplicateFile(entry.path.replace(/ \(\d+\)(\.[^.]*)?$/, '$1'))
           setRefreshKey((n) => n + 1)
           break
-        case 'archive-in':
-          await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
-          for (const o of entry.originals) await window.prism.trashFile(o)
+        case 'archive-in': {
+          const r = await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
+          if (r === 'encrypted' || r === 'failed') {
+            setAsk({
+              kind: 'failed',
+              message: "That archive could not be written, so nothing was moved into it."
+            })
+            break
+          }
+          // Bin only what actually landed - never the whole wish list.
+          for (const a of r.added) await window.prism.trashFile(a.src)
           setRefreshKey((n) => n + 1)
           break
+        }
       }
     },
     [runMove, runRename]
   )
+  // One at a time. Restoring from the Recycle Bin spawns PowerShell and takes
+  // half a second; a held Ctrl+Z would otherwise run the next inverse against
+  // a file the previous one has not put back yet.
+  const undoChain = useRef<Promise<void>>(Promise.resolve())
+  const queueUndo = useCallback((run: () => Promise<void>): void => {
+    undoChain.current = undoChain.current.then(run).catch(() => {})
+  }, [])
   const undo = useCallback((): void => {
     const step = undone(undoState)
     if (!step) {
@@ -1554,8 +1590,8 @@ export default function App(): JSX.Element {
     }
     setUndoState(step.state)
     flashUndo(`Undid ${describeUndo(step.entry)}`)
-    void applyUndo(step.entry)
-  }, [applyUndo, flashUndo, undoState])
+    queueUndo(() => applyUndo(step.entry))
+  }, [applyUndo, flashUndo, queueUndo, undoState])
   const redo = useCallback((): void => {
     const step = redone(undoState)
     if (!step) {
@@ -1564,8 +1600,8 @@ export default function App(): JSX.Element {
     }
     setUndoState(step.state)
     flashUndo(`Redid ${describeUndo(step.entry)}`)
-    void applyRedo(step.entry)
-  }, [applyRedo, flashUndo, undoState])
+    queueUndo(() => applyRedo(step.entry))
+  }, [applyRedo, flashUndo, queueUndo, undoState])
   const onDropInto = useCallback(
     (dest: string, payload: DragPayload): void => {
       if (payload.kind === 'files') {
@@ -1677,7 +1713,7 @@ export default function App(): JSX.Element {
         }
         if (fullscreen) setFs(false)
         else window.prism.close()
-      } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing) {
         // Same rule as the arrows: the document has these only once it has
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return

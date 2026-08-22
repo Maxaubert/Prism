@@ -109,8 +109,13 @@ describe('deleteMember', () => {
     expect(deleteMember(zipPath, 'readme.txt')).toBe(true)
     expect(listArchive(zipPath).map((e) => e.path)).not.toContain('readme.txt')
   })
-  it('refuses folders', () => {
-    expect(deleteMember(zipPath, 'docs')).toBe(false)
+  it('takes a folder and its whole subtree', () => {
+    expect(deleteMember(zipPath, 'docs')).toBe(true)
+    expect(listArchive(zipPath).map((e) => e.path)).toEqual(['readme.txt'])
+  })
+
+  it('says no when there is nothing under that name', () => {
+    expect(deleteMember(zipPath, 'nope')).toBe(false)
   })
 })
 

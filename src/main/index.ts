@@ -902,6 +902,7 @@ if (!app.requestSingleInstanceLock()) {
       const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
       const script = [
         '$ErrorActionPreference = "SilentlyContinue"',
+        '$missing = $false',
         '$sh = New-Object -ComObject Shell.Application',
         '$bin = $sh.Namespace(0xA)',
         `foreach ($p in @(${list})) {`,
@@ -909,8 +910,11 @@ if (!app.requestSingleInstanceLock()) {
         '  $item = @($bin.Items() | Where-Object {',
         '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
         '  })[-1]',
-        '  if ($item) { $sh.Namespace($dir).MoveHere($item) }',
-        '}'
+        '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
+        '}',
+        // Nothing came back: say so, or undo would claim a restore that never
+        // happened (an emptied Recycle Bin is the common case).
+        'if ($missing) { exit 1 }'
       ].join('; ')
       return new Promise((done) => {
         execFile(
@@ -927,13 +931,18 @@ if (!app.requestSingleInstanceLock()) {
     // Every path, source and destination alike, must sit inside an open root:
     // dragging is not a way out of the wall. Extracted archive members are
     // granted individually, so a member dragged to a folder can be written.
+    // A folder that is ITSELF a tab's root cannot be moved or zipped away:
+    // the wall would be left pointing at nothing and that tab dies. Renaming
+    // and binning a root are already refused; this is the same rule.
     const movable = (p: unknown): p is string =>
-      typeof p === 'string' && (insideAnyRoot(p) || extractedPaths.has(p))
+      typeof p === 'string' && !isAnyRoot(p) && (insideAnyRoot(p) || extractedPaths.has(p))
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
         if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
-          return { moved: [], clashes: [], failed: Array.isArray(paths) ? paths : [] }
+          // `refused` is the wall talking, which is a different sentence from
+          // "that file is locked": the renderer branches on it.
+          return { moved: [], clashes: [], failed: Array.isArray(paths) ? paths : [], replaced: [], refused: true }
         return moveEntries(paths, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
         )

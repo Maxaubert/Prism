@@ -258,7 +258,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // or drop files, folders and archive members into it.
           draggable
           onDragStart={(e) => t.onRowDragStart(e, path)}
-          onDragEnd={() => t.onDropHover(null)}
+          onDragEnd={() => t.onDragDone()}
           onDragOver={(e) => {
             e.preventDefault()
             e.stopPropagation()
@@ -405,7 +405,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               data-selected={onSel || undefined}
               draggable
               onDragStart={(e) => t.onRowDragStart(e, f.path)}
-              onDragEnd={() => t.onDropHover(null)}
+              onDragEnd={() => t.onDragDone()}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               // A plain click still OPENS, quick-look style (only archives

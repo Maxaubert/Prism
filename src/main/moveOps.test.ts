@@ -73,7 +73,51 @@ describe('moveEntries', () => {
     expect(existsSync(join(root, 'stuff', 'inner'))).toBe(true)
     // Dropping something where it already lives is a no-op, not a failure.
     const same = await moveEntries([join(root, 'a.txt')], root, 'ask', trash)
-    expect(same).toEqual({ moved: [], clashes: [], failed: [] })
+    expect(same).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
+  })
+
+  it('a folder and a file inside it: the folder carries the child, no failure', async () => {
+    const r = await moveEntries(
+      [join(root, 'stuff'), join(root, 'stuff', 'inner', 'deep.txt')],
+      join(root, 'dest'),
+      'ask',
+      trash
+    )
+    expect(r.failed).toEqual([])
+    expect(readFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'utf8')).toBe('deep')
+  })
+
+  it('two arrivals sharing a name clash with EACH OTHER rather than overwriting', async () => {
+    mkdirSync(join(root, 'x'))
+    mkdirSync(join(root, 'y'))
+    writeFileSync(join(root, 'x', 'same.txt'), 'first')
+    writeFileSync(join(root, 'y', 'same.txt'), 'second')
+    const ask = await moveEntries(
+      [join(root, 'x', 'same.txt'), join(root, 'y', 'same.txt')],
+      join(root, 'dest'),
+      'ask',
+      trash
+    )
+    expect(ask.clashes.map((c) => c.name)).toEqual(['same.txt'])
+    expect(ask.moved).toEqual([])
+    const both = await moveEntries(
+      [join(root, 'x', 'same.txt'), join(root, 'y', 'same.txt')],
+      join(root, 'dest'),
+      'keep-both',
+      trash
+    )
+    expect(both.moved.map((m) => m.to)).toEqual([
+      join(root, 'dest', 'same.txt'),
+      join(root, 'dest', 'same (2).txt')
+    ])
+    expect(readFileSync(join(root, 'dest', 'same.txt'), 'utf8')).toBe('first')
+    expect(readFileSync(join(root, 'dest', 'same (2).txt'), 'utf8')).toBe('second')
+  })
+
+  it("names what 'replace' binned, so undo can bring it back", async () => {
+    writeFileSync(join(root, 'dest', 'a.txt'), 'old')
+    const r = await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'replace', trash)
+    expect(r.replaced).toEqual([join(root, 'dest', 'a.txt')])
   })
 
   it('fails everything when the destination is not a folder', async () => {

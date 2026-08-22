@@ -51,9 +51,11 @@ export function SearchResults({
   // Hits select exactly like tree rows (#70): click selects and opens, shift
   // ranges, ctrl toggles.
   const [sel, setSel] = useState<Selection>(emptySelection)
-  const [selFor, setSelFor] = useState(query)
-  if (selFor !== query) {
-    setSelFor(query)
+  // A new query, or a folder rewritten under us, starts clean: stale hit
+  // paths acted on later would touch files that are not there any more.
+  const [selFor, setSelFor] = useState(`${query}\u0000${refreshKey}`)
+  if (selFor !== `${query}\u0000${refreshKey}`) {
+    setSelFor(`${query}\u0000${refreshKey}`)
     setSel(emptySelection)
   }
 

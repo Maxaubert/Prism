@@ -15,6 +15,8 @@ export type MoveResult = {
   clashes: MoveClash[]
   /** Paths that could not be moved at all (gone, locked, into themselves). */
   failed: string[]
+  /** What 'replace' sent to the bin, so undo can bring it back. */
+  replaced: string[]
 }
 
 const lower = (p: string): string => resolve(p).toLowerCase()
@@ -52,12 +54,16 @@ export async function moveEntries(
   onClash: 'ask' | 'keep-both' | 'replace',
   trash: (p: string) => Promise<void>
 ): Promise<MoveResult> {
-  const out: MoveResult = { moved: [], clashes: [], failed: [] }
+  const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [] }
   if (!existsSync(destDir) || !statSync(destDir).isDirectory()) {
-    return { moved: [], clashes: [], failed: [...paths] }
+    return { moved: [], clashes: [], failed: [...paths], replaced: [] }
   }
   const usable: string[] = []
   for (const p of paths) {
+    // A folder and something inside it can both be selected; moving the
+    // folder already carries the child, so the child is not a failure - it
+    // simply has nothing left to do.
+    if (paths.some((q) => lower(q) !== lower(p) && insideSelf(q, p))) continue
     // Already there, gone, or a folder swallowing itself: nothing to do.
     if (!existsSync(p) || insideSelf(p, destDir) || lower(dirname(p)) === lower(destDir)) {
       if (!existsSync(p) || insideSelf(p, destDir)) out.failed.push(p)
@@ -65,9 +71,15 @@ export async function moveEntries(
     }
     usable.push(p)
   }
+  // The clash pass counts names the BATCH itself claims, not just what is
+  // already on disk: two files called photo.jpg from different folders are a
+  // clash with each other, and silently overwriting one was data loss.
+  const claimed = new Set<string>()
   for (const p of usable) {
     const name = basename(p)
-    if (existsSync(join(destDir, name))) out.clashes.push({ path: p, name })
+    if (existsSync(join(destDir, name)) || claimed.has(name.toLowerCase()))
+      out.clashes.push({ path: p, name })
+    claimed.add(name.toLowerCase())
   }
   if (onClash === 'ask' && out.clashes.length) return out
 
@@ -76,8 +88,12 @@ export async function moveEntries(
     let target = join(destDir, name)
     try {
       if (existsSync(target)) {
-        if (onClash === 'keep-both') target = join(destDir, uniqueName(destDir, name))
-        else await trash(target)
+        // Only an explicit 'replace' may destroy; everything else lands beside
+        // what is there. 'ask' must never reach a write it did not ask about.
+        if (onClash === 'replace') {
+          out.replaced.push(target)
+          await trash(target)
+        } else target = join(destDir, uniqueName(destDir, name))
       }
       moveOne(p, target)
       out.moved.push({ from: p, to: target })

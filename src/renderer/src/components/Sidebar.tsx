@@ -14,7 +14,7 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, droppedPaths, getDrag, setDrag, type DragPayload } from '../lib/dragDrop'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -202,6 +202,24 @@ export function Sidebar({
 
   /* ---------- loading ---------- */
 
+  /* The selection (2026-08-22): a click opens as it always did; shift ranges
+     and ctrl toggles build a selection without opening. */
+  const [sel, setSel] = useState<Selection>(emptySelection)
+  // A new place - or anything that rewrote the folder (a delete, a rename, a
+  // move) - starts clean: the old paths may not exist any more, and acting on
+  // them later took files the user could no longer see.
+  const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
+  if (selFor !== `${root}\u0000${refreshKey}`) {
+    setSelFor(`${root}\u0000${refreshKey}`)
+    setSel(emptySelection)
+  }
+  // What a drag carries when the dragged row is part of a selection.
+  // Mirrored via effect (refs must not be written during render).
+  const selRef = useRef(sel)
+  useEffect(() => {
+    selRef.current = sel
+  }, [sel])
+
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(async (p: string, force = false): Promise<void> => {
@@ -211,7 +229,23 @@ export function Sidebar({
 
   const toggle = useCallback(
     (p: string) => {
-      setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
+      setState((s) => {
+        const expanded = toggleExpanded(s.expanded, p)
+        // Collapsing hides rows: anything selected under this folder would
+        // stay selected and invisible, and the next Delete would take it.
+        if (!expanded.has(p)) {
+          const under = p.toLowerCase() + '\\'
+          setSel((sel) => {
+            const kept = [...sel.items].filter((x) => !x.toLowerCase().startsWith(under))
+            if (kept.length === sel.items.size) return sel
+            return {
+              anchor: sel.anchor && kept.includes(sel.anchor) ? sel.anchor : p,
+              items: new Set(kept)
+            }
+          })
+        }
+        return { ...s, expanded }
+      })
       void load(p)
     },
     [load, setState]
@@ -312,29 +346,16 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  /* The selection (2026-08-22): a click opens as it always did; shift ranges
-     and ctrl toggles build a selection without opening. */
-  const [sel, setSel] = useState<Selection>(emptySelection)
-  // A new place starts clean (render-time reset, the cursorFor pattern).
-  const [selFor, setSelFor] = useState(root)
-  if (selFor !== root) {
-    setSelFor(root)
-    setSel(emptySelection)
-  }
-  // What a drag carries when the dragged row is part of a selection.
-  // Mirrored via effect (refs must not be written during render).
-  const selRef = useRef(sel)
-  useEffect(() => {
-    selRef.current = sel
-  }, [sel])
 
   const onMenu = useCallback(
-    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
+    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number, fromSearch = false) => {
       e.preventDefault()
       // Right-clicking INSIDE a multi-selection acts on all of it; outside,
       // the clicked row becomes the selection first, the way Explorer does.
-      const multi = sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
-      if (!multi) setSel({ anchor: path, items: new Set([path]) })
+      // A SEARCH hit never inherits the tree's selection: those are different
+      // lists, and the menu would have acted on rows the user could not see.
+      const multi = !fromSearch && sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
+      if (!multi && !fromSearch) setSel({ anchor: path, items: new Set([path]) })
       setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, multi, apps: isFolder ? undefined : null })
       // The app list arrives while the menu is up; ignore it if the menu has
       // meanwhile moved to another row (or closed).
@@ -427,7 +448,7 @@ export function Sidebar({
   const onDropOn = useCallback(
     (e: DragEvent, folderPath: string): void => {
       setDropTarget(null)
-      const payload = getDrag()
+      const payload = dragPayload(e.dataTransfer)
       setDrag(null)
       if (payload) onDropInto(folderPath, payload)
       else {
@@ -580,13 +601,14 @@ export function Sidebar({
         >
           {query.trim() ? (
             <SearchResults
+              key={root}
               root={root}
               query={query.trim()}
               refreshKey={refreshKey}
               currentPath={currentPath}
               size={size}
               onOpen={onOpenFile}
-              onMenu={(e, path, name) => onMenu(e, path, name, false)}
+              onMenu={(e, path, name) => onMenu(e, path, name, false, undefined, true)}
               onMultiMenu={(e, paths) =>
                 setMenu({ x: e.clientX, y: e.clientY, path: paths[0], name: '', isFolder: false, multi: paths })
               }
@@ -607,6 +629,10 @@ export function Sidebar({
                 onRowDragStart,
                 dropTarget,
                 onDropHover: setDropTarget,
+                onDragDone: () => {
+                  setDropTarget(null)
+                  setDrag(null)
+                },
                 onDropOn,
                 onRowClick,
                 onToggle: toggle,

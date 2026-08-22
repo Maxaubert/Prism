@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { uniqueName } from './fileOps'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
 // Listing, viewing (extract one member to temp), renaming, deleting and
@@ -190,7 +191,17 @@ export function deleteMember(zipPath: string, entryPath: string): boolean {
   const p = norm(entryPath)
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(p)
-  if (!entry || entry.isDirectory) return false
+  // A FOLDER (or a folder that exists only as a prefix of its members) takes
+  // its whole subtree with it. Undo of a folder dragged INTO a zip needs this,
+  // and so does the archive view's own Delete on a folder row.
+  if (!entry || entry.isDirectory) {
+    const under = zip.getEntries().filter((e) => norm(e.entryName).startsWith(p + '/'))
+    if (!under.length) return false
+    for (const e of under) zip.deleteFile(e.entryName)
+    if (entry) zip.deleteFile(entry.entryName)
+    zip.writeZip(zipPath)
+    return true
+  }
   zip.deleteFile(p)
   zip.writeZip(zipPath)
   return true
@@ -270,8 +281,16 @@ export function addToArchive(
     const clashes: string[] = []
     const failed: string[] = []
     const jobs: Array<{ src: string; name: string; dir: boolean }> = []
+    const zipAt = resolve(zipPath)
     for (const src of srcPaths) {
       if (!existsSync(src)) {
+        failed.push(src)
+        continue
+      }
+      // The archive cannot contain itself: dropping a zip (or a folder holding
+      // it) onto its own view would rewrite the file mid-read and then bin it.
+      const at = resolve(src)
+      if (at === zipAt || !relative(at, zipAt).startsWith('..')) {
         failed.push(src)
         continue
       }
@@ -292,16 +311,23 @@ export function addToArchive(
           candidate = `${stem} (${n})${ext}`
         }
         jobs.push({ src, name: candidate, dir })
-      } else jobs.push({ src, name, dir })
-      taken.add(joinIn(destFolder, name).toLowerCase())
+        taken.add(joinIn(destFolder, candidate).toLowerCase())
+      } else {
+        jobs.push({ src, name, dir })
+        taken.add(joinIn(destFolder, name).toLowerCase())
+      }
     }
     if (clashes.length && !keepBoth) return { added: [], clashes, failed }
     const added: Array<{ src: string; entry: string }> = []
     for (const j of jobs) {
       try {
+        const before = zip.getEntries().length
         if (j.dir) zip.addLocalFolder(j.src, joinIn(destFolder, j.name))
         else zip.addLocalFile(j.src, norm(destFolder), j.name)
-        added.push({ src: j.src, entry: joinIn(destFolder, j.name) })
+        // An EMPTY folder writes nothing at all: counting it as added would
+        // have the caller bin the original for a member that is not there.
+        if (zip.getEntries().length <= before) failed.push(j.src)
+        else added.push({ src: j.src, entry: joinIn(destFolder, j.name) })
       } catch {
         failed.push(j.src)
       }
@@ -323,7 +349,9 @@ export function moveMembers(
     if (hasEncrypted(zipPath)) return 'encrypted'
     const zip = new AdmZip(zipPath)
     const dest = norm(destFolder)
-    const wanted = entryPaths.map(norm)
+    // Dropping a folder on itself (or inside its own subtree) would nest its
+    // contents one level deeper every time; there is nothing to do instead.
+    const wanted = entryPaths.map(norm).filter((w) => dest !== w && !dest.startsWith(w + '/'))
     const moves: Array<{ from: string; to: string; data: Buffer }> = []
     for (const e of zip.getEntries()) {
       if (e.isDirectory) continue
@@ -382,10 +410,18 @@ export function extractTo(
       // is where the write would actually LAND. Absolute names, drive letters
       // and any ".." that survives resolution are dropped, not sanitised.
       if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
-      const target = resolve(base, ...rel.split('/'))
+      let target = resolve(base, ...rel.split('/'))
       const inside = relative(base, target)
       if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
         continue
+      // Never overwrite what is already there: an extraction is a copy out,
+      // and a member sharing a name with the user's own file must not destroy
+      // it. "name (2)" is the same answer the folder verbs give.
+      if (existsSync(target)) {
+        const dir = dirname(target)
+        mkdirSync(dir, { recursive: true })
+        target = join(dir, uniqueName(dir, basename(target)))
+      }
       const like = e as unknown as ZipEntryLike
       let data: Buffer
       if (like.header.method === AES_METHOD) {
