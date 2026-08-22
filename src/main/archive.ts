@@ -247,7 +247,10 @@ export function hasEncrypted(zipPath: string): boolean {
 
 const joinIn = (folder: string, name: string): string => (folder ? `${norm(folder)}/${name}` : name)
 
-export type AddResult = { added: number; clashes: string[]; failed: string[] } | 'encrypted' | 'failed'
+export type AddResult =
+  | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
+  | 'encrypted'
+  | 'failed'
 
 /**
  * Put real files and folders INTO the zip, under `destFolder` ('' is the root).
@@ -292,17 +295,19 @@ export function addToArchive(
       } else jobs.push({ src, name, dir })
       taken.add(joinIn(destFolder, name).toLowerCase())
     }
-    if (clashes.length && !keepBoth) return { added: 0, clashes, failed }
+    if (clashes.length && !keepBoth) return { added: [], clashes, failed }
+    const added: Array<{ src: string; entry: string }> = []
     for (const j of jobs) {
       try {
         if (j.dir) zip.addLocalFolder(j.src, joinIn(destFolder, j.name))
         else zip.addLocalFile(j.src, norm(destFolder), j.name)
+        added.push({ src: j.src, entry: joinIn(destFolder, j.name) })
       } catch {
         failed.push(j.src)
       }
     }
-    if (jobs.length) zip.writeZip(zipPath)
-    return { added: jobs.length - failed.length, clashes, failed }
+    if (added.length) zip.writeZip(zipPath)
+    return { added, clashes, failed }
   } catch {
     return 'failed'
   }

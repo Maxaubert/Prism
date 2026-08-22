@@ -48,6 +48,12 @@ describe('the undo stack', () => {
     expect(undone(s)!.entry).toEqual({ kind: 'duplicate', path: 'C:\\a\\59.txt' })
   })
 
+  it('names an archive move for the message too', () => {
+    expect(
+      label({ kind: 'archive-in', zip: 'C:\\a\\box.zip', dest: '', entries: ['one.txt'], originals: [] })
+    ).toBe('moving one.txt into box.zip')
+  })
+
   it('names the action for the message that reports it', () => {
     expect(label(ren)).toBe('renaming old.txt')
     expect(label(bin)).toBe('deleting 2 items')

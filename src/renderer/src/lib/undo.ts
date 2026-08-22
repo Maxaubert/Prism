@@ -14,6 +14,9 @@ export type UndoEntry =
   | { kind: 'trash'; paths: string[] }
   /** A copy made beside the original: undo bins the copy. */
   | { kind: 'duplicate'; path: string }
+  /** Files MOVED into an archive: the members went in and the originals went
+   *  to the bin, so undo takes both halves back. */
+  | { kind: 'archive-in'; zip: string; dest: string; entries: string[]; originals: string[] }
 
 export interface UndoState {
   past: readonly UndoEntry[]
@@ -63,5 +66,9 @@ export function describe(entry: UndoEntry): string {
       return entry.paths.length > 1 ? `deleting ${entry.paths.length} items` : `deleting ${baseName(entry.paths[0] ?? '')}`
     case 'duplicate':
       return `duplicating ${baseName(entry.path)}`
+    case 'archive-in':
+      return entry.entries.length > 1
+        ? `moving ${entry.entries.length} items into ${baseName(entry.zip)}`
+        : `moving ${baseName(entry.entries[0] ?? '')} into ${baseName(entry.zip)}`
   }
 }

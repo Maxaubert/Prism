@@ -108,7 +108,11 @@ const api = {
     srcPaths: string[],
     destFolder: string,
     keepBoth?: boolean
-  ): Promise<{ added: number; clashes: string[]; failed: string[] } | 'encrypted' | 'failed'> =>
+  ): Promise<
+    | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
+    | 'encrypted'
+    | 'failed'
+  > =>
     ipcRenderer.invoke('archive:add', zip, srcPaths, destFolder, keepBoth),
   /** Move members to another folder inside the same zip. */
   archiveMoveMembers: (

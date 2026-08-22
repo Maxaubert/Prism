@@ -128,7 +128,9 @@ describe('drag and drop (#70)', () => {
     const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
     writeFileSync(join(src, 'new.txt'), 'fresh')
     const r = addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
-    expect(r).toMatchObject({ added: 1, clashes: [] })
+    if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
+    expect(r.added.map((a) => a.entry)).toEqual(['docs/new.txt'])
+    expect(r.clashes).toEqual([])
     expect(listArchive(zipPath).map((e) => e.path)).toContain('docs/new.txt')
     const back = extractMember(zipPath, 'docs/new.txt')
     if (!back.ok) throw new Error('expected ok')
@@ -139,11 +141,13 @@ describe('drag and drop (#70)', () => {
     const src = mkdtempSync(join(tmpdir(), 'prism-add2-'))
     writeFileSync(join(src, 'readme.txt'), 'other')
     expect(addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
-      added: 0,
+      added: [],
       clashes: ['readme.txt']
     })
     expect(extractMemberText(zipPath, 'readme.txt')).toBe('hello')
-    expect(addToArchive(zipPath, [join(src, 'readme.txt')], '', true)).toMatchObject({ added: 1 })
+    const kept = addToArchive(zipPath, [join(src, 'readme.txt')], '', true)
+    if (kept === 'encrypted' || kept === 'failed') throw new Error('expected a result')
+    expect(kept.added.map((a) => a.entry)).toEqual(['readme (2).txt'])
     expect(listArchive(zipPath).map((e) => e.path)).toContain('readme (2).txt')
   })
 

@@ -265,6 +265,8 @@ function EditorLoading(): JSX.Element {
 
 function Viewer({
   file,
+  onUndoable,
+  refreshKey,
   onToggleFullscreen,
   fullscreen,
   transportStyle,
@@ -274,6 +276,10 @@ function Viewer({
   getPending
 }: {
   file: ViewerFile
+  /** An archive reports its own undoable writes up to App's stack. */
+  onUndoable: (entry: UndoEntry) => void
+  /** Bumped after an undo, so an open archive re-reads its container. */
+  refreshKey: number
   onToggleFullscreen: () => void
   fullscreen: boolean
   transportStyle: TransportStyle
@@ -297,7 +303,7 @@ function Viewer({
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'archive':
-      return <ArchiveView file={file} />
+      return <ArchiveView file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
     case 'text':
       // Markdown is a document until the pencil says otherwise; everything else
       // is its own source, editable where it sits. A save here changes nothing
@@ -1502,6 +1508,13 @@ export default function App(): JSX.Element {
           await window.prism.trashFile(entry.path)
           setRefreshKey((n) => n + 1)
           break
+        case 'archive-in': {
+          // Both halves: the members leave the zip, the originals come back.
+          for (const e of entry.entries) await window.prism.archiveDelete(entry.zip, e)
+          if (entry.originals.length) await window.prism.restoreFromBin(entry.originals)
+          setRefreshKey((n) => n + 1)
+          break
+        }
       }
     },
     [runMove, runRename]
@@ -1522,6 +1535,11 @@ export default function App(): JSX.Element {
           break
         case 'duplicate':
           await window.prism.duplicateFile(entry.path.replace(/ \(\d+\)(\.[^.]*)?$/, '$1'))
+          setRefreshKey((n) => n + 1)
+          break
+        case 'archive-in':
+          await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
+          for (const o of entry.originals) await window.prism.trashFile(o)
           setRefreshKey((n) => n + 1)
           break
       }
@@ -1893,7 +1911,7 @@ export default function App(): JSX.Element {
                   />
                 </Suspense>
               ) : file ? (
-                <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
+                <Viewer key={`${file.kind}:${docVersion}`} file={file} onUndoable={noteUndo} refreshKey={refreshKey} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
               ) : active ? (
                 <NoFileState />
               ) : (
@@ -1936,6 +1954,8 @@ export default function App(): JSX.Element {
                     area={areas.pinned[i]}
                     onClose={() => unpinSplitId(pn.id)}
                     viewerProps={{
+                      onUndoable: noteUndo,
+                      refreshKey,
                       onToggleFullscreen: toggleFullscreen,
                       fullscreen,
                       transportStyle,

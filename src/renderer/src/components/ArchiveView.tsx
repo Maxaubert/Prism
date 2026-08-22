@@ -15,6 +15,7 @@ import { KindIcon, iconColour } from './TreeRows'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 import { DRAG_MIME, droppedPaths, getDrag, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
+import type { UndoEntry } from '../lib/undo'
 
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
 
@@ -73,11 +74,29 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
-export function ArchiveView({ file }: { file: ViewerFile }): JSX.Element {
-  return <ArchiveInner key={file.path} file={file} />
+export function ArchiveView({
+  file,
+  onUndoable,
+  refreshKey = 0
+}: {
+  file: ViewerFile
+  /** Something undoable happened in here (a move IN); App keeps the stack. */
+  onUndoable?: (entry: UndoEntry) => void
+  /** Bumped by App after an undo, so the listing re-reads the container. */
+  refreshKey?: number
+}): JSX.Element {
+  return <ArchiveInner key={file.path} file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
 }
 
-function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
+function ArchiveInner({
+  file,
+  onUndoable,
+  refreshKey
+}: {
+  file: ViewerFile
+  onUndoable?: (entry: UndoEntry) => void
+  refreshKey: number
+}): JSX.Element {
   const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
@@ -88,7 +107,12 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
   // itself (meaning "this folder you are looking at").
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  const [addClash, setAddClash] = useState<{ paths: string[]; dest: string; names: string[] } | null>(null)
+  const [addClash, setAddClash] = useState<{
+    paths: string[]
+    dest: string
+    names: string[]
+    fromPrism: boolean
+  } | null>(null)
   // The selection (2026-08-22): click selects, shift ranges, ctrl toggles,
   // double click opens. No drag-to-select; dragging a row moves it.
   const [sel, setSel] = useState<Selection>(emptySelection)
@@ -112,7 +136,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   const load = useCallback(() => {
     void window.prism.archiveList(file.path).then((list) => setEntries(list ?? 'error'))
   }, [file.path])
-  useEffect(() => load(), [load])
+  useEffect(() => load(), [load, refreshKey])
 
   // The rows of the CURRENT folder only: folders first, names ordered.
   const rows = useMemo((): Entry[] => {
@@ -290,16 +314,43 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
     [file.path]
   )
   const addInto = useCallback(
-    (paths: string[], dest: string, keepBoth = false): void => {
-      void window.prism.archiveAdd(file.path, paths, dest, keepBoth).then((r) => {
+    (paths: string[], dest: string, keepBoth = false, fromPrism = false): void => {
+      void window.prism.archiveAdd(file.path, paths, dest, keepBoth).then(async (r) => {
         setAddClash(null)
-        if (r === 'encrypted') setOops("Prism can't add to a password-protected archive.")
-        else if (r === 'failed') setOops("Those couldn't be added to the archive.")
-        else if (r.clashes.length) setAddClash({ paths, dest, names: r.clashes })
-        else load()
+        if (r === 'encrypted') {
+          setOops("Prism can't add to a password-protected archive.")
+          return
+        }
+        if (r === 'failed') {
+          setOops("Those couldn't be added to the archive.")
+          return
+        }
+        if (r.clashes.length) {
+          setAddClash({ paths, dest, names: r.clashes, fromPrism })
+          return
+        }
+        // Dragging OUT of the sidebar is a MOVE, not a copy (owner, 2026-08-22):
+        // once the members are safely inside, the originals go to the Recycle
+        // Bin - recoverable, and Ctrl+Z takes back both halves at once. Files
+        // dragged from EXPLORER are left alone: they live outside the root, so
+        // they were never Prism's to remove.
+        if (fromPrism && r.added.length) {
+          const originals: string[] = []
+          for (const a of r.added) {
+            if (await window.prism.trashFile(a.src)) originals.push(a.src)
+          }
+          onUndoable?.({
+            kind: 'archive-in',
+            zip: file.path,
+            dest,
+            entries: r.added.map((a) => a.entry),
+            originals
+          })
+        }
+        load()
       })
     },
-    [file.path, load]
+    [file.path, load, onUndoable]
   )
   /** A drop landed inside the archive: members rearrange, real files come in. */
   const onDropInArchive = useCallback(
@@ -326,8 +377,9 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
         return
       }
       // From the sidebar, or straight from Explorer.
-      const paths = payload?.kind === 'files' ? payload.paths : droppedPaths(e.dataTransfer)
-      if (paths.length) addInto(paths, destFolder)
+      const fromPrism = payload?.kind === 'files'
+      const paths = fromPrism ? payload.paths : droppedPaths(e.dataTransfer)
+      if (paths.length) addInto(paths, destFolder, false, fromPrism)
     },
     [addInto, file.path, load]
   )
@@ -564,7 +616,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
             {
               label: 'Keep both',
               primary: true,
-              onPick: () => addInto(addClash.paths, addClash.dest, true)
+              onPick: () => addInto(addClash.paths, addClash.dest, true, addClash.fromPrism)
             }
           ]}
         />
