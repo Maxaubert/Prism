@@ -179,6 +179,24 @@ const api = {
     return () => ipcRenderer.removeListener('app:ask-close', listener)
   },
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
+  /* ----- the update check ----- */
+  /** A newer release exists (mock: true in unpackaged builds, as a preview). */
+  onUpdate: (cb: (info: { version: string; url: string; mock?: boolean }) => void): (() => void) => {
+    const listener = (_: unknown, info: { version: string; url: string; mock?: boolean }): void =>
+      cb(info)
+    ipcRenderer.on('update:available', listener)
+    // Ask main to replay an offer that arrived before this renderer loaded.
+    ipcRenderer.send('update:announce')
+    return () => ipcRenderer.removeListener('update:available', listener)
+  },
+  /** Download percentage while an update installs. */
+  onUpdateProgress: (cb: (pct: number) => void): (() => void) => {
+    const listener = (_: unknown, pct: number): void => cb(pct)
+    ipcRenderer.on('update:progress', listener)
+    return () => ipcRenderer.removeListener('update:progress', listener)
+  },
+  /** Download the named installer and hand off to it; the app quits under it. */
+  installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
   /** True when setup asked for the first-run guide, whatever this machine has

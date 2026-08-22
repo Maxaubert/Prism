@@ -24,6 +24,7 @@ import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
 import { archiveTooLarge, deleteMember, extractMember, listArchive, renameMember, type ArchiveEntry } from './archive'
+import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
 
@@ -557,6 +558,22 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
+
+    // The update check: watch GitHub Releases, remember the newest offer so a
+    // renderer that loads after the tick still hears about it.
+    let pendingUpdate: UpdateInfo | null = null
+    watchForUpdates((info) => {
+      pendingUpdate = info
+      mainWindow?.webContents.send('update:available', info)
+    })
+    ipcMain.on('update:announce', (e) => {
+      if (pendingUpdate) e.sender.send('update:available', pendingUpdate)
+    })
+    ipcMain.handle('update:install', (_e, url: string) =>
+      typeof url === 'string'
+        ? installUpdate(url, (pct) => mainWindow?.webContents.send('update:progress', pct))
+        : false
+    )
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await dialog.showOpenDialog({ properties: ['openFile'] })
