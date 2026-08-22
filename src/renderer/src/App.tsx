@@ -18,6 +18,7 @@ import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
 import { PdfView } from './components/pdf/PdfView'
 import { UnsupportedView } from './components/UnsupportedView'
+import { ArchiveView } from './components/ArchiveView'
 // CodeMirror is ~770KB of editor that a folder of photos never needs. Splitting
 // it out keeps it off the launch path, which is the whole point of the resident
 // single-instance model: the window has to be there the instant you ask.
@@ -248,6 +249,8 @@ function Viewer({
       return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+    case 'archive':
+      return <ArchiveView file={file} />
     case 'text':
       // Markdown is a document until the pencil says otherwise; everything else
       // is its own source, editable where it sits. A save here changes nothing

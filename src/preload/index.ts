@@ -1,5 +1,5 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -82,6 +82,26 @@ const api = {
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
+
+  /* ----- archives (zip): list, view, rename, delete members ----- */
+
+  /** Every entry in the archive (folders derived when the zip omits them). */
+  archiveList: (
+    path: string
+  ): Promise<Array<{ path: string; name: string; dir: boolean; size: number }> | null> =>
+    ipcRenderer.invoke('archive:list', path),
+  /** Extract one member to temp for viewing; resolves with its path and kind. */
+  archiveExtract: (
+    path: string,
+    entry: string
+  ): Promise<{ path: string; kind: FileKind } | null> =>
+    ipcRenderer.invoke('archive:extract', path, entry),
+  /** Rename one member in place (same folder). A taken name refuses. */
+  archiveRename: (path: string, entry: string, name: string): Promise<boolean> =>
+    ipcRenderer.invoke('archive:rename', path, entry, name),
+  /** Remove one member. Permanent - no recycle bin inside a zip. */
+  archiveDelete: (path: string, entry: string): Promise<boolean> =>
+    ipcRenderer.invoke('archive:delete', path, entry),
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
