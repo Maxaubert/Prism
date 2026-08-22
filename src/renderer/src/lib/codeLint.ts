@@ -39,9 +39,16 @@ export function parseErrors(state: EditorState): Diagnostic[] {
     enter: (node) => {
       if (!node.type.isError) return undefined
       // A missing token is a zero-width error node. Widen it to one character
-      // so there is something to draw the underline beneath.
-      const to = node.to > node.from ? node.to : Math.min(node.from + 1, state.doc.length)
-      if (to > node.from) spans.push({ from: node.from, to })
+      // so there is something to draw the underline beneath; at the very end
+      // of the document widen backwards, or an unclosed brace at EOF (the
+      // most common syntax error there is) would draw nothing at all.
+      let from = node.from
+      let to = node.to
+      if (to === from) {
+        if (from < state.doc.length) to = from + 1
+        else from = Math.max(from - 1, 0)
+      }
+      if (to > from) spans.push({ from, to })
       return spans.length > MAX * 4 ? false : undefined
     }
   })
