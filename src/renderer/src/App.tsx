@@ -920,6 +920,29 @@ export default function App(): JSX.Element {
     }, 700)
     return () => clearInterval(t)
   }, [])
+  // Finished-while-away: an agent that STOPS working on a background tab
+  // leaves a mark that stays until the tab is visited (or work restarts).
+  // An answer that lands while you are watching needs no flag; one that
+  // lands behind another tab is news the strip should carry.
+  const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(new Set())
+  const prevWorking = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const was = prevWorking.current
+    prevWorking.current = workingIds
+    const activeTerm = tabs.find((t) => t.id === activeId)?.term?.id
+    setDoneIds((prev) => {
+      let next: Set<string> | null = null
+      const mut = (): Set<string> => (next ??= new Set(prev))
+      for (const id of was) {
+        // Stopped, still an agent session, and its tab is in the background.
+        if (!workingIds.has(id) && agentIds.has(id) && id !== activeTerm) mut().add(id)
+      }
+      for (const id of prev) {
+        if (workingIds.has(id) || id === activeTerm) mut().delete(id)
+      }
+      return next ?? prev
+    })
+  }, [workingIds, tabs, activeId, agentIds])
 
   // The shell ended: typed exit, or died. App owns this rather than the panel,
   // because it must be heard even while the panel is hidden or another tab is
@@ -1508,6 +1531,7 @@ export default function App(): JSX.Element {
           tabs={tabs}
           activeId={activeId}
           workingIds={workingIds}
+          doneIds={doneIds}
           agentIds={agentIds}
           onDropFile={openInNewTab}
           onPick={pickTab}

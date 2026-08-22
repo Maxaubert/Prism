@@ -1,6 +1,6 @@
 import type { JSX, MouseEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
-import { useAgentColor, useAgentIndicator } from '../lib/termLook'
+import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
 
 /**
@@ -14,6 +14,7 @@ export function TabStrip({
   tabs,
   activeId,
   workingIds,
+  doneIds,
   agentIds,
   onPick,
   onClose,
@@ -26,6 +27,9 @@ export function TabStrip({
   /** Sessions with SUSTAINED recent output: with an agent present, this IS
    *  the indicator. Idle looks default - only working paints. */
   workingIds: ReadonlySet<string>
+  /** Sessions whose agent finished while their tab was in the background;
+   *  they wear the finished colour until the tab is visited. */
+  doneIds: ReadonlySet<string>
   /** Sessions whose shell currently hosts an AI CLI (Claude Code, codex). */
   agentIds: ReadonlySet<string>
   onPick: (id: string) => void
@@ -43,11 +47,12 @@ export function TabStrip({
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
   const agentColor = useAgentColor()
+  const doneColor = useAgentDoneColor()
   // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
   // contrast maths picks black on the default orange, but white-on-orange is
   // the look; black only wins on genuinely light fills (contrast vs black of
   // 12 is a ~0.55 luminance threshold).
-  const onAgent = contrastRatio('#000000', agentColor) < 12 ? '#ffffff' : '#000000'
+  const onTint = (c: string): string => (contrastRatio('#000000', c) < 12 ? '#ffffff' : '#000000')
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -78,16 +83,19 @@ export function TabStrip({
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
-        // The agent indicator: paints ONLY while the agent is genuinely
-        // working - the whole tab filled (full) or just the brain icon tinted
-        // (minimal). Idle shows nothing.
+        // The agent indicator: paints while the agent is genuinely working
+        // (the working colour) or finished behind another tab (the finished
+        // colour, until visited) - the whole tab filled (full) or the brain
+        // icon plus edge bar tinted (minimal). Idle shows nothing.
         const working =
           indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
-        const loud = working && indicator === 'full'
+        const done = !working && indicator !== 'off' && !!t.term && doneIds.has(t.term.id)
+        const tint = working ? agentColor : done ? doneColor : null
+        const loud = tint !== null && indicator === 'full'
         return (
           <div
             key={t.id}
-            data-agent={working ? indicator : undefined}
+            data-agent={tint ? indicator : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
@@ -100,7 +108,7 @@ export function TabStrip({
                   ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
-            style={loud ? { background: agentColor, color: onAgent } : undefined}
+            style={loud && tint ? { background: tint, color: onTint(tint) } : undefined}
             // The WHOLE tab is the click target, not just the label: the
             // padding, the icon slot and the slack around a short name all
             // pick the tab. The close button stops propagation to opt out.
@@ -110,27 +118,28 @@ export function TabStrip({
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
-            {/* Minimal working mark: the tinted brain plus a bar down the LEFT
-                edge, so a working tab reads at a glance even when narrow. */}
-            {working && indicator === 'minimal' && (
-              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: agentColor }} aria-hidden />
+            {/* Minimal mark: the tinted brain plus a bar down the LEFT edge,
+                so a working or finished tab reads at a glance even narrow. */}
+            {tint && indicator === 'minimal' && (
+              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: tint }} aria-hidden />
             )}
             {/* A permanent icon slot: the brain appears in it while the
-                agent works (tinted in minimal, on-colour in full) and it is
-                transparent otherwise - so the tab NEVER changes width. */}
-            <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!working}>
-              {working && (
+                agent works or waits unseen (tinted in minimal, on-colour in
+                full) and it is transparent otherwise - so the tab NEVER
+                changes width. */}
+            <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!tint}>
+              {tint && (
                 <svg
-                  data-activity="working"
+                  data-activity={working ? 'working' : 'done'}
                   viewBox="0 0 24 24"
                   width={13}
                   height={13}
                   fill="none"
-                  stroke={indicator === 'full' ? 'currentColor' : agentColor}
+                  stroke={indicator === 'full' ? 'currentColor' : tint}
                   strokeWidth="1.9"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  aria-label="Agent working"
+                  aria-label={working ? 'Agent working' : 'Agent finished'}
                 >
                   <path d="M9.5 4a2.7 2.7 0 0 0-2.7 2.7c-1.5.3-2.6 1.6-2.6 3.2 0 .8.3 1.6.8 2.1a3.2 3.2 0 0 0 1.3 5.4A2.9 2.9 0 0 0 9.2 20c.5 0 1-.1 1.3-.4V4.5A2.6 2.6 0 0 0 9.5 4zM14.5 4a2.7 2.7 0 0 1 2.7 2.7c1.5.3 2.6 1.6 2.6 3.2 0 .8-.3 1.6-.8 2.1a3.2 3.2 0 0 1-1.3 5.4A2.9 2.9 0 0 1 14.8 20c-.5 0-1-.1-1.3-.4V4.5a2.6 2.6 0 0 1 1-.5z" />
                 </svg>

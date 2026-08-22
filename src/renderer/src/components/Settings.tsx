@@ -22,7 +22,7 @@ import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseMode, useConfirmCloseMode, type ConfirmClose } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentDoneColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentDoneColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
@@ -1160,6 +1160,7 @@ function TerminalTab(): JSX.Element {
   const agentInd = useAgentIndicator()
   const acrylicOn = useTermAcrylic()
   const agentCol = useAgentColor()
+  const doneCol = useAgentDoneColor()
   // The follow-style card mirrors the LIVE style, derived ANSI included, and
   // repaints when the style does.
   const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
@@ -1197,13 +1198,14 @@ function TerminalTab(): JSX.Element {
       fontPct,
       indicator: agentInd,
       indicatorColor: agentCol,
+      doneColor: doneCol,
       acrylic: acrylicOn
     }
   }
   // Dirty = the SETTINGS deviate from the selected theme's stock: any theme
   // arrives with the defaults, a Custom arrives with what it saved. Comparing
   // whole palettes kept the button lit forever - the palette IS the selection.
-  const extras = { font: fontId, fontPct, indicator: agentInd, indicatorColor: agentCol, acrylic: acrylicOn }
+  const extras = { font: fontId, fontPct, indicator: agentInd, indicatorColor: agentCol, doneColor: doneCol, acrylic: acrylicOn }
   const baseline =
     themeId === 'custom' && custom
       ? {
@@ -1211,6 +1213,7 @@ function TerminalTab(): JSX.Element {
           fontPct: custom.fontPct ?? TERM_EXTRA_DEFAULTS.fontPct,
           indicator: custom.indicator ?? TERM_EXTRA_DEFAULTS.indicator,
           indicatorColor: custom.indicatorColor ?? TERM_EXTRA_DEFAULTS.indicatorColor,
+          doneColor: custom.doneColor ?? TERM_EXTRA_DEFAULTS.doneColor,
           acrylic: custom.acrylic ?? TERM_EXTRA_DEFAULTS.acrylic
         }
       : TERM_EXTRA_DEFAULTS
@@ -1426,6 +1429,13 @@ function TerminalTab(): JSX.Element {
         hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
       >
         <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
+      </Pref>
+      <Pref
+        id="agent-done-color"
+        label="Finished colour"
+        hint="An agent that finished while its tab was in the background wears this until you visit the tab."
+      >
+        <HexSwatch label="Finished colour" value={doneCol} onChange={setAgentDoneColor} />
       </Pref>
     </div>
   )
