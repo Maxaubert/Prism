@@ -3,6 +3,8 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
+import { useStyle } from '../lib/theme'
+import { useSysIcon } from '../lib/sysIcon'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -59,7 +61,7 @@ function Glyph({ children, color }: { children: JSX.Element; color: string }): J
 /** Filled glyph per kind. Detail is knocked out in the panel colour rather than
  *  drawn as strokes, so the shape still reads as a photo or a page at 14px.
  *  Exported for the search results, which draw the same rows outside the tree. */
-export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color: string; ko?: string }): JSX.Element {
+export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; color: string; ko?: string; path?: string }): JSX.Element {
   const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
   switch (kind) {
     case 'image':
@@ -98,17 +100,7 @@ export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color:
         </Glyph>
       )
     case 'archive':
-      // The parcel (owner pick from the icon lab, 2026-08-22): a box with a
-      // lid seam and a label, not another sheet of paper.
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
-            <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
-            <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
-          </>
-        </Glyph>
-      )
+      return <ArchiveIcon color={color} koColour={koColour} path={path} />
     default:
       return (
         <Glyph color={color}>
@@ -120,6 +112,28 @@ export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color:
         </Glyph>
       )
   }
+}
+
+/** The archive row's icon (#68, revised 2026-08-22: the owner tried the
+ *  parcel and picked the real thing): the SYSTEM icon of the user's own
+ *  association (WinRAR, 7-Zip, Explorer's zipped folder...), one fetch per
+ *  extension. Choosing a colour in Settings > Style swaps to Prism's parcel
+ *  in that colour; so does having no icon to show (loading, no handler). */
+function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: string; path?: string }): JSX.Element {
+  const custom = !!useStyle().archiveIcon
+  const url = useSysIcon(custom ? null : (path ?? null))
+  if (!custom && url)
+    return <img src={url} width={14} height={14} className="shrink-0" alt="" aria-hidden />
+  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
+  return (
+    <Glyph color={color}>
+      <>
+        <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
+        <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
+        <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
+      </>
+    </Glyph>
+  )
 }
 
 function FolderIcon({ color }: { color: string }): JSX.Element {
@@ -366,6 +380,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 // cursor's rather than the open file's.
                 color={onCursor ? 'var(--p-on-accent)' : iconColour(f.kind)}
                 ko={onCursor ? accentColour() : undefined}
+                path={f.path}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>

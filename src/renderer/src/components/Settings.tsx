@@ -803,7 +803,7 @@ function StyleTab(): JSX.Element {
           <Pref
             id="c-archive-icon"
             label="Archive icons"
-            hint="Zips in the tree: a parcel in its own colour."
+            hint="Default: the icon your system shows for zips (WinRAR, 7-Zip...). Pick a colour to use Prism's parcel instead; reset returns to the system icon."
           >
             <ColourWell
               id="c-archive-icon"

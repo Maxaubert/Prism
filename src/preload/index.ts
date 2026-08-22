@@ -83,6 +83,10 @@ const api = {
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
 
+  /** The system's own icon for this file's type (the user's association),
+   *  as a data URL; null when Windows has none to give. */
+  iconForExt: (path: string): Promise<string | null> => ipcRenderer.invoke('icon:for-ext', path),
+
   /* ----- archives (zip): list, view, rename, delete members ----- */
 
   /** Every entry in the archive (folders derived when the zip omits them). */

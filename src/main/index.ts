@@ -864,6 +864,27 @@ if (!app.requestSingleInstanceLock()) {
       })
     })
 
+    // The icon Windows itself shows for a file of this type - the user's own
+    // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
+    // extension; the tree shows it for archives (#68, revised 2026-08-22).
+    const extIconCache = new Map<string, string | null>()
+    ipcMain.handle('icon:for-ext', async (_e, p: string): Promise<string | null> => {
+      if (typeof p !== 'string' || !insideAnyRoot(p)) return null
+      const ext = extname(p).toLowerCase()
+      if (!ext) return null
+      const hit = extIconCache.get(ext)
+      if (hit !== undefined) return hit
+      try {
+        const img = await app.getFileIcon(p, { size: 'normal' })
+        const url = img.isEmpty() ? null : img.toDataURL()
+        extIconCache.set(ext, url)
+        return url
+      } catch {
+        extIconCache.set(ext, null)
+        return null
+      }
+    })
+
     /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
 
     // Every verb names the zip, which must sit inside a root and actually be
