@@ -343,6 +343,20 @@ function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder
   )
 }
 
+/** A tab with a root but nothing on screen yet (a terminal-first tab whose
+ *  terminal was tucked away): quiet words, not the open-file pitch. The way
+ *  in is the sidebar this tab already has, so nothing here needs a button.
+ *  Deliberately NOT the first file auto-opened: a hidden terminal must never
+ *  start playing whatever happens to sort first. */
+function NoFileState(): JSX.Element {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-1.5 text-center">
+      <div className="text-sm font-medium text-[var(--p-dim)]">No file selected</div>
+      <div className="text-xs text-[var(--p-dim2)]">Pick one from the sidebar</div>
+    </div>
+  )
+}
+
 export default function App(): JSX.Element {
   // The open projects. A tab carries every viewable sibling main found for its
   // root and which of them is on screen; `active` is the one you are looking at.
@@ -1584,6 +1598,8 @@ export default function App(): JSX.Element {
                 </Suspense>
               ) : file ? (
                 <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
+              ) : active ? (
+                <NoFileState />
               ) : (
                 <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
               )
