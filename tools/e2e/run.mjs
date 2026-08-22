@@ -1538,21 +1538,91 @@ async function terminalScenario(fixtures) {
   }
 }
 
+async function archiveScenario(fixtures) {
+  console.log('archive viewer')
+  // #68: a real zip opens as a tree of members with view/rename/delete verbs.
+  const zipPath = join(fixtures, 'zips', 'bundle.zip')
+  const { app, win } = await launch(zipPath)
+  try {
+    await win.waitForSelector('[role="tree"][aria-label*="bundle.zip"]', { timeout: 10000 })
+    const row = (name) =>
+      win.locator(`[role="tree"][aria-label*="bundle.zip"] [role="treeitem"]`, { hasText: name })
+    ok((await row('readme.txt').count()) === 1, 'a top-level member is listed')
+    ok((await row('notes').count()) >= 1, 'so is the folder')
+    const body = (await win.textContent('body')) ?? ''
+    ok(/25 B/.test(body), 'sizes ride along')
+    ok(!/todo\.md/.test(body), 'a collapsed folder hides its members')
+
+    // Expand, then view a member; Escape backs out of the preview.
+    await row('notes').first().click()
+    await win.waitForSelector('text=todo.md', { timeout: 5000 })
+    ok(true, 'expanding the folder reveals its members')
+    await row('readme.txt').first().click()
+    await win.waitForFunction(
+      () => /hello from inside the zip/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 15000 }
+    )
+    ok(true, 'viewing a member shows its content')
+    await win.screenshot({ path: join(SHOTS, 'archive-member.png') })
+    await win.keyboard.press('Escape')
+    await win.waitForFunction(
+      () => !/hello from inside the zip/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 5000 }
+    )
+    ok(true, 'Escape returns to the archive')
+
+    // Rename in place: F2 on the focused row, Explorer-style selection means
+    // typing replaces the stem and keeps the extension.
+    await row('todo.md').first().focus()
+    await win.keyboard.press('F2')
+    await win.keyboard.type('done')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('text=done.md', { timeout: 5000 })
+    const AdmZip = (await import('adm-zip')).default
+    ok(
+      new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'notes/done.md'),
+      'the rename landed inside the zip itself'
+    )
+
+    // Delete: confirms first (permanent - a zip has no recycle bin), then the
+    // member is gone from the tree AND the container.
+    await row('readme.txt').first().focus()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
+    await win.locator('button', { hasText: 'Delete' }).last().click()
+    await win.waitForFunction(
+      () => !/readme\.txt/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 5000 }
+    )
+    ok(
+      !new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'readme.txt'),
+      'the delete landed inside the zip itself'
+    )
+    await win.screenshot({ path: join(SHOTS, 'archive.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
-  // Windows hands Prism a .zip whenever someone picks it out of "More apps",
+  // Windows hands Prism a .7z whenever someone picks it out of "More apps",
   // which lists every installed application regardless of SupportedTypes. The
-  // window must say so rather than sit empty.
-  const { app, win } = await launch(join(fixtures, 'misc', 'archive.zip'))
+  // window must say so rather than sit empty. (.zip used to be the specimen;
+  // it opens for real since #68 and has its own scenario.)
+  const { app, win } = await launch(join(fixtures, 'misc', 'archive.7z'))
   try {
     await win.waitForFunction(
-      () => /can.t show ZIP files/.test(document.body.textContent ?? ''),
+      () => /can.t show 7Z files/.test(document.body.textContent ?? ''),
       null,
       { timeout: 10000 }
     )
     const text = ((await win.textContent('body')) ?? '').replace(/\s+/g, ' ')
-    ok(/can.t show ZIP files/.test(text), 'the panel names the format')
-    ok(/archive\.zip/.test(text), 'the panel names the file')
+    ok(/can.t show 7Z files/.test(text), 'the panel names the format')
+    ok(/archive\.7z/.test(text), 'the panel names the file')
     ok(/2\.0 KB/.test(text), 'the panel carries the size')
     // The file is not viewable, so nothing lists it: the panel is all there is.
     ok(
@@ -1593,6 +1663,8 @@ try {
   await tabsScenario(fixtures)
   await sleep(900)
   await terminalScenario(fixtures)
+  await sleep(900)
+  await archiveScenario(fixtures)
   await sleep(900)
   await unsupportedScenario(fixtures)
 } catch (e) {

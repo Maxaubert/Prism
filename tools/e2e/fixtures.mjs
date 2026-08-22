@@ -7,6 +7,7 @@
  * valid file, with exactly five case-mixed "grape" tokens across its pages.
  */
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import AdmZip from 'adm-zip'
 import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -132,9 +133,17 @@ export function buildFixtures() {
   // scenario asserts on stay put. It is never listed by listDir, so opening it
   // is the only way to reach it - which is exactly the case being tested.
   mkdirSync(join(FIXTURES, 'misc'), { recursive: true })
+  mkdirSync(join(FIXTURES, 'zips'), { recursive: true })
+  // (.7z since #68: .zip opens for real now and has its own scenario.)
   const zip = Buffer.alloc(2048)
   zip.write('PK', 'latin1')
-  writeFileSync(join(FIXTURES, 'misc', 'archive.zip'), zip)
+  writeFileSync(join(FIXTURES, 'misc', 'archive.7z'), zip)
+  // A REAL zip for the archive scenario: known members, sizes and nesting.
+  const bundle = new AdmZip()
+  bundle.addFile('readme.txt', Buffer.from('hello from inside the zip'))
+  bundle.addFile('notes/todo.md', Buffer.from('# todo\n- try prism\n'))
+  bundle.addFile('notes/deep/extra.txt', Buffer.from('deep'))
+  bundle.writeZip(join(FIXTURES, 'zips', 'bundle.zip'))
 
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),
