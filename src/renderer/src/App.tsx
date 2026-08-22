@@ -549,12 +549,16 @@ export default function App(): JSX.Element {
   const liftVeil = useCallback(() => {
     const veil = fsVeilEl.current
     if (!veil) return
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        veil.style.transition = 'opacity 280ms ease-out'
-        veil.style.opacity = '0'
-      })
-    )
+    // Hold the black a beat (200ms) before lifting: the swap should be felt,
+    // not glimpsed. The double rAF then guarantees the new frame is laid out.
+    setTimeout(() => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          veil.style.transition = 'opacity 280ms ease-out'
+          veil.style.opacity = '0'
+        })
+      )
+    }, 200)
   }, [])
   const setFs = useCallback(
     (on: boolean) => {
@@ -584,7 +588,9 @@ export default function App(): JSX.Element {
       const done = (): void => {
         if (fired) return
         fired = true
-        doSwap()
+        // One frame of margin after the fade completes, so the swap happens
+        // under GUARANTEED full black, never on the fade's last visible frame.
+        setTimeout(doSwap, 40)
       }
       veil.addEventListener('transitionend', done, { once: true })
       setTimeout(done, 240) // transitionend can be swallowed; the swap may not
