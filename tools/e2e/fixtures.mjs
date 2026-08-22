@@ -144,6 +144,17 @@ export function buildFixtures() {
   bundle.addFile('notes/todo.md', Buffer.from('# todo\n- try prism\n'))
   bundle.addFile('notes/deep/extra.txt', Buffer.from('deep'))
   bundle.writeZip(join(FIXTURES, 'zips', 'bundle.zip'))
+  // Somewhere for a member dragged OUT of the archive to land (#70), and a
+  // little tree of its own for the sidebar's move.
+  mkdirSync(join(FIXTURES, 'zips', 'out'), { recursive: true })
+  // Its own zip for the drag scenario: the archive scenario mutates bundle.zip.
+  const dragzip = new AdmZip()
+  dragzip.addFile('carry.txt', Buffer.from('carried out of the zip'))
+  dragzip.addFile('sub/nested.txt', Buffer.from('nested'))
+  dragzip.writeZip(join(FIXTURES, 'zips', 'dragzip.zip'))
+  mkdirSync(join(FIXTURES, 'dragbox', 'into'), { recursive: true })
+  writeFileSync(join(FIXTURES, 'dragbox', 'movable.txt'), 'drag me')
+  writeFileSync(join(FIXTURES, 'dragbox', 'anchor.txt'), 'stay')
 
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),

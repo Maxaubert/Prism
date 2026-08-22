@@ -60,7 +60,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
-  archives (>600MB) list but refuse member operations.
+  archives (>600MB) list but refuse member operations. Properties on a zip reports what it
+  holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
   2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
@@ -107,16 +108,36 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `win.on('close')` until the user answers **Cancel / Discard / Save all changes** (which
   covers Alt+F4 and the taskbar, not just the X). A failed write cancels the close and names
   the file rather than closing over the top of it.
+  **Undo and redo** (2026-08-22, `lib/undo.ts`, pure and tested): Ctrl+Z / Ctrl+Y (and
+  Ctrl+Shift+Z) reverse Prism's own file writes - move, rename, bin, duplicate - and a
+  quiet pill says what went back. Undo NEVER asks and never overwrites: it puts things
+  beside whatever appeared meanwhile ('keep-both'), and a binned file comes back through
+  the shell's Recycle Bin namespace (MoveHere, not the localised Restore verb). Behind the
+  typing guard, so a focused editor and the terminal keep their own Ctrl+Z. Archive-internal
+  writes are deliberately NOT on the stack (a member delete is permanent anyway).
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
-  natural next step. Multi-select WAS that fresh decision (2026-08-22): shift ranges,
-  ctrl toggles, and dragging across rows sweeps a selection WITHOUT opening, in the tree
-  and the archive alike; right-click inside a multi-selection acts on all of it (copy
+  natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
+  ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
+  taken names asking cancel / keep both / replace. The same drag crosses surfaces: sidebar
+  rows dropped INTO an open archive are added to the zip at that folder, archive members
+  dropped on a sidebar folder are extracted there (sharing the archive's remembered
+  password via `lib/archivePass`), members dropped on an archive folder move inside the
+  zip, and files dragged from EXPLORER onto the archive panel are added to it. Folders
+  travel whole on every route. Rebuilding a password-protected zip is refused rather than
+  risked (adm-zip would re-emit those entries wrongly), and dropping on the window at
+  large still just opens the file. Multi-select WAS that fresh decision too (2026-08-22): shift ranges and
+  ctrl toggles select WITHOUT opening, in the tree and the archive alike (drag-to-select
+  was tried and REMOVED the same day: dragging is for moving, and the sweep's pointer
+  state outlived real drags); right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single
   click - a plain click still opens a file or expands a folder (double-click-to-open was
   tried and rolled back the same day; only the ARCHIVE is double-click, where single
   click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  Search results speak the same selection language, multi right-click included.
+  Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
+  hairline showing where one would land.
   Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in

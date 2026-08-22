@@ -12,7 +12,10 @@ import { PdfView } from './pdf/PdfView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
+import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
+import type { UndoEntry } from '../lib/undo'
 
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
 
@@ -71,11 +74,29 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
-export function ArchiveView({ file }: { file: ViewerFile }): JSX.Element {
-  return <ArchiveInner key={file.path} file={file} />
+export function ArchiveView({
+  file,
+  onUndoable,
+  refreshKey = 0
+}: {
+  file: ViewerFile
+  /** Something undoable happened in here (a move IN); App keeps the stack. */
+  onUndoable?: (entry: UndoEntry) => void
+  /** Bumped by App after an undo, so the listing re-reads the container. */
+  refreshKey?: number
+}): JSX.Element {
+  return <ArchiveInner key={file.path} file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
 }
 
-function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
+function ArchiveInner({
+  file,
+  onUndoable,
+  refreshKey
+}: {
+  file: ViewerFile
+  onUndoable?: (entry: UndoEntry) => void
+  refreshKey: number
+}): JSX.Element {
   const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
@@ -83,44 +104,39 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   const [editing, setEditing] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Entry | null>(null)
   const [confirmDelMany, setConfirmDelMany] = useState<string[] | null>(null)
-  // Explorer selection (2026-08-22), same grammar as the sidebar: click
-  // selects, shift ranges, ctrl toggles, dragging sweeps, double click opens.
+  // Drag and drop (#70). dropTarget is a folder path, or '' for the panel
+  // itself (meaning "this folder you are looking at").
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [addClash, setAddClash] = useState<{
+    paths: string[]
+    dest: string
+    names: string[]
+    fromPrism: boolean
+  } | null>(null)
+  // The selection (2026-08-22): click selects, shift ranges, ctrl toggles,
+  // double click opens. No drag-to-select; dragging a row moves it.
   const [sel, setSel] = useState<Selection>(emptySelection)
-  const sweep = useRef<{
-    from: string | null
-    live: boolean
-    consumed: boolean
-    base: ReadonlySet<string>
-  }>({ from: null, live: false, consumed: false, base: new Set() })
-  // Mirrored via effect (refs must not be written during render): the sweep
-  // reads it at pointer-down as the base it merges into.
+  // Mirrored via effect (refs must not be written during render): a drag
+  // starting on a selected row carries the whole selection.
   const selRef = useRef(sel)
   useEffect(() => {
     selRef.current = sel
   }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
   /** Walking anywhere drops the selection: a new folder is a new slate. */
   const setCwd = useCallback((p: string): void => {
     setCwdRaw(p)
     setSel(emptySelection)
   }, [])
   const [oops, setOops] = useState<string | null>(null)
-  // One password per archive, remembered after the first door it opens.
-  const pass = useRef<string | undefined>(undefined)
+  // The password lives in lib/archivePass, one per archive, so the SIDEBAR can
+  // use it too when a member is dragged out to a folder (#70).
   const [askPass, setAskPass] = useState<{ run: (pw: string) => void; name: string; wrong: boolean } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
   const load = useCallback(() => {
     void window.prism.archiveList(file.path).then((list) => setEntries(list ?? 'error'))
   }, [file.path])
-  useEffect(() => load(), [load])
+  useEffect(() => load(), [load, refreshKey])
 
   // The rows of the CURRENT folder only: folders first, names ordered.
   const rows = useMemo((): Entry[] => {
@@ -154,7 +170,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
               wrong,
               run: (answer) => {
                 setAskPass(null)
-                pass.current = answer
+                rememberArchivePassword(file.path, answer)
                 attempt(answer, true)
               }
             })
@@ -163,9 +179,9 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
           else setOops(`Couldn't read "${entry.name}" from the archive.`)
         })
       }
-      attempt(pass.current, false)
+      attempt(archivePassword(file.path), false)
     },
-    []
+    [file.path]
   )
 
   const view = useCallback(
@@ -245,22 +261,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
     (e: { shiftKey: boolean; ctrlKey: boolean }, path: string): void => {
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
-    },
-    [order]
-  )
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from) return
-      if (!s.live && path === s.from) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
     },
     [order]
   )
@@ -272,7 +273,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
         const out: string[] = []
         let locked = 0
         for (const p of files) {
-          const r = await window.prism.archiveExtract(file.path, p, pass.current)
+          const r = await window.prism.archiveExtract(file.path, p, archivePassword(file.path))
           if (r.ok) out.push(r.path)
           else if (r.reason === 'password' || r.reason === 'aes') locked += 1
         }
@@ -299,16 +300,128 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
     [file.path, load]
   )
 
+  const onRowDragStart = useCallback(
+    (e: React.DragEvent, path: string): void => {
+      const items = selRef.current.items
+      setDrag({
+        kind: 'members',
+        archive: file.path,
+        entries: items.has(path) && items.size > 1 ? [...items] : [path]
+      })
+      e.dataTransfer.setData(DRAG_MIME, 'members')
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    [file.path]
+  )
+  const addInto = useCallback(
+    (paths: string[], dest: string, keepBoth = false, fromPrism = false): void => {
+      void window.prism.archiveAdd(file.path, paths, dest, keepBoth).then(async (r) => {
+        setAddClash(null)
+        if (r === 'encrypted') {
+          setOops("Prism can't add to a password-protected archive.")
+          return
+        }
+        if (r === 'failed') {
+          setOops("Those couldn't be added to the archive.")
+          return
+        }
+        if (r.clashes.length) {
+          setAddClash({ paths, dest, names: r.clashes, fromPrism })
+          return
+        }
+        // Dragging OUT of the sidebar is a MOVE, not a copy (owner, 2026-08-22):
+        // once the members are safely inside, the originals go to the Recycle
+        // Bin - recoverable, and Ctrl+Z takes back both halves at once. Files
+        // dragged from EXPLORER are left alone: they live outside the root, so
+        // they were never Prism's to remove.
+        if (fromPrism && r.added.length) {
+          const originals: string[] = []
+          for (const a of r.added) {
+            if (await window.prism.trashFile(a.src)) originals.push(a.src)
+          }
+          onUndoable?.({
+            kind: 'archive-in',
+            zip: file.path,
+            dest,
+            entries: r.added.map((a) => a.entry),
+            originals
+          })
+        }
+        load()
+      })
+    },
+    [file.path, load, onUndoable]
+  )
+  /** A drop landed inside the archive: members rearrange, real files come in. */
+  const onDropInArchive = useCallback(
+    (e: React.DragEvent, destFolder: string): void => {
+      setDropTarget(null)
+      const payload = dragPayload(e.dataTransfer)
+      setDrag(null)
+      if (payload?.kind === 'members') {
+        if (payload.archive.toLowerCase() !== file.path.toLowerCase()) {
+          setOops('That came from another archive. Extract it first, then add it here.')
+          return
+        }
+        void window.prism.archiveMoveMembers(file.path, payload.entries, destFolder).then((r) => {
+          if (r === 'ok') {
+            setSel(emptySelection)
+            load()
+          } else
+            setOops(
+              r === 'encrypted'
+                ? "Prism can't rearrange a password-protected archive."
+                : "Those couldn't be moved inside the archive. A name may be taken."
+            )
+        })
+        return
+      }
+      // From the sidebar, or straight from Explorer.
+      const fromPrism = payload?.kind === 'files'
+      const paths = fromPrism ? payload.paths : droppedPaths(e.dataTransfer)
+      if (paths.length) addInto(paths, destFolder, false, fromPrism)
+    },
+    [addInto, file.path, load]
+  )
+  /** Everything a drop target needs, folder rows and the panel alike. */
+  const dropProps = (dest: string): Record<string, unknown> => ({
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'move'
+      setDropTarget(dest)
+    },
+    onDragLeave: () => setDropTarget((t) => (t === dest ? null : t)),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      onDropInArchive(e, dest)
+    }
+  })
+
   const menuItems = (entry: Entry): MenuItem[] => [
     { label: 'View', onPick: () => view(entry) },
     { label: 'Copy file', onPick: () => copyOut(entry) },
     { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
     { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
   ]
-  const multiItems = (paths: string[]): MenuItem[] => [
-    { label: `Copy ${paths.length} files`, onPick: () => copyMany(paths) },
-    { label: `Delete ${paths.length} from archive`, danger: true, onPick: () => setConfirmDelMany(paths) }
-  ]
+  /** Only file members can be copied out or deleted; a folder in the
+   *  selection is carried by its members, and counting it made the labels
+   *  promise more than the verbs could do. */
+  const filesOf = (paths: string[]): string[] =>
+    paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
+  const multiItems = (paths: string[]): MenuItem[] => {
+    const files = filesOf(paths)
+    return [
+      { label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) },
+      {
+        label: `Delete ${files.length} from archive`,
+        danger: true,
+        disabled: !files.length,
+        onPick: () => setConfirmDelMany(files)
+      }
+    ]
+  }
 
   if (entries === 'error')
     return (
@@ -363,7 +476,14 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                 </>
               )}
             </div>
-            <div className="rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-1.5">
+            <div
+              className={`rounded-lg border bg-[var(--p-side-flat)] p-1.5 ${
+                dropTarget === cwd
+                  ? 'border-[color:var(--p-accent-hi)]'
+                  : 'border-[color:var(--p-divider)]'
+              }`}
+              {...dropProps(cwd)}
+            >
           {entries === null ? (
             <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
           ) : rows.length === 0 ? (
@@ -381,15 +501,17 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                   <li key={r.path}>
                     {/* A div, not a button, so dialogs and menus can hold
                         buttons of their own; Enter activates by hand. Click
-                        SELECTS (shift ranges, ctrl toggles, dragging sweeps);
-                        double click is what opens or enters. */}
+                        SELECTS (shift ranges, ctrl toggles); double click is
+                        what opens or enters. */}
                     <div
                       role="option"
                       tabIndex={0}
                       aria-selected={sel.items.has(r.path)}
                       data-selected={sel.items.has(r.path) || undefined}
                       className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none ${
-                        sel.items.has(r.path)
+                        dropTarget === r.path
+                          ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
+                          : sel.items.has(r.path)
                           ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                           : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
                       }`}
@@ -409,13 +531,15 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                             })()
                           : undefined
                       }
+                      draggable
+                      onDragStart={(e) => onRowDragStart(e, r.path)}
+                      onDragEnd={() => {
+                        setDropTarget(null)
+                        setDrag(null)
+                      }}
+                      {...(r.dir ? dropProps(r.path) : {})}
                       onClick={(e) => onRowClick(e, r.path)}
                       onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
-                      onPointerDown={(e) => {
-                        if (e.button === 0)
-                          sweep.current = { from: r.path, live: false, consumed: false, base: selRef.current.items }
-                      }}
-                      onPointerEnter={() => onSweepOver(r.path)}
                       onContextMenu={(e) => {
                         e.preventDefault()
                         const multi =
@@ -434,7 +558,7 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                           setEditing(r.path)
                         } else if (e.key === 'Delete') {
                           e.preventDefault()
-                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany([...sel.items])
+                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany(filesOf([...sel.items]))
                           else if (!r.dir) setConfirmDel(r)
                         }
                       }}
@@ -492,6 +616,25 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
           y={menu.y}
           items={menu.multi ? multiItems(menu.multi) : menuItems(menu.entry)}
           onClose={() => setMenu(null)}
+        />
+      )}
+      {addClash && (
+        <Dialog
+          title={
+            addClash.names.length > 1
+              ? `${addClash.names.length} names are already in the archive`
+              : `"${addClash.names[0]}" is already in the archive`
+          }
+          body="Keep both adds them beside what is there. Nothing has been written yet."
+          onCancel={() => setAddClash(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAddClash(null) },
+            {
+              label: 'Keep both',
+              primary: true,
+              onPick: () => addInto(addClash.paths, addClash.dest, true, addClash.fromPrism)
+            }
+          ]}
         />
       )}
       {confirmDelMany && (

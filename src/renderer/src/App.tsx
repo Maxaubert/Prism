@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, openSettingsTab, receiveFile, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
+import { addTab, closeTab, openSettingsTab, receiveFile, reorderTabs, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
 import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
 import { fileKind } from '@shared/fileKind'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
@@ -37,6 +37,9 @@ import {
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
+import { archivePassword } from './lib/archivePass'
+import type { DragPayload } from './lib/dragDrop'
+import { describe as describeUndo, emptyUndo, redone, remember, undone, type UndoEntry, type UndoState } from './lib/undo'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
 // they are React keys and the handle every tab action names, never anything
@@ -71,6 +74,7 @@ const SETUP_KEY = 'prism.onboarded'
 type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'delete-many'; paths: string[] }
+  | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'close-dirty' }
@@ -246,6 +250,9 @@ const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
 /** The last segment of a path, either separator. */
 const baseName = (p: string): string => /[^\\/]*$/.exec(p)?.[0] ?? p
 
+/** The folder a path lives in. Undo puts things back where they came from. */
+const parentDir = (p: string): string => p.replace(/[\\/][^\\/]*$/, '') || p
+
 /** While the editor chunk arrives. `delayed-loader` keeps it invisible unless
  *  the wait is long enough to notice, so a warm cache shows nothing at all. */
 function EditorLoading(): JSX.Element {
@@ -258,6 +265,8 @@ function EditorLoading(): JSX.Element {
 
 function Viewer({
   file,
+  onUndoable,
+  refreshKey,
   onToggleFullscreen,
   fullscreen,
   transportStyle,
@@ -267,6 +276,10 @@ function Viewer({
   getPending
 }: {
   file: ViewerFile
+  /** An archive reports its own undoable writes up to App's stack. */
+  onUndoable: (entry: UndoEntry) => void
+  /** Bumped after an undo, so an open archive re-reads its container. */
+  refreshKey: number
   onToggleFullscreen: () => void
   fullscreen: boolean
   transportStyle: TransportStyle
@@ -290,7 +303,7 @@ function Viewer({
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'archive':
-      return <ArchiveView file={file} />
+      return <ArchiveView file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
     case 'text':
       // Markdown is a document until the pencil says otherwise; everything else
       // is its own source, editable where it sits. A save here changes nothing
@@ -834,6 +847,12 @@ export default function App(): JSX.Element {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
   const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+  /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
+  const reorderTab = useCallback(
+    (id: string, toIndex: number) =>
+      setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
+    []
+  )
 
   /* ----- the terminal ----- */
 
@@ -1346,8 +1365,23 @@ export default function App(): JSX.Element {
     [active, open]
   )
 
+  /* Undo and redo (2026-08-22), for the things Prism WRITES: moving,
+     renaming, binning and duplicating. The text editor keeps its own Ctrl+Z
+     inside a focused document; this stack only sees the file operations. */
+  const [undoState, setUndoState] = useState<UndoState>(emptyUndo)
+  // Undo is otherwise invisible when the change is off screen, so it says what
+  // it did for a moment. Deliberately not a dialog: nothing to answer.
+  const [undoNote, setUndoNote] = useState<string | null>(null)
+  const noteTimer = useRef<number | null>(null)
+  const flashUndo = useCallback((text: string): void => {
+    setUndoNote(text)
+    if (noteTimer.current) window.clearTimeout(noteTimer.current)
+    noteTimer.current = window.setTimeout(() => setUndoNote(null), 2600)
+  }, [])
+  const noteUndo = useCallback((entry: UndoEntry) => setUndoState((u) => remember(u, entry)), [])
+
   const runRename = useCallback(
-    async (path: string, name: string, onClash: OnClash): Promise<void> => {
+    async (path: string, name: string, onClash: OnClash, track = true): Promise<void> => {
       const r = await window.prism.renameFile(path, name, onClash)
       if (!r.ok) {
         if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
@@ -1356,6 +1390,7 @@ export default function App(): JSX.Element {
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
+      if (track !== false) noteUndo({ kind: 'rename', from: path, to: r.path })
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
       const cur = file?.path
@@ -1363,7 +1398,7 @@ export default function App(): JSX.Element {
       if (within(cur, path)) reopen(r.path + cur.slice(path.length))
       else reopen(cur)
     },
-    [file, reopen]
+    [file, noteUndo, reopen]
   )
 
   const runDelete = useCallback(
@@ -1375,6 +1410,7 @@ export default function App(): JSX.Element {
         return
       }
       setRefreshKey((n) => n + 1)
+      noteUndo({ kind: 'trash', paths: [path] })
       const cur = file?.path
       if (!cur || !within(cur, path)) {
         if (cur) reopen(cur)
@@ -1387,18 +1423,22 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else closeActiveTab()
     },
-    [closeActiveTab, file, reopen, view]
+    [closeActiveTab, file, noteUndo, reopen, view]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
   const runDeleteMany = useCallback(
     async (paths: string[]): Promise<void> => {
       setAsk(null)
-      let failed = 0
+      const binned: string[] = []
       for (const p of paths) {
-        if (!(await window.prism.trashFile(p))) failed += 1
+        if (await window.prism.trashFile(p)) binned.push(p)
       }
+      const failed = paths.length - binned.length
       setRefreshKey((n) => n + 1)
+      // Only the ones that really went: undoing a path that never left would
+      // restore a file the user deliberately binned earlier.
+      if (binned.length) noteUndo({ kind: 'trash', paths: binned })
       const cur = file?.path
       if (cur && paths.some((p) => within(cur, p))) {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
@@ -1409,7 +1449,182 @@ export default function App(): JSX.Element {
       if (failed)
         setAsk({ kind: 'failed', message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.` })
     },
-    [closeActiveTab, file, reopen, view]
+    [closeActiveTab, file, noteUndo, reopen, view]
+  )
+
+  /** A drop landed on a folder (#70): files move in, archive members extract
+   *  there. Moving asks about taken names before it touches anything. */
+  const runMove = useCallback(
+    async (
+      paths: string[],
+      dest: string,
+      mode: 'ask' | 'keep-both' | 'replace',
+      track = true
+    ): Promise<void> => {
+      const r = await window.prism.moveEntries(paths, dest, mode)
+      if (mode === 'ask' && r.clashes.length) {
+        setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
+        return
+      }
+      setAsk(null)
+      setRefreshKey((n) => n + 1)
+      if (track && r.moved.length)
+        noteUndo({ kind: 'move', items: r.moved, replaced: r.replaced?.length ? r.replaced : undefined })
+      // Follow the open file FIRST, whatever else failed: it may have been
+      // inside a folder that moved, in which case only its prefix changed.
+      const cur = file?.path
+      if (cur) {
+        const landed = r.moved.find((m) => within(cur, m.from))
+        if (landed) reopen(landed.to + cur.slice(landed.from.length))
+      }
+      if (r.failed.length)
+        setAsk({
+          kind: 'failed',
+          message: r.refused
+            ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
+            : `${r.failed.length} of ${paths.length} could not be moved.`
+        })
+    },
+    [file, noteUndo, reopen]
+  )
+
+  /** Reverse one action. Undo never asks: it puts things back beside whatever
+   *  has appeared in the meantime rather than overwriting it. */
+  const applyUndo = useCallback(
+    async (entry: UndoEntry): Promise<void> => {
+      switch (entry.kind) {
+        case 'move':
+          for (const it of entry.items) await runMove([it.to], parentDir(it.from), 'keep-both', false)
+          // The name is free again only now, so the replaced file comes back
+          // after the mover has left, not before.
+          if (entry.replaced?.length) await window.prism.restoreFromBin(entry.replaced)
+          setRefreshKey((n) => n + 1)
+          break
+        case 'rename':
+          await runRename(entry.to, baseName(entry.from), 'keep-both', false)
+          break
+        case 'trash': {
+          const ok = await window.prism.restoreFromBin(entry.paths)
+          setRefreshKey((n) => n + 1)
+          if (!ok)
+            setAsk({
+              kind: 'failed',
+              message: 'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+            })
+          break
+        }
+        case 'duplicate':
+          await window.prism.trashFile(entry.path)
+          setRefreshKey((n) => n + 1)
+          break
+        case 'archive-in': {
+          // Both halves: the members leave the zip, the originals come back.
+          // A folder member has no entry of its own, which deleteMember now
+          // handles by taking its subtree; a refusal is worth saying out loud
+          // rather than leaving a copy behind silently.
+          let stuck = 0
+          for (const e of entry.entries) {
+            if (!(await window.prism.archiveDelete(entry.zip, e))) stuck += 1
+          }
+          if (entry.originals.length) await window.prism.restoreFromBin(entry.originals)
+          setRefreshKey((n) => n + 1)
+          if (stuck)
+            setAsk({
+              kind: 'failed',
+              message: `${stuck} of ${entry.entries.length} could not be taken back out of the archive.`
+            })
+          break
+        }
+      }
+    },
+    [runMove, runRename]
+  )
+  /** Do one again, after it was undone. */
+  const applyRedo = useCallback(
+    async (entry: UndoEntry): Promise<void> => {
+      switch (entry.kind) {
+        case 'move':
+          for (const it of entry.items) await runMove([it.from], parentDir(it.to), 'keep-both', false)
+          break
+        case 'rename':
+          await runRename(entry.from, baseName(entry.to), 'keep-both', false)
+          break
+        case 'trash':
+          for (const p of entry.paths) await window.prism.trashFile(p)
+          setRefreshKey((n) => n + 1)
+          break
+        case 'duplicate':
+          await window.prism.duplicateFile(entry.path.replace(/ \(\d+\)(\.[^.]*)?$/, '$1'))
+          setRefreshKey((n) => n + 1)
+          break
+        case 'archive-in': {
+          const r = await window.prism.archiveAdd(entry.zip, entry.originals, entry.dest, true)
+          if (r === 'encrypted' || r === 'failed') {
+            setAsk({
+              kind: 'failed',
+              message: "That archive could not be written, so nothing was moved into it."
+            })
+            break
+          }
+          // Bin only what actually landed - never the whole wish list.
+          for (const a of r.added) await window.prism.trashFile(a.src)
+          setRefreshKey((n) => n + 1)
+          break
+        }
+      }
+    },
+    [runMove, runRename]
+  )
+  // One at a time. Restoring from the Recycle Bin spawns PowerShell and takes
+  // half a second; a held Ctrl+Z would otherwise run the next inverse against
+  // a file the previous one has not put back yet.
+  const undoChain = useRef<Promise<void>>(Promise.resolve())
+  const queueUndo = useCallback((run: () => Promise<void>): void => {
+    undoChain.current = undoChain.current.then(run).catch(() => {})
+  }, [])
+  const undo = useCallback((): void => {
+    const step = undone(undoState)
+    if (!step) {
+      flashUndo('Nothing to undo')
+      return
+    }
+    setUndoState(step.state)
+    flashUndo(`Undid ${describeUndo(step.entry)}`)
+    queueUndo(() => applyUndo(step.entry))
+  }, [applyUndo, flashUndo, queueUndo, undoState])
+  const redo = useCallback((): void => {
+    const step = redone(undoState)
+    if (!step) {
+      flashUndo('Nothing to redo')
+      return
+    }
+    setUndoState(step.state)
+    flashUndo(`Redid ${describeUndo(step.entry)}`)
+    queueUndo(() => applyRedo(step.entry))
+  }, [applyRedo, flashUndo, queueUndo, undoState])
+  const onDropInto = useCallback(
+    (dest: string, payload: DragPayload): void => {
+      if (payload.kind === 'files') {
+        void runMove(payload.paths, dest, 'ask')
+        return
+      }
+      // Members out of an archive: extracted where they were dropped, with the
+      // password the archive view already asked for, if it needed one.
+      void window.prism
+        .archiveExtractTo(payload.archive, payload.entries, dest, archivePassword(payload.archive))
+        .then((r) => {
+          if (r.ok) setRefreshKey((n) => n + 1)
+          else
+            setAsk({
+              kind: 'failed',
+              message:
+                r.reason === 'password'
+                  ? 'That archive is password protected. Open one of its files first to unlock it, then drag again.'
+                  : "Those members couldn't be extracted here."
+            })
+        })
+    },
+    [runMove]
   )
 
   // App-level keys, in the capture phase so this runs before the player's own
@@ -1438,6 +1653,12 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
+      } else if (e.ctrlKey && !typing && !inTerm && /^[zy]$/i.test(e.key)) {
+        // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) undo Prism's OWN writes. Behind
+        // the typing guard, so the text editor and the shell keep their own.
+        e.preventDefault()
+        if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
+        else undo()
       } else if (e.key === '`' && e.ctrlKey) {
         // NOT behind the typing guard: one of the few keys Prism claims over
         // a focused terminal (F11 and Ctrl+Shift+T are the others).
@@ -1492,7 +1713,7 @@ export default function App(): JSX.Element {
         }
         if (fullscreen) setFs(false)
         else window.prism.close()
-      } else if (e.key === 'PageDown' || e.key === 'PageUp') {
+      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing) {
         // Same rule as the arrows: the document has these only once it has
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return
@@ -1524,7 +1745,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, settingsOpen, setup, stepTab, togglePanel, toggleTerm, unpinSplitId])
+  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, redo, settingsOpen, setup, stepTab, togglePanel, toggleTerm, undo, unpinSplitId])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -1627,6 +1848,7 @@ export default function App(): JSX.Element {
           doneIds={doneIds}
           agentIds={agentIds}
           onDropFile={openInNewTab}
+          onReorder={reorderTab}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}
@@ -1677,6 +1899,8 @@ export default function App(): JSX.Element {
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
+            onDropInto={onDropInto}
+            onDuplicated={(copy) => noteUndo({ kind: 'duplicate', path: copy })}
             wash={washed}
           />
         )}
@@ -1723,7 +1947,7 @@ export default function App(): JSX.Element {
                   />
                 </Suspense>
               ) : file ? (
-                <Viewer key={`${file.kind}:${docVersion}`} file={file} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
+                <Viewer key={`${file.kind}:${docVersion}`} file={file} onUndoable={noteUndo} refreshKey={refreshKey} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
               ) : active ? (
                 <NoFileState />
               ) : (
@@ -1766,6 +1990,8 @@ export default function App(): JSX.Element {
                     area={areas.pinned[i]}
                     onClose={() => unpinSplitId(pn.id)}
                     viewerProps={{
+                      onUndoable: noteUndo,
+                      refreshKey,
                       onToggleFullscreen: toggleFullscreen,
                       fullscreen,
                       transportStyle,
@@ -1852,6 +2078,30 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Delete', danger: true, primary: true, onPick: () => void runDeleteMany(ask.paths) }
+          ]}
+        />
+      )}
+
+      {/* What undo just did, said quietly and briefly: the change is often
+          off screen, and a dialog would be asking a question nobody has. */}
+      {undoNote && (
+        <div
+          role="status"
+          className="pointer-events-none fixed bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
+        >
+          {undoNote}
+        </div>
+      )}
+
+      {ask?.kind === 'move-clash' && (
+        <Dialog
+          title={ask.names.length > 1 ? `${ask.names.length} names are already taken` : `"${ask.names[0]}" is already there`}
+          body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Keep both', primary: true, onPick: () => void runMove(ask.paths, ask.dest, 'keep-both') },
+            { label: 'Replace', danger: true, onPick: () => void runMove(ask.paths, ask.dest, 'replace') }
           ]}
         />
       )}

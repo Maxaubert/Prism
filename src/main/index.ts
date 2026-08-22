@@ -23,7 +23,8 @@ import { treeAgentKind, type ProcRow } from './agentDetect'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
-import { archiveTooLarge, deleteMember, extractMember, listArchive, renameMember, type ArchiveEntry } from './archive'
+import { addToArchive, archiveStat, archiveTooLarge, deleteMember, extractMember, extractTo, listArchive, moveMembers, renameMember, type ArchiveEntry, type ArchiveStat } from './archive'
+import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
@@ -891,6 +892,84 @@ if (!app.requestSingleInstanceLock()) {
       }
     })
 
+    // Undo's half of a delete: ask the shell for the items back. MoveHere
+    // rather than InvokeVerb, because the Restore verb's NAME is localised
+    // and the namespace move is not. Best effort: an item the user has since
+    // emptied simply is not there any more.
+    ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideAnyRoot(p)))
+        return Promise.resolve(false)
+      const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
+      const script = [
+        '$ErrorActionPreference = "SilentlyContinue"',
+        '$missing = $false',
+        '$sh = New-Object -ComObject Shell.Application',
+        '$bin = $sh.Namespace(0xA)',
+        `foreach ($p in @(${list})) {`,
+        '  $dir = Split-Path $p -Parent; $name = Split-Path $p -Leaf',
+        '  $item = @($bin.Items() | Where-Object {',
+        '    $_.Name -eq $name -and $_.ExtendedProperty("System.Recycle.DeletedFrom") -eq $dir',
+        '  })[-1]',
+        '  if ($item) { $sh.Namespace($dir).MoveHere($item) } else { $missing = $true }',
+        '}',
+        // Nothing came back: say so, or undo would claim a restore that never
+        // happened (an emptied Recycle Bin is the common case).
+        'if ($missing) { exit 1 }'
+      ].join('; ')
+      return new Promise((done) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-Command', script],
+          { windowsHide: true, timeout: 20000 },
+          (err) => done(!err)
+        )
+      })
+    })
+
+    /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
+
+    // Every path, source and destination alike, must sit inside an open root:
+    // dragging is not a way out of the wall. Extracted archive members are
+    // granted individually, so a member dragged to a folder can be written.
+    // A folder that is ITSELF a tab's root cannot be moved or zipped away:
+    // the wall would be left pointing at nothing and that tab dies. Renaming
+    // and binning a root are already refused; this is the same rule.
+    const movable = (p: unknown): p is string =>
+      typeof p === 'string' && !isAnyRoot(p) && (insideAnyRoot(p) || extractedPaths.has(p))
+    ipcMain.handle(
+      'file:move',
+      async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
+        if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
+          // `refused` is the wall talking, which is a different sentence from
+          // "that file is locked": the renderer branches on it.
+          return { moved: [], clashes: [], failed: Array.isArray(paths) ? paths : [], replaced: [], refused: true }
+        return moveEntries(paths, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
+          shell.trashItem(t)
+        )
+      }
+    )
+    ipcMain.handle(
+      'archive:add',
+      (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
+        if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
+        if (archiveTooLarge(statSync(zip).size)) return 'failed'
+        return addToArchive(zip, srcPaths, typeof destFolder === 'string' ? destFolder : '', !!keepBoth)
+      }
+    )
+    ipcMain.handle('archive:move-members', (_e, zip: string, entries: string[], destFolder: string) => {
+      if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
+      if (archiveTooLarge(statSync(zip).size)) return 'failed'
+      return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
+    })
+    ipcMain.handle(
+      'archive:extract-to',
+      (_e, zip: string, entries: string[], destDir: string, password?: string) => {
+        if (!archiveOk(zip) || !Array.isArray(entries) || !insideAnyRoot(destDir))
+          return { ok: false, reason: 'failed' }
+        return extractTo(zip, entries, destDir, typeof password === 'string' ? password : undefined)
+      }
+    )
+
     /* ----- the archive verbs (#68): zip only, through src/main/archive.ts ----- */
 
     // Every verb names the zip, which must sit inside a root and actually be
@@ -899,6 +978,9 @@ if (!app.requestSingleInstanceLock()) {
     // rather than frozen over.
     const archiveOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
+    ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null =>
+      archiveOk(p) ? archiveStat(p) : null
+    )
     ipcMain.handle('archive:list', (_e, p: string): ArchiveEntry[] | null => {
       if (!archiveOk(p)) return null
       try {

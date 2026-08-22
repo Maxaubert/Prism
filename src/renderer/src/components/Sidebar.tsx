@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react'
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
@@ -13,7 +13,8 @@ import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -101,6 +102,8 @@ export function Sidebar({
   onRename,
   onDelete,
   onDeleteMany,
+  onDropInto,
+  onDuplicated,
   onNav,
   wash,
   onOpenFolder,
@@ -129,6 +132,11 @@ export function Sidebar({
   onDelete: (path: string, name: string, isFolder: boolean) => void
   /** A multi-selection's delete: one question, then every path to the bin. */
   onDeleteMany: (paths: string[]) => void
+  /** Something was dropped on a folder row: files to move in, or archive
+   *  members to extract there. App owns the questions either can raise. */
+  onDropInto: (destDir: string, payload: DragPayload) => void
+  /** A copy was just made: App remembers it, so Ctrl+Z can take it away. */
+  onDuplicated: (copyPath: string) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -194,6 +202,24 @@ export function Sidebar({
 
   /* ---------- loading ---------- */
 
+  /* The selection (2026-08-22): a click opens as it always did; shift ranges
+     and ctrl toggles build a selection without opening. */
+  const [sel, setSel] = useState<Selection>(emptySelection)
+  // A new place - or anything that rewrote the folder (a delete, a rename, a
+  // move) - starts clean: the old paths may not exist any more, and acting on
+  // them later took files the user could no longer see.
+  const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
+  if (selFor !== `${root}\u0000${refreshKey}`) {
+    setSelFor(`${root}\u0000${refreshKey}`)
+    setSel(emptySelection)
+  }
+  // What a drag carries when the dragged row is part of a selection.
+  // Mirrored via effect (refs must not be written during render).
+  const selRef = useRef(sel)
+  useEffect(() => {
+    selRef.current = sel
+  }, [sel])
+
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(async (p: string, force = false): Promise<void> => {
@@ -203,7 +229,23 @@ export function Sidebar({
 
   const toggle = useCallback(
     (p: string) => {
-      setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
+      setState((s) => {
+        const expanded = toggleExpanded(s.expanded, p)
+        // Collapsing hides rows: anything selected under this folder would
+        // stay selected and invisible, and the next Delete would take it.
+        if (!expanded.has(p)) {
+          const under = p.toLowerCase() + '\\'
+          setSel((sel) => {
+            const kept = [...sel.items].filter((x) => !x.toLowerCase().startsWith(under))
+            if (kept.length === sel.items.size) return sel
+            return {
+              anchor: sel.anchor && kept.includes(sel.anchor) ? sel.anchor : p,
+              items: new Set(kept)
+            }
+          })
+        }
+        return { ...s, expanded }
+      })
       void load(p)
     },
     [load, setState]
@@ -304,43 +346,16 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  /* Explorer selection (2026-08-22): a click selects, shift ranges, ctrl
-     toggles, dragging sweeps. Opening is the double click's job. */
-  const [sel, setSel] = useState<Selection>(emptySelection)
-  // A new place starts clean (render-time reset, the cursorFor pattern).
-  const [selFor, setSelFor] = useState(root)
-  if (selFor !== root) {
-    setSelFor(root)
-    setSel(emptySelection)
-  }
-  const sweep = useRef<{
-    from: string | null
-    live: boolean
-    consumed: boolean
-    base: ReadonlySet<string>
-  }>({ from: null, live: false, consumed: false, base: new Set() })
-  // What the sweep merges into: the selection as it stood at pointer-down.
-  // Mirrored via effect (refs must not be written during render).
-  const selRef = useRef(sel)
-  useEffect(() => {
-    selRef.current = sel
-  }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
 
   const onMenu = useCallback(
-    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
+    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number, fromSearch = false) => {
       e.preventDefault()
       // Right-clicking INSIDE a multi-selection acts on all of it; outside,
       // the clicked row becomes the selection first, the way Explorer does.
-      const multi = sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
-      if (!multi) setSel({ anchor: path, items: new Set([path]) })
+      // A SEARCH hit never inherits the tree's selection: those are different
+      // lists, and the menu would have acted on rows the user could not see.
+      const multi = !fromSearch && sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
+      if (!multi && !fromSearch) setSel({ anchor: path, items: new Set([path]) })
       setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, multi, apps: isFolder ? undefined : null })
       // The app list arrives while the menu is up; ignore it if the menu has
       // meanwhile moved to another row (or closed).
@@ -390,15 +405,10 @@ export function Sidebar({
   )
 
   /** The flattened visible rows, top to bottom: the order shift-ranges and
-   *  sweeps count through. */
+   *  shift-ranges count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
-      // The click that ENDS a sweep must not collapse what the sweep built.
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
       // A plain click keeps the tree's quick-look reflex: it opens (or
@@ -422,19 +432,33 @@ export function Sidebar({
     },
     [order, sel]
   )
-  const onSweepStart = useCallback((path: string): void => {
-    sweep.current = { from: path, live: false, consumed: false, base: selRef.current.items }
-  }, [])
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from) return
-      if (!s.live && path === s.from) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
+
+  /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const onRowDragStart = useCallback(
+    (e: DragEvent, path: string): void => {
+      // Dragging a row that is part of a multi-selection takes all of it.
+      const items = selRef.current.items
+      setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
+      e.dataTransfer.setData(DRAG_MIME, 'files')
+      e.dataTransfer.effectAllowed = 'move'
     },
-    [order]
+    []
+  )
+  const onDropOn = useCallback(
+    (e: DragEvent, folderPath: string): void => {
+      setDropTarget(null)
+      const payload = dragPayload(e.dataTransfer)
+      setDrag(null)
+      if (payload) onDropInto(folderPath, payload)
+      else {
+        // Nothing of ours: Explorer, then. Its files are outside the root, so
+        // main will refuse them - App says so rather than failing silently.
+        const outside = droppedPaths(e.dataTransfer)
+        if (outside.length) onDropInto(folderPath, { kind: 'files', paths: outside })
+      }
+    },
+    [onDropInto]
   )
 
   /** Put the cursor on a row: folders only highlight, files open. */
@@ -577,12 +601,17 @@ export function Sidebar({
         >
           {query.trim() ? (
             <SearchResults
+              key={root}
               root={root}
               query={query.trim()}
               refreshKey={refreshKey}
               currentPath={currentPath}
               size={size}
               onOpen={onOpenFile}
+              onMenu={(e, path, name) => onMenu(e, path, name, false, undefined, true)}
+              onMultiMenu={(e, paths) =>
+                setMenu({ x: e.clientX, y: e.clientY, path: paths[0], name: '', isFolder: false, multi: paths })
+              }
             />
           ) : (
             <TreeProvider
@@ -597,9 +626,15 @@ export function Sidebar({
                 menuPath: menu?.path ?? null,
                 selected: sel.items,
                 selJoin,
+                onRowDragStart,
+                dropTarget,
+                onDropHover: setDropTarget,
+                onDragDone: () => {
+                  setDropTarget(null)
+                  setDrag(null)
+                },
+                onDropOn,
                 onRowClick,
-                onSweepStart,
-                onSweepOver,
                 onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
@@ -820,7 +855,10 @@ export function Sidebar({
                     icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
                     onPick: () =>
                       void window.prism.duplicateFile(menu.path).then((copy) => {
-                        if (copy) void load(parentDir(menu.path), true)
+                        if (copy) {
+                          onDuplicated(copy)
+                          void load(parentDir(menu.path), true)
+                        }
                       })
                   }
                 ]
