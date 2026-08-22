@@ -89,6 +89,10 @@ function TopBar({
   pos,
   settingsOpen,
   onToggleSettings,
+  update,
+  updatePhase,
+  updatePct,
+  onInstallUpdate,
   panelOpen,
   onTogglePanel,
   setup,
@@ -119,6 +123,12 @@ function TopBar({
   /** The open buffer holds unsaved text: the bar says so with a dot. */
   dirty: boolean
   onToggleEdit: () => void
+  /** A newer release exists (mock in unpackaged builds, so the chip can be
+   *  seen; the installed app only shows a real one). */
+  update: { version: string; mock?: boolean } | null
+  updatePhase: 'idle' | 'downloading' | 'installing'
+  updatePct: number
+  onInstallUpdate: () => void
 }): JSX.Element {
   const w = window.prism
   return (
@@ -158,6 +168,35 @@ function TopBar({
         />
       )}
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
+      {/* The update chip: quiet accent pill, present only while there is
+          something to install. A mock (unpackaged builds) is inert - it
+          exists so the chip can be seen before a real release carries it. */}
+      {!setup && update && (
+        <button
+          className="no-drag flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-medium text-[var(--p-accent-hi)] transition-[filter] hover:brightness-125"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--p-accent-hi) 45%, transparent)',
+            background: 'color-mix(in srgb, var(--p-accent) 16%, transparent)'
+          }}
+          onClick={onInstallUpdate}
+          disabled={updatePhase !== 'idle'}
+          title={
+            update.mock
+              ? 'Preview: the installed app only shows this when a newer release exists'
+              : `Download and install ${update.version}`
+          }
+          aria-label={`Update to ${update.version}`}
+        >
+          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" />
+          </svg>
+          {updatePhase === 'downloading'
+            ? `${updatePct}%`
+            : updatePhase === 'installing'
+              ? 'Installing…'
+              : `Update ${update.version}`}
+        </button>
+      )}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
         <button
@@ -624,6 +663,30 @@ export default function App(): JSX.Element {
   useEffect(() => liftVeil(), [fullscreen, liftVeil])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
+
+  // The update offer and its progress through install. Phase lives here (not
+  // in the bar) so the chip survives the bar re-rendering under it.
+  const [update, setUpdate] = useState<{ version: string; url: string; mock?: boolean } | null>(null)
+  const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
+  const [updatePct, setUpdatePct] = useState(0)
+  useEffect(() => window.prism.onUpdate(setUpdate), [])
+  useEffect(
+    () =>
+      window.prism.onUpdateProgress((pct) => {
+        setUpdatePct(pct)
+        if (pct >= 100) setUpdatePhase('installing')
+      }),
+    []
+  )
+  const installUpdate = useCallback(() => {
+    if (!update || update.mock) return
+    setUpdatePhase('downloading')
+    setUpdatePct(0)
+    void window.prism.installUpdate(update.url).then((ok) => {
+      // On success the app quits under the installer; only failure comes back.
+      if (!ok) setUpdatePhase('idle')
+    })
+  }, [update])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   /**
@@ -1520,6 +1583,10 @@ export default function App(): JSX.Element {
           editing={editMode}
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}
+          update={update}
+          updatePhase={updatePhase}
+          updatePct={updatePct}
+          onInstallUpdate={installUpdate}
         />
       )}
       {/* Under the bar, and only once there are two or more: one tab is exactly
