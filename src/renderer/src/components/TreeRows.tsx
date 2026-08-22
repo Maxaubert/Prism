@@ -3,7 +3,6 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { useStyle } from '../lib/theme'
 import { useSysIcon } from '../lib/sysIcon'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
@@ -117,12 +116,11 @@ export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; 
 /** The archive row's icon (#68, revised 2026-08-22: the owner tried the
  *  parcel and picked the real thing): the SYSTEM icon of the user's own
  *  association (WinRAR, 7-Zip, Explorer's zipped folder...), one fetch per
- *  extension. Choosing a colour in Settings > Style swaps to Prism's parcel
- *  in that colour; so does having no icon to show (loading, no handler). */
+ *  extension. The amber parcel stands in while it loads and on machines
+ *  where Windows has none to give. */
 function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: string; path?: string }): JSX.Element {
-  const custom = !!useStyle().archiveIcon
-  const url = useSysIcon(custom ? null : (path ?? null))
-  if (!custom && url)
+  const url = useSysIcon(path ?? null)
+  if (url)
     return <img src={url} width={14} height={14} className="shrink-0" alt="" aria-hidden />
   const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
   return (

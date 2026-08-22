@@ -43,7 +43,6 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
-  archiveIconOf,
   fileIconOf,
   folderIconOf,
   resolveVizTheme,
@@ -798,19 +797,6 @@ function StyleTab(): JSX.Element {
               custom={!!edits.fileIcon}
               onChange={(v) => setOverride('fileIcon', v)}
               onReset={() => setOverride('fileIcon', null)}
-            />
-          </Pref>
-          <Pref
-            id="c-archive-icon"
-            label="Archive icons"
-            hint="Default: the icon your system shows for zips (WinRAR, 7-Zip...). Pick a colour to use Prism's parcel instead; reset returns to the system icon."
-          >
-            <ColourWell
-              id="c-archive-icon"
-              value={archiveIconOf(style)}
-              custom={!!edits.archiveIcon}
-              onChange={(v) => setOverride('archiveIcon', v)}
-              onReset={() => setOverride('archiveIcon', null)}
             />
           </Pref>
         </div>

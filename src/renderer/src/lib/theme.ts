@@ -33,7 +33,6 @@ export interface Style {
    *  every file icon (unset means the per-kind tints, iconMode permitting). */
   folderIcon?: string
   fileIcon?: string
-  archiveIcon?: string
   /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
   accent: string
   font: FontId
@@ -625,11 +624,12 @@ export const folderIconOf = (s: Style): string => {
 export const fileIconOf = (s: Style): string =>
   s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
 
-/** The tree's archive colour (#68, owner pick 2026-08-22: the amber parcel):
- *  the chosen one, or the classic archive gold stepped toward readability
- *  against the panel the same way the folder colour is. */
+/** The parcel FALLBACK colour (#68): archives normally wear the system's own
+ *  association icon, and this amber - stepped toward readability like the
+ *  folder colour - covers the moment before it loads and machines where
+ *  Windows has none to give. Not user-facing; the picker was removed
+ *  (owner decision 2026-08-22) once the system icon became the icon. */
 export const archiveIconOf = (s: Style): string => {
-  if (s.archiveIcon) return s.archiveIcon
   let c = '#d9a53f'
   for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
@@ -670,7 +670,6 @@ export interface Overrides {
   corners?: Style['corners']
   folderIcon?: string
   fileIcon?: string
-  archiveIcon?: string
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -737,7 +736,6 @@ export const isEdited = (): boolean =>
     draft.corners ||
     draft.folderIcon ||
     draft.fileIcon ||
-    draft.archiveIcon ||
     draft.acrylic !== undefined
   )
 
@@ -752,8 +750,7 @@ function edited(s: Style): Style {
     borders: draft.borders ?? s.borders,
     corners: draft.corners ?? s.corners,
     folderIcon: draft.folderIcon ?? s.folderIcon,
-    fileIcon: draft.fileIcon ?? s.fileIcon,
-    archiveIcon: draft.archiveIcon ?? s.archiveIcon
+    fileIcon: draft.fileIcon ?? s.fileIcon
   }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
@@ -833,7 +830,7 @@ export function setStyle(id: string): void {
 
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
-  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'corners' | 'folderIcon' | 'fileIcon' | 'archiveIcon',
+  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'corners' | 'folderIcon' | 'fileIcon',
   value: string | null
 ): void {
   const next: Overrides = { ...draft }

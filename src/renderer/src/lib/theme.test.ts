@@ -167,14 +167,10 @@ describe('the progress bar follows the accent', () => {
   })
 })
 
-describe('the archive colour', () => {
-  it('reads against every shipped style (default amber, stepped like folders)', () => {
+describe('the archive fallback colour', () => {
+  it('reads against every shipped style (amber, stepped like folders)', () => {
     for (const s of STYLES) {
       expect(contrast(archiveIconOf(s), s.bg)).toBeGreaterThanOrEqual(3)
     }
-  })
-
-  it('yields to a chosen colour', () => {
-    expect(archiveIconOf({ ...STYLES[0], archiveIcon: '#123456' })).toBe('#123456')
   })
 })
