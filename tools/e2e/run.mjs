@@ -1544,19 +1544,24 @@ async function archiveScenario(fixtures) {
   const zipPath = join(fixtures, 'zips', 'bundle.zip')
   const { app, win } = await launch(zipPath)
   try {
-    await win.waitForSelector('[role="tree"][aria-label*="bundle.zip"]', { timeout: 10000 })
-    const row = (name) =>
-      win.locator(`[role="tree"][aria-label*="bundle.zip"] [role="treeitem"]`, { hasText: name })
+    await win.waitForSelector('[role="listbox"][aria-label*="bundle.zip"]', { timeout: 10000 })
+    const row = (name) => win.locator(`[role="listbox"] [role="option"]`, { hasText: name })
     ok((await row('readme.txt').count()) === 1, 'a top-level member is listed')
     ok((await row('notes').count()) >= 1, 'so is the folder')
     const body = (await win.textContent('body')) ?? ''
     ok(/25 B/.test(body), 'sizes ride along')
-    ok(!/todo\.md/.test(body), 'a collapsed folder hides its members')
+    ok(!/todo\.md/.test(body), 'the root listing shows only its own level')
 
-    // Expand, then view a member; Escape backs out of the preview.
+    // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
+    // Backspace) climbs back out.
     await row('notes').first().click()
     await win.waitForSelector('text=todo.md', { timeout: 5000 })
-    ok(true, 'expanding the folder reveals its members')
+    ok((await row('readme.txt').count()) === 0, 'entering a folder leaves the parent behind')
+    await win.keyboard.press('Backspace')
+    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
+    ok(true, 'Backspace climbs back to the root')
+
+    // View a member; Escape backs out of the preview.
     await row('readme.txt').first().click()
     await win.waitForFunction(
       () => /hello from inside the zip/.test(document.body.textContent ?? ''),
@@ -1575,6 +1580,8 @@ async function archiveScenario(fixtures) {
 
     // Rename in place: F2 on the focused row, Explorer-style selection means
     // typing replaces the stem and keeps the extension.
+    await row('notes').first().click()
+    await win.waitForSelector('text=todo.md', { timeout: 5000 })
     await row('todo.md').first().focus()
     await win.keyboard.press('F2')
     await win.keyboard.type('done')
@@ -1587,7 +1594,10 @@ async function archiveScenario(fixtures) {
     )
 
     // Delete: confirms first (permanent - a zip has no recycle bin), then the
-    // member is gone from the tree AND the container.
+    // member is gone from the listing AND the container. The breadcrumb's
+    // root crumb goes back up first.
+    await win.locator('[data-archive-crumbs] button:has-text("bundle.zip")').click()
+    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
     await row('readme.txt').first().focus()
     await win.keyboard.press('Delete')
     await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })

@@ -18,6 +18,26 @@ export type ArchiveEntry = {
   name: string
   dir: boolean
   size: number
+  /** Password-protected. ZipCrypto opens with the password; AES cannot. */
+  encrypted?: boolean
+}
+
+/** Why a member operation could not deliver: it wants a password (missing or
+ *  wrong), the entry is AES-encrypted (adm-zip only decrypts ZipCrypto), or
+ *  something else broke. */
+export type MemberFail = 'password' | 'aes' | 'failed'
+
+const AES_METHOD = 99
+
+const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
+  if (e.header.method === AES_METHOD) return 'aes'
+  return (e.header.flags & 1) === 1 || hasPassword ? 'password' : 'failed'
+}
+
+type ZipEntryLike = {
+  header: { size: number; flags: number; method: number }
+  isDirectory: boolean
+  getData: (pass?: string) => Buffer
 }
 
 /** A member name is a plain filename: no separators, no traversal, not empty. */
@@ -39,7 +59,13 @@ export function listArchive(zipPath: string): ArchiveEntry[] {
     if (e.isDirectory) {
       if (!seen.has(p)) seen.set(p, { path: p, name: basename(p), dir: true, size: 0 })
     } else {
-      seen.set(p, { path: p, name: basename(p), dir: false, size: e.header.size })
+      seen.set(p, {
+        path: p,
+        name: basename(p),
+        dir: false,
+        size: e.header.size,
+        encrypted: (e.header.flags & 1) === 1 || undefined
+      })
     }
     // Parents implied by the path, for zips that never wrote folder records.
     for (let i = p.indexOf('/'); i > 0; i = p.indexOf('/', i + 1)) {
@@ -50,35 +76,57 @@ export function listArchive(zipPath: string): ArchiveEntry[] {
   return [...seen.values()]
 }
 
-/** Extract one member to a fresh temp dir; returns the extracted path. */
-export function extractMember(zipPath: string, entryPath: string): string | null {
+/** Extract one member to a fresh temp dir. */
+export function extractMember(
+  zipPath: string,
+  entryPath: string,
+  password?: string
+): { ok: true; path: string } | { ok: false; reason: MemberFail } {
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
-  if (!entry || entry.isDirectory) return null
-  const data = entry.getData()
+  if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
+  let data: Buffer
+  try {
+    data = (entry as unknown as ZipEntryLike).getData(password)
+    if (!data?.length && entry.header.size > 0) throw new Error('no data')
+  } catch {
+    return { ok: false, reason: failOf(entry as unknown as ZipEntryLike, !!password) }
+  }
   // The member's own basename, so the viewer's kind detection reads it; the
   // random temp dir keeps two same-named members from colliding.
   const out = join(mkdtempSync(join(tmpdir(), 'prism-zip-')), basename(norm(entryPath)))
   writeFileSync(out, data)
-  return out
+  return { ok: true, path: out }
 }
 
-/** Rename one FILE member in place (same folder, new name). */
-export function renameMember(zipPath: string, entryPath: string, newName: string): boolean {
-  if (!validMemberName(newName)) return false
+/** Rename one FILE member in place (same folder, new name). Rewriting stores
+ *  the member decrypted, so an encrypted one needs its password here too. */
+export function renameMember(
+  zipPath: string,
+  entryPath: string,
+  newName: string,
+  password?: string
+): 'ok' | MemberFail {
+  if (!validMemberName(newName)) return 'failed'
   const p = norm(entryPath)
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(p)
-  if (!entry || entry.isDirectory) return false
+  if (!entry || entry.isDirectory) return 'failed'
   const folder = p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : ''
   const target = folder + newName
-  if (target === p) return true
-  if (zip.getEntry(target)) return false // a taken name refuses, never overwrites
-  const data = entry.getData()
+  if (target === p) return 'ok'
+  if (zip.getEntry(target)) return 'failed' // a taken name refuses, never overwrites
+  let data: Buffer
+  try {
+    data = (entry as unknown as ZipEntryLike).getData(password)
+    if (!data?.length && entry.header.size > 0) throw new Error('no data')
+  } catch {
+    return failOf(entry as unknown as ZipEntryLike, !!password)
+  }
   zip.deleteFile(p)
   zip.addFile(target, data)
   zip.writeZip(zipPath)
-  return true
+  return 'ok'
 }
 
 /** Delete one FILE member. Permanent: there is no recycle bin inside a zip,

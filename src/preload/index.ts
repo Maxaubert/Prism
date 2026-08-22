@@ -92,17 +92,24 @@ const api = {
   /** Every entry in the archive (folders derived when the zip omits them). */
   archiveList: (
     path: string
-  ): Promise<Array<{ path: string; name: string; dir: boolean; size: number }> | null> =>
+  ): Promise<Array<{ path: string; name: string; dir: boolean; size: number; encrypted?: boolean }> | null> =>
     ipcRenderer.invoke('archive:list', path),
-  /** Extract one member to temp for viewing; resolves with its path and kind. */
+  /** Extract one member to temp for viewing. 'password' means one is needed
+   *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (
     path: string,
-    entry: string
-  ): Promise<{ path: string; kind: FileKind } | null> =>
-    ipcRenderer.invoke('archive:extract', path, entry),
+    entry: string,
+    password?: string
+  ): Promise<{ ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
+    ipcRenderer.invoke('archive:extract', path, entry, password),
   /** Rename one member in place (same folder). A taken name refuses. */
-  archiveRename: (path: string, entry: string, name: string): Promise<boolean> =>
-    ipcRenderer.invoke('archive:rename', path, entry, name),
+  archiveRename: (
+    path: string,
+    entry: string,
+    name: string,
+    password?: string
+  ): Promise<'ok' | 'password' | 'aes' | 'failed'> =>
+    ipcRenderer.invoke('archive:rename', path, entry, name, password),
   /** Remove one member. Permanent - no recycle bin inside a zip. */
   archiveDelete: (path: string, entry: string): Promise<boolean> =>
     ipcRenderer.invoke('archive:delete', path, entry),

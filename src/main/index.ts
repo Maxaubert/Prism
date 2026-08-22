@@ -901,29 +901,36 @@ if (!app.requestSingleInstanceLock()) {
         return null
       }
     })
+    type ExtractResult =
+      | { ok: true; path: string; kind: FileKind }
+      | { ok: false; reason: 'password' | 'aes' | 'failed' }
     ipcMain.handle(
       'archive:extract',
-      (_e, p: string, entry: string): { path: string; kind: FileKind } | null => {
-        if (!archiveOk(p) || typeof entry !== 'string') return null
+      (_e, p: string, entry: string, password?: string): ExtractResult => {
+        if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
         try {
-          if (archiveTooLarge(statSync(p).size)) return null
-          const out = extractMember(p, entry)
-          if (!out) return null
-          extractedPaths.add(out)
-          return { path: out, kind: fileKind(extname(out), basename(out)) }
+          if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+          const r = extractMember(p, entry, typeof password === 'string' ? password : undefined)
+          if (!r.ok) return r
+          extractedPaths.add(r.path)
+          return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
         } catch {
-          return null
+          return { ok: false, reason: 'failed' }
         }
       }
     )
-    ipcMain.handle('archive:rename', (_e, p: string, entry: string, name: string): boolean => {
-      if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return false
-      try {
-        return !archiveTooLarge(statSync(p).size) && renameMember(p, entry, name)
-      } catch {
-        return false
+    ipcMain.handle(
+      'archive:rename',
+      (_e, p: string, entry: string, name: string, password?: string): string => {
+        if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
+        try {
+          if (archiveTooLarge(statSync(p).size)) return 'failed'
+          return renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
+        } catch {
+          return 'failed'
+        }
       }
-    })
+    )
     ipcMain.handle('archive:delete', (_e, p: string, entry: string): boolean => {
       if (!archiveOk(p) || typeof entry !== 'string') return false
       try {

@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { mkdtempSync, readFileSync } from 'fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -30,35 +30,68 @@ describe('listArchive', () => {
 
 describe('extractMember', () => {
   it('writes the member to temp under its own name', () => {
-    const out = extractMember(zipPath, 'docs/guide.md')
-    expect(out).toMatch(/guide\.md$/)
-    expect(readFileSync(out!, 'utf8')).toBe('# guide')
+    const r = extractMember(zipPath, 'docs/guide.md')
+    if (!r.ok) throw new Error('expected ok')
+    expect(r.path).toMatch(/guide\.md$/)
+    expect(readFileSync(r.path, 'utf8')).toBe('# guide')
   })
   it('refuses folders and unknown members', () => {
-    expect(extractMember(zipPath, 'docs')).toBeNull()
-    expect(extractMember(zipPath, 'nope.txt')).toBeNull()
+    expect(extractMember(zipPath, 'docs')).toEqual({ ok: false, reason: 'failed' })
+    expect(extractMember(zipPath, 'nope.txt')).toEqual({ ok: false, reason: 'failed' })
+  })
+})
+
+describe('password-protected archives', () => {
+  // Authored with 7-Zip: crypto.zip is classic ZipCrypto (password letmein),
+  // aes.zip is AES-256 - adm-zip can only decrypt the former.
+  const crypto = join(__dirname, 'fixtures', 'crypto.zip')
+  const aes = join(__dirname, 'fixtures', 'aes.zip')
+
+  it('lists encrypted members with the flag', () => {
+    const [e] = listArchive(crypto)
+    expect(e.name).toBe('secret.txt')
+    expect(e.encrypted).toBe(true)
+  })
+  it('asks for a password, refuses a wrong one, opens with the right one', () => {
+    expect(extractMember(crypto, 'secret.txt')).toEqual({ ok: false, reason: 'password' })
+    expect(extractMember(crypto, 'secret.txt', 'nope')).toEqual({ ok: false, reason: 'password' })
+    const r = extractMember(crypto, 'secret.txt', 'letmein')
+    if (!r.ok) throw new Error('expected ok')
+    expect(readFileSync(r.path, 'utf8')).toBe('top secret')
+  })
+  it('names AES as the reason it cannot open', () => {
+    expect(extractMember(aes, 'secret.txt', 'letmein')).toEqual({ ok: false, reason: 'aes' })
   })
 })
 
 describe('renameMember', () => {
   it('renames within the same folder and keeps the data', () => {
-    expect(renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe(true)
+    expect(renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe('ok')
     const entries = listArchive(zipPath).map((e) => e.path)
     expect(entries).toContain('docs/manual.md')
     expect(entries).not.toContain('docs/guide.md')
-    expect(extractMember(zipPath, 'docs/manual.md')).toBeTruthy()
+    expect(extractMember(zipPath, 'docs/manual.md').ok).toBe(true)
   })
   it('refuses a taken name rather than overwriting', () => {
-    expect(renameMember(zipPath, 'readme.txt', 'readme.txt')).toBe(true) // no-op
+    expect(renameMember(zipPath, 'readme.txt', 'readme.txt')).toBe('ok') // no-op
     const zip = new AdmZip(zipPath)
     zip.addFile('docs/manual.md', Buffer.from('x'))
     zip.writeZip(zipPath)
-    expect(renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe(false)
+    expect(renameMember(zipPath, 'docs/guide.md', 'manual.md')).toBe('failed')
   })
   it('refuses names that would escape or break the archive', () => {
     for (const bad of ['../up.md', 'a/b.md', 'a\\b.md', '', 'x?.md']) {
-      expect(renameMember(zipPath, 'docs/guide.md', bad)).toBe(false)
+      expect(renameMember(zipPath, 'docs/guide.md', bad)).toBe('failed')
     }
+  })
+  it('needs the password to rewrite an encrypted member', () => {
+    // Rename rewrites the container, which stores the member decrypted; a
+    // copy is made first so the shared fixture is never mutated.
+    const copy = join(mkdtempSync(join(tmpdir(), 'prism-crypto-')), 'c.zip')
+    writeFileSync(copy, readFileSync(join(__dirname, 'fixtures', 'crypto.zip')))
+    expect(renameMember(copy, 'secret.txt', 'renamed.txt')).toBe('password')
+    expect(renameMember(copy, 'secret.txt', 'renamed.txt', 'letmein')).toBe('ok')
+    expect(listArchive(copy).map((e) => e.path)).toContain('renamed.txt')
   })
 })
 
