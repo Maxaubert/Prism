@@ -251,11 +251,21 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // Tab reaches the tree once and Enter/Space then work natively on the
           // row the arrows are on - no key handling of our own for either.
           data-row={path}
+          data-selected={t.selected.has(path) || undefined}
           tabIndex={onCursor ? 0 : -1}
-          onClick={() => t.onToggle(path)}
+          // Explorer's grammar (2026-08-22): a click SELECTS, double click (or
+          // the chevron, or Enter) expands. Selecting without opening is what
+          // makes select-then-right-click and multi-select possible.
+          onClick={(e) => t.onRowClick(e, path)}
+          onDoubleClick={() => t.onToggle(path)}
+          onPointerDown={(e) => e.button === 0 && t.onSweepStart(path)}
+          onPointerEnter={() => t.onSweepOver(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
-            if (e.key === 'F2') {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              t.onToggle(path)
+            } else if (e.key === 'F2') {
               e.preventDefault()
               t.onStartRename(path)
             } else if (e.key === 'Delete') {
@@ -264,7 +274,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             }
           }}
           className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
-            onCursor
+            onCursor || t.selected.has(path)
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
               : onMenuHl
                 ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
@@ -272,8 +282,19 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           }`}
           style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
         >
-          <Chevron open={open} />
-          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+          {/* The chevron keeps its single-click expand; it opts out of the
+              row's select-click. */}
+          <span
+            className="grid place-items-center"
+            onClick={(e) => {
+              e.stopPropagation()
+              t.onToggle(path)
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <Chevron open={open} />
+          </span>
+          <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
           <Label name={name} />
         </button>
       )}
@@ -340,6 +361,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         // second highlight competing with the first was more noise than help.
         // `aria-selected` still says so for anything reading the tree.
         const onCursor = !!t.cursor && f.path.toLowerCase() === t.cursor.toLowerCase()
+        const onSel = onCursor || t.selected.has(f.path)
         // The right-clicked row keeps its hover look while its menu is up.
         const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
         return (
@@ -348,12 +370,23 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               data-row={f.path}
+              data-selected={onSel || undefined}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
-              onClick={() => t.onOpenFile(f.path)}
+              // Explorer's grammar (2026-08-22): a click SELECTS (shift
+              // ranges, ctrl toggles, dragging sweeps), double click or Enter
+              // opens. Selecting without opening is what makes
+              // select-then-right-click and multi-select possible.
+              onClick={(e) => t.onRowClick(e, f.path)}
+              onDoubleClick={() => t.onOpenFile(f.path)}
+              onPointerDown={(e) => e.button === 0 && t.onSweepStart(f.path)}
+              onPointerEnter={() => t.onSweepOver(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
-                if (e.key === 'F2') {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  t.onOpenFile(f.path)
+                } else if (e.key === 'F2') {
                   e.preventDefault()
                   t.onStartRename(f.path)
                 } else if (e.key === 'Delete') {
@@ -362,7 +395,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 }
               }}
               className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
-                onCursor
+                onSel
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
                   : onMenuHl
                     ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
@@ -375,9 +408,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               <KindIcon
                 kind={f.kind}
                 // The knockout only applies on the filled row, which is now the
-                // cursor's rather than the open file's.
-                color={onCursor ? 'var(--p-on-accent)' : iconColour(f.kind)}
-                ko={onCursor ? accentColour() : undefined}
+                // selection's rather than the open file's.
+                color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
+                ko={onSel ? accentColour() : undefined}
                 path={f.path}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />

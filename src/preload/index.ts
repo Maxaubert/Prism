@@ -79,6 +79,9 @@ const api = {
   /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
   copyFileToClipboard: (path: string): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', path),
+  /** A multi-selection's copy: every file lands on the clipboard together. */
+  copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('file:copy-clip', paths),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),

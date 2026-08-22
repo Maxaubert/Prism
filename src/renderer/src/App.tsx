@@ -70,6 +70,7 @@ const SETUP_KEY = 'prism.onboarded'
 /** A question Prism has to put to the user before (or instead of) touching a file. */
 type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
+  | { kind: 'delete-many'; paths: string[] }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
   | { kind: 'close-dirty' }
@@ -1388,6 +1389,28 @@ export default function App(): JSX.Element {
     },
     [closeActiveTab, file, reopen, view]
   )
+  /** The multi-selection's delete (2026-08-22): every path to the bin, one
+   *  refresh, and the viewer steps off anything that just vanished. */
+  const runDeleteMany = useCallback(
+    async (paths: string[]): Promise<void> => {
+      setAsk(null)
+      let failed = 0
+      for (const p of paths) {
+        if (!(await window.prism.trashFile(p))) failed += 1
+      }
+      setRefreshKey((n) => n + 1)
+      const cur = file?.path
+      if (cur && paths.some((p) => within(cur, p))) {
+        const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
+        const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
+        if (next) reopen(next.path)
+        else closeActiveTab()
+      } else if (cur) reopen(cur)
+      if (failed)
+        setAsk({ kind: 'failed', message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.` })
+    },
+    [closeActiveTab, file, reopen, view]
+  )
 
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
@@ -1653,6 +1676,7 @@ export default function App(): JSX.Element {
             // silently drop the editor's unsaved text; those ask first too.
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
+            onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
             wash={washed}
           />
         )}
@@ -1816,6 +1840,18 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             { label: 'Delete', danger: true, primary: true, onPick: () => void runDelete(ask.path) }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'delete-many' && (
+        <Dialog
+          title={`Move ${ask.paths.length} items to the Recycle Bin?`}
+          body="Everything selected goes to the Recycle Bin, where Windows can put it back."
+          onCancel={() => setAsk(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setAsk(null) },
+            { label: 'Delete', danger: true, primary: true, onPick: () => void runDeleteMany(ask.paths) }
           ]}
         />
       )}

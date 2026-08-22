@@ -850,14 +850,20 @@ if (!app.requestSingleInstanceLock()) {
 
     // The real file onto the clipboard (a drop list, so Ctrl+V in Explorer
     // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
-    ipcMain.handle('file:copy-clip', (_e, p: string): Promise<boolean> => {
-      // Extracted archive members are copyable too - that IS "copy out of the zip".
-      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return Promise.resolve(false)
-      const quoted = p.replace(/'/g, "''")
+    // One path or a multi-selection's worth: every one must pass the wall
+    // (roots, or an individually granted extracted member) or nothing copies.
+    ipcMain.handle('file:copy-clip', (_e, p: string | string[]): Promise<boolean> => {
+      const list = Array.isArray(p) ? p : [p]
+      if (
+        !list.length ||
+        list.some((x) => typeof x !== 'string' || (!insideAnyRoot(x) && !extractedPaths.has(x)))
+      )
+        return Promise.resolve(false)
+      const quoted = list.map((x) => `'${x.replace(/'/g, "''")}'`).join(',')
       return new Promise((done) => {
         execFile(
           'powershell.exe',
-          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath '${quoted}'`],
+          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath ${quoted}`],
           { windowsHide: true, timeout: 5000 },
           (err) => done(!err)
         )

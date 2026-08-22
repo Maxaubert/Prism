@@ -13,6 +13,7 @@ import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
+import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -78,6 +79,9 @@ interface Menu {
   size?: number
   /** "Open in" candidates: undefined for folders, null while they load. */
   apps?: OpenWithApp[] | null
+  /** Set when the right-click landed inside a multi-selection: every selected
+   *  path, and the menu acts on all of them. */
+  multi?: string[]
 }
 
 /** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
@@ -96,6 +100,7 @@ export function Sidebar({
   onOpenFile,
   onRename,
   onDelete,
+  onDeleteMany,
   onNav,
   wash,
   onOpenFolder,
@@ -122,6 +127,8 @@ export function Sidebar({
   onOpenFile: (path: string) => void
   onRename: (path: string, name: string) => void
   onDelete: (path: string, name: string, isFolder: boolean) => void
+  /** A multi-selection's delete: one question, then every path to the bin. */
+  onDeleteMany: (paths: string[]) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -297,17 +304,47 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  const onMenu = useCallback((e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
-    e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, apps: isFolder ? undefined : null })
-    // The app list arrives while the menu is up; ignore it if the menu has
-    // meanwhile moved to another row (or closed).
-    if (!isFolder) {
-      void window.prism.appsFor(path).then((apps) => {
-        setMenu((m) => (m && m.path === path ? { ...m, apps } : m))
-      })
+  /* Explorer selection (2026-08-22): a click selects, shift ranges, ctrl
+     toggles, dragging sweeps. Opening is the double click's job. */
+  const [sel, setSel] = useState<Selection>(emptySelection)
+  // A new place starts clean (render-time reset, the cursorFor pattern).
+  const [selFor, setSelFor] = useState(root)
+  if (selFor !== root) {
+    setSelFor(root)
+    setSel(emptySelection)
+  }
+  const sweep = useRef<{ from: string | null; live: boolean; consumed: boolean }>({
+    from: null,
+    live: false,
+    consumed: false
+  })
+  useEffect(() => {
+    const up = (): void => {
+      sweep.current.from = null
+      sweep.current.live = false
     }
+    window.addEventListener('pointerup', up)
+    return () => window.removeEventListener('pointerup', up)
   }, [])
+
+  const onMenu = useCallback(
+    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
+      e.preventDefault()
+      // Right-clicking INSIDE a multi-selection acts on all of it; outside,
+      // the clicked row becomes the selection first, the way Explorer does.
+      const multi = sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
+      if (!multi) setSel({ anchor: path, items: new Set([path]) })
+      setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, multi, apps: isFolder ? undefined : null })
+      // The app list arrives while the menu is up; ignore it if the menu has
+      // meanwhile moved to another row (or closed).
+      if (!isFolder && !multi) {
+        void window.prism.appsFor(path).then((apps) => {
+          setMenu((m) => (m && m.path === path ? { ...m, apps } : m))
+        })
+      }
+    },
+    [sel]
+  )
 
   const submitRename = useCallback(
     (path: string, name: string) => {
@@ -331,6 +368,9 @@ export function Sidebar({
   if (currentPath !== cursorFor) {
     setCursorFor(currentPath)
     setCursor(currentPath)
+    // The selection follows the viewer too: what is on screen is the one
+    // selected row, until the user builds a bigger selection by hand.
+    setSel(currentPath ? { anchor: currentPath, items: new Set([currentPath]) } : emptySelection)
   }
 
   const rows = useMemo(
@@ -342,10 +382,41 @@ export function Sidebar({
     [root, state.expanded, state.children, sort]
   )
 
+  /** The flattened visible rows, top to bottom: the order shift-ranges and
+   *  sweeps count through. */
+  const order = useMemo(() => rows.map((r) => r.path), [rows])
+  const onRowClick = useCallback(
+    (e: MouseEvent, path: string): void => {
+      // The click that ENDS a sweep must not collapse what the sweep built.
+      if (sweep.current.consumed) {
+        sweep.current.consumed = false
+        return
+      }
+      setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
+      setCursor(path)
+    },
+    [order]
+  )
+  const onSweepStart = useCallback((path: string): void => {
+    sweep.current = { from: path, live: false, consumed: false }
+  }, [])
+  const onSweepOver = useCallback(
+    (path: string): void => {
+      const s = sweep.current
+      if (!s.from) return
+      if (!s.live && path === s.from) return
+      s.live = true
+      s.consumed = true
+      setSel(sweepSelect(order, s.from, path))
+    },
+    [order]
+  )
+
   /** Put the cursor on a row: folders only highlight, files open. */
   const land = useCallback(
     (row: { path: string; isFolder: boolean }): void => {
       setCursor(row.path)
+      setSel({ anchor: row.path, items: new Set([row.path]) })
       if (!row.isFolder) onOpenFile(row.path)
       // Roving focus, so Enter and Space reach the row without any key handling
       // of our own, and so a screen reader follows the cursor. preventScroll:
@@ -359,16 +430,6 @@ export function Sidebar({
       })
     },
     [onOpenFile]
-  )
-
-  // A clicked folder takes the cursor with it, exactly as landing there by
-  // arrow does; the accent must not stay behind on whatever row had it.
-  const clickFolder = useCallback(
-    (path: string): void => {
-      setCursor(path)
-      toggle(path)
-    },
-    [toggle]
   )
 
   // The tree's answer to an arrow key. Returns false when it has nothing to
@@ -509,12 +570,21 @@ export function Sidebar({
                 size,
                 editing,
                 menuPath: menu?.path ?? null,
-                onToggle: clickFolder,
+                selected: sel.items,
+                onRowClick,
+                onSweepStart,
+                onSweepOver,
+                onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
                 onSubmitRename: submitRename,
                 onCancelRename: () => setEditing(null),
-                onDelete,
+                // Del on a row inside a multi-selection takes the whole
+                // selection; anywhere else it stays the single-row question.
+                onDelete: (path, name, isFolder) =>
+                  sel.items.size > 1 && sel.items.has(path)
+                    ? onDeleteMany([...sel.items])
+                    : onDelete(path, name, isFolder),
                 onMenu
               }}
             >
@@ -613,7 +683,34 @@ export function Sidebar({
         />
       )}
 
-      {menu && (
+      {menu && menu.multi && (
+        // A multi-selection's menu: the verbs that make sense N at a time.
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: `Copy ${menu.multi.length} files`,
+              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+              onPick: () => void window.prism.copyFilesToClipboard(menu.multi!)
+            },
+            {
+              label: 'Copy paths',
+              icon: <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />,
+              onPick: () => void navigator.clipboard.writeText(menu.multi!.join('\n'))
+            },
+            {
+              label: `Delete ${menu.multi.length} items`,
+              hint: 'Del',
+              danger: true,
+              icon: <MenuIcon d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />,
+              onPick: () => onDeleteMany(menu.multi!)
+            }
+          ]}
+        />
+      )}
+      {menu && !menu.multi && (
         <ContextMenu
           x={menu.x}
           y={menu.y}

@@ -22,6 +22,15 @@ export interface TreeApi {
   menuPath: string | null
   /** The navigation filter, applied to the rows as well: a file row renders
    *  only when this says so. Folders always render. */
+  /** Explorer selection (2026-08-22): every selected row, filled accent. */
+  selected: ReadonlySet<string>
+  /** Single click: SELECT (shift ranges, ctrl toggles). Opening is onOpenFile
+   *  via double click; expanding is onToggle via double click or the chevron. */
+  onRowClick: (e: MouseEvent, path: string) => void
+  /** Pointer pressed on a row: a sweep may start here. */
+  onSweepStart: (path: string) => void
+  /** Pointer entered a row while held down: the sweep grows. */
+  onSweepOver: (path: string) => void
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void
   onStartRename: (path: string) => void

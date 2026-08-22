@@ -174,7 +174,7 @@ async function mdScenario(fixtures) {
     await win.keyboard.press('ArrowDown')
     await sleep(700)
     ok(!((await mdRow()) ?? '').includes('README.md'), 'Down pages the folder from an unfocused README')
-    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.dblclick('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     await sleep(400)
 
@@ -284,7 +284,7 @@ async function pdfScenario(fixtures) {
     ok(!((await selected()) ?? '').includes('sample.pdf'), 'PageUp pages the FOLDER while the pdf is unfocused')
     ok((await win.locator('canvas').count()) === 0, 'and really left the pdf')
 
-    await win.click('[role="treeitem"]:has-text("sample.pdf")')
+    await win.dblclick('[role="treeitem"]:has-text("sample.pdf")')
     await win.waitForSelector('[data-page="1"]', { timeout: 15000 })
     await sleep(600)
 
@@ -638,14 +638,14 @@ async function editScenario(fixtures) {
     ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 1, 'the bar grows a dirty dot')
 
     // Leaving a dirty file now asks NOTHING - and must not cost the text.
-    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.dblclick('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     ok((await win.locator('[role="dialog"]').count()) === 0, 'leaving unsaved text asks nothing')
     ok(
       (await win.locator('[role="treeitem"]:has-text("notes.txt")').textContent())?.includes('*'),
       'and the file it left keeps its star'
     )
-    await win.click('[role="treeitem"]:has-text("notes.txt")')
+    await win.dblclick('[role="treeitem"]:has-text("notes.txt")')
     await win.waitForSelector('.cm-content', { timeout: 10000 })
     await sleep(500)
     ok(
@@ -660,7 +660,7 @@ async function editScenario(fixtures) {
     ok((await win.locator('[aria-label="Unsaved changes"]').count()) === 0, 'saving clears the dot')
 
     // Markdown is the one kind that keeps the pencil: it has a rendered form.
-    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.dblclick('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     ok((await win.locator('[aria-label="Edit"]').count()) === 1, 'markdown keeps the pencil')
     await win.click('[aria-label="Edit"]')
@@ -761,16 +761,16 @@ async function codeScenario(fixtures) {
     await sleep(300)
 
     // Squiggles, and the honest limit on them.
-    await win.click('[role="treeitem"]:has-text("broken.ts")')
+    await win.dblclick('[role="treeitem"]:has-text("broken.ts")')
     await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 })
     ok(true, 'a TypeScript syntax error gets a red underline')
     await win.screenshot({ path: join(SHOTS, 'code-error.png') })
 
-    await win.click('[role="treeitem"]:has-text("bad.json")')
+    await win.dblclick('[role="treeitem"]:has-text("bad.json")')
     await win.waitForSelector('.cm-lintRange-error', { timeout: 10000 })
     ok(true, "JSON's trailing comma gets one too")
 
-    await win.click('[role="treeitem"]:has-text("hello.sh")')
+    await win.dblclick('[role="treeitem"]:has-text("hello.sh")')
     await sleep(1500) // past the linter's debounce, so absence means absence
     ok((await win.locator('.cm-line span').count()) > 3, 'shell is still coloured')
     ok(
@@ -911,7 +911,7 @@ async function unsavedScenario(fixtures) {
     // A second file, edited and left: two buffers pending at once, which is
     // what "save all changes" is for.
     const readme = join(fixtures, 'README.md')
-    await win.click('[role="treeitem"]:has-text("README.md")')
+    await win.dblclick('[role="treeitem"]:has-text("README.md")')
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     await win.click('[aria-label="Edit"]')
     await win.waitForSelector('.cm-content', { timeout: 10000 })
@@ -1473,7 +1473,7 @@ async function terminalScenario(fixtures) {
 
     // Clicking a file over a FULL terminal means "show me this file": the
     // shell hides (still running) and the file takes the room.
-    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await win.locator('[role="treeitem"]:has-text("README.md")').dblclick()
     await sleep(500)
     ok(
       (await win.locator('.xterm').count()) === 0 &&
@@ -1554,7 +1554,7 @@ async function archiveScenario(fixtures) {
 
     // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
     // Backspace) climbs back out.
-    await row('notes').first().click()
+    await row('notes').first().dblclick()
     await win.waitForSelector('text=todo.md', { timeout: 5000 })
     ok((await row('readme.txt').count()) === 0, 'entering a folder leaves the parent behind')
     await win.keyboard.press('Backspace')
@@ -1562,7 +1562,7 @@ async function archiveScenario(fixtures) {
     ok(true, 'Backspace climbs back to the root')
 
     // View a member; Escape backs out of the preview.
-    await row('readme.txt').first().click()
+    await row('readme.txt').first().dblclick()
     await win.waitForFunction(
       () => /hello from inside the zip/.test(document.body.textContent ?? ''),
       null,
@@ -1580,7 +1580,7 @@ async function archiveScenario(fixtures) {
 
     // Rename in place: F2 on the focused row, Explorer-style selection means
     // typing replaces the stem and keeps the extension.
-    await row('notes').first().click()
+    await row('notes').first().dblclick()
     await win.waitForSelector('text=todo.md', { timeout: 5000 })
     await row('todo.md').first().focus()
     await win.keyboard.press('F2')
@@ -1612,6 +1612,34 @@ async function archiveScenario(fixtures) {
       'the delete landed inside the zip itself'
     )
     await win.screenshot({ path: join(SHOTS, 'archive.png') })
+  } finally {
+    await app.close()
+  }
+}
+
+async function selectionScenario(fixtures) {
+  console.log('explorer selection')
+  // 2026-08-22: a click SELECTS, a double click opens; shift ranges.
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(700)
+    await win.click('[role="treeitem"]:has-text("notes.txt")')
+    await sleep(400)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('README.md'),
+      'a single click selects without opening'
+    )
+    ok((await win.locator('aside [data-selected]').count()) === 1, 'and exactly one row is selected')
+    await win.click('[role="treeitem"]:has-text("sample.pdf")', { modifiers: ['Shift'] })
+    await sleep(300)
+    ok((await win.locator('aside [data-selected]').count()) >= 2, 'shift-click selects the range')
+    await win.dblclick('[role="treeitem"]:has-text("notes.txt")')
+    await sleep(600)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
+      'a double click is what opens'
+    )
   } finally {
     await app.close()
   }
@@ -1675,6 +1703,8 @@ try {
   await terminalScenario(fixtures)
   await sleep(900)
   await archiveScenario(fixtures)
+  await sleep(900)
+  await selectionScenario(fixtures)
   await sleep(900)
   await unsupportedScenario(fixtures)
 } catch (e) {

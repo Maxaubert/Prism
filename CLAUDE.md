@@ -109,8 +109,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the file rather than closing over the top of it.
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
-  zip, 2026-08-22). Anything further (move, new folder, multi-select) is a
-  fresh decision, not a natural next step.
+  zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
+  natural next step. Multi-select WAS that fresh decision (2026-08-22): **Explorer's
+  grammar in the tree and the archive** - a single click SELECTS (shift ranges, ctrl
+  toggles, dragging across rows sweeps), a DOUBLE click opens a file or enters/expands a
+  folder (the chevron keeps single-click expand), and right-click inside a multi-selection
+  acts on all of it (copy files, copy paths, delete N with one question). Selection is
+  the accent fill (`data-selected`); `aria-selected` still means the OPEN file, which is
+  what the e2e leans on. Keyboard is unchanged: arrows land-and-open, Enter opens,
+  F2/Delete act on the row (Delete takes the whole selection when the row is in one).
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current

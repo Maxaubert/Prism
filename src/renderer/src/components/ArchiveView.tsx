@@ -12,6 +12,7 @@ import { PdfView } from './pdf/PdfView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
+import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
 
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
 
@@ -76,11 +77,33 @@ export function ArchiveView({ file }: { file: ViewerFile }): JSX.Element {
 
 function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
   const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
-  const [cwd, setCwd] = useState('')
+  const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Entry | null>(null)
+  const [confirmDelMany, setConfirmDelMany] = useState<string[] | null>(null)
+  // Explorer selection (2026-08-22), same grammar as the sidebar: click
+  // selects, shift ranges, ctrl toggles, dragging sweeps, double click opens.
+  const [sel, setSel] = useState<Selection>(emptySelection)
+  const sweep = useRef<{ from: string | null; live: boolean; consumed: boolean }>({
+    from: null,
+    live: false,
+    consumed: false
+  })
+  useEffect(() => {
+    const up = (): void => {
+      sweep.current.from = null
+      sweep.current.live = false
+    }
+    window.addEventListener('pointerup', up)
+    return () => window.removeEventListener('pointerup', up)
+  }, [])
+  /** Walking anywhere drops the selection: a new folder is a new slate. */
+  const setCwd = useCallback((p: string): void => {
+    setCwdRaw(p)
+    setSel(emptySelection)
+  }, [])
   const [oops, setOops] = useState<string | null>(null)
   // One password per archive, remembered after the first door it opens.
   const pass = useRef<string | undefined>(undefined)
@@ -210,13 +233,74 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [member, cwd, editing, askPass, confirmDel])
+  }, [member, cwd, editing, askPass, confirmDel, setCwd])
+
+  const order = useMemo(() => rows.map((r) => r.path), [rows])
+  const onRowClick = useCallback(
+    (e: { shiftKey: boolean; ctrlKey: boolean }, path: string): void => {
+      if (sweep.current.consumed) {
+        sweep.current.consumed = false
+        return
+      }
+      setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
+    },
+    [order]
+  )
+  const onSweepOver = useCallback(
+    (path: string): void => {
+      const s = sweep.current
+      if (!s.from) return
+      if (!s.live && path === s.from) return
+      s.live = true
+      s.consumed = true
+      setSel(sweepSelect(order, s.from, path))
+    },
+    [order]
+  )
+  /** Copy every selected FILE out at once; folders don't extract. */
+  const copyMany = useCallback(
+    (paths: string[]): void => {
+      const files = paths.filter((p) => rows.find((r) => r.path === p && !r.dir))
+      void (async () => {
+        const out: string[] = []
+        let locked = 0
+        for (const p of files) {
+          const r = await window.prism.archiveExtract(file.path, p, pass.current)
+          if (r.ok) out.push(r.path)
+          else if (r.reason === 'password' || r.reason === 'aes') locked += 1
+        }
+        if (out.length) void window.prism.copyFilesToClipboard(out)
+        if (locked)
+          setOops(`${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`)
+      })()
+    },
+    [file.path, rows]
+  )
+  const deleteMany = useCallback(
+    (paths: string[]): void => {
+      setConfirmDelMany(null)
+      void (async () => {
+        let failed = 0
+        for (const p of paths) {
+          if (!(await window.prism.archiveDelete(file.path, p))) failed += 1
+        }
+        setSel(emptySelection)
+        load()
+        if (failed) setOops(`${failed} of ${paths.length} couldn't be deleted from the archive.`)
+      })()
+    },
+    [file.path, load]
+  )
 
   const menuItems = (entry: Entry): MenuItem[] => [
     { label: 'View', onPick: () => view(entry) },
     { label: 'Copy file', onPick: () => copyOut(entry) },
     { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
     { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
+  ]
+  const multiItems = (paths: string[]): MenuItem[] => [
+    { label: `Copy ${paths.length} files`, onPick: () => copyMany(paths) },
+    { label: `Delete ${paths.length} from archive`, danger: true, onPick: () => setConfirmDelMany(paths) }
   ]
 
   if (entries === 'error')
@@ -287,32 +371,47 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                     <RenameInput name={r.name} onSubmit={(v) => submitRename(r, v)} onCancel={() => setEditing(null)} />
                   </li>
                 ) : (
-                  <li key={r.path} className="group/row">
-                    {/* A div, not a button: the hover verbs are buttons and
-                        cannot nest inside one. Enter and Space activate by
-                        hand instead. */}
+                  <li key={r.path}>
+                    {/* A div, not a button, so dialogs and menus can hold
+                        buttons of their own; Enter activates by hand. Click
+                        SELECTS (shift ranges, ctrl toggles, dragging sweeps);
+                        double click is what opens or enters. */}
                     <div
                       role="option"
                       tabIndex={0}
-                      aria-selected={false}
-                      className="flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] text-[var(--p-text-soft)] outline-none transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]"
-                      onClick={() => (r.dir ? setCwd(r.path) : view(r))}
+                      aria-selected={sel.items.has(r.path)}
+                      data-selected={sel.items.has(r.path) || undefined}
+                      className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none transition-colors ${
+                        sel.items.has(r.path)
+                          ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                          : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
+                      }`}
+                      onClick={(e) => onRowClick(e, r.path)}
+                      onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
+                      onPointerDown={(e) => {
+                        if (e.button === 0) sweep.current = { from: r.path, live: false, consumed: false }
+                      }}
+                      onPointerEnter={() => onSweepOver(r.path)}
                       onContextMenu={(e) => {
-                        if (r.dir) return
                         e.preventDefault()
-                        setMenu({ x: e.clientX, y: e.clientY, entry: r })
+                        const multi =
+                          sel.items.has(r.path) && sel.items.size > 1 ? [...sel.items] : undefined
+                        if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
+                        if (r.dir && !multi) return // single folders have no verbs yet
+                        setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
+                        if (e.key === 'Enter') {
                           e.preventDefault()
                           if (r.dir) setCwd(r.path)
                           else view(r)
                         } else if (!r.dir && e.key === 'F2') {
                           e.preventDefault()
                           setEditing(r.path)
-                        } else if (!r.dir && e.key === 'Delete') {
+                        } else if (e.key === 'Delete') {
                           e.preventDefault()
-                          setConfirmDel(r)
+                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany([...sel.items])
+                          else if (!r.dir) setConfirmDel(r)
                         }
                       }}
                     >
@@ -364,7 +463,23 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
       )}
 
       {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.entry)} onClose={() => setMenu(null)} />
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menu.multi ? multiItems(menu.multi) : menuItems(menu.entry)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {confirmDelMany && (
+        <Dialog
+          title={`Delete ${confirmDelMany.length} members from the archive?`}
+          body="This is permanent: a zip has no Recycle Bin to take them back from."
+          onCancel={() => setConfirmDelMany(null)}
+          choices={[
+            { label: 'Cancel', onPick: () => setConfirmDelMany(null), primary: true },
+            { label: 'Delete', danger: true, onPick: () => deleteMany(confirmDelMany) }
+          ]}
+        />
       )}
       {askPass && (
         <PasswordDialog
