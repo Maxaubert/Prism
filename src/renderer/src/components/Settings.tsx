@@ -20,7 +20,7 @@ import {
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
-import { setConfirmCloseTabs, useConfirmCloseTabs } from '../lib/tabPrefs'
+import { setConfirmCloseMode, useConfirmCloseMode, type ConfirmClose } from '../lib/tabPrefs'
 import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
 import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
@@ -1434,7 +1434,7 @@ function TerminalTab(): JSX.Element {
 function GeneralTab(): JSX.Element {
   const size = useTreeSize()
   const follow = useAutoScroll()
-  const confirmClose = useConfirmCloseTabs()
+  const confirmClose = useConfirmCloseMode()
   const tabMode = useNewTabMode()
   const tabFolder = useNewTabFolder()
   const tabShow = useNewTabShow()
@@ -1468,9 +1468,17 @@ function GeneralTab(): JSX.Element {
       <Pref
         id="confirm-close"
         label="Ask before closing tabs"
-        hint="Ctrl+W and the tab's X confirm first. Unsaved text always asks."
+        hint="Ctrl+W and the tab's X confirm first. Agents: only while Claude or codex runs in the tab. Unsaved text always asks."
       >
-        <Switch on={confirmClose} onChange={setConfirmCloseTabs} label="Ask before closing tabs" />
+        <Segmented
+          value={confirmClose}
+          onChange={(v) => setConfirmCloseMode(v as ConfirmClose)}
+          options={[
+            { id: 'always', name: 'Always' },
+            { id: 'agent', name: 'Agents' },
+            { id: 'never', name: 'Off' }
+          ]}
+        />
       </Pref>
       <Pref
         id="newtab-mode"

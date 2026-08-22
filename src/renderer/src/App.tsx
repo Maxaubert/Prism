@@ -6,7 +6,7 @@ import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDi
 import { fileKind } from '@shared/fileKind'
 import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
-import { confirmCloseTabs } from './lib/tabPrefs'
+import { confirmCloseMode } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
@@ -710,6 +710,10 @@ export default function App(): JSX.Element {
       else applyReroot(activeId, p)
     })
   }, [activeId, applyReroot, dirtyUnder, tabs])
+  // Which sessions host a live agent (Claude, codex and kin). Declared up
+  // here because the close path below consults it; the polling effect that
+  // feeds it lives with the rest of the terminal wiring.
+  const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -719,17 +723,23 @@ export default function App(): JSX.Element {
         forceCloseTab(id)
         return
       }
+      // Unsaved text asks in EVERY mode: the setting below only governs the
+      // plain "you are closing a tab" confirmation, never data loss.
       const names = dirtyUnder(tab.root)
       if (names.length) setAsk({ kind: 'close-tab', id, names })
-      else if (confirmCloseTabs())
-        setAsk({
-          kind: 'close-tab-confirm',
-          id,
-          label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root
-        })
-      else forceCloseTab(id)
+      else {
+        const mode = confirmCloseMode()
+        const agentLive = !!tab.term && agentIds.has(tab.term.id)
+        if (mode === 'always' || (mode === 'agent' && agentLive))
+          setAsk({
+            kind: 'close-tab-confirm',
+            id,
+            label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root
+          })
+        else forceCloseTab(id)
+      }
     },
-    [dirtyUnder, forceCloseTab, tabs]
+    [agentIds, dirtyUnder, forceCloseTab, tabs]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
@@ -787,7 +797,6 @@ export default function App(): JSX.Element {
    * a finished answer, waiting.
    */
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
-  const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
   /** Which agent each session hosts - resume is claude-only. */
   const agentKinds = useRef(new Map<string, 'claude' | 'other'>())
