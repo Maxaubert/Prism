@@ -386,7 +386,7 @@ export function Sidebar({
    *  sweeps count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
   const onRowClick = useCallback(
-    (e: MouseEvent, path: string): void => {
+    (e: MouseEvent, path: string, isFolder: boolean): void => {
       // The click that ENDS a sweep must not collapse what the sweep built.
       if (sweep.current.consumed) {
         sweep.current.consumed = false
@@ -394,8 +394,26 @@ export function Sidebar({
       }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
+      // A plain click keeps the tree's quick-look reflex: it opens (or
+      // expands) as it always did. Shift and ctrl select WITHOUT opening -
+      // that is what makes select-then-right-click and multi-select work.
+      if (!e.shiftKey && !e.ctrlKey) {
+        if (isFolder) toggle(path)
+        else onOpenFile(path)
+      }
     },
-    [order]
+    [order, toggle, onOpenFile]
+  )
+  const selJoin = useCallback(
+    (path: string): { top: boolean; bottom: boolean } => {
+      if (!sel.items.has(path)) return { top: false, bottom: false }
+      const i = order.indexOf(path)
+      return {
+        top: i > 0 && sel.items.has(order[i - 1]),
+        bottom: i >= 0 && i < order.length - 1 && sel.items.has(order[i + 1])
+      }
+    },
+    [order, sel]
   )
   const onSweepStart = useCallback((path: string): void => {
     sweep.current = { from: path, live: false, consumed: false }
@@ -571,6 +589,7 @@ export function Sidebar({
                 editing,
                 menuPath: menu?.path ?? null,
                 selected: sel.items,
+                selJoin,
                 onRowClick,
                 onSweepStart,
                 onSweepOver,

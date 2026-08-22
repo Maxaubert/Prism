@@ -24,9 +24,14 @@ export interface TreeApi {
    *  only when this says so. Folders always render. */
   /** Explorer selection (2026-08-22): every selected row, filled accent. */
   selected: ReadonlySet<string>
-  /** Single click: SELECT (shift ranges, ctrl toggles). Opening is onOpenFile
-   *  via double click; expanding is onToggle via double click or the chevron. */
-  onRowClick: (e: MouseEvent, path: string) => void
+  /** Whether this selected row touches another selected row above/below in
+   *  the visible order: shared edges drop their rounding so a contiguous
+   *  selection reads as one block. */
+  selJoin: (path: string) => { top: boolean; bottom: boolean }
+  /** A click: plain SELECTS AND OPENS (the tree keeps its quick-look
+   *  single-click; only archives are double-click); shift ranges and ctrl
+   *  toggles select WITHOUT opening. */
+  onRowClick: (e: MouseEvent, path: string, isFolder: boolean) => void
   /** Pointer pressed on a row: a sweep may start here. */
   onSweepStart: (path: string) => void
   /** Pointer entered a row while held down: the sweep grows. */

@@ -386,6 +386,22 @@ function ArchiveInner({ file }: { file: ViewerFile }): JSX.Element {
                           ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                           : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
                       }`}
+                      style={
+                        // Contiguous selected rows fuse into one block.
+                        sel.items.has(r.path)
+                          ? (() => {
+                              const i = order.indexOf(r.path)
+                              const top = i > 0 && sel.items.has(order[i - 1])
+                              const bottom = i >= 0 && i < order.length - 1 && sel.items.has(order[i + 1])
+                              return {
+                                borderTopLeftRadius: top ? 0 : undefined,
+                                borderTopRightRadius: top ? 0 : undefined,
+                                borderBottomLeftRadius: bottom ? 0 : undefined,
+                                borderBottomRightRadius: bottom ? 0 : undefined
+                              }
+                            })()
+                          : undefined
+                      }
                       onClick={(e) => onRowClick(e, r.path)}
                       onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
                       onPointerDown={(e) => {

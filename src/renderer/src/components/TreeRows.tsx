@@ -253,11 +253,9 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           data-row={path}
           data-selected={t.selected.has(path) || undefined}
           tabIndex={onCursor ? 0 : -1}
-          // Explorer's grammar (2026-08-22): a click SELECTS, double click (or
-          // the chevron, or Enter) expands. Selecting without opening is what
-          // makes select-then-right-click and multi-select possible.
-          onClick={(e) => t.onRowClick(e, path)}
-          onDoubleClick={() => t.onToggle(path)}
+          // A plain click still expands, quick-look style; shift and ctrl
+          // build a selection without touching the chevron state.
+          onClick={(e) => t.onRowClick(e, path, true)}
           onPointerDown={(e) => e.button === 0 && t.onSweepStart(path)}
           onPointerEnter={() => t.onSweepOver(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
@@ -280,7 +278,23 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
                 ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
                 : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
-          style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
+          style={{
+            height: t.size.row,
+            paddingLeft: pad,
+            fontSize: t.size.font,
+            // Contiguous selected rows fuse: shared edges drop their rounding.
+            ...(t.selected.has(path)
+              ? (() => {
+                  const j = t.selJoin(path)
+                  return {
+                    borderTopLeftRadius: j.top ? 0 : undefined,
+                    borderTopRightRadius: j.top ? 0 : undefined,
+                    borderBottomLeftRadius: j.bottom ? 0 : undefined,
+                    borderBottomRightRadius: j.bottom ? 0 : undefined
+                  }
+                })()
+              : {})
+          }}
         >
           {/* The chevron keeps its single-click expand; it opts out of the
               row's select-click. */}
@@ -373,12 +387,10 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               data-selected={onSel || undefined}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
-              // Explorer's grammar (2026-08-22): a click SELECTS (shift
-              // ranges, ctrl toggles, dragging sweeps), double click or Enter
-              // opens. Selecting without opening is what makes
-              // select-then-right-click and multi-select possible.
-              onClick={(e) => t.onRowClick(e, f.path)}
-              onDoubleClick={() => t.onOpenFile(f.path)}
+              // A plain click still OPENS, quick-look style (only archives
+              // are double-click); shift ranges, ctrl toggles and dragging
+              // sweeps all select WITHOUT opening.
+              onClick={(e) => t.onRowClick(e, f.path, false)}
               onPointerDown={(e) => e.button === 0 && t.onSweepStart(f.path)}
               onPointerEnter={() => t.onSweepOver(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
@@ -403,7 +415,23 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                         unsaved ? 'font-bold text-[var(--p-text)]' : ''
                       }`
               }`}
-              style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
+              style={{
+                height: t.size.row,
+                paddingLeft: pad + 19,
+                fontSize: t.size.font,
+                // Contiguous selected rows fuse: shared edges drop rounding.
+                ...(onSel
+                  ? (() => {
+                      const j = t.selJoin(f.path)
+                      return {
+                        borderTopLeftRadius: j.top ? 0 : undefined,
+                        borderTopRightRadius: j.top ? 0 : undefined,
+                        borderBottomLeftRadius: j.bottom ? 0 : undefined,
+                        borderBottomRightRadius: j.bottom ? 0 : undefined
+                      }
+                    })()
+                  : {})
+              }}
             >
               <KindIcon
                 kind={f.kind}
