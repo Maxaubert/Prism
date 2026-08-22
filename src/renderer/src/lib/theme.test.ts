@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { derive, mix, paletteOf, resolveVizTheme, setOverride, setStyle, STYLES } from './theme'
+import { archiveIconOf, derive, mix, paletteOf, resolveVizTheme, setOverride, setStyle, STYLES } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
@@ -164,5 +164,13 @@ describe('the progress bar follows the accent', () => {
     const auroraBar = resolveVizTheme(DEFAULT_BAR_THEME).accent
     setStyle('terminal')
     expect(resolveVizTheme(DEFAULT_BAR_THEME).accent).not.toBe(auroraBar)
+  })
+})
+
+describe('the archive fallback colour', () => {
+  it('reads against every shipped style (amber, stepped like folders)', () => {
+    for (const s of STYLES) {
+      expect(contrast(archiveIconOf(s), s.bg)).toBeGreaterThanOrEqual(3)
+    }
   })
 })

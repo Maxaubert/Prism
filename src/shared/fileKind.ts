@@ -31,6 +31,11 @@ const TEXT = new Set([
   '.adoc', '.ipynb', '.gradle', '.cmake', '.mk', '.nix', '.zig'
 ])
 
+// Archives Prism can open in place (2026-08-22): zip only. Reading, renaming
+// and deleting members means rewriting the container, which adm-zip does for
+// zip; 7z and rar would need external binaries and stay unsupported.
+const ARCHIVE = new Set(['.zip'])
+
 // Files that carry their kind in the whole name, with no extension to read.
 // Matched case-insensitively against the full filename.
 const TEXT_NAMES = new Set([
@@ -54,6 +59,7 @@ export function fileKind(ext: string, name?: string): FileKind {
   if (VIDEO.has(e)) return 'video'
   if (AUDIO.has(e)) return 'audio'
   if (e === '.pdf') return 'pdf'
+  if (ARCHIVE.has(e)) return 'archive'
   if (TEXT.has(e)) return 'text'
   if (name !== undefined && isTextName(name)) return 'text'
   return 'other'

@@ -3,6 +3,7 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
+import { useSysIcon } from '../lib/sysIcon'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -18,7 +19,11 @@ const accentColour = (): string =>
  *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
  *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
 export function iconColour(kind: FileKind | 'folder'): string {
-  return kind === 'folder' ? 'var(--p-tree-folder)' : 'var(--p-tree-file)'
+  if (kind === 'folder') return 'var(--p-tree-folder)'
+  // Archives get a colour of their own (#68, like the folder's): a container
+  // among files, worth telling apart at a glance.
+  if (kind === 'archive') return 'var(--p-tree-archive)'
+  return 'var(--p-tree-file)'
 }
 
 type Size = (typeof TREE_SIZES)[number]
@@ -55,7 +60,7 @@ function Glyph({ children, color }: { children: JSX.Element; color: string }): J
 /** Filled glyph per kind. Detail is knocked out in the panel colour rather than
  *  drawn as strokes, so the shape still reads as a photo or a page at 14px.
  *  Exported for the search results, which draw the same rows outside the tree. */
-export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color: string; ko?: string }): JSX.Element {
+export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; color: string; ko?: string; path?: string }): JSX.Element {
   const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
   switch (kind) {
     case 'image':
@@ -93,6 +98,8 @@ export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color:
           </>
         </Glyph>
       )
+    case 'archive':
+      return <ArchiveIcon color={color} koColour={koColour} path={path} />
     default:
       return (
         <Glyph color={color}>
@@ -104,6 +111,27 @@ export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color:
         </Glyph>
       )
   }
+}
+
+/** The archive row's icon (#68, revised 2026-08-22: the owner tried the
+ *  parcel and picked the real thing): the SYSTEM icon of the user's own
+ *  association (WinRAR, 7-Zip, Explorer's zipped folder...), one fetch per
+ *  extension. The amber parcel stands in while it loads and on machines
+ *  where Windows has none to give. */
+function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: string; path?: string }): JSX.Element {
+  const url = useSysIcon(path ?? null)
+  if (url)
+    return <img src={url} width={14} height={14} className="shrink-0" alt="" aria-hidden />
+  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
+  return (
+    <Glyph color={color}>
+      <>
+        <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
+        <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
+        <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
+      </>
+    </Glyph>
+  )
 }
 
 function FolderIcon({ color }: { color: string }): JSX.Element {
@@ -223,11 +251,19 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // Tab reaches the tree once and Enter/Space then work natively on the
           // row the arrows are on - no key handling of our own for either.
           data-row={path}
+          data-selected={t.selected.has(path) || undefined}
           tabIndex={onCursor ? 0 : -1}
-          onClick={() => t.onToggle(path)}
+          // A plain click still expands, quick-look style; shift and ctrl
+          // build a selection without touching the chevron state.
+          onClick={(e) => t.onRowClick(e, path, true)}
+          onPointerDown={(e) => e.button === 0 && t.onSweepStart(path)}
+          onPointerEnter={() => t.onSweepOver(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
-            if (e.key === 'F2') {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              t.onToggle(path)
+            } else if (e.key === 'F2') {
               e.preventDefault()
               t.onStartRename(path)
             } else if (e.key === 'Delete') {
@@ -235,17 +271,44 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
               t.onDelete(path, name, true)
             }
           }}
-          className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
-            onCursor
+          className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
+            onCursor || t.selected.has(path)
               ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
               : onMenuHl
                 ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
                 : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
-          style={{ height: t.size.row, paddingLeft: pad, fontSize: t.size.font }}
+          style={{
+            height: t.size.row,
+            paddingLeft: pad,
+            fontSize: t.size.font,
+            // Contiguous selected rows fuse: shared edges drop their rounding.
+            ...(t.selected.has(path)
+              ? (() => {
+                  const j = t.selJoin(path)
+                  return {
+                    borderTopLeftRadius: j.top ? 0 : undefined,
+                    borderTopRightRadius: j.top ? 0 : undefined,
+                    borderBottomLeftRadius: j.bottom ? 0 : undefined,
+                    borderBottomRightRadius: j.bottom ? 0 : undefined
+                  }
+                })()
+              : {})
+          }}
         >
-          <Chevron open={open} />
-          <FolderIcon color={onCursor ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+          {/* The chevron keeps its single-click expand; it opts out of the
+              row's select-click. */}
+          <span
+            className="grid place-items-center"
+            onClick={(e) => {
+              e.stopPropagation()
+              t.onToggle(path)
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <Chevron open={open} />
+          </span>
+          <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
           <Label name={name} />
         </button>
       )}
@@ -312,6 +375,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         // second highlight competing with the first was more noise than help.
         // `aria-selected` still says so for anything reading the tree.
         const onCursor = !!t.cursor && f.path.toLowerCase() === t.cursor.toLowerCase()
+        const onSel = onCursor || t.selected.has(f.path)
         // The right-clicked row keeps its hover look while its menu is up.
         const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
         return (
@@ -320,12 +384,21 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               data-row={f.path}
+              data-selected={onSel || undefined}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
-              onClick={() => t.onOpenFile(f.path)}
+              // A plain click still OPENS, quick-look style (only archives
+              // are double-click); shift ranges, ctrl toggles and dragging
+              // sweeps all select WITHOUT opening.
+              onClick={(e) => t.onRowClick(e, f.path, false)}
+              onPointerDown={(e) => e.button === 0 && t.onSweepStart(f.path)}
+              onPointerEnter={() => t.onSweepOver(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
-                if (e.key === 'F2') {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  t.onOpenFile(f.path)
+                } else if (e.key === 'F2') {
                   e.preventDefault()
                   t.onStartRename(f.path)
                 } else if (e.key === 'Delete') {
@@ -333,8 +406,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                   t.onDelete(f.path, f.name, false)
                 }
               }}
-              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none transition-colors focus-visible:outline-none ${
-                onCursor
+              className={`flex w-full items-center gap-1.5 rounded-md pr-2 text-left outline-none focus-visible:outline-none ${
+                onSel
                   ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
                   : onMenuHl
                     ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
@@ -342,14 +415,31 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                         unsaved ? 'font-bold text-[var(--p-text)]' : ''
                       }`
               }`}
-              style={{ height: t.size.row, paddingLeft: pad + 19, fontSize: t.size.font }}
+              style={{
+                height: t.size.row,
+                paddingLeft: pad + 19,
+                fontSize: t.size.font,
+                // Contiguous selected rows fuse: shared edges drop rounding.
+                ...(onSel
+                  ? (() => {
+                      const j = t.selJoin(f.path)
+                      return {
+                        borderTopLeftRadius: j.top ? 0 : undefined,
+                        borderTopRightRadius: j.top ? 0 : undefined,
+                        borderBottomLeftRadius: j.bottom ? 0 : undefined,
+                        borderBottomRightRadius: j.bottom ? 0 : undefined
+                      }
+                    })()
+                  : {})
+              }}
             >
               <KindIcon
                 kind={f.kind}
                 // The knockout only applies on the filled row, which is now the
-                // cursor's rather than the open file's.
-                color={onCursor ? 'var(--p-on-accent)' : iconColour(f.kind)}
-                ko={onCursor ? accentColour() : undefined}
+                // selection's rather than the open file's.
+                color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
+                ko={onSel ? accentColour() : undefined}
+                path={f.path}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>

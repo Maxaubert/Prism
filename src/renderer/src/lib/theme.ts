@@ -575,6 +575,7 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // only paints when the tree is NOT in per-kind tints.
     '--p-tree-folder': folderIconOf(style),
     '--p-tree-file': fileIconOf(style),
+    '--p-tree-archive': archiveIconOf(style),
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
     // The held highlight (a row whose context menu is open): the hover look,
     // five points stronger, so it reads as "this one" rather than "passing by".
@@ -622,6 +623,19 @@ export const folderIconOf = (s: Style): string => {
  *  still shows in the glyph's shape; colour no longer carries it. */
 export const fileIconOf = (s: Style): string =>
   s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
+
+/** The parcel FALLBACK colour (#68): archives normally wear the system's own
+ *  association icon, and this amber - stepped toward readability like the
+ *  folder colour - covers the moment before it loads and machines where
+ *  Windows has none to give. Not user-facing; the picker was removed
+ *  (owner decision 2026-08-22) once the system icon became the icon. */
+export const archiveIconOf = (s: Style): string => {
+  let c = '#d9a53f'
+  for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
+    c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
+  }
+  return c
+}
 
 function paint(style: Style): void {
   const r = document.documentElement.style

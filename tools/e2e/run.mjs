@@ -1538,21 +1538,135 @@ async function terminalScenario(fixtures) {
   }
 }
 
+async function archiveScenario(fixtures) {
+  console.log('archive viewer')
+  // #68: a real zip opens as a tree of members with view/rename/delete verbs.
+  const zipPath = join(fixtures, 'zips', 'bundle.zip')
+  const { app, win } = await launch(zipPath)
+  try {
+    await win.waitForSelector('[role="listbox"][aria-label*="bundle.zip"]', { timeout: 10000 })
+    const row = (name) => win.locator(`[role="listbox"] [role="option"]`, { hasText: name })
+    ok((await row('readme.txt').count()) === 1, 'a top-level member is listed')
+    ok((await row('notes').count()) >= 1, 'so is the folder')
+    const body = (await win.textContent('body')) ?? ''
+    ok(/25 B/.test(body), 'sizes ride along')
+    ok(!/todo\.md/.test(body), 'the root listing shows only its own level')
+
+    // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
+    // Backspace) climbs back out.
+    await row('notes').first().dblclick()
+    await win.waitForSelector('text=todo.md', { timeout: 5000 })
+    ok((await row('readme.txt').count()) === 0, 'entering a folder leaves the parent behind')
+    await win.keyboard.press('Backspace')
+    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
+    ok(true, 'Backspace climbs back to the root')
+
+    // View a member; Escape backs out of the preview.
+    await row('readme.txt').first().dblclick()
+    await win.waitForFunction(
+      () => /hello from inside the zip/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 15000 }
+    )
+    ok(true, 'viewing a member shows its content')
+    await win.screenshot({ path: join(SHOTS, 'archive-member.png') })
+    await win.keyboard.press('Escape')
+    await win.waitForFunction(
+      () => !/hello from inside the zip/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 5000 }
+    )
+    ok(true, 'Escape returns to the archive')
+
+    // Rename in place: F2 on the focused row, Explorer-style selection means
+    // typing replaces the stem and keeps the extension.
+    await row('notes').first().dblclick()
+    await win.waitForSelector('text=todo.md', { timeout: 5000 })
+    await row('todo.md').first().focus()
+    await win.keyboard.press('F2')
+    await win.keyboard.type('done')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('text=done.md', { timeout: 5000 })
+    const AdmZip = (await import('adm-zip')).default
+    ok(
+      new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'notes/done.md'),
+      'the rename landed inside the zip itself'
+    )
+
+    // Delete: confirms first (permanent - a zip has no recycle bin), then the
+    // member is gone from the listing AND the container. The breadcrumb's
+    // root crumb goes back up first.
+    await win.locator('[data-archive-crumbs] button:has-text("bundle.zip")').click()
+    await win.waitForSelector('text=readme.txt', { timeout: 5000 })
+    await row('readme.txt').first().focus()
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('text=no Recycle Bin', { timeout: 5000 })
+    await win.locator('button', { hasText: 'Delete' }).last().click()
+    await win.waitForFunction(
+      () => !/readme\.txt/.test(document.body.textContent ?? ''),
+      null,
+      { timeout: 5000 }
+    )
+    ok(
+      !new AdmZip(zipPath).getEntries().some((e) => e.entryName === 'readme.txt'),
+      'the delete landed inside the zip itself'
+    )
+    await win.screenshot({ path: join(SHOTS, 'archive.png') })
+  } finally {
+    await app.close()
+  }
+}
+
+async function selectionScenario(fixtures) {
+  console.log('explorer selection')
+  // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
+  // build a multi-selection WITHOUT opening anything.
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(700)
+    await win.click('[role="treeitem"]:has-text("notes.txt")')
+    await sleep(500)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
+      'a plain click still opens, quick-look style'
+    )
+    await win.click('[role="treeitem"]:has-text("sample.pdf")', { modifiers: ['Shift'] })
+    await sleep(300)
+    ok((await win.locator('aside [data-selected]').count()) >= 2, 'shift-click selects the range')
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
+      'without opening anything else'
+    )
+    await win.click('[role="treeitem"]:has-text("sample.pdf")', { modifiers: ['Control'] })
+    await sleep(300)
+    const after = await win.locator('aside [data-selected]').count()
+    ok(after >= 1, `ctrl-click toggles one row back out (${after} left selected)`)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
+      'and still opens nothing'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
-  // Windows hands Prism a .zip whenever someone picks it out of "More apps",
+  // Windows hands Prism a .7z whenever someone picks it out of "More apps",
   // which lists every installed application regardless of SupportedTypes. The
-  // window must say so rather than sit empty.
-  const { app, win } = await launch(join(fixtures, 'misc', 'archive.zip'))
+  // window must say so rather than sit empty. (.zip used to be the specimen;
+  // it opens for real since #68 and has its own scenario.)
+  const { app, win } = await launch(join(fixtures, 'misc', 'archive.7z'))
   try {
     await win.waitForFunction(
-      () => /can.t show ZIP files/.test(document.body.textContent ?? ''),
+      () => /can.t show 7Z files/.test(document.body.textContent ?? ''),
       null,
       { timeout: 10000 }
     )
     const text = ((await win.textContent('body')) ?? '').replace(/\s+/g, ' ')
-    ok(/can.t show ZIP files/.test(text), 'the panel names the format')
-    ok(/archive\.zip/.test(text), 'the panel names the file')
+    ok(/can.t show 7Z files/.test(text), 'the panel names the format')
+    ok(/archive\.7z/.test(text), 'the panel names the file')
     ok(/2\.0 KB/.test(text), 'the panel carries the size')
     // The file is not viewable, so nothing lists it: the panel is all there is.
     ok(
@@ -1593,6 +1707,10 @@ try {
   await tabsScenario(fixtures)
   await sleep(900)
   await terminalScenario(fixtures)
+  await sleep(900)
+  await archiveScenario(fixtures)
+  await sleep(900)
+  await selectionScenario(fixtures)
   await sleep(900)
   await unsupportedScenario(fixtures)
 } catch (e) {
