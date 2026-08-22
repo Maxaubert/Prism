@@ -120,6 +120,21 @@ export function setAgentColor(hex: string): void {
   notify()
 }
 
+const AGENT_DONE_KEY = 'prism.term.agentDoneColor'
+const AGENT_DONE_DEFAULT = '#22c55e'
+
+/** The finished-while-away colour: an agent that stopped working on a
+ *  BACKGROUND tab wears this until the tab is visited. */
+export function agentDoneColor(): string {
+  const v = localStorage.getItem(AGENT_DONE_KEY)
+  return v && /^#[0-9a-f]{6}$/i.test(v) ? v : AGENT_DONE_DEFAULT
+}
+
+export function setAgentDoneColor(hex: string): void {
+  localStorage.setItem(AGENT_DONE_KEY, hex)
+  notify()
+}
+
 const CUSTOM_KEY = 'prism.term.custom'
 
 export interface CustomTermTheme {
@@ -133,6 +148,7 @@ export interface CustomTermTheme {
   fontPct?: number
   indicator?: AgentIndicator
   indicatorColor?: string
+  doneColor?: string
   acrylic?: boolean
 }
 
@@ -143,6 +159,7 @@ export const TERM_EXTRA_DEFAULTS = {
   fontPct: 100,
   indicator: 'full' as AgentIndicator,
   indicatorColor: AGENT_COLOR_DEFAULT,
+  doneColor: AGENT_DONE_DEFAULT,
   acrylic: true
 }
 
@@ -153,6 +170,7 @@ export function resetTermExtras(): void {
   localStorage.removeItem(FONT_KEY)
   localStorage.removeItem(AGENT_IND_KEY)
   localStorage.removeItem(AGENT_COLOR_KEY)
+  localStorage.removeItem(AGENT_DONE_KEY)
   localStorage.removeItem(ACRYLIC_KEY)
   notify()
 }
@@ -164,6 +182,7 @@ export function applyCustomExtras(t: CustomTermTheme | null): void {
   if (t.fontPct) localStorage.setItem(FONT_KEY, String(t.fontPct))
   if (t.indicator) localStorage.setItem(AGENT_IND_KEY, t.indicator)
   if (t.indicatorColor) localStorage.setItem(AGENT_COLOR_KEY, t.indicatorColor)
+  if (t.doneColor) localStorage.setItem(AGENT_DONE_KEY, t.doneColor)
   if (t.acrylic !== undefined) localStorage.setItem(ACRYLIC_KEY, t.acrylic ? '1' : '0')
   notify()
 }
@@ -212,6 +231,9 @@ export function useAgentIndicator(): AgentIndicator {
 }
 export function useAgentColor(): string {
   return useSyncExternalStore(sub, agentColor)
+}
+export function useAgentDoneColor(): string {
+  return useSyncExternalStore(sub, agentDoneColor)
 }
 export function useCustomTermTheme(): CustomTermTheme | null {
   // Cache per notify tick: useSyncExternalStore needs a stable snapshot.
