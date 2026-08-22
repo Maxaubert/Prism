@@ -18,7 +18,11 @@ const accentColour = (): string =>
  *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
  *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
 export function iconColour(kind: FileKind | 'folder'): string {
-  return kind === 'folder' ? 'var(--p-tree-folder)' : 'var(--p-tree-file)'
+  if (kind === 'folder') return 'var(--p-tree-folder)'
+  // Archives get a colour of their own (#68, like the folder's): a container
+  // among files, worth telling apart at a glance.
+  if (kind === 'archive') return 'var(--p-tree-archive)'
+  return 'var(--p-tree-file)'
 }
 
 type Size = (typeof TREE_SIZES)[number]
@@ -90,6 +94,18 @@ export function KindIcon({ kind, color, ko: koColour }: { kind: FileKind; color:
             <path d="M6 2.5h7.5L19 8v13.5H6z" />
             <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
             <path d="M8.6 15.5h6.8v3.2H8.6z" {...ko} />
+          </>
+        </Glyph>
+      )
+    case 'archive':
+      // The parcel (owner pick from the icon lab, 2026-08-22): a box with a
+      // lid seam and a label, not another sheet of paper.
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
+            <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
+            <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
           </>
         </Glyph>
       )

@@ -43,6 +43,7 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
+  archiveIconOf,
   fileIconOf,
   folderIconOf,
   resolveVizTheme,
@@ -797,6 +798,19 @@ function StyleTab(): JSX.Element {
               custom={!!edits.fileIcon}
               onChange={(v) => setOverride('fileIcon', v)}
               onReset={() => setOverride('fileIcon', null)}
+            />
+          </Pref>
+          <Pref
+            id="c-archive-icon"
+            label="Archive icons"
+            hint="Zips in the tree: a parcel in its own colour."
+          >
+            <ColourWell
+              id="c-archive-icon"
+              value={archiveIconOf(style)}
+              custom={!!edits.archiveIcon}
+              onChange={(v) => setOverride('archiveIcon', v)}
+              onReset={() => setOverride('archiveIcon', null)}
             />
           </Pref>
         </div>
