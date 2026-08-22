@@ -639,7 +639,7 @@ export default function App(): JSX.Element {
     // Where the tab roots is a Settings choice: the user folder (instant), a
     // remembered folder (instant; falls back to home if it is gone), or the
     // chooser every time. What it shows is a second choice: the folder's
-    // first file, or a terminal already open in full view.
+    // first file, a terminal already open in full view, or nothing yet.
     const mode = newTabMode()
     const request =
       mode === 'ask'
@@ -650,7 +650,8 @@ export default function App(): JSX.Element {
     void request.then((p) => {
       if (!p) return // ask-mode cancelled: no tab
       setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      if (newTabShow() === 'terminal')
+      const show = newTabShow()
+      if (show === 'terminal')
         setTabState((s) => {
           const tab = s.tabs.find((t) => t.id === s.activeId)
           if (!tab || tab.term) return s
@@ -658,6 +659,13 @@ export default function App(): JSX.Element {
           termRoots.current.set(termId, tab.root)
           return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
         })
+      else if (show === 'none')
+        // The quiet start: the sidebar keeps the folder's files, but nothing
+        // goes on screen (NoFileState) until the user picks one.
+        setTabState((s) => ({
+          ...s,
+          tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: -1 } : t))
+        }))
       setHasNavigated(false)
     })
   }, [])
