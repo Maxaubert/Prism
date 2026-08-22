@@ -108,6 +108,7 @@ export const STYLES: Style[] = [
     side: '#0b0d12',
     title: '#0b0d12',
     text: '#f2f4f8',
+    folderIcon: '#99bbff', // owner pick, 2026-08-22
     iconMode: 'kind',
     icon: '#8a8e99',
     // A brighter blue than the family indigo (owner pick, 2026-08-21); the
@@ -131,6 +132,7 @@ export const STYLES: Style[] = [
     side: '#141414',
     title: '#141414',
     text: '#eef0f4',
+    folderIcon: '#8bb1fd', // owner pick, 2026-08-22
     iconMode: 'kind',
     icon: '#8a8e99',
     accent: 'prism',
@@ -149,6 +151,7 @@ export const STYLES: Style[] = [
     side: '#000000',
     title: '#000000',
     text: '#e8eaf0',
+    folderIcon: '#8688fd', // owner pick, 2026-08-22
     iconMode: 'dim',
     icon: '#8a8e99',
     accent: 's-indigo',
@@ -207,6 +210,7 @@ export const STYLES: Style[] = [
     side: '#141821',
     title: '#1a1f2b',
     text: '#eceef5',
+    folderIcon: '#ff7092', // owner pick, 2026-08-22
     iconMode: 'kind',
     icon: '#8a8e99',
     accent: 's-crimson',
@@ -233,6 +237,7 @@ const LIGHT: Style[] = [
     side: '#eceef1',
     title: '#e1e3e8',
     text: '#1b1d21',
+    folderIcon: '#6296fe', // owner pick, 2026-08-22
     iconMode: 'kind',
     icon: '#6b7280',
     accent: 'prism',
@@ -251,6 +256,7 @@ const LIGHT: Style[] = [
     side: '#e9f0f6',
     title: '#e9f0f6',
     text: '#152029',
+    folderIcon: '#4d8f89', // owner pick, 2026-08-22
     iconMode: 'custom',
     icon: '#4a7d92',
     accent: 'd-teal',
@@ -287,6 +293,7 @@ const LIGHT: Style[] = [
     side: '#efe4f7',
     title: '#e6d7f2',
     text: '#251a30',
+    folderIcon: '#956eb4', // owner pick, 2026-08-22
     iconMode: 'custom',
     icon: '#6b21a8',
     accent: 'd-plum',
