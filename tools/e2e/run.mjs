@@ -1506,6 +1506,10 @@ async function terminalScenario(fixtures) {
       (await win.locator('[aria-label="Edit"]').count()) === 0,
       'a full terminal hides the markdown pencil'
     )
+    ok(
+      (await win.locator('aside [role="treeitem"][aria-selected="true"]').count()) === 0,
+      'and marks no file in the tree: nothing is on screen to mark'
+    )
     await win.screenshot({ path: join(SHOTS, 'terminal.png') })
 
     // Clicking a file over a FULL terminal means "show me this file": the

@@ -16,6 +16,13 @@ import { ContextMenu } from './ContextMenu'
  *  a click on the tab. */
 const DRAG_SLOP = 4
 
+/** The tree's folder, at menu size: the + menu lists PLACES. */
+const FolderGlyph = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" width={13} height={13} fill="var(--p-tree-folder)" className="shrink-0" aria-hidden>
+    <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
+  </svg>
+)
+
 export function TabStrip({
   tabs,
   activeId,
@@ -355,6 +362,10 @@ export function TabStrip({
             plusMenu.recent.length
               ? recentLabels(plusMenu.recent).map((r) => ({
                   label: r.label,
+                  // A folder in front of each, in the tree's own folder
+                  // colour: the menu should say "places" at a glance, not
+                  // read as a list of commands.
+                  icon: <FolderGlyph />,
                   onPick: () => onOpenRecent(r.path)
                 }))
               : [{ label: 'No recent folders', disabled: true }]

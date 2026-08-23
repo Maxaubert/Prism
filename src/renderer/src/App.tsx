@@ -1983,11 +1983,12 @@ export default function App(): JSX.Element {
             onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
             onTree={onTree}
-            // The selected row follows the FOCUSED window of a split: a pinned
-            // pane marks its file, the terminal marks nothing, the live pane
-            // (and the no-split default) marks the open file.
+            // The selected row follows what is ON SCREEN: a pinned pane marks
+            // its file, the terminal marks nothing - in a split when it holds
+            // the focus, and in FULL view always, where the viewer is not
+            // showing anything at all - and otherwise the open file.
             currentPath={
-              paneFocus === 'term'
+              paneFocus === 'term' || termView === 'full'
                 ? null
                 : (active.panes.find((pn) => pn.id === paneFocus)?.path ?? file?.path ?? null)
             }
