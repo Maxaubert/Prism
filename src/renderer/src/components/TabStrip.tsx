@@ -197,7 +197,10 @@ export function TabStrip({
         // icon plus edge bar tinted (minimal). Idle shows nothing.
         const working =
           indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
-        const done = !working && indicator !== 'off' && !!t.term && doneIds.has(t.term.id)
+        // Finished-while-away belongs to FULL alone (owner, 2026-08-23):
+        // minimal answers one question, "is something running right now", and
+        // a tab that has merely stopped is not that.
+        const done = indicator === 'full' && !working && !!t.term && doneIds.has(t.term.id)
         const tint = working ? agentColor : done ? doneColor : null
         const loud = tint !== null && indicator === 'full'
         return (
@@ -250,10 +253,17 @@ export function TabStrip({
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
-            {/* Minimal mark: the tinted brain plus a bar down the LEFT edge,
-                so a working or finished tab reads at a glance even narrow. */}
-            {tint && indicator === 'minimal' && (
-              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: tint }} aria-hidden />
+            {/* Minimal mark: a bar running along the BOTTOM edge while the
+                agent works, the way a loading tab reads. It sits under the
+                label rather than beside it, so a narrow tab loses none of its
+                name to it. */}
+            {working && indicator === 'minimal' && (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] overflow-hidden" aria-hidden>
+                <span
+                  className="p-agent-run absolute inset-y-0 w-[42%] rounded-full"
+                  style={{ background: agentColor }}
+                />
+              </span>
             )}
             {/* A permanent icon slot: the brain appears in it while the
                 agent works or waits unseen (tinted in minimal, on-colour in

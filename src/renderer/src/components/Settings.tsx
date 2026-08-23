@@ -1411,7 +1411,7 @@ function TerminalTab(): JSX.Element {
       <Pref
         id="agent-indicator"
         label="Agent indicator"
-        hint="How a tab shows Claude or codex working. Idle tabs stay default."
+        hint="Minimal runs a line under the tab while an agent works. Full fills the tab, and keeps the finished colour until you visit it. Idle tabs stay default."
       >
         <Segmented
           value={agentInd}
@@ -1426,14 +1426,14 @@ function TerminalTab(): JSX.Element {
       <Pref
         id="agent-color"
         label="Indicator colour"
-        hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
+        hint="The tab's fill (full) or the line under it (minimal) while an agent works."
       >
         <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
       </Pref>
       <Pref
         id="agent-done-color"
         label="Finished colour"
-        hint="An agent that finished while its tab was in the background wears this until you visit the tab."
+        hint="An agent that finished while its tab was in the background wears this until you visit the tab. Full indicator only."
       >
         <HexSwatch label="Finished colour" value={doneCol} onChange={setAgentDoneColor} />
       </Pref>

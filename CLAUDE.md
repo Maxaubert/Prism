@@ -171,7 +171,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   split docks bottom/top/left/right (right-click menus), resizable. Ctrl+W closes
   innermost-first: pinned panes pop LIFO, then the tab itself. The terminal wears the style (reads
   --p-bg/--p-text/--p-accent-hi live): void means a black terminal. Right-clicking the
-  terminal button offers split view and Clear terminal. Syntax highlighting and history
+  terminal button offers split view and Clear terminal. The agent indicator has two
+  volumes (owner picks, 2026-08-23): MINIMAL runs an indeterminate line along the tab's
+  bottom edge while an agent works and says nothing else - no finished state, that is
+  full's alone; FULL fills the tab with the working colour, and holds the finished colour
+  until the tab is visited. Syntax highlighting and history
   ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
   spawn - including `-EnableScreenReaderMode:$false`, because automation tooling
   false-positives the system screen-reader flag and PSReadLine then silently drops to a

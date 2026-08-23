@@ -43,6 +43,21 @@
     filter: hue-rotate(360deg);
   }
 }
+/* The MINIMAL agent indicator (owner pick, 2026-08-23): an indeterminate bar
+   running along the bottom edge of a tab while its agent works - the way a
+   loading browser tab reads. Working only; the finished colour belongs to the
+   full indicator alone. */
+@keyframes p-agent-run {
+  0% { left: -42% }
+  100% { left: 100% }
+}
+.p-agent-run { animation: p-agent-run 1.25s ease-in-out infinite }
+@media (prefers-reduced-motion: reduce) {
+  /* No travelling bar for anyone who asked for stillness: the edge simply
+     carries the colour instead. */
+  .p-agent-run { left: 0; width: 100%; animation: none }
+}
+
 @keyframes bar-slide {
   to {
     background-position: 200% 0;
