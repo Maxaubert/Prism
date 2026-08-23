@@ -1046,6 +1046,37 @@ async function tabsScenario(fixtures) {
     const labels = await tabRows().allTextContents()
     ok(labels.some((l) => /code/.test(l)), 'the new tab is named for its folder')
 
+    // Reordering is a POINTER drag inside the strip (2026-08-23), not an HTML5
+    // one: press the second tab, travel left past the first tab's middle,
+    // release. The order flips and nothing else moves.
+    {
+      const before = await tabRows().allTextContents()
+      const a = await tabRows().first().boundingBox()
+      const b = await tabRows().last().boundingBox()
+      await win.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(a.x + 6, b.y + b.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      const after = await tabRows().allTextContents()
+      ok(
+        after[0] === before[before.length - 1] && after.length === before.length,
+        `dragging a tab left reorders the strip (${before.join('|')} -> ${after.join('|')})`
+      )
+      // ...and back, so the rest of the scenario sees the order it expects.
+      const a2 = await tabRows().first().boundingBox()
+      const b2 = await tabRows().last().boundingBox()
+      await win.mouse.move(a2.x + a2.width / 2, a2.y + a2.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(b2.x + b2.width - 6, a2.y + a2.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      ok(
+        (await tabRows().allTextContents()).join('|') === before.join('|'),
+        'and dragging it back restores the order'
+      )
+    }
+
     // Switching: the tree and the viewer both follow.
     await tabRows().first().click()
     await sleep(400)

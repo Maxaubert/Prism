@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react'
+import { useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
@@ -10,9 +10,9 @@ import { contrastRatio } from '../lib/termAnsi'
  * chrome never shifts under you when a second folder opens. It goes only when
  * there is nothing open at all, where EmptyState is already offering the way in.
  */
-/** Set while a TAB is the thing being dragged, so a file drop still means
- *  "open this" and a tab drop means "move it here". */
-const TAB_MIME = 'application/prism-tab'
+/** How far the pointer must travel before a press becomes a drag rather than
+ *  a click on the tab. */
+const DRAG_SLOP = 4
 
 export function TabStrip({
   tabs,
@@ -63,32 +63,82 @@ export function TabStrip({
   // A tab being carried (#71 follow-up): the strip animates it rather than
   // drawing a hairline - the tab lifts out and its neighbours slide across to
   // open the gap it would drop into, which is what "picked up" looks like.
+  // Reordering is a POINTER drag, not an HTML5 one (owner, 2026-08-23): a
+  // system drag goes anywhere on screen and carries an OS snapshot; a tab
+  // should slide left and right inside its own row and nowhere else. The
+  // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
+  // different gesture with a different meaning.
   const [dropAt, setDropAt] = useState<number | null>(null)
-  const [carry, setCarry] = useState<{ id: string; from: number; width: number } | null>(null)
-  // The tab boundaries as they were when the drag STARTED. Asking which
-  // element is under the pointer cannot work once the tabs animate: the tab
+  const [carry, setCarry] = useState<{ id: string; from: number; width: number; dx: number } | null>(
+    null
+  )
+  // The tab boundaries as they were when the drag STARTED. Asking which tab
+  // sits under the pointer cannot work once they animate: the neighbour
   // slides out from under the cursor, the answer flips back, and the strip
-  // oscillates. Frozen geometry has no feedback loop.
-  const lanes = useRef<Array<{ left: number; mid: number }>>([])
+  // judders. Frozen geometry has no feedback loop.
+  const lanes = useRef<Array<{ left: number; width: number; mid: number }>>([])
   const strip = useRef<HTMLDivElement>(null)
+  const startX = useRef(0)
+  /** True once the press has travelled far enough to BE a drag: a plain click
+   *  must still switch tabs. */
+  const dragging = useRef(false)
   /** Whatever had the keyboard before the drag: a shell, a tree row, the
    *  search box. Dragging a tab is not leaving it. */
   const heldFocus = useRef<HTMLElement | null>(null)
-  const restoreFocus = (): void => {
-    const el = heldFocus.current
-    heldFocus.current = null
-    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
-  }
   const endDrag = (): void => {
     setDropAt(null)
     setCarry(null)
     lanes.current = []
-    restoreFocus()
+    const el = heldFocus.current
+    heldFocus.current = null
+    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
   }
-  /** The slot the pointer is asking for, from the frozen lanes. */
+  /** The slot a point is asking for, from the frozen lanes. */
   const slotAt = (x: number): number => {
-    const at = lanes.current.findIndex((l: { left: number; mid: number }) => x < l.mid)
+    const at = lanes.current.findIndex((l) => x < l.mid)
     return at === -1 ? lanes.current.length : at
+  }
+  const onTabPointerDown = (e: PointerEvent<HTMLDivElement>, id: string, i: number): void => {
+    if (e.button !== 0) return
+    // The X is not a handle: capturing the pointer here would swallow its
+    // own click and close nothing.
+    if ((e.target as HTMLElement).closest('[data-tab-close]')) return
+    heldFocus.current = document.activeElement as HTMLElement | null
+    const boxes = [...(strip.current?.querySelectorAll('[data-tab]') ?? [])].map((el) =>
+      el.getBoundingClientRect()
+    )
+    lanes.current = boxes.map((b) => ({ left: b.left, width: b.width, mid: b.left + b.width / 2 }))
+    startX.current = e.clientX
+    dragging.current = false
+    setCarry({ id, from: i, width: boxes[i]?.width ?? 0, dx: 0 })
+    setDropAt(i)
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onTabPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
+    if (!carry) return
+    const raw = e.clientX - startX.current
+    if (!dragging.current && Math.abs(raw) < DRAG_SLOP) return
+    dragging.current = true
+    // Clamped to the row: the tab cannot be carried out of the strip, which
+    // is the whole point of doing this with the pointer.
+    const lane = lanes.current[carry.from]
+    const box = strip.current?.getBoundingClientRect()
+    const dx =
+      lane && box
+        ? Math.max(box.left - lane.left, Math.min(raw, box.right - (lane.left + lane.width)))
+        : raw
+    setCarry((c) => (c ? { ...c, dx } : c))
+    // The CARRIED tab's own centre decides, not the pointer: it is what the
+    // eye is following, and it keeps a grab near an edge honest.
+    if (lane) setDropAt(slotAt(lane.mid + dx))
+  }
+  const onTabPointerUp = (e: PointerEvent<HTMLDivElement>): void => {
+    if (!carry) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    const landed = dragging.current ? dropAt : null
+    const id = carry.id
+    endDrag()
+    if (landed !== null) onReorder(id, landed)
   }
   /** How far a tab slides to open the gap: everything between the carried
    *  tab's old slot and the one under the pointer shifts by its width. */
@@ -116,27 +166,13 @@ export function TabStrip({
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        // One handler, one source of truth: the pointer against the lanes as
-        // they were before anything moved.
-        if (carry && e.dataTransfer.types.includes(TAB_MIME)) setDropAt(slotAt(e.clientX))
-      }}
-      onDragLeave={(e) => {
-        // Only when the pointer really left the strip, not on the way over a
-        // child: the slide would otherwise reset mid-drag.
-        if (carry && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(carry.from)
       }}
       onDrop={(e) => {
-        // Dropping a file here opens it in a NEW tab; stopPropagation keeps
-        // the window-level drop from opening it in the current one.
+        // Dropping a FILE here opens it in a NEW tab; stopPropagation keeps
+        // the window-level drop from opening it in the current one. Tabs
+        // themselves reorder by pointer, not by this.
         e.preventDefault()
         e.stopPropagation()
-        const moved = e.dataTransfer.getData(TAB_MIME)
-        const landing = dropAt
-        endDrag()
-        if (moved) {
-          onReorder(moved, landing ?? tabs.length)
-          return
-        }
         const f = e.dataTransfer.files?.[0]
         if (f) onDropFile(window.prism.getDroppedPath(f))
       }}
@@ -162,7 +198,7 @@ export function TabStrip({
             // tabs when the style draws edges, and vanish (the token goes
             // transparent) when it doesn't. Right edges only: the first tab
             // sits flush against the window's left side, no line before it.
-            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
+            className={`no-drag group relative flex min-w-0 shrink cursor-grab items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors active:cursor-grabbing ${
               loud
                 ? ''
                 : on
@@ -171,36 +207,37 @@ export function TabStrip({
             }`}
             style={{
               ...(loud && tint ? { background: tint, color: onTint(tint) } : {}),
-              transform: `translateX(${slide(i)}px)`,
-              // The carried tab stays in the strip as a faint outline of where
-              // it came from; Chromium drags its own snapshot under the cursor.
-              opacity: carry?.id === t.id ? 0.35 : undefined,
-              transition: carry ? 'transform 170ms cubic-bezier(.23,1,.32,1), opacity 120ms' : undefined
+              transform: `translateX(${carry?.id === t.id ? carry.dx : slide(i)}px)`,
+              zIndex: carry?.id === t.id ? 5 : undefined,
+              // The carried tab follows the pointer exactly; only its
+              // neighbours ease into the gap.
+              cursor: carry?.id === t.id ? 'grabbing' : undefined,
+              // What you carry is a COPY - Chromium's own drag snapshot - so
+              // the tab you picked up stays exactly where it was, solid, and
+              // the strip only really rearranges when the drop lands. The
+              // neighbours sliding open the gap are the preview.
+              transition:
+                carry && carry.id !== t.id ? 'transform 170ms cubic-bezier(.23,1,.32,1)' : undefined
             }}
             // The WHOLE tab is the click target, not just the label: the
             // padding, the icon slot and the slack around a short name all
             // pick the tab. The close button stops propagation to opt out.
-            onClick={() => onPick(t.id)}
+            onClick={() => {
+              // A press that travelled is a drag, not a pick.
+              if (dragging.current) {
+                dragging.current = false
+                return
+              }
+              onPick(t.id)
+            }}
             onAuxClick={(e) => auxClose(e, t.id)}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
-            draggable
             data-tab
-            // Captured before the browser moves focus to the tab itself.
-            onPointerDown={() => {
-              heldFocus.current = document.activeElement as HTMLElement | null
-            }}
-            onDragStart={(e: DragEvent) => {
-              e.dataTransfer.setData(TAB_MIME, t.id)
-              e.dataTransfer.effectAllowed = 'move'
-              const boxes = [...(strip.current?.querySelectorAll('[data-tab]') ?? [])].map((el) =>
-                el.getBoundingClientRect()
-              )
-              lanes.current = boxes.map((b) => ({ left: b.left, mid: b.left + b.width / 2 }))
-              setCarry({ id: t.id, from: i, width: boxes[i]?.width ?? 0 })
-              setDropAt(i)
-            }}
-            onDragEnd={endDrag}
+            onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
+            onPointerMove={onTabPointerMove}
+            onPointerUp={onTabPointerUp}
+            onPointerCancel={() => carry && endDrag()}
           >
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
@@ -238,7 +275,14 @@ export function TabStrip({
               tabIndex={on ? 0 : -1}
               className="min-w-0 max-w-[14rem] truncate py-1 text-left"
               title={t.root}
-              onClick={() => onPick(t.id)}
+              onClick={() => {
+              // A press that travelled is a drag, not a pick.
+              if (dragging.current) {
+                dragging.current = false
+                return
+              }
+              onPick(t.id)
+            }}
             >
               {labels[i]}
             </button>
@@ -246,6 +290,7 @@ export function TabStrip({
               className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm text-[var(--p-icon)] transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] ${
                 on ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
+              data-tab-close
               title={`Close ${labels[i]} (Ctrl+W)`}
               aria-label={`Close ${labels[i]}`}
               onClick={(e) => {
