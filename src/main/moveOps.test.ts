@@ -67,9 +67,12 @@ describe('moveEntries', () => {
     expect(readFileSync(join(root, 'dest', 'a.txt'), 'utf8')).toBe('A')
   })
 
-  it('refuses a folder dropped into itself, and shrugs at its own folder', async () => {
-    const self = await moveEntries([join(root, 'stuff')], join(root, 'stuff', 'inner'), 'ask', trash)
-    expect(self.failed).toEqual([join(root, 'stuff')])
+  it('a folder dropped on itself does nothing, and says nothing', async () => {
+    // The gesture asks for nothing; a dialog about it would be noise.
+    const onto = await moveEntries([join(root, 'stuff')], join(root, 'stuff'), 'ask', trash)
+    expect(onto).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
+    const into = await moveEntries([join(root, 'stuff')], join(root, 'stuff', 'inner'), 'ask', trash)
+    expect(into).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
     expect(existsSync(join(root, 'stuff', 'inner'))).toBe(true)
     // Dropping something where it already lives is a no-op, not a failure.
     const same = await moveEntries([join(root, 'a.txt')], root, 'ask', trash)
@@ -118,6 +121,11 @@ describe('moveEntries', () => {
     writeFileSync(join(root, 'dest', 'a.txt'), 'old')
     const r = await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'replace', trash)
     expect(r.replaced).toEqual([join(root, 'dest', 'a.txt')])
+  })
+
+  it('a path that has gone IS worth reporting', async () => {
+    const r = await moveEntries([join(root, 'ghost.txt')], join(root, 'dest'), 'ask', trash)
+    expect(r.failed).toEqual([join(root, 'ghost.txt')])
   })
 
   it('fails everything when the destination is not a folder', async () => {

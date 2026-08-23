@@ -1778,6 +1778,17 @@ async function dragScenario(fixtures) {
         .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
       await sleep(1800)
       ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
+      // A FOLDER dragged onto the tab strip opens as a tab of its own.
+      const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+      await win
+        .locator('aside [role="treeitem"]:has-text("out")')
+        .first()
+        .dragTo(win.locator('[role="tablist"]'))
+      await sleep(1400)
+      ok(
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1,
+        'a folder dropped on the tab strip opens a tab'
+      )
     } finally {
       await app.close()
     }

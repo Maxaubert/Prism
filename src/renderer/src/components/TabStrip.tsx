@@ -3,6 +3,7 @@ import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
 import { recentLabels, recentRoots } from '../lib/recentRoots'
+import { dragPayload, setDrag } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 
 /**
@@ -186,13 +187,21 @@ export function TabStrip({
         e.stopPropagation()
       }}
       onDrop={(e) => {
-        // Dropping a FILE here opens it in a NEW tab; stopPropagation keeps
+        // Dropping something here opens it in a NEW tab; stopPropagation keeps
         // the window-level drop from opening it in the current one. Tabs
         // themselves reorder by pointer, not by this.
         e.preventDefault()
         e.stopPropagation()
-        const f = e.dataTransfer.files?.[0]
-        if (f) onDropFile(window.prism.getDroppedPath(f))
+        // Prism's own rows carry their paths in the drag payload, not as
+        // files - a folder dragged out of the tree has to land here too, and
+        // that is the natural way to open one beside what you have.
+        const inside = dragPayload(e.dataTransfer)
+        setDrag(null)
+        if (inside?.kind === 'files') {
+          for (const p of inside.paths) onDropFile(p)
+          return
+        }
+        for (const f of e.dataTransfer.files ?? []) onDropFile(window.prism.getDroppedPath(f))
       }}
       // While a tab is genuinely being carried the whole strip wears the
       // closed hand, children included: a tab is made of a label button, an

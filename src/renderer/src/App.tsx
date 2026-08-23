@@ -1329,8 +1329,13 @@ export default function App(): JSX.Element {
   /** "Open in new tab": a fresh tab rooted at the file's folder, like an
    *  Explorer open would make, spawned unconditionally. */
   const openInNewTab = useCallback((path: string) => {
-    void window.prism.openPath(path).then((p) => {
-      if (p) setTabState((s) => addTab(s.tabs, p, nextTabId()))
+    // A FOLDER becomes a tab rooted there, a file a tab showing it: the tab
+    // strip takes both now, since a folder dragged out of the tree is the
+    // natural way to open one beside what you already have.
+    void window.prism.statFile(path).then((st) => {
+      void (st?.isFolder ? window.prism.openRoot(path) : window.prism.openPath(path)).then((p) => {
+        if (p) setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      })
     })
   }, [])
   /** The terminal menu's version: a new tab on the same root, shell in front. */

@@ -64,9 +64,13 @@ export async function moveEntries(
     // folder already carries the child, so the child is not a failure - it
     // simply has nothing left to do.
     if (paths.some((q) => lower(q) !== lower(p) && insideSelf(q, p))) continue
-    // Already there, gone, or a folder swallowing itself: nothing to do.
-    if (!existsSync(p) || insideSelf(p, destDir) || lower(dirname(p)) === lower(destDir)) {
-      if (!existsSync(p) || insideSelf(p, destDir)) out.failed.push(p)
+    // A folder dropped on itself (or into its own subtree), or anything
+    // dropped where it already lives: the gesture asks for nothing, so
+    // nothing happens - and nothing is reported either. Only a path that has
+    // GONE is a failure worth a word.
+    if (insideSelf(p, destDir) || lower(dirname(p)) === lower(destDir)) continue
+    if (!existsSync(p)) {
+      out.failed.push(p)
       continue
     }
     usable.push(p)
