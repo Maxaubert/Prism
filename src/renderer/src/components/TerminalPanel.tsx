@@ -273,16 +273,23 @@ export default function TerminalPanel({
     const ro = new ResizeObserver(refit)
     ro.observe(host)
     // Ctrl+scroll zooms this session's text - unpersisted, the Settings base
-    // size is untouched. Non-passive so the browser's own zoom never fires.
+    // size is untouched. Non-passive so the browser's own zoom never fires,
+    // and in the CAPTURE phase because a full-screen TUI (Claude Code, codex,
+    // vim, less) turns xterm's mouse reporting on: xterm then claims the
+    // wheel to forward it to the program as a mouse report, and a listener
+    // waiting for the bubble never heard it. Capture runs root-first, so the
+    // zoom is decided before xterm sees the event at all - and only for
+    // ctrl+wheel, which leaves plain scrolling to the program.
     const wheel = (e: WheelEvent): void => {
       if (!e.ctrlKey) return
       e.preventDefault()
+      e.stopPropagation()
       zoomSession(sessionId, e.deltaY < 0 ? 1 : -1)
     }
-    host.addEventListener('wheel', wheel, { passive: false })
+    host.addEventListener('wheel', wheel, { passive: false, capture: true })
     return () => {
       ro.disconnect()
-      host.removeEventListener('wheel', wheel)
+      host.removeEventListener('wheel', wheel, { capture: true })
       // Detach, don't dispose: the shell runs on unseen.
       if (s.el.parentElement === host) host.removeChild(s.el)
     }

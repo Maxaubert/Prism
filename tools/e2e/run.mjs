@@ -1502,6 +1502,40 @@ async function terminalScenario(fixtures) {
 
     // The title bar belongs to what is ON SCREEN: over a full terminal the
     // markdown pencil has nothing to edit, so it goes with the file name.
+    // Ctrl+scroll must zoom even while a full-screen program owns the mouse:
+    // turn xterm's mouse reporting ON the way Claude Code and vim do, then
+    // wheel with ctrl held. Before the capture-phase handler, xterm claimed
+    // the event to forward it to the program and nothing zoomed.
+    {
+      const fontOf = () =>
+        win.evaluate(() => {
+          const el = document.querySelector('.xterm-rows') ?? document.querySelector('.xterm')
+          return el ? getComputedStyle(el).fontSize : ''
+        })
+      await win.locator('.xterm').click()
+      await win.keyboard.type("[Console]::Out.Write([char]27 + '[?1003h')")
+      await win.keyboard.press('Enter')
+      await sleep(900)
+      const before = await fontOf()
+      const box = await win.locator('.xterm').boundingBox()
+      await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, -240)
+      await win.mouse.wheel(0, -240)
+      await win.keyboard.up('Control')
+      await sleep(600)
+      const after = await fontOf()
+      ok(
+        !!before && before !== after,
+        `ctrl+scroll zooms with mouse reporting on (${before} -> ${after})`
+      )
+      // ...and back down, so the rest of the scenario sees the size it expects.
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, 240)
+      await win.mouse.wheel(0, 240)
+      await win.keyboard.up('Control')
+      await sleep(400)
+    }
     ok(
       (await win.locator('[aria-label="Edit"]').count()) === 0,
       'a full terminal hides the markdown pencil'
