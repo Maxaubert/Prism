@@ -49,6 +49,43 @@ describe('ptyEnv', () => {
     expect(ptyEnv({ FORCE_COLOR: '3' }).FORCE_COLOR).toBe('3')
   })
 
+  it("never passes on another session's identity", () => {
+    // Launched from an agent's shell, Prism inherited its markers: every agent
+    // in the panel then ran as a CHILD session - no transcript saved (so
+    // nothing for Prism's own resume to find) and a live pipe to someone
+    // else's conversation.
+    const env = ptyEnv({
+      CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_SESSION_ID: '9fa24458-8fe5-4386-81d3-58cd302bee2d',
+      CLAUDE_CODE_MESSAGING_SOCKET: String.raw`\.\pipe\cc-msg-abc`,
+      CLAUDE_CODE_MESSAGING_TOKEN: 'secret',
+      CODEX_COMPANION_SESSION_ID: 'x',
+      PATH: 'C:\bin'
+    })
+    for (const k of [
+      'CLAUDECODE',
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_MESSAGING_SOCKET',
+      'CLAUDE_CODE_MESSAGING_TOKEN',
+      'CODEX_COMPANION_SESSION_ID'
+    ])
+      expect(k in env).toBe(false)
+    expect(env.PATH).toBe('C:\bin')
+  })
+
+  it('keeps the CLAUDE_CODE_* variables that are real configuration', () => {
+    const env = ptyEnv({
+      CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION: '500',
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      ANTHROPIC_API_KEY: 'k'
+    })
+    expect(env.CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION).toBe('500')
+    expect(env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS).toBe('1')
+    expect(env.ANTHROPIC_API_KEY).toBe('k')
+  })
+
   it('passes everything else through untouched, undefined aside', () => {
     const env = ptyEnv({ FOO: 'bar', GONE: undefined })
     expect(env.FOO).toBe('bar')

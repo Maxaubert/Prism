@@ -195,9 +195,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
   pwsh by default, Settings picks from what the machine has. The pty gets a
   terminal's OWN environment, not Prism's (2026-08-23): TERM=xterm-256color and
-  COLORTERM=truecolor, with NO_COLOR and FORCE_COLOR=0 dropped - Prism inherits whatever
-  launched it, and a launcher that suppressed colour made every agent in the panel render
-  monochrome. **This is the one thing in Prism that executes**, accepted by design -
+  COLORTERM=truecolor, with NO_COLOR and FORCE_COLOR=0 dropped, and the SESSION MARKERS an
+  agent leaves for its children stripped by name (CLAUDECODE, CLAUDE_CODE_CHILD_SESSION /
+  SESSION_ID / MESSAGING_SOCKET / MESSAGING_TOKEN / ENTRYPOINT / EXECPATH, CLAUDE_PID,
+  CODEX_COMPANION_*). Prism inherits whatever launched it: from an agent's own shell that
+  meant monochrome agents AND child sessions - no transcript saved, so nothing for Prism's
+  resume to find, and a live pipe to somebody else's conversation. Real CLAUDE_CODE_*
+  configuration (web-search limits, feature flags) is deliberately kept. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
   the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing

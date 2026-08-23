@@ -70,6 +70,35 @@ const PTY_OPTS = { name: 'xterm-256color', useConpty: true, useConptyDll: true }
  * can display, which is 24-bit colour, so it says so and drops the two
  * variables that would claim otherwise.
  */
+/**
+ * The markers an AI CLI leaves in the environment of everything it spawns, so
+ * a nested one knows it is a CHILD: it stops saving a transcript, and it can
+ * be handed its parent's session id and message pipe.
+ *
+ * Prism must not pass those on. Launched FROM an agent's shell (which is how
+ * it gets installed and started here), every agent in the panel became a
+ * child of that session: no transcript - so nothing for Prism's own resume to
+ * come back to - and a live socket to somebody else's conversation. A shell
+ * in the panel is a top-level shell, whatever started the app.
+ *
+ * Names only, deliberately: `CLAUDE_CODE_*` also carries real configuration
+ * (web-search limits, feature flags) that the user meant to set.
+ */
+const SESSION_MARKERS = new Set([
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_PID',
+  'CLAUDE_PLUGIN_DATA',
+  'CLAUDE_EFFORT',
+  'CODEX_COMPANION_SESSION_ID',
+  'CODEX_COMPANION_TRANSCRIPT_PATH'
+])
+
 export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(from)) {
@@ -78,6 +107,7 @@ export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
     if (key === 'NO_COLOR') continue
     if (key === 'FORCE_COLOR' && /^(0|false|none)$/i.test(v)) continue
     if (key === 'TERM' || key === 'COLORTERM') continue
+    if (SESSION_MARKERS.has(key)) continue
     env[k] = v
   }
   env.TERM = PTY_OPTS.name
