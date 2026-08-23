@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type JSX, type MouseEvent } from 'react'
+import { useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
@@ -65,9 +65,30 @@ export function TabStrip({
   // open the gap it would drop into, which is what "picked up" looks like.
   const [dropAt, setDropAt] = useState<number | null>(null)
   const [carry, setCarry] = useState<{ id: string; from: number; width: number } | null>(null)
+  // The tab boundaries as they were when the drag STARTED. Asking which
+  // element is under the pointer cannot work once the tabs animate: the tab
+  // slides out from under the cursor, the answer flips back, and the strip
+  // oscillates. Frozen geometry has no feedback loop.
+  const lanes = useRef<Array<{ left: number; mid: number }>>([])
+  const strip = useRef<HTMLDivElement>(null)
+  /** Whatever had the keyboard before the drag: a shell, a tree row, the
+   *  search box. Dragging a tab is not leaving it. */
+  const heldFocus = useRef<HTMLElement | null>(null)
+  const restoreFocus = (): void => {
+    const el = heldFocus.current
+    heldFocus.current = null
+    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
+  }
   const endDrag = (): void => {
     setDropAt(null)
     setCarry(null)
+    lanes.current = []
+    restoreFocus()
+  }
+  /** The slot the pointer is asking for, from the frozen lanes. */
+  const slotAt = (x: number): number => {
+    const at = lanes.current.findIndex((l: { left: number; mid: number }) => x < l.mid)
+    return at === -1 ? lanes.current.length : at
   }
   /** How far a tab slides to open the gap: everything between the carried
    *  tab's old slot and the one under the pointer shifts by its width. */
@@ -91,9 +112,18 @@ export function TabStrip({
     <div
       role="tablist"
       aria-label="Open folders"
+      ref={strip}
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()
+        // One handler, one source of truth: the pointer against the lanes as
+        // they were before anything moved.
+        if (carry && e.dataTransfer.types.includes(TAB_MIME)) setDropAt(slotAt(e.clientX))
+      }}
+      onDragLeave={(e) => {
+        // Only when the pointer really left the strip, not on the way over a
+        // child: the slide would otherwise reset mid-drag.
+        if (carry && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(carry.from)
       }}
       onDrop={(e) => {
         // Dropping a file here opens it in a NEW tab; stopPropagation keeps
@@ -110,7 +140,6 @@ export function TabStrip({
         const f = e.dataTransfer.files?.[0]
         if (f) onDropFile(window.prism.getDroppedPath(f))
       }}
-      onDragLeave={() => setDropAt(null)}
       className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
@@ -156,20 +185,22 @@ export function TabStrip({
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             draggable
+            data-tab
+            // Captured before the browser moves focus to the tab itself.
+            onPointerDown={() => {
+              heldFocus.current = document.activeElement as HTMLElement | null
+            }}
             onDragStart={(e: DragEvent) => {
               e.dataTransfer.setData(TAB_MIME, t.id)
               e.dataTransfer.effectAllowed = 'move'
-              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
-              setCarry({ id: t.id, from: i, width: box.width })
+              const boxes = [...(strip.current?.querySelectorAll('[data-tab]') ?? [])].map((el) =>
+                el.getBoundingClientRect()
+              )
+              lanes.current = boxes.map((b) => ({ left: b.left, mid: b.left + b.width / 2 }))
+              setCarry({ id: t.id, from: i, width: boxes[i]?.width ?? 0 })
               setDropAt(i)
             }}
             onDragEnd={endDrag}
-            onDragOver={(e: DragEvent) => {
-              if (!e.dataTransfer.types.includes(TAB_MIME)) return
-              e.preventDefault()
-              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
-              setDropAt(e.clientX < box.left + box.width / 2 ? i : i + 1)
-            }}
           >
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}

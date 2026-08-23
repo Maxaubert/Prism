@@ -868,13 +868,10 @@ export default function App(): JSX.Element {
   /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
   const reorderTab = useCallback(
     (id: string, toIndex: number) =>
-      setTabState((s) => {
-        // The drag ends with focus on the tab; the shell was never left.
-        const tab = s.tabs.find((t) => t.id === id)
-        if (tab?.term && tab.term.view !== 'hidden')
-          requestAnimationFrame(() => focusTermSession(tab.term!.id))
-        return { ...s, tabs: reorderTabs(s.tabs, id, toIndex) }
-      }),
+      // Focus is the strip's business: it puts back whatever the drag
+      // interrupted - a shell, a tree row, the search box - rather than
+      // assuming the terminal.
+      setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
     []
   )
 
