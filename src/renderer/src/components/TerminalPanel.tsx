@@ -93,6 +93,13 @@ export function ensureTermSession(id: string, root: string, shellId: string | un
 
 /** Kill a session's renderer half: the xterm instance and its element. Main's
  *  pty half is killed separately (term:kill) or already exited. */
+/** Give a live session the keyboard back. Used after a tab interaction (a
+ *  click, a reorder drag) stole focus from a shell the user never left: the
+ *  arrows would otherwise reach the folder instead of Claude Code. */
+export function focusTermSession(id: string): void {
+  sessions.get(id)?.term.focus()
+}
+
 export function disposeTermSession(id: string): void {
   const s = sessions.get(id)
   if (!s) return

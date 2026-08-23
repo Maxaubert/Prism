@@ -60,8 +60,23 @@ export function TabStrip({
   // the look; black only wins on genuinely light fills (contrast vs black of
   // 12 is a ~0.55 luminance threshold).
   const onTint = (c: string): string => (contrastRatio('#000000', c) < 12 ? '#ffffff' : '#000000')
-  // Where a dragged tab would land: the slot index, drawn as a hairline.
+  // A tab being carried (#71 follow-up): the strip animates it rather than
+  // drawing a hairline - the tab lifts out and its neighbours slide across to
+  // open the gap it would drop into, which is what "picked up" looks like.
   const [dropAt, setDropAt] = useState<number | null>(null)
+  const [carry, setCarry] = useState<{ id: string; from: number; width: number } | null>(null)
+  const endDrag = (): void => {
+    setDropAt(null)
+    setCarry(null)
+  }
+  /** How far a tab slides to open the gap: everything between the carried
+   *  tab's old slot and the one under the pointer shifts by its width. */
+  const slide = (i: number): number => {
+    if (!carry || dropAt === null || i === carry.from) return 0
+    if (dropAt > carry.from && i > carry.from && i < dropAt) return -carry.width
+    if (dropAt <= carry.from && i >= dropAt && i < carry.from) return carry.width
+    return 0
+  }
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -86,9 +101,10 @@ export function TabStrip({
         e.preventDefault()
         e.stopPropagation()
         const moved = e.dataTransfer.getData(TAB_MIME)
-        setDropAt(null)
+        const landing = dropAt
+        endDrag()
         if (moved) {
-          onReorder(moved, dropAt ?? tabs.length)
+          onReorder(moved, landing ?? tabs.length)
           return
         }
         const f = e.dataTransfer.files?.[0]
@@ -124,7 +140,14 @@ export function TabStrip({
                   ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
-            style={loud && tint ? { background: tint, color: onTint(tint) } : undefined}
+            style={{
+              ...(loud && tint ? { background: tint, color: onTint(tint) } : {}),
+              transform: `translateX(${slide(i)}px)`,
+              // The carried tab stays in the strip as a faint outline of where
+              // it came from; Chromium drags its own snapshot under the cursor.
+              opacity: carry?.id === t.id ? 0.35 : undefined,
+              transition: carry ? 'transform 170ms cubic-bezier(.23,1,.32,1), opacity 120ms' : undefined
+            }}
             // The WHOLE tab is the click target, not just the label: the
             // padding, the icon slot and the slack around a short name all
             // pick the tab. The close button stops propagation to opt out.
@@ -136,8 +159,11 @@ export function TabStrip({
             onDragStart={(e: DragEvent) => {
               e.dataTransfer.setData(TAB_MIME, t.id)
               e.dataTransfer.effectAllowed = 'move'
+              const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              setCarry({ id: t.id, from: i, width: box.width })
+              setDropAt(i)
             }}
-            onDragEnd={() => setDropAt(null)}
+            onDragEnd={endDrag}
             onDragOver={(e: DragEvent) => {
               if (!e.dataTransfer.types.includes(TAB_MIME)) return
               e.preventDefault()
@@ -145,12 +171,6 @@ export function TabStrip({
               setDropAt(e.clientX < box.left + box.width / 2 ? i : i + 1)
             }}
           >
-            {dropAt === i && (
-              <span className="absolute inset-y-0 left-0 w-0.5 bg-[var(--p-accent-hi)]" aria-hidden />
-            )}
-            {dropAt === i + 1 && (
-              <span className="absolute inset-y-0 right-0 w-0.5 bg-[var(--p-accent-hi)]" aria-hidden />
-            )}
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}

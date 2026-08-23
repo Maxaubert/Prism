@@ -10,6 +10,7 @@ import { confirmCloseMode } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
+import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -846,11 +847,34 @@ export default function App(): JSX.Element {
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
   }, [activeId, closeOneTab])
-  const pickTab = useCallback((id: string) => setTabState((s) => ({ ...s, activeId: id })), [])
+  /** Whatever a tab interaction did to DOM focus, a SHOWING terminal gets the
+   *  keyboard back: clicking or dragging a tab is not "I left the shell", and
+   *  losing focus there sent the arrows off to page the folder instead. */
+  const restoreTermFocus = useCallback((id?: string) => {
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === (id ?? s.activeId))
+      if (tab?.term && tab.term.view !== 'hidden')
+        requestAnimationFrame(() => focusTermSession(tab.term!.id))
+      return s
+    })
+  }, [])
+  const pickTab = useCallback(
+    (id: string) => {
+      setTabState((s) => ({ ...s, activeId: id }))
+      restoreTermFocus(id)
+    },
+    [restoreTermFocus]
+  )
   /** The strip's own drag: a tab lands in front of `toIndex` (#70). */
   const reorderTab = useCallback(
     (id: string, toIndex: number) =>
-      setTabState((s) => ({ ...s, tabs: reorderTabs(s.tabs, id, toIndex) })),
+      setTabState((s) => {
+        // The drag ends with focus on the tab; the shell was never left.
+        const tab = s.tabs.find((t) => t.id === id)
+        if (tab?.term && tab.term.view !== 'hidden')
+          requestAnimationFrame(() => focusTermSession(tab.term!.id))
+        return { ...s, tabs: reorderTabs(s.tabs, id, toIndex) }
+      }),
     []
   )
 
@@ -1757,12 +1781,12 @@ export default function App(): JSX.Element {
         }
         if (fullscreen) setFs(false)
         else window.prism.close()
-      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing) {
+      } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing && termView !== 'full') {
         // Same rule as the arrows: the document has these only once it has
         // been focused. Reading a pdf from the sidebar should page the folder.
         if (docFocused()) return
         go(e.key === 'PageDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing) {
+      } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing && termView !== 'full') {
         // FOCUS decides, for every kind. A document owns the vertical keys only
         // while it is focused - click into it, or Tab to it. Until then it has
         // no more claim on them than a photo does, so arrowing through a folder
@@ -1775,7 +1799,7 @@ export default function App(): JSX.Element {
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
         if (!fullscreen && treeNav.current?.(dir)) return
         go(e.key === 'ArrowDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing) {
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing && termView !== 'full') {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
         if (!playerOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
@@ -1789,7 +1813,7 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, redo, settingsOpen, setup, stepTab, togglePanel, toggleTerm, undo, unpinSplitId])
+  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, redo, settingsOpen, setup, stepTab, termView, togglePanel, toggleTerm, undo, unpinSplitId])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
