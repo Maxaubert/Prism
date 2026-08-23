@@ -519,7 +519,6 @@ export function Sidebar({
   }, [onNav, step])
 
   const rootListing = state.children[root]
-  const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
 
   return (
     // The panel stays mounted and collapses to zero width, so opening and closing
@@ -538,18 +537,13 @@ export function Sidebar({
         className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[var(--p-divider)]`}
         style={{ width }}
       >
-        <div className="flex h-8 shrink-0 items-center justify-between gap-1.5 pl-3 pr-1.5 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
-          <span className="min-w-0 truncate" title={root}>
-            {rootName}
-          </span>
-          <div className="flex items-center">
-            <SortMenu />
-          </div>
-        </div>
-        {/* The search box: a hairline and nothing else, so it wears whatever
-            the style wears (a filled grey panel glowed on true black). The
-            accent arrives with focus. Escape clears. */}
-        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5">
+        {/* ONE row for the panel's controls (owner, 2026-08-23): the folder
+            name used to head the sidebar, but the tab already says where you
+            are, and repeating it cost a whole row. Reroot, search and sort
+            now share the line. The search box is a hairline and nothing else,
+            so it wears whatever the style wears (a filled grey panel glowed
+            on true black); the accent arrives with focus, Escape clears. */}
+        <div className="mx-2 mb-1.5 mt-2 flex shrink-0 items-center gap-1.5">
         <button
           className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
           onClick={onOpenFolder}
@@ -594,6 +588,7 @@ export function Sidebar({
             </button>
           )}
         </div>
+        <SortMenu />
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
