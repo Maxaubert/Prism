@@ -89,7 +89,12 @@ export function SortMenu(): JSX.Element {
         aria-expanded={!!open}
       >
         <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M7 4v14M7 18l-3-3.2M7 18l3-3.2M17 20V6M17 6l-3 3.2M17 6l3 3.2" />
+          {/* A list that shortens, with a direction beside it (owner pick,
+              2026-08-23): the two-arrow glyph said "some order", this says
+              what is being ordered. Static - the menu's check carries which
+              way it currently runs. */}
+          <path d="M4 6h10M4 11h7M4 16h4" />
+          <path d="M17 5v13m0 0-2.5-2.6M17 18l2.5-2.6" />
         </svg>
       </button>
 
