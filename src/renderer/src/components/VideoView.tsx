@@ -83,6 +83,35 @@ export function VideoView({
   // 2026-08-22): the transport says the state, the picture stays clean.
   const clickToggle = (): void => c.togglePlay()
 
+  // Some perfectly ordinary files play silently here: Chromium ships no
+  // decoder for Dolby Digital (AC-3/E-AC-3) or DTS, which is what a lot of
+  // MKV rips carry, so the picture runs and the sound never arrives. Nothing
+  // in the element says so - no error, no track list - but the decoder's byte
+  // counter does: video climbing while audio stays at zero IS the symptom.
+  // Saying it plainly beats a viewer that looks broken.
+  // Keyed by url rather than reset on change: the next file starts loud by
+  // construction, with no state to clear.
+  const [silentUrl, setSilentUrl] = useState<string | null>(null)
+  const [hushedUrl, setHushedUrl] = useState<string | null>(null)
+  const silent = silentUrl === url && hushedUrl !== url
+  useEffect(() => {
+    const el = video.current
+    if (!el) return
+    const t = window.setInterval(() => {
+      type Counted = HTMLVideoElement & {
+        webkitAudioDecodedByteCount?: number
+        webkitVideoDecodedByteCount?: number
+      }
+      const v = el as Counted
+      const vb = v.webkitVideoDecodedByteCount ?? 0
+      const ab = v.webkitAudioDecodedByteCount ?? 0
+      // Only once the picture is genuinely decoding, and only while playing:
+      // a paused or still-loading file decodes nothing either.
+      if (!el.paused && vb > 400_000) setSilentUrl(ab === 0 ? url : null)
+    }, 1200)
+    return () => window.clearInterval(t)
+  }, [url])
+
   return (
     <div
       className="group relative flex h-full w-full items-center justify-center"
@@ -90,6 +119,30 @@ export function VideoView({
       onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
+      {silent && (
+        <div
+          role="status"
+          className="pointer-events-auto absolute left-1/2 top-3 z-30 flex max-w-[min(560px,86%)] -translate-x-1/2 items-center gap-2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
+        >
+          <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="shrink-0 text-[var(--p-dim)]" aria-hidden>
+            <path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6m0-6-4 6" />
+          </svg>
+          <span className="min-w-0">
+            No sound: Prism cannot decode this file&apos;s audio (Dolby Digital or DTS, usually).
+            The picture is unaffected.
+          </span>
+          <button
+            className="ml-1 shrink-0 rounded px-1 text-[var(--p-dim2)] hover:text-[var(--p-text)]"
+            onClick={() => setHushedUrl(url)}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      )}
       <video
         ref={video}
         src={url}

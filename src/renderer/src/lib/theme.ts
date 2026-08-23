@@ -541,6 +541,23 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
             rgba(ink, style.mode === 'light' ? 0.035 : 0.022)
           : rgba(ink, style.mode === 'light' ? 0.1 : 0.07)
 
+  // The same hairline, but OPAQUE (2026-08-23). --p-divider is an alpha over
+  // whatever sits behind it, which is right for edges inside a panel and
+  // wrong for the one edge that stands against the VIEWER: over a playing
+  // video the line sampled the picture and appeared to shimmer, lighter and
+  // darker down its length. Mixed into the panel's own flat colour it looks
+  // identical and holds still.
+  const dividerAlpha =
+    style.borders === 'none'
+      ? 0
+      : style.borders === 'strong'
+        ? style.mode === 'light' ? 0.18 : 0.16
+        : style.borders === 'faint'
+          ? style.mode === 'light' ? 0.035 : 0.022
+          : style.mode === 'light' ? 0.1 : 0.07
+  const flatSide = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
+  const edge = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
+
   // A hairline that exists whatever the style says about edges. Settings lists
   // need their rows separated even in a style that draws no chrome lines.
   const listLine = rgba(ink, style.mode === 'light' ? 0.12 : 0.09)
@@ -581,6 +598,7 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // five points stronger, so it reads as "this one" rather than "passing by".
     '--p-hover-hi': rgba(ink, style.mode === 'light' ? 0.12 : 0.11),
     '--p-divider': divider,
+    '--p-edge': edge,
     '--p-line': listLine,
     // `none` is a valid background-image, so a style without a wash draws none.
     '--p-wash': style.wash

@@ -9,7 +9,7 @@ import {
   nativeTheme,
   utilityProcess
 } from 'electron'
-import { basename, dirname, extname, join, resolve } from 'path'
+import { basename, dirname, extname, join, resolve, sep } from 'path'
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
@@ -292,6 +292,14 @@ const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
  * claude's (every non-alphanumeric character becomes a dash). Null when the
  * folder has no sessions - then nothing is resumed.
  */
+/** Is `p` the folder `root` or inside it? Restore uses this to keep a saved
+ *  root rather than letting the file's own folder become one. */
+function insideRootPath(root: string, p: string): boolean {
+  const a = resolve(root).toLowerCase()
+  const b = resolve(p).toLowerCase()
+  return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep)
+}
+
 /** The marker that means "codex, continue this folder's newest session". Not
  *  an id: codex finds it itself. */
 const CODEX_RESUME = 'codex:last'
@@ -321,7 +329,14 @@ function restoreTabs(): OpenPayload[] {
   // the fact - newest-first in strip order is the honest guess.)
   const taken = new Map<string, number>()
   for (const [i, t] of saved.tabs.entries()) {
-    const payload = t.file ? buildPayload(t.file) : folderPayload(t.root)
+    // The SAVED root, not the file's folder: navigating into a subfolder and
+    // reopening there used to leave the tab rooted at the subfolder, because
+    // the payload was rebuilt from the file alone and root followed it. The
+    // wall has to be registered here, since buildPayload only does that when
+    // it is inventing the root itself.
+    const keptRoot = t.file && existsSync(t.root) && insideRootPath(t.root, t.file) ? t.root : undefined
+    if (keptRoot) addRoot(keptRoot)
+    const payload = t.file ? buildPayload(t.file, keptRoot) : folderPayload(t.root)
     if (payload) {
       // A claude session resumes by ID - a session claude itself recorded for
       // this folder. No session on disk means no resume at all: never a bare

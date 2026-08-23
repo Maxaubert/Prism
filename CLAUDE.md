@@ -35,6 +35,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
   kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
   SRT converted to WebVTT; embedded MKV tracks deliberately out until a demuxer decision).
+  Chromium ships no Dolby Digital (AC-3/E-AC-3) or DTS decoder, so many MKV rips play with
+  picture and no sound. Prism SAYS so (2026-08-23) rather than looking broken: video decoding
+  while `webkitAudioDecodedByteCount` stays 0 raises a dismissible note. Bundling a decoder is
+  a licensing decision, not a bug fix.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,

@@ -534,7 +534,10 @@ export function Sidebar({
       }`}
     >
       <div
-        className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[var(--p-divider)]`}
+        // The one edge that stands against the VIEWER uses the OPAQUE hairline:
+        // an alpha line here sampled whatever was behind it, so over a playing
+        // video it shimmered lighter and darker down its length.
+        className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[color:var(--p-edge)]`}
         style={{ width }}
       >
         {/* ONE row for the panel's controls (owner, 2026-08-23): the folder
