@@ -14,7 +14,8 @@ const api = {
   openPath: (path: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:path', path),
   /** Choose a FOLDER to root in. The only way to name a root deliberately;
    *  every other route infers it from the file that arrived. */
-  openFolder: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:folder'),
+  openFolder: (from?: string): Promise<OpenPayload | null> =>
+    ipcRenderer.invoke('open:folder', from),
   /** A new tab rooted at the user's own folder. No dialog: the + is instant. */
   openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
   /** A new tab rooted at a remembered folder (the Settings choice). */

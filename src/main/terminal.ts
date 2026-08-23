@@ -55,7 +55,35 @@ interface Session {
  * reports). node-pty ships its own conpty.dll with the fix; using it is the
  * documented cure, and Windows 10 1809+ (our floor) is its requirement.
  */
-const PTY_OPTS = { name: 'xterm-color', useConpty: true, useConptyDll: true } as const
+// xterm-256color, not xterm-color: `supports-color` and everything built on
+// it (Ink, chalk - so Claude Code and codex) read TERM to decide how much
+// colour they may use, and "xterm-color" caps them at 16.
+const PTY_OPTS = { name: 'xterm-256color', useConpty: true, useConptyDll: true } as const
+
+/**
+ * The environment a shell in Prism's panel should see.
+ *
+ * NOT the app's own environment verbatim: Prism inherits whatever launched it,
+ * and a launcher that suppresses colour (NO_COLOR, FORCE_COLOR=0 - both
+ * ordinary in a script or an agent's shell) made every agent inside the panel
+ * render in monochrome, logo and all. A terminal emulator answers for what IT
+ * can display, which is 24-bit colour, so it says so and drops the two
+ * variables that would claim otherwise.
+ */
+export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(from)) {
+    if (v === undefined) continue
+    const key = k.toUpperCase()
+    if (key === 'NO_COLOR') continue
+    if (key === 'FORCE_COLOR' && /^(0|false|none)$/i.test(v)) continue
+    if (key === 'TERM' || key === 'COLORTERM') continue
+    env[k] = v
+  }
+  env.TERM = PTY_OPTS.name
+  env.COLORTERM = 'truecolor'
+  return env
+}
 
 const sessions = new Map<string, Session>()
 
@@ -101,7 +129,7 @@ export async function prewarmShell(root: string, shellId: string | undefined): P
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>
+      env: ptyEnv(process.env)
     })
     const w: WarmShell = { pty: p, defId: def.id, buf: '', sub: { dispose: () => {} }, exited: false }
     w.sub = p.onData((d) => {
@@ -208,7 +236,7 @@ export async function spawnTerm(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>
+      env: ptyEnv(process.env)
     })
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
     const subs = [

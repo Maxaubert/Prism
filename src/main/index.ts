@@ -591,8 +591,15 @@ if (!app.requestSingleInstanceLock()) {
     })
     // Choosing a folder rather than a file: the other way in, and the only one
     // that names the root deliberately instead of inferring it from a file.
-    ipcMain.handle('open:folder', async (): Promise<OpenPayload | null> => {
-      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    ipcMain.handle('open:folder', async (_e, from?: string): Promise<OpenPayload | null> => {
+      // Open the browser where the tab already is: changing a tab's folder
+      // almost always means a sibling or a child of the one it is on, and
+      // starting at Documents made every one of those a walk.
+      const at = typeof from === 'string' && existsSync(from) ? from : undefined
+      const r = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        ...(at ? { defaultPath: at } : {})
+      })
       if (r.canceled || !r.filePaths.length) return null
       return folderPayload(r.filePaths[0])
     })

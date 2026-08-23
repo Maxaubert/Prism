@@ -193,7 +193,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   ever writes itself - an explicit owner exception (2026-08-21) to the line below,
   claude AND codex (2026-08-23): claude comes back by session id, codex by its own `codex resume --last`, whose picker already filters by cwd so no lookup is needed; agent detection names the kind and tabs.json records it (the old boolean means claude). Other agents light the dot but have nothing to come back to. Ctrl+C
   over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
-  pwsh by default, Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  pwsh by default, Settings picks from what the machine has. The pty gets a
+  terminal's OWN environment, not Prism's (2026-08-23): TERM=xterm-256color and
+  COLORTERM=truecolor, with NO_COLOR and FORCE_COLOR=0 dropped - Prism inherits whatever
+  launched it, and a launcher that suppressed colour made every agent in the panel render
+  monochrome. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
   the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing

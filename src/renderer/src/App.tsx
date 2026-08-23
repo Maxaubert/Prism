@@ -707,6 +707,13 @@ export default function App(): JSX.Element {
     })
   }, [update])
 
+  // Where the active tab is rooted, for handlers that must stay stable (the
+  // + is handed to main once and must not be rebuilt whenever a tab changes).
+  const activeRootRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    activeRootRef.current = tabs.find((t) => t.id === activeId)?.root
+  }, [tabs, activeId])
+
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   /**
    * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
@@ -725,7 +732,7 @@ export default function App(): JSX.Element {
     const mode = newTabMode()
     const request =
       mode === 'ask'
-        ? window.prism.openFolder()
+        ? window.prism.openFolder(activeRootRef.current)
         : mode === 'folder'
           ? window.prism.openRoot(newTabFolder()).then((p) => p ?? window.prism.openHome())
           : window.prism.openHome()
@@ -806,7 +813,7 @@ export default function App(): JSX.Element {
    * one-tab-per-root rule the arriving-file logic leans on still holds.
    */
   const rerootHere = useCallback(() => {
-    void window.prism.openFolder().then((p) => {
+    void window.prism.openFolder(tabs.find((t) => t.id === activeId)?.root).then((p) => {
       if (!p) return
       const here = tabs.find((t) => t.id === activeId)
       const names = here && !sameRoot(here.root, p.root) ? dirtyUnder(here.root) : []
