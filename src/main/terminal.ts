@@ -156,7 +156,10 @@ type Send = (channel: string, ...args: unknown[]) => void
  * world's store.
  */
 function withResume(def: { exe: string; args: string[]; id: string }, resume: string): { exe: string; args: string[] } {
-  const cmd = `claude --resume ${resume}`
+  // The ONE place Prism writes a command itself (the owner exception, 2026-08-21,
+  // now covering codex too): claude comes back by session id, codex by its own
+  // cwd-filtered --last. Never typed on screen, never a guess.
+  const cmd = resume === 'codex:last' ? 'codex resume --last' : `claude --resume ${resume}`
   if (def.id === 'pwsh' && def.args.length > 0)
     return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`] }
   if (def.id === 'powershell') return { exe: def.exe, args: [...def.args, '-NoExit', '-Command', cmd] }

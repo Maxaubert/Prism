@@ -24,7 +24,7 @@ const api = {
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
   tabsChanged: (
-    tabs: Array<{ root: string; file?: string; term?: 'full' | 'split' }>,
+    tabs: Array<{ root: string; file?: string; term?: 'full' | 'split'; agent?: 'claude' | 'codex' }>,
     active: number
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
@@ -198,8 +198,8 @@ const api = {
     return () => ipcRenderer.removeListener('term:data', listener)
   },
   /** An AI CLI (Claude Code, codex...) appeared or left a session's shell. */
-  onTermAgent: (cb: (id: string, present: boolean, kind?: 'claude' | 'other' | null) => void): (() => void) => {
-    const listener = (_: unknown, id: string, present: boolean, kind?: 'claude' | 'other' | null): void =>
+  onTermAgent: (cb: (id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null) => void): (() => void) => {
+    const listener = (_: unknown, id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null): void =>
       cb(id, present, kind)
     ipcRenderer.on('term:agent', listener)
     return () => ipcRenderer.removeListener('term:agent', listener)

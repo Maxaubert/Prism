@@ -928,11 +928,12 @@ export default function App(): JSX.Element {
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
   /** Which agent each session hosts - resume is claude-only. */
-  const agentKinds = useRef(new Map<string, 'claude' | 'other'>())
+  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   useEffect(
     () =>
       window.prism.onTermAgent((id, present, kind) => {
-        if (present && (kind === 'claude' || kind === 'other')) agentKinds.current.set(id, kind)
+        if (present && (kind === 'claude' || kind === 'codex' || kind === 'other'))
+          agentKinds.current.set(id, kind)
         else if (!present) agentKinds.current.delete(id)
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
@@ -1001,11 +1002,14 @@ export default function App(): JSX.Element {
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
         term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
-        // ...and one hosting CLAUDE resumes the conversation on restore.
-        agent:
-          t.term && t.term.view !== 'hidden' && agentIds.has(t.term.id) && agentKinds.current.get(t.term.id) === 'claude'
-            ? true
-            : undefined
+        // ...and one hosting claude or codex resumes its conversation on
+        // restore, each by its own flag. 'other' agents have nothing to
+        // come back to, so they are not recorded.
+        agent: (() => {
+          if (!t.term || t.term.view === 'hidden' || !agentIds.has(t.term.id)) return undefined
+          const kind = agentKinds.current.get(t.term.id)
+          return kind === 'claude' || kind === 'codex' ? kind : undefined
+        })()
       })),
       Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
     )

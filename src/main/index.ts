@@ -292,6 +292,10 @@ const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
  * claude's (every non-alphanumeric character becomes a dash). Null when the
  * folder has no sessions - then nothing is resumed.
  */
+/** The marker that means "codex, continue this folder's newest session". Not
+ *  an id: codex finds it itself. */
+const CODEX_RESUME = 'codex:last'
+
 function claudeSessions(root: string): string[] {
   const enc = root.replace(/[^A-Za-z0-9]/g, '-')
   const dir = join(app.getPath('home'), '.claude', 'projects', enc)
@@ -322,8 +326,12 @@ function restoreTabs(): OpenPayload[] {
       // A claude session resumes by ID - a session claude itself recorded for
       // this folder. No session on disk means no resume at all: never a bare
       // `--continue` guessing at a conversation.
+      // Codex needs no lookup at all: `codex resume --last` continues the
+      // most recent session FOR THIS FOLDER (its picker filters by cwd), so
+      // the marker is enough and the shell starts in the tab's root anyway.
       let resume: string | null = null
-      if (t.agent && t.term) {
+      if (t.agent === 'codex' && t.term) resume = CODEX_RESUME
+      else if (t.agent && t.term) {
         const key = t.root.toLowerCase()
         const n = taken.get(key) ?? 0
         resume = claudeSessions(t.root)[n] ?? null
@@ -612,7 +620,10 @@ if (!app.requestSingleInstanceLock()) {
       // The resume id came from main's own scan of ~/.claude/projects, but it
       // crossed the renderer on the way back - shape-check it again before it
       // goes anywhere near a command line.
-      const safeResume = resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume) ? resume : undefined
+      const safeResume =
+        resume === CODEX_RESUME || (resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume))
+          ? resume
+          : undefined
       const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a), safeResume)
       // Warm the agent-poll pipeline now: the first CIM query is the slow one
       // (cold WMI), and running it while the user is still typing their first
