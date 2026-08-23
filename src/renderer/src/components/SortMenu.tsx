@@ -94,6 +94,11 @@ export function SortMenu(): JSX.Element {
       </button>
 
       {open && (
+        // See ContextMenu: a window-drag region swallows the press that
+        // should dismiss this, so the drag is suspended while it is open.
+        <span className="no-drag fixed inset-0 z-40 pointer-events-none" aria-hidden />
+      )}
+      {open && (
         <div
           role="menu"
           aria-label="Sort order"
