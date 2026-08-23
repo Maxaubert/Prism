@@ -1895,7 +1895,9 @@ export default function App(): JSX.Element {
           wash={washed}
           // Only markdown takes the pencil. Code and plain text have no
           // rendered form to leave, so they are simply editable where they sit.
-          editable={file?.kind === 'text' && isMarkdown(file.name)}
+          // A FULL terminal hides it: the document is not on screen to edit,
+          // the same reason the bar drops the file's name there.
+          editable={termView !== 'full' && file?.kind === 'text' && isMarkdown(file.name)}
           editing={editMode}
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}

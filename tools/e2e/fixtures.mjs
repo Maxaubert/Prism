@@ -6,7 +6,7 @@
  * The PDF is written object by object with a computed xref, so it is a fully
  * valid file, with exactly five case-mixed "grape" tokens across its pages.
  */
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import AdmZip from 'adm-zip'
 import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
@@ -15,6 +15,43 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 export const FIXTURES = join(ROOT, '.e2e', 'fixtures')
+
+/**
+ * Where ffmpeg actually is. The PATH shim is not something to depend on: a
+ * WinGet upgrade removed it mid-session once and took the whole suite with it,
+ * though the binary was sitting right there. PATH first, then the places a
+ * Windows install really puts it.
+ */
+function findFfmpeg() {
+  if (spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0) return 'ffmpeg'
+  const roots = [
+    join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Packages'),
+    'C:\ffmpeg\bin',
+    join(process.env.ProgramFiles ?? '', 'ffmpeg', 'bin')
+  ]
+  for (const root of roots) {
+    if (!existsSync(root)) continue
+    // One level of package folder, then its bin.
+    const stack = [root]
+    for (let i = 0; i < 400 && stack.length; i += 1) {
+      const dir = stack.shift()
+      let entries = []
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const e of entries) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) stack.push(full)
+        else if (e.name.toLowerCase() === 'ffmpeg.exe') return full
+      }
+    }
+  }
+  return 'ffmpeg'
+}
+
+const FFMPEG = findFfmpeg()
 
 /** Serif-free single-font PDF: `pages` is an array of line arrays. */
 function makePdf(pages) {
@@ -123,11 +160,14 @@ export function buildFixtures() {
   // sidecar subtitle for the first, named the way the whole world names them.
   for (const ep of ['ep1', 'ep2']) {
     const r = spawnSync(
-      'ffmpeg',
+      FFMPEG,
       ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', join(FIXTURES, `${ep}.mp4`)],
       { windowsHide: true }
     )
-    if (r.status !== 0) throw new Error('ffmpeg is needed to build the player fixtures')
+    if (r.status !== 0)
+      throw new Error(
+        `ffmpeg is needed to build the player fixtures (tried ${FFMPEG}). Install it, or put one on PATH.`
+      )
   }
   // A file Prism cannot show, in its own folder so the root counts the filter
   // scenario asserts on stay put. It is never listed by listDir, so opening it

@@ -1500,6 +1500,12 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'and the shell is untroubled by it')
 
+    // The title bar belongs to what is ON SCREEN: over a full terminal the
+    // markdown pencil has nothing to edit, so it goes with the file name.
+    ok(
+      (await win.locator('[aria-label="Edit"]').count()) === 0,
+      'a full terminal hides the markdown pencil'
+    )
     await win.screenshot({ path: join(SHOTS, 'terminal.png') })
 
     // Clicking a file over a FULL terminal means "show me this file": the
