@@ -69,9 +69,14 @@ export function TabStrip({
   // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
   // different gesture with a different meaning.
   const [dropAt, setDropAt] = useState<number | null>(null)
-  const [carry, setCarry] = useState<{ id: string; from: number; width: number; dx: number } | null>(
-    null
-  )
+  const [carry, setCarry] = useState<{
+    id: string
+    from: number
+    width: number
+    dx: number
+    /** True once the press travelled past the slop: only THEN is it a drag. */
+    live: boolean
+  } | null>(null)
   // The tab boundaries as they were when the drag STARTED. Asking which tab
   // sits under the pointer cannot work once they animate: the neighbour
   // slides out from under the cursor, the answer flips back, and the strip
@@ -110,7 +115,7 @@ export function TabStrip({
     lanes.current = boxes.map((b) => ({ left: b.left, width: b.width, mid: b.left + b.width / 2 }))
     startX.current = e.clientX
     dragging.current = false
-    setCarry({ id, from: i, width: boxes[i]?.width ?? 0, dx: 0 })
+    setCarry({ id, from: i, width: boxes[i]?.width ?? 0, dx: 0, live: false })
     setDropAt(i)
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -127,7 +132,7 @@ export function TabStrip({
       lane && box
         ? Math.max(box.left - lane.left, Math.min(raw, box.right - (lane.left + lane.width)))
         : raw
-    setCarry((c) => (c ? { ...c, dx } : c))
+    setCarry((c) => (c ? { ...c, dx, live: true } : c))
     // The CARRIED tab's own centre decides, not the pointer: it is what the
     // eye is following, and it keeps a grab near an edge honest.
     if (lane) setDropAt(slotAt(lane.mid + dx))
@@ -176,7 +181,13 @@ export function TabStrip({
         const f = e.dataTransfer.files?.[0]
         if (f) onDropFile(window.prism.getDroppedPath(f))
       }}
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      // While a tab is genuinely being carried the whole strip wears the
+      // closed hand, children included: a tab is made of a label button, an
+      // icon slot and an X, each with a cursor of its own, and letting them
+      // answer for themselves made it flicker under the moving pointer.
+      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+        carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
+      } ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
@@ -198,7 +209,7 @@ export function TabStrip({
             // tabs when the style draws edges, and vanish (the token goes
             // transparent) when it doesn't. Right edges only: the first tab
             // sits flush against the window's left side, no line before it.
-            className={`no-drag group relative flex min-w-0 shrink cursor-grab items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors active:cursor-grabbing ${
+            className={`no-drag group relative flex min-w-0 shrink items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
               loud
                 ? ''
                 : on
@@ -209,9 +220,6 @@ export function TabStrip({
               ...(loud && tint ? { background: tint, color: onTint(tint) } : {}),
               transform: `translateX(${carry?.id === t.id ? carry.dx : slide(i)}px)`,
               zIndex: carry?.id === t.id ? 5 : undefined,
-              // The carried tab follows the pointer exactly; only its
-              // neighbours ease into the gap.
-              cursor: carry?.id === t.id ? 'grabbing' : undefined,
               // What you carry is a COPY - Chromium's own drag snapshot - so
               // the tab you picked up stays exactly where it was, solid, and
               // the strip only really rearranges when the drop lands. The
