@@ -1780,10 +1780,15 @@ async function dragScenario(fixtures) {
       ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
       // A FOLDER dragged onto the tab strip opens as a tab of its own.
       const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+      // Aimed at the EMPTY space after the +, which is where a drop is
+      // naturally made and where the window-drag region used to swallow it.
+      const strip = await win.locator('[role="tablist"]').boundingBox()
       await win
         .locator('aside [role="treeitem"]:has-text("out")')
         .first()
-        .dragTo(win.locator('[role="tablist"]'))
+        .dragTo(win.locator('[role="tablist"]'), {
+          targetPosition: { x: strip.width - 40, y: strip.height / 2 }
+        })
       await sleep(1400)
       ok(
         (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1,

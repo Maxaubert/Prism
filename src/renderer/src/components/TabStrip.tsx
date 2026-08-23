@@ -1,4 +1,4 @@
-import { useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
@@ -81,6 +81,26 @@ export function TabStrip({
   // should slide left and right inside its own row and nowhere else. The
   // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
   // different gesture with a different meaning.
+  // While ANY drag is in flight the strip stops being a window-drag handle.
+  // The empty space after the + is the natural place to drop a folder, but it
+  // is app-region drag: Chromium hands presses there to the OS, so no
+  // dragover ever arrived and the drop could only be made over a tab. The
+  // handle comes back the moment the drag ends.
+  const [dragInFlight, setDragInFlight] = useState(false)
+  useEffect(() => {
+    const on = (): void => setDragInFlight(true)
+    const off = (): void => setDragInFlight(false)
+    window.addEventListener('dragstart', on, true)
+    window.addEventListener('dragenter', on, true)
+    window.addEventListener('dragend', off, true)
+    window.addEventListener('drop', off, true)
+    return () => {
+      window.removeEventListener('dragstart', on, true)
+      window.removeEventListener('dragenter', on, true)
+      window.removeEventListener('dragend', off, true)
+      window.removeEventListener('drop', off, true)
+    }
+  }, [])
   const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; recent: string[] } | null>(null)
   const [dropAt, setDropAt] = useState<number | null>(null)
   const [carry, setCarry] = useState<{
@@ -207,7 +227,7 @@ export function TabStrip({
       // closed hand, children included: a tab is made of a label button, an
       // icon slot and an X, each with a cursor of its own, and letting them
       // answer for themselves made it flicker under the moving pointer.
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
         carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
       } ${wash ? 'p-wash' : ''}`}
     >
