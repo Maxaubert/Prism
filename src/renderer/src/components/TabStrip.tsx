@@ -2,6 +2,8 @@ import { useRef, useState, type JSX, type MouseEvent, type PointerEvent } from '
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
+import { recentLabels, recentRoots } from '../lib/recentRoots'
+import { ContextMenu } from './ContextMenu'
 
 /**
  * The open projects, as a row under the title bar.
@@ -25,6 +27,7 @@ export function TabStrip({
   onNew,
   onDropFile,
   onReorder,
+  onOpenRecent,
   wash
 }: {
   tabs: Tab[]
@@ -48,6 +51,8 @@ export function TabStrip({
   onDropFile: (path: string) => void
   /** A tab dragged along the strip lands in front of `toIndex` (#70). */
   onReorder: (id: string, toIndex: number) => void
+  /** Open a folder from the + menu's list of places Prism has been. */
+  onOpenRecent: (path: string) => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
@@ -68,6 +73,7 @@ export function TabStrip({
   // should slide left and right inside its own row and nowhere else. The
   // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
   // different gesture with a different meaning.
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; recent: string[] } | null>(null)
   const [dropAt, setDropAt] = useState<number | null>(null)
   const [carry, setCarry] = useState<{
     id: string
@@ -325,14 +331,36 @@ export function TabStrip({
       })}
       <button
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        title="New tab (Ctrl+T)"
+        title="New tab (Ctrl+T). Right-click for recent folders"
         aria-label="New tab"
         onClick={onNew}
+        // The + adds a tab instantly; its RIGHT click is where "somewhere I
+        // have been before" lives, so the instant verb stays instant.
+        onContextMenu={(e) => {
+          e.preventDefault()
+          // Read when it opens: the list is history, and history moves.
+          setPlusMenu({ x: e.clientX, y: e.clientY, recent: recentRoots().slice(0, 5) })
+        }}
       >
         <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
           <path d="M12 6v12m6-6H6" />
         </svg>
       </button>
+      {plusMenu && (
+        <ContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          onClose={() => setPlusMenu(null)}
+          items={
+            plusMenu.recent.length
+              ? recentLabels(plusMenu.recent).map((r) => ({
+                  label: r.label,
+                  onPick: () => onOpenRecent(r.path)
+                }))
+              : [{ label: 'No recent folders', disabled: true }]
+          }
+        />
+      )}
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, typ
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseMode } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
+import { forgetRoot, rememberRoot } from './lib/recentRoots'
 import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { focusTermSession } from './components/TerminalPanel'
@@ -858,6 +859,36 @@ export default function App(): JSX.Element {
       return s
     })
   }, [])
+  /* The folders Prism has been opened in (2026-08-23): the strip's + offers
+     the last few on a right-click. Every root a tab holds is remembered as it
+     appears, so the list is what actually happened rather than a curated
+     thing to maintain. */
+  // Writing only: the menu reads the list when it opens, so there is no
+  // second copy of it to keep in step.
+  const seenRoots = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    for (const t of tabs) {
+      if (t.kind === 'settings' || !t.root) continue
+      const key = t.root.toLowerCase()
+      if (seenRoots.current.has(key)) continue
+      seenRoots.current.add(key)
+      rememberRoot(t.root)
+    }
+  }, [tabs])
+  /** A folder from that menu: a tab rooted there, exactly like the + makes.
+   *  One that has since been moved or deleted drops out of the list. */
+  const openRecent = useCallback((path: string) => {
+    void window.prism.openRoot(path).then((p) => {
+      if (!p) {
+        forgetRoot(path)
+        setAsk({ kind: 'failed', message: 'That folder is not there any more.' })
+        return
+      }
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setHasNavigated(false)
+    })
+  }, [])
+
   const pickTab = useCallback(
     (id: string) => {
       setTabState((s) => ({ ...s, activeId: id }))
@@ -1920,6 +1951,7 @@ export default function App(): JSX.Element {
           agentIds={agentIds}
           onDropFile={openInNewTab}
           onReorder={reorderTab}
+          onOpenRecent={openRecent}
           onPick={pickTab}
           onClose={closeOneTab}
           onNew={newTab}

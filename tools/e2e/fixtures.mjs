@@ -35,7 +35,7 @@ function findFfmpeg() {
     const stack = [root]
     for (let i = 0; i < 400 && stack.length; i += 1) {
       const dir = stack.shift()
-      let entries = []
+      let entries
       try {
         entries = readdirSync(dir, { withFileTypes: true })
       } catch {
