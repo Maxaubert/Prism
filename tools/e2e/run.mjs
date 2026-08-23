@@ -1794,6 +1794,23 @@ async function dragScenario(fixtures) {
         (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1,
         'a folder dropped on the tab strip opens a tab'
       )
+
+      // Dropping one of Prism's OWN rows on the viewer opens it there, and the
+      // text editor no longer steals the drag to walk its caret about.
+      await win.locator('[role="tablist"] [role="tab"]').first().click()
+      await sleep(500)
+      const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
+      await win
+        .locator('aside [role="treeitem"]:has-text("dragzip.zip")')
+        .first()
+        .dragTo(win.locator('body'), {
+          targetPosition: { x: viewer.width - 220, y: viewer.height / 2 }
+        })
+      await sleep(1200)
+      ok(
+        (await win.locator('[role="listbox"][aria-label*="dragzip.zip"]').count()) === 1,
+        'a row dropped on the viewer opens it there'
+      )
     } finally {
       await app.close()
     }

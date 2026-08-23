@@ -40,7 +40,7 @@ import {
 import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
-import type { DragPayload } from './lib/dragDrop'
+import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { describe as describeUndo, emptyUndo, redone, remember, undone, type UndoEntry, type UndoState } from './lib/undo'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
@@ -710,8 +710,10 @@ export default function App(): JSX.Element {
   // Where the active tab is rooted, for handlers that must stay stable (the
   // + is handed to main once and must not be rebuilt whenever a tab changes).
   const activeRootRef = useRef<string | undefined>(undefined)
+  const activeIdRef = useRef<string | null>(null)
   useEffect(() => {
     activeRootRef.current = tabs.find((t) => t.id === activeId)?.root
+    activeIdRef.current = activeId
   }, [tabs, activeId])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
@@ -1897,6 +1899,21 @@ export default function App(): JSX.Element {
       if (setup) return
       // A drop on the terminal panel types the path there; it is not an open.
       if ((e.target as HTMLElement | null)?.closest?.('[data-term-panel]')) return
+      // Prism's own rows carry paths in the payload, not as files. Dropping
+      // one on the viewer means "show me this": a file opens here, a folder
+      // becomes this tab's root. Archive members are not on disk, so they
+      // are left to the archive view that owns them.
+      const inside = dragPayload(e.dataTransfer)
+      setDrag(null)
+      if (inside?.kind === 'files') {
+        const first = inside.paths[0]
+        if (!first) return
+        void window.prism.statFile(first).then((st) => {
+          if (st?.isFolder) void window.prism.openRoot(first).then((p) => p && applyReroot(activeIdRef.current, p))
+          else void window.prism.openPath(first).then(open)
+        })
+        return
+      }
       const f = e.dataTransfer?.files?.[0]
       if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
     }
@@ -1908,7 +1925,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('dragleave', leave)
       window.removeEventListener('drop', drop)
     }
-  }, [open, setup])
+  }, [applyReroot, open, setup])
 
   // The style's light belongs to an empty window, a visualizer, or a page of
   // Prism's own - never behind someone's photo.
