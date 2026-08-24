@@ -23,6 +23,10 @@ export const FIXTURES = join(ROOT, '.e2e', 'fixtures')
  * Windows install really puts it.
  */
 function findFfmpeg() {
+  // Prism bundles one now (tools/fetch-ffmpeg.mjs), for the audio Chromium
+  // cannot decode. Prefer it: it is the exact build the app itself will use.
+  const vendored = join(process.cwd(), 'vendor', 'ffmpeg', 'ffmpeg.exe')
+  if (existsSync(vendored)) return vendored
   if (spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0) return 'ffmpeg'
   const roots = [
     join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Packages'),
@@ -161,7 +165,9 @@ export function buildFixtures() {
   for (const ep of ['ep1', 'ep2']) {
     const r = spawnSync(
       FFMPEG,
-      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', join(FIXTURES, `${ep}.mp4`)],
+      // libopenh264 by name: the bundled ffmpeg is the LGPL build, which has no
+      // libx264, and letting the muxer pick left an mpeg4 file Chromium cannot play.
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', join(FIXTURES, `${ep}.mp4`)],
       { windowsHide: true }
     )
     if (r.status !== 0)
@@ -169,6 +175,24 @@ export function buildFixtures() {
         `ffmpeg is needed to build the player fixtures (tried ${FFMPEG}). Install it, or put one on PATH.`
       )
   }
+  // The bug this exists for: an MKV whose audio is Dolby Digital, which
+  // Chromium has no decoder for. Picture plus a 440Hz tone, so "is there
+  // sound" is answerable by the decoder's own byte counter. In its own folder:
+  // the root fixture list is counted and ordered by the sorting scenario.
+  mkdirSync(join(FIXTURES, 'av'), { recursive: true })
+  const ac3 = spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=6:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6:sample_rate=48000',
+     // libopenh264, not libx264: the bundled build is LGPL, and x264 is the
+     // GPL half we deliberately do not ship.
+     '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', '-c:a', 'ac3', '-ac', '6', '-b:a', '384k',
+     '-shortest', join(FIXTURES, 'av', 'dolby.mkv')],
+    { windowsHide: true }
+  )
+  if (ac3.status !== 0)
+    throw new Error(`ffmpeg could not build the Dolby fixture (tried ${FFMPEG}): ${ac3.stderr}`)
+
   // A file Prism cannot show, in its own folder so the root counts the filter
   // scenario asserts on stay put. It is never listed by listDir, so opening it
   // is the only way to reach it - which is exactly the case being tested.

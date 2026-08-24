@@ -20,6 +20,8 @@ import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
 import { treeAgentKind, type ProcRow } from './agentDetect'
+import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
+import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeAudio, type AudioTrack } from './ffmpeg'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -27,7 +29,7 @@ import { addToArchive, archiveStat, archiveTooLarge, deleteMember, extractMember
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
-import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SidecarOffer } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -60,6 +62,11 @@ protocol.registerSchemesAsPrivileged([
     // corsEnabled so an <audio crossorigin> element served over fsmedia:// is not
     // "tainted" — otherwise a MediaElementSource feeds the AnalyserNode silence and
     // the audio visualizer would sit dead. Paired with the ACAO header in serveMedia.
+    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true }
+  },
+  {
+    // The decoded-audio sidecar (audioSidecar.ts). Same privileges, same reason.
+    scheme: AUDIO_SCHEME,
     privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true }
   }
 ])
@@ -569,7 +576,10 @@ if (!app.requestSingleInstanceLock()) {
   pendingOpen = pathFromArgv(process.argv)
 
   // Every shell dies with the app; a pty with no window is an orphan.
-  app.on('will-quit', () => killAll())
+  app.on('will-quit', () => {
+    killAll()
+    killSidecars()
+  })
 
   // Warm the terminal's fixed costs shortly after launch: the native module
   // import and the shell probe both belong off every later click path.
@@ -582,6 +592,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
+    protocol.handle(AUDIO_SCHEME, (request) =>
+      serveSidecarAudio(request, {
+        allowed: (p) => insideAnyRoot(p) || extractedPaths.has(p),
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath()
+      })
+    )
 
     // The update check: watch GitHub Releases, remember the newest offer so a
     // renderer that loads after the tick still hears about it.
@@ -819,6 +837,47 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('subs:read', (_e, p: string): string | null =>
       insideAnyRoot(p) ? readAsVtt(p) : null
     )
+
+    /* ----- audio Chromium cannot decode ----- */
+
+    const sidecarUrl = (p: string, stream: number, duration: number): string =>
+      `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
+
+
+    // Ask before playing: does this file's audio need Prism's own decoder, and
+    // is there one? The renderer plays the answer's url beside the video (which
+    // stays silent by itself, having no decoder for the track either).
+    ipcMain.handle('audio:sidecar', async (_e, p: string): Promise<SidecarOffer> => {
+      const none: SidecarOffer = { ffmpeg: false, needed: false }
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
+      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!tools) return none
+      let track: AudioTrack | null = null
+      if (tools.ffprobe) track = await probeAudio(tools.ffprobe, p)
+      // No ffprobe, or a container it could not read: the renderer still has a
+      // second way in (its decoder byte counter), so offer the first track
+      // blind rather than nothing.
+      if (!track) return { ffmpeg: true, needed: false, blind: true }
+      if (track.duration <= 0) return { ffmpeg: true, needed: needsSidecar(track.codec), blind: true }
+      return {
+        ffmpeg: true,
+        needed: needsSidecar(track.codec),
+        codec: track.codec,
+        channels: track.channels,
+        layout: track.layout,
+        url: sidecarUrl(p, track.index, track.duration)
+      }
+    })
+
+    // The blind route: the renderer watched its own decoder produce no audio
+    // and knows the duration the element reported, so it can ask for the first
+    // audio track without anything having probed the file.
+    ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (!Number.isFinite(duration) || duration <= 0) return null
+      if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
+      return sidecarUrl(p, FIRST_AUDIO, duration)
+    })
 
     /* ----- context-menu verbs ----- */
 

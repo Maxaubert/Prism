@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { useSubtitles } from '../lib/useSubtitles'
+import { useSidecarAudio } from '../lib/useSidecarAudio'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { IconFull } from './icons'
@@ -83,34 +84,13 @@ export function VideoView({
   // 2026-08-22): the transport says the state, the picture stays clean.
   const clickToggle = (): void => c.togglePlay()
 
-  // Some perfectly ordinary files play silently here: Chromium ships no
-  // decoder for Dolby Digital (AC-3/E-AC-3) or DTS, which is what a lot of
-  // MKV rips carry, so the picture runs and the sound never arrives. Nothing
-  // in the element says so - no error, no track list - but the decoder's byte
-  // counter does: video climbing while audio stays at zero IS the symptom.
-  // Saying it plainly beats a viewer that looks broken.
-  // Keyed by url rather than reset on change: the next file starts loud by
-  // construction, with no state to clear.
-  const [silentUrl, setSilentUrl] = useState<string | null>(null)
+  // Sound for tracks Chromium refuses to decode (Dolby Digital, DTS, TrueHD):
+  // main decodes them and this plays the result beside the picture. The video
+  // element needs no muting - it has no decoder for that track either, which
+  // is the entire problem.
+  const { state: sidecarState, url: sidecarUrl, ref: sidecarRef } = useSidecarAudio(path, video, c.vol, c.muted)
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
-  const silent = silentUrl === url && hushedUrl !== url
-  useEffect(() => {
-    const el = video.current
-    if (!el) return
-    const t = window.setInterval(() => {
-      type Counted = HTMLVideoElement & {
-        webkitAudioDecodedByteCount?: number
-        webkitVideoDecodedByteCount?: number
-      }
-      const v = el as Counted
-      const vb = v.webkitVideoDecodedByteCount ?? 0
-      const ab = v.webkitAudioDecodedByteCount ?? 0
-      // Only once the picture is genuinely decoding, and only while playing:
-      // a paused or still-loading file decodes nothing either.
-      if (!el.paused && vb > 400_000) setSilentUrl(ab === 0 ? url : null)
-    }, 1200)
-    return () => window.clearInterval(t)
-  }, [url])
+  const silent = sidecarState === 'unavailable' && hushedUrl !== url
 
   return (
     <div
@@ -128,8 +108,8 @@ export function VideoView({
             <path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6m0-6-4 6" />
           </svg>
           <span className="min-w-0">
-            No sound: Prism cannot decode this file&apos;s audio (Dolby Digital or DTS, usually).
-            The picture is unaffected.
+            No sound: this file&apos;s audio needs a decoder Prism could not find. The picture is
+            unaffected.
           </span>
           <button
             className="ml-1 shrink-0 rounded px-1 text-[var(--p-dim2)] hover:text-[var(--p-text)]"
@@ -142,6 +122,11 @@ export function VideoView({
             </svg>
           </button>
         </div>
+      )}
+      {sidecarUrl && (
+        // Hidden, and deliberately not a child of <video>: it is a second
+        // element on its own clock, kept in step by useSidecarAudio.
+        <audio ref={sidecarRef} src={sidecarUrl} preload="auto" className="hidden" aria-hidden />
       )}
       <video
         ref={video}

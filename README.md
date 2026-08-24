@@ -88,7 +88,22 @@ npm test           # unit tests (vitest)
 npm run package    # build the Windows installer into dist/
 ```
 
+`npm run package` (and `npm run e2e`) first runs `npm run fetch:ffmpeg`, which downloads a
+pinned ffmpeg build into `vendor/ffmpeg` and verifies its SHA-256. The binaries are not in
+git; the fetch is a one-off per clone.
+
 Stack: Electron + TypeScript, React + Vite + Tailwind v4. See `CLAUDE.md` for architecture and scope.
+
+## Third-party
+
+Prism bundles **ffmpeg** (`resources/bin`) to decode the audio Chromium will not: Dolby
+Digital (AC-3/E-AC-3), DTS and TrueHD, which otherwise leave an ordinary MKV playing with
+picture and no sound. It is [BtbN's](https://github.com/BtbN/FFmpeg-Builds) **LGPL shared**
+build of [ffmpeg](https://ffmpeg.org), used unmodified as a separate program, and licensed
+under the [LGPL v2.1 or later](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html) - a
+copy ships as `resources/bin/LICENSE.txt`. The shared build is deliberate: its DLLs can be
+replaced with your own build of the same libraries. The exact source is the release named in
+`tools/fetch-ffmpeg.mjs`.
 
 ## License
 

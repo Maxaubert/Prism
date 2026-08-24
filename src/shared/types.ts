@@ -103,3 +103,21 @@ export interface ShellDef {
   exe: string
   args: string[]
 }
+
+/** What main knows about a file's audio track, and whether Prism must decode
+ *  it itself. Chromium ships no AC-3/E-AC-3/DTS/TrueHD decoder, so those tracks
+ *  play as silence unless the sidecar takes over (src/main/audioSidecar.ts). */
+export interface SidecarOffer {
+  /** Is there an ffmpeg to decode with at all. */
+  ffmpeg: boolean
+  /** Is this file's own track one Chromium cannot play. */
+  needed: boolean
+  /** Set when nothing could be probed: the renderer may still ask for a
+   *  sidecar off its own decoder counters, naming the duration itself. */
+  blind?: boolean
+  codec?: string
+  channels?: number
+  layout?: string
+  /** fsaudio:// url for the track, ready to hand to an <audio>. */
+  url?: string
+}

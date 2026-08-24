@@ -1001,6 +1001,68 @@ async function playerScenario(fixtures) {
   }
 }
 
+async function dolbyScenario(fixtures) {
+  console.log('audio Chromium cannot decode')
+  const { app, win } = await launch(join(fixtures, 'av', 'dolby.mkv'))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    // The probe is what puts the element there: no waiting on playback.
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    ok(true, 'a Dolby track gets a decoded sidecar')
+
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.currentTime = 0
+      return v.play().catch(() => {})
+    })
+    // The counter cannot lie: bytes mean the sound is genuinely decoding.
+    await win.waitForFunction(
+      () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+      undefined,
+      { timeout: 15000 }
+    )
+    ok(true, 'and it really decodes audio, where the video element decodes none')
+    ok(
+      await win.evaluate(() => (document.querySelector('video').webkitAudioDecodedByteCount ?? 0) === 0),
+      'the video element itself is still deaf to the track'
+    )
+
+    const err = await win.evaluate(() => document.querySelector('audio').error?.code ?? null)
+    ok(err === null, 'the stream is one Chromium accepts')
+
+    // Sync: the two clocks must agree, and keep agreeing over a seek.
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        const a = document.querySelector('audio')
+        return !v.paused && !a.paused && Math.abs(a.currentTime - v.currentTime) < 0.25
+      },
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(true, 'the sound plays in step with the picture')
+
+    await win.evaluate(() => {
+      document.querySelector('video').currentTime = 4
+    })
+    await win.waitForFunction(
+      () => {
+        const a = document.querySelector('audio')
+        return Math.abs(a.currentTime - 4) < 0.4
+      },
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(true, 'and follows a seek, which is what the byte arithmetic is for')
+
+    // No note: the note is for a file Prism cannot help with, not this one.
+    ok((await win.locator('[role="status"]').count()) === 0, 'no apology is shown when the sound works')
+    await win.screenshot({ path: join(SHOTS, 'dolby.png') })
+  } finally {
+    await app.close()
+  }
+}
+
 /**
  * A real second launch, the way an Explorer double-click arrives: Prism is
  * single-instance, so this process hands its path to the running window and
@@ -1873,6 +1935,7 @@ try {
   await unsavedScenario(fixtures)
   await sleep(900)
   await playerScenario(fixtures)
+  await dolbyScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

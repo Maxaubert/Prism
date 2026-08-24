@@ -28,6 +28,14 @@ npmRebuild: false
 extraResources:
   - from: build/icon.ico
     to: icon.ico
+  # ffmpeg, for the audio Chromium will not decode (AC-3/E-AC-3, DTS, TrueHD).
+  # Fetched by tools/fetch-ffmpeg.mjs, never committed. BtbN's LGPL SHARED
+  # build: the DLLs are replaceable, which is what LGPL asks for.
+  - from: vendor/ffmpeg
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
 win:
   icon: build/icon.ico
   target:

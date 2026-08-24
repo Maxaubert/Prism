@@ -35,10 +35,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
   kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
   SRT converted to WebVTT; embedded MKV tracks deliberately out until a demuxer decision).
-  Chromium ships no Dolby Digital (AC-3/E-AC-3) or DTS decoder, so many MKV rips play with
-  picture and no sound. Prism SAYS so (2026-08-23) rather than looking broken: video decoding
-  while `webkitAudioDecodedByteCount` stays 0 raises a dismissible note. Bundling a decoder is
-  a licensing decision, not a bug fix.
+  Chromium ships no Dolby Digital (AC-3/E-AC-3), DTS or TrueHD decoder, so many MKV rips
+  played picture-only. Prism DECODES THEM ITSELF (2026-08-24, owner decision to bundle):
+  `vendor/ffmpeg` (BtbN's LGPL SHARED build, fetched by `tools/fetch-ffmpeg.mjs` against a
+  pinned tag + SHA-256, never committed, ~128MB into `resources/bin`) feeds an `fsaudio://`
+  stream that a hidden `<audio>` plays beside the picture. The trick is a FIXED PCM shape
+  (48kHz/16-bit/stereo = 192000 bytes a second), so byte N is always second (N-44)/192000:
+  Range requests are answered by starting ffmpeg at that timestamp, which makes a live
+  transcode seek like a file - no temp files, no waiting. The video element needs no muting
+  (it cannot decode the track either); the sidecar follows its clock and corrects drift by
+  nudging playbackRate 2%. Codec choice is an ALLOWLIST of what Chromium plays, so an unknown
+  codec gets decoded rather than silently lost. LGPL, not GPL, and shared, not static: the
+  AC-3/DTS/TrueHD DECODERS are LGPL, and replaceable DLLs are what the licence asks for -
+  which is also why the e2e fixtures encode with `libopenh264` (there is no libx264 here).
+  The note that says Prism cannot help now appears only when no ffmpeg was found at all.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,

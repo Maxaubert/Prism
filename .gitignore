@@ -21,4 +21,7 @@ videos/*/snapshots/
 videos/*/assets/
 SERSADMIN*/
 
+# ffmpeg, fetched at build time by tools/fetch-ffmpeg.mjs (128MB of binaries)
+vendor/
+
 .e2e/
