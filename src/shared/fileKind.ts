@@ -11,7 +11,12 @@ const IMAGE = new Set([
   // Decoded by the bundled ffmpeg in main (imageDecode.ts), since Chromium
   // draws none of these: 2026-08-24.
   '.tga', '.targa', '.pcx', '.psd', '.exr', '.dpx', '.sgi', '.dds',
-  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm'
+  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm',
+  // Camera raw (rawPreview.ts, 2026-08-24): shown as the full-size JPEG the
+  // camera embedded, which is what Explorer and every fast viewer show. It is
+  // NOT a development of the sensor data - that needs LibRaw, a native module.
+  '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.srf', '.sr2', '.raf', '.orf',
+  '.rw2', '.pef', '.dng', '.raw', '.dcr', '.kdc', '.mrw', '.x3f', '.3fr', '.erf'
 ])
 // Video is what CHROMIUM can decode, because Prism decodes audio and not
 // picture: MPEG-2, Xvid, WMV, Theora and ProRes are deliberately absent, since
@@ -38,7 +43,10 @@ const VIDEO = new Set([
 const AUDIO = new Set([
   '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav',
   '.wma', '.ac3', '.dts', '.mka', '.aiff', '.aif', '.m4b', '.amr', '.ape', '.wv', '.au',
-  '.dsf', '.dff', '.tta', '.caf', '.mpc', '.ra', '.m4r', '.oga', '.aifc', '.3ga'
+  '.dsf', '.dff', '.tta', '.caf', '.mpc', '.ra', '.m4r', '.oga', '.aifc', '.3ga',
+  // A score rather than a recording: synthesised by the bundled FluidSynth
+  // (midi.ts, 2026-08-24), since nothing else here can make a sound from one.
+  '.mid', '.midi', '.kar', '.rmi'
 ])
 const TEXT = new Set([
   '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',

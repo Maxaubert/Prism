@@ -6,7 +6,7 @@
  * The PDF is written object by object with a computed xref, so it is a fully
  * valid file, with exactly five case-mixed "grape" tokens across its pages.
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import AdmZip from 'adm-zip'
 import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
@@ -202,6 +202,53 @@ export function buildFixtures() {
      join(FIXTURES, 'av', 'lossless.m4a')],
     { windowsHide: true }
   )
+  // A MIDI score (synthesised by the bundled FluidSynth) and a fake camera
+  // raw: a JPEG hidden inside other bytes, which is exactly the shape of a
+  // real raw's embedded preview.
+  {
+    const vlq = (n) => {
+      const out = [n & 0x7f]
+      let v = n >> 7
+      while (v > 0) {
+        out.unshift((v & 0x7f) | 0x80)
+        v >>= 7
+      }
+      return Buffer.from(out)
+    }
+    const ev = [vlq(0), Buffer.from([0xc0, 0])]
+    for (const note of [60, 64, 67, 72]) {
+      ev.push(vlq(0), Buffer.from([0x90, note, 100]), vlq(240), Buffer.from([0x80, note, 0]))
+    }
+    ev.push(vlq(0), Buffer.from([0xff, 0x2f, 0x00]))
+    const body = Buffer.concat(ev)
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(body.length)
+    const head = Buffer.alloc(6)
+    head.writeUInt16BE(0, 0)
+    head.writeUInt16BE(1, 2)
+    head.writeUInt16BE(480, 4)
+    writeFileSync(
+      join(FIXTURES, 'av', 'arpeggio.mid'),
+      Buffer.concat([Buffer.from('MThd'), Buffer.from([0, 0, 0, 6]), head, Buffer.from('MTrk'), len, body])
+    )
+
+    // The "raw": 4KB of sensor-looking noise, then a real JPEG, the way a
+    // camera writes its preview after the header.
+    const shot = join(FIXTURES, 'av', 'shot.jpg')
+    spawnSync(
+      FFMPEG,
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=1', '-frames:v', '1', shot],
+      { windowsHide: true }
+    )
+    if (existsSync(shot)) {
+      writeFileSync(
+        join(FIXTURES, 'av', 'photo.cr2'),
+        Buffer.concat([Buffer.alloc(4096, 0x11), readFileSync(shot)])
+      )
+      rmSync(shot, { force: true })
+    }
+  }
+
   // Office and ebook documents (2026-08-24). Hand-built rather than exported
   // from Office: the point is that Prism reads the real container layout, and
   // a file built here is one whose expected text the assertions can name.

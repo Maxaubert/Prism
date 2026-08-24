@@ -1147,6 +1147,52 @@ async function sevenZipScenario(fixtures) {
   }
 }
 
+async function synthAndRawScenario(fixtures) {
+  console.log('scores and camera raw')
+  {
+    // A .mid is a score: it has to be synthesised before there is anything to
+    // play, and what the element plays is the rendering.
+    const { app, win } = await launch(join(fixtures, 'av', 'arpeggio.mid'))
+    try {
+      await win.waitForSelector('audio', { state: 'attached', timeout: 30000 })
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.getAttribute('src') ?? '').includes('converted'),
+        undefined,
+        { timeout: 40000 }
+      )
+      ok(true, 'a MIDI file is synthesised and the player is given the rendering')
+      await win.evaluate(() => document.querySelector('audio')?.play().catch(() => {}))
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 20000 }
+      )
+      ok(true, 'and it really makes a sound')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(1500)
+  {
+    // A raw file: the camera's own embedded preview, which is what every fast
+    // viewer shows.
+    const { app, win } = await launch(join(fixtures, 'av', 'photo.cr2'))
+    try {
+      await win.waitForSelector('img', { timeout: 15000 })
+      await win.waitForFunction(() => (document.querySelector('img')?.naturalWidth ?? 0) > 0, undefined, {
+        timeout: 15000
+      })
+      ok(true, 'a camera raw shows its embedded preview')
+      ok(
+        await win.evaluate(() => document.querySelector('img').naturalWidth === 320),
+        "at the preview's real size"
+      )
+    } finally {
+      await app.close()
+    }
+  }
+}
+
 async function documentScenario(fixtures) {
   console.log('office and ebook documents')
   // One window, walked through the folder: three launches in a row raced the
@@ -2140,6 +2186,8 @@ try {
   // single-instance lock, or this launch hands its file over and exits.
   await sleep(2000)
   await documentScenario(fixtures)
+  await sleep(1500)
+  await synthAndRawScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

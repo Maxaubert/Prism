@@ -32,8 +32,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, HEIC/HEIF
   through a pure-JS libheif worker, and (2026-08-24) Targa, PCX, Photoshop, OpenEXR, DPX, SGI,
   DDS, PNM, JPEG 2000, QOI, Radiance HDR and X BitMap through `imageDecode.ts`, which asks the
-  bundled ffmpeg for one PNG frame and caches it by path+mtime. Camera RAW is NOT in that list
-  and needs a real raw decoder, not ffmpeg.
+  bundled ffmpeg for one PNG frame and caches it by path+mtime. Camera RAW (2026-08-24,
+  `rawPreview.ts`) shows the full-size JPEG the camera embedded, found by scanning for the
+  LARGEST JPEG in the file - which is what Explorer and every fast viewer show. It is NOT a
+  development of the sensor data; that needs LibRaw, a native module Prism does not have.
 - **Video** player: play / pause / seek / volume / fullscreen, frame-step, and a transport
   settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
   kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
@@ -59,7 +61,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   anything outside `CHROMIUM_CONTAINERS` is decoded whatever its codec says.
   Video is NOT decoded, and Prism now says which codec it cannot show (`No picture: ...
   (mpeg2video)`) instead of leaving a black window with working sound - MPEG-2, Xvid, WMV,
-  Theora, ProRes and FFV1 all land there. `.ts`/`.m2ts`/`.mts` stay unsupported, MEASURED not
+  Theora, ProRes and FFV1 all land there - EXCEPT that they are now CONVERTED instead
+  (2026-08-24, `videoConvert.ts`): the file is turned into an mp4 once and played from the
+  copy, so seeking, speed and subtitles all work afterwards. Most cost nothing to convert -
+  a .flv/.m2ts/.vob usually holds H.264 and only its container is wrong, so the streams are
+  COPIED - and only a genuinely undecodable picture is re-encoded (libopenh264, since the
+  LGPL build has no x264). Copies live in `userData/converted`, LRU-evicted at 6GB. The
+  "No picture" note is now only the fallback for when no ffmpeg is found at all. `.ts`/`.m2ts`/`.mts` stay unsupported, MEASURED not
   assumed: Chromium has no MPEG-TS demuxer for `<video src>` (picture missing, error banner up,
   though the AC-3 decoded fine), and `.ts`/`.mts` are TypeScript to the code viewer anyway.
   Sidecar `.ass`/`.ssa` subtitles are converted to WebVTT by ffmpeg (2026-08-24); their
@@ -68,7 +76,18 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   opened in the app and checked before being claimed - including four (`.cr`, `.scm`,
   `.lisp`, `.el`) whose highlighter had shipped for months while the files refused to open.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
-  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
+  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist. MIDI is
+  SYNTHESISED, not decoded (2026-08-24, `midi.ts`): a `.mid` is a score, so Prism bundles
+  FluidSynth (LGPL) and the MIT FluidR3Mono soundfont, renders the file to a WAV once, and
+  plays that. What you hear is the soundfont's reading of the score, which is what MIDI is.
+- **Office and ebook documents** (2026-08-24, kind `doc`): `.docx/.docm` via mammoth, `.odt/.odp`
+  by walking the ODF XML, spreadsheets via SheetJS (one table per sheet), `.pptx` as its slides
+  in order (slide10 AFTER slide2, which zip order does not give), `.rtf` by a brace walker (a
+  regex leaves `{onttbl{0 Arial;}}` in the middle of the letter), and `.epub` along the
+  SPINE rather than zip order. A reading view, not Office: no editing, no layout fidelity.
+  Every one is converted AND SANITISED IN MAIN against an allowlist before it reaches the
+  renderer - no script, no handlers, no iframe/form, images only as the converter's own data:
+  URIs, and no links at all, because the window it lands in can reach `window.prism`.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
@@ -79,6 +98,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+- **Archives beyond zip** (2026-08-24): `.7z .rar .tar .gz .tgz .bz2 .xz .iso .cab` open
+  READ-ONLY through a bundled 7-Zip (`sevenZip.ts`; `tools/fetch-7zip.mjs` expands the official
+  MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view
+  and copy and nothing else on those; zip keeps every verb. A member name is validated BEFORE
+  extraction, never after: checking afterwards only says where a file was SUPPOSED to land.
 - **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),

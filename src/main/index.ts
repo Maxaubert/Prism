@@ -26,6 +26,8 @@ import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
 import { cancelAllConversions, cancelConversion, convertVideo, planConversion } from './videoConvert'
 import { bundledSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
+import { findFluid, isMidi, renderMidi } from './midi'
+import { isRaw, rawPreview } from './rawPreview'
 import { sanitizeDoc } from './docSanitize'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
@@ -178,6 +180,23 @@ async function serveMedia(request: Request): Promise<Response> {
   }
 
   const ext = extname(filePath).toLowerCase()
+  // Camera raw: the full-size JPEG the camera embedded, which is what every
+  // fast viewer shows. Developing the sensor data is another program's job.
+  if (isRaw(filePath)) {
+    try {
+      const jpeg = rawPreview(filePath, st.mtimeMs)
+      return new Response(jpeg, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Content-Length': String(jpeg.length),
+          'Access-Control-Allow-Origin': '*'
+        }
+      })
+    } catch {
+      return new Response(null, { status: 415 }) // no preview inside it
+    }
+  }
   // Stills Chromium cannot draw (Targa, PCX, Photoshop, OpenEXR, DDS...) come
   // back as PNG from the bundled ffmpeg.
   if (needsImageDecode(filePath)) {
@@ -902,6 +921,19 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
+      // A MIDI file is a score, not a recording: it is synthesised rather than
+      // decoded, and the player is handed the rendering.
+      if (isMidi(p)) {
+        const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+        if (!fluid) return { ffmpeg: false, needed: true }
+        try {
+          const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
+          extractedPaths.add(wav)
+          return { ffmpeg: true, needed: true, codec: 'midi', url: `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}` }
+        } catch {
+          return { ffmpeg: true, needed: true }
+        }
+      }
       const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!tools) return none
       let key: string

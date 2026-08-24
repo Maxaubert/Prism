@@ -43,6 +43,13 @@ extraResources:
     filter:
       - '**/*'
       - '!.source'
+  # FluidSynth and a General MIDI soundfont: a .mid is a score, and nothing
+  # else here can make a sound from one.
+  - from: vendor/fluidsynth
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
 win:
   icon: build/icon.ico
   target:
