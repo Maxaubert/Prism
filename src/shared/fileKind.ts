@@ -75,6 +75,18 @@ const TEXT = new Set([
   '.ass', '.ssa', '.sub'
 ])
 
+// Office and ebook documents (2026-08-24). Converted to HTML in main
+// (docConvert.ts) and read, not edited: a viewer, not Office. .doc (the old
+// binary format) and .ppt are deliberately absent - they are a different
+// format entirely from their x-suffixed successors, and nothing free reads
+// them well.
+const DOC = new Set([
+  '.docx', '.docm', '.odt', '.rtf',
+  '.xlsx', '.xlsm', '.xls', '.ods',
+  '.pptx', '.ppsx', '.odp',
+  '.epub'
+])
+
 // Archives Prism can open in place (2026-08-22): zip only. Reading, renaming
 // and deleting members means rewriting the container, which adm-zip does for
 // zip; 7z and rar would need external binaries and stay unsupported.
@@ -109,6 +121,7 @@ export function fileKind(ext: string, name?: string): FileKind {
   if (VIDEO.has(e)) return 'video'
   if (AUDIO.has(e)) return 'audio'
   if (e === '.pdf') return 'pdf'
+  if (DOC.has(e)) return 'doc'
   if (ARCHIVE.has(e)) return 'archive'
   if (TEXT.has(e)) return 'text'
   if (name !== undefined && isTextName(name)) return 'text'

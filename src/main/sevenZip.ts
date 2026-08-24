@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process'
 import { existsSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
-import { basename, dirname, join, resolve, relative, sep } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
 
 /**
@@ -116,11 +116,31 @@ export function listSeven(exe: string, file: string, password = ''): ArchiveEntr
 }
 
 /**
+ * Is this member name safe to hand to an extractor?
+ *
+ * An archive is untrusted input, and a member called `..\..\Startup\evil.exe`
+ * is a real thing that exists. This is checked BEFORE 7-Zip is spawned:
+ * checking afterwards only tells you where the file was SUPPOSED to land,
+ * by which point anything that escaped is already written.
+ */
+export function safeMemberPath(entryPath: string, dir: string): string | null {
+  if (!entryPath || entryPath.length > 4096) return null
+  const norm = entryPath.replace(/\\/g, '/')
+  if (norm.startsWith('/') || /^[a-z]:/i.test(norm)) return null // absolute
+  if (norm.split('/').some((seg) => seg === '..')) return null // traversal
+  if (norm.includes(String.fromCharCode(0))) return null
+  const target = resolve(dir, norm.replace(/\//g, sep))
+  const rel = relative(resolve(dir), target)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  return norm
+}
+
+/**
  * Extract one member to a fresh temp folder, returning the file's path.
  *
- * The extracted path is checked to be inside the temp folder before it is
- * handed back: an archive is untrusted input, and a member called
- * `..\..\Startup\evil.exe` is a real thing that exists.
+ * The name is refused before 7-Zip runs, and the result is checked again
+ * afterwards: the first stops an escape happening, the second catches an
+ * extractor that rewrote the path on its own.
  */
 export function extractSeven(
   exe: string,
@@ -129,8 +149,10 @@ export function extractSeven(
   password = ''
 ): { ok: true; path: string } | { ok: false; reason: MemberFail } {
   const dir = mkdtempSync(join(tmpdir(), 'prism-arc-'))
+  const safe = safeMemberPath(entryPath, dir)
+  if (!safe) return { ok: false, reason: 'failed' }
   try {
-    execFileSync(exe, extractArgs(file, entryPath, dir, password), {
+    execFileSync(exe, extractArgs(file, safe, dir, password), {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
       timeout: 120000
@@ -139,8 +161,8 @@ export function extractSeven(
     const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
     return { ok: false, reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed' }
   }
-  const out = join(dir, entryPath.replace(/\//g, sep))
+  const out = join(dir, safe.replace(/\//g, sep))
   const rel = relative(resolve(dir), resolve(out))
-  if (rel.startsWith('..') || (rel.includes(':') && rel !== '')) return { ok: false, reason: 'failed' }
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return { ok: false, reason: 'failed' }
   return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
 }

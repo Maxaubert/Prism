@@ -25,6 +25,8 @@ import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } fro
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
 import { cancelAllConversions, cancelConversion, convertVideo, planConversion } from './videoConvert'
 import { bundledSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
+import { convertDoc, docKind } from './docConvert'
+import { sanitizeDoc } from './docSanitize'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -971,6 +973,19 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.on('video:cancel', (_e, out: string) => {
       if (typeof out === 'string') cancelConversion(out)
+    })
+
+    // Office and ebook documents: converted to HTML in main, sanitised there
+    // too, so nobody else's markup reaches a renderer that can see window.prism.
+    ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (!docKind(extname(p))) return null
+      try {
+        const html = await convertDoc(p)
+        return html === null ? null : await sanitizeDoc(html)
+      } catch {
+        return null
+      }
     })
 
     /* ----- context-menu verbs ----- */

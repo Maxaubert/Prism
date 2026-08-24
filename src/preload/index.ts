@@ -67,6 +67,9 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
+  /** An office or ebook document as sanitised HTML, ready to render.
+   *  null when the file is not one, or could not be read. */
+  docHtml: (path: string): Promise<string | null> => ipcRenderer.invoke('doc:html', path),
   /** Convert a video Chromium cannot show, and get back a url that plays.
    *  Resolves when the copy is ready; progress arrives on onConvertProgress. */
   convertVideo: (path: string): Promise<{ url?: string; error?: string }> =>

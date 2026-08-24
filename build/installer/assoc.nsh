@@ -359,6 +359,20 @@
   !insertmacro PRISM_EXT "iso"   "Prism.Archive"
   !insertmacro PRISM_EXT "cab"   "Prism.Archive"
 
+  ; Office and ebook documents (docConvert.ts).
+  !insertmacro PRISM_EXT "docx"  "Prism.Document"
+  !insertmacro PRISM_EXT "docm"  "Prism.Document"
+  !insertmacro PRISM_EXT "odt"   "Prism.Document"
+  !insertmacro PRISM_EXT "rtf"   "Prism.Document"
+  !insertmacro PRISM_EXT "xlsx"  "Prism.Document"
+  !insertmacro PRISM_EXT "xlsm"  "Prism.Document"
+  !insertmacro PRISM_EXT "xls"   "Prism.Document"
+  !insertmacro PRISM_EXT "ods"   "Prism.Document"
+  !insertmacro PRISM_EXT "pptx"  "Prism.Document"
+  !insertmacro PRISM_EXT "ppsx"  "Prism.Document"
+  !insertmacro PRISM_EXT "odp"   "Prism.Document"
+  !insertmacro PRISM_EXT "epub"  "Prism.Document"
+
 
   ; the executable as an application in its own right, which is what the
   ; per-type "Choose another app" dialog looks up
@@ -552,5 +566,17 @@
   !insertmacro PRISM_UNEXT "txz"   "Prism.Archive"
   !insertmacro PRISM_UNEXT "iso"   "Prism.Archive"
   !insertmacro PRISM_UNEXT "cab"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "docx"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "docm"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "odt"   "Prism.Document"
+  !insertmacro PRISM_UNEXT "rtf"   "Prism.Document"
+  !insertmacro PRISM_UNEXT "xlsx"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "xlsm"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "xls"   "Prism.Document"
+  !insertmacro PRISM_UNEXT "ods"   "Prism.Document"
+  !insertmacro PRISM_UNEXT "pptx"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "ppsx"  "Prism.Document"
+  !insertmacro PRISM_UNEXT "odp"   "Prism.Document"
+  !insertmacro PRISM_UNEXT "epub"  "Prism.Document"
   System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, p 0, p 0)'
 !macroend

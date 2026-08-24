@@ -202,6 +202,87 @@ export function buildFixtures() {
      join(FIXTURES, 'av', 'lossless.m4a')],
     { windowsHide: true }
   )
+  // Office and ebook documents (2026-08-24). Hand-built rather than exported
+  // from Office: the point is that Prism reads the real container layout, and
+  // a file built here is one whose expected text the assertions can name.
+  mkdirSync(join(FIXTURES, 'docs2'), { recursive: true })
+  {
+    const XML = '<?xml version="1.0" encoding="UTF-8"?>'
+    const docx = new AdmZip()
+    docx.addFile(
+      '[Content_Types].xml',
+      Buffer.from(
+        XML +
+          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+          '</Types>'
+      )
+    )
+    docx.addFile(
+      '_rels/.rels',
+      Buffer.from(
+        XML +
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+          '</Relationships>'
+      )
+    )
+    docx.addFile(
+      'word/document.xml',
+      Buffer.from(
+        XML +
+          '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+          '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>The Quarterly Report</w:t></w:r></w:p>' +
+          '<w:p><w:r><w:t>Revenue rose by a third.</w:t></w:r></w:p>' +
+          '</w:body></w:document>'
+      )
+    )
+    docx.writeZip(join(FIXTURES, 'docs2', 'report.docx'))
+
+    const epub = new AdmZip()
+    epub.addFile('mimetype', Buffer.from('application/epub+zip'))
+    epub.addFile(
+      'META-INF/container.xml',
+      Buffer.from(
+        XML +
+          '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>' +
+          '<rootfile full-path="OEBPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+      )
+    )
+    epub.addFile(
+      'OEBPS/book.opf',
+      Buffer.from(
+        XML +
+          '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>' +
+          '<item id="c2" href="two.xhtml" media-type="application/xhtml+xml"/>' +
+          '<item id="c1" href="one.xhtml" media-type="application/xhtml+xml"/>' +
+          '</manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>'
+      )
+    )
+    // Chapter one carries a script and a remote image: neither may survive.
+    epub.addFile(
+      'OEBPS/one.xhtml',
+      Buffer.from(
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><script>stealTheSession()</script></head><body>' +
+          '<h1>Chapter One</h1><p>It was a dark and stormy night.</p>' +
+          '<img src="https://tracker.example/pixel.png"/></body></html>'
+      )
+    )
+    epub.addFile(
+      'OEBPS/two.xhtml',
+      Buffer.from('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter Two</h1><p>The morning after.</p></body></html>')
+    )
+    epub.writeZip(join(FIXTURES, 'docs2', 'novel.epub'))
+
+    // RTF, with the nested font table that a regex-based reader trips over.
+    writeFileSync(
+      join(FIXTURES, 'docs2', 'letter.rtf'),
+      String.raw`{\rtf1\ansi{\fonttbl{\f0\fswiss Arial;}}{\colortbl;\red0\green0\blue0;}\f0 Dear Prism,\par It worked.\par}`
+    )
+  }
+
   // A 7z, built by the 7-Zip Prism bundles: read-only archives go through it.
   {
     const seven = join(ROOT, 'vendor', '7zip', '7z.exe')

@@ -16,6 +16,7 @@ const KIND_NAMES: Record<FileKind, string> = {
   video: 'Video',
   audio: 'Audio',
   pdf: 'PDF document',
+  doc: 'Document',
   text: 'Text document',
   archive: 'Archive',
   other: 'File'

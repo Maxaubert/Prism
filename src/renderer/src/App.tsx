@@ -18,6 +18,7 @@ import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
 import { MarkdownView } from './components/MarkdownView'
+import { DocView } from './components/DocView'
 import { PdfView } from './components/pdf/PdfView'
 import { UnsupportedView } from './components/UnsupportedView'
 import { ArchiveView } from './components/ArchiveView'
@@ -304,6 +305,8 @@ function Viewer({
       return <AudioView url={url} path={file.path} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+    case 'doc':
+      return <DocView path={file.path} name={file.name} />
     case 'archive':
       return <ArchiveView file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
     case 'text':

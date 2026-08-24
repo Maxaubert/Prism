@@ -1147,6 +1147,33 @@ async function sevenZipScenario(fixtures) {
   }
 }
 
+async function documentScenario(fixtures) {
+  console.log('office and ebook documents')
+  // One window, walked through the folder: three launches in a row raced the
+  // profile and the middle one lost.
+  const { app, win } = await launch(join(fixtures, 'docs2', 'report.docx'))
+  try {
+    const show = async (name, expect_) => {
+      if (name) await win.locator(`[role="treeitem"]:has-text("${name}")`).first().click()
+      await win.waitForSelector('[data-doc-scroller]', { timeout: 20000 })
+      await win.waitForFunction((t) => document.body.innerText.includes(t), expect_, { timeout: 25000 })
+      ok(true, (name ?? 'report.docx') + ' renders (found "' + expect_ + '")')
+    }
+    await show(null, 'The Quarterly Report')
+    await show('letter.rtf', 'It worked.')
+    await show('novel.epub', 'Chapter One')
+
+    // The epub carried a script and a remote image; neither may reach the page.
+    const html = await win.evaluate(() => document.querySelector('[data-doc-scroller]').innerHTML)
+    ok(/Chapter One[\s\S]*Chapter Two/.test(html), 'an epub reads in spine order, not zip order')
+    ok(!/stealTheSession/.test(html), 'its script never reaches the page')
+    ok(!/tracker\.example/.test(html), 'nor does a remote image it wanted to fetch')
+    ok((await win.locator('[data-doc-scroller] script').count()) === 0, 'and no script element survives at all')
+  } finally {
+    await app.close()
+  }
+}
+
 async function convertScenario(fixtures) {
   console.log('video Chromium cannot decode')
   const { app, win } = await launch(join(fixtures, 'av', 'xvid.avi'))
@@ -2109,6 +2136,10 @@ try {
   await convertScenario(fixtures)
   await sleep(700)
   await sevenZipScenario(fixtures)
+  // A longer gap than the others: the previous window must have released the
+  // single-instance lock, or this launch hands its file over and exits.
+  await sleep(2000)
+  await documentScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

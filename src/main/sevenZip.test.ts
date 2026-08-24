@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractArgs, isSevenArchive, listArgs, parseListing, sevenDirs } from './sevenZip'
+import { extractArgs, isSevenArchive, listArgs, parseListing, safeMemberPath, sevenDirs } from './sevenZip'
 
 // Real `7z l -slt` output, kept verbatim: the parser's whole job is to survive
 // what 7-Zip actually prints.
@@ -120,5 +120,34 @@ describe('where the binary is looked for', () => {
 
   it('walks up to vendor when running from a build dir', () => {
     expect(sevenDirs(false, '', 'C:\\repo\\out\\main')).toContain('C:\\repo\\vendor\\7zip')
+  })
+})
+
+describe('refusing a hostile member name', () => {
+  const dir = String.raw`C:\tmp\prism-arc-1`
+
+  it('accepts an ordinary member, folders and all', () => {
+    expect(safeMemberPath('note.txt', dir)).toBe('note.txt')
+    expect(safeMemberPath('sub/deep.txt', dir)).toBe('sub/deep.txt')
+    expect(safeMemberPath(String.raw`sub\deep.txt`, dir)).toBe('sub/deep.txt')
+  })
+
+  it('refuses traversal, before anything is extracted', () => {
+    // The check has to happen BEFORE 7-Zip runs: afterwards, a file that
+    // escaped is already written wherever it went.
+    expect(safeMemberPath('../evil.exe', dir)).toBeNull()
+    expect(safeMemberPath(String.raw`..\..\Startup\evil.exe`, dir)).toBeNull()
+    expect(safeMemberPath('sub/../../evil', dir)).toBeNull()
+  })
+
+  it('refuses absolute paths and drive letters', () => {
+    expect(safeMemberPath('/etc/passwd', dir)).toBeNull()
+    expect(safeMemberPath(String.raw`C:\Windows\System32\evil.dll`, dir)).toBeNull()
+    expect(safeMemberPath(String.raw`\\server\share\evil`, dir)).toBeNull()
+  })
+
+  it('refuses nothing at all, and absurd lengths', () => {
+    expect(safeMemberPath('', dir)).toBeNull()
+    expect(safeMemberPath('a'.repeat(5000), dir)).toBeNull()
   })
 })
