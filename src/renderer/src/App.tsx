@@ -301,7 +301,7 @@ function Viewer({
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
+      return <AudioView url={url} path={file.path} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'archive':

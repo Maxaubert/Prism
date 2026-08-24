@@ -1,5 +1,5 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef, SidecarOffer } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef, MediaProbe } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -66,7 +66,7 @@ const api = {
 
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
-  audioSidecar: (path: string): Promise<SidecarOffer> => ipcRenderer.invoke('audio:sidecar', path),
+  probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
   /** The same stream without a probe: for when the player itself noticed the
    *  audio never decoded, and can name the duration off the element. */
   audioBlind: (path: string, duration: number): Promise<string | null> =>

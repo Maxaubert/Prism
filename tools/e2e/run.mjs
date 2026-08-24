@@ -1063,6 +1063,54 @@ async function dolbyScenario(fixtures) {
   }
 }
 
+async function formatsScenario(fixtures) {
+  console.log('formats Chromium cannot handle')
+  {
+    // An audio file needs no syncing: the decoded stream simply IS the source.
+    const { app, win } = await launch(join(fixtures, 'av', 'lossless.m4a'))
+    try {
+      await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+      ok(
+        await win.evaluate(() => (document.querySelector('audio')?.getAttribute('src') ?? '').startsWith('fsaudio:')),
+        "an Apple Lossless file plays from Prism's own decoder"
+      )
+      await win.evaluate(() => document.querySelector('audio')?.play().catch(() => {}))
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 15000 }
+      )
+      ok(true, 'and really decodes, where Chromium alone reported an error')
+      ok(
+        (await win.evaluate(() => document.querySelector('audio')?.error?.code ?? null)) === null,
+        'with no error left on the element'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(700)
+  {
+    // Prism decodes audio but not video, and a black window with working sound
+    // is the most confusing possible outcome. It says which codec did it.
+    const { app, win } = await launch(join(fixtures, 'av', 'nopicture.mkv'))
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+      await win.waitForSelector('[role="status"]', { timeout: 15000 })
+      const said = (await win.locator('[role="status"]').textContent()) ?? ''
+      ok(/No picture/i.test(said), 'a video codec Prism cannot show says so')
+      ok(/mpeg2video/i.test(said), 'and names the codec (said: "' + said.replace(/\s+/g, ' ').trim().slice(0, 70) + '")')
+      ok(
+        await win.evaluate(() => document.querySelector('video').videoWidth === 0),
+        'which is exactly what the picture was doing'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+}
+
 /**
  * A real second launch, the way an Explorer double-click arrives: Prism is
  * single-instance, so this process hands its path to the running window and
@@ -1936,6 +1984,8 @@ try {
   await sleep(900)
   await playerScenario(fixtures)
   await dolbyScenario(fixtures)
+  await sleep(700)
+  await formatsScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

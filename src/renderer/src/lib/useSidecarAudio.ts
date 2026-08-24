@@ -36,6 +36,9 @@ const SETTLE_TRIES = 3
 
 export interface Sidecar {
   state: SidecarState
+  /** The video codec, when the file has a picture Prism may not be able to
+   *  show. Named in the no-picture note rather than left a mystery. */
+  videoCodec: string | null
   /** The fsaudio:// url, once there is one. */
   url: string | null
   /** Attach to the hidden <audio>. */
@@ -51,19 +54,27 @@ export function useSidecarAudio(
   const audio = useRef<HTMLAudioElement>(null)
   // Keyed by the file it is about, so a new file is 'asking' by construction
   // and no effect has to clear anything.
-  const [ans, setAns] = useState<{ path: string; state: SidecarState; url: string | null } | null>(null)
-  const state: SidecarState = ans?.path === path ? ans.state : 'asking'
-  const url = ans?.path === path ? ans.url : null
+  const [ans, setAns] = useState<{
+    path: string
+    state: SidecarState
+    url: string | null
+    videoCodec?: string
+  } | null>(null)
+  const mine = ans?.path === path ? ans : null
+  const state: SidecarState = mine ? mine.state : 'asking'
+  const url = mine ? mine.url : null
+  const videoCodec = mine?.videoCodec ?? null
 
   // Ask main what this file's audio is. A probe answers in a few milliseconds,
   // so sound starts with the picture rather than after it.
   useEffect(() => {
     let live = true
-    void window.prism.audioSidecar(path).then((offer) => {
+    void window.prism.probeMedia(path).then((offer) => {
       if (!live) return
-      if (offer.needed && offer.url) setAns({ path, state: 'on', url: offer.url })
-      else if (offer.needed && !offer.ffmpeg) setAns({ path, state: 'unavailable', url: null })
-      else setAns({ path, state: 'off', url: null })
+      const vc = offer.videoCodec
+      if (offer.needed && offer.url) setAns({ path, state: 'on', url: offer.url, videoCodec: vc })
+      else if (offer.needed && !offer.ffmpeg) setAns({ path, state: 'unavailable', url: null, videoCodec: vc })
+      else setAns({ path, state: 'off', url: null, videoCodec: vc })
     })
     return () => {
       live = false
@@ -90,7 +101,12 @@ export function useSidecarAudio(
       if (!Number.isFinite(el.duration) || el.duration <= 0) return
       asked = true
       void window.prism.audioBlind(path, el.duration).then((u) => {
-        setAns(u ? { path, state: 'on', url: u } : { path, state: 'unavailable', url: null })
+        setAns((prev) => ({
+          path,
+          state: u ? 'on' : 'unavailable',
+          url: u,
+          videoCodec: prev?.path === path ? prev.videoCodec : undefined
+        }))
       })
     }, 1200)
     return () => window.clearInterval(t)
@@ -177,5 +193,5 @@ export function useSidecarAudio(
     }
   }, [url, video])
 
-  return { state, url, ref: audio }
+  return { state, url, ref: audio, videoCodec }
 }

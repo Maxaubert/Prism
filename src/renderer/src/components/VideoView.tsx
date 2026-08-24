@@ -88,9 +88,28 @@ export function VideoView({
   // main decodes them and this plays the result beside the picture. The video
   // element needs no muting - it has no decoder for that track either, which
   // is the entire problem.
-  const { state: sidecarState, url: sidecarUrl, ref: sidecarRef } = useSidecarAudio(path, video, c.vol, c.muted)
+  const { state: sidecarState, url: sidecarUrl, ref: sidecarRef, videoCodec } = useSidecarAudio(path, video, c.vol, c.muted)
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
   const silent = sidecarState === 'unavailable' && hushedUrl !== url
+
+  // The other half of the same honesty. Prism decodes audio it cannot play,
+  // but NOT video: MPEG-2, Xvid, WMV, Theora and ProRes all leave Chromium
+  // with a file it will happily read the sound out of and show nothing for.
+  // A black window with working sound is the most confusing possible result,
+  // so name the codec that did it. Only when the file really has a picture:
+  // an audio-only mkv is not broken, it just has no video.
+  const [blindUrl, setBlindUrl] = useState<string | null>(null)
+  const noPicture = blindUrl === url && hushedUrl !== url
+  useEffect(() => {
+    const el = video.current
+    if (!el || !videoCodec) return
+    const t = window.setInterval(() => {
+      // readyState >= 2 means metadata AND a frame's worth of data has been
+      // considered, so a zero width by then is a decoder that gave up.
+      if (el.readyState >= 2) setBlindUrl(el.videoWidth === 0 ? url : null)
+    }, 900)
+    return () => window.clearInterval(t)
+  }, [url, videoCodec, video])
 
   return (
     <div
@@ -99,7 +118,7 @@ export function VideoView({
       onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
-      {silent && (
+      {(silent || noPicture) && (
         <div
           role="status"
           className="pointer-events-auto absolute left-1/2 top-3 z-30 flex max-w-[min(560px,86%)] -translate-x-1/2 items-center gap-2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
@@ -108,8 +127,14 @@ export function VideoView({
             <path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6m0-6-4 6" />
           </svg>
           <span className="min-w-0">
-            No sound: this file&apos;s audio needs a decoder Prism could not find. The picture is
-            unaffected.
+            {noPicture ? (
+              <>
+                No picture: Prism cannot decode this file&apos;s video
+                {videoCodec ? ` (${videoCodec})` : ''}. The sound is unaffected.
+              </>
+            ) : (
+              <>No sound: this file&apos;s audio needs a decoder Prism could not find. The picture is unaffected.</>
+            )}
           </span>
           <button
             className="ml-1 shrink-0 rounded px-1 text-[var(--p-dim2)] hover:text-[var(--p-text)]"

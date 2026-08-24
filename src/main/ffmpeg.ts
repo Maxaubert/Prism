@@ -45,7 +45,24 @@ const CHROMIUM_AUDIO = new Set([
   'pcm_u8'
 ])
 
-export function needsSidecar(codec: string | undefined): boolean {
+/**
+ * Containers Chromium can pull apart on its own. The codec is only half the
+ * question: Chromium has no demuxer for ASF, raw AC-3, DTS, AIFF or AU, so
+ * even a track it could decode is unreachable inside one. Anything not on
+ * this list is fed through the sidecar, which turns any container ffmpeg can
+ * read into plain PCM.
+ */
+const CHROMIUM_CONTAINERS = new Set([
+  '.mp4', '.m4v', '.m4a', '.m4b', '.mov', '.mkv', '.mka', '.webm', '.ogg', '.ogv',
+  '.oga', '.opus', '.mp3', '.aac', '.flac', '.wav', '.avi', '.ts', '.m2ts', '.mts'
+])
+
+export function chromiumCanDemux(ext: string): boolean {
+  return CHROMIUM_CONTAINERS.has(ext.toLowerCase())
+}
+
+export function needsSidecar(codec: string | undefined, ext?: string): boolean {
+  if (ext !== undefined && !chromiumCanDemux(ext)) return true
   if (!codec) return false
   return !CHROMIUM_AUDIO.has(codec.toLowerCase())
 }
@@ -132,6 +149,15 @@ export function sidecarArgs(file: string, streamIndex: number, at: number): stri
   ]
 }
 
+export interface MediaInfo {
+  audio: AudioTrack | null
+  /** The video stream's codec, when the file has one. Prism does not decode
+   *  video, so this exists to NAME what it cannot show rather than leave a
+   *  black window with no explanation. */
+  videoCodec: string | null
+  duration: number
+}
+
 export interface AudioTrack {
   /** Absolute stream index, for -map 0:N. */
   index: number
@@ -144,6 +170,7 @@ export interface AudioTrack {
 }
 
 interface ProbeStream {
+  codec_type?: string
   index?: number
   codec_name?: string
   channels?: number
@@ -153,10 +180,11 @@ interface ProbeStream {
 }
 
 /**
- * The track Chromium itself would play: its default, else the first. Prism does
- * not offer a track picker, so this is the one that matters.
+ * What the file holds: the audio track Chromium itself would play (its
+ * default, else the first - Prism offers no track picker), and whether there
+ * is a video stream at all.
  */
-export function chooseTrack(json: string): AudioTrack | null {
+export function readProbe(json: string): MediaInfo | null {
   let parsed: { streams?: ProbeStream[]; format?: { duration?: string } }
   try {
     parsed = JSON.parse(json)
@@ -164,17 +192,23 @@ export function chooseTrack(json: string): AudioTrack | null {
     return null
   }
   const streams = parsed.streams ?? []
-  if (!streams.length) return null
-  const pick = streams.find((s) => s.disposition?.default === 1) ?? streams[0]
-  if (typeof pick.index !== 'number' || !pick.codec_name) return null
-  return {
-    index: pick.index,
-    codec: pick.codec_name,
-    channels: pick.channels ?? 0,
-    layout: pick.channel_layout ?? '',
-    language: pick.tags?.language ?? '',
-    duration: Number(parsed.format?.duration) || 0
-  }
+  const duration = Number(parsed.format?.duration) || 0
+  const audios = streams.filter((s) => s.codec_type === 'audio')
+  const video = streams.find((s) => s.codec_type === 'video')
+  const pick = audios.find((s) => s.disposition?.default === 1) ?? audios[0]
+  const audio: AudioTrack | null =
+    pick && typeof pick.index === 'number' && pick.codec_name
+      ? {
+          index: pick.index,
+          codec: pick.codec_name,
+          channels: pick.channels ?? 0,
+          layout: pick.channel_layout ?? '',
+          language: pick.tags?.language ?? '',
+          duration
+        }
+      : null
+  if (!audio && !video) return null
+  return { audio, videoCodec: video?.codec_name ?? null, duration }
 }
 
 // ---------------------------------------------------------------------------
@@ -237,16 +271,15 @@ export function resetFfmpeg(): void {
 const PROBE_ARGS = [
   '-v', 'error',
   '-print_format', 'json',
-  '-select_streams', 'a',
-  '-show_entries', 'stream=index,codec_name,channels,channel_layout,disposition:stream_tags=language:format=duration'
+  '-show_entries', 'stream=index,codec_type,codec_name,channels,channel_layout,disposition:stream_tags=language:format=duration'
 ]
 
-/** Ask ffprobe what audio a file carries. null when it cannot say. */
-export async function probeAudio(ffprobe: string, file: string): Promise<AudioTrack | null> {
+/** Ask ffprobe what a file carries. null when it cannot say. */
+export async function probeMedia(ffprobe: string, file: string): Promise<MediaInfo | null> {
   const json = await new Promise<string | null>((resolve) => {
     execFile(ffprobe, [...PROBE_ARGS, file], { timeout: 15000, maxBuffer: 4 << 20 }, (err, stdout) =>
       resolve(err ? null : stdout)
     )
   })
-  return json ? chooseTrack(json) : null
+  return json ? readProbe(json) : null
 }

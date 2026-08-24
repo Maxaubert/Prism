@@ -49,6 +49,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   AC-3/DTS/TrueHD DECODERS are LGPL, and replaceable DLLs are what the licence asks for -
   which is also why the e2e fixtures encode with `libopenh264` (there is no libx264 here).
   The note that says Prism cannot help now appears only when no ffmpeg was found at all.
+  The AUDIO player shares the decoder (2026-08-24) but not the syncing: with no picture to
+  keep step with, the decoded stream simply IS the source (`useDecodedSource`), which is what
+  makes Apple Lossless, WMA, AC-3, DTS, WavPack, AIFF, AMR and AU play at all. The container
+  counts as well as the codec: Chromium has no demuxer for ASF, raw AC-3/DTS, AIFF or AU, so
+  anything outside `CHROMIUM_CONTAINERS` is decoded whatever its codec says.
+  Video is NOT decoded, and Prism now says which codec it cannot show (`No picture: ...
+  (mpeg2video)`) instead of leaving a black window with working sound - MPEG-2, Xvid, WMV,
+  Theora, ProRes and FFV1 all land there. `.ts`/`.m2ts`/`.mts` stay unsupported, MEASURED not
+  assumed: Chromium has no MPEG-TS demuxer for `<video src>` (picture missing, error banner up,
+  though the AC-3 decoded fine), and `.ts`/`.mts` are TypeScript to the code viewer anyway.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,

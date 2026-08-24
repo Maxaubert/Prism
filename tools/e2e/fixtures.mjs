@@ -193,6 +193,25 @@ export function buildFixtures() {
   if (ac3.status !== 0)
     throw new Error(`ffmpeg could not build the Dolby fixture (tried ${FFMPEG}): ${ac3.stderr}`)
 
+  // Apple Lossless in an m4a: Chromium cannot decode ALAC, and an audio file
+  // has no picture to fall back on, so before the decoder reached the audio
+  // player this was a dead file with an error message.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4:sample_rate=48000', '-c:a', 'alac',
+     join(FIXTURES, 'av', 'lossless.m4a')],
+    { windowsHide: true }
+  )
+  // ...and the opposite case: a picture Prism cannot show. MPEG-2 video plays
+  // its sound and shows nothing, which must SAY so rather than sit black.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4:sample_rate=48000',
+     '-c:v', 'mpeg2video', '-c:a', 'aac', '-shortest', join(FIXTURES, 'av', 'nopicture.mkv')],
+    { windowsHide: true }
+  )
+
   // A file Prism cannot show, in its own folder so the root counts the filter
   // scenario asserts on stay put. It is never listed by listDir, so opening it
   // is the only way to reach it - which is exactly the case being tested.

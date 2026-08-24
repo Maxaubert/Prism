@@ -44,7 +44,7 @@ function MemberView({ name, path, kind }: { name: string; path: string; kind: Fi
     case 'video':
       return <VideoView url={url} path={path} onToggleFullscreen={noop} onAutoAdvance={noop} transportStyle={loadTransportStyle()} />
     case 'audio':
-      return <AudioView url={url} name={name} fullscreen={false} onToggleFullscreen={noop} onAutoAdvance={noop} transportStyle={loadTransportStyle()} />
+      return <AudioView url={url} path={path} name={name} fullscreen={false} onToggleFullscreen={noop} onAutoAdvance={noop} transportStyle={loadTransportStyle()} />
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={noop} />
     case 'text':

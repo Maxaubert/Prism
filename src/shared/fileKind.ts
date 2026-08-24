@@ -5,10 +5,27 @@ import type { FileKind } from './types'
 
 const IMAGE = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif', '.jxl',
-  '.tiff', '.tif', '.ico', '.heic', '.heif'
+  // .jfif is a JPEG: Windows itself saves them under that name, and leaving it
+  // out meant Prism refused a file it decodes perfectly.
+  '.tiff', '.tif', '.ico', '.heic', '.heif', '.jfif'
 ])
+// Video is what CHROMIUM can decode, because Prism decodes audio and not
+// picture: MPEG-2, Xvid, WMV, Theora and ProRes are deliberately absent, since
+// opening one would show a black window (VideoView says so when it happens).
+// The transport-stream family (.ts, .m2ts, .mts) is deliberately absent, and
+// was MEASURED before being left out (2026-08-24): Chromium has no MPEG-TS
+// demuxer for <video src>, so an .m2ts opened with picture missing and the
+// error banner up, even though Prism decoded its AC-3 fine. Two more reasons
+// not to force it: .ts and .mts are TypeScript, which this app's code viewer
+// opens far more often, and telling them apart needs the file's first bytes
+// (0x47 sync), not its name, while fileKind is name-only.
 const VIDEO = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi'])
-const AUDIO = new Set(['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav'])
+// Audio, on the other hand, is whatever FFMPEG can read: the sidecar turns any
+// of it into PCM, so the container and codec stop mattering (2026-08-24).
+const AUDIO = new Set([
+  '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav',
+  '.wma', '.ac3', '.dts', '.mka', '.aiff', '.aif', '.m4b', '.amr', '.ape', '.wv', '.au'
+])
 const TEXT = new Set([
   '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
   '.html', '.xml', '.yml', '.yaml', '.ini', '.log', '.csv',

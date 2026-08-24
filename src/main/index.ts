@@ -21,7 +21,7 @@ import { detectShells } from './shells'
 import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
 import { treeAgentKind, type ProcRow } from './agentDetect'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
-import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeAudio, type AudioTrack } from './ffmpeg'
+import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -29,7 +29,7 @@ import { addToArchive, archiveStat, archiveTooLarge, deleteMember, extractMember
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
-import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SidecarOffer } from '@shared/types'
+import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, MediaProbe, RenameResult } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -76,8 +76,13 @@ const MIME: Record<string, string> = {
   '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg',
   '.opus': 'audio/opus', '.flac': 'audio/flac', '.wav': 'audio/wav',
+  // The rest reach the player as decoded PCM (audioSidecar), so these types
+  // only matter for the few Chromium can read by itself.
+  '.mka': 'audio/x-matroska', '.m4b': 'audio/mp4', '.wma': 'audio/x-ms-wma',
+  '.ac3': 'audio/ac3', '.dts': 'audio/vnd.dts', '.aiff': 'audio/aiff', '.aif': 'audio/aiff',
+  '.amr': 'audio/amr', '.ape': 'audio/x-ape', '.wv': 'audio/x-wavpack', '.au': 'audio/basic',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
+  '.jfif': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
   '.pdf': 'application/pdf'
 }
 const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'application/octet-stream'
@@ -844,28 +849,44 @@ if (!app.requestSingleInstanceLock()) {
       `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
 
 
-    // Ask before playing: does this file's audio need Prism's own decoder, and
-    // is there one? The renderer plays the answer's url beside the video (which
-    // stays silent by itself, having no decoder for the track either).
-    ipcMain.handle('audio:sidecar', async (_e, p: string): Promise<SidecarOffer> => {
-      const none: SidecarOffer = { ffmpeg: false, needed: false }
+    // One probe per file, kept for as long as the file has not changed: the
+    // audio player, the video player and the no-picture note all ask.
+    const probeCache = new Map<string, MediaInfo | null>()
+
+    // Ask before playing: what does this file hold, does its audio need Prism's
+    // own decoder, and is there one? The renderer plays the answer's url beside
+    // the video (which stays silent by itself, having no decoder for the track
+    // either), or IN PLACE of the file for an audio-only viewer.
+    ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
+      const none: MediaProbe = { ffmpeg: false, needed: false }
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
       const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!tools) return none
-      let track: AudioTrack | null = null
-      if (tools.ffprobe) track = await probeAudio(tools.ffprobe, p)
+      let key: string
+      try {
+        key = `${p}|${statSync(p).mtimeMs}`
+      } catch {
+        return none
+      }
+      let info = probeCache.get(key)
+      if (info === undefined) {
+        info = tools.ffprobe ? await probeMedia(tools.ffprobe, p) : null
+        if (probeCache.size > 40) probeCache.clear()
+        probeCache.set(key, info)
+      }
       // No ffprobe, or a container it could not read: the renderer still has a
       // second way in (its decoder byte counter), so offer the first track
       // blind rather than nothing.
-      if (!track) return { ffmpeg: true, needed: false, blind: true }
-      if (track.duration <= 0) return { ffmpeg: true, needed: needsSidecar(track.codec), blind: true }
+      if (!info) return { ffmpeg: true, needed: false, blind: true }
+      const needed = needsSidecar(info.audio?.codec, extname(p))
+      const base: MediaProbe = { ffmpeg: true, needed, videoCodec: info.videoCodec ?? undefined }
+      if (!info.audio || info.duration <= 0) return { ...base, blind: true }
       return {
-        ffmpeg: true,
-        needed: needsSidecar(track.codec),
-        codec: track.codec,
-        channels: track.channels,
-        layout: track.layout,
-        url: sidecarUrl(p, track.index, track.duration)
+        ...base,
+        codec: info.audio.codec,
+        channels: info.audio.channels,
+        layout: info.audio.layout,
+        url: sidecarUrl(p, info.audio.index, info.duration)
       }
     })
 

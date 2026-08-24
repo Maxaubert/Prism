@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BYTES_PER_SEC,
-  chooseTrack,
+  chromiumCanDemux,
+  readProbe,
   FIRST_AUDIO,
   ffmpegDirs,
   needsSidecar,
@@ -132,36 +133,73 @@ describe('the ffmpeg command', () => {
   })
 })
 
-describe('choosing the track', () => {
+describe('containers Chromium cannot open at all', () => {
+  it('knows the ones it can', () => {
+    for (const e of ['.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.flac', '.wav', '.ts']) {
+      expect(chromiumCanDemux(e), e).toBe(true)
+    }
+  })
+
+  it('sends the rest through the decoder whatever the codec says', () => {
+    // A WMA in an ASF container, a raw AC-3 stream, an AIFF: Chromium has no
+    // demuxer for any of them, so even a track it could decode is unreachable.
+    for (const e of ['.wma', '.asf', '.ac3', '.dts', '.aiff', '.au', '.amr', '.ape']) {
+      expect(needsSidecar('flac', e), e).toBe(true)
+    }
+  })
+
+  it('leaves an ordinary file alone', () => {
+    expect(needsSidecar('aac', '.m4a')).toBe(false)
+    expect(needsSidecar('alac', '.m4a')).toBe(true) // codec, not container
+  })
+})
+
+describe('reading a probe', () => {
   const probe = (streams: unknown[], duration = '5387.392'): string =>
     JSON.stringify({ streams, format: { duration } })
 
   it('reads codec, channels, layout and duration', () => {
-    const t = chooseTrack(
-      probe([{ index: 1, codec_name: 'ac3', channels: 6, channel_layout: '5.1(side)', tags: { language: 'eng' } }])
-    )
+    const t = readProbe(
+      probe([
+        { index: 1, codec_type: 'audio', codec_name: 'ac3', channels: 6, channel_layout: '5.1(side)', tags: { language: 'eng' } }
+      ])
+    )?.audio
     expect(t).toEqual({ index: 1, codec: 'ac3', channels: 6, layout: '5.1(side)', language: 'eng', duration: 5387.392 })
   })
 
-  it('prefers the default track, which is the one Chromium would play', () => {
-    const t = chooseTrack(
+  it('names the video stream, so a picture it cannot show can be explained', () => {
+    const r = readProbe(
       probe([
-        { index: 1, codec_name: 'ac3', channels: 6 },
-        { index: 2, codec_name: 'aac', channels: 2, disposition: { default: 1 } }
+        { index: 0, codec_type: 'video', codec_name: 'mpeg2video' },
+        { index: 1, codec_type: 'audio', codec_name: 'aac' }
       ])
     )
-    expect(t?.index).toBe(2)
-    expect(t?.codec).toBe('aac')
+    expect(r?.videoCodec).toBe('mpeg2video')
+    expect(r?.audio?.index).toBe(1)
   })
 
-  it('falls back to the first when nothing is marked default', () => {
-    expect(chooseTrack(probe([{ index: 3, codec_name: 'dts' }]))?.index).toBe(3)
+  it('prefers the default track, which is the one Chromium would play', () => {
+    const r = readProbe(
+      probe([
+        { index: 1, codec_type: 'audio', codec_name: 'ac3', channels: 6 },
+        { index: 2, codec_type: 'audio', codec_name: 'aac', channels: 2, disposition: { default: 1 } }
+      ])
+    )
+    expect(r?.audio?.index).toBe(2)
+    expect(r?.audio?.codec).toBe('aac')
+  })
+
+  it('handles a file with no audio at all', () => {
+    const r = readProbe(probe([{ index: 0, codec_type: 'video', codec_name: 'h264' }]))
+    expect(r?.audio).toBeNull()
+    expect(r?.videoCodec).toBe('h264')
   })
 
   it('says nothing rather than guessing', () => {
-    expect(chooseTrack('not json')).toBeNull()
-    expect(chooseTrack(probe([]))).toBeNull()
-    expect(chooseTrack(probe([{ codec_name: 'ac3' }]))).toBeNull() // no index to map
+    expect(readProbe('not json')).toBeNull()
+    expect(readProbe(probe([]))).toBeNull()
+    // A track with no index cannot be mapped, so it is not a track we can use.
+    expect(readProbe(probe([{ codec_type: 'audio', codec_name: 'ac3' }]))).toBeNull()
   })
 })
 
