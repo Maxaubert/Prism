@@ -23,6 +23,7 @@ import { treeAgentKind, type ProcRow } from './agentDetect'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
+import { cancelAllConversions, cancelConversion, convertVideo, planConversion } from './videoConvert'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -75,6 +76,13 @@ protocol.registerSchemesAsPrivileged([
 const MIME: Record<string, string> = {
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.ogv': 'video/ogg',
   '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
+  // Served only until the converted copy exists (videoConvert.ts).
+  '.wmv': 'video/x-ms-wmv', '.asf': 'video/x-ms-asf', '.flv': 'video/x-flv',
+  '.f4v': 'video/x-f4v', '.mpg': 'video/mpeg', '.mpeg': 'video/mpeg', '.mpe': 'video/mpeg',
+  '.m1v': 'video/mpeg', '.m2v': 'video/mpeg', '.mpv': 'video/mpeg', '.m2ts': 'video/mp2t',
+  '.vob': 'video/dvd', '.3gp': 'video/3gpp', '.3g2': 'video/3gpp2', '.divx': 'video/x-msvideo',
+  '.mxf': 'application/mxf', '.rm': 'application/vnd.rn-realmedia',
+  '.rmvb': 'application/vnd.rn-realmedia-vbr', '.ogm': 'video/ogg', '.dv': 'video/x-dv',
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg',
   '.opus': 'audio/opus', '.flac': 'audio/flac', '.wav': 'audio/wav',
   // The rest reach the player as decoded PCM (audioSidecar), so these types
@@ -607,6 +615,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     killAll()
     killSidecars()
+    cancelAllConversions()
   })
 
   // Warm the terminal's fixed costs shortly after launch: the native module
@@ -903,8 +912,15 @@ if (!app.requestSingleInstanceLock()) {
       // second way in (its decoder byte counter), so offer the first track
       // blind rather than nothing.
       if (!info) return { ffmpeg: true, needed: false, blind: true }
-      const needed = needsSidecar(info.audio?.codec, extname(p))
-      const base: MediaProbe = { ffmpeg: true, needed, videoCodec: info.videoCodec ?? undefined }
+      const plan = planConversion(info, extname(p))
+      // A converted copy carries its own sound, so the sidecar stands down.
+      const needed = !plan.needed && needsSidecar(info.audio?.codec, extname(p))
+      const base: MediaProbe = {
+        ffmpeg: true,
+        needed,
+        videoCodec: info.videoCodec ?? undefined,
+        convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
+      }
       if (!info.audio || info.duration <= 0) return { ...base, blind: true }
       return {
         ...base,
@@ -923,6 +939,32 @@ if (!app.requestSingleInstanceLock()) {
       if (!Number.isFinite(duration) || duration <= 0) return null
       if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
       return sidecarUrl(p, FIRST_AUDIO, duration)
+    })
+
+    // Video Chromium cannot show: convert it once, then play the copy. The
+    // renderer waits on this and shows progress; a file already converted
+    // comes back immediately.
+    const convertDir = (): string => join(app.getPath('userData'), 'converted')
+    ipcMain.handle('video:convert', async (e, p: string): Promise<{ url?: string; error?: string }> => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return { error: 'outside the folder' }
+      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!tools?.ffprobe) return { error: 'no decoder available' }
+      const info = await probeMedia(tools.ffprobe, p)
+      const plan = planConversion(info, extname(p))
+      if (!plan.needed) return { error: 'nothing to convert' }
+      try {
+        const handle = convertVideo(tools.ffmpeg, p, convertDir(), plan, info?.duration ?? 0, (pct) =>
+          e.sender.send('video:progress', { path: p, pct })
+        )
+        const out = await handle.done
+        extractedPaths.add(out) // the copy is ours to serve, wherever it sits
+        return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : 'conversion failed' }
+      }
+    })
+    ipcMain.on('video:cancel', (_e, out: string) => {
+      if (typeof out === 'string') cancelConversion(out)
     })
 
     /* ----- context-menu verbs ----- */

@@ -67,6 +67,15 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
+  /** Convert a video Chromium cannot show, and get back a url that plays.
+   *  Resolves when the copy is ready; progress arrives on onConvertProgress. */
+  convertVideo: (path: string): Promise<{ url?: string; error?: string }> =>
+    ipcRenderer.invoke('video:convert', path),
+  onConvertProgress: (fn: (m: { path: string; pct: number }) => void): (() => void) => {
+    const h = (_e: unknown, m: { path: string; pct: number }): void => fn(m)
+    ipcRenderer.on('video:progress', h)
+    return () => ipcRenderer.removeListener('video:progress', h)
+  },
   /** The same stream without a probe: for when the player itself noticed the
    *  audio never decoded, and can name the duration off the element. */
   audioBlind: (path: string, duration: number): Promise<string | null> =>

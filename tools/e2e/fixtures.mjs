@@ -202,6 +202,16 @@ export function buildFixtures() {
      join(FIXTURES, 'av', 'lossless.m4a')],
     { windowsHide: true }
   )
+  // Xvid in an AVI: the picture Chromium cannot decode at all. Prism converts
+  // it once and plays the copy.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4',
+     '-c:v', 'mpeg4', '-c:a', 'libmp3lame', '-shortest', join(FIXTURES, 'av', 'xvid.avi')],
+    { windowsHide: true }
+  )
+
   // A Targa still: Chromium draws none of these, so it proves the ffmpeg
   // image path rather than the <img> tag.
   spawnSync(

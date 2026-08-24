@@ -1091,23 +1091,59 @@ async function formatsScenario(fixtures) {
   }
   await sleep(700)
   {
-    // Prism decodes audio but not video, and a black window with working sound
-    // is the most confusing possible outcome. It says which codec did it.
+    // MPEG-2 has no decoder in Chromium either, and unlike the audio case it
+    // cannot be decoded live - so it is converted once and the copy plays.
+    // (The "No picture" note VideoView still carries is for when there is no
+    // ffmpeg at all, which this suite cannot produce.)
     const { app, win } = await launch(join(fixtures, 'av', 'nopicture.mkv'))
     try {
       await win.waitForSelector('video', { timeout: 10000 })
+      await win.waitForFunction(() => (document.querySelector('video')?.videoWidth ?? 0) > 0, undefined, {
+        timeout: 60000
+      })
+      ok(true, 'an MPEG-2 file ends up with a picture')
       await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
-      await win.waitForSelector('[role="status"]', { timeout: 15000 })
-      const said = (await win.locator('[role="status"]').textContent()) ?? ''
-      ok(/No picture/i.test(said), 'a video codec Prism cannot show says so')
-      ok(/mpeg2video/i.test(said), 'and names the codec (said: "' + said.replace(/\s+/g, ' ').trim().slice(0, 70) + '")')
-      ok(
-        await win.evaluate(() => document.querySelector('video').videoWidth === 0),
-        'which is exactly what the picture was doing'
+      await win.waitForFunction(
+        () => (document.querySelector('video')?.webkitVideoDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 15000 }
       )
+      ok(true, 'and really decodes it')
     } finally {
       await app.close()
     }
+  }
+}
+
+async function convertScenario(fixtures) {
+  console.log('video Chromium cannot decode')
+  const { app, win } = await launch(join(fixtures, 'av', 'xvid.avi'))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    // The conversion panel names which kind of work is happening; on a
+    // four-second clip it can be gone before this looks, so it is not asserted.
+    await win.waitForFunction(() => (document.querySelector('video')?.videoWidth ?? 0) > 0, undefined, {
+      timeout: 60000
+    })
+    ok(true, 'an Xvid AVI ends up with a picture')
+    ok(
+      await win.evaluate(() =>
+        decodeURIComponent(document.querySelector('video').getAttribute('src') ?? '').includes('converted')
+      ),
+      'and it is playing the converted copy, not the original'
+    )
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        return (v?.webkitVideoDecodedByteCount ?? 0) > 0 && (v?.webkitAudioDecodedByteCount ?? 0) > 0
+      },
+      undefined,
+      { timeout: 15000 }
+    )
+    ok(true, 'with both picture and sound really decoding')
+  } finally {
+    await app.close()
   }
 }
 
@@ -2037,6 +2073,8 @@ try {
   await formatsScenario(fixtures)
   await sleep(700)
   await stillsAndSubsScenario(fixtures)
+  await sleep(700)
+  await convertScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

@@ -3,6 +3,7 @@ import { useMediaControls } from '../lib/useMediaControls'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { useSubtitles } from '../lib/useSubtitles'
 import { useSidecarAudio } from '../lib/useSidecarAudio'
+import { usePlayableVideo } from '../lib/usePlayableVideo'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { IconFull } from './icons'
@@ -32,9 +33,14 @@ export function VideoView({
   transportStyle: TransportStyle
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  // A file Chromium cannot open at all is converted first, and what plays is
+  // the copy. Everything downstream (subtitles, waveform, the audio decoder)
+  // then deals with an ordinary mp4.
+  const playable = usePlayableVideo(path, url)
+  const src = playable.src
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
-  const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const peaks = useWaveform(src, transportStyle === 'wave' || transportStyle === 'wavebold')
   const solidBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const v = useViz()
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
@@ -102,14 +108,14 @@ export function VideoView({
   const noPicture = blindUrl === url && hushedUrl !== url
   useEffect(() => {
     const el = video.current
-    if (!el || !videoCodec) return
+    if (!el || !videoCodec || playable.converting || playable.converted) return
     const t = window.setInterval(() => {
       // readyState >= 2 means metadata AND a frame's worth of data has been
       // considered, so a zero width by then is a decoder that gave up.
       if (el.readyState >= 2) setBlindUrl(el.videoWidth === 0 ? url : null)
     }, 900)
     return () => window.clearInterval(t)
-  }, [url, videoCodec, video])
+  }, [url, videoCodec, video, playable.converting, playable.converted])
 
   return (
     <div
@@ -118,6 +124,34 @@ export function VideoView({
       onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
+      {playable.converting && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8">
+          <div className="flex w-[min(420px,80%)] flex-col items-center gap-3 text-center">
+            <div className="text-sm text-[var(--p-text)]">
+              {playable.quick ? 'Repacking this video' : 'Converting this video'}
+            </div>
+            <div className="text-[12px] text-[var(--p-dim)]">
+              {playable.quick
+                ? 'Chromium cannot open this container, so its streams are being copied into one it can. This is quick.'
+                : 'Chromium cannot decode this video, so Prism is re-encoding it once. The copy is kept, so this happens only the first time.'}
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--p-line)]">
+              <div
+                className={`h-full rounded-full bg-[var(--p-accent)] ${playable.pct === null ? 'p-agent-run w-1/3' : 'transition-[width] duration-300'}`}
+                style={playable.pct === null ? undefined : { width: `${playable.pct}%` }}
+              />
+            </div>
+            <div className="text-[11px] tabular-nums text-[var(--p-dim2)]">
+              {playable.pct === null ? 'working' : `${playable.pct}%`}
+            </div>
+          </div>
+        </div>
+      )}
+      {playable.error && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center text-sm text-[var(--p-text-soft)]">
+          This video could not be converted ({playable.error}).
+        </div>
+      )}
       {(silent || noPicture) && (
         <div
           role="status"
@@ -155,7 +189,7 @@ export function VideoView({
       )}
       <video
         ref={video}
-        src={url}
+        src={src}
         autoPlay
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on

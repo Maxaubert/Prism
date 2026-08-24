@@ -135,9 +135,12 @@ describe('the ffmpeg command', () => {
 
 describe('containers Chromium cannot open at all', () => {
   it('knows the ones it can', () => {
-    for (const e of ['.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.flac', '.wav', '.ts']) {
+    for (const e of ['.mp4', '.mkv', '.webm', '.mp3', '.m4a', '.flac', '.wav', '.avi']) {
       expect(chromiumCanDemux(e), e).toBe(true)
     }
+    // MPEG-TS is NOT one of them, measured: an .m2ts opened with no picture
+    // and the error banner up. Claiming it here left the file unconverted.
+    for (const e of ['.ts', '.m2ts', '.mts']) expect(chromiumCanDemux(e), e).toBe(false)
   })
 
   it('sends the rest through the decoder whatever the codec says', () => {

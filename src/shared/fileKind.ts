@@ -23,7 +23,16 @@ const IMAGE = new Set([
 // not to force it: .ts and .mts are TypeScript, which this app's code viewer
 // opens far more often, and telling them apart needs the file's first bytes
 // (0x47 sync), not its name, while fileKind is name-only.
-const VIDEO = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi'])
+const VIDEO = new Set([
+  '.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi',
+  // Containers Chromium cannot open at all. Prism converts them once and
+  // plays the copy (videoConvert.ts, 2026-08-24) - usually by COPYING the
+  // streams into an mp4, since most hold H.264 already. Still excluded:
+  // `.ts` and `.mts`, which are TypeScript to the code viewer and would need
+  // the file's first bytes to tell apart.
+  '.wmv', '.asf', '.flv', '.f4v', '.mpg', '.mpeg', '.mpe', '.m1v', '.m2v', '.mpv',
+  '.m2ts', '.vob', '.3gp', '.3g2', '.divx', '.mxf', '.rm', '.rmvb', '.ogm', '.dv'
+])
 // Audio, on the other hand, is whatever FFMPEG can read: the sidecar turns any
 // of it into PCM, so the container and codec stop mattering (2026-08-24).
 const AUDIO = new Set([

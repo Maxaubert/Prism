@@ -54,7 +54,9 @@ const CHROMIUM_AUDIO = new Set([
  */
 const CHROMIUM_CONTAINERS = new Set([
   '.mp4', '.m4v', '.m4a', '.m4b', '.mov', '.mkv', '.mka', '.webm', '.ogg', '.ogv',
-  '.oga', '.opus', '.mp3', '.aac', '.flac', '.wav', '.avi', '.ts', '.m2ts', '.mts'
+  '.oga', '.opus', '.mp3', '.aac', '.flac', '.wav', '.avi'
+  // MPEG-TS (.ts/.m2ts/.mts) is deliberately NOT here: measured 2026-08-24,
+  // Chromium has no demuxer for it in <video src>, whatever it holds.
 ])
 
 export function chromiumCanDemux(ext: string): boolean {
