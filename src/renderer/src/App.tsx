@@ -182,10 +182,22 @@ function TopBar({
           exists so the chip can be seen before a real release carries it. */}
       {!setup && update && (
         <button
-          className="no-drag flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] font-medium text-[var(--p-accent-hi)] transition-[filter] hover:brightness-125"
+          // The chip IS the progress bar: it never changes size, and the same
+          // shape carries "available", "42%" and "installing" without the
+          // title bar reflowing under it.
+          className="no-drag relative flex h-6 shrink-0 items-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-[11.5px] font-medium transition-[filter] hover:brightness-125"
           style={{
-            borderColor: 'color-mix(in srgb, var(--p-accent-hi) 45%, transparent)',
-            background: 'color-mix(in srgb, var(--p-accent) 16%, transparent)'
+            borderColor:
+              updatePhase === 'idle'
+                ? 'color-mix(in srgb, var(--p-text) 14%, transparent)'
+                : 'color-mix(in srgb, var(--p-accent) 55%, transparent)',
+            // Working: the unfilled remainder is already accent-tinted, so the
+            // label reads against both halves of the bar.
+            background:
+              updatePhase === 'idle'
+                ? 'color-mix(in srgb, var(--p-text) 8%, transparent)'
+                : 'color-mix(in srgb, var(--p-accent) 30%, transparent)',
+            color: updatePhase === 'idle' ? 'var(--p-text)' : 'var(--p-on-accent)'
           }}
           onClick={onInstallUpdate}
           disabled={updatePhase !== 'idle'}
@@ -195,15 +207,28 @@ function TopBar({
               : `Download and install ${update.version}`
           }
           aria-label={`Update to ${update.version}`}
+          {...(updatePhase === 'downloading'
+            ? { role: 'progressbar', 'aria-valuenow': updatePct, 'aria-valuemin': 0, 'aria-valuemax': 100 }
+            : {})}
         >
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <span
+            aria-hidden
+            className="absolute inset-y-0 left-0 transition-[width] duration-300 ease-out"
+            style={{
+              width: updatePhase === 'idle' ? 0 : updatePhase === 'installing' ? '100%' : `${updatePct}%`,
+              background: 'var(--p-accent)'
+            }}
+          />
+          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="relative shrink-0" aria-hidden>
             <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" />
           </svg>
-          {updatePhase === 'downloading'
-            ? `${updatePct}%`
-            : updatePhase === 'installing'
-              ? 'Installing…'
-              : `Update ${update.version}`}
+          <span className="relative whitespace-nowrap tabular-nums">
+            {updatePhase === 'downloading'
+              ? `${updatePct}%`
+              : updatePhase === 'installing'
+                ? 'Installing…'
+                : `Update ${update.version}`}
+          </span>
         </button>
       )}
       <div className="no-drag flex items-center gap-1">

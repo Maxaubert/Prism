@@ -1442,6 +1442,31 @@ function TerminalTab(): JSX.Element {
 }
 
 function GeneralTab(): JSX.Element {
+  // Explorer's context-menu verb lives in the registry, not in settings.json:
+  // the switch reports what Windows actually has, and says so if it refuses.
+  const [verb, setVerbState] = useState(false)
+  const [verbBusy, setVerbBusy] = useState(true)
+  useEffect(() => {
+    let live = true
+    void window.prism.shellVerbStatus().then((on) => {
+      if (live) {
+        setVerbState(on)
+        setVerbBusy(false)
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  const setVerb = (on: boolean): void => {
+    setVerbBusy(true)
+    void window.prism.setShellVerb(on).then(async () => {
+      // Read it back rather than trusting the write: this is the registry.
+      setVerbState(await window.prism.shellVerbStatus())
+      setVerbBusy(false)
+    })
+  }
+
   const size = useTreeSize()
   const follow = useAutoScroll()
   const confirmClose = useConfirmCloseMode()
@@ -1520,6 +1545,19 @@ function GeneralTab(): JSX.Element {
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
+      </Pref>
+      {/* Explorer's own menu. Windows 11 hides classic verbs behind "Show more
+          options", and saying so is better than the user hunting for it. */}
+      <Pref
+        id="explorer-verb"
+        label="Explorer menu"
+        hint={
+          verbBusy
+            ? 'Asking Windows…'
+            : 'Adds "Open in Prism" to the right-click menu. On Windows 11 it sits under "Show more options" (Shift+F10).'
+        }
+      >
+        <Switch on={verb} onChange={setVerb} label="Open in Prism in the Explorer menu" />
       </Pref>
       {/* Setup offers this once; this is where you find it afterwards. Windows
           owns the choice, so all we can do is open the page it lives on. */}

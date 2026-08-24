@@ -265,9 +265,25 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **Playback position** (`useMediaControls`, tuned 2026-08-24 by owner decision): media longer
+  than 10 MINUTES reopens where you left it, silently - no prompt, no banner. Anything shorter
+  never is, which is why a 5-second clip always starts at the start. Stopping inside the LAST
+  MINUTE counts as watched: the position is neither saved nor restored there, so a film never
+  reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
+  resume and songs do not.
+- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), off by default, switched
+  in Settings > General. A classic HKCU verb under `*` and `Directory` - per user, no
+  elevation - added and removed with `reg.exe` (argv only). On Windows 11 it appears under
+  "Show more options", because the short menu is built from IExplorerCommand COM handlers and
+  those need a registered DLL; the hint in Settings says so rather than leaving it to be
+  hunted for. The switch reports what the REGISTRY says, not what was clicked, and a verb
+  pointing at some other copy of Prism reads as off so turning it on repoints it here.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
+- **Update chip** (title bar, right of the file name): one shape for every state, and it never
+  changes width - the chip IS the progress bar, filling with accent from the left as the
+  download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that

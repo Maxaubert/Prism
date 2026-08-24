@@ -27,6 +27,7 @@ import { cancelAllConversions, cancelConversion, convertVideo, planConversion } 
 import { bundledSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
+import { installVerb, removeVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
 import { sanitizeDoc } from './docSanitize'
 import { renameFile, uniqueName } from './fileOps'
@@ -1029,6 +1030,13 @@ if (!app.requestSingleInstanceLock()) {
       } catch {
         return null
       }
+    })
+
+    // "Open in Prism" in File Explorer's own context menu (HKCU only).
+    ipcMain.handle("shell:verb-status", () => verbInstalled(app.getPath("exe")))
+    ipcMain.handle("shell:verb-set", async (_e, on: boolean): Promise<boolean> => {
+      if (typeof on !== "boolean") return false
+      return on ? installVerb(app.getPath("exe")) : removeVerb()
     })
 
     /* ----- context-menu verbs ----- */

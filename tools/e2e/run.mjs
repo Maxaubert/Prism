@@ -80,6 +80,25 @@ async function offscreen(app) {
  * file; waiting for the selected row settles it.
  */
 async function launch(file, keepTabs = false) {
+  // Prism is single-instance. If the previous scenario's window has not fully
+  // let go of the lock, this launch hands its path over and EXITS at once, and
+  // every call against it dies with "garbage collected" or "has been closed".
+  // Waiting longer between scenarios only moves the odds; retrying until the
+  // lock is genuinely free is what settles it.
+  let last
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await launchOnce(file, keepTabs)
+    } catch (err) {
+      if (!/garbage collected|Target page, context or browser has been closed|Target closed/i.test(String(err))) throw err
+      last = err
+      await sleep(2000 + attempt * 1000)
+    }
+  }
+  throw last
+}
+
+async function launchOnce(file, keepTabs = false) {
   // Every scenario but the tab one expects a single-root world. The profile is
   // shared across scenarios (it is wiped once, at the start), so last
   // scenario's strip would restore into this one and change what the tree
