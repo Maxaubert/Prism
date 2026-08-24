@@ -1035,12 +1035,12 @@ async function dolbyScenario(fixtures) {
       () => {
         const v = document.querySelector('video')
         const a = document.querySelector('audio')
-        return !v.paused && !a.paused && Math.abs(a.currentTime - v.currentTime) < 0.25
+        return !v.paused && !a.paused && Math.abs(a.currentTime - v.currentTime) < 0.12
       },
       undefined,
       { timeout: 10000 }
     )
-    ok(true, 'the sound plays in step with the picture')
+    ok(true, 'the sound plays in step with the picture (within 120ms)')
 
     await win.evaluate(() => {
       document.querySelector('video').currentTime = 4

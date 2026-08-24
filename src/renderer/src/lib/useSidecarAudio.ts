@@ -27,8 +27,12 @@ export type SidecarState =
 
 // How far the two clocks may drift before we act, in seconds.
 const NUDGE_AT = 0.045 // fix by playing very slightly faster/slower
-const SEEK_AT = 0.35 // too far to catch up gracefully: jump
+const SEEK_AT = 0.15 // past this, nudging would take too long: jump instead
 const NUDGE_RATE = 0.02 // 2% - inaudible on speech, closes 45ms in ~2s
+// Starting a stream takes a moment, and the picture does not wait: the first
+// alignment always lands a little behind. Re-align once it is really running.
+const SETTLE_AT = 0.08
+const SETTLE_TRIES = 3
 
 export interface Sidecar {
   state: SidecarState
@@ -108,10 +112,22 @@ export function useSidecarAudio(
     const a = audio.current
     if (!url || !v || !a) return
 
+    let settles = 0
     const align = (): void => {
       if (Number.isFinite(v.currentTime)) a.currentTime = v.currentTime
     }
+    // The correction after the correction: by the time the decoder has
+    // answered and sound is coming out, the picture has moved on by however
+    // long that took. One more alignment lands it, and the budget stops this
+    // chasing its own tail.
+    const settle = (): void => {
+      if (v.paused || a.paused || settles >= SETTLE_TRIES) return
+      if (Math.abs(a.currentTime - v.currentTime) <= SETTLE_AT) return
+      settles++
+      align()
+    }
     const onPlay = (): void => {
+      settles = 0
       align()
       void a.play().catch(() => {})
     }
@@ -120,6 +136,7 @@ export function useSidecarAudio(
       a.playbackRate = v.playbackRate
     }
     const onSeeked = (): void => {
+      settles = 0
       align()
       a.playbackRate = v.playbackRate
     }
@@ -128,6 +145,8 @@ export function useSidecarAudio(
     v.addEventListener('pause', onPause)
     v.addEventListener('seeked', onSeeked)
     v.addEventListener('ratechange', onRate)
+    a.addEventListener('playing', settle)
+    a.addEventListener('seeked', settle)
     // Mid-file arrival: the picture may already be running.
     a.playbackRate = v.playbackRate
     if (!v.paused) onPlay()
@@ -151,6 +170,8 @@ export function useSidecarAudio(
       v.removeEventListener('pause', onPause)
       v.removeEventListener('seeked', onSeeked)
       v.removeEventListener('ratechange', onRate)
+      a.removeEventListener('playing', settle)
+      a.removeEventListener('seeked', settle)
       window.clearInterval(drift)
       a.pause()
     }
