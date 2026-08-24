@@ -29,8 +29,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
-- **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, exotic
-  formats via a decode fallback.
+- **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, HEIC/HEIF
+  through a pure-JS libheif worker, and (2026-08-24) Targa, PCX, Photoshop, OpenEXR, DPX, SGI,
+  DDS, PNM, JPEG 2000, QOI, Radiance HDR and X BitMap through `imageDecode.ts`, which asks the
+  bundled ffmpeg for one PNG frame and caches it by path+mtime. Camera RAW is NOT in that list
+  and needs a real raw decoder, not ffmpeg.
 - **Video** player: play / pause / seek / volume / fullscreen, frame-step, and a transport
   settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
   kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
@@ -59,6 +62,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Theora, ProRes and FFV1 all land there. `.ts`/`.m2ts`/`.mts` stay unsupported, MEASURED not
   assumed: Chromium has no MPEG-TS demuxer for `<video src>` (picture missing, error banner up,
   though the AC-3 decoded fine), and `.ts`/`.mts` are TypeScript to the code viewer anyway.
+  Sidecar `.ass`/`.ssa` subtitles are converted to WebVTT by ffmpeg (2026-08-24); their
+  positioning and styling is dropped, because WebVTT cannot express it. The formats sweep of
+  the same day added 74 extensions across `fileKind.ts` + `assoc.nsh`, every one of them
+  opened in the app and checked before being claimed - including four (`.cr`, `.scm`,
+  `.lisp`, `.el`) whose highlighter had shipped for months while the files refused to open.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,

@@ -22,6 +22,7 @@ import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnT
 import { treeAgentKind, type ProcRow } from './agentDetect'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
+import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -82,7 +83,9 @@ const MIME: Record<string, string> = {
   '.ac3': 'audio/ac3', '.dts': 'audio/vnd.dts', '.aiff': 'audio/aiff', '.aif': 'audio/aiff',
   '.amr': 'audio/amr', '.ape': 'audio/x-ape', '.wv': 'audio/x-wavpack', '.au': 'audio/basic',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.jfif': 'image/jpeg', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
+  '.jfif': 'image/jpeg', '.webp': 'image/webp',
+  // Decoded to PNG before they ever reach the renderer (imageDecode.ts).
+  ...Object.fromEntries(decodableImages().map((e) => [e, 'image/png'])), '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
   '.pdf': 'application/pdf'
 }
 const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'application/octet-stream'
@@ -159,6 +162,26 @@ async function serveMedia(request: Request): Promise<Response> {
   }
 
   const ext = extname(filePath).toLowerCase()
+  // Stills Chromium cannot draw (Targa, PCX, Photoshop, OpenEXR, DDS...) come
+  // back as PNG from the bundled ffmpeg.
+  if (needsImageDecode(filePath)) {
+    const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+    if (tools) {
+      try {
+        const png = await decodeImage(tools.ffmpeg, filePath, st.mtimeMs)
+        return new Response(png, {
+          status: 200,
+          headers: {
+            'Content-Type': 'image/png',
+            'Content-Length': String(png.length),
+            'Access-Control-Allow-Origin': '*'
+          }
+        })
+      } catch {
+        return new Response(null, { status: 415 }) // a still even ffmpeg refused
+      }
+    }
+  }
   if (HEIC_EXTS.has(ext)) {
     try {
       const jpeg = await heicToJpeg(filePath, st.mtimeMs)
@@ -840,7 +863,9 @@ if (!app.requestSingleInstanceLock()) {
       insideAnyRoot(p) ? sidecarsFor(p) : []
     )
     ipcMain.handle('subs:read', (_e, p: string): string | null =>
-      insideAnyRoot(p) ? readAsVtt(p) : null
+      insideAnyRoot(p)
+        ? readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg)
+        : null
     )
 
     /* ----- audio Chromium cannot decode ----- */

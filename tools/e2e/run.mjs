@@ -1111,6 +1111,55 @@ async function formatsScenario(fixtures) {
   }
 }
 
+async function stillsAndSubsScenario(fixtures) {
+  console.log('stills and subtitles Chromium cannot read')
+  {
+    // A Targa: Chromium draws none of these, so a picture here means main
+    // decoded it and served PNG.
+    const { app, win } = await launch(join(fixtures, 'av', 'still.tga'))
+    try {
+      await win.waitForSelector('img', { timeout: 10000 })
+      await win.waitForFunction(() => (document.querySelector('img')?.naturalWidth ?? 0) > 0, undefined, {
+        timeout: 10000
+      })
+      ok(true, 'a Targa still is decoded and shown')
+      ok(
+        await win.evaluate(() => document.querySelector('img').naturalWidth === 160),
+        'at its real size, not a placeholder'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(700)
+  {
+    // SubStation Alpha: listed like any sidecar, converted on the way in.
+    const { app, win } = await launch(join(fixtures, 'av', 'subbed.mp4'))
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      ok(
+        (await win.locator('[role="menuitemradio"]:has-text("Subtitles")').count()) > 0,
+        'an .ass sidecar is offered as a track'
+      )
+      await win.click('[role="menuitemradio"]:has-text("Subtitles")')
+      await win.waitForFunction(
+        () => {
+          const t = document.querySelector('video')?.textTracks
+          return t && t.length > 0 && t[0].cues && t[0].cues.length > 0
+        },
+        undefined,
+        { timeout: 10000 }
+      )
+      ok(true, 'and its cues load, converted to WebVTT by ffmpeg')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
 /**
  * A real second launch, the way an Explorer double-click arrives: Prism is
  * single-instance, so this process hands its path to the running window and
@@ -1986,6 +2035,8 @@ try {
   await dolbyScenario(fixtures)
   await sleep(700)
   await formatsScenario(fixtures)
+  await sleep(700)
+  await stillsAndSubsScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

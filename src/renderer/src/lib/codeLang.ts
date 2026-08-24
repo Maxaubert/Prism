@@ -106,6 +106,15 @@ const SCHEME = lexed('Scheme', async () => (await import('@codemirror/legacy-mod
 const LISP = lexed('Common Lisp', async () => (await import('@codemirror/legacy-modes/mode/commonlisp')).commonLisp)
 const GAS = lexed('Assembly', async () => (await import('@codemirror/legacy-modes/mode/gas')).gas)
 const CRYSTAL = lexed('Crystal', async () => (await import('@codemirror/legacy-modes/mode/crystal')).crystal)
+const COFFEE = lexed('CoffeeScript', async () => (await import('@codemirror/legacy-modes/mode/coffeescript')).coffeeScript)
+const D = lexed('D', async () => (await import('@codemirror/legacy-modes/mode/d')).d)
+const VBSCRIPT = lexed('VBScript', async () => (await import('@codemirror/legacy-modes/mode/vbscript')).vbScript)
+// Prism's own installer is written in this one.
+const NSIS = lexed('NSIS', async () => (await import('@codemirror/legacy-modes/mode/nsis')).nsis)
+const JINJA = lexed('Jinja2', async () => (await import('@codemirror/legacy-modes/mode/jinja2')).jinja2)
+const HAXE = lexed('Haxe', async () => (await import('@codemirror/legacy-modes/mode/haxe')).haxe)
+const SML = lexed('Standard ML', async () => (await import('@codemirror/legacy-modes/mode/mllike')).sml)
+const COBOL = lexed('COBOL', async () => (await import('@codemirror/legacy-modes/mode/cobol')).cobol)
 
 /* ---------- The map ---------- */
 
@@ -146,7 +155,20 @@ const BY_EXT: Record<string, CodeLang> = {
   '.v': VERILOG, '.sv': VERILOG, '.vhd': VHDL, '.vhdl': VHDL,
   '.asm': GAS, '.s': GAS,
   '.tex': LATEX,
-  '.mk': CMAKE, '.cmake': CMAKE
+  '.mk': CMAKE, '.cmake': CMAKE,
+  // 2026-08-24: languages whose highlighter was already here but whose files
+  // Prism refused to open, plus the rest of a sweep through what a developer
+  // actually double-clicks.
+  // (.cr, .scm, .lisp and .el were already mapped here - the gap was that
+  // fileKind never called them viewable, so the files would not open.)
+  '.rkt': SCHEME,
+  '.coffee': COFFEE, '.d': D, '.vbs': VBSCRIPT, '.nsi': NSIS, '.nsh': NSIS,
+  '.j2': JINJA, '.jinja': JINJA, '.hx': HAXE, '.sml': SML, '.cob': COBOL, '.cbl': COBOL,
+  '.ino': CPP, '.mdx': MARKDOWN, '.lock': TOML,
+  // Every one of these is XML underneath, and reads far better coloured as it.
+  '.plist': XML, '.csproj': XML, '.vbproj': XML, '.props': XML, '.targets': XML,
+  '.resx': XML, '.xsd': XML, '.xsl': XML, '.xslt': XML, '.wsdl': XML,
+  '.desktop': PROPERTIES, '.service': PROPERTIES, '.inf': PROPERTIES
 }
 
 // Whole-name matches, for the files that carry their language in the filename.

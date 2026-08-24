@@ -7,7 +7,11 @@ const IMAGE = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif', '.jxl',
   // .jfif is a JPEG: Windows itself saves them under that name, and leaving it
   // out meant Prism refused a file it decodes perfectly.
-  '.tiff', '.tif', '.ico', '.heic', '.heif', '.jfif'
+  '.tiff', '.tif', '.ico', '.heic', '.heif', '.jfif',
+  // Decoded by the bundled ffmpeg in main (imageDecode.ts), since Chromium
+  // draws none of these: 2026-08-24.
+  '.tga', '.targa', '.pcx', '.psd', '.exr', '.dpx', '.sgi', '.dds',
+  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm'
 ])
 // Video is what CHROMIUM can decode, because Prism decodes audio and not
 // picture: MPEG-2, Xvid, WMV, Theora and ProRes are deliberately absent, since
@@ -24,7 +28,8 @@ const VIDEO = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi'])
 // of it into PCM, so the container and codec stop mattering (2026-08-24).
 const AUDIO = new Set([
   '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav',
-  '.wma', '.ac3', '.dts', '.mka', '.aiff', '.aif', '.m4b', '.amr', '.ape', '.wv', '.au'
+  '.wma', '.ac3', '.dts', '.mka', '.aiff', '.aif', '.m4b', '.amr', '.ape', '.wv', '.au',
+  '.dsf', '.dff', '.tta', '.caf', '.mpc', '.ra', '.m4r', '.oga', '.aifc', '.3ga'
 ])
 const TEXT = new Set([
   '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
@@ -45,7 +50,20 @@ const TEXT = new Set([
   '.toml', '.cfg', '.conf', '.properties', '.env', '.editorconfig',
   '.scss', '.sass', '.less', '.styl', '.vue', '.svelte', '.astro',
   '.jsonc', '.json5', '.xhtml', '.svgz', '.diff', '.patch', '.tex', '.rst',
-  '.adoc', '.ipynb', '.gradle', '.cmake', '.mk', '.nix', '.zig'
+  '.adoc', '.ipynb', '.gradle', '.cmake', '.mk', '.nix', '.zig',
+  // 2026-08-24. Some of these (.cr, .scm, .lisp, .el) had a highlighter in
+  // codeLang all along and simply never became viewable, which made the code
+  // viewer claim languages it would not open. The rest is the sweep that
+  // found them: build files, project files, and the plain-text odds and ends
+  // people double-click.
+  '.cr', '.scm', '.rkt', '.lisp', '.el', '.coffee', '.d', '.vbs', '.hx', '.sml',
+  '.cob', '.cbl', '.ino', '.mdx', '.j2', '.jinja', '.nsi', '.nsh', '.lock',
+  '.plist', '.csproj', '.vbproj', '.props', '.targets', '.resx', '.xsd', '.xsl',
+  '.xslt', '.wsdl', '.desktop', '.service', '.inf', '.reg',
+  '.awk', '.ahk', '.vim', '.po', '.pot', '.m3u', '.m3u8', '.sln', '.bib', '.tsv',
+  // Subtitle formats Prism cannot yet RENDER over a video, but can perfectly
+  // well show and edit as the text they are.
+  '.ass', '.ssa', '.sub'
 ])
 
 // Archives Prism can open in place (2026-08-22): zip only. Reading, renaming

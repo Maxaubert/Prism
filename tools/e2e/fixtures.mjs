@@ -202,6 +202,40 @@ export function buildFixtures() {
      join(FIXTURES, 'av', 'lossless.m4a')],
     { windowsHide: true }
   )
+  // A Targa still: Chromium draws none of these, so it proves the ffmpeg
+  // image path rather than the <img> tag.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=1', '-frames:v', '1',
+     join(FIXTURES, 'av', 'still.tga')],
+    { windowsHide: true }
+  )
+  // SubStation Alpha beside a video: ffmpeg converts it to WebVTT, since
+  // Chromium renders only that.
+  writeFileSync(
+    join(FIXTURES, 'av', 'subbed.ass'),
+    [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '',
+      '[V4+ Styles]',
+      'Format: Name, Fontname, Fontsize',
+      'Style: Default,Arial,20',
+      '',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Text',
+      'Dialogue: 0,0:00:00.50,0:00:03.00,Default,Hello from SubStation Alpha',
+      ''
+    ].join(String.fromCharCode(10))
+  )
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libopenh264', '-b:v', '300k',
+     '-c:a', 'aac', '-shortest', join(FIXTURES, 'av', 'subbed.mp4')],
+    { windowsHide: true }
+  )
+
   // ...and the opposite case: a picture Prism cannot show. MPEG-2 video plays
   // its sound and shows nothing, which must SAY so rather than sit black.
   spawnSync(
