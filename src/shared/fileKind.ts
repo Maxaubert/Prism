@@ -78,7 +78,13 @@ const TEXT = new Set([
 // Archives Prism can open in place (2026-08-22): zip only. Reading, renaming
 // and deleting members means rewriting the container, which adm-zip does for
 // zip; 7z and rar would need external binaries and stay unsupported.
-const ARCHIVE = new Set(['.zip'])
+const ARCHIVE = new Set([
+  '.zip',
+  // Read-only, through the bundled 7-Zip (2026-08-24, sevenZip.ts): it lists
+  // and extracts all of these, and rar in particular has no free writer worth
+  // the name. zip stays the one Prism writes.
+  '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz', '.xz', '.txz', '.iso', '.cab'
+])
 
 // Files that carry their kind in the whole name, with no extension to read.
 // Matched case-insensitively against the full filename.

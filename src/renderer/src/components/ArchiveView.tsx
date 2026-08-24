@@ -98,6 +98,12 @@ function ArchiveInner({
   refreshKey: number
 }): JSX.Element {
   const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
+  // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
+  // panel offers no verbs that would fail. zip keeps all of its.
+  const [readOnly, setReadOnly] = useState(false)
+  useEffect(() => {
+    void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
+  }, [file.path])
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(null)
@@ -399,12 +405,18 @@ function ArchiveInner({
     }
   })
 
-  const menuItems = (entry: Entry): MenuItem[] => [
-    { label: 'View', onPick: () => view(entry) },
-    { label: 'Copy file', onPick: () => copyOut(entry) },
-    { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
-    { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
-  ]
+  const menuItems = (entry: Entry): MenuItem[] =>
+    readOnly
+      ? [
+          { label: 'View', onPick: () => view(entry) },
+          { label: 'Copy file', onPick: () => copyOut(entry) }
+        ]
+      : [
+          { label: 'View', onPick: () => view(entry) },
+          { label: 'Copy file', onPick: () => copyOut(entry) },
+          { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
+          { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
+        ]
   /** Only file members can be copied out or deleted; a folder in the
    *  selection is carried by its members, and counting it made the labels
    *  promise more than the verbs could do. */
@@ -412,6 +424,9 @@ function ArchiveInner({
     paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
   const multiItems = (paths: string[]): MenuItem[] => {
     const files = filesOf(paths)
+    if (readOnly) {
+      return [{ label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) }]
+    }
     return [
       { label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) },
       {
@@ -553,10 +568,10 @@ function ArchiveInner({
                           e.preventDefault()
                           if (r.dir) setCwd(r.path)
                           else view(r)
-                        } else if (!r.dir && e.key === 'F2') {
+                        } else if (!r.dir && e.key === 'F2' && !readOnly) {
                           e.preventDefault()
                           setEditing(r.path)
-                        } else if (e.key === 'Delete') {
+                        } else if (e.key === 'Delete' && !readOnly) {
                           e.preventDefault()
                           if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany(filesOf([...sel.items]))
                           else if (!r.dir) setConfirmDel(r)

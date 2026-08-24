@@ -219,6 +219,9 @@ export type ArchiveStat = {
   /** Bytes the members take once unpacked. */
   uncompressed: number
   encryption: 'none' | 'zipcrypto' | 'aes'
+  /** 7z, rar, tar and the rest are read through 7-Zip and never written:
+   *  the panel hides its verbs rather than offering what would fail. */
+  readOnly?: boolean
 }
 
 export function archiveStat(zipPath: string): ArchiveStat | null {

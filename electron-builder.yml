@@ -36,6 +36,13 @@ extraResources:
     filter:
       - '**/*'
       - '!.source'
+  # 7-Zip, for the archives Prism reads but does not write (7z, rar, tar, gz).
+  # 7z.exe alone cannot read rar - the format handlers live in 7z.dll.
+  - from: vendor/7zip
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
 win:
   icon: build/icon.ico
   target:

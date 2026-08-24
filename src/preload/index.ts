@@ -161,7 +161,14 @@ const api = {
   /** What an archive holds, for the Properties dialog. */
   archiveStat: (
     path: string
-  ): Promise<{ files: number; folders: number; uncompressed: number; encryption: 'none' | 'zipcrypto' | 'aes' } | null> =>
+  ): Promise<{
+    files: number
+    folders: number
+    uncompressed: number
+    encryption: 'none' | 'zipcrypto' | 'aes'
+    /** 7z, rar, tar and the rest: listed and extracted, never written. */
+    readOnly?: boolean
+  } | null> =>
     ipcRenderer.invoke('archive:stat', path),
   /** Every entry in the archive (folders derived when the zip omits them). */
   archiveList: (

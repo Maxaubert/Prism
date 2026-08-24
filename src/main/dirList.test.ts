@@ -13,7 +13,7 @@ function fixture(): string {
   writeFileSync(join(root, 'a10.png'), '')
   writeFileSync(join(root, 'a9.png'), '')
   writeFileSync(join(root, 'notes.md'), '')
-  writeFileSync(join(root, 'archive.7z'), '') // not viewable (.zip is, since #68)
+  writeFileSync(join(root, 'setup.exe'), '') // not viewable (.zip since #68, .7z since 7-Zip was bundled)
   writeFileSync(join(root, 'desktop.ini'), '') // system noise
   writeFileSync(join(root, '.hidden.jpg'), '')
   writeFileSync(join(root, 'sub', 'deep.mp4'), '')
@@ -104,7 +104,7 @@ describe('searchFiles', () => {
     mkdirSync(join(r, '$RECYCLE.BIN'))
     writeFileSync(join(r, 'poster.jpg'), '')
     writeFileSync(join(r, 'notes.md'), '')
-    writeFileSync(join(r, 'archive.7z'), '') // not viewable (.zip is, since #68)
+    writeFileSync(join(r, 'setup.exe'), '') // not viewable (.zip since #68, .7z since 7-Zip was bundled)
     writeFileSync(join(r, 'season1', 'ep1.mp4'), '')
     writeFileSync(join(r, 'season1', 'ep2.mp4'), '')
     writeFileSync(join(r, 'season1', 'extras', 'ep1-bts.mp4'), '')
@@ -129,7 +129,7 @@ describe('searchFiles', () => {
     expect(names).toContain('ep1.mp4')
     expect(names).not.toContain('ep-old.mp4') // recycle bin
     expect(names).not.toContain('.hidden-ep.mp4') // dotfile
-    expect(searchFiles(root, 'archive').hits).toEqual([])
+    expect(searchFiles(root, 'setup').hits).toEqual([])
   })
 
   it('caps the hits and says so', () => {

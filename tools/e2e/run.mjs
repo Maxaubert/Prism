@@ -1115,6 +1115,38 @@ async function formatsScenario(fixtures) {
   }
 }
 
+async function sevenZipScenario(fixtures) {
+  console.log('archives beyond zip')
+  const { app, win } = await launch(join(fixtures, 'zips', 'read-only.7z'))
+  try {
+    const row = (name) => win.locator('[role="listbox"] [role="option"]', { hasText: name })
+    await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 15000 })
+    const names = await win.locator('[role="listbox"] [role="option"]').allTextContents()
+    ok(
+      names.some((n) => n.includes('note.txt')),
+      'a 7z lists its members (saw: ' + names.map((n) => n.trim().split(/\s+/)[0]).join(', ').slice(0, 50) + ')'
+    )
+    ok(names.some((n) => n.includes('sub')), 'folders included')
+
+    // Read-only: the verbs that would rewrite the container are not offered.
+    await row('note.txt').first().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    const items = (await win.locator('[role="menu"] [role="menuitem"]').allTextContents()).join(' ')
+    ok(/View/.test(items) && /Copy file/.test(items), 'view and copy are offered')
+    ok(!/Rename|Delete/.test(items), 'rename and delete are not, since 7z is never rewritten')
+    await win.keyboard.press('Escape')
+
+    // And a member really opens, which means 7-Zip extracted it.
+    await row('note.txt').first().dblclick()
+    await win.waitForFunction(() => /hello from inside a 7z/.test(document.body.innerText), undefined, {
+      timeout: 15000
+    })
+    ok(true, 'and a member opens, extracted by the bundled 7-Zip')
+  } finally {
+    await app.close()
+  }
+}
+
 async function convertScenario(fixtures) {
   console.log('video Chromium cannot decode')
   const { app, win } = await launch(join(fixtures, 'av', 'xvid.avi'))
@@ -2018,20 +2050,20 @@ async function dragScenario(fixtures) {
 
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
-  // Windows hands Prism a .7z whenever someone picks it out of "More apps",
+  // Windows hands Prism anything whenever someone picks it out of "More apps",
   // which lists every installed application regardless of SupportedTypes. The
-  // window must say so rather than sit empty. (.zip used to be the specimen;
-  // it opens for real since #68 and has its own scenario.)
-  const { app, win } = await launch(join(fixtures, 'misc', 'archive.7z'))
+  // window must say so rather than sit empty. (.zip was the original specimen,
+  // then .7z; both open for real now, so the specimen is an .exe.)
+  const { app, win } = await launch(join(fixtures, 'misc', 'program.exe'))
   try {
     await win.waitForFunction(
-      () => /can.t show 7Z files/.test(document.body.textContent ?? ''),
+      () => /can.t show EXE files/.test(document.body.textContent ?? ''),
       null,
       { timeout: 10000 }
     )
     const text = ((await win.textContent('body')) ?? '').replace(/\s+/g, ' ')
-    ok(/can.t show 7Z files/.test(text), 'the panel names the format')
-    ok(/archive\.7z/.test(text), 'the panel names the file')
+    ok(/can.t show EXE files/.test(text), 'the panel names the format')
+    ok(/program\.exe/.test(text), 'the panel names the file')
     ok(/2\.0 KB/.test(text), 'the panel carries the size')
     // The file is not viewable, so nothing lists it: the panel is all there is.
     ok(
@@ -2075,6 +2107,8 @@ try {
   await stillsAndSubsScenario(fixtures)
   await sleep(700)
   await convertScenario(fixtures)
+  await sleep(700)
+  await sevenZipScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)

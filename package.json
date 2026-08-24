@@ -13,12 +13,14 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run --passWithNoTests",
-    "e2e": "npm run fetch:ffmpeg && npm run build && node tools/e2e/run.mjs",
+    "e2e": "npm run fetch:bin && npm run build && node tools/e2e/run.mjs",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "package": "npm run fetch:ffmpeg && electron-vite build && electron-builder --win",
-    "fetch:ffmpeg": "node tools/fetch-ffmpeg.mjs"
+    "package": "npm run fetch:bin && electron-vite build && electron-builder --win",
+    "fetch:ffmpeg": "node tools/fetch-ffmpeg.mjs",
+    "fetch:7zip": "node tools/fetch-7zip.mjs",
+    "fetch:bin": "npm run fetch:ffmpeg && npm run fetch:7zip"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

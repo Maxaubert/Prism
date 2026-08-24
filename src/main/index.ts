@@ -24,6 +24,7 @@ import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
 import { cancelAllConversions, cancelConversion, convertVideo, planConversion } from './videoConvert'
+import { bundledSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -56,6 +57,11 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb')
 // path, made when archive:extract writes it. The reads that honour the root
 // wall (file:text, file:copy-clip) accept these too; writes never do.
 const extractedPaths = new Set<string>()
+
+// Passwords that worked, for the read-only formats: 7-Zip needs one to LIST an
+// encrypted rar or 7z, not just to extract, so a password the user typed once
+// has to be remembered here as well as in the renderer.
+const archivePasswords = new Map<string, string>()
 
 const MEDIA_SCHEME = 'fsmedia'
 protocol.registerSchemesAsPrivileged([
@@ -1158,13 +1164,31 @@ if (!app.requestSingleInstanceLock()) {
     // rather than frozen over.
     const archiveOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
-    ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null =>
-      archiveOk(p) ? archiveStat(p) : null
-    )
+    // 7z, rar, tar, gz and friends are READ-ONLY: they are read through the
+    // bundled 7-Zip, which can list and extract them all but which Prism does
+    // not write with. zip keeps its own in-process path, and its verbs.
+    const seven = (p: string): string | null =>
+      isSevenArchive(extname(p)) ? bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()) : null
+
+    ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null => {
+      if (!archiveOk(p)) return null
+      const exe = seven(p)
+      if (!exe) return archiveStat(p)
+      const list = listSeven(exe, p, archivePasswords.get(p) ?? '')
+      if (!list) return null
+      return {
+        files: list.filter((e) => !e.dir).length,
+        folders: list.filter((e) => e.dir).length,
+        uncompressed: list.reduce((n, e) => n + (e.dir ? 0 : e.size), 0),
+        encryption: list.some((e) => e.encrypted) ? 'aes' : 'none',
+        readOnly: true
+      }
+    })
     ipcMain.handle('archive:list', (_e, p: string): ArchiveEntry[] | null => {
       if (!archiveOk(p)) return null
       try {
-        return listArchive(p)
+        const exe = seven(p)
+        return exe ? listSeven(exe, p, archivePasswords.get(p) ?? '') : listArchive(p)
       } catch {
         return null
       }
@@ -1178,6 +1202,15 @@ if (!app.requestSingleInstanceLock()) {
         if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
         try {
           if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+          const exe = seven(p)
+          if (exe) {
+            const pw = typeof password === 'string' ? password : ''
+            const s7 = extractSeven(exe, p, entry, pw)
+            if (!s7.ok) return s7
+            if (pw) archivePasswords.set(p, pw)
+            extractedPaths.add(s7.path)
+            return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
+          }
           const r = extractMember(p, entry, typeof password === 'string' ? password : undefined)
           if (!r.ok) return r
           extractedPaths.add(r.path)
@@ -1191,6 +1224,7 @@ if (!app.requestSingleInstanceLock()) {
       'archive:rename',
       (_e, p: string, entry: string, name: string, password?: string): string => {
         if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
+        if (seven(p)) return 'failed' // read-only format; the panel offers no verbs
         try {
           if (archiveTooLarge(statSync(p).size)) return 'failed'
           return renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
@@ -1201,6 +1235,7 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.handle('archive:delete', (_e, p: string, entry: string): boolean => {
       if (!archiveOk(p) || typeof entry !== 'string') return false
+      if (seven(p)) return false
       try {
         return !archiveTooLarge(statSync(p).size) && deleteMember(p, entry)
       } catch {

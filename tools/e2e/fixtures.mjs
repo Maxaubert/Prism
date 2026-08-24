@@ -202,6 +202,22 @@ export function buildFixtures() {
      join(FIXTURES, 'av', 'lossless.m4a')],
     { windowsHide: true }
   )
+  // A 7z, built by the 7-Zip Prism bundles: read-only archives go through it.
+  {
+    const seven = join(ROOT, 'vendor', '7zip', '7z.exe')
+    const src = join(FIXTURES, 'zips', 'sevensrc')
+    mkdirSync(join(src, 'sub'), { recursive: true })
+    writeFileSync(join(src, 'note.txt'), 'hello from inside a 7z' + String.fromCharCode(10))
+    writeFileSync(join(src, 'sub', 'deep.txt'), 'buried' + String.fromCharCode(10))
+    if (existsSync(seven)) {
+      spawnSync(seven, ['a', '-t7z', join(FIXTURES, 'zips', 'read-only.7z'), join(src, '*')], {
+        windowsHide: true,
+        stdio: 'ignore'
+      })
+    }
+    rmSync(src, { recursive: true, force: true })
+  }
+
   // Xvid in an AVI: the picture Chromium cannot decode at all. Prism converts
   // it once and plays the copy.
   spawnSync(
@@ -261,10 +277,11 @@ export function buildFixtures() {
   // is the only way to reach it - which is exactly the case being tested.
   mkdirSync(join(FIXTURES, 'misc'), { recursive: true })
   mkdirSync(join(FIXTURES, 'zips'), { recursive: true })
-  // (.7z since #68: .zip opens for real now and has its own scenario.)
-  const zip = Buffer.alloc(2048)
-  zip.write('PK', 'latin1')
-  writeFileSync(join(FIXTURES, 'misc', 'archive.7z'), zip)
+  // Something Prism genuinely cannot show. It was a .zip until #68, then a
+  // .7z until 7-Zip was bundled (2026-08-24) and that opened for real too.
+  const blob = Buffer.alloc(2048)
+  blob.write('MZ', 'latin1')
+  writeFileSync(join(FIXTURES, 'misc', 'program.exe'), blob)
   // A REAL zip for the archive scenario: known members, sizes and nesting.
   const bundle = new AdmZip()
   bundle.addFile('readme.txt', Buffer.from('hello from inside the zip'))

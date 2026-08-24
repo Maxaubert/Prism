@@ -346,6 +346,19 @@
   !insertmacro PRISM_EXT "ogm"   "Prism.Video"
   !insertmacro PRISM_EXT "dv"    "Prism.Video"
 
+  ; Read-only archives, through the bundled 7-Zip (sevenZip.ts).
+  !insertmacro PRISM_EXT "7z"    "Prism.Archive"
+  !insertmacro PRISM_EXT "rar"   "Prism.Archive"
+  !insertmacro PRISM_EXT "tar"   "Prism.Archive"
+  !insertmacro PRISM_EXT "gz"    "Prism.Archive"
+  !insertmacro PRISM_EXT "tgz"   "Prism.Archive"
+  !insertmacro PRISM_EXT "bz2"   "Prism.Archive"
+  !insertmacro PRISM_EXT "tbz"   "Prism.Archive"
+  !insertmacro PRISM_EXT "xz"    "Prism.Archive"
+  !insertmacro PRISM_EXT "txz"   "Prism.Archive"
+  !insertmacro PRISM_EXT "iso"   "Prism.Archive"
+  !insertmacro PRISM_EXT "cab"   "Prism.Archive"
+
 
   ; the executable as an application in its own right, which is what the
   ; per-type "Choose another app" dialog looks up
@@ -528,5 +541,16 @@
   !insertmacro PRISM_UNEXT "rmvb"  "Prism.Video"
   !insertmacro PRISM_UNEXT "ogm"   "Prism.Video"
   !insertmacro PRISM_UNEXT "dv"    "Prism.Video"
+  !insertmacro PRISM_UNEXT "7z"    "Prism.Archive"
+  !insertmacro PRISM_UNEXT "rar"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "tar"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "gz"    "Prism.Archive"
+  !insertmacro PRISM_UNEXT "tgz"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "bz2"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "tbz"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "xz"    "Prism.Archive"
+  !insertmacro PRISM_UNEXT "txz"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "iso"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "cab"   "Prism.Archive"
   System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, p 0, p 0)'
 !macroend
