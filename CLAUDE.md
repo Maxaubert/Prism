@@ -106,7 +106,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
-  name and totals, with the members in a bounded panel. Navigation is Explorer-shaped:
+  name and totals, with the members in a panel that FILLS the window (2026-08-24: it
+  used to be a 560px box adrift in the space, and read as a fraction of the app).
+  The panel scrolls, the page does not. Navigation is Explorer-shaped:
   clicking a folder walks INTO it, the crumb row (fixed height, so the panel never jumps)
   or Backspace climbs out - no collapsible tree, and NO hover quick-verbs (tried twice,
   rejected twice). Verbs are right-click + F2/Delete: view (extracted to a temp file main

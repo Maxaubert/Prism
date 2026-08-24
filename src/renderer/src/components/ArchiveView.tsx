@@ -35,16 +35,42 @@ const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0]
 const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 
 /** The extracted member, shown with the same viewers the folder uses. */
-function MemberView({ name, path, kind }: { name: string; path: string; kind: FileKind }): JSX.Element {
+function MemberView({
+  name,
+  path,
+  kind
+}: {
+  name: string
+  path: string
+  kind: FileKind
+}): JSX.Element {
   const url = window.prism.mediaUrl(path)
   const noop = useCallback(() => {}, [])
   switch (kind) {
     case 'image':
       return <ImageView url={url} name={name} onToggleFullscreen={noop} />
     case 'video':
-      return <VideoView url={url} path={path} onToggleFullscreen={noop} onAutoAdvance={noop} transportStyle={loadTransportStyle()} />
+      return (
+        <VideoView
+          url={url}
+          path={path}
+          onToggleFullscreen={noop}
+          onAutoAdvance={noop}
+          transportStyle={loadTransportStyle()}
+        />
+      )
     case 'audio':
-      return <AudioView url={url} path={path} name={name} fullscreen={false} onToggleFullscreen={noop} onAutoAdvance={noop} transportStyle={loadTransportStyle()} />
+      return (
+        <AudioView
+          url={url}
+          path={path}
+          name={name}
+          fullscreen={false}
+          onToggleFullscreen={noop}
+          onAutoAdvance={noop}
+          transportStyle={loadTransportStyle()}
+        />
+      )
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={noop} />
     case 'text':
@@ -52,7 +78,13 @@ function MemberView({ name, path, kind }: { name: string; path: string; kind: Fi
         <MarkdownView path={path} onOpenLocal={noop} />
       ) : (
         <Suspense fallback={null}>
-          <CodeView path={path} name={name} onSaved={noop} onBuffer={noop} getPending={() => undefined} />
+          <CodeView
+            path={path}
+            name={name}
+            onSaved={noop}
+            onBuffer={noop}
+            getPending={() => undefined}
+          />
         </Suspense>
       )
     default:
@@ -66,7 +98,18 @@ function MemberView({ name, path, kind }: { name: string; path: string; kind: Fi
 
 function LockBadge(): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="var(--p-dim2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-label="Password protected">
+    <svg
+      viewBox="0 0 24 24"
+      width={11}
+      height={11}
+      fill="none"
+      stroke="var(--p-dim2)"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-label="Password protected"
+    >
       <rect x="5" y="11" width="14" height="9" rx="1.5" />
       <path d="M8 11V8a4 4 0 0 1 8 0v3" />
     </svg>
@@ -85,7 +128,9 @@ export function ArchiveView({
   /** Bumped by App after an undo, so the listing re-reads the container. */
   refreshKey?: number
 }): JSX.Element {
-  return <ArchiveInner key={file.path} file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
+  return (
+    <ArchiveInner key={file.path} file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
+  )
 }
 
 function ArchiveInner({
@@ -106,7 +151,9 @@ function ArchiveInner({
   }, [file.path])
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(
+    null
+  )
   const [editing, setEditing] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Entry | null>(null)
   const [confirmDelMany, setConfirmDelMany] = useState<string[] | null>(null)
@@ -136,7 +183,11 @@ function ArchiveInner({
   const [oops, setOops] = useState<string | null>(null)
   // The password lives in lib/archivePass, one per archive, so the SIDEBAR can
   // use it too when a member is dragged out to a folder (#70).
-  const [askPass, setAskPass] = useState<{ run: (pw: string) => void; name: string; wrong: boolean } | null>(null)
+  const [askPass, setAskPass] = useState<{
+    run: (pw: string) => void
+    name: string
+    wrong: boolean
+  } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
   const load = useCallback(() => {
@@ -181,7 +232,9 @@ function ArchiveInner({
               }
             })
           else if (r === 'aes')
-            setOops(`"${entry.name}" is AES-encrypted, and opening that needs 7-Zip installed. With 7-Zip on this machine Prism opens it in place.`)
+            setOops(
+              `"${entry.name}" is AES-encrypted, and opening that needs 7-Zip installed. With 7-Zip on this machine Prism opens it in place.`
+            )
           else setOops(`Couldn't read "${entry.name}" from the archive.`)
         })
       }
@@ -285,7 +338,9 @@ function ArchiveInner({
         }
         if (out.length) void window.prism.copyFilesToClipboard(out)
         if (locked)
-          setOops(`${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`)
+          setOops(
+            `${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`
+          )
       })()
     },
     [file.path, rows]
@@ -425,10 +480,18 @@ function ArchiveInner({
   const multiItems = (paths: string[]): MenuItem[] => {
     const files = filesOf(paths)
     if (readOnly) {
-      return [{ label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) }]
+      return [
+        {
+          label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
+          onPick: () => copyMany(files)
+        }
+      ]
     }
     return [
-      { label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`, onPick: () => copyMany(files) },
+      {
+        label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
+        onPick: () => copyMany(files)
+      },
       {
         label: `Delete ${files.length} from archive`,
         danger: true,
@@ -451,32 +514,33 @@ function ArchiveInner({
           name, what it holds), and the members live in a bounded panel under
           it - the label on the box. Navigation is Explorer-shaped inside the
           panel; the crumb row appears once you are inside a folder. */}
-      <div className="h-full overflow-y-auto">
-        <div className="flex flex-col items-center px-6 pb-8 pt-10">
-          <span className="mb-2.5 grid h-[52px] w-[52px] place-items-center">
-            {sysIcon ? (
-              <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
-            ) : (
-              <KindIcon kind="archive" color="var(--p-tree-archive)" />
-            )}
-          </span>
-          <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">{file.name}</div>
-          <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
+      <div className="flex h-full flex-col items-center px-6 pb-6 pt-7">
+        <span className="mb-2.5 grid h-[52px] w-[52px] place-items-center">
+          {sysIcon ? (
+            <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
+          ) : (
+            <KindIcon kind="archive" color="var(--p-tree-archive)" />
+          )}
+        </span>
+        <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">
+          {file.name}
+        </div>
+        <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
-          <div className="mt-4 w-full max-w-[560px]">
-            {/* The crumb row is always present, root included: the archive
+        <div className="mt-3.5 flex min-h-0 w-full max-w-[920px] flex-1 flex-col">
+          {/* The crumb row is always present, root included: the archive
                 itself is the first crumb wherever you stand, so the path
                 reads the same coming back as it did going in (and the panel
                 never jumps a line). */}
-            <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
-              <button
-                className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
-                onClick={() => setCwd('')}
-              >
-                {file.name}
-              </button>
-              {crumbs.length > 0 && (
-                <>
+          <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+            <button
+              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+              onClick={() => setCwd('')}
+            >
+              {file.name}
+            </button>
+            {crumbs.length > 0 && (
+              <>
                 {crumbs.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
                     <span className="text-[var(--p-dim2)]">/</span>
@@ -488,117 +552,136 @@ function ArchiveInner({
                     </button>
                   </span>
                 ))}
-                </>
-              )}
-            </div>
-            <div
-              className={`rounded-lg border bg-[var(--p-side-flat)] p-1.5 ${
-                dropTarget === cwd
-                  ? 'border-[color:var(--p-accent-hi)]'
-                  : 'border-[color:var(--p-divider)]'
-              }`}
-              {...dropProps(cwd)}
-            >
-          {entries === null ? (
-            <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
-          ) : rows.length === 0 ? (
-            <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">
-              {cwd ? 'empty folder' : 'empty archive'}
-            </div>
-          ) : (
-            <ul role="listbox" aria-label={`Contents of ${cwd || file.name}`} className="list-none">
-              {rows.map((r) =>
-                editing === r.path ? (
-                  <li key={r.path} className="px-2">
-                    <RenameInput name={r.name} onSubmit={(v) => submitRename(r, v)} onCancel={() => setEditing(null)} />
-                  </li>
-                ) : (
-                  <li key={r.path}>
-                    {/* A div, not a button, so dialogs and menus can hold
+              </>
+            )}
+          </div>
+          <div
+            className={`min-h-0 flex-1 overflow-y-auto rounded-lg border bg-[var(--p-side-flat)] p-1.5 ${
+              dropTarget === cwd
+                ? 'border-[color:var(--p-accent-hi)]'
+                : 'border-[color:var(--p-divider)]'
+            }`}
+            {...dropProps(cwd)}
+          >
+            {entries === null ? (
+              <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
+            ) : rows.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">
+                {cwd ? 'empty folder' : 'empty archive'}
+              </div>
+            ) : (
+              <ul
+                role="listbox"
+                aria-label={`Contents of ${cwd || file.name}`}
+                className="list-none"
+              >
+                {rows.map((r) =>
+                  editing === r.path ? (
+                    <li key={r.path} className="px-2">
+                      <RenameInput
+                        name={r.name}
+                        onSubmit={(v) => submitRename(r, v)}
+                        onCancel={() => setEditing(null)}
+                      />
+                    </li>
+                  ) : (
+                    <li key={r.path}>
+                      {/* A div, not a button, so dialogs and menus can hold
                         buttons of their own; Enter activates by hand. Click
                         SELECTS (shift ranges, ctrl toggles); double click is
                         what opens or enters. */}
-                    <div
-                      role="option"
-                      tabIndex={0}
-                      aria-selected={sel.items.has(r.path)}
-                      data-selected={sel.items.has(r.path) || undefined}
-                      className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none ${
-                        dropTarget === r.path
-                          ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
-                          : sel.items.has(r.path)
-                          ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-                          : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
-                      }`}
-                      style={
-                        // Contiguous selected rows fuse into one block.
-                        sel.items.has(r.path)
-                          ? (() => {
-                              const i = order.indexOf(r.path)
-                              const top = i > 0 && sel.items.has(order[i - 1])
-                              const bottom = i >= 0 && i < order.length - 1 && sel.items.has(order[i + 1])
-                              return {
-                                borderTopLeftRadius: top ? 0 : undefined,
-                                borderTopRightRadius: top ? 0 : undefined,
-                                borderBottomLeftRadius: bottom ? 0 : undefined,
-                                borderBottomRightRadius: bottom ? 0 : undefined
-                              }
-                            })()
-                          : undefined
-                      }
-                      draggable
-                      onDragStart={(e) => onRowDragStart(e, r.path)}
-                      onDragEnd={() => {
-                        setDropTarget(null)
-                        setDrag(null)
-                      }}
-                      {...(r.dir ? dropProps(r.path) : {})}
-                      onClick={(e) => onRowClick(e, r.path)}
-                      onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        const multi =
-                          sel.items.has(r.path) && sel.items.size > 1 ? [...sel.items] : undefined
-                        if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
-                        if (r.dir && !multi) return // single folders have no verbs yet
-                        setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          if (r.dir) setCwd(r.path)
-                          else view(r)
-                        } else if (!r.dir && e.key === 'F2' && !readOnly) {
-                          e.preventDefault()
-                          setEditing(r.path)
-                        } else if (e.key === 'Delete' && !readOnly) {
-                          e.preventDefault()
-                          if (sel.items.size > 1 && sel.items.has(r.path)) setConfirmDelMany(filesOf([...sel.items]))
-                          else if (!r.dir) setConfirmDel(r)
+                      <div
+                        role="option"
+                        tabIndex={0}
+                        aria-selected={sel.items.has(r.path)}
+                        data-selected={sel.items.has(r.path) || undefined}
+                        className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none ${
+                          dropTarget === r.path
+                            ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
+                            : sel.items.has(r.path)
+                              ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                              : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
+                        }`}
+                        style={
+                          // Contiguous selected rows fuse into one block.
+                          sel.items.has(r.path)
+                            ? (() => {
+                                const i = order.indexOf(r.path)
+                                const top = i > 0 && sel.items.has(order[i - 1])
+                                const bottom =
+                                  i >= 0 && i < order.length - 1 && sel.items.has(order[i + 1])
+                                return {
+                                  borderTopLeftRadius: top ? 0 : undefined,
+                                  borderTopRightRadius: top ? 0 : undefined,
+                                  borderBottomLeftRadius: bottom ? 0 : undefined,
+                                  borderBottomRightRadius: bottom ? 0 : undefined
+                                }
+                              })()
+                            : undefined
                         }
-                      }}
-                    >
-                      {r.dir ? (
-                        <svg viewBox="0 0 24 24" width={14} height={14} fill="var(--p-tree-folder)" className="shrink-0" aria-hidden>
-                          <path d="M2.8 6.2A1.8 1.8 0 0 1 4.6 4.4h4.3l2 2h8.5a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8z" />
-                        </svg>
-                      ) : (
-                        <KindIcon kind={fileKind(extOf(r.name), r.name)} color={iconColour(fileKind(extOf(r.name), r.name))} />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                      {r.encrypted && <LockBadge />}
-                      {!r.dir && (
-                        <span className="w-[72px] shrink-0 text-right text-[11px] tabular-nums text-[var(--p-dim2)]">
-                          {formatBytes(r.size)}
-                        </span>
-                      )}
-                    </div>
-                  </li>
-                )
-              )}
-            </ul>
-          )}
-            </div>
+                        draggable
+                        onDragStart={(e) => onRowDragStart(e, r.path)}
+                        onDragEnd={() => {
+                          setDropTarget(null)
+                          setDrag(null)
+                        }}
+                        {...(r.dir ? dropProps(r.path) : {})}
+                        onClick={(e) => onRowClick(e, r.path)}
+                        onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          const multi =
+                            sel.items.has(r.path) && sel.items.size > 1 ? [...sel.items] : undefined
+                          if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
+                          if (r.dir && !multi) return // single folders have no verbs yet
+                          setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            if (r.dir) setCwd(r.path)
+                            else view(r)
+                          } else if (!r.dir && e.key === 'F2' && !readOnly) {
+                            e.preventDefault()
+                            setEditing(r.path)
+                          } else if (e.key === 'Delete' && !readOnly) {
+                            e.preventDefault()
+                            if (sel.items.size > 1 && sel.items.has(r.path))
+                              setConfirmDelMany(filesOf([...sel.items]))
+                            else if (!r.dir) setConfirmDel(r)
+                          }
+                        }}
+                      >
+                        {r.dir ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            width={14}
+                            height={14}
+                            fill="var(--p-tree-folder)"
+                            className="shrink-0"
+                            aria-hidden
+                          >
+                            <path d="M2.8 6.2A1.8 1.8 0 0 1 4.6 4.4h4.3l2 2h8.5a1.8 1.8 0 0 1 1.8 1.8v9.6a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8z" />
+                          </svg>
+                        ) : (
+                          <KindIcon
+                            kind={fileKind(extOf(r.name), r.name)}
+                            color={iconColour(fileKind(extOf(r.name), r.name))}
+                          />
+                        )}
+                        <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                        {r.encrypted && <LockBadge />}
+                        {!r.dir && (
+                          <span className="w-[72px] shrink-0 text-right text-[11px] tabular-nums text-[var(--p-dim2)]">
+                            {formatBytes(r.size)}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  )
+                )}
+              </ul>
+            )}
           </div>
         </div>
       </div>
@@ -612,7 +695,17 @@ function ArchiveInner({
               title="Back to the archive (Esc)"
               aria-label="Back to the archive"
             >
-              <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width={13}
+                height={13}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
                 <path d="M15 6l-6 6 6 6" />
               </svg>
             </button>
@@ -695,7 +788,12 @@ function ArchiveInner({
 }
 
 /** The password question, asked once per archive and remembered after. */
-function PasswordDialog({ name, wrong, onSubmit, onCancel }: {
+function PasswordDialog({
+  name,
+  wrong,
+  onSubmit,
+  onCancel
+}: {
   name: string
   wrong: boolean
   onSubmit: (pw: string) => void
@@ -709,7 +807,11 @@ function PasswordDialog({ name, wrong, onSubmit, onCancel }: {
       title="This archive is password protected"
       body={
         <div>
-          <div>{wrong ? `That password didn't open "${name}". Try again:` : `Enter the password to open "${name}":`}</div>
+          <div>
+            {wrong
+              ? `That password didn't open "${name}". Try again:`
+              : `Enter the password to open "${name}":`}
+          </div>
           <input
             ref={input}
             type="password"
@@ -734,7 +836,15 @@ function PasswordDialog({ name, wrong, onSubmit, onCancel }: {
 }
 
 /** Inline rename, Explorer-style: name selected up to the extension. */
-function RenameInput({ name, onSubmit, onCancel }: { name: string; onSubmit: (v: string) => void; onCancel: () => void }): JSX.Element {
+function RenameInput({
+  name,
+  onSubmit,
+  onCancel
+}: {
+  name: string
+  onSubmit: (v: string) => void
+  onCancel: () => void
+}): JSX.Element {
   const input = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState(name)
   const done = useRef(false)
