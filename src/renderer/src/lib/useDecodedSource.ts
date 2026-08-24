@@ -13,17 +13,43 @@ import { useEffect, useState } from 'react'
  * Returns the url to play and nothing else: the caller cannot tell the
  * difference, which is the point.
  */
-export function useDecodedSource(path: string, url: string): { src: string; decoded: boolean } {
-  const [swap, setSwap] = useState<{ path: string; url: string } | null>(null)
-  const decoded = swap?.path === path
+export function useDecodedSource(
+  path: string,
+  url: string
+): { src: string; decoded: boolean; synthesising: boolean; failed: boolean } {
+  const [swap, setSwap] = useState<{ path: string; url: string | null; synth: boolean } | null>(null)
+  const mine = swap?.path === path ? swap : null
+  // Recognised by name, before main has answered anything: the first render
+  // already puts a src on the element, and a score there errors instantly.
+  const isScore = /\.(mid|midi|kar|rmi)$/i.test(path)
+
   useEffect(() => {
     let live = true
     void window.prism.probeMedia(path).then((offer) => {
-      if (live && offer.needed && offer.url) setSwap({ path, url: offer.url })
+      if (!live) return
+      // A score has to be SYNTHESISED, which takes seconds: say so and hold
+      // the element back, rather than pointing it at a .mid it will reject.
+      if (offer.synth) {
+        setSwap({ path, url: null, synth: true })
+        void window.prism.synthMidi(path).then((u) => {
+          if (live) setSwap({ path, url: u, synth: false })
+        })
+        return
+      }
+      if (offer.needed && offer.url) setSwap({ path, url: offer.url, synth: false })
     })
     return () => {
       live = false
     }
   }, [path])
-  return { src: decoded && swap ? swap.url : url, decoded }
+
+  const synthesising = mine ? mine.synth : isScore
+  return {
+    // Empty while synthesising: an <audio> pointed at a score reports an error
+    // before the rendering can arrive, and the user sees it.
+    src: synthesising ? '' : (mine?.url ?? url),
+    decoded: !!mine?.url,
+    synthesising,
+    failed: !!mine && !mine.synth && mine.url === null
+  }
 }

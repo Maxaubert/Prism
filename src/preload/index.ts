@@ -67,6 +67,9 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
+  /** Synthesise a MIDI score and get back a url that plays. Slow the first
+   *  time (a soundfont has to load), instant afterwards. */
+  synthMidi: (path: string): Promise<string | null> => ipcRenderer.invoke('audio:synth', path),
   /** An office or ebook document as sanitised HTML, ready to render.
    *  null when the file is not one, or could not be read. */
   docHtml: (path: string): Promise<string | null> => ipcRenderer.invoke('doc:html', path),

@@ -15,7 +15,11 @@ import { extname } from 'path'
  */
 const FFMPEG_IMAGES = new Set([
   '.tga', '.targa', '.pcx', '.psd', '.exr', '.dpx', '.sgi', '.dds',
-  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm'
+  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm',
+  // TIFF and JPEG XL were on the viewable list from the start, and Chromium
+  // draws NEITHER - a .tiff simply showed nothing (measured 2026-08-24, and
+  // Chrome removed its JXL decoder in 2023). Both decode here instead.
+  '.tiff', '.tif', '.jxl'
 ])
 
 export function needsImageDecode(path: string): boolean {

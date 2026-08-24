@@ -60,7 +60,7 @@ export function resetSeven(): void {
  * listing format that survives names containing spaces, dashes and newlines
  * in a way we can read back.
  */
-export function parseListing(out: string): ArchiveEntry[] {
+export function parseListing(out: string, archiveName = 'file'): ArchiveEntry[] {
   const entries: ArchiveEntry[] = []
   // Everything before the first "----------" is the archive's own header.
   const body = out.includes('----------') ? out.slice(out.indexOf('----------') + 10) : out
@@ -69,7 +69,11 @@ export function parseListing(out: string): ArchiveEntry[] {
       const m = new RegExp('^' + key + ' = (.*)$', 'm').exec(block)
       return m ? m[1].trim() : null
     }
-    const path = get('Path')
+    // A single-stream container (.xz, .gz, .bz2) lists its one member with no
+    // Path at all: 7-Zip names it after the archive, and so do we - otherwise
+    // the panel shows an empty archive that plainly is not empty.
+    const size0 = get('Size')
+    const path = get('Path') ?? (size0 !== null ? archiveName.replace(/\.(xz|gz|bz2|tgz|tbz|txz)$/i, '') : null)
     if (!path) continue
     const attr = get('Attributes') ?? ''
     const folder = (get('Folder') ?? '').toLowerCase() === '+' || /^D/.test(attr)
@@ -109,7 +113,7 @@ export function listSeven(exe: string, file: string, password = ''): ArchiveEntr
       timeout: 60000,
       maxBuffer: 64 << 20
     })
-    return parseListing(out)
+    return parseListing(out, basename(file))
   } catch {
     return null
   }

@@ -921,18 +921,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
-      // A MIDI file is a score, not a recording: it is synthesised rather than
-      // decoded, and the player is handed the rendering.
+      // A MIDI file is a score, not a recording: it has to be synthesised
+      // before there is anything to play. The answer comes back at once so the
+      // player can say so, and the rendering is asked for separately - loading
+      // a 23MB soundfont takes a moment, and an <audio> pointed at the .mid
+      // meanwhile would flash "can't be played".
       if (isMidi(p)) {
         const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
-        if (!fluid) return { ffmpeg: false, needed: true }
-        try {
-          const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
-          extractedPaths.add(wav)
-          return { ffmpeg: true, needed: true, codec: 'midi', url: `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}` }
-        } catch {
-          return { ffmpeg: true, needed: true }
-        }
+        return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
       }
       const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!tools) return none
@@ -968,6 +964,21 @@ if (!app.requestSingleInstanceLock()) {
         channels: info.audio.channels,
         layout: info.audio.layout,
         url: sidecarUrl(p, info.audio.index, info.duration)
+      }
+    })
+
+    // Render a score. Separate from the probe because it can take seconds:
+    // the player shows that it is working rather than an error.
+    ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!fluid || !isMidi(p)) return null
+      try {
+        const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
+        extractedPaths.add(wav)
+        return `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}`
+      } catch {
+        return null
       }
     })
 

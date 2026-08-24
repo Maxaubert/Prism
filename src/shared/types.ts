@@ -124,6 +124,9 @@ export interface MediaProbe {
   /** The video stream's codec, when there is one. Prism decodes audio but not
    *  video, so this exists to NAME what it cannot show. */
   videoCodec?: string
+  /** A score rather than a recording: it must be synthesised before there is
+   *  anything to play, which takes seconds. */
+  synth?: boolean
   /** Set when the file needs converting before it can play at all.
    *  `quick` means the streams can be copied (a container problem, seconds);
    *  otherwise the picture is re-encoded, which takes as long as it takes. */

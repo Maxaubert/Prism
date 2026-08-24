@@ -64,7 +64,7 @@ export function AudioView({
   const prefs = usePlayerPrefs()
   // Apple Lossless, WMA, AC-3 and friends arrive decoded; everything Chromium
   // can play is left exactly as it was.
-  const { src } = useDecodedSource(path, url)
+  const { src, synthesising, failed: synthFailed } = useDecodedSource(path, url)
   const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
@@ -130,9 +130,20 @@ export function AudioView({
       onMouseMove={showChrome}
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >
+      {(synthesising || synthFailed) && (
+        <div className="absolute inset-0 z-30 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center">
+          <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
+            {synthesising
+              ? 'Synthesising this score. A MIDI file holds no sound of its own, so Prism is playing it through its instrument bank.'
+              : 'Prism could not synthesise this score.'}
+          </div>
+        </div>
+      )}
       <audio
         ref={setMedia}
-        src={src}
+        // undefined, not "": an empty src resolves against the page and the
+        // element reports an error before the rendering can arrive.
+        src={src || undefined}
         crossOrigin="anonymous"
         autoPlay
         loop={prefs.loop}
