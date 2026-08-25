@@ -673,6 +673,51 @@ function watchWindowState(win: BrowserWindow): void {
   })
 }
 
+/**
+ * The window's translucency, and why fullscreen takes it away (2026-08-25).
+ *
+ * An acrylic or mica style makes the WINDOW transparent - DWM composites the
+ * material behind it, which CSS cannot do - and a transparent window is not
+ * a normal window to present video into. Measured here: a few seconds into
+ * fullscreen playback the transport stopped reaching the screen while the DOM
+ * insisted it was painted, which is what a picture presented outside the
+ * page's own layer looks like.
+ *
+ * Fullscreen has nothing behind it to show through anyway, so the window goes
+ * opaque for the duration and the style comes back on the way out.
+ */
+let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
+
+/** TEMPORARY diagnostics, same file the renderer writes to. */
+function debugLine(line: string): void {
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'prism-debug.log'),
+      new Date().toISOString() + ' [main] ' + line + String.fromCharCode(10)
+    )
+  } catch {
+    /* diagnostics must never break the app */
+  }
+}
+
+function applyMaterial(fullscreen: boolean): void {
+  if (!mainWindow) return
+  const { material, light } = wantedMaterial
+  debugLine(`material want=${material} fullscreen=${fullscreen}`)
+  const solid = light ? '#f7f7f9' : '#111318'
+  try {
+    if (fullscreen || material === 'none') {
+      mainWindow.setBackgroundColor(solid)
+      mainWindow.setBackgroundMaterial('none')
+    } else {
+      mainWindow.setBackgroundColor('#00000000')
+      mainWindow.setBackgroundMaterial(material as 'acrylic' | 'mica' | 'tabbed')
+    }
+  } catch {
+    /* older Windows: the solid background stands */
+  }
+}
+
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
@@ -721,8 +766,14 @@ function createWindow(): void {
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
-  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('window:fullscreen', true))
-  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('window:fullscreen', false))
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen', true)
+    applyMaterial(true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen', false)
+    applyMaterial(false)
+  })
   mainWindow.webContents.setWindowOpenHandler((d) => {
     void shell.openExternal(d.url)
     return { action: 'deny' }
@@ -1589,14 +1640,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('window:material', (_e, material: string, mode?: string) => {
       if (!mainWindow) return
       const light = mode === 'light'
+      wantedMaterial = { material, light }
       try {
         // DWM decides whether its blur is a light or a dark frost from the
         // window's immersive theme, which Electron drives off nativeTheme. Told
         // nothing, a light acrylic style gets a dark frost under white surfaces.
         nativeTheme.themeSource = light ? 'light' : 'dark'
-        const m = material as 'none' | 'acrylic' | 'mica' | 'tabbed'
-        mainWindow.setBackgroundColor(m === 'none' ? (light ? '#f7f7f9' : '#111318') : '#00000000')
-        mainWindow.setBackgroundMaterial(m)
+        // Fullscreen keeps the window opaque whatever the style asks for.
+        applyMaterial(mainWindow.isFullScreen())
       } catch {
         /* older Windows, or an unsupported value: the solid background stands */
       }
