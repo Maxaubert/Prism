@@ -1,5 +1,15 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, RenameResult, SearchResult, ShellDef, MediaProbe } from '@shared/types'
+import type {
+  DirListing,
+  FileKind,
+  OnClash,
+  OpenPayload,
+  OpenWithApp,
+  RenameResult,
+  SearchResult,
+  ShellDef,
+  MediaProbe
+} from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -22,10 +32,17 @@ const api = {
   openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:root', dir),
   /** Choose a folder without opening it: the Settings picker. */
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
+  /** Choose real files: the archive panel's "Add files". Empty when cancelled. */
+  pickFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog:pick-files'),
   /** Report the tab strip, for persistence only. The root wall is never
    *  rebuilt from a snapshot (it raced payloads in flight); see dropRoot. */
   tabsChanged: (
-    tabs: Array<{ root: string; file?: string; term?: 'full' | 'split'; agent?: 'claude' | 'codex' }>,
+    tabs: Array<{
+      root: string
+      file?: string
+      term?: 'full' | 'split'
+      agent?: 'claude' | 'codex'
+    }>,
     active: number
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
@@ -132,8 +149,7 @@ const api = {
     replaced: string[]
     /** True when the ROOT WALL refused, which is a different message. */
     refused?: boolean
-  }> =>
-    ipcRenderer.invoke('file:move', paths, destDir, onClash),
+  }> => ipcRenderer.invoke('file:move', paths, destDir, onClash),
   /** Put real files and folders INTO a zip, under a folder ('' is the root). */
   archiveAdd: (
     zip: string,
@@ -144,8 +160,7 @@ const api = {
     | { added: Array<{ src: string; entry: string }>; clashes: string[]; failed: string[] }
     | 'encrypted'
     | 'failed'
-  > =>
-    ipcRenderer.invoke('archive:add', zip, srcPaths, destFolder, keepBoth),
+  > => ipcRenderer.invoke('archive:add', zip, srcPaths, destFolder, keepBoth),
   /** Move members to another folder inside the same zip. */
   archiveMoveMembers: (
     zip: string,
@@ -159,8 +174,9 @@ const api = {
     entries: string[],
     destDir: string,
     password?: string
-  ): Promise<{ ok: true; written: number } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
-    ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password),
+  ): Promise<
+    { ok: true; written: number } | { ok: false; reason: 'password' | 'aes' | 'failed' }
+  > => ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password),
 
   /** The system's own icon for this file's type (the user's association),
    *  as a data URL; null when Windows has none to give. */
@@ -178,21 +194,38 @@ const api = {
     encryption: 'none' | 'zipcrypto' | 'aes'
     /** 7z, rar, tar and the rest: listed and extracted, never written. */
     readOnly?: boolean
-  } | null> =>
-    ipcRenderer.invoke('archive:stat', path),
+  } | null> => ipcRenderer.invoke('archive:stat', path),
   /** Every entry in the archive (folders derived when the zip omits them). */
   archiveList: (
     path: string
-  ): Promise<Array<{ path: string; name: string; dir: boolean; size: number; encrypted?: boolean }> | null> =>
-    ipcRenderer.invoke('archive:list', path),
+  ): Promise<Array<{
+    path: string
+    name: string
+    dir: boolean
+    size: number
+    /** What it occupies inside the container; absent on folders. */
+    packed?: number
+    /** The entry's own modified time, epoch ms. */
+    mtime?: number
+    encrypted?: boolean
+  }> | null> => ipcRenderer.invoke('archive:list', path),
+  /** Extract the whole archive somewhere the user picks (main asks), into a
+   *  folder named after it. Resolves with where it landed. */
+  archiveExtractAll: (
+    path: string
+  ): Promise<
+    { ok: true; dest: string } | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+  > => ipcRenderer.invoke('archive:extract-all', path),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (
     path: string,
     entry: string,
     password?: string
-  ): Promise<{ ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
-    ipcRenderer.invoke('archive:extract', path, entry, password),
+  ): Promise<
+    | { ok: true; path: string; kind: FileKind }
+    | { ok: false; reason: 'password' | 'aes' | 'failed' }
+  > => ipcRenderer.invoke('archive:extract', path, entry, password),
   /** Rename one member in place (same folder). A taken name refuses. */
   archiveRename: (
     path: string,
@@ -233,9 +266,15 @@ const api = {
     return () => ipcRenderer.removeListener('term:data', listener)
   },
   /** An AI CLI (Claude Code, codex...) appeared or left a session's shell. */
-  onTermAgent: (cb: (id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null) => void): (() => void) => {
-    const listener = (_: unknown, id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null): void =>
-      cb(id, present, kind)
+  onTermAgent: (
+    cb: (id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null) => void
+  ): (() => void) => {
+    const listener = (
+      _: unknown,
+      id: string,
+      present: boolean,
+      kind?: 'claude' | 'codex' | 'other' | null
+    ): void => cb(id, present, kind)
     ipcRenderer.on('term:agent', listener)
     return () => ipcRenderer.removeListener('term:agent', listener)
   },
@@ -283,7 +322,9 @@ const api = {
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
   /* ----- the update check ----- */
   /** A newer release exists (mock: true in unpackaged builds, as a preview). */
-  onUpdate: (cb: (info: { version: string; url: string; mock?: boolean }) => void): (() => void) => {
+  onUpdate: (
+    cb: (info: { version: string; url: string; mock?: boolean }) => void
+  ): (() => void) => {
     const listener = (_: unknown, info: { version: string; url: string; mock?: boolean }): void =>
       cb(info)
     ipcRenderer.on('update:available', listener)

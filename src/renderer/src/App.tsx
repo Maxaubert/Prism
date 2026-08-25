@@ -1,15 +1,50 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
-import { addTab, closeTab, openSettingsTab, receiveFile, reorderTabs, rerootTab, sameRoot, setTabPanes, setTabTerm, toggleTermView, type TabState, type TreeState } from './lib/tabs'
-import { lastSplitDir, paneAreas, pinPane, saveSplitDir, unpinPane, type SplitDir } from './lib/panes'
+import {
+  addTab,
+  closeTab,
+  openSettingsTab,
+  receiveFile,
+  reorderTabs,
+  rerootTab,
+  sameRoot,
+  setTabPanes,
+  setTabTerm,
+  toggleTermView,
+  type Tab,
+  type TabState,
+  type TreeState
+} from './lib/tabs'
+import {
+  lastSplitDir,
+  paneAreas,
+  pinPane,
+  saveSplitDir,
+  unpinPane,
+  type SplitDir
+} from './lib/panes'
 import { fileKind } from '@shared/fileKind'
-import { dockAxis, dockFlex, loadDock, loadTermSize, saveDock, saveTermSize, type DockEdge } from './lib/termDock'
+import {
+  dockAxis,
+  dockFlex,
+  loadDock,
+  loadTermSize,
+  saveDock,
+  saveTermSize,
+  type DockEdge
+} from './lib/termDock'
 import { savedShellId } from './lib/termPrefs'
 import { confirmCloseMode } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from './lib/recentRoots'
-import { activitySuppressed, inputEcho, isTouched, markResume, suppressActivity } from './lib/termActivity'
+import {
+  activitySuppressed,
+  inputEcho,
+  isTouched,
+  markResume,
+  suppressActivity
+} from './lib/termActivity'
 import { TermDock } from './components/TermDock'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
@@ -42,7 +77,15 @@ import { Dialog } from './components/Dialog'
 import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
-import { describe as describeUndo, emptyUndo, redone, remember, undone, type UndoEntry, type UndoState } from './lib/undo'
+import {
+  describe as describeUndo,
+  emptyUndo,
+  redone,
+  remember,
+  undone,
+  type UndoEntry,
+  type UndoState
+} from './lib/undo'
 
 // Tab ids only have to be unique within a session and stable while a tab lives:
 // they are React keys and the handle every tab action names, never anything
@@ -150,22 +193,35 @@ function TopBar({
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
       {!setup && (
-      <button
-        className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-          panelOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-        }`}
-        onClick={onTogglePanel}
-        title={settingsOpen ? 'Collapse the rail (Ctrl+B)' : 'Files (Ctrl+B)'}
-        aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle file tree'}
-        aria-pressed={panelOpen}
-      >
-        <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden>
-          <rect x="3" y="4" width="18" height="16" rx="2" />
-          <path d="M9 4v16" />
-        </svg>
-      </button>
+        <button
+          className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+            panelOpen
+              ? 'text-[var(--p-accent-hi)]'
+              : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+          }`}
+          onClick={onTogglePanel}
+          title={settingsOpen ? 'Collapse the rail (Ctrl+B)' : 'Files (Ctrl+B)'}
+          aria-label={settingsOpen ? 'Collapse the settings rail' : 'Toggle file tree'}
+          aria-pressed={panelOpen}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width={15}
+            height={15}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <rect x="3" y="4" width="18" height="16" rx="2" />
+            <path d="M9 4v16" />
+          </svg>
+        </button>
       )}
-      <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>Prism</span>
+      <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
+        Prism
+      </span>
       <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
       {/* Unsaved work is the one thing the bar interrupts itself to say. The
           tree names the file, so the dot goes where the eye already is. */}
@@ -208,18 +264,39 @@ function TopBar({
           }
           aria-label={`Update to ${update.version}`}
           {...(updatePhase === 'downloading'
-            ? { role: 'progressbar', 'aria-valuenow': updatePct, 'aria-valuemin': 0, 'aria-valuemax': 100 }
+            ? {
+                role: 'progressbar',
+                'aria-valuenow': updatePct,
+                'aria-valuemin': 0,
+                'aria-valuemax': 100
+              }
             : {})}
         >
           <span
             aria-hidden
             className="absolute inset-y-0 left-0 transition-[width] duration-300 ease-out"
             style={{
-              width: updatePhase === 'idle' ? 0 : updatePhase === 'installing' ? '100%' : `${updatePct}%`,
+              width:
+                updatePhase === 'idle'
+                  ? 0
+                  : updatePhase === 'installing'
+                    ? '100%'
+                    : `${updatePct}%`,
               background: 'var(--p-accent)'
             }}
           />
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="relative shrink-0" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            width={11}
+            height={11}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="relative shrink-0"
+            aria-hidden
+          >
             <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" />
           </svg>
           <span className="relative whitespace-nowrap tabular-nums">
@@ -233,39 +310,76 @@ function TopBar({
       )}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
-        <button
-          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-            editing ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-          }`}
-          onClick={onToggleEdit}
-          title={editing ? 'Stop editing' : 'Edit'}
-          aria-label="Edit"
-          aria-pressed={editing}
-        >
-          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
-          </svg>
-        </button>
+          <button
+            className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+              editing
+                ? 'text-[var(--p-accent-hi)]'
+                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+            }`}
+            onClick={onToggleEdit}
+            title={editing ? 'Stop editing' : 'Edit'}
+            aria-label="Edit"
+            aria-pressed={editing}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={15}
+              height={15}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+            </svg>
+          </button>
         )}
         {!setup && (
-        <button
-          className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
-            settingsOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
-          }`}
-          onClick={onToggleSettings}
-          title="Settings"
-          aria-label="Settings"
-          aria-pressed={settingsOpen}
-        >
-          <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-            <circle cx="12" cy="12" r="3.2" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-          </svg>
-        </button>
+          <button
+            className={`grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
+              settingsOpen
+                ? 'text-[var(--p-accent-hi)]'
+                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+            }`}
+            onClick={onToggleSettings}
+            title="Settings"
+            aria-label="Settings"
+            aria-pressed={settingsOpen}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={15}
+              height={15}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.35.4.64.73.83H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+            </svg>
+          </button>
         )}
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.minimize()}>–</button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]" onClick={() => w.toggleMaximize()}>▢</button>
-        <button className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]" onClick={() => w.close()}>✕</button>
+        <button
+          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+          onClick={() => w.minimize()}
+        >
+          –
+        </button>
+        <button
+          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+          onClick={() => w.toggleMaximize()}
+        >
+          ▢
+        </button>
+        <button
+          className="grid h-7 w-8 place-items-center rounded text-[var(--p-icon)] hover:bg-red-500/80 hover:text-[var(--p-text)]"
+          onClick={() => w.close()}
+        >
+          ✕
+        </button>
       </div>
     </div>
   )
@@ -301,11 +415,14 @@ function Viewer({
   onOpenLocal,
   onAutoAdvance,
   onBuffer,
+  onRenameSelf,
   getPending
 }: {
   file: ViewerFile
   /** An archive reports its own undoable writes up to App's stack. */
   onUndoable: (entry: UndoEntry) => void
+  /** An archive's own "Rename" verb: App owns renaming, so it does it. */
+  onRenameSelf: (name: string) => void
   /** Bumped after an undo, so an open archive re-reads its container. */
   refreshKey: number
   onToggleFullscreen: () => void
@@ -323,17 +440,42 @@ function Viewer({
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
     case 'video':
-      return <VideoView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
+      return (
+        <VideoView
+          url={url}
+          path={file.path}
+          onToggleFullscreen={onToggleFullscreen}
+          onAutoAdvance={onAutoAdvance}
+          transportStyle={transportStyle}
+        />
+      )
     case 'image':
       return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
     case 'audio':
-      return <AudioView url={url} path={file.path} name={file.name} fullscreen={fullscreen} onToggleFullscreen={onToggleFullscreen} onAutoAdvance={onAutoAdvance} transportStyle={transportStyle} />
+      return (
+        <AudioView
+          url={url}
+          path={file.path}
+          name={file.name}
+          fullscreen={fullscreen}
+          onToggleFullscreen={onToggleFullscreen}
+          onAutoAdvance={onAutoAdvance}
+          transportStyle={transportStyle}
+        />
+      )
     case 'pdf':
       return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
     case 'doc':
       return <DocView path={file.path} name={file.name} />
     case 'archive':
-      return <ArchiveView file={file} onUndoable={onUndoable} refreshKey={refreshKey} />
+      return (
+        <ArchiveView
+          file={file}
+          onUndoable={onUndoable}
+          onRenameSelf={onRenameSelf}
+          refreshKey={refreshKey}
+        />
+      )
     case 'text':
       // Markdown is a document until the pencil says otherwise; everything else
       // is its own source, editable where it sits. A save here changes nothing
@@ -391,7 +533,16 @@ function PinnedPaneView({
         title="Remove from split view"
         aria-label={`Remove ${name} from split view`}
       >
-        <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          width={11}
+          height={11}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          aria-hidden
+        >
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
       </button>
@@ -399,7 +550,13 @@ function PinnedPaneView({
   )
 }
 
-function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder: () => void }): JSX.Element {
+function EmptyState({
+  onOpen,
+  onOpenFolder
+}: {
+  onOpen: () => void
+  onOpenFolder: () => void
+}): JSX.Element {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
       {/* A hairline and nothing else, so the window's own material carries
@@ -407,7 +564,17 @@ function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder
           nothing behind to sample and composites as a solid fill, which is
           exactly the opaque tile this was meant to get rid of. */}
       <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] border border-[color:var(--p-line)] text-[var(--p-accent-hi)]">
-        <svg viewBox="0 0 24 24" width={30} height={30} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          width={30}
+          height={30}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M7 18a4 4 0 0 1 .6-8 5.2 5.2 0 0 1 10 1.2A3.4 3.4 0 0 1 17.5 18z" />
           <path d="M12 11v6m0 0l-2.2-2.2M12 17l2.2-2.2" />
         </svg>
@@ -415,7 +582,10 @@ function EmptyState({ onOpen, onOpenFolder }: { onOpen: () => void; onOpenFolder
       <div className="text-lg font-semibold">Open a file or folder to view it</div>
       <div className="text-sm text-[var(--p-dim)]">Drop a file here, or</div>
       <div className="flex items-center gap-2">
-        <button className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110" onClick={onOpen}>
+        <button
+          className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110"
+          onClick={onOpen}
+        >
           Open file…
         </button>
         <button
@@ -581,40 +751,90 @@ export default function App(): JSX.Element {
    * folder that holds nothing viewable, which still opens as a place to browse
    * from rather than a refusal.
    */
-  const open = useCallback((p: OpenPayload | null) => {
-    if (!p) return
-    setTabState((s) => {
-      // A RESTORED tab is always its own tab: receiveFile's same-root fold is
-      // for files arriving from outside, and folding a restore silently
-      // deleted one of two tabs that shared a root.
-      const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
-      // For a restore the tab in question is the one just appended; for an
-      // arrival it is whichever tab the payload landed in (now active).
-      const target = p.restore ? st.tabs[st.tabs.length - 1] : st.tabs.find((t) => t.id === st.activeId)
-      let tabs = st.tabs
-      // A restored tab that was showing its terminal comes back AS a terminal:
-      // a fresh shell at the root (sessions die with the app), same view.
-      if (p.term && target && !target.term) {
+  /**
+   * Put the "New tabs show" setting into effect on the active tab: a terminal
+   * in full view, nothing at all, or (the default) the folder's first file,
+   * which is what the payload already carries.
+   *
+   * Shared by the + and by a FOLDER arriving from Explorer's menu, which is
+   * the same act by another route and should not answer the question
+   * differently.
+   */
+  const applyNewTabShow = useCallback(() => {
+    const show = newTabShow()
+    if (show === 'terminal')
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.term) return s
         const termId = nextTermId()
-        termRoots.current.set(termId, target.root)
-        // The shell hosted a Claude session at close: the fresh one launches
-        // straight into it (spawn carries the id; see TerminalPanel). The
-        // session spawns NOW, tab in front or not - every tab's conversation
-        // resumes at launch, not when its tab is first visited.
-        if (p.agentResume) markResume(termId, p.agentResume)
-        const root = target.root
-        void import('./components/TerminalPanel').then((m) => m.ensureTermSession(termId, root, savedShellId()))
-        tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
-      }
-      // Background restores keep the focus where it is: restore arrives in
-      // SAVED ORDER now (no more active-goes-last splice, which scrambled the
-      // strip), and only the saved active tab takes the front.
-      const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
-      return { tabs, activeId }
-    })
-    setHasNavigated(false) // a fresh open starts in "opened directly" mode
+        termRoots.current.set(termId, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+      })
+    else if (show === 'none')
+      // The quiet start: the sidebar keeps the folder's files, but nothing
+      // goes on screen (NoFileState) until the user picks one.
+      setTabState((s) => ({
+        ...s,
+        tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: -1 } : t))
+      }))
   }, [])
 
+  const open = useCallback(
+    (p: OpenPayload | null) => {
+      if (!p) return
+      // A FOLDER from outside (Explorer's menu on a folder, or on the empty
+      // space inside one): it roots a tab, and what that tab SHOWS is the "New
+      // tabs show" setting, exactly as the + would decide it. A folder Prism
+      // already has a tab for switches there instead of making a second - one
+      // tab per root - and keeps whatever that tab was showing.
+      if (p.folder) {
+        const hit = tabsRef.current.find((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
+        if (hit) {
+          setTabState((s) => ({ ...s, activeId: hit.id }))
+          return
+        }
+        setTabState((s) => addTab(s.tabs, p, nextTabId()))
+        applyNewTabShow()
+        setHasNavigated(false)
+        return
+      }
+      setTabState((s) => {
+        // A RESTORED tab is always its own tab: receiveFile's same-root fold is
+        // for files arriving from outside, and folding a restore silently
+        // deleted one of two tabs that shared a root.
+        const st = p.restore ? addTab(s.tabs, p, nextTabId()) : receiveFile(s.tabs, p, nextTabId())
+        // For a restore the tab in question is the one just appended; for an
+        // arrival it is whichever tab the payload landed in (now active).
+        const target = p.restore
+          ? st.tabs[st.tabs.length - 1]
+          : st.tabs.find((t) => t.id === st.activeId)
+        let tabs = st.tabs
+        // A restored tab that was showing its terminal comes back AS a terminal:
+        // a fresh shell at the root (sessions die with the app), same view.
+        if (p.term && target && !target.term) {
+          const termId = nextTermId()
+          termRoots.current.set(termId, target.root)
+          // The shell hosted a Claude session at close: the fresh one launches
+          // straight into it (spawn carries the id; see TerminalPanel). The
+          // session spawns NOW, tab in front or not - every tab's conversation
+          // resumes at launch, not when its tab is first visited.
+          if (p.agentResume) markResume(termId, p.agentResume)
+          const root = target.root
+          void import('./components/TerminalPanel').then((m) =>
+            m.ensureTermSession(termId, root, savedShellId())
+          )
+          tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
+        }
+        // Background restores keep the focus where it is: restore arrives in
+        // SAVED ORDER now (no more active-goes-last splice, which scrambled the
+        // strip), and only the saved active tab takes the front.
+        const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
+        return { tabs, activeId }
+      })
+      setHasNavigated(false) // a fresh open starts in "opened directly" mode
+    },
+    [applyNewTabShow]
+  )
 
   // Pre-warm: a tab in front with no shell probably gets one soon. After a
   // short dwell, main starts it; opening the terminal then ADOPTS a running
@@ -713,7 +933,9 @@ export default function App(): JSX.Element {
 
   // The update offer and its progress through install. Phase lives here (not
   // in the bar) so the chip survives the bar re-rendering under it.
-  const [update, setUpdate] = useState<{ version: string; url: string; mock?: boolean } | null>(null)
+  const [update, setUpdate] = useState<{ version: string; url: string; mock?: boolean } | null>(
+    null
+  )
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
   const [updatePct, setUpdatePct] = useState(0)
   useEffect(() => window.prism.onUpdate(setUpdate), [])
@@ -739,9 +961,14 @@ export default function App(): JSX.Element {
   // + is handed to main once and must not be rebuilt whenever a tab changes).
   const activeRootRef = useRef<string | undefined>(undefined)
   const activeIdRef = useRef<string | null>(null)
+  /** The strip as it stands, for the same reason: a folder arriving from
+   *  Explorer has to know whether a tab is already rooted there BEFORE it
+   *  decides to make one. */
+  const tabsRef = useRef<readonly Tab[]>([])
   useEffect(() => {
     activeRootRef.current = tabs.find((t) => t.id === activeId)?.root
     activeIdRef.current = activeId
+    tabsRef.current = tabs
   }, [tabs, activeId])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
@@ -769,26 +996,10 @@ export default function App(): JSX.Element {
     void request.then((p) => {
       if (!p) return // ask-mode cancelled: no tab
       setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      const show = newTabShow()
-      if (show === 'terminal')
-        setTabState((s) => {
-          const tab = s.tabs.find((t) => t.id === s.activeId)
-          if (!tab || tab.term) return s
-          const termId = nextTermId()
-          termRoots.current.set(termId, tab.root)
-          return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
-        })
-      else if (show === 'none')
-        // The quiet start: the sidebar keeps the folder's files, but nothing
-        // goes on screen (NoFileState) until the user picks one.
-        setTabState((s) => ({
-          ...s,
-          tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: -1 } : t))
-        }))
+      applyNewTabShow()
       setHasNavigated(false)
     })
-  }, [])
-
+  }, [applyNewTabShow])
 
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a
@@ -821,7 +1032,11 @@ export default function App(): JSX.Element {
       // touched one (a Claude session, half-typed work) stays where it was;
       // Clear later re-syncs it.
       const tab = next.tabs.find((t) => t.id === id)
-      if (tab?.term && !isTouched(tab.term.id) && !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)) {
+      if (
+        tab?.term &&
+        !isTouched(tab.term.id) &&
+        !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)
+      ) {
         window.prism.termKill(tab.term.id)
         disposeSession(tab.term.id)
         termRoots.current.delete(tab.term.id)
@@ -1079,7 +1294,10 @@ export default function App(): JSX.Element {
           return kind === 'claude' || kind === 'codex' ? kind : undefined
         })()
       })),
-      Math.max(0, folderTabs.findIndex((t) => t.id === activeId))
+      Math.max(
+        0,
+        folderTabs.findIndex((t) => t.id === activeId)
+      )
     )
   }, [tabs, activeId, agentIds])
 
@@ -1224,7 +1442,10 @@ export default function App(): JSX.Element {
       termRoots.current.delete(term.id)
       const termId = nextTermId()
       termRoots.current.set(termId, active.root)
-      setTabState((s) => ({ ...s, tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view }) }))
+      setTabState((s) => ({
+        ...s,
+        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view })
+      }))
     } else {
       void import('./components/TerminalPanel').then((m) => m.clearTermSession(term.id))
     }
@@ -1251,7 +1472,8 @@ export default function App(): JSX.Element {
     applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
   }, [active, applyTermView, open])
   const closeTermPane = useCallback(
-    () => applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
+    () =>
+      applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
     [applyTermView]
   )
 
@@ -1459,7 +1681,11 @@ export default function App(): JSX.Element {
   }
 
   const reopen = useCallback(
-    (p: string) => void (active && window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))),
+    (p: string) =>
+      void (
+        active &&
+        window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
+      ),
     [active, open]
   )
 
@@ -1482,13 +1708,15 @@ export default function App(): JSX.Element {
     async (path: string, name: string, onClash: OnClash, track = true): Promise<string | null> => {
       const r = await window.prism.renameFile(path, name, onClash)
       if (!r.ok) {
-        if (r.reason === 'clash') setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
+        if (r.reason === 'clash')
+          setAsk({ kind: 'clash', path, name, suggestion: r.suggestion ?? name })
         else setAsk({ kind: 'failed', message: r.message ?? 'That could not be renamed.' })
         return null
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
-      if (track !== false) noteUndo({ kind: 'rename', from: path, to: r.path, replaced: r.replaced })
+      if (track !== false)
+        noteUndo({ kind: 'rename', from: path, to: r.path, replaced: r.replaced })
       // Follow whatever is on screen: it may have been the thing renamed, or a
       // file inside the folder that was, in which case its path just moved.
       const cur = file?.path
@@ -1546,7 +1774,10 @@ export default function App(): JSX.Element {
         else closeActiveTab()
       } else if (cur) reopen(cur)
       if (failed)
-        setAsk({ kind: 'failed', message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.` })
+        setAsk({
+          kind: 'failed',
+          message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
+        })
     },
     [closeActiveTab, file, noteUndo, reopen, view]
   )
@@ -1568,7 +1799,11 @@ export default function App(): JSX.Element {
       setAsk(null)
       setRefreshKey((n) => n + 1)
       if (track && r.moved.length)
-        noteUndo({ kind: 'move', items: r.moved, replaced: r.replaced?.length ? r.replaced : undefined })
+        noteUndo({
+          kind: 'move',
+          items: r.moved,
+          replaced: r.replaced?.length ? r.replaced : undefined
+        })
       // Follow the open file FIRST, whatever else failed: it may have been
       // inside a folder that moved, in which case only its prefix changed.
       const cur = file?.path
@@ -1620,7 +1855,8 @@ export default function App(): JSX.Element {
           if (!ok)
             setAsk({
               kind: 'failed',
-              message: 'Windows would not give those back. They may have been emptied from the Recycle Bin.'
+              message:
+                'Windows would not give those back. They may have been emptied from the Recycle Bin.'
             })
           break
         }
@@ -1695,7 +1931,11 @@ export default function App(): JSX.Element {
           // remember the member names keep-both actually used.
           for (const a of r.added) await window.prism.trashFile(a.src)
           setRefreshKey((n) => n + 1)
-          return { ...entry, entries: r.added.map((a) => a.entry), originals: r.added.map((a) => a.src) }
+          return {
+            ...entry,
+            entries: r.added.map((a) => a.entry),
+            originals: r.added.map((a) => a.src)
+          }
         }
       }
     },
@@ -1812,10 +2052,18 @@ export default function App(): JSX.Element {
         // brings the terminal to full view, so it cannot eat typed text.
         e.preventDefault()
         openTermFull()
-      } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && (!typing || inTerm)) {
+      } else if (
+        (e.code === 'KeyT' || e.key === 't' || e.key === 'T') &&
+        e.ctrlKey &&
+        (!typing || inTerm)
+      ) {
         e.preventDefault()
         newTab()
-      } else if ((e.code === 'KeyW' || e.key === 'w' || e.key === 'W') && e.ctrlKey && (!typing || inTerm)) {
+      } else if (
+        (e.code === 'KeyW' || e.key === 'w' || e.key === 'W') &&
+        e.ctrlKey &&
+        (!typing || inTerm)
+      ) {
         // Close the innermost thing first: split panes pop LIFO (tabs within
         // the tab), and only with none left does Ctrl+W reach the tab itself.
         // It still never takes the window on the last tab: Prism is resident,
@@ -1833,7 +2081,11 @@ export default function App(): JSX.Element {
       } else if (e.ctrlKey && (!typing || inTerm) && /^[1-9]$/.test(e.key)) {
         e.preventDefault()
         jumpTab(Number(e.key))
-      } else if ((e.code === 'KeyB' || e.key === 'b' || e.key === 'B') && e.ctrlKey && (!typing || inTerm)) {
+      } else if (
+        (e.code === 'KeyB' || e.key === 'b' || e.key === 'B') &&
+        e.ctrlKey &&
+        (!typing || inTerm)
+      ) {
         e.preventDefault()
         togglePanel()
       } else if (e.key === 'Escape') {
@@ -1873,7 +2125,11 @@ export default function App(): JSX.Element {
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
         if (!fullscreen && treeNav.current?.(dir)) return
         go(e.key === 'ArrowDown' ? 1 : -1)
-      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && !typing && termView !== 'full') {
+      } else if (
+        (e.key === 'ArrowRight' || e.key === 'ArrowLeft') &&
+        !typing &&
+        termView !== 'full'
+      ) {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
         if (!playerOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
@@ -1887,7 +2143,26 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, closeActiveTab, file, fullscreen, go, hasNavigated, jumpTab, newTab, openTermFull, redo, settingsOpen, setup, stepTab, termView, togglePanel, toggleTerm, undo, unpinSplitId])
+  }, [
+    active,
+    closeActiveTab,
+    file,
+    fullscreen,
+    go,
+    hasNavigated,
+    jumpTab,
+    newTab,
+    openTermFull,
+    redo,
+    settingsOpen,
+    setup,
+    stepTab,
+    termView,
+    togglePanel,
+    toggleTerm,
+    undo,
+    unpinSplitId
+  ])
 
   // Warm the immediate neighbours (images only) so arrowing to them is instant.
   // The shared image cache holds them (and enforces the memory policy), so we just
@@ -1937,7 +2212,8 @@ export default function App(): JSX.Element {
         const first = inside.paths[0]
         if (!first) return
         void window.prism.statFile(first).then((st) => {
-          if (st?.isFolder) void window.prism.openRoot(first).then((p) => p && applyReroot(activeIdRef.current, p))
+          if (st?.isFolder)
+            void window.prism.openRoot(first).then((p) => p && applyReroot(activeIdRef.current, p))
           else void window.prism.openPath(first).then(open)
         })
         return
@@ -1973,7 +2249,9 @@ export default function App(): JSX.Element {
           // The tree already names (and highlights) the open file; the bar only
           // repeats it when the tree isn't there to say it. A FULL terminal
           // names nothing: the file it would name is not what's on screen.
-          name={(sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')}
+          name={
+            (sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')
+          }
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={openSettings}
@@ -2065,142 +2343,173 @@ export default function App(): JSX.Element {
             wash={washed}
           />
         )}
-        <div
-          className="flex min-w-0 min-h-0 flex-1"
-          style={{ flexDirection: dockFlex(dockEdge) }}
-        >
-        <div
-          className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
-            washed ? 'p-wash' : ''
-          } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''} ${
-            // Full view: the terminal takes the whole area, but the viewer
-            // stays MOUNTED so scroll, zoom and playback survive the visit -
-            // the same reason hidden shells stay alive.
-            termView === 'full' ? 'hidden' : ''
-          }`}
-          ref={viewerBox}
-        >
-          {/* the fullscreen fade-to-black, inside the fullscreen element */}
+        <div className="flex min-w-0 min-h-0 flex-1" style={{ flexDirection: dockFlex(dockEdge) }}>
           <div
-            ref={fsVeilEl}
-            aria-hidden
-            className="pointer-events-none absolute inset-0 z-[200] bg-black opacity-0 will-change-[opacity]"
-          />
-          {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
+            className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
+              washed ? 'p-wash' : ''
+            } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''} ${
+              // Full view: the terminal takes the whole area, but the viewer
+              // stays MOUNTED so scroll, zoom and playback survive the visit -
+              // the same reason hidden shells stay alive.
+              termView === 'full' ? 'hidden' : ''
+            }`}
+            ref={viewerBox}
+          >
+            {/* the fullscreen fade-to-black, inside the fullscreen element */}
+            <div
+              ref={fsVeilEl}
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-[200] bg-black opacity-0 will-change-[opacity]"
+            />
+            {/* Keyed by KIND, not by path. Keying by path remounted the viewer on
               every arrow press, which threw the current picture away before the
               next one had decoded and flashed the window black between them.
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
-          {(() => {
-            const liveContent =
-              file && editMode && file.kind === 'text' ? (
-                <Suspense fallback={<EditorLoading />}>
-                  <CodeView
-                    path={file.path}
-                    name={file.name}
-                    onClose={() => setEditMode(false)}
-                    onSaved={() => {
-                      setEditMode(false)
-                      setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
-                    }}
+            {(() => {
+              const liveContent =
+                file && editMode && file.kind === 'text' ? (
+                  <Suspense fallback={<EditorLoading />}>
+                    <CodeView
+                      path={file.path}
+                      name={file.name}
+                      onClose={() => setEditMode(false)}
+                      onSaved={() => {
+                        setEditMode(false)
+                        setDocVersion((v) => v + 1) // the rendered view re-reads what was saved
+                      }}
+                      onBuffer={onBuffer}
+                      getPending={getPending}
+                    />
+                  </Suspense>
+                ) : file ? (
+                  <Viewer
+                    key={`${file.kind}:${docVersion}`}
+                    file={file}
+                    onUndoable={noteUndo}
+                    onRenameSelf={(name) => void runRename(file.path, name, 'ask')}
+                    refreshKey={refreshKey}
+                    onToggleFullscreen={toggleFullscreen}
+                    fullscreen={fullscreen}
+                    transportStyle={transportStyle}
+                    onOpenLocal={openFromTree}
+                    onAutoAdvance={advanceSameKind}
                     onBuffer={onBuffer}
                     getPending={getPending}
                   />
-                </Suspense>
-              ) : file ? (
-                <Viewer key={`${file.kind}:${docVersion}`} file={file} onUndoable={noteUndo} refreshKey={refreshKey} onToggleFullscreen={toggleFullscreen} fullscreen={fullscreen} transportStyle={transportStyle} onOpenLocal={openFromTree} onAutoAdvance={advanceSameKind} onBuffer={onBuffer} getPending={getPending} />
-              ) : active ? (
-                <NoFileState />
-              ) : (
-                <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
-              )
-            const pins = active?.panes ?? []
-            if (!pins.length || fullscreen) return liveContent
-            // The quadrant grid: the live pane plus up to three pinned files,
-            // hairline-separated, one window per corner at the full four.
-            const areas = paneAreas(pins)
-            return (
-              <div
-                className="grid h-full w-full gap-px bg-[var(--p-divider)]"
-                style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
-              >
+                ) : active ? (
+                  <NoFileState />
+                ) : (
+                  <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
+                )
+              const pins = active?.panes ?? []
+              if (!pins.length || fullscreen) return liveContent
+              // The quadrant grid: the live pane plus up to three pinned files,
+              // hairline-separated, one window per corner at the full four.
+              const areas = paneAreas(pins)
+              return (
                 <div
-                  data-pane="live"
-                  className="group/live relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
-                  style={{ gridArea: areas.live }}
+                  className="grid h-full w-full gap-px bg-[var(--p-divider)]"
+                  style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
                 >
-                  {liveContent}
-                  {/* Its own X, like every pinned pane: closing the live
-                      window promotes the oldest pin, the rest stand. */}
-                  <button
-                    className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/live:opacity-100"
-                    onClick={closeFilePane}
-                    title="Remove from split view"
-                    aria-label="Remove the open file from split view"
+                  <div
+                    data-pane="live"
+                    className="group/live relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
+                    style={{ gridArea: areas.live }}
                   >
-                    <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                  </button>
+                    {liveContent}
+                    {/* Its own X, like every pinned pane: closing the live
+                      window promotes the oldest pin, the rest stand. */}
+                    <button
+                      className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/live:opacity-100"
+                      onClick={closeFilePane}
+                      title="Remove from split view"
+                      aria-label="Remove the open file from split view"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width={11}
+                        height={11}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        aria-hidden
+                      >
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </div>
+                  {pins.map((pn, i) => (
+                    <PinnedPaneView
+                      key={pn.id}
+                      paneId={pn.id}
+                      path={pn.path}
+                      area={areas.pinned[i]}
+                      onClose={() => unpinSplitId(pn.id)}
+                      viewerProps={{
+                        onUndoable: noteUndo,
+                        // A pinned pane renames the file IT holds, not the one
+                        // in the main viewer.
+                        onRenameSelf: (name: string) => void runRename(pn.path, name, 'ask'),
+                        refreshKey,
+                        onToggleFullscreen: toggleFullscreen,
+                        fullscreen,
+                        transportStyle,
+                        onOpenLocal: openFromTree,
+                        onAutoAdvance: () => {},
+                        onBuffer,
+                        getPending
+                      }}
+                    />
+                  ))}
                 </div>
-                {pins.map((pn, i) => (
-                  <PinnedPaneView
-                    key={pn.id}
-                    paneId={pn.id}
-                    path={pn.path}
-                    area={areas.pinned[i]}
-                    onClose={() => unpinSplitId(pn.id)}
-                    viewerProps={{
-                      onUndoable: noteUndo,
-                      refreshKey,
-                      onToggleFullscreen: toggleFullscreen,
-                      fullscreen,
-                      transportStyle,
-                      onOpenLocal: openFromTree,
-                      onAutoAdvance: () => {},
-                      onBuffer,
-                      getPending
-                    }}
-                  />
-                ))}
-              </div>
-            )
-          })()}
-          {/* No on-screen arrows: paging is the keyboard's job. Left and right,
+              )
+            })()}
+            {/* No on-screen arrows: paging is the keyboard's job. Left and right,
               up and down, PageUp and PageDown, in or out of fullscreen. */}
-          {/* The region-level X only when the region IS one window: with the
+            {/* The region-level X only when the region IS one window: with the
               pane grid up, each window carries its own. */}
-          {termView === 'split' && !fullscreen && !active?.panes.length && (
-            <button
-              className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
-              onClick={closeFilePane}
-              title="Remove from split view"
-              aria-label="Remove the file from the split"
-            >
-              <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          )}
-        </div>
-        {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
+            {termView === 'split' && !fullscreen && !active?.panes.length && (
+              <button
+                className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
+                onClick={closeFilePane}
+                title="Remove from split view"
+                aria-label="Remove the file from the split"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={11}
+                  height={11}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+          {/* The tab's shell, when it is visible. Only the ACTIVE tab's panel is
             in the DOM; hidden tabs' sessions stay alive in the store, and
             coming back reattaches them with scrollback intact. Full view is
             the terminal's home; split is the dock. Fullscreen is for watching:
             no terminal, like the rest of the chrome. */}
-        {active?.term && termView !== 'hidden' && !fullscreen && (
-          <TermDock
-            mode={termView}
-            onClose={closeTermPane}
-            edge={dockEdge}
-            size={termSizes[dockAxis(dockEdge)]}
-            onResize={resizeTermPanel}
-            onDockPick={pickDock}
-            sessionId={active.term.id}
-            root={active.root}
-            shellId={savedShellId()}
-          />
-        )}
+          {active?.term && termView !== 'hidden' && !fullscreen && (
+            <TermDock
+              mode={termView}
+              onClose={closeTermPane}
+              edge={dockEdge}
+              size={termSizes[dockAxis(dockEdge)]}
+              onResize={resizeTermPanel}
+              onDockPick={pickDock}
+              sessionId={active.term.id}
+              root={active.root}
+              shellId={savedShellId()}
+            />
+          )}
         </div>
       </div>
       <Settings
@@ -2220,7 +2529,8 @@ export default function App(): JSX.Element {
           title="Move to the Recycle Bin?"
           body={
             <>
-              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where Windows can put it back.
+              <span className="text-[#d7dae1]">{ask.name}</span> goes to the Recycle Bin, where
+              Windows can put it back.
             </>
           }
           onCancel={() => setAsk(null)}
@@ -2238,7 +2548,12 @@ export default function App(): JSX.Element {
           onCancel={() => setAsk(null)}
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
-            { label: 'Delete', danger: true, primary: true, onPick: () => void runDeleteMany(ask.paths) }
+            {
+              label: 'Delete',
+              danger: true,
+              primary: true,
+              onPick: () => void runDeleteMany(ask.paths)
+            }
           ]}
         />
       )}
@@ -2256,24 +2571,42 @@ export default function App(): JSX.Element {
 
       {ask?.kind === 'move-clash' && (
         <Dialog
-          title={ask.names.length > 1 ? `${ask.names.length} names are already taken` : `"${ask.names[0]}" is already there`}
+          title={
+            ask.names.length > 1
+              ? `${ask.names.length} names are already taken`
+              : `"${ask.names[0]}" is already there`
+          }
           body="Keep both lands them beside what is there; replacing sends the old ones to the Recycle Bin."
           onCancel={() => setAsk(null)}
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
-            { label: 'Keep both', primary: true, onPick: () => void runMove(ask.paths, ask.dest, 'keep-both') },
-            { label: 'Replace', danger: true, onPick: () => void runMove(ask.paths, ask.dest, 'replace') }
+            {
+              label: 'Keep both',
+              primary: true,
+              onPick: () => void runMove(ask.paths, ask.dest, 'keep-both')
+            },
+            {
+              label: 'Replace',
+              danger: true,
+              onPick: () => void runMove(ask.paths, ask.dest, 'replace')
+            }
           ]}
         />
       )}
 
       {ask?.kind === 'close-dirty' && (
         <Dialog
-          title={unsavedNames.length > 1 ? `${unsavedNames.length} files have unsaved changes` : 'Unsaved changes'}
+          title={
+            unsavedNames.length > 1
+              ? `${unsavedNames.length} files have unsaved changes`
+              : 'Unsaved changes'
+          }
           body={
             <>
               <span className="text-[#d7dae1]">{unsavedNames.join(', ') || 'This file'}</span>
-              {unsavedNames.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              {unsavedNames.length > 1
+                ? ' are not on disk yet.'
+                : ' has changes that are not on disk yet.'}{' '}
               Closing without saving throws them away.
             </>
           }
@@ -2342,11 +2675,17 @@ export default function App(): JSX.Element {
 
       {ask?.kind === 'close-tab' && (
         <Dialog
-          title={ask.names.length > 1 ? `${ask.names.length} files have unsaved changes` : 'Unsaved changes'}
+          title={
+            ask.names.length > 1
+              ? `${ask.names.length} files have unsaved changes`
+              : 'Unsaved changes'
+          }
           body={
             <>
               <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
-              {ask.names.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              {ask.names.length > 1
+                ? ' are not on disk yet.'
+                : ' has changes that are not on disk yet.'}{' '}
               Closing this folder is the last way back to them.
             </>
           }
@@ -2396,11 +2735,17 @@ export default function App(): JSX.Element {
 
       {ask?.kind === 'reroot' && (
         <Dialog
-          title={ask.names.length > 1 ? `${ask.names.length} files have unsaved changes` : 'Unsaved changes'}
+          title={
+            ask.names.length > 1
+              ? `${ask.names.length} files have unsaved changes`
+              : 'Unsaved changes'
+          }
           body={
             <>
               <span className="text-[#d7dae1]">{ask.names.join(', ')}</span>
-              {ask.names.length > 1 ? ' are not on disk yet.' : ' has changes that are not on disk yet.'}{' '}
+              {ask.names.length > 1
+                ? ' are not on disk yet.'
+                : ' has changes that are not on disk yet.'}{' '}
               Opening another folder here is the last way back to them.
             </>
           }
@@ -2449,15 +2794,24 @@ export default function App(): JSX.Element {
           title="That name is taken"
           body={
             <>
-              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping both saves yours as{' '}
-              <span className="text-[#d7dae1]">{ask.suggestion}</span>; replacing it sends the old one to the Recycle Bin.
+              This folder already has a <span className="text-[#d7dae1]">{ask.name}</span>. Keeping
+              both saves yours as <span className="text-[#d7dae1]">{ask.suggestion}</span>;
+              replacing it sends the old one to the Recycle Bin.
             </>
           }
           onCancel={() => setAsk(null)}
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
-            { label: 'Replace', danger: true, onPick: () => void runRename(ask.path, ask.name, 'overwrite') },
-            { label: 'Keep both', primary: true, onPick: () => void runRename(ask.path, ask.name, 'keep-both') }
+            {
+              label: 'Replace',
+              danger: true,
+              onPick: () => void runRename(ask.path, ask.name, 'overwrite')
+            },
+            {
+              label: 'Keep both',
+              primary: true,
+              onPick: () => void runRename(ask.path, ask.name, 'keep-both')
+            }
           ]}
         />
       )}

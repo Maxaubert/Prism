@@ -69,6 +69,19 @@ describe('reading a 7-Zip listing', () => {
     expect(entries[2].encrypted).toBe(true)
   })
 
+  it('carries the packed size and the entry time, for the columns', () => {
+    expect(entries[1].packed).toBe(40)
+    // "2026-08-24 12:06:00", 7-Zip's own format, read as local time.
+    expect(new Date(entries[1].mtime!).getHours()).toBe(12)
+    expect(new Date(entries[1].mtime!).getDate()).toBe(24)
+  })
+
+  it('leaves them undefined when the listing has none, rather than guessing', () => {
+    // deep.txt in the fixture has no Modified line at all.
+    expect(entries[2].mtime).toBeUndefined()
+    expect(entries[2].packed).toBe(20)
+  })
+
   it('says nothing rather than inventing members', () => {
     expect(parseListing('')).toEqual([])
     expect(parseListing('7-Zip 25.00\nnothing here\n')).toEqual([])

@@ -1932,6 +1932,33 @@ async function terminalScenario(fixtures) {
   }
 }
 
+/**
+ * A FOLDER handed to Prism from outside (2026-08-25).
+ *
+ * This is what Explorer's "Open in Prism" on a folder, and "Open Prism here"
+ * on the empty space inside one, actually do: hand over a directory as argv.
+ * Main used to demand a FILE and drop it on the floor, so the menu entry was
+ * there and nothing happened. The tab roots at the folder, and what it shows
+ * is the "New tabs show" setting, exactly as the + decides it.
+ */
+async function folderArgScenario(fixtures) {
+  console.log('a folder from outside')
+  const { app, win } = await launch(fixtures)
+  try {
+    const body = (await win.textContent('body')) ?? ''
+    ok(/README\.md/.test(body), 'the tree lists the folder that was handed over')
+    ok((await win.locator('[data-row]').count()) > 2, 'and it is rooted there, not at a file')
+    // The default "New tabs show" is the folder's first file, which is what a
+    // payload built from a folder already carries.
+    ok(
+      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
+      'and one of its files is open'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function archiveScenario(fixtures) {
   console.log('archive viewer')
   // #68: a real zip opens as a tree of members with view/rename/delete verbs.
@@ -1945,6 +1972,32 @@ async function archiveScenario(fixtures) {
     const body = (await win.textContent('body')) ?? ''
     ok(/25 B/.test(body), 'sizes ride along')
     ok(!/todo\.md/.test(body), 'the root listing shows only its own level')
+
+    // The columns (2026-08-25): what the container knows about each member.
+    // The header is UPPERCASED by CSS, so the DOM still says "Type".
+    ok(/Type/.test(body) && /Packed/.test(body) && /Modified/.test(body), 'the panel has a column header')
+    ok(/Markdown document|TXT text/.test(body), 'and each row says what it is')
+
+    // Drag-select, the archive's alone: it starts on DEAD SPACE, so a row
+    // drag (which moves members) can never leave a phantom band behind.
+    const list = await win.locator('[role="listbox"]').boundingBox()
+    const firstRow = await win.locator('[data-arc-row]').first().boundingBox()
+    await win.mouse.move(firstRow.x + 40, list.y + list.height + 50)
+    await win.mouse.down()
+    await win.mouse.move(firstRow.x + 220, firstRow.y + 8, { steps: 10 })
+    ok((await win.locator('[data-arc-band]').count()) === 1, 'a band is drawn while sweeping')
+    await win.mouse.up()
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) > 1,
+      'the sweep marked the rows it crossed'
+    )
+    // And a press on dead space puts the marks away again: what stays marked
+    // is the archive itself, over in the tree.
+    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) === 0,
+      'dead space clears the selection'
+    )
 
     // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
     // Backspace) climbs back out.
@@ -2213,6 +2266,8 @@ try {
   await terminalScenario(fixtures)
   await sleep(900)
   await archiveScenario(fixtures)
+  await sleep(900)
+  await folderArgScenario(fixtures)
   await sleep(900)
   await selectionScenario(fixtures)
   await sleep(900)

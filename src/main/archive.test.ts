@@ -178,6 +178,28 @@ describe('drag and drop (#70)', () => {
     expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
   })
 
+  it('extracts EVERYTHING when handed the top-level entries', () => {
+    // What "Extract all" does: the roots of the tree cover every member,
+    // because extractTo matches by prefix. If this ever stopped being true,
+    // the verb would quietly leave files behind.
+    const out = mkdtempSync(join(tmpdir(), 'prism-all-'))
+    const tops = listArchive(zipPath)
+      .filter((e) => !e.path.includes('/'))
+      .map((e) => e.path)
+    expect(tops.sort()).toEqual(['docs', 'readme.txt'])
+    const r = extractTo(zipPath, tops, out)
+    expect(r).toEqual({ ok: true, written: 3 })
+    expect(existsSync(join(out, 'readme.txt'))).toBe(true)
+    expect(existsSync(join(out, 'docs', 'guide.md'))).toBe(true)
+    expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
+  })
+
+  it('carries the packed size and the time of each member, for the columns', () => {
+    const one = listArchive(zipPath).find((e) => e.path === 'readme.txt')!
+    expect(one.packed).toBeGreaterThan(0)
+    expect(one.mtime).toBeGreaterThan(Date.parse('2020-01-01'))
+  })
+
   it('refuses to rebuild a password-protected archive', () => {
     const crypto = join(__dirname, 'fixtures', 'crypto.zip')
     const copy = join(mkdtempSync(join(tmpdir(), 'prism-enc-')), 'c.zip')

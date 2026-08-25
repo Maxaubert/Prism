@@ -20,6 +20,12 @@ export type ArchiveEntry = {
   name: string
   dir: boolean
   size: number
+  /** What the member actually occupies inside the container. Folders have
+   *  none, and a stored (uncompressed) member has the same as `size`. */
+  packed?: number
+  /** The entry's own modified time, epoch ms. Every container carries one;
+   *  it is the archive's copy of it, not the file on disk's. */
+  mtime?: number
   /** Password-protected. ZipCrypto opens with the password; AES cannot. */
   encrypted?: boolean
 }
@@ -83,7 +89,13 @@ type ZipEntryLike = {
 
 /** A member name is a plain filename: no separators, no traversal, not empty. */
 export function validMemberName(name: string): boolean {
-  return name.length > 0 && name.length <= 200 && !/[\\/:*?"<>|]/.test(name) && name !== '.' && name !== '..'
+  return (
+    name.length > 0 &&
+    name.length <= 200 &&
+    !/[\\/:*?"<>|]/.test(name) &&
+    name !== '.' &&
+    name !== '..'
+  )
 }
 
 const norm = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
@@ -100,18 +112,22 @@ export function listArchive(zipPath: string): ArchiveEntry[] {
     if (e.isDirectory) {
       if (!seen.has(p)) seen.set(p, { path: p, name: basename(p), dir: true, size: 0 })
     } else {
+      const when = e.header.time instanceof Date ? e.header.time.getTime() : NaN
       seen.set(p, {
         path: p,
         name: basename(p),
         dir: false,
         size: e.header.size,
+        packed: e.header.compressedSize,
+        ...(Number.isFinite(when) && when > 0 ? { mtime: when } : {}),
         encrypted: (e.header.flags & 1) === 1 || undefined
       })
     }
     // Parents implied by the path, for zips that never wrote folder records.
     for (let i = p.indexOf('/'); i > 0; i = p.indexOf('/', i + 1)) {
       const parent = p.slice(0, i)
-      if (!seen.has(parent)) seen.set(parent, { path: parent, name: basename(parent), dir: true, size: 0 })
+      if (!seen.has(parent))
+        seen.set(parent, { path: parent, name: basename(parent), dir: true, size: 0 })
     }
   }
   return [...seen.values()]
@@ -415,7 +431,12 @@ export function extractTo(
       if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
       let target = resolve(base, ...rel.split('/'))
       const inside = relative(base, target)
-      if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
+      if (
+        !inside ||
+        inside.startsWith('..') ||
+        inside.split(sep).includes('..') ||
+        isAbsolute(inside)
+      )
         continue
       // Never overwrite what is already there: an extraction is a copy out,
       // and a member sharing a name with the user's own file must not destroy

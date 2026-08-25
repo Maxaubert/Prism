@@ -18,7 +18,19 @@ import type { ArchiveEntry, MemberFail } from './archive'
  */
 
 /** Extensions this module owns. zip is deliberately absent. */
-const SEVEN_EXTS = new Set(['.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz', '.xz', '.txz', '.iso', '.cab'])
+const SEVEN_EXTS = new Set([
+  '.7z',
+  '.rar',
+  '.tar',
+  '.gz',
+  '.tgz',
+  '.bz2',
+  '.tbz',
+  '.xz',
+  '.txz',
+  '.iso',
+  '.cab'
+])
 
 export function isSevenArchive(ext: string): boolean {
   return SEVEN_EXTS.has(ext.toLowerCase())
@@ -42,9 +54,16 @@ export function sevenDirs(packaged: boolean, resourcesPath: string, appPath: str
 
 let cached: string | null | undefined
 
-export function bundledSeven(packaged: boolean, resourcesPath: string, appPath: string): string | null {
+export function bundledSeven(
+  packaged: boolean,
+  resourcesPath: string,
+  appPath: string
+): string | null {
   if (cached !== undefined) return cached
-  cached = sevenDirs(packaged, resourcesPath, appPath).map((d) => join(d, '7z.exe')).find(existsSync) ?? null
+  cached =
+    sevenDirs(packaged, resourcesPath, appPath)
+      .map((d) => join(d, '7z.exe'))
+      .find(existsSync) ?? null
   return cached
 }
 
@@ -73,11 +92,16 @@ export function parseListing(out: string, archiveName = 'file'): ArchiveEntry[] 
     // Path at all: 7-Zip names it after the archive, and so do we - otherwise
     // the panel shows an empty archive that plainly is not empty.
     const size0 = get('Size')
-    const path = get('Path') ?? (size0 !== null ? archiveName.replace(/\.(xz|gz|bz2|tgz|tbz|txz)$/i, '') : null)
+    const path =
+      get('Path') ??
+      (size0 !== null ? archiveName.replace(/\.(xz|gz|bz2|tgz|tbz|txz)$/i, '') : null)
     if (!path) continue
     const attr = get('Attributes') ?? ''
     const folder = (get('Folder') ?? '').toLowerCase() === '+' || /^D/.test(attr)
     const size = Number(get('Size') ?? '0')
+    const packed = Number(get('Packed Size') ?? '')
+    // "2026-07-04 17:14:30", 7-Zip's own format, in local time.
+    const when = Date.parse((get('Modified') ?? '').replace(' ', 'T'))
     const enc = (get('Encrypted') ?? '').toLowerCase() === '+'
     const norm = path.replace(/\\/g, '/')
     entries.push({
@@ -88,6 +112,8 @@ export function parseListing(out: string, archiveName = 'file'): ArchiveEntry[] 
       name: basename(norm),
       dir: folder,
       size: Number.isFinite(size) ? size : 0,
+      ...(Number.isFinite(packed) ? { packed } : {}),
+      ...(Number.isFinite(when) ? { mtime: when } : {}),
       ...(enc ? { encrypted: true } : {})
     })
   }
@@ -97,6 +123,11 @@ export function parseListing(out: string, archiveName = 'file'): ArchiveEntry[] 
 /** argv for listing. Switches first, then `--`, so no member name is a switch. */
 export function listArgs(file: string, password: string): string[] {
   return ['l', '-slt', '-y', `-p${password}`, '--', file]
+}
+
+/** argv for extracting the WHOLE archive into `dir`, folders and all. */
+export function extractAllArgs(file: string, dir: string, password: string): string[] {
+  return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file]
 }
 
 /** argv for extracting one member, keeping its folders, into `dir`. */
@@ -146,6 +177,33 @@ export function safeMemberPath(entryPath: string, dir: string): string | null {
  * afterwards: the first stops an escape happening, the second catches an
  * extractor that rewrote the path on its own.
  */
+/**
+ * Extract EVERYTHING into `dir`. 7-Zip does the walking, so member names never
+ * pass through here one by one - but `-o` is still handed a directory Prism
+ * made itself, and 7-Zip's own extraction refuses to write outside it.
+ */
+export function extractAllSeven(
+  exe: string,
+  file: string,
+  dir: string,
+  password = ''
+): { ok: true } | { ok: false; reason: MemberFail } {
+  try {
+    execFileSync(exe, extractAllArgs(file, dir, password), {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+      timeout: 600000
+    })
+    return { ok: true }
+  } catch (err) {
+    const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
+    return {
+      ok: false,
+      reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed'
+    }
+  }
+}
+
 export function extractSeven(
   exe: string,
   file: string,
@@ -163,7 +221,10 @@ export function extractSeven(
     })
   } catch (err) {
     const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
-    return { ok: false, reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed' }
+    return {
+      ok: false,
+      reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed'
+    }
   }
   const out = join(dir, safe.replace(/\//g, sep))
   const rel = relative(resolve(dir), resolve(out))

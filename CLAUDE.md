@@ -106,12 +106,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
-  name and totals, with the members in a panel that FILLS the window (2026-08-24: it
+  name and totals, with the members in a panel that FILLS the window (2026-08-25: it
   used to be a 560px box adrift in the space, and read as a fraction of the app).
-  The panel scrolls, the page does not. Navigation is Explorer-shaped:
+  The panel scrolls, the page does not. Rows are EXPLORER COLUMNS under a header
+  (2026-08-25, owner pick): name, type ("HEIC image", "TypeScript source" - what Prism
+  will DO with it, not Explorer's "HEIC File"), size (folders say "3 items"), packed size
+  with the saving as a minus percent, and the entry's own modified time. The narrow
+  columns drop out on a small window; the name never does. Navigation is Explorer-shaped:
   clicking a folder walks INTO it, the crumb row (fixed height, so the panel never jumps)
   or Backspace climbs out - no collapsible tree, and NO hover quick-verbs (tried twice,
-  rejected twice). Verbs are right-click + F2/Delete: view (extracted to a temp file main
+  rejected twice). A VERB ROW under the archive's name (2026-08-25) carries what you come
+  to an archive to do: Extract all (main's own dialog picks where, which IS the consent -
+  it is why that destination is not bound by the root wall - and the contents land in a
+  folder named after the archive, "name (2)" if one is there), Add files (zip only), Copy,
+  Rename (handed up to App, which owns renaming), Show in Explorer. Row verbs stay on the
+  right-click menu + F2/Delete: view (extracted to a temp file main
   grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
   delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
   the dialog says so. Passwords: asked once per archive and remembered; ZipCrypto opens via
@@ -194,6 +203,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   tried and rolled back the same day; only the ARCHIVE is double-click, where single
   click selects). Contiguous selected rows fuse (shared edges drop their rounding).
   Search results speak the same selection language, multi right-click included.
+  DRAG-SELECT came back for the ARCHIVE alone (2026-08-25): it starts only on the
+  panel's DEAD SPACE, so a row drag (which moves members) can never leave a phantom
+  band behind - the failure that got the tree's sweep removed - and its listeners
+  die on pointerup and pointercancel alike. A press on dead space, or anywhere
+  outside the rows at all, CLEARS the marks in both surfaces: highlighting says
+  "these are what I am about to act on", so it must not outlive walking away from
+  them. What stays marked is the OPEN file, which is marked for being open.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land.
   Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
@@ -274,8 +290,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
   resume and songs do not.
 - **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), off by default, switched
-  in Settings > General. A classic HKCU verb under `*` and `Directory` - per user, no
-  elevation - added and removed with `reg.exe` (argv only). On Windows 11 it appears under
+  in Settings > General. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
+  `Directory\Background`, where it reads "Open Prism here" and takes `%V` rather than `%1`
+  (which is empty on a background click) - per user, no
+  elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way
+  roots a tab and then obeys "New tabs show" - first file, a terminal, or nothing - exactly
+  as the + does; main's argv reader used to demand a FILE, so the folder verb was present
+  and did nothing (fixed 2026-08-25). A folder a tab already holds switches to that tab. On Windows 11 it appears under
   "Show more options", because the short menu is built from IExplorerCommand COM handlers and
   those need a registered DLL; the hint in Settings says so rather than leaving it to be
   hunted for. The switch reports what the REGISTRY says, not what was clicked, and a verb

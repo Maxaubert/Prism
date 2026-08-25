@@ -20,8 +20,20 @@ import { execFile } from 'child_process'
 
 const FILE_KEY = 'HKCU\\Software\\Classes\\*\\shell\\OpenWithPrism'
 const DIR_KEY = 'HKCU\\Software\\Classes\\Directory\\shell\\OpenWithPrism'
+/** Right-click on the folder's BACKGROUND - Explorer's empty space, nothing
+ *  selected. A different key with a different substitution: %V is the folder
+ *  being viewed and %1 is empty there, which is why one verb cannot serve
+ *  both. Its label says where you land: "Open Prism here". */
+const BG_KEY = 'HKCU\\Software\\Classes\\Directory\\Background\\shell\\OpenWithPrism'
 
-export const verbKeys = (): string[] => [FILE_KEY, DIR_KEY]
+export const verbKeys = (): string[] => [FILE_KEY, DIR_KEY, BG_KEY]
+
+/** What each key is called in the menu, and what Explorer substitutes for it. */
+export function verbSpec(key: string): { label: string; arg: string } {
+  return key === BG_KEY
+    ? { label: 'Open Prism here', arg: '%V' }
+    : { label: 'Open in Prism', arg: '%1' }
+}
 
 /** The complete `reg` argument lists that create the verb - verb included,
  *  so a caller cannot forget it (one did, and the switch read as off after a
@@ -29,11 +41,13 @@ export const verbKeys = (): string[] => [FILE_KEY, DIR_KEY]
 export function addArgs(exe: string): string[][] {
   const out: string[][] = []
   for (const key of verbKeys()) {
+    const { label, arg } = verbSpec(key)
     // The label Explorer shows, and the icon beside it.
-    out.push(['add', key, '/ve', '/t', 'REG_SZ', '/d', 'Open in Prism', '/f'])
+    out.push(['add', key, '/ve', '/t', 'REG_SZ', '/d', label, '/f'])
     out.push(['add', key, '/v', 'Icon', '/t', 'REG_SZ', '/d', `${exe},0`, '/f'])
-    // "%1" quoted inside the value: a path with spaces is one argument.
-    out.push(['add', `${key}\\command`, '/ve', '/t', 'REG_SZ', '/d', `"${exe}" "%1"`, '/f'])
+    // The substitution is quoted inside the value: a path with spaces is one
+    // argument.
+    out.push(['add', `${key}\\command`, '/ve', '/t', 'REG_SZ', '/d', `"${exe}" "${arg}"`, '/f'])
   }
   return out
 }

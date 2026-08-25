@@ -10,7 +10,15 @@ import {
   utilityProcess
 } from 'electron'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
-import { createReadStream, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs'
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync
+} from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
@@ -18,13 +26,27 @@ import { listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
-import { killAll, killTerm, killWarm, livePids, prewarmShell, resizeTerm, spawnTerm, writeTerm } from './terminal'
+import {
+  killAll,
+  killTerm,
+  killWarm,
+  livePids,
+  prewarmShell,
+  resizeTerm,
+  spawnTerm,
+  writeTerm
+} from './terminal'
 import { treeAgentKind, type ProcRow } from './agentDetect'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
-import { cancelAllConversions, cancelConversion, convertVideo, planConversion } from './videoConvert'
-import { bundledSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
+import {
+  cancelAllConversions,
+  cancelConversion,
+  convertVideo,
+  planConversion
+} from './videoConvert'
+import { bundledSeven, extractAllSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
 import { installVerb, removeVerb, verbInstalled } from './shellVerb'
@@ -33,11 +55,31 @@ import { sanitizeDoc } from './docSanitize'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
-import { addToArchive, archiveStat, archiveTooLarge, deleteMember, extractMember, extractTo, listArchive, moveMembers, renameMember, type ArchiveEntry, type ArchiveStat } from './archive'
+import {
+  addToArchive,
+  archiveStat,
+  archiveTooLarge,
+  deleteMember,
+  extractMember,
+  extractTo,
+  listArchive,
+  moveMembers,
+  renameMember,
+  type ArchiveEntry,
+  type ArchiveStat
+} from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
-import type { DirListing, FileKind, OnClash, OpenPayload, OpenWithApp, MediaProbe, RenameResult } from '@shared/types'
+import type {
+  DirListing,
+  FileKind,
+  OnClash,
+  OpenPayload,
+  OpenWithApp,
+  MediaProbe,
+  RenameResult
+} from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -75,36 +117,87 @@ protocol.registerSchemesAsPrivileged([
     // corsEnabled so an <audio crossorigin> element served over fsmedia:// is not
     // "tainted" — otherwise a MediaElementSource feeds the AnalyserNode silence and
     // the audio visualizer would sit dead. Paired with the ACAO header in serveMedia.
-    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true }
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
   },
   {
     // The decoded-audio sidecar (audioSidecar.ts). Same privileges, same reason.
     scheme: AUDIO_SCHEME,
-    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true }
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
   }
 ])
 
 const MIME: Record<string, string> = {
-  '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.ogv': 'video/ogg',
-  '.mov': 'video/quicktime', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.ogv': 'video/ogg',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.avi': 'video/x-msvideo',
   // Served only until the converted copy exists (videoConvert.ts).
-  '.wmv': 'video/x-ms-wmv', '.asf': 'video/x-ms-asf', '.flv': 'video/x-flv',
-  '.f4v': 'video/x-f4v', '.mpg': 'video/mpeg', '.mpeg': 'video/mpeg', '.mpe': 'video/mpeg',
-  '.m1v': 'video/mpeg', '.m2v': 'video/mpeg', '.mpv': 'video/mpeg', '.m2ts': 'video/mp2t',
-  '.vob': 'video/dvd', '.3gp': 'video/3gpp', '.3g2': 'video/3gpp2', '.divx': 'video/x-msvideo',
-  '.mxf': 'application/mxf', '.rm': 'application/vnd.rn-realmedia',
-  '.rmvb': 'application/vnd.rn-realmedia-vbr', '.ogm': 'video/ogg', '.dv': 'video/x-dv',
-  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg',
-  '.opus': 'audio/opus', '.flac': 'audio/flac', '.wav': 'audio/wav',
+  '.wmv': 'video/x-ms-wmv',
+  '.asf': 'video/x-ms-asf',
+  '.flv': 'video/x-flv',
+  '.f4v': 'video/x-f4v',
+  '.mpg': 'video/mpeg',
+  '.mpeg': 'video/mpeg',
+  '.mpe': 'video/mpeg',
+  '.m1v': 'video/mpeg',
+  '.m2v': 'video/mpeg',
+  '.mpv': 'video/mpeg',
+  '.m2ts': 'video/mp2t',
+  '.vob': 'video/dvd',
+  '.3gp': 'video/3gpp',
+  '.3g2': 'video/3gpp2',
+  '.divx': 'video/x-msvideo',
+  '.mxf': 'application/mxf',
+  '.rm': 'application/vnd.rn-realmedia',
+  '.rmvb': 'application/vnd.rn-realmedia-vbr',
+  '.ogm': 'video/ogg',
+  '.dv': 'video/x-dv',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.flac': 'audio/flac',
+  '.wav': 'audio/wav',
   // The rest reach the player as decoded PCM (audioSidecar), so these types
   // only matter for the few Chromium can read by itself.
-  '.mka': 'audio/x-matroska', '.m4b': 'audio/mp4', '.wma': 'audio/x-ms-wma',
-  '.ac3': 'audio/ac3', '.dts': 'audio/vnd.dts', '.aiff': 'audio/aiff', '.aif': 'audio/aiff',
-  '.amr': 'audio/amr', '.ape': 'audio/x-ape', '.wv': 'audio/x-wavpack', '.au': 'audio/basic',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.jfif': 'image/jpeg', '.webp': 'image/webp',
+  '.mka': 'audio/x-matroska',
+  '.m4b': 'audio/mp4',
+  '.wma': 'audio/x-ms-wma',
+  '.ac3': 'audio/ac3',
+  '.dts': 'audio/vnd.dts',
+  '.aiff': 'audio/aiff',
+  '.aif': 'audio/aiff',
+  '.amr': 'audio/amr',
+  '.ape': 'audio/x-ape',
+  '.wv': 'audio/x-wavpack',
+  '.au': 'audio/basic',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.jfif': 'image/jpeg',
+  '.webp': 'image/webp',
   // Decoded to PNG before they ever reach the renderer (imageDecode.ts).
-  ...Object.fromEntries(decodableImages().map((e) => [e, 'image/png'])), '.bmp': 'image/bmp', '.svg': 'image/svg+xml', '.avif': 'image/avif',
+  ...Object.fromEntries(decodableImages().map((e) => [e, 'image/png'])),
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
   '.pdf': 'application/pdf'
 }
 const mimeFor = (p: string): string => MIME[extname(p).toLowerCase()] ?? 'application/octet-stream'
@@ -329,13 +422,24 @@ function folderPayload(dir: string): OpenPayload | null {
   return { files, index: files.length ? 0 : -1, root: dir }
 }
 
-/** The file path an OS "open" passed us, if any (last argv entry that's a file). */
-function pathFromArgv(argv: string[]): string | null {
+/**
+ * The path an OS "open" passed us, if any (last argv entry that exists).
+ *
+ * A FOLDER counts (2026-08-25). Explorer's Directory verb and its
+ * Directory\Background verb both hand over a folder, and this used to demand
+ * `isFile()`: the menu entry was there, Prism launched, and nothing happened.
+ * The caller needs to know which it got, because a folder roots a tab and a
+ * file opens inside one.
+ */
+function pathFromArgv(argv: string[]): { path: string; dir: boolean } | null {
   for (let i = argv.length - 1; i >= 1; i -= 1) {
     const a = argv[i]
     if (a.startsWith('--')) continue
     try {
-      if (existsSync(a) && statSync(a).isFile()) return a
+      if (!existsSync(a)) continue
+      const st = statSync(a)
+      if (st.isFile()) return { path: a, dir: false }
+      if (st.isDirectory()) return { path: a, dir: true }
     } catch {
       /* ignore */
     }
@@ -344,14 +448,22 @@ function pathFromArgv(argv: string[]): string | null {
 }
 
 let mainWindow: BrowserWindow | null = null
-let pendingOpen: string | null = null
+let pendingOpen: { path: string; dir: boolean } | null = null
 /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
 let editorDirty = false
 /** The user has answered the "unsaved changes" question: let the close through. */
 let closeConfirmed = false
 
-function sendOpen(p: string): void {
-  const payload = buildPayload(p) // came from outside: it becomes the root
+function sendOpen(target: { path: string; dir: boolean }): void {
+  // Came from outside: it becomes the root. A folder roots there and tells the
+  // renderer so, which is what lets the "New tabs show" setting decide whether
+  // that lands on the first file, a terminal, or nothing.
+  const payload = target.dir
+    ? (() => {
+        const p = folderPayload(target.path)
+        return p && { ...p, folder: true as const }
+      })()
+    : buildPayload(target.path)
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
 }
 
@@ -405,7 +517,8 @@ function restoreTabs(): OpenPayload[] {
     // the payload was rebuilt from the file alone and root followed it. The
     // wall has to be registered here, since buildPayload only does that when
     // it is inventing the root itself.
-    const keptRoot = t.file && existsSync(t.root) && insideRootPath(t.root, t.file) ? t.root : undefined
+    const keptRoot =
+      t.file && existsSync(t.root) && insideRootPath(t.root, t.file) ? t.root : undefined
     if (keptRoot) addRoot(keptRoot)
     const payload = t.file ? buildPayload(t.file, keptRoot) : folderPayload(t.root)
     if (payload) {
@@ -714,28 +827,42 @@ if (!app.requestSingleInstanceLock()) {
       const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
       return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
     })
+    /** Several real files at once: the archive panel's "Add files" verb. */
+    ipcMain.handle('dialog:pick-files', async (): Promise<string[]> => {
+      const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] })
+      return r.canceled ? [] : r.filePaths
+    })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
     /* ----- the terminal ----- */
 
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
     // spawn: the shell STARTS in an open root (it may leave; that is a shell).
     ipcMain.handle('term:shells', () => detectShells())
-    ipcMain.handle('term:spawn', async (_e, id: string, root: string, shellId?: string, resume?: string) => {
-      if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
-      // The resume id came from main's own scan of ~/.claude/projects, but it
-      // crossed the renderer on the way back - shape-check it again before it
-      // goes anywhere near a command line.
-      const safeResume =
-        resume === CODEX_RESUME || (resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume))
-          ? resume
-          : undefined
-      const ok = await spawnTerm(id, root, shellId, (ch, ...a) => mainWindow?.webContents.send(ch, ...a), safeResume)
-      // Warm the agent-poll pipeline now: the first CIM query is the slow one
-      // (cold WMI), and running it while the user is still typing their first
-      // command means the dot can appear on the poll that actually matters.
-      if (ok) setTimeout(pollAgents, 300)
-      return ok
-    })
+    ipcMain.handle(
+      'term:spawn',
+      async (_e, id: string, root: string, shellId?: string, resume?: string) => {
+        if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
+        // The resume id came from main's own scan of ~/.claude/projects, but it
+        // crossed the renderer on the way back - shape-check it again before it
+        // goes anywhere near a command line.
+        const safeResume =
+          resume === CODEX_RESUME || (resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume))
+            ? resume
+            : undefined
+        const ok = await spawnTerm(
+          id,
+          root,
+          shellId,
+          (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
+          safeResume
+        )
+        // Warm the agent-poll pipeline now: the first CIM query is the slow one
+        // (cold WMI), and running it while the user is still typing their first
+        // command means the dot can appear on the poll that actually matters.
+        if (ok) setTimeout(pollAgents, 300)
+        return ok
+      }
+    )
     ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
@@ -773,8 +900,16 @@ if (!app.requestSingleInstanceLock()) {
           if (err || !stdout) return
           let rows: ProcRow[]
           try {
-            const raw = JSON.parse(stdout) as Array<{ ProcessId: number; ParentProcessId: number; CommandLine: string | null }>
-            rows = raw.map((r) => ({ pid: r.ProcessId, ppid: r.ParentProcessId, cmd: r.CommandLine ?? '' }))
+            const raw = JSON.parse(stdout) as Array<{
+              ProcessId: number
+              ParentProcessId: number
+              CommandLine: string | null
+            }>
+            rows = raw.map((r) => ({
+              pid: r.ProcessId,
+              ppid: r.ParentProcessId,
+              cmd: r.CommandLine ?? ''
+            }))
           } catch {
             return
           }
@@ -910,7 +1045,6 @@ if (!app.requestSingleInstanceLock()) {
     const sidecarUrl = (p: string, stream: number, duration: number): string =>
       `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
 
-
     // One probe per file, kept for as long as the file has not changed: the
     // audio player, the video player and the no-picture note all ask.
     const probeCache = new Map<string, MediaInfo | null>()
@@ -997,24 +1131,33 @@ if (!app.requestSingleInstanceLock()) {
     // renderer waits on this and shows progress; a file already converted
     // comes back immediately.
     const convertDir = (): string => join(app.getPath('userData'), 'converted')
-    ipcMain.handle('video:convert', async (e, p: string): Promise<{ url?: string; error?: string }> => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return { error: 'outside the folder' }
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
-      if (!tools?.ffprobe) return { error: 'no decoder available' }
-      const info = await probeMedia(tools.ffprobe, p)
-      const plan = planConversion(info, extname(p))
-      if (!plan.needed) return { error: 'nothing to convert' }
-      try {
-        const handle = convertVideo(tools.ffmpeg, p, convertDir(), plan, info?.duration ?? 0, (pct) =>
-          e.sender.send('video:progress', { path: p, pct })
-        )
-        const out = await handle.done
-        extractedPaths.add(out) // the copy is ours to serve, wherever it sits
-        return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
-      } catch (err) {
-        return { error: err instanceof Error ? err.message : 'conversion failed' }
+    ipcMain.handle(
+      'video:convert',
+      async (e, p: string): Promise<{ url?: string; error?: string }> => {
+        if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p)))
+          return { error: 'outside the folder' }
+        const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+        if (!tools?.ffprobe) return { error: 'no decoder available' }
+        const info = await probeMedia(tools.ffprobe, p)
+        const plan = planConversion(info, extname(p))
+        if (!plan.needed) return { error: 'nothing to convert' }
+        try {
+          const handle = convertVideo(
+            tools.ffmpeg,
+            p,
+            convertDir(),
+            plan,
+            info?.duration ?? 0,
+            (pct) => e.sender.send('video:progress', { path: p, pct })
+          )
+          const out = await handle.done
+          extractedPaths.add(out) // the copy is ours to serve, wherever it sits
+          return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : 'conversion failed' }
+        }
       }
-    })
+    )
     ipcMain.on('video:cancel', (_e, out: string) => {
       if (typeof out === 'string') cancelConversion(out)
     })
@@ -1033,10 +1176,10 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // "Open in Prism" in File Explorer's own context menu (HKCU only).
-    ipcMain.handle("shell:verb-status", () => verbInstalled(app.getPath("exe")))
-    ipcMain.handle("shell:verb-set", async (_e, on: boolean): Promise<boolean> => {
-      if (typeof on !== "boolean") return false
-      return on ? installVerb(app.getPath("exe")) : removeVerb()
+    ipcMain.handle('shell:verb-status', () => verbInstalled(app.getPath('exe')))
+    ipcMain.handle('shell:verb-set', async (_e, on: boolean): Promise<boolean> => {
+      if (typeof on !== 'boolean') return false
+      return on ? installVerb(app.getPath('exe')) : removeVerb()
     })
 
     /* ----- context-menu verbs ----- */
@@ -1194,7 +1337,13 @@ if (!app.requestSingleInstanceLock()) {
         if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.
-          return { moved: [], clashes: [], failed: Array.isArray(paths) ? paths : [], replaced: [], refused: true }
+          return {
+            moved: [],
+            clashes: [],
+            failed: Array.isArray(paths) ? paths : [],
+            replaced: [],
+            refused: true
+          }
         return moveEntries(paths, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
         )
@@ -1205,14 +1354,22 @@ if (!app.requestSingleInstanceLock()) {
       (_e, zip: string, srcPaths: string[], destFolder: string, keepBoth?: boolean) => {
         if (!archiveOk(zip) || !Array.isArray(srcPaths) || !srcPaths.every(movable)) return 'failed'
         if (archiveTooLarge(statSync(zip).size)) return 'failed'
-        return addToArchive(zip, srcPaths, typeof destFolder === 'string' ? destFolder : '', !!keepBoth)
+        return addToArchive(
+          zip,
+          srcPaths,
+          typeof destFolder === 'string' ? destFolder : '',
+          !!keepBoth
+        )
       }
     )
-    ipcMain.handle('archive:move-members', (_e, zip: string, entries: string[], destFolder: string) => {
-      if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
-      if (archiveTooLarge(statSync(zip).size)) return 'failed'
-      return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
-    })
+    ipcMain.handle(
+      'archive:move-members',
+      (_e, zip: string, entries: string[], destFolder: string) => {
+        if (!archiveOk(zip) || !Array.isArray(entries)) return 'failed'
+        if (archiveTooLarge(statSync(zip).size)) return 'failed'
+        return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
+      }
+    )
     ipcMain.handle(
       'archive:extract-to',
       (_e, zip: string, entries: string[], destDir: string, password?: string) => {
@@ -1234,7 +1391,9 @@ if (!app.requestSingleInstanceLock()) {
     // bundled 7-Zip, which can list and extract them all but which Prism does
     // not write with. zip keeps its own in-process path, and its verbs.
     const seven = (p: string): string | null =>
-      isSevenArchive(extname(p)) ? bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()) : null
+      isSevenArchive(extname(p))
+        ? bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
+        : null
 
     ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null => {
       if (!archiveOk(p)) return null
@@ -1281,6 +1440,58 @@ if (!app.requestSingleInstanceLock()) {
           if (!r.ok) return r
           extractedPaths.add(r.path)
           return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
+        } catch {
+          return { ok: false, reason: 'failed' }
+        }
+      }
+    )
+    /**
+     * Extract the WHOLE archive, Explorer-shaped: the user picks where, and
+     * the contents land in a folder named after the archive so a zip full of
+     * loose files never sprays them over the chosen folder.
+     *
+     * The destination is chosen in MAIN's own dialog, which is the consent -
+     * that is why this one is not bound by the root wall, unlike
+     * archive:extract-to, whose destination the renderer names.
+     */
+    ipcMain.handle(
+      'archive:extract-all',
+      async (
+        _e,
+        p: string
+      ): Promise<
+        | { ok: true; dest: string }
+        | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+      > => {
+        if (!archiveOk(p)) return { ok: false, reason: 'failed' }
+        const r = await dialog.showOpenDialog({
+          properties: ['openDirectory', 'createDirectory'],
+          defaultPath: dirname(p),
+          buttonLabel: 'Extract here'
+        })
+        if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
+        const stem = basename(p).replace(/\.[^.]+$/, '') || 'extracted'
+        let dest = join(r.filePaths[0], stem)
+        // Never write over a folder that is already there: "name (2)", the
+        // same shape Duplicate uses.
+        for (let n = 2; existsSync(dest) && n < 100; n += 1)
+          dest = join(r.filePaths[0], `${stem} (${n})`)
+        try {
+          mkdirSync(dest, { recursive: true })
+          const pw = archivePasswords.get(p) ?? ''
+          const exe = seven(p)
+          if (exe) {
+            const s7 = extractAllSeven(exe, p, dest, pw)
+            return s7.ok ? { ok: true, dest } : { ok: false, reason: s7.reason }
+          }
+          if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+          // Every top-level entry: extractTo matches members by prefix, and
+          // the roots of the tree are what covers all of them.
+          const tops = listArchive(p)
+            .filter((e) => !e.path.includes('/'))
+            .map((e) => e.path)
+          const out = extractTo(p, tops, dest, pw || undefined)
+          return out.ok ? { ok: true, dest } : { ok: false, reason: out.reason }
         } catch {
           return { ok: false, reason: 'failed' }
         }

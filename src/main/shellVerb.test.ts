@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addArgs, pointsAt, queryArgs, removeArgs, verbKeys } from './shellVerb'
+import { addArgs, pointsAt, queryArgs, removeArgs, verbKeys, verbSpec } from './shellVerb'
 
 const EXE = 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Prism\\Prism.exe'
 
@@ -9,9 +9,23 @@ describe('the Explorer verb', () => {
     for (const k of verbKeys()) expect(k.startsWith('HKCU\\'), k).toBe(true)
   })
 
-  it('covers files and folders', () => {
+  it('covers files, folders, and the empty space inside a folder', () => {
     expect(verbKeys().some((k) => k.includes('\\*\\shell\\'))).toBe(true)
     expect(verbKeys().some((k) => k.includes('\\Directory\\shell\\'))).toBe(true)
+    expect(verbKeys().some((k) => k.includes('\\Directory\\Background\\shell\\'))).toBe(true)
+  })
+
+  it('gives the background verb %V, not %1', () => {
+    // %1 is empty on a background click: the verb would launch Prism with no
+    // path at all, which is exactly the "nothing happens" this fixes.
+    const bg = verbKeys().find((k) => k.includes('Background'))!
+    expect(verbSpec(bg)).toEqual({ label: 'Open Prism here', arg: '%V' })
+    expect(verbSpec(verbKeys()[0]).arg).toBe('%1')
+  })
+
+  it('says where you land, on the verb that lands you somewhere else', () => {
+    const flat = addArgs(EXE).map((a) => a.join(' ')).join('\n')
+    expect(flat).toContain('Open Prism here')
   })
 
   it('quotes the path inside the command, so a folder with spaces survives', () => {
