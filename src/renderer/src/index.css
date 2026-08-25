@@ -15,6 +15,22 @@
 /* Seamless scroll for the "Moving" colour-scheme swatches: the inner strip holds
    two identical cyclic-gradient tiles and slides by exactly one tile, so the loop
    is invisible. */
+/* The video transport's way back in. It FADES ON MOUNT rather than by
+   animating opacity on an element that stays in the tree, and that is the
+   whole point (2026-08-25): inside a fullscreen element on Windows, a layer
+   that has been taken to opacity 0 and back was composited once and never
+   repainted - the controls were in the DOM, at the right rectangle, at
+   opacity 1, and simply never reached the screen. A fresh element cannot be
+   stale. */
+@keyframes prism-chrome-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes prism-slide {
   to {
     transform: translateX(-50%);

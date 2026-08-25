@@ -41,9 +41,15 @@ export function VideoView({
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
   const peaks = useWaveform(src, transportStyle === 'wave' || transportStyle === 'wavebold')
-  const solidBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
+  const solidBg =
+    transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const v = useViz()
-  const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
+  const barFx = {
+    palette: resolveVizTheme(v.barTheme).palette,
+    glow: v.barGlow,
+    cycle: v.barCycle,
+    move: v.barMove
+  }
   const [chromeOn, setChromeOn] = useState(true)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The chrome never hides while the settings menu is open: an invisible menu
@@ -114,7 +120,6 @@ export function VideoView({
     }
   }, [showChrome])
 
-
   /* ------------------------------------------------------------------ *
    * TEMPORARY (2026-08-25): the fullscreen transport is reported dead on
    * the owner's machine and reproduces nowhere here - not with synthetic
@@ -141,7 +146,9 @@ export function VideoView({
     window.addEventListener('pointermove', move, { capture: true, passive: true })
     window.addEventListener('keydown', key, true)
     document.addEventListener('fullscreenchange', fsc)
-    log(`viewer mounted inner=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`)
+    log(
+      `viewer mounted inner=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`
+    )
 
     const tick = window.setInterval(() => {
       const el = video.current
@@ -178,7 +185,12 @@ export function VideoView({
   // main decodes them and this plays the result beside the picture. The video
   // element needs no muting - it has no decoder for that track either, which
   // is the entire problem.
-  const { state: sidecarState, url: sidecarUrl, ref: sidecarRef, videoCodec } = useSidecarAudio(path, video, c.vol, c.muted)
+  const {
+    state: sidecarState,
+    url: sidecarUrl,
+    ref: sidecarRef,
+    videoCodec
+  } = useSidecarAudio(path, video, c.vol, c.muted)
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
   const silent = sidecarState === 'unavailable' && hushedUrl !== url
 
@@ -246,7 +258,17 @@ export function VideoView({
           role="status"
           className="pointer-events-auto absolute left-1/2 top-3 z-30 flex max-w-[min(560px,86%)] -translate-x-1/2 items-center gap-2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3.5 py-1.5 text-[12px] text-[var(--p-text-soft)] shadow-[0_10px_28px_rgba(0,0,0,.45)]"
         >
-          <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" className="shrink-0 text-[var(--p-dim)]" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            width={13}
+            height={13}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.9"
+            strokeLinecap="round"
+            className="shrink-0 text-[var(--p-dim)]"
+            aria-hidden
+          >
             <path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6m0-6-4 6" />
           </svg>
           <span className="min-w-0">
@@ -256,7 +278,10 @@ export function VideoView({
                 {videoCodec ? ` (${videoCodec})` : ''}. The sound is unaffected.
               </>
             ) : (
-              <>No sound: this file&apos;s audio needs a decoder Prism could not find. The picture is unaffected.</>
+              <>
+                No sound: this file&apos;s audio needs a decoder Prism could not find. The picture
+                is unaffected.
+              </>
             )}
           </span>
           <button
@@ -265,7 +290,16 @@ export function VideoView({
             aria-label="Dismiss"
             title="Dismiss"
           >
-            <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              aria-hidden
+            >
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
@@ -295,7 +329,13 @@ export function VideoView({
         {/* Keyed by URL so switching tracks replaces the element: Chromium is
             happier remounting a track than watching its src change. */}
         {subtitles.vttUrl && (
-          <track key={subtitles.vttUrl} default kind="subtitles" src={subtitles.vttUrl} label="Subtitles" />
+          <track
+            key={subtitles.vttUrl}
+            default
+            kind="subtitles"
+            src={subtitles.vttUrl}
+            label="Subtitles"
+          />
         )}
       </video>
 
@@ -305,48 +345,58 @@ export function VideoView({
         </div>
       )}
 
-      {/* auto-hiding control overlay */}
-      <div
-        data-transport
-        onMouseEnter={() => {
-          overBar.current = true
-          showChrome()
-        }}
-        onMouseLeave={() => {
-          overBar.current = false
-          showChrome()
-        }}
-        // z-10 and a layer of its own, so nothing can order the picture over
-        // the top of it.
-        style={{ transform: 'translateZ(0)' }}
-        className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-opacity duration-200 ${
-          solidBg ? 'bg-[var(--p-title)]' : ''
-        } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
-      >
-        <Transport
-          c={c}
-          style={transportStyle}
-          peaks={peaks}
-          bar={barFx}
-          settings={
-            <PlayerMenu
-              c={c}
-              autoplayHint="video"
-              subtitles={{ tracks: subtitles.tracks, active: subtitles.active, onPick: subtitles.pick }}
-              onOpenChange={onMenuOpen}
-            />
-          }
-          extra={
-            <button
-              className="grid place-items-center hover:text-[var(--color-accent-hi)]"
-              onClick={onToggleFullscreen}
-              title="Fullscreen (F)"
-            >
-              {IconFull}
-            </button>
-          }
-        />
-      </div>
+      {/* The auto-hiding control overlay. MOUNTED and UNMOUNTED rather than
+          faded in place: see prism-chrome-in in index.css - a layer that goes
+          to opacity 0 inside a fullscreen element and comes back is composited
+          once and never repainted, so the controls were painted at the right
+          place and never appeared. */}
+      {chromeOn && (
+        <div
+          data-transport
+          onMouseEnter={() => {
+            overBar.current = true
+            showChrome()
+          }}
+          onMouseLeave={() => {
+            overBar.current = false
+            showChrome()
+          }}
+          // z-10 and a layer of its own, so nothing can order the picture over
+          // the top of it.
+          style={{ animation: 'prism-chrome-in 180ms ease-out' }}
+          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 ${
+            solidBg ? 'bg-[var(--p-title)]' : ''
+          }`}
+        >
+          <Transport
+            c={c}
+            style={transportStyle}
+            peaks={peaks}
+            bar={barFx}
+            settings={
+              <PlayerMenu
+                c={c}
+                autoplayHint="video"
+                subtitles={{
+                  tracks: subtitles.tracks,
+                  active: subtitles.active,
+                  onPick: subtitles.pick
+                }}
+                onOpenChange={onMenuOpen}
+              />
+            }
+            extra={
+              <button
+                className="grid place-items-center hover:text-[var(--color-accent-hi)]"
+                onClick={onToggleFullscreen}
+                title="Fullscreen (F)"
+              >
+                {IconFull}
+              </button>
+            }
+          />
+        </div>
+      )}
     </div>
   )
 }
