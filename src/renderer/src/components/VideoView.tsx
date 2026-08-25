@@ -47,14 +47,18 @@ export function VideoView({
   const [chromeOn, setChromeOn] = useState(true)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The chrome never hides while the settings menu is open: an invisible menu
-  // would keep eating clicks and the first Escape.
+  // would keep eating clicks and the first Escape. Nor while the pointer is
+  // resting ON the transport - reaching for the scrubber and pausing your hand
+  // should not make the thing you are reaching for disappear.
   const menuOpen = useRef(false)
+  const overBar = useRef(false)
 
   const showChrome = useCallback(() => {
     setChromeOn(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
     hideTimer.current = setTimeout(() => {
-      if (video.current && !video.current.paused && !menuOpen.current) setChromeOn(false)
+      if (video.current && !video.current.paused && !menuOpen.current && !overBar.current)
+        setChromeOn(false)
     }, 2600)
   }, [])
 
@@ -85,6 +89,30 @@ export function VideoView({
       if (hideTimer.current) clearTimeout(hideTimer.current)
     }
   }, [])
+
+  /**
+   * Activity, heard at the WINDOW rather than only on this div (2026-08-25).
+   *
+   * The controls used to wake on React's own onMouseMove, which only fires for
+   * events that reach this element and bubble. In fullscreen that is one
+   * assumption too many: the pointer can land on the black around a letterboxed
+   * picture, on an overlay, or on a surface that stops propagation, and the
+   * chrome then stays hidden however hard you wave. Capture-phase listeners on
+   * the window hear the move wherever it lands, and any keystroke counts too,
+   * so a paused film always shows its transport even if something else claimed
+   * the key first.
+   */
+  useEffect(() => {
+    const wake = (): void => showChrome()
+    window.addEventListener('pointermove', wake, { capture: true, passive: true })
+    window.addEventListener('keydown', wake, true)
+    document.addEventListener('fullscreenchange', wake)
+    return () => {
+      window.removeEventListener('pointermove', wake, true)
+      window.removeEventListener('keydown', wake, true)
+      document.removeEventListener('fullscreenchange', wake)
+    }
+  }, [showChrome])
 
   // Click toggles play quietly - no centre icon at all (owner decision,
   // 2026-08-22): the transport says the state, the picture stays clean.
@@ -121,7 +149,12 @@ export function VideoView({
     <div
       className="group relative flex h-full w-full items-center justify-center"
       onMouseMove={showChrome}
-      onMouseLeave={() => c.playing && !menuOpen.current && setChromeOn(false)}
+      // Leaving hides it - but NOT in fullscreen, where there is nowhere else
+      // to be: the pointer crossing onto the black around a letterboxed
+      // picture, or onto another monitor, is not the user walking away.
+      onMouseLeave={() =>
+        c.playing && !menuOpen.current && !document.fullscreenElement && setChromeOn(false)
+      }
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
       {playable.converting && (
@@ -218,6 +251,14 @@ export function VideoView({
 
       {/* auto-hiding control overlay */}
       <div
+        onMouseEnter={() => {
+          overBar.current = true
+          showChrome()
+        }}
+        onMouseLeave={() => {
+          overBar.current = false
+          showChrome()
+        }}
         className={`pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-200 ${
           solidBg ? 'bg-[var(--p-title)]' : ''
         } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
