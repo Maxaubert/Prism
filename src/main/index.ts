@@ -108,6 +108,12 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb')
 // its black bars and the page's own layer stops reaching the screen. Unknown
 // feature names are ignored, so this is safe if Chromium has since renamed it.
 app.commandLine.appendSwitch('disable-features', 'DirectCompositionLetterboxVideoOptimization')
+// The hammer in the same family, on trial (2026-08-25): with DirectComposition
+// off, Chromium cannot hand the picture to Windows to present at all, so
+// anything the page draws over the video has to reach the screen the ordinary
+// way. If this is what fixes the missing transport, it narrows to the lightest
+// switch that still does; if it is not, the fault is not compositing.
+app.commandLine.appendSwitch('disable-direct-composition')
 
 // Archive members extracted to temp for viewing: each grant is one exact
 // path, made when archive:extract writes it. The reads that honour the root
@@ -1012,6 +1018,23 @@ if (!app.requestSingleInstanceLock()) {
       } catch {
         /* diagnostics must never break the app */
       }
+    })
+    // TEMPORARY (2026-08-25): the page photographs ITSELF while fullscreen.
+    // A script cannot take the foreground on Windows, so every capture of the
+    // screen so far has photographed whatever was actually in front. This
+    // reads the page's own rendered surface, in the owner's real session:
+    // the transport visible here but missing on screen means the picture is
+    // being presented outside the page and covering it.
+    ipcMain.on('debug:snap', (_e, name: string) => {
+      if (!mainWindow) return
+      void mainWindow.webContents
+        .capturePage()
+        .then((img) => {
+          const file = join(app.getPath('userData'), `fs-snap-${String(name).replace(/[^a-z0-9-]/gi, '')}.png`)
+          writeFileSync(file, img.toPNG())
+          debugLine(`snap ${file} ${img.getSize().width}x${img.getSize().height}`)
+        })
+        .catch(() => debugLine('snap failed'))
     })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,

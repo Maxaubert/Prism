@@ -138,6 +138,17 @@ export function VideoView({
     const key = (e: KeyboardEvent): void => {
       dbgKeys.current.push(e.key + (e.defaultPrevented ? '(claimed)' : ''))
     }
+    // Photograph the page a few seconds in, when the fault has always shown
+    // itself, and again later.
+    let snaps: number[] = []
+    const armSnaps = (): void => {
+      snaps.forEach((t) => window.clearTimeout(t))
+      snaps = []
+      if (!document.fullscreenElement) return
+      snaps = [4000, 9000, 15000].map((ms, i) =>
+        window.setTimeout(() => window.prism.debugSnap?.(`${i + 1}`), ms)
+      )
+    }
     const fsc = (): void =>
       log(
         `fullscreenchange el=${document.fullscreenElement?.className.slice(0, 40) ?? 'none'} ` +
@@ -146,6 +157,7 @@ export function VideoView({
     window.addEventListener('pointermove', move, { capture: true, passive: true })
     window.addEventListener('keydown', key, true)
     document.addEventListener('fullscreenchange', fsc)
+    document.addEventListener('fullscreenchange', armSnaps)
     log(
       `viewer mounted inner=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`
     )
@@ -173,6 +185,8 @@ export function VideoView({
       window.removeEventListener('pointermove', move, true)
       window.removeEventListener('keydown', key, true)
       document.removeEventListener('fullscreenchange', fsc)
+      document.removeEventListener('fullscreenchange', armSnaps)
+      snaps.forEach((t) => window.clearTimeout(t))
       window.clearInterval(tick)
     }
   }, [chromeOn, video])
