@@ -12,6 +12,9 @@ import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { resolveVizTheme } from '../lib/theme'
 
+/** How long the controls stay after the last sign of life, in ms. */
+const CHROME_IDLE = 2600
+
 // The video player: the shared media hook + Transport, on a black stage with a
 // video frame, an auto-hiding control overlay, click-to-play,
 // and fullscreen. Everything transport-related lives in the shared pieces; this
@@ -51,22 +54,41 @@ export function VideoView({
     move: v.barMove
   }
   const [chromeOn, setChromeOn] = useState(true)
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // The chrome never hides while the settings menu is open: an invisible menu
-  // would keep eating clicks and the first Escape. Nor while the pointer is
-  // resting ON the transport - reaching for the scrubber and pausing your hand
-  // should not make the thing you are reaching for disappear.
+  /**
+   * When the last thing happened. The chrome hides on a CLOCK reading this,
+   * not on a timer that each wake cancels and replaces (2026-08-25): a timer
+   * only has to miss one reset to leave the controls up for ever, and one
+   * sticky flag - a menu that closed without saying so, a pointer that
+   * entered the bar and never left because the bar unmounted under it - was
+   * enough to do exactly that.
+   */
+  // Zero until the first effect: reading the clock during render is impure.
+  const lastWake = useRef(0)
+  // The settings menu pins the chrome while it is open: an invisible menu
+  // would keep eating clicks and the first Escape.
   const menuOpen = useRef(false)
-  const overBar = useRef(false)
 
   const showChrome = useCallback(() => {
+    lastWake.current = Date.now()
     setChromeOn(true)
-    if (hideTimer.current) clearTimeout(hideTimer.current)
-    hideTimer.current = setTimeout(() => {
-      if (video.current && !video.current.paused && !menuOpen.current && !overBar.current)
-        setChromeOn(false)
-    }, 2600)
   }, [])
+
+  /** The clock. Hiding is decided from what is TRUE at the moment it fires -
+   *  the element's own :hover included - so nothing can be left stuck on. */
+  useEffect(() => {
+    lastWake.current = Date.now()
+    const t = window.setInterval(() => {
+      if (Date.now() - lastWake.current < CHROME_IDLE) return
+      const el = video.current
+      if (!el || el.paused || menuOpen.current) return
+      // Reaching for the scrubber and pausing your hand should not make the
+      // thing you are reaching for disappear. Asked of the DOM, so it cannot
+      // be a flag that failed to clear.
+      if (document.querySelector('[data-transport]:hover')) return
+      setChromeOn(false)
+    }, 250)
+    return () => window.clearInterval(t)
+  }, [video])
 
   const onMenuOpen = useCallback(
     (open: boolean) => {
@@ -89,12 +111,6 @@ export function VideoView({
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
     resumeKey: url
   })
-
-  useEffect(() => {
-    return () => {
-      if (hideTimer.current) clearTimeout(hideTimer.current)
-    }
-  }, [])
 
   /**
    * Activity, heard at the WINDOW rather than only on this div (2026-08-25).
@@ -367,14 +383,12 @@ export function VideoView({
       {chromeOn && (
         <div
           data-transport
-          onMouseEnter={() => {
-            overBar.current = true
-            showChrome()
-          }}
-          onMouseLeave={() => {
-            overBar.current = false
-            showChrome()
-          }}
+          // No mouse handlers of its own, deliberately: the bar UNMOUNTS when
+          // the chrome hides, and an element removed under the pointer fires
+          // its own mouseleave - wired to wake, that put the controls back up
+          // the instant they went away, for ever. Moving the pointer already
+          // wakes them (window listener), and resting on them is read from
+          // :hover by the clock.
           // z-10 and a layer of its own, so nothing can order the picture over
           // the top of it.
           style={{ animation: 'prism-chrome-in 180ms ease-out' }}
