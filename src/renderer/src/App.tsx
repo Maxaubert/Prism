@@ -12,7 +12,6 @@ import {
   setTabPanes,
   setTabTerm,
   toggleTermView,
-  type Tab,
   type TabState,
   type TreeState
 } from './lib/tabs'
@@ -760,23 +759,19 @@ export default function App(): JSX.Element {
    * the same act by another route and should not answer the question
    * differently.
    */
-  const applyNewTabShow = useCallback(() => {
+  const withNewTabShow = useCallback((st: TabState): TabState => {
     const show = newTabShow()
-    if (show === 'terminal')
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab || tab.term) return s
-        const termId = nextTermId()
-        termRoots.current.set(termId, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
-      })
-    else if (show === 'none')
-      // The quiet start: the sidebar keeps the folder's files, but nothing
-      // goes on screen (NoFileState) until the user picks one.
-      setTabState((s) => ({
-        ...s,
-        tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: -1 } : t))
-      }))
+    const tab = st.tabs.find((t) => t.id === st.activeId)
+    if (!tab || show === 'file') return st
+    if (show === 'terminal') {
+      if (tab.term) return st
+      const termId = nextTermId()
+      termRoots.current.set(termId, tab.root)
+      return { ...st, tabs: setTabTerm(st.tabs, tab.id, { id: termId, view: 'full' }) }
+    }
+    // The quiet start: the sidebar keeps the folder's files, but nothing
+    // goes on screen (NoFileState) until the user picks one.
+    return { ...st, tabs: st.tabs.map((t) => (t.id === tab.id ? { ...t, index: -1 } : t)) }
   }, [])
 
   const open = useCallback(
@@ -788,13 +783,13 @@ export default function App(): JSX.Element {
       // already has a tab for switches there instead of making a second - one
       // tab per root - and keeps whatever that tab was showing.
       if (p.folder) {
-        const hit = tabsRef.current.find((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
-        if (hit) {
-          setTabState((s) => ({ ...s, activeId: hit.id }))
-          return
-        }
-        setTabState((s) => addTab(s.tabs, p, nextTabId()))
-        applyNewTabShow()
+        // Decided INSIDE the update, against the tabs as they stand: a folder
+        // arriving while the strip is still being restored would otherwise
+        // look at an empty strip and make a second tab on the same root.
+        setTabState((s) => {
+          const hit = s.tabs.find((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
+          return hit ? { ...s, activeId: hit.id } : withNewTabShow(addTab(s.tabs, p, nextTabId()))
+        })
         setHasNavigated(false)
         return
       }
@@ -833,7 +828,7 @@ export default function App(): JSX.Element {
       })
       setHasNavigated(false) // a fresh open starts in "opened directly" mode
     },
-    [applyNewTabShow]
+    [withNewTabShow]
   )
 
   // Pre-warm: a tab in front with no shell probably gets one soon. After a
@@ -961,14 +956,9 @@ export default function App(): JSX.Element {
   // + is handed to main once and must not be rebuilt whenever a tab changes).
   const activeRootRef = useRef<string | undefined>(undefined)
   const activeIdRef = useRef<string | null>(null)
-  /** The strip as it stands, for the same reason: a folder arriving from
-   *  Explorer has to know whether a tab is already rooted there BEFORE it
-   *  decides to make one. */
-  const tabsRef = useRef<readonly Tab[]>([])
   useEffect(() => {
     activeRootRef.current = tabs.find((t) => t.id === activeId)?.root
     activeIdRef.current = activeId
-    tabsRef.current = tabs
   }, [tabs, activeId])
 
   const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
@@ -995,11 +985,10 @@ export default function App(): JSX.Element {
           : window.prism.openHome()
     void request.then((p) => {
       if (!p) return // ask-mode cancelled: no tab
-      setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      applyNewTabShow()
+      setTabState((s) => withNewTabShow(addTab(s.tabs, p, nextTabId())))
       setHasNavigated(false)
     })
-  }, [applyNewTabShow])
+  }, [withNewTabShow])
 
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a

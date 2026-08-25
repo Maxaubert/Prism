@@ -1998,6 +1998,14 @@ async function archiveScenario(fixtures) {
       (await win.locator('[data-arc-row][data-selected]').count()) === 0,
       'dead space clears the selection'
     )
+    // Ctrl+A takes the folder you are looking at, from dead space or a row.
+    const memberCount = await win.locator('[data-arc-row]').count()
+    await win.keyboard.press('Control+a')
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) === memberCount,
+      'Ctrl+A marks every member of this folder'
+    )
+    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
 
     // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
     // Backspace) climbs back out.
@@ -2092,6 +2100,24 @@ async function selectionScenario(fixtures) {
     ok(
       ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
       'and still opens nothing'
+    )
+
+    // Ctrl+A takes every row the tree is SHOWING (2026-08-25)...
+    const visible = await win.locator('aside [data-row]').count()
+    await win.keyboard.press('Control+a')
+    await sleep(200)
+    ok(
+      (await win.locator('aside [data-row][data-selected]').count()) === visible,
+      `Ctrl+A marks every visible row (${visible})`
+    )
+    // ...and the search box keeps its own, as every typing surface does.
+    await win.locator('input[placeholder="Search"]').click()
+    await win.keyboard.type('abc')
+    await win.keyboard.press('Control+a')
+    await win.keyboard.type('z')
+    ok(
+      (await win.locator('input[placeholder="Search"]').inputValue()) === 'z',
+      'and the search box keeps Ctrl+A for its own text'
     )
   } finally {
     await app.close()

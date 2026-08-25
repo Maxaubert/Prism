@@ -210,6 +210,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
+  every row the TREE is showing (expanded folders included, never what is
+  collapsed and invisible), or every member of the archive folder you are in.
+  Behind the typing guard, so the search box, a rename, the editor and the
+  shell keep their own Ctrl+A.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land.
   Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN

@@ -442,7 +442,10 @@ function ArchiveInner({
    * half of what dead space should mean.
    */
   const panelBox = useRef<HTMLDivElement>(null)
+  /** Was the last press in here? Ctrl+A belongs to the surface you are in. */
+  const hasFocus = useRef(false)
   const onPanelPointerDown = useCallback((e: React.PointerEvent): void => {
+    hasFocus.current = true
     if (e.button !== 0) return
     const el = e.target as HTMLElement | null
     if (el?.closest('[data-arc-row]')) return // the row owns its own click
@@ -495,11 +498,29 @@ function ArchiveInner({
       const el = e.target as HTMLElement | null
       if (!el || panelBox.current?.contains(el)) return
       if (el.closest('[role="menu"],[role="dialog"],[data-owns-escape]')) return
+      hasFocus.current = false
       setSel((s) => (s.items.size ? emptySelection : s))
     }
     window.addEventListener('pointerdown', away, true)
     return () => window.removeEventListener('pointerdown', away, true)
   }, [])
+
+  /** Ctrl+A marks everything in the folder you are looking at - this folder,
+   *  not the whole archive, which is what Explorer means by it too. Only
+   *  while the panel is the surface you last touched, and never while
+   *  something is being typed into. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
+      if (!hasFocus.current || member) return
+      const el = e.target as HTMLElement | null
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      e.preventDefault()
+      setSel({ anchor: order[0] ?? null, items: new Set(order) })
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [order, member])
 
   const onRowDragStart = useCallback(
     (e: React.DragEvent, path: string): void => {

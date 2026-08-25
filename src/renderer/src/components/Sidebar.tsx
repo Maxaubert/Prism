@@ -253,10 +253,14 @@ export function Sidebar({
    * Exempt: a menu or dialog, which IS the act on the selection, and the
    * rename input, which is editing the row it belongs to.
    */
+  /** Was the last press inside the tree? Ctrl+A belongs to the surface you are
+   *  in, and the archive panel keeps one of these too. */
+  const hasFocus = useRef(false)
   useEffect(() => {
     const away = (e: PointerEvent): void => {
       const el = e.target as HTMLElement | null
       if (!el) return
+      hasFocus.current = !!panel.current?.contains(el)
       if (el.closest('[data-row],[role="menu"],[role="dialog"],[data-owns-escape],input,textarea'))
         return
       setSel((s) => (s.items.size ? emptySelection : s))
@@ -477,6 +481,29 @@ export function Sidebar({
   /** The flattened visible rows, top to bottom: the order shift-ranges and
    *  shift-ranges count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
+
+  /**
+   * Ctrl+A marks every row the tree is SHOWING - what is expanded, folders
+   * included - rather than everything under the root, which would mark files
+   * you cannot see and the next Delete would take.
+   *
+   * Only while the tree is the surface you last touched (the archive panel
+   * has the same rule for its own rows), and never while something is being
+   * typed into: the search box, a rename, the editor and the shell keep it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
+      if (!hasFocus.current || !order.length) return
+      const el = e.target as HTMLElement | null
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (el?.closest('.xterm')) return
+      e.preventDefault()
+      setSel({ anchor: order[0], items: new Set(order) })
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [order])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
