@@ -514,7 +514,7 @@ function ArchiveInner({
           name, what it holds), and the members live in a bounded panel under
           it - the label on the box. Navigation is Explorer-shaped inside the
           panel; the crumb row appears once you are inside a folder. */}
-      <div className="flex h-full flex-col items-center px-6 pb-6 pt-7">
+      <div className="flex h-full flex-col items-center px-8 pb-6 pt-6">
         <span className="mb-2.5 grid h-[52px] w-[52px] place-items-center">
           {sysIcon ? (
             <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
@@ -527,7 +527,7 @@ function ArchiveInner({
         </div>
         <div className="mt-1 text-[11.5px] text-[var(--p-dim)]">{totals || ' '}</div>
 
-        <div className="mt-3.5 flex min-h-0 w-full max-w-[920px] flex-1 flex-col">
+        <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
                 itself is the first crumb wherever you stand, so the path
                 reads the same coming back as it did going in (and the panel
