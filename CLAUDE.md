@@ -288,6 +288,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **The band behind the transport** is a slider (2026-08-25, Settings > Player):
+  0-100%, opaque by default, which is the bar exactly as it always looked. Below
+  55% the controls carry their own drop shadow, because at that point they are
+  sitting on the film rather than on a band. The edge, outline and island styles
+  ignore it: a hairline, a glow rail and a floating capsule are their own shape,
+  and a band would make them a different style rather than the same one on a
+  background. Stored as a NUMBER, and read back defensively - `Number(null)` and
+  `Number('')` are both 0, so a naive loader would read "never set" as "fully
+  transparent" and quietly remove the bar for everyone.
 - **Fullscreen and the transport** (2026-08-25, three days of wrong guesses, so the
   findings are written down). The controls appeared on entering fullscreen and never
   again. They were NOT hidden: the DOM had them mounted at the right rectangle, opacity

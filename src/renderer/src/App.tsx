@@ -73,7 +73,13 @@ import {
   setTheme as setVizTheme
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
-import { loadTransportStyle, TRANSPORT_KEY, type TransportStyle } from './lib/transport'
+import {
+  loadTransportBg,
+  loadTransportStyle,
+  TRANSPORT_BG_KEY,
+  TRANSPORT_KEY,
+  type TransportStyle
+} from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import {
@@ -411,6 +417,7 @@ function Viewer({
   onToggleFullscreen,
   fullscreen,
   transportStyle,
+  transportBg,
   onOpenLocal,
   onAutoAdvance,
   onBuffer,
@@ -427,6 +434,8 @@ function Viewer({
   onToggleFullscreen: () => void
   fullscreen: boolean
   transportStyle: TransportStyle
+  /** How solid the band behind the video's controls is, 0-100%. */
+  transportBg: number
   /** A markdown link to a local file; opened the same way as a tree click. */
   onOpenLocal: (path: string) => void
   /** Autoplay: a finished video/track moves to the next of its kind. */
@@ -446,6 +455,7 @@ function Viewer({
           onToggleFullscreen={onToggleFullscreen}
           onAutoAdvance={onAutoAdvance}
           transportStyle={transportStyle}
+          transportBg={transportBg}
         />
       )
     case 'image':
@@ -652,6 +662,7 @@ export default function App(): JSX.Element {
   const [dragging, setDragging] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const [transportStyle, setTransportStyle] = useState<TransportStyle>(loadTransportStyle)
+  const [transportBg, setTransportBg] = useState<number>(loadTransportBg)
   // Settings rides the strip as a tab of its own kind, so it can be flipped
   // to and from like any other. `settingsOpen` is simply "the settings tab is
   // in front"; the page itself stays mounted underneath either way, keeping
@@ -741,6 +752,10 @@ export default function App(): JSX.Element {
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
+  }, [])
+  const pickTransportBg = useCallback((pct: number) => {
+    setTransportBg(pct)
+    localStorage.setItem(TRANSPORT_BG_KEY, String(pct))
   }, [])
 
   /**
@@ -2381,6 +2396,7 @@ export default function App(): JSX.Element {
                     onToggleFullscreen={toggleFullscreen}
                     fullscreen={fullscreen}
                     transportStyle={transportStyle}
+                    transportBg={transportBg}
                     onOpenLocal={openFromTree}
                     onAutoAdvance={advanceSameKind}
                     onBuffer={onBuffer}
@@ -2445,6 +2461,7 @@ export default function App(): JSX.Element {
                         onToggleFullscreen: toggleFullscreen,
                         fullscreen,
                         transportStyle,
+                      transportBg,
                         onOpenLocal: openFromTree,
                         onAutoAdvance: () => {},
                         onBuffer,
@@ -2511,6 +2528,8 @@ export default function App(): JSX.Element {
         onClose={closeSettingsTab}
         transportStyle={transportStyle}
         onPickTransport={pickTransport}
+        transportBg={transportBg}
+        onPickTransportBg={pickTransportBg}
       />
 
       {ask?.kind === 'delete' && (

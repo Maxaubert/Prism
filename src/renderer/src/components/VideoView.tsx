@@ -25,7 +25,8 @@ export function VideoView({
   path,
   onToggleFullscreen,
   onAutoAdvance,
-  transportStyle
+  transportStyle,
+  transportBg
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -34,6 +35,8 @@ export function VideoView({
   /** Autoplay's exit: the app moves to the next video in the folder. */
   onAutoAdvance: () => void
   transportStyle: TransportStyle
+  /** How solid the band behind the controls is, 0-100%. */
+  transportBg: number
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
   // A file Chromium cannot open at all is converted first, and what plays is
@@ -44,8 +47,14 @@ export function VideoView({
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
   const peaks = useWaveform(src, transportStyle === 'wave' || transportStyle === 'wavebold')
-  const solidBg =
+  // How solid the band behind the controls is, 0-100% (2026-08-25). Opaque by
+  // default - the bar as it has always looked - and a slider all the way down
+  // to nothing, where the picture runs to the bottom of the frame. Three styles
+  // never had a band and still do not: an edge hairline, an outline rail and a
+  // floating capsule are their own shape.
+  const bandable =
     transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
+  const bandPct = bandable ? Math.max(0, Math.min(100, transportBg)) : 0
   const v = useViz()
   const barFx = {
     palette: resolveVizTheme(v.barTheme).palette,
@@ -323,10 +332,18 @@ export function VideoView({
           // :hover by the clock.
           // z-10 and a layer of its own, so nothing can order the picture over
           // the top of it.
-          style={{ animation: 'prism-chrome-in 180ms ease-out' }}
-          className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 ${
-            solidBg ? 'bg-[var(--p-title)]' : ''
-          }`}
+          style={{
+            animation: 'prism-chrome-in 180ms ease-out',
+            ...(bandPct > 0
+              ? { background: `color-mix(in srgb, var(--p-title) ${bandPct}%, transparent)` }
+              : {}),
+            // Once the band is faint the controls sit on whatever the film is
+            // showing, and a white sky reads as well as a night scene only if
+            // they carry their own shadow. Dropped again when the band is
+            // solid enough to do the job itself.
+            ...(bandPct < 55 ? { filter: 'drop-shadow(0 1px 3px rgba(0,0,0,.85))' } : {})
+          }}
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
         >
           <Transport
             c={c}

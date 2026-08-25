@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import type { FileKind, ViewerFile } from '@shared/types'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
-import { loadTransportStyle } from '../lib/transport'
+import { loadTransportBg, loadTransportStyle } from '../lib/transport'
 import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -77,6 +77,7 @@ function MemberView({
           onToggleFullscreen={noop}
           onAutoAdvance={noop}
           transportStyle={loadTransportStyle()}
+          transportBg={loadTransportBg()}
         />
       )
     case 'audio':

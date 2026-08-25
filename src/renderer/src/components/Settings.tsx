@@ -552,10 +552,15 @@ function isActivePreset(p: Preset, v: VizState): boolean {
 
 function PlayerTab({
   transportStyle,
-  onPickTransport
+  onPickTransport,
+  transportBg,
+  onPickTransportBg
 }: {
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
+  /** How solid the band behind the controls is, 0-100%. */
+  transportBg: number
+  onPickTransportBg: (pct: number) => void
 }): JSX.Element {
   const v = useViz()
   return (
@@ -579,6 +584,40 @@ function PlayerTab({
           </Section>
         )
       })}
+      <Section title="Behind the controls">
+        {/* Opaque is the bar as it has always been; all the way down, the
+            picture runs to the bottom of the frame and the controls carry
+            their own shadow. The edge, outline and island styles have no band
+            to fade - they are their own shape - and the hint says so. */}
+        <Pref
+          id="transport-bg"
+          label="Background"
+          hint={
+            transportBg === 0
+              ? 'None: the picture runs to the bottom of the frame.'
+              : transportBg === 100
+                ? 'Opaque: the controls sit on their own band.'
+                : 'How solid the band behind the controls is, over video.'
+          }
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
+              {transportBg}%
+            </span>
+            <input
+              id="transport-bg"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={transportBg}
+              onChange={(e) => onPickTransportBg(Number(e.target.value))}
+              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+              style={{ accentColor: 'var(--p-accent)' }}
+            />
+          </div>
+        </Pref>
+      </Section>
       <Section title="Colour">
         <ColourControls
           selectedId={v.barTheme}
@@ -1846,7 +1885,9 @@ export function Settings({
   compactRail,
   onShowSetup,
   transportStyle,
-  onPickTransport
+  onPickTransport,
+  transportBg,
+  onPickTransportBg
 }: {
   open: boolean
   onClose: () => void
@@ -1856,6 +1897,8 @@ export function Settings({
   onShowSetup: () => void
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
+  transportBg: number
+  onPickTransportBg: (pct: number) => void
 }): JSX.Element | null {
   const [tab, setTab] = useState<TabId>('style')
   const size = useTreeSize()
@@ -1959,7 +2002,12 @@ export function Settings({
             ) : tab === 'terminal' ? (
               <TerminalTab />
             ) : tab === 'player' ? (
-              <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
+              <PlayerTab
+                transportStyle={transportStyle}
+                onPickTransport={onPickTransport}
+                transportBg={transportBg}
+                onPickTransportBg={onPickTransportBg}
+              />
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
             ) : (
