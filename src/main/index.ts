@@ -100,6 +100,14 @@ app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 // of pixels in every state - playing and paused match. The cost: HDR videos
 // are tone-mapped to SDR inside Prism rather than passed through.
 app.commandLine.appendSwitch('force-color-profile', 'srgb')
+// And the FULLSCREEN half of the same family (2026-08-25). Measured on this
+// machine: a few seconds into fullscreen playback the transport stops being
+// painted - the DOM says opacity 1 at the right rectangle, and the screen
+// shows only film. Overlays are already off above, so the remaining path is
+// the letterbox-fullscreen optimisation, where DWM presents the picture and
+// its black bars and the page's own layer stops reaching the screen. Unknown
+// feature names are ignored, so this is safe if Chromium has since renamed it.
+app.commandLine.appendSwitch('disable-features', 'DirectCompositionLetterboxVideoOptimization')
 
 // Archive members extracted to temp for viewing: each grant is one exact
 // path, made when archive:extract writes it. The reads that honour the root

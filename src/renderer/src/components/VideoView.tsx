@@ -123,6 +123,15 @@ export function VideoView({
    * the player actually sees to userData/prism-debug.log. Remove it the
    * moment the cause is known.
    * ------------------------------------------------------------------ */
+  /** Fullscreen, as the DOM sees it. Drives the compositing mitigation below. */
+  const [inFs, setInFs] = useState(false)
+  useEffect(() => {
+    const sync = (): void => setInFs(!!document.fullscreenElement)
+    sync()
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
   const dbgMoves = useRef(0)
   const dbgKeys = useRef<string[]>([])
   useEffect(() => {
@@ -287,6 +296,14 @@ export function VideoView({
         // Fill the stage and letterbox only on the axis that needs it. max-w/max-h
         // would cap the video at its intrinsic size, so anything smaller than the
         // window (e.g. a 720p file fullscreened) sat boxed in on all four sides.
+        // 0.999 while fullscreen, and this is not decoration (2026-08-25):
+        // an exactly-opaque video is what lets Windows present the picture
+        // through the video pipeline, and everything the page draws over it -
+        // the transport - then stops appearing a few seconds into playback.
+        // Asking for the faintest blend keeps the picture in the page's own
+        // layer, where the controls can sit on top of it. Invisible to the
+        // eye; costs a blend, only while fullscreen.
+        style={inFs ? { opacity: 0.999 } : undefined}
         className="h-full w-full object-contain"
         onClick={clickToggle}
         onDoubleClick={onToggleFullscreen}
@@ -316,7 +333,10 @@ export function VideoView({
           overBar.current = false
           showChrome()
         }}
-        className={`pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-200 ${
+        // z-10 and a layer of its own, so nothing can order the picture over
+        // the top of it.
+        style={{ transform: 'translateZ(0)' }}
+        className={`pointer-events-none absolute inset-x-0 bottom-0 z-10 transition-opacity duration-200 ${
           solidBg ? 'bg-[var(--p-title)]' : ''
         } ${chromeOn ? 'opacity-100' : 'opacity-0'}`}
       >
