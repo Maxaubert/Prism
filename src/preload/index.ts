@@ -30,10 +30,6 @@ const api = {
   openHome: (): Promise<OpenPayload | null> => ipcRenderer.invoke('open:home'),
   /** A new tab rooted at a remembered folder (the Settings choice). */
   openRoot: (dir: string): Promise<OpenPayload | null> => ipcRenderer.invoke('open:root', dir),
-  /** TEMPORARY: ask main to photograph the page into userData/fs-snap-*.png. */
-  debugSnap: (name: string): void => ipcRenderer.send('debug:snap', name),
-  /** TEMPORARY: fullscreen-transport diagnostics, into userData/prism-debug.log. */
-  debugLog: (line: string): void => ipcRenderer.send('debug:log', line),
   /** Choose a folder without opening it: the Settings picker. */
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder'),
   /** Choose real files: the archive panel's "Add files". Empty when cancelled. */

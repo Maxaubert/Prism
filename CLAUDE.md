@@ -288,6 +288,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **Fullscreen and the transport** (2026-08-25, three days of wrong guesses, so the
+  findings are written down). The controls appeared on entering fullscreen and never
+  again. They were NOT hidden: the DOM had them mounted at the right rectangle, opacity
+  1, visible, inside the fullscreen element, with the pointer moves arriving in dozens
+  per second - and a capture of that strip of the real screen showed only film.
+  DirectComposition was presenting the picture and the page's own overlay never reached
+  the glass. `--disable-direct-composition` is the fix (overlays alone were already off
+  for the HDR pause-brightness bug and were not enough). MEASURED cost: zero dropped
+  frames in 899 at 4K HEVC, and the acrylic styles composite identically with it on or
+  off. Then the hide broke, three times over, all the same shape - something waking the
+  controls the instant they hid: a cancellable timer that only had to miss one reset;
+  the bar's own `mouseleave`, which fires when an element is REMOVED under the pointer;
+  Chromium's `mousemove` on layout change under a STATIONARY cursor; and PlayerMenu's
+  unmount reporting "closed" through the same path that pins the chrome open. So: the
+  transport MOUNTS and UNMOUNTS (a layer taken to opacity 0 inside a fullscreen element
+  is composited once and never repainted), it has no mouse handlers of its own, activity
+  is heard on the WINDOW in the capture phase, and hiding is decided by a clock reading
+  the last wake, the video's own paused state, and the bar's own `:hover`. Nothing that
+  can be left stuck. Do not reintroduce a hover flag, a root-level onMouseMove, or an
+  opacity fade in place.
 - **Playback position** (`useMediaControls`, tuned 2026-08-24 by owner decision): media longer
   than 10 MINUTES reopens where you left it, silently - no prompt, no banner. Anything shorter
   never is, which is why a 5-second clip always starts at the start. Stopping inside the LAST

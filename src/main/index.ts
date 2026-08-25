@@ -11,7 +11,6 @@ import {
 } from 'electron'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import {
-  appendFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -100,14 +99,6 @@ app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 // of pixels in every state - playing and paused match. The cost: HDR videos
 // are tone-mapped to SDR inside Prism rather than passed through.
 app.commandLine.appendSwitch('force-color-profile', 'srgb')
-// And the FULLSCREEN half of the same family (2026-08-25). Measured on this
-// machine: a few seconds into fullscreen playback the transport stops being
-// painted - the DOM says opacity 1 at the right rectangle, and the screen
-// shows only film. Overlays are already off above, so the remaining path is
-// the letterbox-fullscreen optimisation, where DWM presents the picture and
-// its black bars and the page's own layer stops reaching the screen. Unknown
-// feature names are ignored, so this is safe if Chromium has since renamed it.
-app.commandLine.appendSwitch('disable-features', 'DirectCompositionLetterboxVideoOptimization')
 // The hammer in the same family, on trial (2026-08-25): with DirectComposition
 // off, Chromium cannot hand the picture to Windows to present at all, so
 // anything the page draws over the video has to reach the screen the ordinary
@@ -694,22 +685,9 @@ function watchWindowState(win: BrowserWindow): void {
  */
 let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
 
-/** TEMPORARY diagnostics, same file the renderer writes to. */
-function debugLine(line: string): void {
-  try {
-    appendFileSync(
-      join(app.getPath('userData'), 'prism-debug.log'),
-      new Date().toISOString() + ' [main] ' + line + String.fromCharCode(10)
-    )
-  } catch {
-    /* diagnostics must never break the app */
-  }
-}
-
 function applyMaterial(fullscreen: boolean): void {
   if (!mainWindow) return
   const { material, light } = wantedMaterial
-  debugLine(`material want=${material} fullscreen=${fullscreen}`)
   const solid = light ? '#f7f7f9' : '#111318'
   try {
     if (fullscreen || material === 'none') {
@@ -1006,36 +984,6 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
-    // TEMPORARY (2026-08-25): the fullscreen transport is reported dead on the
-    // owner's machine and reproduces nowhere here, so this writes what the
-    // player actually sees to userData/prism-debug.log. Remove once diagnosed.
-    ipcMain.on('debug:log', (_e, line: string) => {
-      try {
-        appendFileSync(
-          join(app.getPath('userData'), 'prism-debug.log'),
-          new Date().toISOString() + ' ' + String(line) + String.fromCharCode(10)
-        )
-      } catch {
-        /* diagnostics must never break the app */
-      }
-    })
-    // TEMPORARY (2026-08-25): the page photographs ITSELF while fullscreen.
-    // A script cannot take the foreground on Windows, so every capture of the
-    // screen so far has photographed whatever was actually in front. This
-    // reads the page's own rendered surface, in the owner's real session:
-    // the transport visible here but missing on screen means the picture is
-    // being presented outside the page and covering it.
-    ipcMain.on('debug:snap', (_e, name: string) => {
-      if (!mainWindow) return
-      void mainWindow.webContents
-        .capturePage()
-        .then((img) => {
-          const file = join(app.getPath('userData'), `fs-snap-${String(name).replace(/[^a-z0-9-]/gi, '')}.png`)
-          writeFileSync(file, img.toPNG())
-          debugLine(`snap ${file} ${img.getSize().width}x${img.getSize().height}`)
-        })
-        .catch(() => debugLine('snap failed'))
-    })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.

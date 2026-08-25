@@ -92,8 +92,13 @@ export function VideoView({
 
   const onMenuOpen = useCallback(
     (open: boolean) => {
+      const was = menuOpen.current
       menuOpen.current = open
-      showChrome() // opening pins it; closing restarts the hide clock
+      // Opening pins the chrome; a real close restarts the clock. A close
+      // reported while it was ALREADY closed is the menu unmounting with the
+      // bar - and waking on that put the controls straight back up every time
+      // they hid, which is the third form this same bug took.
+      if (open || was) showChrome()
     },
     [showChrome]
   )
@@ -136,77 +141,6 @@ export function VideoView({
     }
   }, [showChrome])
 
-  /* ------------------------------------------------------------------ *
-   * TEMPORARY (2026-08-25): the fullscreen transport is reported dead on
-   * the owner's machine and reproduces nowhere here - not with synthetic
-   * input, not with the real Windows cursor, not on the same film, in
-   * either fullscreen path. So rather than guess again, this writes what
-   * the player actually sees to userData/prism-debug.log. Remove it the
-   * moment the cause is known.
-   * ------------------------------------------------------------------ */
-  const dbgMoves = useRef(0)
-  const dbgKeys = useRef<string[]>([])
-  useEffect(() => {
-    const log = (line: string): void => window.prism.debugLog?.(line)
-    const move = (): void => {
-      dbgMoves.current += 1
-    }
-    const key = (e: KeyboardEvent): void => {
-      dbgKeys.current.push(e.key + (e.defaultPrevented ? '(claimed)' : ''))
-    }
-    // Photograph the page a few seconds in, when the fault has always shown
-    // itself, and again later.
-    let snaps: number[] = []
-    const armSnaps = (): void => {
-      snaps.forEach((t) => window.clearTimeout(t))
-      snaps = []
-      if (!document.fullscreenElement) return
-      snaps = [4000, 9000, 15000].map((ms, i) =>
-        window.setTimeout(() => window.prism.debugSnap?.(`${i + 1}`), ms)
-      )
-    }
-    const fsc = (): void =>
-      log(
-        `fullscreenchange el=${document.fullscreenElement?.className.slice(0, 40) ?? 'none'} ` +
-          `inner=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`
-      )
-    window.addEventListener('pointermove', move, { capture: true, passive: true })
-    window.addEventListener('keydown', key, true)
-    document.addEventListener('fullscreenchange', fsc)
-    document.addEventListener('fullscreenchange', armSnaps)
-    log(
-      `viewer mounted inner=${window.innerWidth}x${window.innerHeight} dpr=${window.devicePixelRatio}`
-    )
-
-    const tick = window.setInterval(() => {
-      const el = video.current
-      const bar = el?.parentElement?.querySelector('[data-transport]') as HTMLElement | null
-      const r = bar?.getBoundingClientRect()
-      const moves = dbgMoves.current
-      const keys = dbgKeys.current.splice(0, 8).join(',')
-      dbgMoves.current = 0
-      // Only speak while there is something to say: in fullscreen, or when
-      // input arrived. A quiet windowed player writes nothing.
-      if (!document.fullscreenElement && !moves && !keys) return
-      log(
-        `fs=${!!document.fullscreenElement} chrome=${chromeOn} paused=${el?.paused} ` +
-          `moves=${moves} keys=[${keys}] ` +
-          `bar=${r ? `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}` : 'missing'} ` +
-          `op=${bar ? getComputedStyle(bar).opacity : '-'} vis=${bar ? getComputedStyle(bar).visibility : '-'} ` +
-          `inner=${window.innerWidth}x${window.innerHeight} ` +
-          `video=${el ? `${Math.round(el.getBoundingClientRect().width)}x${Math.round(el.getBoundingClientRect().height)}` : 'none'}`
-      )
-    }, 1000)
-    return () => {
-      window.removeEventListener('pointermove', move, true)
-      window.removeEventListener('keydown', key, true)
-      document.removeEventListener('fullscreenchange', fsc)
-      document.removeEventListener('fullscreenchange', armSnaps)
-      snaps.forEach((t) => window.clearTimeout(t))
-      window.clearInterval(tick)
-    }
-  }, [chromeOn, video])
-
   // Click toggles play quietly - no centre icon at all (owner decision,
   // 2026-08-22): the transport says the state, the picture stays clean.
   const clickToggle = (): void => c.togglePlay()
@@ -246,13 +180,11 @@ export function VideoView({
   return (
     <div
       className="group relative flex h-full w-full items-center justify-center"
-      onMouseMove={showChrome}
-      // Leaving hides it - but NOT in fullscreen, where there is nowhere else
-      // to be: the pointer crossing onto the black around a letterboxed
-      // picture, or onto another monitor, is not the user walking away.
-      onMouseLeave={() =>
-        c.playing && !menuOpen.current && !document.fullscreenElement && setChromeOn(false)
-      }
+      // No mouse handlers here either, and for a measured reason: Chromium
+      // fires `mousemove` when the layout changes under a STATIONARY cursor,
+      // and the bar unmounting is such a change - so the controls hid and
+      // woke themselves a frame later, for ever. Real movement arrives on the
+      // window's pointermove, which content changes do not fire.
       style={{ cursor: chromeOn ? 'default' : 'none' }}
     >
       {playable.converting && (
