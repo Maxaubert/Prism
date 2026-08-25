@@ -11,6 +11,7 @@ import {
 } from 'electron'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import {
+  appendFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -940,6 +941,19 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
+    // TEMPORARY (2026-08-25): the fullscreen transport is reported dead on the
+    // owner's machine and reproduces nowhere here, so this writes what the
+    // player actually sees to userData/prism-debug.log. Remove once diagnosed.
+    ipcMain.on('debug:log', (_e, line: string) => {
+      try {
+        appendFileSync(
+          join(app.getPath('userData'), 'prism-debug.log'),
+          new Date().toISOString() + ' ' + String(line) + String.fromCharCode(10)
+        )
+      } catch {
+        /* diagnostics must never break the app */
+      }
+    })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.
