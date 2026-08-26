@@ -85,14 +85,19 @@ async function launch(file, keepTabs = false) {
   // every call against it dies with "garbage collected" or "has been closed".
   // Waiting longer between scenarios only moves the odds; retrying until the
   // lock is genuinely free is what settles it.
+  //
+  // Five tries over twenty seconds was not always enough: the scenarios that
+  // convert video leave ffmpeg finishing, and the app after them can hold the
+  // lock for longer than that. Eight tries with a longer backoff costs nothing
+  // when the lock is free, which is almost always.
   let last
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     try {
       return await launchOnce(file, keepTabs)
     } catch (err) {
       if (!/garbage collected|Target page, context or browser has been closed|Target closed/i.test(String(err))) throw err
       last = err
-      await sleep(2000 + attempt * 1000)
+      await sleep(2000 + attempt * 1500)
     }
   }
   throw last
