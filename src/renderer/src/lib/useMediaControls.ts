@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
+import { rememberPaused } from './playState'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -164,10 +165,16 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const bind: MediaBindings = {
     onPlay: () => {
       setPlaying(true)
+      // Remembered for the session, so opening Settings (or any other tab) and
+      // coming back does not restart a film you had deliberately paused: a tab
+      // renders only while it is in front, so the player comes back as a fresh
+      // element that would autoplay.
+      if (resumeKey) rememberPaused(resumeKey, false)
       onPlayChange?.(true)
     },
     onPause: () => {
       setPlaying(false)
+      if (resumeKey) rememberPaused(resumeKey, true)
       onPlayChange?.(false)
     },
     onTimeUpdate: (e) => {

@@ -45,6 +45,34 @@ function Toggle({
 
 const Rule = (): JSX.Element => <div className="my-1 h-px bg-[var(--p-divider)]" />
 
+/** One of a set, ticked. The subtitle rows below use the same shape. */
+function Choice({
+  label,
+  hint,
+  on,
+  onPick
+}: {
+  label: string
+  hint: string
+  on: boolean
+  onPick: () => void
+}): JSX.Element {
+  return (
+    <button
+      role="menuitemradio"
+      aria-checked={on}
+      title={hint}
+      onClick={onPick}
+      className={`flex h-[30px] w-full items-center gap-2 px-3 text-left text-[12.5px] transition-colors hover:bg-[var(--p-hover)] ${
+        on ? 'text-[var(--p-text)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+      }`}
+    >
+      <span className="w-3 shrink-0 text-[var(--color-accent-hi)]">{on ? '✓' : ''}</span>
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  )
+}
+
 const Label = ({ text }: { text: string }): JSX.Element => (
   <div className="px-3 pb-1 pt-2 text-[10.5px] font-semibold uppercase tracking-[.1em] text-[var(--p-dim2)]">
     {text}
@@ -165,6 +193,29 @@ export function PlayerMenu({
             hint={`Play the next ${autoplayHint} in the folder when this one ends.`}
             on={prefs.autoplay}
             onChange={(v) => setPlayerPref('autoplay', v)}
+          />
+          <Rule />
+          {/* Both conventions, named as the players that have them name it:
+              VLC pauses when minimised, PotPlayer when the window loses focus.
+              Off is what Prism has always done. */}
+          <Label text="Pause playback" />
+          <Choice
+            label="Never"
+            hint="Keep playing whatever else you are doing."
+            on={prefs.background === 'off'}
+            onPick={() => setPlayerPref('background', 'off')}
+          />
+          <Choice
+            label="When minimised"
+            hint="Pause while the window is minimised, and carry on when it comes back."
+            on={prefs.background === 'minimised'}
+            onPick={() => setPlayerPref('background', 'minimised')}
+          />
+          <Choice
+            label="When another window has focus"
+            hint="Pause as soon as you click away, and carry on when you come back."
+            on={prefs.background === 'unfocused'}
+            onPick={() => setPlayerPref('background', 'unfocused')}
           />
           {subtitles && (
             <>

@@ -10,6 +10,8 @@ import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
+import { wasPaused } from '../lib/playState'
+import { useBackgroundPause } from '../lib/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
 
 /** How long the controls stay after the last sign of life, in ms. */
@@ -111,6 +113,8 @@ export function VideoView({
     },
     [showChrome]
   )
+
+  useBackgroundPause(video)
 
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
@@ -284,7 +288,10 @@ export function VideoView({
       <video
         ref={video}
         src={src}
-        autoPlay
+        // Autoplay UNLESS this file was paused a moment ago: opening Settings
+        // or another tab unmounts the viewer, and a fresh element would start
+        // a film you had deliberately stopped (see lib/playState).
+        autoPlay={!wasPaused(url)}
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on
         // (a looping video never ends, so this simply doesn't fire).

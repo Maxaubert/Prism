@@ -751,6 +751,29 @@ function createWindow(): void {
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
+  /**
+   * Minimised, and focused, told to the page (2026-08-26).
+   *
+   * The renderer cannot see either: Electron does not mark a MINIMISED window
+   * hidden, so `visibilitychange` never fires and `document.hidden` stays
+   * false, and window blur in the page is not the same question as "another
+   * application has the focus". The player's "pause in the background" setting
+   * needs both, so main - which does know - says so.
+   */
+  const sayState = (): void =>
+    mainWindow?.webContents.send('window:state', {
+      minimised: mainWindow.isMinimized(),
+      focused: mainWindow.isFocused()
+    })
+  // Listed one by one: BrowserWindow's overloads are per event name, so a loop
+  // over a union of them has no single signature to match.
+  mainWindow.on('minimize', sayState)
+  mainWindow.on('restore', sayState)
+  mainWindow.on('show', sayState)
+  mainWindow.on('hide', sayState)
+  mainWindow.on('focus', sayState)
+  mainWindow.on('blur', sayState)
+
   mainWindow.on('enter-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', true)
     applyMaterial(true)
