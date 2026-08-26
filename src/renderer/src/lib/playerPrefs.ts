@@ -10,20 +10,13 @@ export interface PlayerPrefs {
   /** Subtitles wanted: when on, a video that has tracks shows the first one. */
   subs: boolean
   /**
-   * Pause when Prism is not what you are looking at (2026-08-26).
-   *
-   * The wording follows the players that already have this: VLC's "Pause
-   * playback when minimized" and PotPlayer's "Pause playback when focus lost"
-   * are the two conventions, so both are offered rather than invented:
-   *
-   *  'off'       - never; what Prism has always done.
-   *  'minimised' - when the window is minimised (VLC's).
-   *  'unfocused' - whenever another window has the focus (PotPlayer's).
+   * Pause when Prism is not what you are looking at (2026-08-26): another
+   * window has the focus, or Prism is minimised - PotPlayer's "Pause playback
+   * when focus lost", which covers VLC's minimised case as well, since a
+   * minimised window has no focus either. Off by default.
    */
-  background: BackgroundPause
+  background: boolean
 }
-
-export type BackgroundPause = 'off' | 'minimised' | 'unfocused'
 
 const KEY = 'prism.player.prefs'
 
@@ -33,11 +26,13 @@ function load(): PlayerPrefs {
     const loop = raw.loop === true
     // Loop and autoplay are mutually exclusive (a looping file never ends, so
     // autoplay could never fire); if a stored state has both, loop wins.
-    const bg: BackgroundPause =
-      raw.background === 'minimised' || raw.background === 'unfocused' ? raw.background : 'off'
+    // A stored 'minimised' or 'unfocused' from the three-way version reads as
+    // on; anything else, including the old 'off', reads as off.
+    const stored: unknown = raw.background
+    const bg = stored === true || stored === 'minimised' || stored === 'unfocused'
     return { loop, autoplay: !loop && raw.autoplay === true, subs: raw.subs === true, background: bg }
   } catch {
-    return { loop: false, autoplay: false, subs: false, background: 'off' }
+    return { loop: false, autoplay: false, subs: false, background: false }
   }
 }
 
