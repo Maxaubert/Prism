@@ -1,4 +1,5 @@
-import { openSync, readSync, closeSync, statSync } from 'fs'
+import { statSync } from 'fs'
+import { open } from 'fs/promises'
 import { extname } from 'path'
 
 /**
@@ -75,8 +76,12 @@ function findEoi(buf: Buffer, from: number): number {
 const cache = new Map<string, Buffer>()
 const CACHE_MAX = 4
 
-/** The embedded preview of a raw file, as JPEG bytes. Throws if there is none. */
-export function rawPreview(path: string, mtimeMs: number): Buffer {
+/** The embedded preview of a raw file, as JPEG bytes. Throws if there is none.
+ *
+ *  The read is ASYNC (2026-08-26): up to 40MB off disk with readSync stopped
+ *  the whole main process - every window, every IPC reply - for as long as the
+ *  disk took, which on a card reader or a network share is not a moment. */
+export async function rawPreview(path: string, mtimeMs: number): Promise<Buffer> {
   const key = `${path}|${mtimeMs}`
   const hit = cache.get(key)
   if (hit) {
@@ -87,11 +92,11 @@ export function rawPreview(path: string, mtimeMs: number): Buffer {
   const size = statSync(path).size
   const want = Math.min(size, SCAN_BYTES)
   const buf = Buffer.alloc(want)
-  const fd = openSync(path, 'r')
+  const fd = await open(path, 'r')
   try {
-    readSync(fd, buf, 0, want, 0)
+    await fd.read(buf, 0, want, 0)
   } finally {
-    closeSync(fd)
+    await fd.close()
   }
   const jpeg = findJpeg(buf)
   if (!jpeg) throw new Error('no embedded preview in this raw file')

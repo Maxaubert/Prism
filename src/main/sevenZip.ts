@@ -1,4 +1,27 @@
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
+
+/**
+ * Every 7-Zip call is ASYNC (2026-08-26), and that is not a style preference.
+ * execFileSync blocks the WHOLE main process: every window, every IPC reply,
+ * the terminals, and the fsmedia:// Range handler a playing video depends on.
+ * Extracting a 115MB archive measured 278ms of that; the verb allows ten
+ * minutes, so a big archive froze the app for as long as it took.
+ */
+function run(
+  exe: string,
+  args: string[],
+  timeout: number
+): Promise<{ ok: true; out: string } | { ok: false; stderr: string }> {
+  return new Promise((resolve) => {
+    execFile(
+      exe,
+      args,
+      { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 64 << 20 },
+      (err, stdout, stderr) =>
+        resolve(err ? { ok: false, stderr: String(stderr ?? '') } : { ok: true, out: stdout })
+    )
+  })
+}
 import { existsSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -136,18 +159,13 @@ export function extractArgs(file: string, entry: string, dir: string, password: 
 }
 
 /** List an archive 7-Zip understands. null when it could not be read. */
-export function listSeven(exe: string, file: string, password = ''): ArchiveEntry[] | null {
-  try {
-    const out = execFileSync(exe, listArgs(file, password), {
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 60000,
-      maxBuffer: 64 << 20
-    })
-    return parseListing(out, basename(file))
-  } catch {
-    return null
-  }
+export async function listSeven(
+  exe: string,
+  file: string,
+  password = ''
+): Promise<ArchiveEntry[] | null> {
+  const r = await run(exe, listArgs(file, password), 60000)
+  return r.ok ? parseListing(r.out, basename(file)) : null
 }
 
 /**
@@ -182,48 +200,34 @@ export function safeMemberPath(entryPath: string, dir: string): string | null {
  * pass through here one by one - but `-o` is still handed a directory Prism
  * made itself, and 7-Zip's own extraction refuses to write outside it.
  */
-export function extractAllSeven(
+export async function extractAllSeven(
   exe: string,
   file: string,
   dir: string,
   password = ''
-): { ok: true } | { ok: false; reason: MemberFail } {
-  try {
-    execFileSync(exe, extractAllArgs(file, dir, password), {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-      timeout: 600000
-    })
-    return { ok: true }
-  } catch (err) {
-    const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
-    return {
-      ok: false,
-      reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed'
-    }
+): Promise<{ ok: true } | { ok: false; reason: MemberFail }> {
+  const r = await run(exe, extractAllArgs(file, dir, password), 600000)
+  if (r.ok) return { ok: true }
+  return {
+    ok: false,
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
   }
 }
 
-export function extractSeven(
+export async function extractSeven(
   exe: string,
   file: string,
   entryPath: string,
   password = ''
-): { ok: true; path: string } | { ok: false; reason: MemberFail } {
+): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   const dir = mkdtempSync(join(tmpdir(), 'prism-arc-'))
   const safe = safeMemberPath(entryPath, dir)
   if (!safe) return { ok: false, reason: 'failed' }
-  try {
-    execFileSync(exe, extractArgs(file, safe, dir, password), {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-      timeout: 120000
-    })
-  } catch (err) {
-    const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
+  const r = await run(exe, extractArgs(file, safe, dir, password), 120000)
+  if (!r.ok) {
     return {
       ok: false,
-      reason: /wrong password|cannot open encrypted/i.test(stderr) ? 'password' : 'failed'
+      reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
     }
   }
   const out = join(dir, safe.replace(/\//g, sep))

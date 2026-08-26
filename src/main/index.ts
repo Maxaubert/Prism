@@ -46,6 +46,7 @@ import {
   convertVideo,
   planConversion
 } from './videoConvert'
+import { cachedPeaks, loadPeaks } from './peaks'
 import { bundledSeven, extractAllSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
@@ -284,7 +285,7 @@ async function serveMedia(request: Request): Promise<Response> {
   // fast viewer shows. Developing the sensor data is another program's job.
   if (isRaw(filePath)) {
     try {
-      const jpeg = rawPreview(filePath, st.mtimeMs)
+      const jpeg = await rawPreview(filePath, st.mtimeMs)
       return new Response(jpeg, {
         status: 200,
         headers: {
@@ -1078,7 +1079,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('subs:for', (_e, p: string): SubTrack[] =>
       insideAnyRoot(p) ? sidecarsFor(p) : []
     )
-    ipcMain.handle('subs:read', (_e, p: string): string | null =>
+    ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
       insideAnyRoot(p)
         ? readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg)
         : null
@@ -1097,6 +1098,23 @@ if (!app.requestSingleInstanceLock()) {
     // own decoder, and is there one? The renderer plays the answer's url beside
     // the video (which stays silent by itself, having no decoder for the track
     // either), or IN PLACE of the file for an audio-only viewer.
+    /**
+     * The waveform transport's envelope. Computed by ffmpeg here and streamed,
+     * because the renderer's old way - fetch the file, decodeAudioData the lot
+     * - took 7.4GB on a 2GB film and threw at the end of it.
+     */
+    ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      // Known already: no ffprobe, no ffmpeg, no wait.
+      const known = cachedPeaks(p)
+      if (known) return known
+      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!tools) return null
+      if (!tools.ffprobe) return null
+      const info = await probeMedia(tools.ffprobe, p)
+      if (!info?.audio || !info.duration) return null
+      return loadPeaks(tools.ffmpeg, p, info.duration)
+    })
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
@@ -1439,11 +1457,11 @@ if (!app.requestSingleInstanceLock()) {
         ? bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
         : null
 
-    ipcMain.handle('archive:stat', (_e, p: string): ArchiveStat | null => {
+    ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
       if (!archiveOk(p)) return null
       const exe = seven(p)
       if (!exe) return archiveStat(p)
-      const list = listSeven(exe, p, archivePasswords.get(p) ?? '')
+      const list = await listSeven(exe, p, archivePasswords.get(p) ?? '')
       if (!list) return null
       return {
         files: list.filter((e) => !e.dir).length,
@@ -1453,11 +1471,11 @@ if (!app.requestSingleInstanceLock()) {
         readOnly: true
       }
     })
-    ipcMain.handle('archive:list', (_e, p: string): ArchiveEntry[] | null => {
+    ipcMain.handle('archive:list', async (_e, p: string): Promise<ArchiveEntry[] | null> => {
       if (!archiveOk(p)) return null
       try {
         const exe = seven(p)
-        return exe ? listSeven(exe, p, archivePasswords.get(p) ?? '') : listArchive(p)
+        return exe ? await listSeven(exe, p, archivePasswords.get(p) ?? '') : listArchive(p)
       } catch {
         return null
       }
@@ -1467,20 +1485,20 @@ if (!app.requestSingleInstanceLock()) {
       | { ok: false; reason: 'password' | 'aes' | 'failed' }
     ipcMain.handle(
       'archive:extract',
-      (_e, p: string, entry: string, password?: string): ExtractResult => {
+      async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
         if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
         try {
           if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
           const exe = seven(p)
           if (exe) {
             const pw = typeof password === 'string' ? password : ''
-            const s7 = extractSeven(exe, p, entry, pw)
+            const s7 = await extractSeven(exe, p, entry, pw)
             if (!s7.ok) return s7
             if (pw) archivePasswords.set(p, pw)
             extractedPaths.add(s7.path)
             return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
           }
-          const r = extractMember(p, entry, typeof password === 'string' ? password : undefined)
+          const r = await extractMember(p, entry, typeof password === 'string' ? password : undefined)
           if (!r.ok) return r
           extractedPaths.add(r.path)
           return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
@@ -1525,7 +1543,7 @@ if (!app.requestSingleInstanceLock()) {
           const pw = archivePasswords.get(p) ?? ''
           const exe = seven(p)
           if (exe) {
-            const s7 = extractAllSeven(exe, p, dest, pw)
+            const s7 = await extractAllSeven(exe, p, dest, pw)
             return s7.ok ? { ok: true, dest } : { ok: false, reason: s7.reason }
           }
           if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
@@ -1534,7 +1552,7 @@ if (!app.requestSingleInstanceLock()) {
           const tops = listArchive(p)
             .filter((e) => !e.path.includes('/'))
             .map((e) => e.path)
-          const out = extractTo(p, tops, dest, pw || undefined)
+          const out = await extractTo(p, tops, dest, pw || undefined)
           return out.ok ? { ok: true, dest } : { ok: false, reason: out.reason }
         } catch {
           return { ok: false, reason: 'failed' }
@@ -1543,12 +1561,12 @@ if (!app.requestSingleInstanceLock()) {
     )
     ipcMain.handle(
       'archive:rename',
-      (_e, p: string, entry: string, name: string, password?: string): string => {
+      async (_e, p: string, entry: string, name: string, password?: string): Promise<string> => {
         if (!archiveOk(p) || typeof entry !== 'string' || typeof name !== 'string') return 'failed'
         if (seven(p)) return 'failed' // read-only format; the panel offers no verbs
         try {
           if (archiveTooLarge(statSync(p).size)) return 'failed'
-          return renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
+          return await renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
         } catch {
           return 'failed'
         }

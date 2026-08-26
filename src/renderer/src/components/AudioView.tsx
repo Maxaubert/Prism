@@ -65,7 +65,7 @@ export function AudioView({
   // Apple Lossless, WMA, AC-3 and friends arrive decoded; everything Chromium
   // can play is left exactly as it was.
   const { src, synthesising, failed: synthFailed } = useDecodedSource(path, url)
-  const peaks = useWaveform(url, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const peaks = useWaveform(path, transportStyle === 'wave' || transportStyle === 'wavebold')
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   // A callback ref feeds both the controls hook (via the ref object) and the
