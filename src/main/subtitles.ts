@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, extname, join } from 'path'
 
@@ -121,16 +121,27 @@ export function stripVttStyles(vtt: string): string {
     .join('\n\n')
 }
 
-/** A track's text as WebVTT, whatever it was on disk. */
-export function readAsVtt(path: string, ffmpeg?: string | null): string | null {
+/** A track's text as WebVTT, whatever it was on disk.
+ *
+ *  Async because of the .ass/.ssa branch: ffmpeg through execFileSync stopped
+ *  the whole main process, and a subtitle track is loaded while a film is
+ *  already playing - the one moment nothing should stutter. */
+export async function readAsVtt(path: string, ffmpeg?: string | null): Promise<string | null> {
   const ext = extname(path).toLowerCase()
   if (!SUB_EXTS.has(ext)) return null
   try {
     if (statSync(path).size > MAX_SUB_BYTES) return null
     if (FFMPEG_SUBS.has(ext)) {
       if (!ffmpeg) return null
-      const r = execFileSync(ffmpeg, assToVttArgs(path), { timeout: 15000, maxBuffer: MAX_SUB_BYTES * 2 })
-      return stripVttStyles(r.toString('utf-8'))
+      const out = await new Promise<Buffer | null>((resolve) => {
+        execFile(
+          ffmpeg,
+          assToVttArgs(path),
+          { timeout: 15000, maxBuffer: MAX_SUB_BYTES * 2, encoding: 'buffer', windowsHide: true },
+          (err, stdout) => resolve(err ? null : stdout)
+        )
+      })
+      return out ? stripVttStyles(out.toString('utf-8')) : null
     }
     const text = readFileSync(path, 'utf-8')
     return stripVttStyles(ext === '.srt' ? srtToVtt(text) : text)

@@ -46,7 +46,7 @@ export function VideoView({
   const src = playable.src
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
-  const peaks = useWaveform(src, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const peaks = useWaveform(path, transportStyle === 'wave' || transportStyle === 'wavebold')
   // How solid the band behind the controls is, 0-100% (2026-08-25). Opaque by
   // default - the bar as it has always looked - and a slider all the way down
   // to nothing, where the picture runs to the bottom of the frame. Three styles

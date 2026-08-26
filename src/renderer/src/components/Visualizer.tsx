@@ -39,6 +39,10 @@ function rgbOf(colour: string): [number, number, number] {
   return m ? [Number(m[0]), Number(m[1]), Number(m[2])] : [13, 15, 20]
 }
 
+/** Past this, the drop analysis is skipped: its cost is the file's whole
+ *  decoded length in memory, and nobody needs drop rings in an audiobook. */
+const DROPS_MAX_SECONDS = 15 * 60
+
 export function Visualizer({
   media,
   styleId,
@@ -91,11 +95,17 @@ export function Visualizer({
   // analysis take a second or two; until then dropTimes is empty and no drop
   // rings fire, which is fine (a drop in the first couple seconds is just the
   // track starting). Re-runs whenever the element loads new media.
+  //
+  // Only for TRACKS (2026-08-26). This decodes the whole file to PCM, which
+  // costs a multiple of its size in memory - fine for a song, ruinous for an
+  // audiobook or a DJ set, and pointless either way: drop rings are a thing
+  // that happens in music, not in a four-hour recording.
   useEffect(() => {
     if (!media) return
     let cancelled = false
     const run = (): void => {
       dropTimesRef.current = []
+      if (Number.isFinite(media.duration) && media.duration > DROPS_MAX_SECONDS) return
       const url = media.currentSrc || media.src
       if (!url) return
       void (async () => {

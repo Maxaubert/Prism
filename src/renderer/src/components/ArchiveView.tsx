@@ -8,8 +8,6 @@ import { fileKind } from '@shared/fileKind'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { Dialog } from './Dialog'
 import { ImageView } from './ImageView'
-import { MarkdownView } from './MarkdownView'
-import { PdfView } from './pdf/PdfView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
@@ -18,7 +16,14 @@ import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 import type { UndoEntry } from '../lib/undo'
 
+// Lazy for the same reason App splits them: opening a zip should not carry
+// pdf.js and the markdown pipeline into the launch bundle. A member preview
+// waits a frame for its viewer; that is what MemberView's Suspense is for.
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
+const MarkdownView = lazy(() =>
+  import('./MarkdownView').then((m) => ({ default: m.MarkdownView }))
+)
+const PdfView = lazy(() => import('./pdf/PdfView').then((m) => ({ default: m.PdfView })))
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
 // one folder of the archive: clicking a folder walks into it, the breadcrumb
@@ -93,10 +98,16 @@ function MemberView({
         />
       )
     case 'pdf':
-      return <PdfView url={url} onToggleFullscreen={noop} />
+      return (
+        <Suspense fallback={null}>
+          <PdfView url={url} onToggleFullscreen={noop} />
+        </Suspense>
+      )
     case 'text':
       return isMarkdown(name) ? (
-        <MarkdownView path={path} onOpenLocal={noop} />
+        <Suspense fallback={null}>
+          <MarkdownView path={path} onOpenLocal={noop} />
+        </Suspense>
       ) : (
         <Suspense fallback={null}>
           <CodeView

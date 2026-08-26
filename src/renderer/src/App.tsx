@@ -51,15 +51,18 @@ import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
 import { AudioView } from './components/AudioView'
 import { ImageView } from './components/ImageView'
-import { MarkdownView } from './components/MarkdownView'
-import { DocView } from './components/DocView'
-import { PdfView } from './components/pdf/PdfView'
 import { UnsupportedView } from './components/UnsupportedView'
 import { ArchiveView } from './components/ArchiveView'
-// CodeMirror is ~770KB of editor that a folder of photos never needs. Splitting
-// it out keeps it off the launch path, which is the whole point of the resident
-// single-instance model: the window has to be there the instant you ask.
+// Split out, all four, for the same reason: none of them is on the path of
+// opening a photo, and the resident single-instance model exists so the window
+// is there the instant you ask. CodeMirror is ~770KB, pdf.js about a megabyte,
+// and react-markdown brings remark, rehype and micromark with it.
 const CodeView = lazy(() => import('./components/CodeView').then((m) => ({ default: m.CodeView })))
+const PdfView = lazy(() => import('./components/pdf/PdfView').then((m) => ({ default: m.PdfView })))
+const MarkdownView = lazy(() =>
+  import('./components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
+)
+const DocView = lazy(() => import('./components/DocView').then((m) => ({ default: m.DocView })))
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
@@ -473,9 +476,17 @@ function Viewer({
         />
       )
     case 'pdf':
-      return <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+      return (
+        <Suspense fallback={<EditorLoading />}>
+          <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+        </Suspense>
+      )
     case 'doc':
-      return <DocView path={file.path} name={file.name} />
+      return (
+        <Suspense fallback={<EditorLoading />}>
+          <DocView path={file.path} name={file.name} />
+        </Suspense>
+      )
     case 'archive':
       return (
         <ArchiveView
@@ -490,7 +501,9 @@ function Viewer({
       // is its own source, editable where it sits. A save here changes nothing
       // on screen that isn't already there, so it must not remount the viewer.
       return isMarkdown(file.name) ? (
-        <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
+        <Suspense fallback={<EditorLoading />}>
+          <MarkdownView path={file.path} onOpenLocal={onOpenLocal} />
+        </Suspense>
       ) : (
         <Suspense fallback={<EditorLoading />}>
           <CodeView

@@ -288,6 +288,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **Performance rules learned the hard way** (2026-08-26, all measured on this
+  machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
+  stops every window, every IPC reply, the terminals and the `fsmedia://` Range
+  handler a playing film depends on. There is now none left - 7-Zip listing,
+  member extraction, extract-all, the AES member path and the ass-to-vtt
+  conversion all run through `execFile`. Same rule for big reads: the camera-RAW
+  scan reads up to 40MB and does it with `fs/promises`. THE RENDERER MUST NEVER
+  HOLD A MEDIA FILE: the waveform's peaks used to `fetch` the file and
+  `decodeAudioData` the lot, which took the renderer to 7.4GB on a 2GB film and
+  then threw (Web Audio cannot open an MKV at all); peaks come from ffmpeg in
+  main now (`peaks.ts`), streamed, holding 160 running maxima and nothing else -
+  2.9s for a two-hour film, cached, 179MB peak. The visualizer's drop analysis
+  is the same shape and is capped at 15 minutes of audio. Cheap wins worth
+  keeping: `readdirSync(withFileTypes)` and ONE stat per file rather than two
+  took `dir:list` on System32 from 159ms to 11ms, and lazy-loading pdf.js,
+  react-markdown and DocView alongside CodeMirror halved the launch bundle
+  (3037KB to 1503KB).
 - **The band behind the transport** is a slider (2026-08-25, Settings > Player):
   0-100%, opaque by default, which is the bar exactly as it always looked. Below
   55% the controls carry their own drop shadow, because at that point they are

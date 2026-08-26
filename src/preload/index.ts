@@ -81,6 +81,10 @@ const api = {
   /** One track's text as WebVTT (SRT converted), for a <track> blob. */
   readSubs: (path: string): Promise<string | null> => ipcRenderer.invoke('subs:read', path),
 
+  /** The waveform transport's amplitude envelope, computed by ffmpeg in main
+   *  and streamed there: the renderer never holds the file. null when the
+   *  file has no audio, or no ffmpeg was found. */
+  mediaPeaks: (path: string): Promise<number[] | null> => ipcRenderer.invoke('media:peaks', path),
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),

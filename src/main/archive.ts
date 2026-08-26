@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip'
-import { execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -57,25 +57,27 @@ export function sevenZipExe(): string | null {
 }
 
 /** Extract one member with 7z into a fresh temp dir. */
-function sevenExtract(
+async function sevenExtract(
   zipPath: string,
   entryPath: string,
   password: string
-): { ok: true; path: string } | { ok: false; reason: MemberFail } {
+): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   const exe = sevenZipExe()
   if (!exe) return { ok: false, reason: 'aes' }
   const dir = mkdtempSync(join(tmpdir(), 'prism-zip-'))
-  try {
-    // Switches first, then `--` so a member named "-something" inside a
-    // hostile zip can never be read as a 7z switch.
-    execFileSync(exe, ['e', `-o${dir}`, `-p${password}`, '-y', '--', zipPath, norm(entryPath)], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-      timeout: 30000
-    })
-  } catch (err) {
-    const stderr = String((err as { stderr?: Buffer }).stderr ?? '')
-    return { ok: false, reason: /wrong password/i.test(stderr) ? 'password' : 'failed' }
+  // Switches first, then `--` so a member named "-something" inside a hostile
+  // zip can never be read as a 7z switch. Async, because execFileSync stopped
+  // the whole main process while 7-Zip worked (2026-08-26).
+  const failed = await new Promise<string | null>((resolve) => {
+    execFile(
+      exe,
+      ['e', `-o${dir}`, `-p${password}`, '-y', '--', zipPath, norm(entryPath)],
+      { windowsHide: true, timeout: 30000, encoding: 'utf8' },
+      (err, _out, stderr) => resolve(err ? String(stderr ?? '') : null)
+    )
+  })
+  if (failed !== null) {
+    return { ok: false, reason: /wrong password/i.test(failed) ? 'password' : 'failed' }
   }
   const out = join(dir, basename(norm(entryPath)))
   return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
@@ -134,11 +136,11 @@ export function listArchive(zipPath: string): ArchiveEntry[] {
 }
 
 /** Extract one member to a fresh temp dir. */
-export function extractMember(
+export async function extractMember(
   zipPath: string,
   entryPath: string,
   password?: string
-): { ok: true; path: string } | { ok: false; reason: MemberFail } {
+): Promise<{ ok: true; path: string } | { ok: false; reason: MemberFail }> {
   const zip = new AdmZip(zipPath)
   const entry = zip.getEntry(norm(entryPath)) ?? zip.getEntry(norm(entryPath) + '/')
   if (!entry || entry.isDirectory) return { ok: false, reason: 'failed' }
@@ -165,12 +167,12 @@ export function extractMember(
 
 /** Rename one FILE member in place (same folder, new name). Rewriting stores
  *  the member decrypted, so an encrypted one needs its password here too. */
-export function renameMember(
+export async function renameMember(
   zipPath: string,
   entryPath: string,
   newName: string,
   password?: string
-): 'ok' | MemberFail {
+): Promise<'ok' | MemberFail> {
   if (!validMemberName(newName)) return 'failed'
   const p = norm(entryPath)
   const zip = new AdmZip(zipPath)
@@ -184,7 +186,7 @@ export function renameMember(
   let data: Buffer
   if (like.header.method === AES_METHOD) {
     if (!password) return 'password'
-    const r = sevenExtract(zipPath, p, password)
+    const r = await sevenExtract(zipPath, p, password)
     if (!r.ok) return r.reason
     data = readFileSync(r.path)
   } else {
@@ -406,12 +408,12 @@ export function moveMembers(
  * Extract members OUT to a real folder, keeping the shape below a dragged
  * folder. Encrypted members need the password, exactly as viewing one does.
  */
-export function extractTo(
+export async function extractTo(
   zipPath: string,
   entryPaths: readonly string[],
   destDir: string,
   password?: string
-): { ok: true; written: number } | { ok: false; reason: MemberFail } {
+): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
   try {
     if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
     const base = resolve(destDir)
@@ -450,7 +452,7 @@ export function extractTo(
       let data: Buffer
       if (like.header.method === AES_METHOD) {
         if (!password) return { ok: false, reason: 'password' }
-        const r = sevenExtract(zipPath, p, password)
+        const r = await sevenExtract(zipPath, p, password)
         if (!r.ok) return { ok: false, reason: r.reason }
         data = readFileSync(r.path)
       } else {
