@@ -9,6 +9,8 @@ import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
 import { useViz, WIDTHS } from '../lib/vizStore'
 import { useDecodedSource } from '../lib/useDecodedSource'
+import { wasPaused } from '../lib/playState'
+import { useBackgroundPause } from '../lib/useBackgroundPause'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
 // framing all come from the shared vizStore (set in the app Settings window). The
@@ -102,6 +104,8 @@ export function AudioView({
     [showChrome]
   )
 
+  useBackgroundPause(audioRef)
+
   const c = useMediaControls(audioRef, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -145,7 +149,10 @@ export function AudioView({
         // element reports an error before the rendering can arrive.
         src={src || undefined}
         crossOrigin="anonymous"
-        autoPlay
+        // Autoplay UNLESS this file was paused a moment ago: opening Settings
+        // or another tab unmounts the viewer, and a fresh element would start
+        // a film you had deliberately stopped (see lib/playState).
+        autoPlay={!wasPaused(url)}
         loop={prefs.loop}
         onEnded={() => prefs.autoplay && onAutoAdvance()}
         className="hidden"

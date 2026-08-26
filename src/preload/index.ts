@@ -244,6 +244,12 @@ const api = {
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
+  /** Minimised / focused, from main: the page cannot see either for itself. */
+  onWindowState: (cb: (s: { minimised: boolean; focused: boolean }) => void): (() => void) => {
+    const listener = (_: unknown, s: { minimised: boolean; focused: boolean }): void => cb(s)
+    ipcRenderer.on('window:state', listener)
+    return () => ipcRenderer.removeListener('window:state', listener)
+  },
   /** Fired when main opens a file (launch arg, drag, or a forwarded second instance). */
   onOpenFile: (cb: (p: OpenPayload) => void): (() => void) => {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)

@@ -334,6 +334,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the last wake, the video's own paused state, and the bar's own `:hover`. Nothing that
   can be left stuck. Do not reintroduce a hover flag, a root-level onMouseMove, or an
   opacity fade in place.
+- **A paused file stays paused** (2026-08-26). A tab renders only while it is in
+  front, so opening Settings - or any other tab - unmounts the viewer, and the
+  player came back as a fresh `<video autoplay>` that restarted a film you had
+  deliberately stopped. `lib/playState` remembers, FOR THE SESSION ONLY, which
+  files were paused when their player went away, and autoplay is skipped for
+  those. Not persisted: a file opened fresh tomorrow should play, because that
+  is what opening a file means.
+- **Pause in the background** (2026-08-26, the transport cog): never (the
+  default, and what Prism has always done), when MINIMISED (VLC's "Pause
+  playback when minimized"), or when another window has FOCUS (PotPlayer's
+  "Pause playback when focus lost"). Both conventions are offered rather than a
+  third being invented. The signal comes from MAIN over `window:state`: Electron
+  does not mark a minimised window hidden, so `visibilitychange` never fires and
+  `document.hidden` stays false however small the window gets. It resumes only
+  what it paused itself, so a film you stopped by hand stays stopped.
 - **Playback position** (`useMediaControls`, tuned 2026-08-24 by owner decision): media longer
   than 10 MINUTES reopens where you left it, silently - no prompt, no banner. Anything shorter
   never is, which is why a 5-second clip always starts at the start. Stopping inside the LAST

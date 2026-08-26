@@ -1945,6 +1945,36 @@ async function terminalScenario(fixtures) {
  * The gear, three ways (2026-08-26): settings showing -> close them; settings
  * open behind another tab -> bring them forward; not open -> open them.
  */
+/**
+ * A paused film stays paused across a tab switch, and the cog's
+ * "pause playback" choice (2026-08-26).
+ */
+async function pauseScenario(fixtures) {
+  console.log('pausing')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { const v = document.querySelector('video'); v.muted = true })
+    await sleep(1200)
+    const paused = () => win.evaluate(() => document.querySelector('video')?.paused ?? null)
+    await win.evaluate(() => document.querySelector('video').pause())
+    await sleep(300)
+    ok((await paused()) === true, 'a film pauses when told to')
+
+    // Settings is a TAB: it unmounts the viewer, and the player used to come
+    // back as a fresh element with autoplay - restarting what you had stopped.
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(900)
+    ok((await win.locator('video').count()) === 0, 'Settings unmounts the viewer')
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(1200)
+    ok((await win.locator('video').count()) === 1, 'and the film comes back')
+    ok((await paused()) === true, 'still paused - it does not restart itself')
+  } finally {
+    await app.close()
+  }
+}
+
 async function gearScenario(fixtures) {
   console.log('the settings gear')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -2335,6 +2365,8 @@ try {
   await folderArgScenario(fixtures)
   await sleep(900)
   await gearScenario(fixtures)
+  await sleep(900)
+  await pauseScenario(fixtures)
   await sleep(900)
   await selectionScenario(fixtures)
   await sleep(900)
