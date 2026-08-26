@@ -1982,28 +1982,33 @@ async function gearScenario(fixtures) {
     const gear = win.locator('[aria-label="Settings"]')
     const pressed = () => gear.getAttribute('aria-pressed')
     const tabCount = () => win.locator('[data-tab]').count()
+    // Wait for the state, never for a guessed number of milliseconds: this
+    // scenario failed once on a 400ms sleep that was simply too short, which
+    // told me about my test rather than about the gear.
+    const until = async (want, what) => {
+      await win
+        .waitForFunction((w) => document.querySelector('[aria-label="Settings"]')?.getAttribute('aria-pressed') === w, want, { timeout: 6000 })
+        .catch(() => {})
+      ok((await pressed()) === want, what)
+    }
     ok((await pressed()) === 'false', 'the gear starts unpressed')
 
     await gear.click()
-    await sleep(500)
-    ok((await pressed()) === 'true', 'a click opens settings and shows them')
+    await until('true', 'a click opens settings and shows them')
     const withSettings = await tabCount()
 
     await gear.click()
-    await sleep(500)
-    ok((await pressed()) === 'false', 'clicking again with settings ACTIVE closes the tab')
+    await until('false', 'clicking again with settings ACTIVE closes the tab')
     ok((await tabCount()) === withSettings - 1, 'and the tab is really gone')
 
     await gear.click()
-    await sleep(400)
+    await until('true', 'and opens again')
     await win.locator('[data-tab]').first().click()
-    await sleep(400)
-    ok((await pressed()) === 'false', 'settings open BEHIND another tab read as unpressed')
+    await until('false', 'settings open BEHIND another tab read as unpressed')
     ok((await tabCount()) === withSettings, 'and the settings tab is still open')
 
     await gear.click()
-    await sleep(500)
-    ok((await pressed()) === 'true', 'and the gear brings it forward instead of closing it')
+    await until('true', 'and the gear brings it forward instead of closing it')
     ok((await tabCount()) === withSettings, 'never a second settings tab')
   } finally {
     await app.close()
