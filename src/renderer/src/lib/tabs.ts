@@ -108,6 +108,30 @@ export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
   return { tabs: [...tabs, tab], activeId: id }
 }
 
+/**
+ * What the gear does (2026-08-26): open settings, or bring them forward, or
+ * put them away.
+ *
+ * The three states are what a toggle in a tab strip has to mean. Settings
+ * showing: the gear closes the tab, the way pressing it again always should.
+ * Settings open BEHIND something else: the gear brings it forward rather than
+ * closing a tab the user cannot see - the click plainly means "show me". Not
+ * open at all: open it.
+ */
+export function toggleSettingsTab(
+  tabs: readonly Tab[],
+  activeId: string | null,
+  id: string
+): TabState {
+  const existing = tabs.find((t) => t.kind === 'settings')
+  if (existing) {
+    return existing.id === activeId
+      ? closeTab(tabs, existing.id, activeId)
+      : { tabs: tabs.slice(), activeId: existing.id }
+  }
+  return openSettingsTab(tabs, id)
+}
+
 export interface TabState {
   tabs: Tab[]
   activeId: string | null

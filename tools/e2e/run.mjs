@@ -1941,6 +1941,45 @@ async function terminalScenario(fixtures) {
  * there and nothing happened. The tab roots at the folder, and what it shows
  * is the "New tabs show" setting, exactly as the + decides it.
  */
+/**
+ * The gear, three ways (2026-08-26): settings showing -> close them; settings
+ * open behind another tab -> bring them forward; not open -> open them.
+ */
+async function gearScenario(fixtures) {
+  console.log('the settings gear')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    const gear = win.locator('[aria-label="Settings"]')
+    const pressed = () => gear.getAttribute('aria-pressed')
+    const tabCount = () => win.locator('[data-tab]').count()
+    ok((await pressed()) === 'false', 'the gear starts unpressed')
+
+    await gear.click()
+    await sleep(500)
+    ok((await pressed()) === 'true', 'a click opens settings and shows them')
+    const withSettings = await tabCount()
+
+    await gear.click()
+    await sleep(500)
+    ok((await pressed()) === 'false', 'clicking again with settings ACTIVE closes the tab')
+    ok((await tabCount()) === withSettings - 1, 'and the tab is really gone')
+
+    await gear.click()
+    await sleep(400)
+    await win.locator('[data-tab]').first().click()
+    await sleep(400)
+    ok((await pressed()) === 'false', 'settings open BEHIND another tab read as unpressed')
+    ok((await tabCount()) === withSettings, 'and the settings tab is still open')
+
+    await gear.click()
+    await sleep(500)
+    ok((await pressed()) === 'true', 'and the gear brings it forward instead of closing it')
+    ok((await tabCount()) === withSettings, 'never a second settings tab')
+  } finally {
+    await app.close()
+  }
+}
+
 async function folderArgScenario(fixtures) {
   console.log('a folder from outside')
   const { app, win } = await launch(fixtures)
@@ -2294,6 +2333,8 @@ try {
   await archiveScenario(fixtures)
   await sleep(900)
   await folderArgScenario(fixtures)
+  await sleep(900)
+  await gearScenario(fixtures)
   await sleep(900)
   await selectionScenario(fixtures)
   await sleep(900)

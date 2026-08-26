@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabPanes, setTabTerm, splitTermView, reorderTabs, tabLabels, toggleTermView, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, toggleSettingsTab, rerootTab, setTabPanes, setTabTerm, splitTermView, reorderTabs, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -295,5 +295,47 @@ describe('reorderTabs', () => {
     expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'b', 1))).toEqual(['a', 'b', 'c'])
     expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'zz', 0))).toEqual(['a', 'b', 'c'])
     expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'a', 99))).toEqual(['b', 'c', 'a'])
+  })
+})
+
+describe('the gear', () => {
+  const settings = (id: string): Tab => ({
+    id,
+    kind: 'settings',
+    root: '',
+    files: [],
+    index: -1,
+    tree: { expanded: new Set<string>(), children: {} },
+    term: null,
+    panes: []
+  })
+
+  it('opens settings when there are none', () => {
+    const st = toggleSettingsTab([], null, 'settings-1')
+    expect(st.tabs).toHaveLength(1)
+    expect(st.tabs[0].kind).toBe('settings')
+    expect(st.activeId).toBe('settings-1')
+  })
+
+  it('CLOSES settings when they are the tab you are looking at', () => {
+    const tabs = [tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')]
+    const st = toggleSettingsTab(tabs, 's', 'settings-2')
+    expect(st.tabs.map((t) => t.kind ?? 'file')).toEqual(['file'])
+    expect(st.activeId).toBe(tabs[0].id)
+  })
+
+  it('brings settings FORWARD when they are open behind something else', () => {
+    // Closing a tab the user cannot see would be the wrong reading of a click
+    // that plainly means "show me".
+    const tabs = [tabOf('C:\\a', ['C:\\a\\one.jpg']), settings('s')]
+    const st = toggleSettingsTab(tabs, tabs[0].id, 'settings-2')
+    expect(st.tabs).toHaveLength(2)
+    expect(st.activeId).toBe('s')
+  })
+
+  it('never makes a second settings tab', () => {
+    const tabs = [settings('s'), tabOf('C:\\a', ['C:\\a\\one.jpg'])]
+    const st = toggleSettingsTab(tabs, tabs[1].id, 'settings-2')
+    expect(st.tabs.filter((t) => t.kind === 'settings')).toHaveLength(1)
   })
 })
