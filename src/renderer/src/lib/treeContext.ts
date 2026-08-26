@@ -1,4 +1,4 @@
-import { createContext, useContext, type MouseEvent } from 'react'
+import { createContext, useContext, type DragEvent, type MouseEvent } from 'react'
 import type { DirListing } from '@shared/types'
 import type { TREE_SIZES } from './treePrefs'
 
@@ -32,10 +32,16 @@ export interface TreeApi {
    *  single-click; only archives are double-click); shift ranges and ctrl
    *  toggles select WITHOUT opening. */
   onRowClick: (e: MouseEvent, path: string, isFolder: boolean) => void
-  /** Pointer pressed on a row: a sweep may start here. */
-  onSweepStart: (path: string) => void
-  /** Pointer entered a row while held down: the sweep grows. */
-  onSweepOver: (path: string) => void
+  /* Drag and drop (#70). Every row is draggable; FOLDER rows are also drop
+     targets, taking files moved from elsewhere in the tree and members
+     extracted out of an archive. */
+  onRowDragStart: (e: DragEvent, path: string) => void
+  /** The folder row a drag is hovering, so it can light up. */
+  dropTarget: string | null
+  onDropHover: (path: string | null) => void
+  /** The drag is over, dropped or not: forget what it carried. */
+  onDragDone: () => void
+  onDropOn: (e: DragEvent, folderPath: string) => void
   onToggle: (path: string) => void
   onOpenFile: (path: string) => void
   onStartRename: (path: string) => void

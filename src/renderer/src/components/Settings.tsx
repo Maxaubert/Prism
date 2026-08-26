@@ -552,10 +552,15 @@ function isActivePreset(p: Preset, v: VizState): boolean {
 
 function PlayerTab({
   transportStyle,
-  onPickTransport
+  onPickTransport,
+  transportBg,
+  onPickTransportBg
 }: {
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
+  /** How solid the band behind the controls is, 0-100%. */
+  transportBg: number
+  onPickTransportBg: (pct: number) => void
 }): JSX.Element {
   const v = useViz()
   return (
@@ -579,6 +584,40 @@ function PlayerTab({
           </Section>
         )
       })}
+      <Section title="Behind the controls">
+        {/* Opaque is the bar as it has always been; all the way down, the
+            picture runs to the bottom of the frame and the controls carry
+            their own shadow. The edge, outline and island styles have no band
+            to fade - they are their own shape - and the hint says so. */}
+        <Pref
+          id="transport-bg"
+          label="Background"
+          hint={
+            transportBg === 0
+              ? 'None: the picture runs to the bottom of the frame.'
+              : transportBg === 100
+                ? 'Opaque: the controls sit on their own band.'
+                : 'How solid the band behind the controls is, over video.'
+          }
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
+              {transportBg}%
+            </span>
+            <input
+              id="transport-bg"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={transportBg}
+              onChange={(e) => onPickTransportBg(Number(e.target.value))}
+              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+              style={{ accentColor: 'var(--p-accent)' }}
+            />
+          </div>
+        </Pref>
+      </Section>
       <Section title="Colour">
         <ColourControls
           selectedId={v.barTheme}
@@ -1411,7 +1450,7 @@ function TerminalTab(): JSX.Element {
       <Pref
         id="agent-indicator"
         label="Agent indicator"
-        hint="How a tab shows Claude or codex working. Idle tabs stay default."
+        hint="Minimal runs a line under the tab while an agent works. Full fills the tab, and keeps the finished colour until you visit it. Idle tabs stay default."
       >
         <Segmented
           value={agentInd}
@@ -1426,14 +1465,14 @@ function TerminalTab(): JSX.Element {
       <Pref
         id="agent-color"
         label="Indicator colour"
-        hint="The fill (full) or the icon and edge bar (minimal) while an agent works."
+        hint="The tab's fill (full) or the line under it (minimal) while an agent works."
       >
         <HexSwatch label="Indicator colour" value={agentCol} onChange={setAgentColor} />
       </Pref>
       <Pref
         id="agent-done-color"
         label="Finished colour"
-        hint="An agent that finished while its tab was in the background wears this until you visit the tab."
+        hint="An agent that finished while its tab was in the background wears this until you visit the tab. Full indicator only."
       >
         <HexSwatch label="Finished colour" value={doneCol} onChange={setAgentDoneColor} />
       </Pref>
@@ -1442,6 +1481,31 @@ function TerminalTab(): JSX.Element {
 }
 
 function GeneralTab(): JSX.Element {
+  // Explorer's context-menu verb lives in the registry, not in settings.json:
+  // the switch reports what Windows actually has, and says so if it refuses.
+  const [verb, setVerbState] = useState(false)
+  const [verbBusy, setVerbBusy] = useState(true)
+  useEffect(() => {
+    let live = true
+    void window.prism.shellVerbStatus().then((on) => {
+      if (live) {
+        setVerbState(on)
+        setVerbBusy(false)
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  const setVerb = (on: boolean): void => {
+    setVerbBusy(true)
+    void window.prism.setShellVerb(on).then(async () => {
+      // Read it back rather than trusting the write: this is the registry.
+      setVerbState(await window.prism.shellVerbStatus())
+      setVerbBusy(false)
+    })
+  }
+
   const size = useTreeSize()
   const follow = useAutoScroll()
   const confirmClose = useConfirmCloseMode()
@@ -1520,6 +1584,19 @@ function GeneralTab(): JSX.Element {
       </Pref>
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
+      </Pref>
+      {/* Explorer's own menu. Windows 11 hides classic verbs behind "Show more
+          options", and saying so is better than the user hunting for it. */}
+      <Pref
+        id="explorer-verb"
+        label="Explorer menu"
+        hint={
+          verbBusy
+            ? 'Asking Windows…'
+            : 'Adds "Open in Prism" to the right-click menu. On Windows 11 it sits under "Show more options" (Shift+F10).'
+        }
+      >
+        <Switch on={verb} onChange={setVerb} label="Open in Prism in the Explorer menu" />
       </Pref>
       {/* Setup offers this once; this is where you find it afterwards. Windows
           owns the choice, so all we can do is open the page it lives on. */}
@@ -1808,7 +1885,9 @@ export function Settings({
   compactRail,
   onShowSetup,
   transportStyle,
-  onPickTransport
+  onPickTransport,
+  transportBg,
+  onPickTransportBg
 }: {
   open: boolean
   onClose: () => void
@@ -1818,6 +1897,8 @@ export function Settings({
   onShowSetup: () => void
   transportStyle: TransportStyle
   onPickTransport: (s: TransportStyle) => void
+  transportBg: number
+  onPickTransportBg: (pct: number) => void
 }): JSX.Element | null {
   const [tab, setTab] = useState<TabId>('style')
   const size = useTreeSize()
@@ -1921,7 +2002,12 @@ export function Settings({
             ) : tab === 'terminal' ? (
               <TerminalTab />
             ) : tab === 'player' ? (
-              <PlayerTab transportStyle={transportStyle} onPickTransport={onPickTransport} />
+              <PlayerTab
+                transportStyle={transportStyle}
+                onPickTransport={onPickTransport}
+                transportBg={transportBg}
+                onPickTransportBg={onPickTransportBg}
+              />
             ) : tab === 'visualizer' ? (
               <VisualizerTab />
             ) : (

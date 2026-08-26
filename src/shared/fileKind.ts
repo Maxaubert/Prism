@@ -5,10 +5,49 @@ import type { FileKind } from './types'
 
 const IMAGE = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif', '.jxl',
-  '.tiff', '.tif', '.ico', '.heic', '.heif'
+  // .jfif is a JPEG: Windows itself saves them under that name, and leaving it
+  // out meant Prism refused a file it decodes perfectly.
+  '.tiff', '.tif', '.ico', '.heic', '.heif', '.jfif',
+  // Decoded by the bundled ffmpeg in main (imageDecode.ts), since Chromium
+  // draws none of these: 2026-08-24.
+  '.tga', '.targa', '.pcx', '.psd', '.exr', '.dpx', '.sgi', '.dds',
+  '.ppm', '.pgm', '.pbm', '.pnm', '.jp2', '.j2k', '.qoi', '.hdr', '.xbm', '.xpm',
+  // Camera raw (rawPreview.ts, 2026-08-24): shown as the full-size JPEG the
+  // camera embedded, which is what Explorer and every fast viewer show. It is
+  // NOT a development of the sensor data - that needs LibRaw, a native module.
+  '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.srf', '.sr2', '.raf', '.orf',
+  '.rw2', '.pef', '.dng', '.raw', '.dcr', '.kdc', '.mrw', '.x3f', '.3fr', '.erf'
 ])
-const VIDEO = new Set(['.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi'])
-const AUDIO = new Set(['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav'])
+// Video is what CHROMIUM can decode, because Prism decodes audio and not
+// picture: MPEG-2, Xvid, WMV, Theora and ProRes are deliberately absent, since
+// opening one would show a black window (VideoView says so when it happens).
+// The transport-stream family (.ts, .m2ts, .mts) is deliberately absent, and
+// was MEASURED before being left out (2026-08-24): Chromium has no MPEG-TS
+// demuxer for <video src>, so an .m2ts opened with picture missing and the
+// error banner up, even though Prism decoded its AC-3 fine. Two more reasons
+// not to force it: .ts and .mts are TypeScript, which this app's code viewer
+// opens far more often, and telling them apart needs the file's first bytes
+// (0x47 sync), not its name, while fileKind is name-only.
+const VIDEO = new Set([
+  '.mp4', '.m4v', '.webm', '.ogv', '.mov', '.mkv', '.avi',
+  // Containers Chromium cannot open at all. Prism converts them once and
+  // plays the copy (videoConvert.ts, 2026-08-24) - usually by COPYING the
+  // streams into an mp4, since most hold H.264 already. Still excluded:
+  // `.ts` and `.mts`, which are TypeScript to the code viewer and would need
+  // the file's first bytes to tell apart.
+  '.wmv', '.asf', '.flv', '.f4v', '.mpg', '.mpeg', '.mpe', '.m1v', '.m2v', '.mpv',
+  '.m2ts', '.vob', '.3gp', '.3g2', '.divx', '.mxf', '.rm', '.rmvb', '.ogm', '.dv'
+])
+// Audio, on the other hand, is whatever FFMPEG can read: the sidecar turns any
+// of it into PCM, so the container and codec stop mattering (2026-08-24).
+const AUDIO = new Set([
+  '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav',
+  '.wma', '.ac3', '.dts', '.mka', '.aiff', '.aif', '.m4b', '.amr', '.ape', '.wv', '.au',
+  '.dsf', '.dff', '.tta', '.caf', '.mpc', '.ra', '.m4r', '.oga', '.aifc', '.3ga',
+  // A score rather than a recording: synthesised by the bundled FluidSynth
+  // (midi.ts, 2026-08-24), since nothing else here can make a sound from one.
+  '.mid', '.midi', '.kar', '.rmi'
+])
 const TEXT = new Set([
   '.txt', '.md', '.markdown', '.json', '.js', '.ts', '.tsx', '.jsx', '.css',
   '.html', '.xml', '.yml', '.yaml', '.ini', '.log', '.csv',
@@ -28,13 +67,44 @@ const TEXT = new Set([
   '.toml', '.cfg', '.conf', '.properties', '.env', '.editorconfig',
   '.scss', '.sass', '.less', '.styl', '.vue', '.svelte', '.astro',
   '.jsonc', '.json5', '.xhtml', '.svgz', '.diff', '.patch', '.tex', '.rst',
-  '.adoc', '.ipynb', '.gradle', '.cmake', '.mk', '.nix', '.zig'
+  '.adoc', '.ipynb', '.gradle', '.cmake', '.mk', '.nix', '.zig',
+  // 2026-08-24. Some of these (.cr, .scm, .lisp, .el) had a highlighter in
+  // codeLang all along and simply never became viewable, which made the code
+  // viewer claim languages it would not open. The rest is the sweep that
+  // found them: build files, project files, and the plain-text odds and ends
+  // people double-click.
+  '.cr', '.scm', '.rkt', '.lisp', '.el', '.coffee', '.d', '.vbs', '.hx', '.sml',
+  '.cob', '.cbl', '.ino', '.mdx', '.j2', '.jinja', '.nsi', '.nsh', '.lock',
+  '.plist', '.csproj', '.vbproj', '.props', '.targets', '.resx', '.xsd', '.xsl',
+  '.xslt', '.wsdl', '.desktop', '.service', '.inf', '.reg',
+  '.awk', '.ahk', '.vim', '.po', '.pot', '.m3u', '.m3u8', '.sln', '.bib', '.tsv',
+  // Subtitle formats Prism cannot yet RENDER over a video, but can perfectly
+  // well show and edit as the text they are.
+  '.ass', '.ssa', '.sub'
+])
+
+// Office and ebook documents (2026-08-24). Converted to HTML in main
+// (docConvert.ts) and read, not edited: a viewer, not Office. .doc (the old
+// binary format) and .ppt are deliberately absent - they are a different
+// format entirely from their x-suffixed successors, and nothing free reads
+// them well.
+const DOC = new Set([
+  '.docx', '.docm', '.odt', '.rtf',
+  '.xlsx', '.xlsm', '.xls', '.ods',
+  '.pptx', '.ppsx', '.odp',
+  '.epub'
 ])
 
 // Archives Prism can open in place (2026-08-22): zip only. Reading, renaming
 // and deleting members means rewriting the container, which adm-zip does for
 // zip; 7z and rar would need external binaries and stay unsupported.
-const ARCHIVE = new Set(['.zip'])
+const ARCHIVE = new Set([
+  '.zip',
+  // Read-only, through the bundled 7-Zip (2026-08-24, sevenZip.ts): it lists
+  // and extracts all of these, and rar in particular has no free writer worth
+  // the name. zip stays the one Prism writes.
+  '.7z', '.rar', '.tar', '.gz', '.tgz', '.bz2', '.tbz', '.xz', '.txz', '.iso', '.cab'
+])
 
 // Files that carry their kind in the whole name, with no extension to read.
 // Matched case-insensitively against the full filename.
@@ -59,6 +129,7 @@ export function fileKind(ext: string, name?: string): FileKind {
   if (VIDEO.has(e)) return 'video'
   if (AUDIO.has(e)) return 'audio'
   if (e === '.pdf') return 'pdf'
+  if (DOC.has(e)) return 'doc'
   if (ARCHIVE.has(e)) return 'archive'
   if (TEXT.has(e)) return 'text'
   if (name !== undefined && isTextName(name)) return 'text'

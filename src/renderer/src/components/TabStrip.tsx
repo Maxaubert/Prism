@@ -1,7 +1,10 @@
-import type { JSX, MouseEvent } from 'react'
+import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
+import { recentLabels, recentRoots } from '../lib/recentRoots'
+import { dragPayload, setDrag } from '../lib/dragDrop'
+import { ContextMenu } from './ContextMenu'
 
 /**
  * The open projects, as a row under the title bar.
@@ -10,6 +13,17 @@ import { contrastRatio } from '../lib/termAnsi'
  * chrome never shifts under you when a second folder opens. It goes only when
  * there is nothing open at all, where EmptyState is already offering the way in.
  */
+/** How far the pointer must travel before a press becomes a drag rather than
+ *  a click on the tab. */
+const DRAG_SLOP = 4
+
+/** The tree's folder, at menu size: the + menu lists PLACES. */
+const FolderGlyph = (): JSX.Element => (
+  <svg viewBox="0 0 24 24" width={13} height={13} fill="var(--p-tree-folder)" className="shrink-0" aria-hidden>
+    <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
+  </svg>
+)
+
 export function TabStrip({
   tabs,
   activeId,
@@ -20,6 +34,8 @@ export function TabStrip({
   onClose,
   onNew,
   onDropFile,
+  onReorder,
+  onOpenRecent,
   wash
 }: {
   tabs: Tab[]
@@ -41,6 +57,10 @@ export function TabStrip({
   onNew: () => void
   /** A file dropped on the strip opens in a new tab. */
   onDropFile: (path: string) => void
+  /** A tab dragged along the strip lands in front of `toIndex` (#70). */
+  onReorder: (id: string, toIndex: number) => void
+  /** Open a folder from the + menu's list of places Prism has been. */
+  onOpenRecent: (path: string) => void
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
@@ -53,6 +73,120 @@ export function TabStrip({
   // the look; black only wins on genuinely light fills (contrast vs black of
   // 12 is a ~0.55 luminance threshold).
   const onTint = (c: string): string => (contrastRatio('#000000', c) < 12 ? '#ffffff' : '#000000')
+  // A tab being carried (#71 follow-up): the strip animates it rather than
+  // drawing a hairline - the tab lifts out and its neighbours slide across to
+  // open the gap it would drop into, which is what "picked up" looks like.
+  // Reordering is a POINTER drag, not an HTML5 one (owner, 2026-08-23): a
+  // system drag goes anywhere on screen and carries an OS snapshot; a tab
+  // should slide left and right inside its own row and nowhere else. The
+  // strip keeps its HTML5 handlers for FILES dropped onto it - that is a
+  // different gesture with a different meaning.
+  // While ANY drag is in flight the strip stops being a window-drag handle.
+  // The empty space after the + is the natural place to drop a folder, but it
+  // is app-region drag: Chromium hands presses there to the OS, so no
+  // dragover ever arrived and the drop could only be made over a tab. The
+  // handle comes back the moment the drag ends.
+  const [dragInFlight, setDragInFlight] = useState(false)
+  useEffect(() => {
+    const on = (): void => setDragInFlight(true)
+    const off = (): void => setDragInFlight(false)
+    window.addEventListener('dragstart', on, true)
+    window.addEventListener('dragenter', on, true)
+    window.addEventListener('dragend', off, true)
+    window.addEventListener('drop', off, true)
+    return () => {
+      window.removeEventListener('dragstart', on, true)
+      window.removeEventListener('dragenter', on, true)
+      window.removeEventListener('dragend', off, true)
+      window.removeEventListener('drop', off, true)
+    }
+  }, [])
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; recent: string[] } | null>(null)
+  const [dropAt, setDropAt] = useState<number | null>(null)
+  const [carry, setCarry] = useState<{
+    id: string
+    from: number
+    width: number
+    dx: number
+    /** True once the press travelled past the slop: only THEN is it a drag. */
+    live: boolean
+  } | null>(null)
+  // The tab boundaries as they were when the drag STARTED. Asking which tab
+  // sits under the pointer cannot work once they animate: the neighbour
+  // slides out from under the cursor, the answer flips back, and the strip
+  // judders. Frozen geometry has no feedback loop.
+  const lanes = useRef<Array<{ left: number; width: number; mid: number }>>([])
+  const strip = useRef<HTMLDivElement>(null)
+  const startX = useRef(0)
+  /** True once the press has travelled far enough to BE a drag: a plain click
+   *  must still switch tabs. */
+  const dragging = useRef(false)
+  /** Whatever had the keyboard before the drag: a shell, a tree row, the
+   *  search box. Dragging a tab is not leaving it. */
+  const heldFocus = useRef<HTMLElement | null>(null)
+  const endDrag = (): void => {
+    setDropAt(null)
+    setCarry(null)
+    lanes.current = []
+    const el = heldFocus.current
+    heldFocus.current = null
+    if (el && document.contains(el)) requestAnimationFrame(() => el.focus())
+  }
+  /** The slot a point is asking for, from the frozen lanes. */
+  const slotAt = (x: number): number => {
+    const at = lanes.current.findIndex((l) => x < l.mid)
+    return at === -1 ? lanes.current.length : at
+  }
+  const onTabPointerDown = (e: PointerEvent<HTMLDivElement>, id: string, i: number): void => {
+    if (e.button !== 0) return
+    // The X is not a handle: capturing the pointer here would swallow its
+    // own click and close nothing.
+    if ((e.target as HTMLElement).closest('[data-tab-close]')) return
+    heldFocus.current = document.activeElement as HTMLElement | null
+    const boxes = [...(strip.current?.querySelectorAll('[data-tab]') ?? [])].map((el) =>
+      el.getBoundingClientRect()
+    )
+    lanes.current = boxes.map((b) => ({ left: b.left, width: b.width, mid: b.left + b.width / 2 }))
+    startX.current = e.clientX
+    dragging.current = false
+    setCarry({ id, from: i, width: boxes[i]?.width ?? 0, dx: 0, live: false })
+    setDropAt(i)
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onTabPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
+    if (!carry) return
+    const raw = e.clientX - startX.current
+    if (!dragging.current && Math.abs(raw) < DRAG_SLOP) return
+    dragging.current = true
+    // Clamped to the row: the tab cannot be carried out of the strip, which
+    // is the whole point of doing this with the pointer.
+    const lane = lanes.current[carry.from]
+    const box = strip.current?.getBoundingClientRect()
+    const dx =
+      lane && box
+        ? Math.max(box.left - lane.left, Math.min(raw, box.right - (lane.left + lane.width)))
+        : raw
+    setCarry((c) => (c ? { ...c, dx, live: true } : c))
+    // The CARRIED tab's own centre decides, not the pointer: it is what the
+    // eye is following, and it keeps a grab near an edge honest.
+    if (lane) setDropAt(slotAt(lane.mid + dx))
+  }
+  const onTabPointerUp = (e: PointerEvent<HTMLDivElement>): void => {
+    if (!carry) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    const landed = dragging.current ? dropAt : null
+    const id = carry.id
+    endDrag()
+    if (landed !== null) onReorder(id, landed)
+  }
+  /** How far a tab slides to open the gap: everything between the carried
+   *  tab's old slot and the one under the pointer shifts by its width. */
+  const slide = (i: number): number => {
+    if (!carry || dropAt === null || i === carry.from) return 0
+    if (dropAt > carry.from && i > carry.from && i < dropAt) return -carry.width
+    if (dropAt <= carry.from && i >= dropAt && i < carry.from) return carry.width
+    return 0
+  }
   if (!tabs.length) return null
   const labels = tabLabels(tabs)
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
@@ -67,19 +201,35 @@ export function TabStrip({
     <div
       role="tablist"
       aria-label="Open folders"
+      ref={strip}
       onDragOver={(e) => {
         e.preventDefault()
         e.stopPropagation()
       }}
       onDrop={(e) => {
-        // Dropping a file here opens it in a NEW tab; stopPropagation keeps
-        // the window-level drop from opening it in the current one.
+        // Dropping something here opens it in a NEW tab; stopPropagation keeps
+        // the window-level drop from opening it in the current one. Tabs
+        // themselves reorder by pointer, not by this.
         e.preventDefault()
         e.stopPropagation()
-        const f = e.dataTransfer.files?.[0]
-        if (f) onDropFile(window.prism.getDroppedPath(f))
+        // Prism's own rows carry their paths in the drag payload, not as
+        // files - a folder dragged out of the tree has to land here too, and
+        // that is the natural way to open one beside what you have.
+        const inside = dragPayload(e.dataTransfer)
+        setDrag(null)
+        if (inside?.kind === 'files') {
+          for (const p of inside.paths) onDropFile(p)
+          return
+        }
+        for (const f of e.dataTransfer.files ?? []) onDropFile(window.prism.getDroppedPath(f))
       }}
-      className={`drag p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
+      // While a tab is genuinely being carried the whole strip wears the
+      // closed hand, children included: a tab is made of a label button, an
+      // icon slot and an X, each with a cursor of its own, and letting them
+      // answer for themselves made it flicker under the moving pointer.
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+        carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
+      } ${wash ? 'p-wash' : ''}`}
     >
       {tabs.map((t, i) => {
         const on = t.id === activeId
@@ -89,7 +239,10 @@ export function TabStrip({
         // icon plus edge bar tinted (minimal). Idle shows nothing.
         const working =
           indicator !== 'off' && !!t.term && agentIds.has(t.term.id) && workingIds.has(t.term.id)
-        const done = !working && indicator !== 'off' && !!t.term && doneIds.has(t.term.id)
+        // Finished-while-away belongs to FULL alone (owner, 2026-08-23):
+        // minimal answers one question, "is something running right now", and
+        // a tab that has merely stopped is not that.
+        const done = indicator === 'full' && !working && !!t.term && doneIds.has(t.term.id)
         const tint = working ? agentColor : done ? doneColor : null
         const loud = tint !== null && indicator === 'full'
         return (
@@ -108,20 +261,51 @@ export function TabStrip({
                   ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
-            style={loud && tint ? { background: tint, color: onTint(tint) } : undefined}
+            style={{
+              ...(loud && tint ? { background: tint, color: onTint(tint) } : {}),
+              transform: `translateX(${carry?.id === t.id ? carry.dx : slide(i)}px)`,
+              zIndex: carry?.id === t.id ? 5 : undefined,
+              // What you carry is a COPY - Chromium's own drag snapshot - so
+              // the tab you picked up stays exactly where it was, solid, and
+              // the strip only really rearranges when the drop lands. The
+              // neighbours sliding open the gap are the preview.
+              transition:
+                carry && carry.id !== t.id ? 'transform 170ms cubic-bezier(.23,1,.32,1)' : undefined
+            }}
             // The WHOLE tab is the click target, not just the label: the
             // padding, the icon slot and the slack around a short name all
             // pick the tab. The close button stops propagation to opt out.
-            onClick={() => onPick(t.id)}
+            onClick={() => {
+              // A press that travelled is a drag, not a pick.
+              if (dragging.current) {
+                dragging.current = false
+                return
+              }
+              onPick(t.id)
+            }}
             onAuxClick={(e) => auxClose(e, t.id)}
+            // Tabs reorder by dragging (#70): the half of the tab the pointer
+            // is over decides which side of it the dragged tab lands.
+            data-tab
+            onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
+            onPointerMove={onTabPointerMove}
+            onPointerUp={onTabPointerUp}
+            onPointerCancel={() => carry && endDrag()}
           >
             {/* The active mark: an accent rule along the top. It yields while
                 the working fill is up - two signals on one tab would fight. */}
             {on && !loud && <span className="absolute inset-x-0 top-0 h-0.5 bg-[var(--p-accent-hi)]" aria-hidden />}
-            {/* Minimal mark: the tinted brain plus a bar down the LEFT edge,
-                so a working or finished tab reads at a glance even narrow. */}
-            {tint && indicator === 'minimal' && (
-              <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: tint }} aria-hidden />
+            {/* Minimal mark: a bar running along the BOTTOM edge while the
+                agent works, the way a loading tab reads. It sits under the
+                label rather than beside it, so a narrow tab loses none of its
+                name to it. */}
+            {working && indicator === 'minimal' && (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] overflow-hidden" aria-hidden>
+                <span
+                  className="p-agent-run absolute inset-y-0 w-[42%] rounded-full"
+                  style={{ background: agentColor }}
+                />
+              </span>
             )}
             {/* A permanent icon slot: the brain appears in it while the
                 agent works or waits unseen (tinted in minimal, on-colour in
@@ -151,7 +335,14 @@ export function TabStrip({
               tabIndex={on ? 0 : -1}
               className="min-w-0 max-w-[14rem] truncate py-1 text-left"
               title={t.root}
-              onClick={() => onPick(t.id)}
+              onClick={() => {
+              // A press that travelled is a drag, not a pick.
+              if (dragging.current) {
+                dragging.current = false
+                return
+              }
+              onPick(t.id)
+            }}
             >
               {labels[i]}
             </button>
@@ -159,6 +350,7 @@ export function TabStrip({
               className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm text-[var(--p-icon)] transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] ${
                 on ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
+              data-tab-close
               title={`Close ${labels[i]} (Ctrl+W)`}
               aria-label={`Close ${labels[i]}`}
               onClick={(e) => {
@@ -175,14 +367,40 @@ export function TabStrip({
       })}
       <button
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        title="New tab (Ctrl+T)"
+        title="New tab (Ctrl+T). Right-click for recent folders"
         aria-label="New tab"
         onClick={onNew}
+        // The + adds a tab instantly; its RIGHT click is where "somewhere I
+        // have been before" lives, so the instant verb stays instant.
+        onContextMenu={(e) => {
+          e.preventDefault()
+          // Read when it opens: the list is history, and history moves.
+          setPlusMenu({ x: e.clientX, y: e.clientY, recent: recentRoots().slice(0, 5) })
+        }}
       >
         <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
           <path d="M12 6v12m6-6H6" />
         </svg>
       </button>
+      {plusMenu && (
+        <ContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          onClose={() => setPlusMenu(null)}
+          items={
+            plusMenu.recent.length
+              ? recentLabels(plusMenu.recent).map((r) => ({
+                  label: r.label,
+                  // A folder in front of each, in the tree's own folder
+                  // colour: the menu should say "places" at a glance, not
+                  // read as a list of commands.
+                  icon: <FolderGlyph />,
+                  onPick: () => onOpenRecent(r.path)
+                }))
+              : [{ label: 'No recent folders', disabled: true }]
+          }
+        />
+      )}
     </div>
   )
 }

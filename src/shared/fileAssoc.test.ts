@@ -26,7 +26,7 @@ const registered = new Set(
 const supported = (() => {
   const src = readFileSync('src/shared/fileKind.ts', 'utf8')
   const out = new Set<string>()
-  for (const group of ['IMAGE', 'VIDEO', 'AUDIO', 'TEXT', 'ARCHIVE']) {
+  for (const group of ['IMAGE', 'VIDEO', 'AUDIO', 'DOC', 'TEXT', 'ARCHIVE']) {
     const re = new RegExp('const ' + group + ' = new Set\\(\\[([\\s\\S]*?)\\]\\)')
     const body = re.exec(src)?.[1] ?? ''
     for (const m of body.matchAll(/'\.([a-z0-9]+)'/gi)) out.add(m[1].toLowerCase())

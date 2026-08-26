@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clickSelect, emptySelection, sweepSelect } from './selection'
+import { clickSelect, emptySelection } from './selection'
 
 const order = ['a', 'b', 'c', 'd', 'e']
 
@@ -47,17 +47,3 @@ describe('clickSelect', () => {
   })
 })
 
-describe('sweepSelect', () => {
-  it('is the swept range, either direction', () => {
-    expect([...sweepSelect(order, 'b', 'd').items].sort()).toEqual(['b', 'c', 'd'])
-    expect([...sweepSelect(order, 'd', 'b').items].sort()).toEqual(['b', 'c', 'd'])
-    expect(sweepSelect(order, 'b', 'd').anchor).toBe('b')
-  })
-
-  it('merges with the selection the sweep began over', () => {
-    const base = new Set(['a'])
-    expect([...sweepSelect(order, 'd', 'c', base).items].sort()).toEqual(['a', 'c', 'd'])
-    // Shrinking the sweep sheds only the sweep's own rows, never the base.
-    expect([...sweepSelect(order, 'd', 'd', base).items].sort()).toEqual(['a', 'd'])
-  })
-})

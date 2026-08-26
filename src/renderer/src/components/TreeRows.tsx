@@ -252,12 +252,28 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // row the arrows are on - no key handling of our own for either.
           data-row={path}
           data-selected={t.selected.has(path) || undefined}
+          data-drop={t.dropTarget === path || undefined}
           tabIndex={onCursor ? 0 : -1}
+          // A folder is both cargo and destination (#70): drag it elsewhere,
+          // or drop files, folders and archive members into it.
+          draggable
+          onDragStart={(e) => t.onRowDragStart(e, path)}
+          onDragEnd={() => t.onDragDone()}
+          onDragOver={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            e.dataTransfer.dropEffect = 'move'
+            t.onDropHover(path)
+          }}
+          onDragLeave={() => t.onDropHover(null)}
+          onDrop={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            t.onDropOn(e, path)
+          }}
           // A plain click still expands, quick-look style; shift and ctrl
           // build a selection without touching the chevron state.
           onClick={(e) => t.onRowClick(e, path, true)}
-          onPointerDown={(e) => e.button === 0 && t.onSweepStart(path)}
-          onPointerEnter={() => t.onSweepOver(path)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -272,11 +288,13 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             }
           }}
           className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
-            onCursor || t.selected.has(path)
-              ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-              : onMenuHl
-                ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
-                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
+            t.dropTarget === path
+              ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
+              : onCursor || t.selected.has(path)
+                ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                : onMenuHl
+                  ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
+                  : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
           }`}
           style={{
             height: t.size.row,
@@ -385,14 +403,15 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               aria-selected={on}
               data-row={f.path}
               data-selected={onSel || undefined}
+              draggable
+              onDragStart={(e) => t.onRowDragStart(e, f.path)}
+              onDragEnd={() => t.onDragDone()}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               // A plain click still OPENS, quick-look style (only archives
-              // are double-click); shift ranges, ctrl toggles and dragging
-              // sweeps all select WITHOUT opening.
+              // are double-click); shift ranges and ctrl toggles select
+              // WITHOUT opening.
               onClick={(e) => t.onRowClick(e, f.path, false)}
-              onPointerDown={(e) => e.button === 0 && t.onSweepStart(f.path)}
-              onPointerEnter={() => t.onSweepOver(f.path)}
               onContextMenu={(e) => t.onMenu(e, f.path, f.name, false, f.size)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {

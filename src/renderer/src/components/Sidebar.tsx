@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type JSX,
+  type MouseEvent
+} from 'react'
 import type { OpenWithApp, ViewerFile } from '@shared/types'
 import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
@@ -13,7 +22,8 @@ import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
-import { clickSelect, emptySelection, sweepSelect, type Selection } from '../lib/selection'
+import { clickSelect, emptySelection, type Selection } from '../lib/selection'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -86,7 +96,18 @@ interface Menu {
 
 /** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
 const MenuIcon = ({ d }: { d: string }): JSX.Element => (
-  <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="opacity-80" aria-hidden>
+  <svg
+    viewBox="0 0 24 24"
+    width={13}
+    height={13}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="opacity-80"
+    aria-hidden
+  >
     <path d={d} />
   </svg>
 )
@@ -101,6 +122,8 @@ export function Sidebar({
   onRename,
   onDelete,
   onDeleteMany,
+  onDropInto,
+  onDuplicated,
   onNav,
   wash,
   onOpenFolder,
@@ -129,6 +152,12 @@ export function Sidebar({
   onDelete: (path: string, name: string, isFolder: boolean) => void
   /** A multi-selection's delete: one question, then every path to the bin. */
   onDeleteMany: (paths: string[]) => void
+  /** Something was dropped on a folder row: files to move in, or archive
+   *  members to extract there. App owns the questions either can raise. */
+  onDropInto: (destDir: string, payload: DragPayload) => void
+  /** A copy was just made: App remembers the source AND the copy, so Ctrl+Z
+   *  can take it away and Ctrl+Y can ask for another one. */
+  onDuplicated: (source: string, copyPath: string) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
   onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
@@ -194,16 +223,87 @@ export function Sidebar({
 
   /* ---------- loading ---------- */
 
+  /* The selection (2026-08-22): a click opens as it always did; shift ranges
+     and ctrl toggles build a selection without opening. */
+  const [sel, setSel] = useState<Selection>(emptySelection)
+  // A new place - or anything that rewrote the folder (a delete, a rename, a
+  // move) - starts clean: the old paths may not exist any more, and acting on
+  // them later took files the user could no longer see.
+  const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
+  if (selFor !== `${root}\u0000${refreshKey}`) {
+    setSelFor(`${root}\u0000${refreshKey}`)
+    setSel(emptySelection)
+  }
+  // What a drag carries when the dragged row is part of a selection.
+  // Mirrored via effect (refs must not be written during render).
+  const selRef = useRef(sel)
+  useEffect(() => {
+    selRef.current = sel
+  }, [sel])
+
+  /**
+   * A press anywhere that is not a tree ROW drops the marks (2026-08-25).
+   *
+   * Highlighting says "these are what I am about to act on", so it should not
+   * outlive walking away from them: click the empty space under the tree, or
+   * anything in the viewer, and the selection goes. What stays marked is the
+   * OPEN file, because that is the one you are actually looking at, and it is
+   * marked for being open rather than for being selected.
+   *
+   * Exempt: a menu or dialog, which IS the act on the selection, and the
+   * rename input, which is editing the row it belongs to.
+   */
+  /** Was the last press inside the tree? Ctrl+A belongs to the surface you are
+   *  in, and the archive panel keeps one of these too. */
+  const hasFocus = useRef(false)
+  useEffect(() => {
+    const away = (e: PointerEvent): void => {
+      const el = e.target as HTMLElement | null
+      if (!el) return
+      hasFocus.current = !!panel.current?.contains(el)
+      if (el.closest('[data-row],[role="menu"],[role="dialog"],[data-owns-escape],input,textarea'))
+        return
+      setSel((s) => (s.items.size ? emptySelection : s))
+    }
+    window.addEventListener('pointerdown', away, true)
+    return () => window.removeEventListener('pointerdown', away, true)
+  }, [])
+
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
-  const load = useCallback(async (p: string, force = false): Promise<void> => {
-    const listing = (await window.prism.listDir(root, p)) ?? { folders: [], files: [], unreadable: true }
-    setState((s) => (s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }))
-  }, [root, setState])
+  const load = useCallback(
+    async (p: string, force = false): Promise<void> => {
+      const listing = (await window.prism.listDir(root, p)) ?? {
+        folders: [],
+        files: [],
+        unreadable: true
+      }
+      setState((s) =>
+        s.children[p] && !force ? s : { ...s, children: { ...s.children, [p]: listing } }
+      )
+    },
+    [root, setState]
+  )
 
   const toggle = useCallback(
     (p: string) => {
-      setState((s) => ({ ...s, expanded: toggleExpanded(s.expanded, p) }))
+      setState((s) => {
+        const expanded = toggleExpanded(s.expanded, p)
+        // Collapsing hides rows: anything selected under this folder would
+        // stay selected and invisible, and the next Delete would take it.
+        if (!expanded.has(p)) {
+          const under = p.toLowerCase() + '\\'
+          setSel((sel) => {
+            const kept = [...sel.items].filter((x) => !x.toLowerCase().startsWith(under))
+            if (kept.length === sel.items.size) return sel
+            return {
+              anchor: sel.anchor && kept.includes(sel.anchor) ? sel.anchor : p,
+              items: new Set(kept)
+            }
+          })
+        }
+        return { ...s, expanded }
+      })
       void load(p)
     },
     [load, setState]
@@ -304,44 +404,33 @@ export function Sidebar({
 
   /* ---------- row actions ---------- */
 
-  /* Explorer selection (2026-08-22): a click selects, shift ranges, ctrl
-     toggles, dragging sweeps. Opening is the double click's job. */
-  const [sel, setSel] = useState<Selection>(emptySelection)
-  // A new place starts clean (render-time reset, the cursorFor pattern).
-  const [selFor, setSelFor] = useState(root)
-  if (selFor !== root) {
-    setSelFor(root)
-    setSel(emptySelection)
-  }
-  const sweep = useRef<{
-    from: string | null
-    live: boolean
-    consumed: boolean
-    base: ReadonlySet<string>
-  }>({ from: null, live: false, consumed: false, base: new Set() })
-  // What the sweep merges into: the selection as it stood at pointer-down.
-  // Mirrored via effect (refs must not be written during render).
-  const selRef = useRef(sel)
-  useEffect(() => {
-    selRef.current = sel
-  }, [sel])
-  useEffect(() => {
-    const up = (): void => {
-      sweep.current.from = null
-      sweep.current.live = false
-    }
-    window.addEventListener('pointerup', up)
-    return () => window.removeEventListener('pointerup', up)
-  }, [])
-
   const onMenu = useCallback(
-    (e: MouseEvent, path: string, name: string, isFolder: boolean, size?: number) => {
+    (
+      e: MouseEvent,
+      path: string,
+      name: string,
+      isFolder: boolean,
+      size?: number,
+      fromSearch = false
+    ) => {
       e.preventDefault()
       // Right-clicking INSIDE a multi-selection acts on all of it; outside,
       // the clicked row becomes the selection first, the way Explorer does.
-      const multi = sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
-      if (!multi) setSel({ anchor: path, items: new Set([path]) })
-      setMenu({ x: e.clientX, y: e.clientY, path, name, isFolder, size, multi, apps: isFolder ? undefined : null })
+      // A SEARCH hit never inherits the tree's selection: those are different
+      // lists, and the menu would have acted on rows the user could not see.
+      const multi =
+        !fromSearch && sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
+      if (!multi && !fromSearch) setSel({ anchor: path, items: new Set([path]) })
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        path,
+        name,
+        isFolder,
+        size,
+        multi,
+        apps: isFolder ? undefined : null
+      })
       // The app list arrives while the menu is up; ignore it if the menu has
       // meanwhile moved to another row (or closed).
       if (!isFolder && !multi) {
@@ -390,15 +479,33 @@ export function Sidebar({
   )
 
   /** The flattened visible rows, top to bottom: the order shift-ranges and
-   *  sweeps count through. */
+   *  shift-ranges count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
+
+  /**
+   * Ctrl+A marks every row the tree is SHOWING - what is expanded, folders
+   * included - rather than everything under the root, which would mark files
+   * you cannot see and the next Delete would take.
+   *
+   * Only while the tree is the surface you last touched (the archive panel
+   * has the same rule for its own rows), and never while something is being
+   * typed into: the search box, a rename, the editor and the shell keep it.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.ctrlKey || e.shiftKey || e.altKey || (e.key !== 'a' && e.key !== 'A')) return
+      if (!hasFocus.current || !order.length) return
+      const el = e.target as HTMLElement | null
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (el?.closest('.xterm')) return
+      e.preventDefault()
+      setSel({ anchor: order[0], items: new Set(order) })
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [order])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
-      // The click that ENDS a sweep must not collapse what the sweep built.
-      if (sweep.current.consumed) {
-        sweep.current.consumed = false
-        return
-      }
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
       // A plain click keeps the tree's quick-look reflex: it opens (or
@@ -422,19 +529,30 @@ export function Sidebar({
     },
     [order, sel]
   )
-  const onSweepStart = useCallback((path: string): void => {
-    sweep.current = { from: path, live: false, consumed: false, base: selRef.current.items }
+
+  /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const onRowDragStart = useCallback((e: DragEvent, path: string): void => {
+    // Dragging a row that is part of a multi-selection takes all of it.
+    const items = selRef.current.items
+    setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
+    e.dataTransfer.setData(DRAG_MIME, 'files')
+    e.dataTransfer.effectAllowed = 'move'
   }, [])
-  const onSweepOver = useCallback(
-    (path: string): void => {
-      const s = sweep.current
-      if (!s.from) return
-      if (!s.live && path === s.from) return
-      s.live = true
-      s.consumed = true
-      setSel(sweepSelect(order, s.from, path, s.base))
+  const onDropOn = useCallback(
+    (e: DragEvent, folderPath: string): void => {
+      setDropTarget(null)
+      const payload = dragPayload(e.dataTransfer)
+      setDrag(null)
+      if (payload) onDropInto(folderPath, payload)
+      else {
+        // Nothing of ours: Explorer, then. Its files are outside the root, so
+        // main will refuse them - App says so rather than failing silently.
+        const outside = droppedPaths(e.dataTransfer)
+        if (outside.length) onDropInto(folderPath, { kind: 'files', paths: outside })
+      }
     },
-    [order]
+    [onDropInto]
   )
 
   /** Put the cursor on a row: folders only highlight, files open. */
@@ -494,7 +612,6 @@ export function Sidebar({
   }, [onNav, step])
 
   const rootListing = state.children[root]
-  const rootName = root.slice(parentDir(root).length).replace(/^[\\/]/, '') || root
 
   return (
     // The panel stays mounted and collapses to zero width, so opening and closing
@@ -506,69 +623,99 @@ export function Sidebar({
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
       className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
-        dragging ? '' : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
+        dragging
+          ? ''
+          : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
     >
       <div
-        className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[var(--p-divider)]`}
+        // The one edge that stands against the VIEWER uses the OPAQUE hairline:
+        // an alpha line here sampled whatever was behind it, so over a playing
+        // video it shimmered lighter and darker down its length.
+        className={`flex h-full flex-col ${right ? 'border-l' : 'border-r'} border-[color:var(--p-edge)]`}
         style={{ width }}
       >
-        <div className="flex h-8 shrink-0 items-center justify-between gap-1.5 pl-3 pr-1.5 text-[11px] font-semibold uppercase tracking-[.12em] text-[var(--p-dim)]">
-          <span className="min-w-0 truncate" title={root}>
-            {rootName}
-          </span>
-          <div className="flex items-center">
-            <SortMenu />
-          </div>
-        </div>
-        {/* The search box: a hairline and nothing else, so it wears whatever
-            the style wears (a filled grey panel glowed on true black). The
-            accent arrives with focus. Escape clears. */}
-        <div className="mx-2 mb-1.5 flex shrink-0 items-center gap-1.5">
-        <button
-          className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
-          onClick={onOpenFolder}
-          title="Open a different folder in this tab"
-          aria-label="Open folder"
-        >
-          <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <path d="M12 11v5m2.5-2.5h-5" />
-          </svg>
-        </button>
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
-          <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
-            <circle cx="11" cy="11" r="6.5" />
-            <path d="M16 16l4.5 4.5" />
-          </svg>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.stopPropagation()
-                setQuery('')
-                e.currentTarget.blur()
-              }
-            }}
-            placeholder="Search"
-            aria-label="Search files"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
-          />
-          {query && (
-            <button
-              className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-[var(--p-dim2)] hover:text-[var(--p-text)]"
-              onClick={() => setQuery('')}
-              title="Clear"
-              aria-label="Clear search"
+        {/* ONE row for the panel's controls (owner, 2026-08-23): the folder
+            name used to head the sidebar, but the tab already says where you
+            are, and repeating it cost a whole row. Reroot, search and sort
+            now share the line. The search box is a hairline and nothing else,
+            so it wears whatever the style wears (a filled grey panel glowed
+            on true black); the accent arrives with focus, Escape clears. */}
+        <div className="mx-2 mb-1.5 mt-2 flex shrink-0 items-center gap-1.5">
+          <button
+            className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
+            onClick={onOpenFolder}
+            title="Open a different folder in this tab"
+            aria-label="Open folder"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={14}
+              height={14}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
             >
-              <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          )}
-        </div>
+              <path d="M3 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.4.6L11.4 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <path d="M12 11v5m2.5-2.5h-5" />
+            </svg>
+          </button>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-transparent px-2 py-1 font-normal normal-case tracking-normal transition-colors focus-within:border-[color:var(--p-accent-hi)]">
+            <svg
+              viewBox="0 0 24 24"
+              width={12}
+              height={12}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              className="shrink-0 text-[var(--p-dim2)]"
+              aria-hidden
+            >
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="M16 16l4.5 4.5" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation()
+                  setQuery('')
+                  e.currentTarget.blur()
+                }
+              }}
+              placeholder="Search"
+              aria-label="Search files"
+              spellCheck={false}
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
+            />
+            {query && (
+              <button
+                className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-[var(--p-dim2)] hover:text-[var(--p-text)]"
+                onClick={() => setQuery('')}
+                title="Clear"
+                aria-label="Clear search"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={10}
+                  height={10}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <SortMenu />
         </div>
         {/* No scrollbar: the tree scrolls, it just doesn't advertise it. */}
         <div
@@ -577,12 +724,24 @@ export function Sidebar({
         >
           {query.trim() ? (
             <SearchResults
+              key={root}
               root={root}
               query={query.trim()}
               refreshKey={refreshKey}
               currentPath={currentPath}
               size={size}
               onOpen={onOpenFile}
+              onMenu={(e, path, name) => onMenu(e, path, name, false, undefined, true)}
+              onMultiMenu={(e, paths) =>
+                setMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  path: paths[0],
+                  name: '',
+                  isFolder: false,
+                  multi: paths
+                })
+              }
             />
           ) : (
             <TreeProvider
@@ -597,9 +756,15 @@ export function Sidebar({
                 menuPath: menu?.path ?? null,
                 selected: sel.items,
                 selJoin,
+                onRowDragStart,
+                dropTarget,
+                onDropHover: setDropTarget,
+                onDragDone: () => {
+                  setDropTarget(null)
+                  setDrag(null)
+                },
+                onDropOn,
                 onRowClick,
-                onSweepStart,
-                onSweepOver,
                 onToggle: toggle,
                 onOpenFile,
                 onStartRename: setEditing,
@@ -619,7 +784,9 @@ export function Sidebar({
                   <Rows listing={rootListing} depth={0} />
                 </ul>
               ) : (
-                <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">loading…</div>
+                <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
+                  loading…
+                </div>
               )}
             </TreeProvider>
           )}
@@ -634,7 +801,9 @@ export function Sidebar({
               the glyph accent and nothing else. */}
           <button
             className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] transition-colors hover:bg-[var(--p-hover)] ${
-              termOpen ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
+              termOpen
+                ? 'text-[var(--p-accent-hi)]'
+                : 'text-[var(--p-icon)] hover:text-[var(--p-text)]'
             }`}
             onClick={onToggleTerm}
             onContextMenu={(e) => {
@@ -645,7 +814,17 @@ export function Sidebar({
             aria-label="Terminal"
             aria-pressed={termOpen}
           >
-            <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={18}
+              height={18}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />
             </svg>
           </button>
@@ -723,7 +902,9 @@ export function Sidebar({
             },
             {
               label: 'Copy paths',
-              icon: <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />,
+              icon: (
+                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+              ),
               onPick: () => void navigator.clipboard.writeText(menu.multi!.join('\n'))
             },
             {
@@ -779,21 +960,37 @@ export function Sidebar({
                   },
                   {
                     label: 'Open in',
-                    icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,
+                    icon: (
+                      <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />
+                    ),
                     children: [
-                      { label: 'Default app', icon: <MenuIcon d="M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5" />, onPick: () => window.prism.openInDefault(menu.path) },
+                      {
+                        label: 'Default app',
+                        icon: <MenuIcon d="M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5" />,
+                        onPick: () => window.prism.openInDefault(menu.path)
+                      },
                       ...(menu.apps === null
                         ? [{ label: 'Looking for apps…', disabled: true }]
                         : (menu.apps ?? []).map((a) => ({
                             label: a.name,
                             icon: a.icon ? (
-                              <img src={a.icon} width={14} height={14} alt="" className="shrink-0" />
+                              <img
+                                src={a.icon}
+                                width={14}
+                                height={14}
+                                alt=""
+                                className="shrink-0"
+                              />
                             ) : (
                               <MenuIcon d="M4 5h16v14H4zM4 9h16" />
                             ),
                             onPick: () => void window.prism.openWith(menu.path, a.id)
                           }))),
-                      { label: 'Choose another app…', icon: <MenuIcon d="M12 8v8M8 12h8M3.5 5h17v14h-17z" />, onPick: () => window.prism.openWithChooser(menu.path) }
+                      {
+                        label: 'Choose another app…',
+                        icon: <MenuIcon d="M12 8v8M8 12h8M3.5 5h17v14h-17z" />,
+                        onPick: () => window.prism.openWithChooser(menu.path)
+                      }
                     ]
                   }
                 ]
@@ -805,7 +1002,9 @@ export function Sidebar({
             },
             {
               label: 'Copy path',
-              icon: <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />,
+              icon: (
+                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+              ),
               onPick: () => void navigator.clipboard.writeText(menu.path)
             },
             {
@@ -820,18 +1019,34 @@ export function Sidebar({
                     icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
                     onPick: () =>
                       void window.prism.duplicateFile(menu.path).then((copy) => {
-                        if (copy) void load(parentDir(menu.path), true)
+                        if (copy) {
+                          onDuplicated(menu.path, copy)
+                          void load(parentDir(menu.path), true)
+                        }
                       })
                   }
                 ]
               : []),
-            { label: 'Rename', hint: 'F2', icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />, onPick: () => setEditing(menu.path) },
+            {
+              label: 'Rename',
+              hint: 'F2',
+              icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />,
+              onPick: () => setEditing(menu.path)
+            },
             {
               label: 'Properties',
               // The size right on the row: the question Properties answers most.
               hint: menu.isFolder ? undefined : formatBytes(menu.size ?? NaN) || undefined,
-              icon: <MenuIcon d="M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z" />,
-              onPick: () => setProps({ path: menu.path, name: menu.name, isFolder: menu.isFolder, size: menu.size })
+              icon: (
+                <MenuIcon d="M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z" />
+              ),
+              onPick: () =>
+                setProps({
+                  path: menu.path,
+                  name: menu.name,
+                  isFolder: menu.isFolder,
+                  size: menu.size
+                })
             },
             {
               label: 'Delete',

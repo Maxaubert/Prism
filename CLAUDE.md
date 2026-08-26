@@ -29,14 +29,65 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 
 - Open via: a file argument (Explorer double-click / "open with" / CLI), drag-and-drop, and an
   open dialog.
-- **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, exotic
-  formats via a decode fallback.
+- **Image** viewer: fit / zoom / pan / rotate / fullscreen; common formats natively, HEIC/HEIF
+  through a pure-JS libheif worker, and (2026-08-24) Targa, PCX, Photoshop, OpenEXR, DPX, SGI,
+  DDS, PNM, JPEG 2000, QOI, Radiance HDR and X BitMap through `imageDecode.ts`, which asks the
+  bundled ffmpeg for one PNG frame and caches it by path+mtime. Camera RAW (2026-08-24,
+  `rawPreview.ts`) shows the full-size JPEG the camera embedded, found by scanning for the
+  LARGEST JPEG in the file - which is what Explorer and every fast viewer show. It is NOT a
+  development of the sensor data; that needs LibRaw, a native module Prism does not have.
 - **Video** player: play / pause / seek / volume / fullscreen, frame-step, and a transport
   settings cog (2026-08-12): speed, loop, autoplay (next video in the folder, skipping other
   kinds), sidecar subtitles (`.srt`/`.vtt` matched by name beside the file or in `Subs/`,
   SRT converted to WebVTT; embedded MKV tracks deliberately out until a demuxer decision).
+  Chromium ships no Dolby Digital (AC-3/E-AC-3), DTS or TrueHD decoder, so many MKV rips
+  played picture-only. Prism DECODES THEM ITSELF (2026-08-24, owner decision to bundle):
+  `vendor/ffmpeg` (BtbN's LGPL SHARED build, fetched by `tools/fetch-ffmpeg.mjs` against a
+  pinned tag + SHA-256, never committed, ~128MB into `resources/bin`) feeds an `fsaudio://`
+  stream that a hidden `<audio>` plays beside the picture. The trick is a FIXED PCM shape
+  (48kHz/16-bit/stereo = 192000 bytes a second), so byte N is always second (N-44)/192000:
+  Range requests are answered by starting ffmpeg at that timestamp, which makes a live
+  transcode seek like a file - no temp files, no waiting. The video element needs no muting
+  (it cannot decode the track either); the sidecar follows its clock and corrects drift by
+  nudging playbackRate 2%. Codec choice is an ALLOWLIST of what Chromium plays, so an unknown
+  codec gets decoded rather than silently lost. LGPL, not GPL, and shared, not static: the
+  AC-3/DTS/TrueHD DECODERS are LGPL, and replaceable DLLs are what the licence asks for -
+  which is also why the e2e fixtures encode with `libopenh264` (there is no libx264 here).
+  The note that says Prism cannot help now appears only when no ffmpeg was found at all.
+  The AUDIO player shares the decoder (2026-08-24) but not the syncing: with no picture to
+  keep step with, the decoded stream simply IS the source (`useDecodedSource`), which is what
+  makes Apple Lossless, WMA, AC-3, DTS, WavPack, AIFF, AMR and AU play at all. The container
+  counts as well as the codec: Chromium has no demuxer for ASF, raw AC-3/DTS, AIFF or AU, so
+  anything outside `CHROMIUM_CONTAINERS` is decoded whatever its codec says.
+  Video is NOT decoded, and Prism now says which codec it cannot show (`No picture: ...
+  (mpeg2video)`) instead of leaving a black window with working sound - MPEG-2, Xvid, WMV,
+  Theora, ProRes and FFV1 all land there - EXCEPT that they are now CONVERTED instead
+  (2026-08-24, `videoConvert.ts`): the file is turned into an mp4 once and played from the
+  copy, so seeking, speed and subtitles all work afterwards. Most cost nothing to convert -
+  a .flv/.m2ts/.vob usually holds H.264 and only its container is wrong, so the streams are
+  COPIED - and only a genuinely undecodable picture is re-encoded (libopenh264, since the
+  LGPL build has no x264). Copies live in `userData/converted`, LRU-evicted at 6GB. The
+  "No picture" note is now only the fallback for when no ffmpeg is found at all. `.ts`/`.m2ts`/`.mts` stay unsupported, MEASURED not
+  assumed: Chromium has no MPEG-TS demuxer for `<video src>` (picture missing, error banner up,
+  though the AC-3 decoded fine), and `.ts`/`.mts` are TypeScript to the code viewer anyway.
+  Sidecar `.ass`/`.ssa` subtitles are converted to WebVTT by ffmpeg (2026-08-24); their
+  positioning and styling is dropped, because WebVTT cannot express it. The formats sweep of
+  the same day added 74 extensions across `fileKind.ts` + `assoc.nsh`, every one of them
+  opened in the app and checked before being claimed - including four (`.cr`, `.scm`,
+  `.lisp`, `.el`) whose highlighter had shipped for months while the files refused to open.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
-  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist.
+  settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist. MIDI is
+  SYNTHESISED, not decoded (2026-08-24, `midi.ts`): a `.mid` is a score, so Prism bundles
+  FluidSynth (LGPL) and the MIT FluidR3Mono soundfont, renders the file to a WAV once, and
+  plays that. What you hear is the soundfont's reading of the score, which is what MIDI is.
+- **Office and ebook documents** (2026-08-24, kind `doc`): `.docx/.docm` via mammoth, `.odt/.odp`
+  by walking the ODF XML, spreadsheets via SheetJS (one table per sheet), `.pptx` as its slides
+  in order (slide10 AFTER slide2, which zip order does not give), `.rtf` by a brace walker (a
+  regex leaves `{onttbl{0 Arial;}}` in the middle of the letter), and `.epub` along the
+  SPINE rather than zip order. A reading view, not Office: no editing, no layout fidelity.
+  Every one is converted AND SANITISED IN MAIN against an allowlist before it reaches the
+  renderer - no script, no handlers, no iframe/form, images only as the converter's own data:
+  URIs, and no links at all, because the window it lands in can reach `window.prism`.
 - **PDF / document** viewer: first-party pdf.js viewer (2026-08-08): continuous canvas pages,
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
@@ -47,20 +98,37 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+- **Archives beyond zip** (2026-08-24): `.7z .rar .tar .gz .tgz .bz2 .xz .iso .cab` open
+  READ-ONLY through a bundled 7-Zip (`sevenZip.ts`; `tools/fetch-7zip.mjs` expands the official
+  MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view
+  and copy and nothing else on those; zip keeps every verb. A member name is validated BEFORE
+  extraction, never after: checking afterwards only says where a file was SUPPOSED to land.
 - **Archive viewer** (2026-08-22, #68): open a `.zip` onto its manifest - the archive's own
   SYSTEM icon (the user's association, via app.getFileIcon, one fetch per extension; the
   amber parcel is only the loading/no-handler fallback, its picker deliberately removed),
-  name and totals, with the members in a bounded panel. Navigation is Explorer-shaped:
+  name and totals, with the members in a panel that FILLS the window (2026-08-25: it
+  used to be a 560px box adrift in the space, and read as a fraction of the app).
+  The panel scrolls, the page does not. Rows are EXPLORER COLUMNS under a header
+  (2026-08-25, owner pick): name, type ("HEIC image", "TypeScript source" - what Prism
+  will DO with it, not Explorer's "HEIC File"), size (folders say "3 items"), packed size
+  with the saving as a minus percent, and the entry's own modified time. The narrow
+  columns drop out on a small window; the name never does. Navigation is Explorer-shaped:
   clicking a folder walks INTO it, the crumb row (fixed height, so the panel never jumps)
   or Backspace climbs out - no collapsible tree, and NO hover quick-verbs (tried twice,
-  rejected twice). Verbs are right-click + F2/Delete: view (extracted to a temp file main
+  rejected twice). A VERB ROW under the archive's name (2026-08-25) carries what you come
+  to an archive to do: Extract all (main's own dialog picks where, which IS the consent -
+  it is why that destination is not bound by the root wall - and the contents land in a
+  folder named after the archive, "name (2)" if one is there), Add files (zip only), Copy,
+  Rename (handed up to App, which owns renaming), Show in Explorer. Row verbs stay on the
+  right-click menu + F2/Delete: view (extracted to a temp file main
   grants individually, shown with the ordinary viewers), copy out (real clipboard), rename,
   delete. Member delete is the ONE permanent delete in Prism (a zip has no Recycle Bin) and
   the dialog says so. Passwords: asked once per archive and remembered; ZipCrypto opens via
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
-  archives (>600MB) list but refuse member operations.
+  archives (>600MB) list but refuse member operations. Properties on a zip reports what it
+  holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
   2026-08-20: a forgotten filter read as missing files. Do not reintroduce it without a
@@ -107,16 +175,48 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `win.on('close')` until the user answers **Cancel / Discard / Save all changes** (which
   covers Alt+F4 and the taskbar, not just the X). A failed write cancels the close and names
   the file rather than closing over the top of it.
+  **Undo and redo** (2026-08-22, `lib/undo.ts`, pure and tested): Ctrl+Z / Ctrl+Y (and
+  Ctrl+Shift+Z) reverse Prism's own file writes - move, rename, bin, duplicate - and a
+  quiet pill says what went back. Undo NEVER asks and never overwrites: it puts things
+  beside whatever appeared meanwhile ('keep-both'), and a binned file comes back through
+  the shell's Recycle Bin namespace (MoveHere, not the localised Restore verb). Behind the
+  typing guard, so a focused editor and the terminal keep their own Ctrl+Z. Archive-internal
+  writes are deliberately NOT on the stack (a member delete is permanent anyway).
   Prism's writes are therefore: rename, bin,
   duplicate, the editor's save, and the archive's member verbs (rename/delete inside a
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
-  natural next step. Multi-select WAS that fresh decision (2026-08-22): shift ranges,
-  ctrl toggles, and dragging across rows sweeps a selection WITHOUT opening, in the tree
-  and the archive alike; right-click inside a multi-selection acts on all of it (copy
+  natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
+  ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
+  taken names asking cancel / keep both / replace. The same drag crosses surfaces: sidebar
+  rows dropped INTO an open archive are added to the zip at that folder, archive members
+  dropped on a sidebar folder are extracted there (sharing the archive's remembered
+  password via `lib/archivePass`), members dropped on an archive folder move inside the
+  zip, and files dragged from EXPLORER onto the archive panel are added to it. Folders
+  travel whole on every route. Rebuilding a password-protected zip is refused rather than
+  risked (adm-zip would re-emit those entries wrongly), and dropping on the window at
+  large still just opens the file. Multi-select WAS that fresh decision too (2026-08-22): shift ranges and
+  ctrl toggles select WITHOUT opening, in the tree and the archive alike (drag-to-select
+  was tried and REMOVED the same day: dragging is for moving, and the sweep's pointer
+  state outlived real drags); right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single
   click - a plain click still opens a file or expands a folder (double-click-to-open was
   tried and rolled back the same day; only the ARCHIVE is double-click, where single
   click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  Search results speak the same selection language, multi right-click included.
+  DRAG-SELECT came back for the ARCHIVE alone (2026-08-25): it starts only on the
+  panel's DEAD SPACE, so a row drag (which moves members) can never leave a phantom
+  band behind - the failure that got the tree's sweep removed - and its listeners
+  die on pointerup and pointercancel alike. A press on dead space, or anywhere
+  outside the rows at all, CLEARS the marks in both surfaces: highlighting says
+  "these are what I am about to act on", so it must not outlive walking away from
+  them. What stays marked is the OPEN file, which is marked for being open.
+  Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
+  every row the TREE is showing (expanded folders included, never what is
+  collapsed and invisible), or every member of the archive folder you are in.
+  Behind the typing guard, so the search box, a rename, the editor and the
+  shell keep their own Ctrl+A.
+  Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
+  hairline showing where one would land.
   Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
@@ -130,7 +230,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
   FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
   opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
-  strip's `+` (and `Ctrl+T`) ADDS a tab instantly, rooted at the user's home folder with no
+  strip's `+` (and `Ctrl+T`) ADDS a tab instantly (its RIGHT click offers the last five folders
+  Prism has been opened in, newest first, deduped, read fresh each time - history, not a list
+  to curate; a folder that has gone drops out on the attempt), rooted at the user's home folder with no
   dialog, and spawns unconditionally (pressing + must never appear to do nothing); the
   sidebar's folder button (on the search row, left of the search box, away from sort/filter
   which narrow rather than change) opens the chooser and REPLACES the current tab root. Rerooting onto a folder another tab already holds switches there instead,
@@ -150,7 +252,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   split docks bottom/top/left/right (right-click menus), resizable. Ctrl+W closes
   innermost-first: pinned panes pop LIFO, then the tab itself. The terminal wears the style (reads
   --p-bg/--p-text/--p-accent-hi live): void means a black terminal. Right-clicking the
-  terminal button offers split view and Clear terminal. Syntax highlighting and history
+  terminal button offers split view and Clear terminal. The agent indicator has two
+  volumes (owner picks, 2026-08-23): MINIMAL runs an indeterminate line along the tab's
+  bottom edge while an agent works and says nothing else - no finished state, that is
+  full's alone; FULL fills the tab with the working colour, and holds the finished colour
+  until the tab is visited. Syntax highlighting and history
   ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
   spawn - including `-EnableScreenReaderMode:$false`, because automation tooling
   false-positives the system screen-reader flag and PSReadLine then silently drops to a
@@ -164,9 +270,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `claude --resume <id>` as its STARTUP command - never typed on screen, never a bare
   --continue guessing (no session on disk = no resume). That is the ONE command Prism
   ever writes itself - an explicit owner exception (2026-08-21) to the line below,
-  claude-only (agent detection knows the kind; codex and kin are never resumed). Ctrl+C
+  claude AND codex (2026-08-23): claude comes back by session id, codex by its own `codex resume --last`, whose picker already filters by cwd so no lookup is needed; agent detection names the kind and tabs.json records it (the old boolean means claude). Other agents light the dot but have nothing to come back to. Ctrl+C
   over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
-  pwsh by default, Settings picks from what the machine has. **This is the one thing in Prism that executes**, accepted by design -
+  pwsh by default, Settings picks from what the machine has. The pty gets a
+  terminal's OWN environment, not Prism's (2026-08-23): TERM=xterm-256color and
+  COLORTERM=truecolor, with NO_COLOR and FORCE_COLOR=0 dropped, and the SESSION MARKERS an
+  agent leaves for its children stripped by name (CLAUDECODE, CLAUDE_CODE_CHILD_SESSION /
+  SESSION_ID / MESSAGING_SOCKET / MESSAGING_TOKEN / ENTRYPOINT / EXECPATH, CLAUDE_PID,
+  CODEX_COMPANION_*). Prism inherits whatever launched it: from an agent's own shell that
+  meant monochrome agents AND child sessions - no transcript saved, so nothing for Prism's
+  resume to find, and a live pipe to somebody else's conversation. Real CLAUDE_CODE_*
+  configuration (web-search limits, feature flags) is deliberately kept. **This is the one thing in Prism that executes**, accepted by design -
   the line that remains is that Prism never generates a command: main spawns only shells it
   detected itself, and forwards keystrokes. AI CLIs are the primary workload: an image on
   the clipboard forwards the ^V KEYSTROKE (Claude Code reads the image itself - swallowing
@@ -174,9 +288,59 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **The band behind the transport** is a slider (2026-08-25, Settings > Player):
+  0-100%, opaque by default, which is the bar exactly as it always looked. Below
+  55% the controls carry their own drop shadow, because at that point they are
+  sitting on the film rather than on a band. The edge, outline and island styles
+  ignore it: a hairline, a glow rail and a floating capsule are their own shape,
+  and a band would make them a different style rather than the same one on a
+  background. Stored as a NUMBER, and read back defensively - `Number(null)` and
+  `Number('')` are both 0, so a naive loader would read "never set" as "fully
+  transparent" and quietly remove the bar for everyone.
+- **Fullscreen and the transport** (2026-08-25, three days of wrong guesses, so the
+  findings are written down). The controls appeared on entering fullscreen and never
+  again. They were NOT hidden: the DOM had them mounted at the right rectangle, opacity
+  1, visible, inside the fullscreen element, with the pointer moves arriving in dozens
+  per second - and a capture of that strip of the real screen showed only film.
+  DirectComposition was presenting the picture and the page's own overlay never reached
+  the glass. `--disable-direct-composition` is the fix (overlays alone were already off
+  for the HDR pause-brightness bug and were not enough). MEASURED cost: zero dropped
+  frames in 899 at 4K HEVC, and the acrylic styles composite identically with it on or
+  off. Then the hide broke, three times over, all the same shape - something waking the
+  controls the instant they hid: a cancellable timer that only had to miss one reset;
+  the bar's own `mouseleave`, which fires when an element is REMOVED under the pointer;
+  Chromium's `mousemove` on layout change under a STATIONARY cursor; and PlayerMenu's
+  unmount reporting "closed" through the same path that pins the chrome open. So: the
+  transport MOUNTS and UNMOUNTS (a layer taken to opacity 0 inside a fullscreen element
+  is composited once and never repainted), it has no mouse handlers of its own, activity
+  is heard on the WINDOW in the capture phase, and hiding is decided by a clock reading
+  the last wake, the video's own paused state, and the bar's own `:hover`. Nothing that
+  can be left stuck. Do not reintroduce a hover flag, a root-level onMouseMove, or an
+  opacity fade in place.
+- **Playback position** (`useMediaControls`, tuned 2026-08-24 by owner decision): media longer
+  than 10 MINUTES reopens where you left it, silently - no prompt, no banner. Anything shorter
+  never is, which is why a 5-second clip always starts at the start. Stopping inside the LAST
+  MINUTE counts as watched: the position is neither saved nor restored there, so a film never
+  reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
+  resume and songs do not.
+- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), off by default, switched
+  in Settings > General. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
+  `Directory\Background`, where it reads "Open Prism here" and takes `%V` rather than `%1`
+  (which is empty on a background click) - per user, no
+  elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way
+  roots a tab and then obeys "New tabs show" - first file, a terminal, or nothing - exactly
+  as the + does; main's argv reader used to demand a FILE, so the folder verb was present
+  and did nothing (fixed 2026-08-25). A folder a tab already holds switches to that tab. On Windows 11 it appears under
+  "Show more options", because the short menu is built from IExplorerCommand COM handlers and
+  those need a registered DLL; the hint in Settings says so rather than leaving it to be
+  hunted for. The switch reports what the REGISTRY says, not what was clicked, and a verb
+  pointing at some other copy of Prism reads as off so turning it on repoints it here.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
   window so it appears instantly (mitigates Electron cold-start).
+- **Update chip** (title bar, right of the file name): one shape for every state, and it never
+  changes width - the chip IS the progress bar, filling with accent from the left as the
+  download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that

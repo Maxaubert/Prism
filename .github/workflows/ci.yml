@@ -1,0 +1,38 @@
+# The gate on every pull request, and on main as a backstop: typecheck, lint,
+# unit tests. Same three that release.yml runs before it ships, so a green PR
+# cannot turn red on merge.
+#
+# The e2e suite deliberately does NOT run here. It drives real windows, real
+# shells and a real claude CLI on the dev machine, none of which a runner has;
+# it stays the local pre-PR gate (CLAUDE.md). The bundled binaries (ffmpeg,
+# 7-Zip, FluidSynth) are not fetched either: nothing in the unit suite spawns
+# them, and pulling ~130MB per run to prove that would be a poor trade.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test
