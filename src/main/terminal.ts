@@ -55,7 +55,65 @@ interface Session {
  * reports). node-pty ships its own conpty.dll with the fix; using it is the
  * documented cure, and Windows 10 1809+ (our floor) is its requirement.
  */
-const PTY_OPTS = { name: 'xterm-color', useConpty: true, useConptyDll: true } as const
+// xterm-256color, not xterm-color: `supports-color` and everything built on
+// it (Ink, chalk - so Claude Code and codex) read TERM to decide how much
+// colour they may use, and "xterm-color" caps them at 16.
+const PTY_OPTS = { name: 'xterm-256color', useConpty: true, useConptyDll: true } as const
+
+/**
+ * The environment a shell in Prism's panel should see.
+ *
+ * NOT the app's own environment verbatim: Prism inherits whatever launched it,
+ * and a launcher that suppresses colour (NO_COLOR, FORCE_COLOR=0 - both
+ * ordinary in a script or an agent's shell) made every agent inside the panel
+ * render in monochrome, logo and all. A terminal emulator answers for what IT
+ * can display, which is 24-bit colour, so it says so and drops the two
+ * variables that would claim otherwise.
+ */
+/**
+ * The markers an AI CLI leaves in the environment of everything it spawns, so
+ * a nested one knows it is a CHILD: it stops saving a transcript, and it can
+ * be handed its parent's session id and message pipe.
+ *
+ * Prism must not pass those on. Launched FROM an agent's shell (which is how
+ * it gets installed and started here), every agent in the panel became a
+ * child of that session: no transcript - so nothing for Prism's own resume to
+ * come back to - and a live socket to somebody else's conversation. A shell
+ * in the panel is a top-level shell, whatever started the app.
+ *
+ * Names only, deliberately: `CLAUDE_CODE_*` also carries real configuration
+ * (web-search limits, feature flags) that the user meant to set.
+ */
+const SESSION_MARKERS = new Set([
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_PID',
+  'CLAUDE_PLUGIN_DATA',
+  'CLAUDE_EFFORT',
+  'CODEX_COMPANION_SESSION_ID',
+  'CODEX_COMPANION_TRANSCRIPT_PATH'
+])
+
+export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(from)) {
+    if (v === undefined) continue
+    const key = k.toUpperCase()
+    if (key === 'NO_COLOR') continue
+    if (key === 'FORCE_COLOR' && /^(0|false|none)$/i.test(v)) continue
+    if (key === 'TERM' || key === 'COLORTERM') continue
+    if (SESSION_MARKERS.has(key)) continue
+    env[k] = v
+  }
+  env.TERM = PTY_OPTS.name
+  env.COLORTERM = 'truecolor'
+  return env
+}
 
 const sessions = new Map<string, Session>()
 
@@ -101,7 +159,7 @@ export async function prewarmShell(root: string, shellId: string | undefined): P
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>
+      env: ptyEnv(process.env)
     })
     const w: WarmShell = { pty: p, defId: def.id, buf: '', sub: { dispose: () => {} }, exited: false }
     w.sub = p.onData((d) => {
@@ -156,7 +214,10 @@ type Send = (channel: string, ...args: unknown[]) => void
  * world's store.
  */
 function withResume(def: { exe: string; args: string[]; id: string }, resume: string): { exe: string; args: string[] } {
-  const cmd = `claude --resume ${resume}`
+  // The ONE place Prism writes a command itself (the owner exception, 2026-08-21,
+  // now covering codex too): claude comes back by session id, codex by its own
+  // cwd-filtered --last. Never typed on screen, never a guess.
+  const cmd = resume === 'codex:last' ? 'codex resume --last' : `claude --resume ${resume}`
   if (def.id === 'pwsh' && def.args.length > 0)
     return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`] }
   if (def.id === 'powershell') return { exe: def.exe, args: [...def.args, '-NoExit', '-Command', cmd] }
@@ -205,7 +266,7 @@ export async function spawnTerm(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: process.env as Record<string, string>
+      env: ptyEnv(process.env)
     })
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
     const subs = [

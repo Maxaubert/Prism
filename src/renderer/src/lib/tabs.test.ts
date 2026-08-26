@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabPanes, setTabTerm, splitTermView, tabLabels, toggleTermView, type Tab } from './tabs'
+import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, rerootTab, setTabPanes, setTabTerm, splitTermView, reorderTabs, tabLabels, toggleTermView, type Tab } from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -273,5 +273,27 @@ describe('the pinned panes slot', () => {
     const r2 = rerootTab(next, a.id, payload('E:' + String.fromCharCode(92) + 'elsewhere', []), 'n')
     expect(r2.tabs[0].panes).toEqual([]) // pinned files belong to the old folder
     void r
+  })
+})
+
+describe('reorderTabs', () => {
+  const strip = (list: string[]): Tab[] =>
+    list.map((id) => newTab(payload('C:\\root', ['C:\\root\\one.png']), id))
+  const ids = (tabs: Tab[]): string[] => tabs.map((t) => t.id)
+
+  it('moves a tab later, accounting for its own removal', () => {
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'a', 2))).toEqual(['b', 'a', 'c'])
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'a', 3))).toEqual(['b', 'c', 'a'])
+  })
+
+  it('moves a tab earlier', () => {
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'c', 0))).toEqual(['c', 'a', 'b'])
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'b', 0))).toEqual(['b', 'a', 'c'])
+  })
+
+  it('is a no-op for its own slot, an unknown id, or a wild index', () => {
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'b', 1))).toEqual(['a', 'b', 'c'])
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'zz', 0))).toEqual(['a', 'b', 'c'])
+    expect(ids(reorderTabs(strip(['a', 'b', 'c']), 'a', 99))).toEqual(['b', 'c', 'a'])
   })
 })

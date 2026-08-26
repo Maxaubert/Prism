@@ -15,6 +15,22 @@
 /* Seamless scroll for the "Moving" colour-scheme swatches: the inner strip holds
    two identical cyclic-gradient tiles and slides by exactly one tile, so the loop
    is invisible. */
+/* The video transport's way back in. It FADES ON MOUNT rather than by
+   animating opacity on an element that stays in the tree, and that is the
+   whole point (2026-08-25): inside a fullscreen element on Windows, a layer
+   that has been taken to opacity 0 and back was composited once and never
+   repainted - the controls were in the DOM, at the right rectangle, at
+   opacity 1, and simply never reached the screen. A fresh element cannot be
+   stale. */
+@keyframes prism-chrome-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes prism-slide {
   to {
     transform: translateX(-50%);
@@ -43,6 +59,21 @@
     filter: hue-rotate(360deg);
   }
 }
+/* The MINIMAL agent indicator (owner pick, 2026-08-23): an indeterminate bar
+   running along the bottom edge of a tab while its agent works - the way a
+   loading browser tab reads. Working only; the finished colour belongs to the
+   full indicator alone. */
+@keyframes p-agent-run {
+  0% { left: -42% }
+  100% { left: 100% }
+}
+.p-agent-run { animation: p-agent-run 1.25s ease-in-out infinite }
+@media (prefers-reduced-motion: reduce) {
+  /* No travelling bar for anyone who asked for stillness: the edge simply
+     carries the colour instead. */
+  .p-agent-run { left: 0; width: 100%; animation: none }
+}
+
 @keyframes bar-slide {
   to {
     background-position: 200% 0;
@@ -282,3 +313,59 @@ input[type='color']::-webkit-color-swatch {
      the document after this sheet - equal specificity would lose on order. */
   background-color: transparent !important;
 }
+
+/* Office and ebook documents (DocView). A reading column on the viewer's own
+   ground, sized for prose rather than for the window: a full-width line of
+   9-point Word text is unreadable, and every one of these files is something
+   somebody wrote to be read. Tables get to use the whole width, since a
+   spreadsheet is the one thing here that is not prose. */
+.p-doc {
+  padding: 2.5rem clamp(1rem, 6vw, 4rem);
+  color: var(--p-text);
+  font-size: 15px;
+  line-height: 1.68;
+}
+.p-doc > * {
+  max-width: 46rem;
+  margin-inline: auto;
+}
+.p-doc h1, .p-doc h2, .p-doc h3, .p-doc h4 {
+  margin: 1.9em 0 0.6em;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.p-doc h1 { font-size: 1.7em }
+.p-doc h2 { font-size: 1.35em }
+.p-doc h3 { font-size: 1.13em }
+.p-doc p { margin: 0 auto 1em }
+.p-doc ul, .p-doc ol { margin: 0 auto 1em; padding-left: 1.6em }
+.p-doc li { margin: 0.25em 0 }
+.p-doc blockquote {
+  border-left: 3px solid var(--p-line);
+  padding-left: 1em;
+  color: var(--p-text-soft);
+}
+.p-doc img { max-width: 100%; height: auto; border-radius: 6px }
+.p-doc hr { margin: 2.5em auto; border: 0; border-top: 1px solid var(--p-line) }
+.p-doc section { margin-bottom: 1em }
+.p-doc .slide-no {
+  color: var(--p-dim2);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* A sheet is data, not prose: it may use the width, and it scrolls itself. */
+.p-doc table {
+  max-width: 100%;
+  width: max-content;
+  margin: 0 auto 1.5em;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.p-doc td, .p-doc th {
+  border: 1px solid var(--p-line);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+.p-doc th { background: var(--p-side-flat); font-weight: 600 }

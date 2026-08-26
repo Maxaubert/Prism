@@ -1,9 +1,9 @@
 import AdmZip from 'adm-zip'
-import { mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { deleteMember, extractMember, listArchive, renameMember, sevenZipExe, validMemberName } from './archive'
+import { addToArchive, deleteMember, extractMember, extractTo, hasEncrypted, listArchive, moveMembers, renameMember, sevenZipExe, validMemberName } from './archive'
 
 let zipPath: string
 
@@ -109,8 +109,13 @@ describe('deleteMember', () => {
     expect(deleteMember(zipPath, 'readme.txt')).toBe(true)
     expect(listArchive(zipPath).map((e) => e.path)).not.toContain('readme.txt')
   })
-  it('refuses folders', () => {
-    expect(deleteMember(zipPath, 'docs')).toBe(false)
+  it('takes a folder and its whole subtree', () => {
+    expect(deleteMember(zipPath, 'docs')).toBe(true)
+    expect(listArchive(zipPath).map((e) => e.path)).toEqual(['readme.txt'])
+  })
+
+  it('says no when there is nothing under that name', () => {
+    expect(deleteMember(zipPath, 'nope')).toBe(false)
   })
 })
 
@@ -120,5 +125,122 @@ describe('validMemberName', () => {
     for (const bad of ['a/b', 'a\\b', 'a:b', '..', '.', '', 'a*b', 'a|b']) {
       expect(validMemberName(bad)).toBe(false)
     }
+  })
+})
+
+describe('drag and drop (#70)', () => {
+  it('adds real files and whole folders into the zip, under a folder', () => {
+    const src = mkdtempSync(join(tmpdir(), 'prism-add-'))
+    writeFileSync(join(src, 'new.txt'), 'fresh')
+    const r = addToArchive(zipPath, [join(src, 'new.txt')], 'docs')
+    if (r === 'encrypted' || r === 'failed') throw new Error('expected a result')
+    expect(r.added.map((a) => a.entry)).toEqual(['docs/new.txt'])
+    expect(r.clashes).toEqual([])
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('docs/new.txt')
+    const back = extractMember(zipPath, 'docs/new.txt')
+    if (!back.ok) throw new Error('expected ok')
+    expect(readFileSync(back.path, 'utf8')).toBe('fresh')
+  })
+
+  it('reports a taken name and writes nothing, unless told to keep both', () => {
+    const src = mkdtempSync(join(tmpdir(), 'prism-add2-'))
+    writeFileSync(join(src, 'readme.txt'), 'other')
+    expect(addToArchive(zipPath, [join(src, 'readme.txt')], '')).toMatchObject({
+      added: [],
+      clashes: ['readme.txt']
+    })
+    expect(extractMemberText(zipPath, 'readme.txt')).toBe('hello')
+    const kept = addToArchive(zipPath, [join(src, 'readme.txt')], '', true)
+    if (kept === 'encrypted' || kept === 'failed') throw new Error('expected a result')
+    expect(kept.added.map((a) => a.entry)).toEqual(['readme (2).txt'])
+    expect(listArchive(zipPath).map((e) => e.path)).toContain('readme (2).txt')
+  })
+
+  it('moves a member into another folder inside the zip', () => {
+    expect(moveMembers(zipPath, ['readme.txt'], 'docs')).toBe('ok')
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('docs/readme.txt')
+    expect(paths).not.toContain('readme.txt')
+  })
+
+  it('moves a folder whole, keeping its shape', () => {
+    expect(moveMembers(zipPath, ['docs/img'], '')).toBe('ok')
+    const paths = listArchive(zipPath).map((e) => e.path)
+    expect(paths).toContain('img/logo.png')
+    expect(paths).not.toContain('docs/img/logo.png')
+  })
+
+  it('extracts members out to a real folder, keeping the shape under a folder', () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-out-'))
+    const r = extractTo(zipPath, ['docs'], out)
+    expect(r).toEqual({ ok: true, written: 2 })
+    expect(readFileSync(join(out, 'docs', 'guide.md'), 'utf8')).toBe('# guide')
+    expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
+  })
+
+  it('extracts EVERYTHING when handed the top-level entries', () => {
+    // What "Extract all" does: the roots of the tree cover every member,
+    // because extractTo matches by prefix. If this ever stopped being true,
+    // the verb would quietly leave files behind.
+    const out = mkdtempSync(join(tmpdir(), 'prism-all-'))
+    const tops = listArchive(zipPath)
+      .filter((e) => !e.path.includes('/'))
+      .map((e) => e.path)
+    expect(tops.sort()).toEqual(['docs', 'readme.txt'])
+    const r = extractTo(zipPath, tops, out)
+    expect(r).toEqual({ ok: true, written: 3 })
+    expect(existsSync(join(out, 'readme.txt'))).toBe(true)
+    expect(existsSync(join(out, 'docs', 'guide.md'))).toBe(true)
+    expect(existsSync(join(out, 'docs', 'img', 'logo.png'))).toBe(true)
+  })
+
+  it('carries the packed size and the time of each member, for the columns', () => {
+    const one = listArchive(zipPath).find((e) => e.path === 'readme.txt')!
+    expect(one.packed).toBeGreaterThan(0)
+    expect(one.mtime).toBeGreaterThan(Date.parse('2020-01-01'))
+  })
+
+  it('refuses to rebuild a password-protected archive', () => {
+    const crypto = join(__dirname, 'fixtures', 'crypto.zip')
+    const copy = join(mkdtempSync(join(tmpdir(), 'prism-enc-')), 'c.zip')
+    writeFileSync(copy, readFileSync(crypto))
+    const src = mkdtempSync(join(tmpdir(), 'prism-enc-src-'))
+    writeFileSync(join(src, 'x.txt'), 'x')
+    expect(hasEncrypted(copy)).toBe(true)
+    expect(addToArchive(copy, [join(src, 'x.txt')], '')).toBe('encrypted')
+    expect(moveMembers(copy, ['secret.txt'], 'sub')).toBe('encrypted')
+  })
+
+  it('needs the password to extract an encrypted member out', () => {
+    const crypto = join(__dirname, 'fixtures', 'crypto.zip')
+    const out = mkdtempSync(join(tmpdir(), 'prism-out2-'))
+    expect(extractTo(crypto, ['secret.txt'], out)).toEqual({ ok: false, reason: 'password' })
+    expect(extractTo(crypto, ['secret.txt'], out, 'letmein')).toEqual({ ok: true, written: 1 })
+    expect(readFileSync(join(out, 'secret.txt'), 'utf8')).toBe('top secret')
+  })
+})
+
+/** Small helper: a member's text, for the clash assertions above. */
+function extractMemberText(zip: string, entry: string): string {
+  const r = extractMember(zip, entry)
+  return r.ok ? readFileSync(r.path, 'utf8') : ''
+}
+
+describe('zip slip', () => {
+  it('drops members whose name would land outside the destination', () => {
+    const evil = new AdmZip()
+    evil.addFile('../escape.txt', Buffer.from('nope'))
+    evil.addFile('sub/../../escape2.txt', Buffer.from('nope'))
+    evil.addFile('good.txt', Buffer.from('fine'))
+    const zip = join(mkdtempSync(join(tmpdir(), 'prism-slip-')), 'evil.zip')
+    evil.writeZip(zip)
+    const home = mkdtempSync(join(tmpdir(), 'prism-slip-out-'))
+    const dest = join(home, 'dest')
+    mkdirSync(dest)
+    const r = extractTo(zip, ['../escape.txt', 'sub/../../escape2.txt', 'good.txt'], dest)
+    expect(r).toMatchObject({ ok: true })
+    expect(existsSync(join(home, 'escape.txt'))).toBe(false)
+    expect(existsSync(join(home, 'escape2.txt'))).toBe(false)
+    expect(readFileSync(join(dest, 'good.txt'), 'utf8')).toBe('fine')
   })
 })

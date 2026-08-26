@@ -1,7 +1,8 @@
-// Explorer's selection model, pure (owner decision 2026-08-22: single click
-// SELECTS, double click opens - multi-select is the fresh decision CLAUDE.md
-// reserved). Shared by the sidebar tree and the archive view: both hand in
-// their visible order and get the next selection back.
+// The selection model, pure. Shared by the sidebar tree, the archive view and
+// the search results: each hands in its visible order and gets the next
+// selection back. Shift ranges and ctrl toggles - drag-to-select was tried
+// and REMOVED (owner, 2026-08-22): its pointer state outlived real drags and
+// a dropped folder would start a phantom sweep with no button held.
 
 export interface Selection {
   /** Where a shift-range or sweep grows from: the last plain-clicked row. */
@@ -31,7 +32,9 @@ export function clickSelect(
     // The range MERGES with what is already marked (owner call 2026-08-22,
     // deliberately not Explorer's replace): file 1 marked, then a shifted
     // 4-to-2 keeps 1. A plain click is the way back to one.
-    const anchor = sel.anchor ?? path
+    // An anchor that has left the visible rows (its folder collapsed, the file
+    // was deleted) would range from nowhere, so the click re-anchors instead.
+    const anchor = sel.anchor && order.includes(sel.anchor) ? sel.anchor : path
     return { anchor, items: new Set([...sel.items, ...rangeOf(order, anchor, path)]) }
   }
   if (mods.ctrl) {
@@ -43,15 +46,3 @@ export function clickSelect(
   return { anchor: path, items: new Set([path]) }
 }
 
-/** Dragging across rows: the swept range, anchor to wherever the pointer is,
- *  merged with whatever was selected when the sweep began (`base`) - so a
- *  second sweep grows the pile rather than replacing it. Recomputed from the
- *  base each move, so shrinking the sweep sheds only the sweep's own rows. */
-export function sweepSelect(
-  order: readonly string[],
-  anchor: string,
-  path: string,
-  base: ReadonlySet<string> = new Set()
-): Selection {
-  return { anchor, items: new Set([...base, ...rangeOf(order, anchor, path)]) }
-}

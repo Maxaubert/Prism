@@ -23,12 +23,17 @@ export function looksLikeAgent(cmd: string): boolean {
   return AGENT_RE.test(cmd)
 }
 
-/** Claude specifically: the one agent whose session Prism can resume
- *  (`claude --continue` is claude's own flag; codex and kin have no part). */
+/** The two agents whose sessions Prism can resume, each by its own flag:
+ *  `claude --resume <id>` and `codex resume --last`. Anything else is 'other'
+ *  - it still lights the dot, it just has nothing to come back to. */
 const CLAUDE_RE = /claude-code|[\\/]claude(\.exe|\.cmd|\.ps1)?(["\s]|$)/i
+const CODEX_RE = /[\\/]codex(\.exe|\.cmd|\.ps1)?(["\s]|$)|@openai[\\/]codex/i
 
 /** BFS the tree under `rootPid`: which agent runs there, if any. */
-export function treeAgentKind(rows: ProcRow[], rootPid: number): 'claude' | 'other' | null {
+export function treeAgentKind(
+  rows: ProcRow[],
+  rootPid: number
+): 'claude' | 'codex' | 'other' | null {
   const kids = new Map<number, ProcRow[]>()
   for (const r of rows) {
     const list = kids.get(r.ppid) ?? []
@@ -37,7 +42,7 @@ export function treeAgentKind(rows: ProcRow[], rootPid: number): 'claude' | 'oth
   }
   const queue = [rootPid]
   const seen = new Set<number>()
-  let kind: 'claude' | 'other' | null = null
+  let kind: 'claude' | 'codex' | 'other' | null = null
   while (queue.length) {
     const pid = queue.shift() as number
     if (seen.has(pid)) continue
@@ -45,7 +50,8 @@ export function treeAgentKind(rows: ProcRow[], rootPid: number): 'claude' | 'oth
     for (const child of kids.get(pid) ?? []) {
       if (looksLikeAgent(child.cmd)) {
         if (CLAUDE_RE.test(child.cmd)) return 'claude'
-        kind = 'other'
+        if (CODEX_RE.test(child.cmd)) kind = 'codex'
+        else if (kind === null) kind = 'other'
       }
       queue.push(child.pid)
     }

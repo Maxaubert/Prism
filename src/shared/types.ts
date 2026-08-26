@@ -1,4 +1,4 @@
-export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'archive' | 'other'
+export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'other'
 
 /** One openable file, as the renderer sees it. */
 export interface ViewerFile {
@@ -57,7 +57,9 @@ export interface OpenWithApp {
 export type OnClash = 'ask' | 'overwrite' | 'keep-both'
 
 export type RenameResult =
-  | { ok: true; path: string }
+  /** `replaced` names what an overwrite sent to the bin, so undo can
+   *  bring it back after the rename has been reversed. */
+  | { ok: true; path: string; replaced?: string }
   | {
       ok: false
       reason: 'invalid' | 'clash' | 'missing' | 'failed'
@@ -89,6 +91,11 @@ export interface OpenPayload {
    *  own tab - the arriving-file rule folds same-root payloads into one, and
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
+  /** A FOLDER arrived from outside (Explorer's "Open in Prism" on a folder, or
+   *  "Open Prism here" on its background). The tab roots there, and what it
+   *  SHOWS is the "New tabs show" setting's business - first file, a terminal,
+   *  or nothing - exactly as the + would do it. */
+  folder?: boolean
   /** Restore only: this saved tab was the ACTIVE one - it takes the front.
    *  The rest restore behind whatever is already showing. */
   restoreActive?: boolean
@@ -100,4 +107,33 @@ export interface ShellDef {
   name: string
   exe: string
   args: string[]
+}
+
+/** What main knows about a media file, and whether Prism must decode its
+ *  audio itself. Chromium ships no AC-3/E-AC-3/DTS/TrueHD decoder and no
+ *  demuxer for ASF or raw AC-3, so those play as silence unless the sidecar
+ *  takes over (src/main/audioSidecar.ts). */
+export interface MediaProbe {
+  /** Is there an ffmpeg to decode with at all. */
+  ffmpeg: boolean
+  /** Is this file's own track one Chromium cannot play. */
+  needed: boolean
+  /** Set when nothing could be probed: the renderer may still ask for a
+   *  sidecar off its own decoder counters, naming the duration itself. */
+  blind?: boolean
+  codec?: string
+  channels?: number
+  layout?: string
+  /** fsaudio:// url for the track, ready to hand to an <audio>. */
+  url?: string
+  /** The video stream's codec, when there is one. Prism decodes audio but not
+   *  video, so this exists to NAME what it cannot show. */
+  videoCodec?: string
+  /** A score rather than a recording: it must be synthesised before there is
+   *  anything to play, which takes seconds. */
+  synth?: boolean
+  /** Set when the file needs converting before it can play at all.
+   *  `quick` means the streams can be copied (a container problem, seconds);
+   *  otherwise the picture is re-encoded, which takes as long as it takes. */
+  convert?: { reason: 'container' | 'codec'; quick: boolean }
 }

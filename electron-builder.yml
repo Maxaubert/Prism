@@ -28,6 +28,28 @@ npmRebuild: false
 extraResources:
   - from: build/icon.ico
     to: icon.ico
+  # ffmpeg, for the audio Chromium will not decode (AC-3/E-AC-3, DTS, TrueHD).
+  # Fetched by tools/fetch-ffmpeg.mjs, never committed. BtbN's LGPL SHARED
+  # build: the DLLs are replaceable, which is what LGPL asks for.
+  - from: vendor/ffmpeg
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
+  # 7-Zip, for the archives Prism reads but does not write (7z, rar, tar, gz).
+  # 7z.exe alone cannot read rar - the format handlers live in 7z.dll.
+  - from: vendor/7zip
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
+  # FluidSynth and a General MIDI soundfont: a .mid is a score, and nothing
+  # else here can make a sound from one.
+  - from: vendor/fluidsynth
+    to: bin
+    filter:
+      - '**/*'
+      - '!.source'
 win:
   icon: build/icon.ico
   target:

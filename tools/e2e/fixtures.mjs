@@ -6,7 +6,7 @@
  * The PDF is written object by object with a computed xref, so it is a fully
  * valid file, with exactly five case-mixed "grape" tokens across its pages.
  */
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import AdmZip from 'adm-zip'
 import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
@@ -15,6 +15,47 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 export const FIXTURES = join(ROOT, '.e2e', 'fixtures')
+
+/**
+ * Where ffmpeg actually is. The PATH shim is not something to depend on: a
+ * WinGet upgrade removed it mid-session once and took the whole suite with it,
+ * though the binary was sitting right there. PATH first, then the places a
+ * Windows install really puts it.
+ */
+function findFfmpeg() {
+  // Prism bundles one now (tools/fetch-ffmpeg.mjs), for the audio Chromium
+  // cannot decode. Prefer it: it is the exact build the app itself will use.
+  const vendored = join(process.cwd(), 'vendor', 'ffmpeg', 'ffmpeg.exe')
+  if (existsSync(vendored)) return vendored
+  if (spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0) return 'ffmpeg'
+  const roots = [
+    join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WinGet', 'Packages'),
+    'C:\ffmpeg\bin',
+    join(process.env.ProgramFiles ?? '', 'ffmpeg', 'bin')
+  ]
+  for (const root of roots) {
+    if (!existsSync(root)) continue
+    // One level of package folder, then its bin.
+    const stack = [root]
+    for (let i = 0; i < 400 && stack.length; i += 1) {
+      const dir = stack.shift()
+      let entries
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const e of entries) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) stack.push(full)
+        else if (e.name.toLowerCase() === 'ffmpeg.exe') return full
+      }
+    }
+  }
+  return 'ffmpeg'
+}
+
+const FFMPEG = findFfmpeg()
 
 /** Serif-free single-font PDF: `pages` is an array of line arrays. */
 function makePdf(pages) {
@@ -123,27 +164,269 @@ export function buildFixtures() {
   // sidecar subtitle for the first, named the way the whole world names them.
   for (const ep of ['ep1', 'ep2']) {
     const r = spawnSync(
-      'ffmpeg',
-      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', join(FIXTURES, `${ep}.mp4`)],
+      FFMPEG,
+      // libopenh264 by name: the bundled ffmpeg is the LGPL build, which has no
+      // libx264, and letting the muxer pick left an mpeg4 file Chromium cannot play.
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1.5:size=320x240:rate=10', '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', join(FIXTURES, `${ep}.mp4`)],
       { windowsHide: true }
     )
-    if (r.status !== 0) throw new Error('ffmpeg is needed to build the player fixtures')
+    if (r.status !== 0)
+      throw new Error(
+        `ffmpeg is needed to build the player fixtures (tried ${FFMPEG}). Install it, or put one on PATH.`
+      )
   }
+  // The bug this exists for: an MKV whose audio is Dolby Digital, which
+  // Chromium has no decoder for. Picture plus a 440Hz tone, so "is there
+  // sound" is answerable by the decoder's own byte counter. In its own folder:
+  // the root fixture list is counted and ordered by the sorting scenario.
+  mkdirSync(join(FIXTURES, 'av'), { recursive: true })
+  const ac3 = spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=6:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6:sample_rate=48000',
+     // libopenh264, not libx264: the bundled build is LGPL, and x264 is the
+     // GPL half we deliberately do not ship.
+     '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', '-c:a', 'ac3', '-ac', '6', '-b:a', '384k',
+     '-shortest', join(FIXTURES, 'av', 'dolby.mkv')],
+    { windowsHide: true }
+  )
+  if (ac3.status !== 0)
+    throw new Error(`ffmpeg could not build the Dolby fixture (tried ${FFMPEG}): ${ac3.stderr}`)
+
+  // Apple Lossless in an m4a: Chromium cannot decode ALAC, and an audio file
+  // has no picture to fall back on, so before the decoder reached the audio
+  // player this was a dead file with an error message.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4:sample_rate=48000', '-c:a', 'alac',
+     join(FIXTURES, 'av', 'lossless.m4a')],
+    { windowsHide: true }
+  )
+  // A MIDI score (synthesised by the bundled FluidSynth) and a fake camera
+  // raw: a JPEG hidden inside other bytes, which is exactly the shape of a
+  // real raw's embedded preview.
+  {
+    const vlq = (n) => {
+      const out = [n & 0x7f]
+      let v = n >> 7
+      while (v > 0) {
+        out.unshift((v & 0x7f) | 0x80)
+        v >>= 7
+      }
+      return Buffer.from(out)
+    }
+    const ev = [vlq(0), Buffer.from([0xc0, 0])]
+    for (const note of [60, 64, 67, 72]) {
+      ev.push(vlq(0), Buffer.from([0x90, note, 100]), vlq(240), Buffer.from([0x80, note, 0]))
+    }
+    ev.push(vlq(0), Buffer.from([0xff, 0x2f, 0x00]))
+    const body = Buffer.concat(ev)
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(body.length)
+    const head = Buffer.alloc(6)
+    head.writeUInt16BE(0, 0)
+    head.writeUInt16BE(1, 2)
+    head.writeUInt16BE(480, 4)
+    writeFileSync(
+      join(FIXTURES, 'av', 'arpeggio.mid'),
+      Buffer.concat([Buffer.from('MThd'), Buffer.from([0, 0, 0, 6]), head, Buffer.from('MTrk'), len, body])
+    )
+
+    // The "raw": 4KB of sensor-looking noise, then a real JPEG, the way a
+    // camera writes its preview after the header.
+    const shot = join(FIXTURES, 'av', 'shot.jpg')
+    spawnSync(
+      FFMPEG,
+      ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=1', '-frames:v', '1', shot],
+      { windowsHide: true }
+    )
+    if (existsSync(shot)) {
+      writeFileSync(
+        join(FIXTURES, 'av', 'photo.cr2'),
+        Buffer.concat([Buffer.alloc(4096, 0x11), readFileSync(shot)])
+      )
+      rmSync(shot, { force: true })
+    }
+  }
+
+  // Office and ebook documents (2026-08-24). Hand-built rather than exported
+  // from Office: the point is that Prism reads the real container layout, and
+  // a file built here is one whose expected text the assertions can name.
+  mkdirSync(join(FIXTURES, 'docs2'), { recursive: true })
+  {
+    const XML = '<?xml version="1.0" encoding="UTF-8"?>'
+    const docx = new AdmZip()
+    docx.addFile(
+      '[Content_Types].xml',
+      Buffer.from(
+        XML +
+          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+          '</Types>'
+      )
+    )
+    docx.addFile(
+      '_rels/.rels',
+      Buffer.from(
+        XML +
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+          '</Relationships>'
+      )
+    )
+    docx.addFile(
+      'word/document.xml',
+      Buffer.from(
+        XML +
+          '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+          '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>The Quarterly Report</w:t></w:r></w:p>' +
+          '<w:p><w:r><w:t>Revenue rose by a third.</w:t></w:r></w:p>' +
+          '</w:body></w:document>'
+      )
+    )
+    docx.writeZip(join(FIXTURES, 'docs2', 'report.docx'))
+
+    const epub = new AdmZip()
+    epub.addFile('mimetype', Buffer.from('application/epub+zip'))
+    epub.addFile(
+      'META-INF/container.xml',
+      Buffer.from(
+        XML +
+          '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>' +
+          '<rootfile full-path="OEBPS/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+      )
+    )
+    epub.addFile(
+      'OEBPS/book.opf',
+      Buffer.from(
+        XML +
+          '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>' +
+          '<item id="c2" href="two.xhtml" media-type="application/xhtml+xml"/>' +
+          '<item id="c1" href="one.xhtml" media-type="application/xhtml+xml"/>' +
+          '</manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>'
+      )
+    )
+    // Chapter one carries a script and a remote image: neither may survive.
+    epub.addFile(
+      'OEBPS/one.xhtml',
+      Buffer.from(
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><script>stealTheSession()</script></head><body>' +
+          '<h1>Chapter One</h1><p>It was a dark and stormy night.</p>' +
+          '<img src="https://tracker.example/pixel.png"/></body></html>'
+      )
+    )
+    epub.addFile(
+      'OEBPS/two.xhtml',
+      Buffer.from('<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter Two</h1><p>The morning after.</p></body></html>')
+    )
+    epub.writeZip(join(FIXTURES, 'docs2', 'novel.epub'))
+
+    // RTF, with the nested font table that a regex-based reader trips over.
+    writeFileSync(
+      join(FIXTURES, 'docs2', 'letter.rtf'),
+      String.raw`{\rtf1\ansi{\fonttbl{\f0\fswiss Arial;}}{\colortbl;\red0\green0\blue0;}\f0 Dear Prism,\par It worked.\par}`
+    )
+  }
+
+  // A 7z, built by the 7-Zip Prism bundles: read-only archives go through it.
+  {
+    const seven = join(ROOT, 'vendor', '7zip', '7z.exe')
+    const src = join(FIXTURES, 'zips', 'sevensrc')
+    mkdirSync(join(src, 'sub'), { recursive: true })
+    writeFileSync(join(src, 'note.txt'), 'hello from inside a 7z' + String.fromCharCode(10))
+    writeFileSync(join(src, 'sub', 'deep.txt'), 'buried' + String.fromCharCode(10))
+    if (existsSync(seven)) {
+      spawnSync(seven, ['a', '-t7z', join(FIXTURES, 'zips', 'read-only.7z'), join(src, '*')], {
+        windowsHide: true,
+        stdio: 'ignore'
+      })
+    }
+    rmSync(src, { recursive: true, force: true })
+  }
+
+  // Xvid in an AVI: the picture Chromium cannot decode at all. Prism converts
+  // it once and plays the copy.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4',
+     '-c:v', 'mpeg4', '-c:a', 'libmp3lame', '-shortest', join(FIXTURES, 'av', 'xvid.avi')],
+    { windowsHide: true }
+  )
+
+  // A Targa still: Chromium draws none of these, so it proves the ffmpeg
+  // image path rather than the <img> tag.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=1', '-frames:v', '1',
+     join(FIXTURES, 'av', 'still.tga')],
+    { windowsHide: true }
+  )
+  // SubStation Alpha beside a video: ffmpeg converts it to WebVTT, since
+  // Chromium renders only that.
+  writeFileSync(
+    join(FIXTURES, 'av', 'subbed.ass'),
+    [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '',
+      '[V4+ Styles]',
+      'Format: Name, Fontname, Fontsize',
+      'Style: Default,Arial,20',
+      '',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Text',
+      'Dialogue: 0,0:00:00.50,0:00:03.00,Default,Hello from SubStation Alpha',
+      ''
+    ].join(String.fromCharCode(10))
+  )
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libopenh264', '-b:v', '300k',
+     '-c:a', 'aac', '-shortest', join(FIXTURES, 'av', 'subbed.mp4')],
+    { windowsHide: true }
+  )
+
+  // ...and the opposite case: a picture Prism cannot show. MPEG-2 video plays
+  // its sound and shows nothing, which must SAY so rather than sit black.
+  spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=4:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4:sample_rate=48000',
+     '-c:v', 'mpeg2video', '-c:a', 'aac', '-shortest', join(FIXTURES, 'av', 'nopicture.mkv')],
+    { windowsHide: true }
+  )
+
   // A file Prism cannot show, in its own folder so the root counts the filter
   // scenario asserts on stay put. It is never listed by listDir, so opening it
   // is the only way to reach it - which is exactly the case being tested.
   mkdirSync(join(FIXTURES, 'misc'), { recursive: true })
   mkdirSync(join(FIXTURES, 'zips'), { recursive: true })
-  // (.7z since #68: .zip opens for real now and has its own scenario.)
-  const zip = Buffer.alloc(2048)
-  zip.write('PK', 'latin1')
-  writeFileSync(join(FIXTURES, 'misc', 'archive.7z'), zip)
+  // Something Prism genuinely cannot show. It was a .zip until #68, then a
+  // .7z until 7-Zip was bundled (2026-08-24) and that opened for real too.
+  const blob = Buffer.alloc(2048)
+  blob.write('MZ', 'latin1')
+  writeFileSync(join(FIXTURES, 'misc', 'program.exe'), blob)
   // A REAL zip for the archive scenario: known members, sizes and nesting.
   const bundle = new AdmZip()
   bundle.addFile('readme.txt', Buffer.from('hello from inside the zip'))
   bundle.addFile('notes/todo.md', Buffer.from('# todo\n- try prism\n'))
   bundle.addFile('notes/deep/extra.txt', Buffer.from('deep'))
   bundle.writeZip(join(FIXTURES, 'zips', 'bundle.zip'))
+  // Somewhere for a member dragged OUT of the archive to land (#70), and a
+  // little tree of its own for the sidebar's move.
+  mkdirSync(join(FIXTURES, 'zips', 'out'), { recursive: true })
+  // Its own zip for the drag scenario: the archive scenario mutates bundle.zip.
+  const dragzip = new AdmZip()
+  dragzip.addFile('carry.txt', Buffer.from('carried out of the zip'))
+  dragzip.addFile('sub/nested.txt', Buffer.from('nested'))
+  dragzip.writeZip(join(FIXTURES, 'zips', 'dragzip.zip'))
+  mkdirSync(join(FIXTURES, 'dragbox', 'into'), { recursive: true })
+  writeFileSync(join(FIXTURES, 'dragbox', 'movable.txt'), 'drag me')
+  writeFileSync(join(FIXTURES, 'dragbox', 'anchor.txt'), 'stay')
 
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),

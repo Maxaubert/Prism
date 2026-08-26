@@ -41,6 +41,10 @@ jobs:
       # toolchain is involved (npmRebuild is false in the builder config).
       # --publish never: on CI electron-builder tries to publish ITSELF and
       # fails wanting a token - the gh step below owns publishing.
+      # ffmpeg for the audio Chromium will not decode (AC-3/DTS/TrueHD). The
+      # binaries are not in git; this fetches the pinned LGPL build and checks
+      # its SHA-256 before electron-builder copies it into resources/bin.
+      - run: npm run fetch:bin
       - run: npm run build
       - run: npx electron-builder --win --publish never
 

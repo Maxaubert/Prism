@@ -89,14 +89,31 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
   })
 
+  it("reads the old boolean agent flag as claude, and codex as itself", () => {
+    const a = folder('agents')
+    const saved = {
+      tabs: [
+        { root: a, term: 'full', agent: true },
+        { root: a, term: 'full', agent: 'codex' },
+        { root: a, term: 'full', agent: 'nonsense' }
+      ],
+      active: 0
+    }
+    expect(parseTabs(JSON.stringify(saved)).tabs.map((t) => t.agent)).toEqual([
+      'claude',
+      'codex',
+      undefined
+    ])
+  })
+
   it('restores the SECOND of two tabs on the same folder as active (field bug)', () => {
     const a = folder('shoot')
     const saved: SavedTabs = {
-      tabs: [{ root: a }, { root: a, term: 'full', agent: true }],
+      tabs: [{ root: a }, { root: a, term: 'full', agent: 'claude' }],
       active: 1
     }
     expect(parseTabs(JSON.stringify(saved))).toEqual({
-      tabs: [{ root: a }, { root: a, term: 'full', agent: true }],
+      tabs: [{ root: a }, { root: a, term: 'full', agent: 'claude' }],
       active: 1
     })
   })

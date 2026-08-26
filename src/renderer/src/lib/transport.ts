@@ -30,3 +30,28 @@ export function loadTransportStyle(): TransportStyle {
   const v = localStorage.getItem(TRANSPORT_KEY)
   return TRANSPORT_STYLES.some((s) => s.id === v) ? (v as TransportStyle) : DEFAULT_TRANSPORT_STYLE
 }
+
+/**
+ * How solid the band BEHIND the transport is over a video (2026-08-25, owner
+ * call), 0-100%. 100 is the bar as it has always looked; 0 is nothing at all,
+ * with the picture running to the bottom of the frame.
+ *
+ * Legibility at the low end is not left to luck - the controls carry their own
+ * shadow once the band is faint. See VideoView.
+ *
+ * Three styles never had a band and still do not: an edge hairline, an outline
+ * rail and a floating capsule are their own shape, and giving them one would
+ * be a different style rather than the same one on a background.
+ */
+export const DEFAULT_TRANSPORT_BG = 100
+export const TRANSPORT_BG_KEY = 'prism.transport.bg'
+
+export function loadTransportBg(): number {
+  // The raw string first: Number(null) and Number('') are both 0, which would
+  // read "never set" as "fully transparent" and quietly remove the bar.
+  const raw = localStorage.getItem(TRANSPORT_BG_KEY)
+  if (raw === null || raw.trim() === '') return DEFAULT_TRANSPORT_BG
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return DEFAULT_TRANSPORT_BG
+  return Math.max(0, Math.min(100, Math.round(n)))
+}

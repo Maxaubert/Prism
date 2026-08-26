@@ -218,6 +218,23 @@ function parentOf(p: string): string {
  *
  * A drive root has no basename, so it keeps its whole path.
  */
+/**
+ * Move a tab to another slot in the strip (#70, dragged by its own row).
+ * `toIndex` is the slot in the CURRENT list the tab should land in front of;
+ * dropping past the end appends. Pure, so the strip's drag maths is testable.
+ */
+export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): Tab[] {
+  const from = tabs.findIndex((t) => t.id === id)
+  if (from < 0) return [...tabs]
+  const next = [...tabs]
+  const [moved] = next.splice(from, 1)
+  // Removing the tab shifts everything after it left by one, so a drop that
+  // was aimed past its old home has to come back by one too.
+  const at = Math.max(0, Math.min(toIndex > from ? toIndex - 1 : toIndex, next.length))
+  next.splice(at, 0, moved)
+  return next
+}
+
 export function tabLabels(tabs: readonly Tab[]): string[] {
   const bases = tabs.map((t) => (t.kind === 'settings' ? 'Settings' : baseOf(t.root)))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very

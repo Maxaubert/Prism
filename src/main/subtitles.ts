@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { basename, dirname, extname, join } from 'path'
 
@@ -14,7 +15,12 @@ export interface SubTrack {
   label: string
 }
 
-const SUB_EXTS = new Set(['.srt', '.vtt'])
+const SUB_EXTS = new Set(['.srt', '.vtt', '.ass', '.ssa'])
+// SubStation Alpha carries positioning, fonts and colours that WebVTT has no
+// way to express, so ffmpeg converts it and the styling is dropped: the lines
+// and their timings survive, which is the part a viewer needs. Everything else
+// here is plain text and needs no help.
+const FFMPEG_SUBS = new Set(['.ass', '.ssa'])
 const SUB_DIRS = ['subs', 'sub', 'subtitles']
 
 /** "en" / "eng" / "en-US" -> "English"; anything unknown comes back as itself. */
@@ -116,14 +122,24 @@ export function stripVttStyles(vtt: string): string {
 }
 
 /** A track's text as WebVTT, whatever it was on disk. */
-export function readAsVtt(path: string): string | null {
+export function readAsVtt(path: string, ffmpeg?: string | null): string | null {
   const ext = extname(path).toLowerCase()
   if (!SUB_EXTS.has(ext)) return null
   try {
     if (statSync(path).size > MAX_SUB_BYTES) return null
+    if (FFMPEG_SUBS.has(ext)) {
+      if (!ffmpeg) return null
+      const r = execFileSync(ffmpeg, assToVttArgs(path), { timeout: 15000, maxBuffer: MAX_SUB_BYTES * 2 })
+      return stripVttStyles(r.toString('utf-8'))
+    }
     const text = readFileSync(path, 'utf-8')
     return stripVttStyles(ext === '.srt' ? srtToVtt(text) : text)
   } catch {
     return null
   }
+}
+
+/** ffmpeg argv for "this subtitle file, as WebVTT, on stdout". */
+export function assToVttArgs(path: string): string[] {
+  return ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', path, '-map', '0:s:0', '-f', 'webvtt', 'pipe:1']
 }

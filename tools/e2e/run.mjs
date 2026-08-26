@@ -12,7 +12,7 @@
 import { _electron as electron } from 'playwright-core'
 import { spawn } from 'node:child_process'
 import electronPath from 'electron'
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -80,6 +80,25 @@ async function offscreen(app) {
  * file; waiting for the selected row settles it.
  */
 async function launch(file, keepTabs = false) {
+  // Prism is single-instance. If the previous scenario's window has not fully
+  // let go of the lock, this launch hands its path over and EXITS at once, and
+  // every call against it dies with "garbage collected" or "has been closed".
+  // Waiting longer between scenarios only moves the odds; retrying until the
+  // lock is genuinely free is what settles it.
+  let last
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await launchOnce(file, keepTabs)
+    } catch (err) {
+      if (!/garbage collected|Target page, context or browser has been closed|Target closed/i.test(String(err))) throw err
+      last = err
+      await sleep(2000 + attempt * 1000)
+    }
+  }
+  throw last
+}
+
+async function launchOnce(file, keepTabs = false) {
   // Every scenario but the tab one expects a single-root world. The profile is
   // shared across scenarios (it is wiped once, at the start), so last
   // scenario's strip would restore into this one and change what the tree
@@ -1001,6 +1020,306 @@ async function playerScenario(fixtures) {
   }
 }
 
+async function dolbyScenario(fixtures) {
+  console.log('audio Chromium cannot decode')
+  const { app, win } = await launch(join(fixtures, 'av', 'dolby.mkv'))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    // The probe is what puts the element there: no waiting on playback.
+    await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+    ok(true, 'a Dolby track gets a decoded sidecar')
+
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.currentTime = 0
+      return v.play().catch(() => {})
+    })
+    // The counter cannot lie: bytes mean the sound is genuinely decoding.
+    await win.waitForFunction(
+      () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+      undefined,
+      { timeout: 15000 }
+    )
+    ok(true, 'and it really decodes audio, where the video element decodes none')
+    ok(
+      await win.evaluate(() => (document.querySelector('video').webkitAudioDecodedByteCount ?? 0) === 0),
+      'the video element itself is still deaf to the track'
+    )
+
+    const err = await win.evaluate(() => document.querySelector('audio').error?.code ?? null)
+    ok(err === null, 'the stream is one Chromium accepts')
+
+    // Sync: the two clocks must agree, and keep agreeing over a seek.
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        const a = document.querySelector('audio')
+        return !v.paused && !a.paused && Math.abs(a.currentTime - v.currentTime) < 0.12
+      },
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(true, 'the sound plays in step with the picture (within 120ms)')
+
+    await win.evaluate(() => {
+      document.querySelector('video').currentTime = 4
+    })
+    await win.waitForFunction(
+      () => {
+        const a = document.querySelector('audio')
+        return Math.abs(a.currentTime - 4) < 0.4
+      },
+      undefined,
+      { timeout: 10000 }
+    )
+    ok(true, 'and follows a seek, which is what the byte arithmetic is for')
+
+    // No note: the note is for a file Prism cannot help with, not this one.
+    ok((await win.locator('[role="status"]').count()) === 0, 'no apology is shown when the sound works')
+    await win.screenshot({ path: join(SHOTS, 'dolby.png') })
+  } finally {
+    await app.close()
+  }
+}
+
+async function formatsScenario(fixtures) {
+  console.log('formats Chromium cannot handle')
+  {
+    // An audio file needs no syncing: the decoded stream simply IS the source.
+    const { app, win } = await launch(join(fixtures, 'av', 'lossless.m4a'))
+    try {
+      await win.waitForSelector('audio', { state: 'attached', timeout: 10000 })
+      ok(
+        await win.evaluate(() => (document.querySelector('audio')?.getAttribute('src') ?? '').startsWith('fsaudio:')),
+        "an Apple Lossless file plays from Prism's own decoder"
+      )
+      await win.evaluate(() => document.querySelector('audio')?.play().catch(() => {}))
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 15000 }
+      )
+      ok(true, 'and really decodes, where Chromium alone reported an error')
+      ok(
+        (await win.evaluate(() => document.querySelector('audio')?.error?.code ?? null)) === null,
+        'with no error left on the element'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(700)
+  {
+    // MPEG-2 has no decoder in Chromium either, and unlike the audio case it
+    // cannot be decoded live - so it is converted once and the copy plays.
+    // (The "No picture" note VideoView still carries is for when there is no
+    // ffmpeg at all, which this suite cannot produce.)
+    const { app, win } = await launch(join(fixtures, 'av', 'nopicture.mkv'))
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.waitForFunction(() => (document.querySelector('video')?.videoWidth ?? 0) > 0, undefined, {
+        timeout: 60000
+      })
+      ok(true, 'an MPEG-2 file ends up with a picture')
+      await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+      await win.waitForFunction(
+        () => (document.querySelector('video')?.webkitVideoDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 15000 }
+      )
+      ok(true, 'and really decodes it')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+async function sevenZipScenario(fixtures) {
+  console.log('archives beyond zip')
+  const { app, win } = await launch(join(fixtures, 'zips', 'read-only.7z'))
+  try {
+    const row = (name) => win.locator('[role="listbox"] [role="option"]', { hasText: name })
+    await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 15000 })
+    const names = await win.locator('[role="listbox"] [role="option"]').allTextContents()
+    ok(
+      names.some((n) => n.includes('note.txt')),
+      'a 7z lists its members (saw: ' + names.map((n) => n.trim().split(/\s+/)[0]).join(', ').slice(0, 50) + ')'
+    )
+    ok(names.some((n) => n.includes('sub')), 'folders included')
+
+    // Read-only: the verbs that would rewrite the container are not offered.
+    await row('note.txt').first().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    const items = (await win.locator('[role="menu"] [role="menuitem"]').allTextContents()).join(' ')
+    ok(/View/.test(items) && /Copy file/.test(items), 'view and copy are offered')
+    ok(!/Rename|Delete/.test(items), 'rename and delete are not, since 7z is never rewritten')
+    await win.keyboard.press('Escape')
+
+    // And a member really opens, which means 7-Zip extracted it.
+    await row('note.txt').first().dblclick()
+    await win.waitForFunction(() => /hello from inside a 7z/.test(document.body.innerText), undefined, {
+      timeout: 15000
+    })
+    ok(true, 'and a member opens, extracted by the bundled 7-Zip')
+  } finally {
+    await app.close()
+  }
+}
+
+async function synthAndRawScenario(fixtures) {
+  console.log('scores and camera raw')
+  {
+    // A .mid is a score: it has to be synthesised before there is anything to
+    // play, and what the element plays is the rendering.
+    const { app, win } = await launch(join(fixtures, 'av', 'arpeggio.mid'))
+    try {
+      await win.waitForSelector('audio', { state: 'attached', timeout: 30000 })
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.getAttribute('src') ?? '').includes('converted'),
+        undefined,
+        { timeout: 40000 }
+      )
+      ok(true, 'a MIDI file is synthesised and the player is given the rendering')
+      await win.evaluate(() => document.querySelector('audio')?.play().catch(() => {}))
+      await win.waitForFunction(
+        () => (document.querySelector('audio')?.webkitAudioDecodedByteCount ?? 0) > 0,
+        undefined,
+        { timeout: 20000 }
+      )
+      ok(true, 'and it really makes a sound')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(1500)
+  {
+    // A raw file: the camera's own embedded preview, which is what every fast
+    // viewer shows.
+    const { app, win } = await launch(join(fixtures, 'av', 'photo.cr2'))
+    try {
+      await win.waitForSelector('img', { timeout: 15000 })
+      await win.waitForFunction(() => (document.querySelector('img')?.naturalWidth ?? 0) > 0, undefined, {
+        timeout: 15000
+      })
+      ok(true, 'a camera raw shows its embedded preview')
+      ok(
+        await win.evaluate(() => document.querySelector('img').naturalWidth === 320),
+        "at the preview's real size"
+      )
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+async function documentScenario(fixtures) {
+  console.log('office and ebook documents')
+  // One window, walked through the folder: three launches in a row raced the
+  // profile and the middle one lost.
+  const { app, win } = await launch(join(fixtures, 'docs2', 'report.docx'))
+  try {
+    const show = async (name, expect_) => {
+      if (name) await win.locator(`[role="treeitem"]:has-text("${name}")`).first().click()
+      await win.waitForSelector('[data-doc-scroller]', { timeout: 20000 })
+      await win.waitForFunction((t) => document.body.innerText.includes(t), expect_, { timeout: 25000 })
+      ok(true, (name ?? 'report.docx') + ' renders (found "' + expect_ + '")')
+    }
+    await show(null, 'The Quarterly Report')
+    await show('letter.rtf', 'It worked.')
+    await show('novel.epub', 'Chapter One')
+
+    // The epub carried a script and a remote image; neither may reach the page.
+    const html = await win.evaluate(() => document.querySelector('[data-doc-scroller]').innerHTML)
+    ok(/Chapter One[\s\S]*Chapter Two/.test(html), 'an epub reads in spine order, not zip order')
+    ok(!/stealTheSession/.test(html), 'its script never reaches the page')
+    ok(!/tracker\.example/.test(html), 'nor does a remote image it wanted to fetch')
+    ok((await win.locator('[data-doc-scroller] script').count()) === 0, 'and no script element survives at all')
+  } finally {
+    await app.close()
+  }
+}
+
+async function convertScenario(fixtures) {
+  console.log('video Chromium cannot decode')
+  const { app, win } = await launch(join(fixtures, 'av', 'xvid.avi'))
+  try {
+    await win.waitForSelector('video', { timeout: 10000 })
+    // The conversion panel names which kind of work is happening; on a
+    // four-second clip it can be gone before this looks, so it is not asserted.
+    await win.waitForFunction(() => (document.querySelector('video')?.videoWidth ?? 0) > 0, undefined, {
+      timeout: 60000
+    })
+    ok(true, 'an Xvid AVI ends up with a picture')
+    ok(
+      await win.evaluate(() =>
+        decodeURIComponent(document.querySelector('video').getAttribute('src') ?? '').includes('converted')
+      ),
+      'and it is playing the converted copy, not the original'
+    )
+    await win.evaluate(() => document.querySelector('video')?.play().catch(() => {}))
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        return (v?.webkitVideoDecodedByteCount ?? 0) > 0 && (v?.webkitAudioDecodedByteCount ?? 0) > 0
+      },
+      undefined,
+      { timeout: 15000 }
+    )
+    ok(true, 'with both picture and sound really decoding')
+  } finally {
+    await app.close()
+  }
+}
+
+async function stillsAndSubsScenario(fixtures) {
+  console.log('stills and subtitles Chromium cannot read')
+  {
+    // A Targa: Chromium draws none of these, so a picture here means main
+    // decoded it and served PNG.
+    const { app, win } = await launch(join(fixtures, 'av', 'still.tga'))
+    try {
+      await win.waitForSelector('img', { timeout: 10000 })
+      await win.waitForFunction(() => (document.querySelector('img')?.naturalWidth ?? 0) > 0, undefined, {
+        timeout: 10000
+      })
+      ok(true, 'a Targa still is decoded and shown')
+      ok(
+        await win.evaluate(() => document.querySelector('img').naturalWidth === 160),
+        'at its real size, not a placeholder'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(700)
+  {
+    // SubStation Alpha: listed like any sidecar, converted on the way in.
+    const { app, win } = await launch(join(fixtures, 'av', 'subbed.mp4'))
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.hover('video')
+      await win.click('[aria-label="Player settings"]')
+      await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      ok(
+        (await win.locator('[role="menuitemradio"]:has-text("Subtitles")').count()) > 0,
+        'an .ass sidecar is offered as a track'
+      )
+      await win.click('[role="menuitemradio"]:has-text("Subtitles")')
+      await win.waitForFunction(
+        () => {
+          const t = document.querySelector('video')?.textTracks
+          return t && t.length > 0 && t[0].cues && t[0].cues.length > 0
+        },
+        undefined,
+        { timeout: 10000 }
+      )
+      ok(true, 'and its cues load, converted to WebVTT by ffmpeg')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
 /**
  * A real second launch, the way an Explorer double-click arrives: Prism is
  * single-instance, so this process hands its path to the running window and
@@ -1045,6 +1364,37 @@ async function tabsScenario(fixtures) {
     ok((await tabRows().count()) === 2, 'a second root opens a second tab')
     const labels = await tabRows().allTextContents()
     ok(labels.some((l) => /code/.test(l)), 'the new tab is named for its folder')
+
+    // Reordering is a POINTER drag inside the strip (2026-08-23), not an HTML5
+    // one: press the second tab, travel left past the first tab's middle,
+    // release. The order flips and nothing else moves.
+    {
+      const before = await tabRows().allTextContents()
+      const a = await tabRows().first().boundingBox()
+      const b = await tabRows().last().boundingBox()
+      await win.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(a.x + 6, b.y + b.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      const after = await tabRows().allTextContents()
+      ok(
+        after[0] === before[before.length - 1] && after.length === before.length,
+        `dragging a tab left reorders the strip (${before.join('|')} -> ${after.join('|')})`
+      )
+      // ...and back, so the rest of the scenario sees the order it expects.
+      const a2 = await tabRows().first().boundingBox()
+      const b2 = await tabRows().last().boundingBox()
+      await win.mouse.move(a2.x + a2.width / 2, a2.y + a2.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(b2.x + b2.width - 6, a2.y + a2.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      ok(
+        (await tabRows().allTextContents()).join('|') === before.join('|'),
+        'and dragging it back restores the order'
+      )
+    }
 
     // Switching: the tree and the viewer both follow.
     await tabRows().first().click()
@@ -1469,6 +1819,50 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'and the shell is untroubled by it')
 
+    // The title bar belongs to what is ON SCREEN: over a full terminal the
+    // markdown pencil has nothing to edit, so it goes with the file name.
+    // Ctrl+scroll must zoom even while a full-screen program owns the mouse:
+    // turn xterm's mouse reporting ON the way Claude Code and vim do, then
+    // wheel with ctrl held. Before the capture-phase handler, xterm claimed
+    // the event to forward it to the program and nothing zoomed.
+    {
+      const fontOf = () =>
+        win.evaluate(() => {
+          const el = document.querySelector('.xterm-rows') ?? document.querySelector('.xterm')
+          return el ? getComputedStyle(el).fontSize : ''
+        })
+      await win.locator('.xterm').click()
+      await win.keyboard.type("[Console]::Out.Write([char]27 + '[?1003h')")
+      await win.keyboard.press('Enter')
+      await sleep(900)
+      const before = await fontOf()
+      const box = await win.locator('.xterm').boundingBox()
+      await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, -240)
+      await win.mouse.wheel(0, -240)
+      await win.keyboard.up('Control')
+      await sleep(600)
+      const after = await fontOf()
+      ok(
+        !!before && before !== after,
+        `ctrl+scroll zooms with mouse reporting on (${before} -> ${after})`
+      )
+      // ...and back down, so the rest of the scenario sees the size it expects.
+      await win.keyboard.down('Control')
+      await win.mouse.wheel(0, 240)
+      await win.mouse.wheel(0, 240)
+      await win.keyboard.up('Control')
+      await sleep(400)
+    }
+    ok(
+      (await win.locator('[aria-label="Edit"]').count()) === 0,
+      'a full terminal hides the markdown pencil'
+    )
+    ok(
+      (await win.locator('aside [role="treeitem"][aria-selected="true"]').count()) === 0,
+      'and marks no file in the tree: nothing is on screen to mark'
+    )
     await win.screenshot({ path: join(SHOTS, 'terminal.png') })
 
     // Clicking a file over a FULL terminal means "show me this file": the
@@ -1538,6 +1932,33 @@ async function terminalScenario(fixtures) {
   }
 }
 
+/**
+ * A FOLDER handed to Prism from outside (2026-08-25).
+ *
+ * This is what Explorer's "Open in Prism" on a folder, and "Open Prism here"
+ * on the empty space inside one, actually do: hand over a directory as argv.
+ * Main used to demand a FILE and drop it on the floor, so the menu entry was
+ * there and nothing happened. The tab roots at the folder, and what it shows
+ * is the "New tabs show" setting, exactly as the + decides it.
+ */
+async function folderArgScenario(fixtures) {
+  console.log('a folder from outside')
+  const { app, win } = await launch(fixtures)
+  try {
+    const body = (await win.textContent('body')) ?? ''
+    ok(/README\.md/.test(body), 'the tree lists the folder that was handed over')
+    ok((await win.locator('[data-row]').count()) > 2, 'and it is rooted there, not at a file')
+    // The default "New tabs show" is the folder's first file, which is what a
+    // payload built from a folder already carries.
+    ok(
+      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
+      'and one of its files is open'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function archiveScenario(fixtures) {
   console.log('archive viewer')
   // #68: a real zip opens as a tree of members with view/rename/delete verbs.
@@ -1551,6 +1972,40 @@ async function archiveScenario(fixtures) {
     const body = (await win.textContent('body')) ?? ''
     ok(/25 B/.test(body), 'sizes ride along')
     ok(!/todo\.md/.test(body), 'the root listing shows only its own level')
+
+    // The columns (2026-08-25): what the container knows about each member.
+    // The header is UPPERCASED by CSS, so the DOM still says "Type".
+    ok(/Type/.test(body) && /Packed/.test(body) && /Modified/.test(body), 'the panel has a column header')
+    ok(/Markdown document|TXT text/.test(body), 'and each row says what it is')
+
+    // Drag-select, the archive's alone: it starts on DEAD SPACE, so a row
+    // drag (which moves members) can never leave a phantom band behind.
+    const list = await win.locator('[role="listbox"]').boundingBox()
+    const firstRow = await win.locator('[data-arc-row]').first().boundingBox()
+    await win.mouse.move(firstRow.x + 40, list.y + list.height + 50)
+    await win.mouse.down()
+    await win.mouse.move(firstRow.x + 220, firstRow.y + 8, { steps: 10 })
+    ok((await win.locator('[data-arc-band]').count()) === 1, 'a band is drawn while sweeping')
+    await win.mouse.up()
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) > 1,
+      'the sweep marked the rows it crossed'
+    )
+    // And a press on dead space puts the marks away again: what stays marked
+    // is the archive itself, over in the tree.
+    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) === 0,
+      'dead space clears the selection'
+    )
+    // Ctrl+A takes the folder you are looking at, from dead space or a row.
+    const memberCount = await win.locator('[data-arc-row]').count()
+    await win.keyboard.press('Control+a')
+    ok(
+      (await win.locator('[data-arc-row][data-selected]').count()) === memberCount,
+      'Ctrl+A marks every member of this folder'
+    )
+    await win.mouse.click(firstRow.x + 40, list.y + list.height + 50)
 
     // Explorer-shaped: clicking a folder walks INTO it; the breadcrumb (and
     // Backspace) climbs back out.
@@ -1646,27 +2101,140 @@ async function selectionScenario(fixtures) {
       ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('notes.txt'),
       'and still opens nothing'
     )
+
+    // Ctrl+A takes every row the tree is SHOWING (2026-08-25)...
+    const visible = await win.locator('aside [data-row]').count()
+    await win.keyboard.press('Control+a')
+    await sleep(200)
+    ok(
+      (await win.locator('aside [data-row][data-selected]').count()) === visible,
+      `Ctrl+A marks every visible row (${visible})`
+    )
+    // ...and the search box keeps its own, as every typing surface does.
+    await win.locator('input[placeholder="Search"]').click()
+    await win.keyboard.type('abc')
+    await win.keyboard.press('Control+a')
+    await win.keyboard.type('z')
+    ok(
+      (await win.locator('input[placeholder="Search"]').inputValue()) === 'z',
+      'and the search box keeps Ctrl+A for its own text'
+    )
   } finally {
     await app.close()
   }
 }
 
+async function dragScenario(fixtures) {
+  console.log('drag and drop')
+  // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
+  // onto a sidebar folder EXTRACTS there. Both assert on the real filesystem.
+  const box = join(fixtures, 'dragbox')
+  rmSync(join(box, 'into', 'movable.txt'), { force: true })
+  if (!existsSync(join(box, 'movable.txt'))) writeFileSync(join(box, 'movable.txt'), 'drag me')
+  {
+    const { app, win } = await launch(join(box, 'anchor.txt'))
+    try {
+      await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 10000 })
+      await sleep(500)
+      await win
+        .locator('[role="treeitem"]:has-text("movable.txt")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      await win.waitForFunction(
+        () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
+        null,
+        { timeout: 8000 }
+      )
+      ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
+      ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
+
+      // Undo (2026-08-22) puts it back, and redo sends it again.
+      await win.locator('aside').click({ position: { x: 20, y: 8 } })
+      await win.keyboard.press('Control+z')
+      await win.waitForFunction(() => /Undid/.test(document.body.textContent ?? ''), null, { timeout: 6000 })
+      await sleep(900)
+      ok(existsSync(join(box, 'movable.txt')), 'Ctrl+Z moved it back')
+      ok(!existsSync(join(box, 'into', 'movable.txt')), 'and it left the folder again')
+      await win.keyboard.press('Control+y')
+      await sleep(1200)
+      ok(existsSync(join(box, 'into', 'movable.txt')), 'Ctrl+Y sent it back in')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
+  // Out of the archive, onto a folder in the sidebar.
+  const out = join(fixtures, 'zips', 'out')
+  rmSync(join(out, 'carry.txt'), { force: true })
+  {
+    const { app, win } = await launch(join(fixtures, 'zips', 'dragzip.zip'))
+    try {
+      await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 10000 })
+      await sleep(600)
+      await win
+        .locator('[role="listbox"] [role="option"]', { hasText: 'carry.txt' })
+        .first()
+        .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
+      await sleep(1800)
+      ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
+      // A FOLDER dragged onto the tab strip opens as a tab of its own.
+      const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+      // Aimed at the EMPTY space after the +, which is where a drop is
+      // naturally made and where the window-drag region used to swallow it.
+      const strip = await win.locator('[role="tablist"]').boundingBox()
+      await win
+        .locator('aside [role="treeitem"]:has-text("out")')
+        .first()
+        .dragTo(win.locator('[role="tablist"]'), {
+          targetPosition: { x: strip.width - 40, y: strip.height / 2 }
+        })
+      await sleep(1400)
+      ok(
+        (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1,
+        'a folder dropped on the tab strip opens a tab'
+      )
+
+      // Dropping one of Prism's OWN rows on the viewer opens it there, and the
+      // text editor no longer steals the drag to walk its caret about.
+      await win.locator('[role="tablist"] [role="tab"]').first().click()
+      await sleep(500)
+      const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
+      await win
+        .locator('aside [role="treeitem"]:has-text("dragzip.zip")')
+        .first()
+        .dragTo(win.locator('body'), {
+          targetPosition: { x: viewer.width - 220, y: viewer.height / 2 }
+        })
+      await sleep(1200)
+      ok(
+        (await win.locator('[role="listbox"][aria-label*="dragzip.zip"]').count()) === 1,
+        'a row dropped on the viewer opens it there'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  // This scenario runs two apps back to back; give the single-instance lock
+  // the same breathing room the runner leaves between scenarios, or the next
+  // launch forwards its file to a window that is already going away.
+  await sleep(900)
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
-  // Windows hands Prism a .7z whenever someone picks it out of "More apps",
+  // Windows hands Prism anything whenever someone picks it out of "More apps",
   // which lists every installed application regardless of SupportedTypes. The
-  // window must say so rather than sit empty. (.zip used to be the specimen;
-  // it opens for real since #68 and has its own scenario.)
-  const { app, win } = await launch(join(fixtures, 'misc', 'archive.7z'))
+  // window must say so rather than sit empty. (.zip was the original specimen,
+  // then .7z; both open for real now, so the specimen is an .exe.)
+  const { app, win } = await launch(join(fixtures, 'misc', 'program.exe'))
   try {
     await win.waitForFunction(
-      () => /can.t show 7Z files/.test(document.body.textContent ?? ''),
+      () => /can.t show EXE files/.test(document.body.textContent ?? ''),
       null,
       { timeout: 10000 }
     )
     const text = ((await win.textContent('body')) ?? '').replace(/\s+/g, ' ')
-    ok(/can.t show 7Z files/.test(text), 'the panel names the format')
-    ok(/archive\.7z/.test(text), 'the panel names the file')
+    ok(/can.t show EXE files/.test(text), 'the panel names the format')
+    ok(/program\.exe/.test(text), 'the panel names the file')
     ok(/2\.0 KB/.test(text), 'the panel carries the size')
     // The file is not viewable, so nothing lists it: the panel is all there is.
     ok(
@@ -1703,6 +2271,21 @@ try {
   await unsavedScenario(fixtures)
   await sleep(900)
   await playerScenario(fixtures)
+  await dolbyScenario(fixtures)
+  await sleep(700)
+  await formatsScenario(fixtures)
+  await sleep(700)
+  await stillsAndSubsScenario(fixtures)
+  await sleep(700)
+  await convertScenario(fixtures)
+  await sleep(700)
+  await sevenZipScenario(fixtures)
+  // A longer gap than the others: the previous window must have released the
+  // single-instance lock, or this launch hands its file over and exits.
+  await sleep(2000)
+  await documentScenario(fixtures)
+  await sleep(1500)
+  await synthAndRawScenario(fixtures)
   await sleep(900)
   await tabsScenario(fixtures)
   await sleep(900)
@@ -1710,7 +2293,11 @@ try {
   await sleep(900)
   await archiveScenario(fixtures)
   await sleep(900)
+  await folderArgScenario(fixtures)
+  await sleep(900)
   await selectionScenario(fixtures)
+  await sleep(900)
+  await dragScenario(fixtures)
   await sleep(900)
   await unsupportedScenario(fixtures)
 } catch (e) {

@@ -22,3 +22,35 @@ export function formatTime(sec: number): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
+
+/**
+ * Epoch ms -> "4 Jul 2026 17:14", the archive panel's Modified column.
+ *
+ * Short and unambiguous: a bare `toLocaleString()` gives "04/07/2026, 17:14:30"
+ * here, which is both wider and, at a glance, a different date to an American
+ * reader. The month name settles it. Empty for a time no container gave us.
+ */
+export function formatWhen(ms: number | undefined): string {
+  if (ms === undefined || !Number.isFinite(ms) || ms <= 0) return ''
+  const d = new Date(ms)
+  const month = d.toLocaleString('en-GB', { month: 'short' })
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return `${d.getDate()} ${month} ${d.getFullYear()} ${time}`
+}
+
+/**
+ * How much a member SAVED by being compressed, as "12%".
+ *
+ * Empty when there is nothing to say: no packed size, an empty member (0 of 0
+ * is not a saving), or a stored member that saved nothing. Negative savings
+ * (a container that grew tiny files) say nothing rather than "-4%".
+ *
+ * Capped at 99: a file compressed to a thousandth of itself rounds to 100%,
+ * and "100%" in a column beside a real byte count reads as "all of it", which
+ * is the opposite of what happened.
+ */
+export function savedPercent(size: number, packed: number | undefined): string {
+  if (packed === undefined || !Number.isFinite(packed) || !Number.isFinite(size)) return ''
+  if (size <= 0 || packed <= 0 || packed >= size) return ''
+  return `${Math.min(99, Math.round(((size - packed) / size) * 100))}%`
+}

@@ -88,7 +88,29 @@ npm test           # unit tests (vitest)
 npm run package    # build the Windows installer into dist/
 ```
 
+`npm run package` (and `npm run e2e`) first runs `npm run fetch:bin`, which downloads the
+three binaries Prism bundles into `vendor/` and verifies each against a pinned SHA-256. They
+are not in git; the fetch is a one-off per clone.
+
 Stack: Electron + TypeScript, React + Vite + Tailwind v4. See `CLAUDE.md` for architecture and scope.
+
+## Third-party
+
+Prism bundles three programs in `resources/bin`, each used unmodified, as a separate program,
+and each fetched at build time from a pinned release (see `tools/fetch-*.mjs`).
+
+- **[ffmpeg](https://ffmpeg.org)** ([BtbN](https://github.com/BtbN/FFmpeg-Builds) **LGPL
+  shared** build, [LGPL v2.1+](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)) -
+  decodes the audio Chromium will not (Dolby Digital, DTS, TrueHD), converts video it cannot
+  show (MPEG-2, Xvid, WMV, ProRes), and reads the stills it cannot draw. The shared build is
+  deliberate: its DLLs can be replaced with your own build of the same libraries. Licence at
+  `resources/bin/LICENSE.txt`.
+- **[7-Zip](https://www.7-zip.org)** (LGPL, with the unRAR restriction on its rar code) -
+  lists and extracts 7z, rar, tar, gz and the rest. Licence at `resources/bin/License.txt`.
+- **[FluidSynth](https://www.fluidsynth.org)** (LGPL v2.1) with the **FluidR3Mono** General
+  MIDI soundfont (MIT, Frank Wen; mono conversion by Michael Cowgill) - synthesises MIDI,
+  which is a score rather than a recording. Licences at `resources/bin/LICENSE-fluidsynth.txt`
+  and `resources/bin/LICENSE-soundfont.md`.
 
 ## License
 

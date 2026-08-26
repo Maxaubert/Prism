@@ -194,7 +194,13 @@ export function ContextMenu({
     // data-owns-escape: the app's own (earlier, capture-phase) Escape handler
     // yields to any element carrying it, so closing this menu can't close the
     // window underneath.
-    <div data-owns-escape className="fixed inset-0 z-40 pointer-events-none">
+    // no-drag over the WHOLE window while the menu is up: the title bar and
+    // the tab strip are window-drag regions, and Chromium hands those clicks
+    // to the OS instead of the page - so a press there never reached the
+    // dismiss listener and the menu just sat there. Carving the region out
+    // for the life of the menu makes every click dismiss it, wherever it
+    // lands. (Dragging the window by its bar can wait until the menu is shut.)
+    <div data-owns-escape className="no-drag fixed inset-0 z-40 pointer-events-none">
       <div
         ref={box}
         role="menu"

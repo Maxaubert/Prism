@@ -22,7 +22,9 @@ export interface SavedTab {
   term?: 'full' | 'split'
   /** The shell hosted a CLAUDE session when the strip was saved: restore may
    *  resume it (`claude --continue` rebuilds the conversation per folder). */
-  agent?: boolean
+  /** Which agent the shell hosted at quit, so the right resume runs. The
+   *  legacy `true` from before codex could resume means claude. */
+  agent?: 'claude' | 'codex'
 }
 
 export interface SavedTabs {
@@ -78,7 +80,9 @@ export function parseTabs(raw: string): SavedTabs {
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
     if (term === 'full' || term === 'split') {
       tab.term = term
-      if (agent === true) tab.agent = true // only meaningful with a terminal
+      // Only meaningful with a terminal. `true` is the old spelling of claude.
+      if (agent === true || agent === 'claude') tab.agent = 'claude'
+      else if (agent === 'codex') tab.agent = 'codex'
     }
     if (i === wasActive) active = tabs.length
     tabs.push(tab)

@@ -3,7 +3,6 @@ import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
-  dropCursor,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -106,7 +105,13 @@ export function CodeView({
           lintComp.of([]),
           history(),
           drawSelection(),
-          dropCursor(),
+          // No drop cursor, and no drag handling at all: a folder carried
+          // across the window is not an edit, but CodeMirror treated every
+          // dragover as a drop-target preview and walked the caret about
+          // under the pointer. Declining it here (rather than swallowing the
+          // event) leaves it free to bubble to App, which decides what a drop
+          // on the viewer actually means.
+          EditorView.domEventHandlers({ dragover: () => true, drop: () => true }),
           indentOnInput(),
           bracketMatching(),
           search({ top: false }),

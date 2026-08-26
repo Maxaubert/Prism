@@ -55,7 +55,8 @@ interface Options {
   onActivity?: () => void
   errorMsg?: string
   /** Stable per-file key (the media url). Enables resume-position for media
-   *  longer than RESUME_MIN_DURATION. Omit to disable. */
+   *  longer than RESUME_MIN_DURATION - which is why a 5-second clip is never
+   *  remembered, and a film is. Both players pass it. Omit to disable. */
   resumeKey?: string
 }
 

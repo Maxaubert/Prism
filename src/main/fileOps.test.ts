@@ -82,7 +82,8 @@ describe('renameFile', () => {
       const { rmSync } = await import('fs')
       rmSync(p)
     })
-    expect(r).toEqual({ ok: true, path: join(dir, 'b.jpg') })
+    // `replaced` is what undo needs to bring the overwritten file back.
+    expect(r).toEqual({ ok: true, path: join(dir, 'b.jpg'), replaced: join(dir, 'b.jpg') })
     expect(binned).toEqual([join(dir, 'b.jpg')])
   })
 

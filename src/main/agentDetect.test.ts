@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { looksLikeAgent, treeHasAgent, type ProcRow } from './agentDetect'
+import { looksLikeAgent, treeAgentKind, treeHasAgent, type ProcRow } from './agentDetect'
 
 const CLAUDE = String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\Admin\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js"`
 const CODEX = String.raw`node "C:\Users\Admin\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js"`
@@ -40,5 +40,30 @@ describe('treeHasAgent', () => {
       { pid: 6, ppid: 5, cmd: 'b' }
     ]
     expect(treeHasAgent(loop, 5)).toBe(false)
+  })
+})
+
+describe('treeAgentKind', () => {
+  const shell = (pid: number): ProcRow => ({ pid, ppid: 1, cmd: 'pwsh.exe -NoLogo' })
+
+  it('names the agent it found, because each resumes differently', () => {
+    expect(treeAgentKind([shell(10), { pid: 11, ppid: 10, cmd: CLAUDE }], 10)).toBe('claude')
+    expect(treeAgentKind([shell(20), { pid: 21, ppid: 20, cmd: CODEX }], 20)).toBe('codex')
+    expect(
+      treeAgentKind([shell(30), { pid: 31, ppid: 30, cmd: String.raw`C:in\codex.exe` }], 30)
+    ).toBe('codex')
+  })
+
+  it('an agent with nothing to resume is just an agent', () => {
+    expect(treeAgentKind([shell(40), { pid: 41, ppid: 40, cmd: 'C:/bin/aider' }], 40)).toBe('other')
+  })
+
+  it('claude wins when both are under one shell: it is the resumable one', () => {
+    const rows = [shell(50), { pid: 51, ppid: 50, cmd: CODEX }, { pid: 52, ppid: 50, cmd: CLAUDE }]
+    expect(treeAgentKind(rows, 50)).toBe('claude')
+  })
+
+  it('a plain shell hosts nothing', () => {
+    expect(treeAgentKind([shell(60)], 60)).toBeNull()
   })
 })
