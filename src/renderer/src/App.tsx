@@ -4,7 +4,7 @@ import { preloadImage } from './lib/imageLoader'
 import {
   addTab,
   closeTab,
-  openSettingsTab,
+  toggleSettingsTab,
   receiveFile,
   reorderTabs,
   rerootTab,
@@ -637,8 +637,10 @@ export default function App(): JSX.Element {
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   const rawIndex = active?.index ?? -1
   const settingsOpen = active?.kind === 'settings'
-  const openSettings = useCallback(() => {
-    setTabState((s) => openSettingsTab(s.tabs, `settings-${(settingsSeq.current += 1)}`))
+  const toggleSettings = useCallback(() => {
+    setTabState((s) =>
+      toggleSettingsTab(s.tabs, s.activeId, `settings-${(settingsSeq.current += 1)}`)
+    )
   }, [])
   const closeSettingsTab = useCallback(() => {
     setTabState((s) => {
@@ -2258,7 +2260,7 @@ export default function App(): JSX.Element {
           }
           pos={pos}
           settingsOpen={settingsOpen}
-          onToggleSettings={openSettings}
+          onToggleSettings={toggleSettings}
           panelOpen={settingsOpen ? !compactRail : sidebar}
           onTogglePanel={togglePanel}
           setup={setup}
