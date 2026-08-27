@@ -371,13 +371,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   element throws, and a second path to the speakers would play the file twice).
   The sidecar decoder's `<audio>` gets the same treatment, since for a Dolby
   film that element is the one making the sound.
-- **A paused file stays paused** (2026-08-26). A tab renders only while it is in
-  front, so opening Settings - or any other tab - unmounts the viewer, and the
-  player came back as a fresh `<video autoplay>` that restarted a film you had
-  deliberately stopped. `lib/playState` remembers, FOR THE SESSION ONLY, which
-  files were paused when their player went away, and autoplay is skipped for
-  those. Not persisted: a file opened fresh tomorrow should play, because that
-  is what opening a file means.
+- **A file comes back doing what it was doing** (2026-08-26, finished
+  2026-08-27). A tab renders only while it is in front, so opening Settings - or
+  any other tab - unmounts the viewer, and the player came back as a fresh
+  `<video autoplay>` at time 0: a film you had deliberately stopped started
+  again, and a film you were watching RESTARTED. `lib/playState` remembers, FOR
+  THE SESSION ONLY, both halves - paused or not, and where it had got to - so
+  autoplay is skipped for the first and the element seeks to the second. The
+  persisted resume-position could not do this job: that one is films only (over
+  10 minutes) and saves every few seconds, so looking away in the first moments
+  of anything lost the place entirely. The session position therefore WINS over
+  the stored one, and applies to a 5-second clip too. Not persisted: a file
+  opened fresh tomorrow should play, from its own beginning if it is short,
+  because that is what opening a file means. Playback itself cannot continue
+  while the tab is away - there is no element to play it.
 - **Pause in background** (2026-08-26, the transport cog): one toggle, off by
   default. Away means another window has the focus OR Prism is minimised -
   PotPlayer's "Pause playback when focus lost", which covers VLC's

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
-import { rememberPaused } from './playState'
+import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume } from './audio'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
@@ -17,6 +17,7 @@ const RESUME_PREFIX = 'prism.resume.'
 const RESUME_MIN_DURATION = 600 // seconds (10 minutes)
 const RESUME_END_PAD = 5 // don't resume/save within this many seconds of the end
 const RESUME_SAVE_STEP = 5 // save at most once per this many seconds of movement
+const SESSION_END_PAD = 0.5 // a file that ran to its end restarts, however short it is
 
 export interface MediaBindings {
   onPlay: () => void
@@ -186,6 +187,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       setCur(m.currentTime)
       // Persist position for long media, throttled; clear it near the end so the
       // file restarts next time instead of resuming at ~100%.
+      if (resumeKey) rememberTime(resumeKey, m.currentTime)
       if (resumeKey && Number.isFinite(m.duration) && m.duration > RESUME_MIN_DURATION) {
         if (m.currentTime > m.duration - RESUME_END_PAD) {
           localStorage.removeItem(RESUME_PREFIX + resumeKey)
@@ -198,13 +200,20 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     onDurationChange: (e) => {
       const m = e.currentTarget
       setDur(m.duration)
-      // Once we know the duration, seek a long file to its saved position (once).
-      if (!resumedRef.current && resumeKey && Number.isFinite(m.duration) && m.duration > RESUME_MIN_DURATION) {
+      // Once we know the duration, seek back to where this file was (once).
+      // Two sources, and the session one wins: it is exact, it covers files of
+      // any length, and it is what "I only switched tabs for a second" means.
+      // The stored position is the older, cross-session rule, films only.
+      if (!resumedRef.current && resumeKey && Number.isFinite(m.duration)) {
         resumedRef.current = true
-        const saved = Number(localStorage.getItem(RESUME_PREFIX + resumeKey))
-        if (saved > 0 && saved < m.duration - RESUME_END_PAD) {
-          m.currentTime = saved
-          setCur(saved)
+        const here = sessionTime(resumeKey)
+        const stored =
+          m.duration > RESUME_MIN_DURATION ? Number(localStorage.getItem(RESUME_PREFIX + resumeKey)) : 0
+        const at = here > 0 ? here : stored
+        const limit = here > 0 ? m.duration - SESSION_END_PAD : m.duration - RESUME_END_PAD
+        if (at > 0 && at < limit) {
+          m.currentTime = at
+          setCur(at)
         }
       }
     },

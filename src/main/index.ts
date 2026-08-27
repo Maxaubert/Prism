@@ -11,7 +11,6 @@ import {
 } from 'electron'
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import {
-  appendFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -1032,20 +1031,6 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
-    // TEMPORARY (2026-08-27): playback is reported as pausing whenever Prism
-    // goes to the background, on a machine where the setting is off and where
-    // it does not reproduce under test. This writes what the player sees to
-    // userData/prism-debug.log. Remove once the cause is known.
-    ipcMain.on('debug:log', (_e, line: string) => {
-      try {
-        appendFileSync(
-          join(app.getPath('userData'), 'prism-debug.log'),
-          new Date().toISOString() + ' ' + String(line) + String.fromCharCode(10)
-        )
-      } catch {
-        /* diagnostics must never break the app */
-      }
-    })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.
