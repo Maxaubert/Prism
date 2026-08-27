@@ -334,6 +334,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the last wake, the video's own paused state, and the bar's own `:hover`. Nothing that
   can be left stuck. Do not reintroduce a hover flag, a root-level onMouseMove, or an
   opacity fade in place.
+- **The video's right-click menu** (2026-08-27, VLC-shaped): play/pause, fullscreen,
+  PICTURE (fit to window - the default - fill, stretch, forced 16:9 or 4:3, and
+  original size, which is VLC's 1:1: one video pixel to one screen pixel, cropped
+  by the window rather than scaled to it), speed, loop, subtitles when the file
+  HAS any, then Show in File Explorer and Copy path. The picture mode is per file
+  and resets on the way in to the next one - a ratio forced on one video means
+  nothing for another. Every row carries the tick column, ticked or not, so the
+  labels line up. `hint` in this menu is the SHORTCUT column, so nothing but a
+  shortcut belongs in it. The same rule as the cog now applies to subtitles: a
+  section whose only content is "none found" is chrome describing a thing you do
+  not have, so it is not drawn.
 - **A paused file stays paused** (2026-08-26). A tab renders only while it is in
   front, so opening Settings - or any other tab - unmounts the viewer, and the
   player came back as a fresh `<video autoplay>` that restarted a film you had

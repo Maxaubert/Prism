@@ -172,27 +172,26 @@ export function PlayerMenu({
             on={prefs.background}
             onChange={(v) => setPlayerPref('background', v)}
           />
-          {subtitles && (
+          {/* Only when there ARE some (2026-08-27): a section whose whole
+              content is "nothing here" is chrome telling you about a thing you
+              do not have. */}
+          {subtitles && subtitles.tracks.length > 0 && (
             <>
               <Rule />
               <Label text="Subtitles" />
-              {subtitles.tracks.length === 0 ? (
-                <div className="px-3 pb-2 text-[11.5px] italic text-[var(--p-dim2)]">
-                  none found next to the file
-                </div>
-              ) : (
-                <>
-                  <SubRow label="Off" active={subtitles.active === null} onPick={() => subtitles.onPick(null)} />
-                  {subtitles.tracks.map((t) => (
-                    <SubRow
-                      key={t.path}
-                      label={t.label}
-                      active={subtitles.active === t.path}
-                      onPick={() => subtitles.onPick(t.path)}
-                    />
-                  ))}
-                </>
-              )}
+              <SubRow
+                label="Off"
+                active={subtitles.active === null}
+                onPick={() => subtitles.onPick(null)}
+              />
+              {subtitles.tracks.map((t) => (
+                <SubRow
+                  key={t.path}
+                  label={t.label}
+                  active={subtitles.active === t.path}
+                  onPick={() => subtitles.onPick(t.path)}
+                />
+              ))}
             </>
           )}
         </div>
