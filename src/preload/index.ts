@@ -78,6 +78,10 @@ const api = {
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
   subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
     ipcRenderer.invoke('subs:for', path),
+  /** Choose a subtitle file by hand, for the tracks name-matching cannot find.
+   *  null when the dialog was cancelled. */
+  pickSubtitle: (near?: string): Promise<{ path: string; label: string } | null> =>
+    ipcRenderer.invoke('subs:pick', near),
   /** One track's text as WebVTT (SRT converted), for a <track> blob. */
   readSubs: (path: string): Promise<string | null> => ipcRenderer.invoke('subs:read', path),
 

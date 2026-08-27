@@ -18,6 +18,9 @@ export interface Subtitles {
   /** Object URL of the active track's WebVTT, for <track src>. */
   vttUrl: string | null
   pick: (path: string | null) => void
+  /** Point at a subtitle file by hand: added to this file's tracks and turned
+   *  on. For the ones name-matching cannot find. */
+  add: () => void
 }
 
 export function useSubtitles(videoPath: string): Subtitles {
@@ -86,5 +89,21 @@ export function useSubtitles(videoPath: string): Subtitles {
     [videoPath]
   )
 
-  return { tracks, active, vttUrl: vtt?.track === active ? vtt.url : null, pick }
+  /** The manual route: main's dialog picks the file (that IS the consent for
+   *  reading it), and it joins this file's tracks, already chosen. */
+  const add = useCallback(() => {
+    void window.prism.pickSubtitle(videoPath).then((track) => {
+      if (!track) return
+      setFound((f) => {
+        const list = f?.path === videoPath ? f.tracks : []
+        // Picking the same file twice adds one row, not two.
+        const merged = list.some((t) => t.path === track.path) ? list : [...list, track]
+        return { path: videoPath, tracks: merged }
+      })
+      setChosen({ path: videoPath, track: track.path })
+      setPlayerPref('subs', true)
+    })
+  }, [videoPath])
+
+  return { tracks, active, vttUrl: vtt?.track === active ? vtt.url : null, pick, add }
 }

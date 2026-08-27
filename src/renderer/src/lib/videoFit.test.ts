@@ -21,15 +21,11 @@ describe('the picture-fit modes', () => {
     expect(fitStyle('4:3').style.aspectRatio).toBe('4 / 3')
   })
 
-  it('shows original size at one pixel per pixel, clipped not scaled', () => {
-    const r = fitStyle('native')
-    expect(r.className).toContain('object-none')
-    expect(r.className).toContain('max-w-none')
-  })
-
   it('has a label and an explanation for every mode the menu offers', () => {
     const ids = VIDEO_FITS.map((f) => f.id)
-    expect(ids).toEqual(['fit', 'fill', 'stretch', '16:9', '4:3', 'native'])
+    // Original size was offered and cut: on a 4K file in a small window it
+    // shows a corner of the picture, which reads as a bug rather than a mode.
+    expect(ids).toEqual(['fit', 'fill', 'stretch', '16:9', '4:3'])
     for (const f of VIDEO_FITS) {
       expect(f.label.length).toBeGreaterThan(1)
       expect(f.hint.endsWith('.')).toBe(true)

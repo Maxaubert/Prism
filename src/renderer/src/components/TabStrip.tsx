@@ -258,7 +258,12 @@ export function TabStrip({
               loud
                 ? ''
                 : on
-                  ? 'bg-[var(--p-side-flat)] text-[var(--p-text)]'
+                  ? // --p-side, not --p-side-flat: the flat token is the OPAQUE
+                    // one, so under acrylic the active tab was a solid slab in a
+                    // translucent strip, and the more glass you asked for the
+                    // more it stood out (2026-08-27). This is the same surface
+                    // the sidebar wears.
+                    'bg-[var(--p-side)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
             style={{

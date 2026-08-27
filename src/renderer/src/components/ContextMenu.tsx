@@ -56,13 +56,18 @@ function Row({
         {it.icon}
         <span className="truncate">{it.label}</span>
       </span>
-      {it.children ? (
-        <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden>
-          <path d="M9 6l6 6-6 6" />
-        </svg>
-      ) : (
-        it.hint && <span className="text-[10.5px] tracking-wide text-[var(--p-dim2)]">{it.hint}</span>
-      )}
+      {/* A row can carry BOTH now (2026-08-27): the video menu's Speed row
+          says what the speed currently is and still opens a flyout. */}
+      <span className="flex shrink-0 items-center gap-2">
+        {it.hint && (
+          <span className="text-[10.5px] tracking-wide text-[var(--p-dim2)]">{it.hint}</span>
+        )}
+        {it.children && (
+          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden>
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        )}
+      </span>
     </button>
   )
 }
