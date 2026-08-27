@@ -4,6 +4,7 @@ import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
 import { Visualizer } from './Visualizer'
+import { VolumeReadout } from './VolumeReadout'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
@@ -51,7 +52,8 @@ export function AudioView({
   onToggleFullscreen,
   onAutoAdvance,
   transportStyle,
-  background = false
+  background = false,
+  volumeKey
 }: {
   url: string
   /** The file's real path, for asking main whether Chromium can play it. */
@@ -65,8 +67,12 @@ export function AudioView({
   /** Mounted but not on screen: another tab is in front. The track plays on,
    *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
   background?: boolean
+  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  volumeKey?: string
 }): JSX.Element {
   const v = useViz()
+  // See VolumeReadout: a timestamp, so every notch restarts one clock.
+  const [volFlash, setVolFlash] = useState(0)
   const prefs = usePlayerPrefs()
   // Apple Lossless, WMA, AC-3 and friends arrive decoded; everything Chromium
   // can play is left exactly as it was.
@@ -115,7 +121,9 @@ export function AudioView({
     onActivity: showChrome,
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`,
     resumeKey: url,
-    keys: !background
+    keys: !background,
+    volumeKey,
+    onVolume: () => setVolFlash(Date.now())
   })
 
   // Entering fullscreen arms the auto-hide; leaving it clears the timer. Chrome is
@@ -137,8 +145,16 @@ export function AudioView({
     <div
       className="relative h-full w-full overflow-hidden"
       onMouseMove={showChrome}
+      // The wheel is the volume here too, and the only way past 100%: the
+      // gesture should not change because the file has no picture.
+      onWheel={(e) => {
+        if (background) return
+        c.bumpVol(e.deltaY < 0 ? 0.05 : -0.05)
+        showChrome()
+      }}
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >
+      {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
       {(synthesising || synthFailed) && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">

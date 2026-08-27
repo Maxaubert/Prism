@@ -363,7 +363,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   background CPU without solving that.
 - **Volume goes to 200%** (2026-08-27, VLC's ceiling), on a column that rises
   from the speaker button rather than a bar that grew sideways and shoved the
-  time readout about. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
+  time readout about. The SLIDER stops at 100% and the WHEEL over the picture
+  is the only way past it (owner decision, VLC's habit): 5% a notch, in the
+  video and the audio player alike, with an on-picture readout - speaker,
+  a bar to 200% with the 100% mark drawn on it, and the number - that shows
+  for any volume change and leaves after 1.2s. It MOUNTS and UNMOUNTS, like
+  the transport, for the same fullscreen-compositing reason. Level and mute
+  belong to the TAB for the session (`lib/tabVolume`): the same level follows
+  you across the files you open in that tab, a new tab starts at 100%, a
+  closed tab forgets, and nothing is persisted - the old single localStorage
+  number was shared by every file in every window and came back tomorrow. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
   is capped at 1 by the spec - so `lib/audio` routes it through Web Audio:
   source -> gain -> destination, built ONCE per element and only when a boost is
   actually asked for, so an ordinary file at 80% never touches Web Audio at all.
