@@ -2074,46 +2074,42 @@ async function pauseScenario(fixtures) {
     await sleep(300)
     ok((await paused()) === true, 'a film pauses when told to')
 
-    // Settings is a TAB: it unmounts the viewer, and the player used to come
-    // back as a fresh element with autoplay - restarting what you had stopped.
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(900)
-    ok((await win.locator('video').count()) === 0, 'Settings unmounts the viewer')
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(1200)
-    ok((await win.locator('video').count()) === 1, 'and the film comes back')
-    ok((await paused()) === true, 'still paused - it does not restart itself')
-
-    // ...and at the same PLACE. The persisted resume-position cannot cover
-    // this: it is films only, saved every few seconds, so a tab switch in the
-    // first moments used to lose your place entirely (2026-08-27).
-    const at = () => win.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
-    // 0.6s into a 1.5s fixture: far enough in to prove the seek, and clear of
-    // the half-second end guard that makes a finished file restart.
-    await win.evaluate(() => { document.querySelector('video').currentTime = 0.6 })
-    await sleep(300)
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(900)
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(1400)
-    ok(Math.abs((await at()) - 0.6) < 0.3, 'and it comes back where it was, not at the start')
-
-    // A film that was PLAYING keeps playing when you come back, from there.
-    await win.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 0.3; void v.play() })
-    await sleep(400)
-    const was = await at()
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(900)
-    await win.locator('[aria-label="Settings"]').click()
-    await sleep(600)
-    // The fixture is 1.5s long, so it can legitimately run to its end while we
-    // are looking: "not stopped where it was" is the claim, not "still playing".
-    const going = await win.evaluate(() => {
+    // Settings is a TAB, and a tab renders only while it is in front - which
+    // used to take the film's element with it. Every tab holding media keeps
+    // its player now (lib/mediaDeck), so switching is not a handoff at all:
+    // the SAME element carries on, unseen.
+    await win.evaluate(() => {
       const v = document.querySelector('video')
-      return { live: !v.paused || v.ended, t: v.currentTime }
+      v.dataset.stamp = 'first'
+      window.__pauses = 0
+      v.addEventListener('pause', () => { window.__pauses += 1 })
     })
-    ok(going.live, 'a playing film is still going when you come back')
-    ok(going.t >= was - 0.3, 'and carries on from there rather than from 0')
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(900)
+    const hidden = await win.evaluate(() => {
+      const v = document.querySelector('video')
+      return v ? { stamp: v.dataset.stamp, paused: v.paused, t: v.currentTime } : null
+    })
+    ok(hidden?.stamp === 'first', 'the player follows you: the element is still the one you left')
+    ok(hidden?.paused === true, 'a film you had stopped is still stopped')
+
+    // ...and a film that was RUNNING keeps running, with no pause in between.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 0.1; void v.play() })
+    await sleep(500)
+    const t1 = await win.evaluate(() => document.querySelector('video').currentTime)
+    await win.locator('[data-tab]').first().click()
+    await sleep(700)
+    const t2 = await win.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
+    ok(t2 > t1, 'the clock ran while another tab was in front')
+    ok(
+      (await win.evaluate(() => window.__pauses)) === 0,
+      'and it never paused once: no pause-and-unpause on the way through'
+    )
+    ok(
+      (await win.evaluate(() => document.querySelector('video')?.crossOrigin)) === 'anonymous',
+      'the video is fetched CORS-clean, so a boost over 100% is loud and not silent'
+    )
+    ok((await win.locator('video').count()) === 1, 'and one player, never two')
   } finally {
     await app.close()
   }

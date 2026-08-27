@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forgetPaused, rememberPaused, rememberTime, sessionTime, wasPaused } from './playState'
+import {
+  forgetPaused,
+  rememberMuted,
+  rememberPaused,
+  rememberTime,
+  sessionTime,
+  wasMuted,
+  wasPaused
+} from './playState'
 
 beforeEach(() => {
   forgetPaused('a')
@@ -66,5 +74,18 @@ describe('session position', () => {
     forgetPaused('a')
     expect(wasPaused('a')).toBe(false)
     expect(sessionTime('a')).toBe(0)
+  })
+})
+
+describe('mute', () => {
+  it('remembers a film you silenced, so the background does not shout', () => {
+    rememberMuted('a', true)
+    expect(wasMuted('a')).toBe(true)
+    rememberMuted('a', false)
+    expect(wasMuted('a')).toBe(false)
+  })
+
+  it('is false for anything this session has not seen', () => {
+    expect(wasMuted('never-seen')).toBe(false)
   })
 })

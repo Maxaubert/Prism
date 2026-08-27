@@ -32,7 +32,8 @@ export function VideoView({
   onStep,
   canStep,
   transportStyle,
-  transportBg
+  transportBg,
+  background = false
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -48,6 +49,10 @@ export function VideoView({
   transportStyle: TransportStyle
   /** How solid the band behind the controls is, 0-100%. */
   transportBg: number
+  /** Mounted but not on screen: this tab is not the one in front. The film
+   *  plays on (that is the whole point), but it owns no keyboard, shows no
+   *  controls and opens no menus - see lib/mediaDeck. */
+  background?: boolean
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
   // A file Chromium cannot open at all is converted first, and what plays is
@@ -57,7 +62,7 @@ export function VideoView({
   const src = playable.src
   const prefs = usePlayerPrefs()
   const subtitles = useSubtitles(path)
-  const peaks = useWaveform(path, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const peaks = useWaveform(path, !background && (transportStyle === 'wave' || transportStyle === 'wavebold'))
   // How solid the band behind the controls is, 0-100% (2026-08-25). Opaque by
   // default - the bar as it has always looked - and a slider all the way down
   // to nothing, where the picture runs to the bottom of the frame. Three styles
@@ -149,7 +154,8 @@ export function VideoView({
       }
     },
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
-    resumeKey: url
+    resumeKey: url,
+    keys: !background
   })
 
   /**
@@ -165,6 +171,7 @@ export function VideoView({
    * the key first.
    */
   useEffect(() => {
+    if (background) return
     const wake = (): void => showChrome()
     window.addEventListener('pointermove', wake, { capture: true, passive: true })
     window.addEventListener('keydown', wake, true)
@@ -174,7 +181,7 @@ export function VideoView({
       window.removeEventListener('keydown', wake, true)
       document.removeEventListener('fullscreenchange', wake)
     }
-  }, [showChrome])
+  }, [showChrome, background])
 
 
   /** A ticked row: the menu has no checkbox of its own, so the tick is the icon. */
@@ -314,6 +321,7 @@ export function VideoView({
       // Right-click anywhere on the picture: the menu VLC taught everyone to
       // expect. The controls come up with it, as VLC's do.
       onContextMenu={(e) => {
+        if (background) return
         e.preventDefault()
         showChrome()
         setMenu({ x: e.clientX, y: e.clientY })
@@ -402,11 +410,26 @@ export function VideoView({
       {sidecarUrl && (
         // Hidden, and deliberately not a child of <video>: it is a second
         // element on its own clock, kept in step by useSidecarAudio.
-        <audio ref={sidecarRef} src={sidecarUrl} preload="auto" className="hidden" aria-hidden />
+        <audio
+          ref={sidecarRef}
+          src={sidecarUrl}
+          // For the same reason as the video below: at over 100% this element
+          // is the one being boosted, and a tainted one would go silent.
+          crossOrigin="anonymous"
+          preload="auto"
+          className="hidden"
+          aria-hidden
+        />
       )}
       <video
         ref={video}
         src={src}
+        // Volume over 100% routes this element through Web Audio, and a source
+        // that is not CORS-clean feeds the graph SILENCE rather than sound -
+        // permanently, since the routing outlives the setting that asked for
+        // it. fsmedia:// answers with ACAO '*' and is registered corsEnabled,
+        // so asking for the CORS fetch is all that was missing (2026-08-27).
+        crossOrigin="anonymous"
         // Autoplay UNLESS this file was paused a moment ago: opening Settings
         // or another tab unmounts the viewer, and a fresh element would start
         // a film you had deliberately stopped (see lib/playState).
@@ -448,11 +471,11 @@ export function VideoView({
           to opacity 0 inside a fullscreen element and comes back is composited
           once and never repainted, so the controls were painted at the right
           place and never appeared. */}
-      {menu && (
+      {menu && !background && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
       )}
 
-      {chromeOn && (
+      {chromeOn && !background && (
         <div
           data-transport
           // No mouse handlers of its own, deliberately: the bar UNMOUNTS when

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
-import { rememberPaused, rememberTime, sessionTime } from './playState'
+import { rememberMuted, rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume } from './audio'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
@@ -57,6 +57,9 @@ interface Options {
   /** Called on any keyboard transport action (e.g. to re-show video chrome). */
   onActivity?: () => void
   errorMsg?: string
+  /** False for a player that is mounted but not on screen (another tab is in
+   *  front): it keeps playing, but the keyboard belongs to what you can see. */
+  keys?: boolean
   /** Stable per-file key (the media url). Enables resume-position for media
    *  longer than RESUME_MIN_DURATION - which is why a 5-second clip is never
    *  remembered, and a film is. Both players pass it. Omit to disable. */
@@ -70,7 +73,7 @@ export const MAX_VOL = 2
 const clampVol = (v: number): number => Math.max(0, Math.min(MAX_VOL, v))
 
 export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: Options = {}): MediaControls {
-  const { onFullscreen, onPlayChange, onActivity, errorMsg, resumeKey } = opts
+  const { onFullscreen, onPlayChange, onActivity, errorMsg, resumeKey, keys = true } = opts
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
   const resumedRef = useRef(false)
@@ -94,7 +97,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     const m = ref.current
     if (m) applyVolume(m, vol, muted)
     localStorage.setItem(VOL_KEY, String(vol))
-  }, [vol, muted, ref])
+    // Mute is per-file and for this session only, like the paused flag: it is
+    // what the background player reads so a silenced film stays silenced.
+    if (resumeKey) rememberMuted(resumeKey, muted)
+  }, [vol, muted, ref, resumeKey])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
@@ -135,6 +141,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // by yielding any key it already claimed. Otherwise the player owns ←/→ (seek)
   // and the rest of the standard media shortcuts.
   useEffect(() => {
+    if (!keys) return
     const onKey = (e: KeyboardEvent): void => {
       // Never swallow keys meant for a text field: space would toggle playback
       // instead of typing a space, and the letter shortcuts would fire too.
@@ -165,7 +172,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, onFullscreen, onActivity, ref])
+  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, onFullscreen, onActivity, ref, keys])
 
   const bind: MediaBindings = {
     onPlay: () => {
