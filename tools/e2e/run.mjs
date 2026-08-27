@@ -1012,6 +1012,14 @@ async function playerScenario(fixtures) {
     // Autoplay: on, then jump near the end; the next video should take over.
     await win.click('[role="menuitemcheckbox"]:has-text("Autoplay")')
     await win.keyboard.press('Escape')
+    // Wait for the metadata: seeking against a duration of NaN throws, and
+    // "the provided double value is non-finite" reads as a player bug when it
+    // is only a test that jumped the gun.
+    await win.waitForFunction(
+      () => Number.isFinite(document.querySelector('video')?.duration),
+      null,
+      { timeout: 10000 }
+    )
     await win.evaluate(() => {
       const v = document.querySelector('video')
       v.currentTime = Math.max(0, v.duration - 0.3)
@@ -1968,8 +1976,7 @@ async function videoMenuScenario(fixtures) {
     await win.waitForSelector('video', { timeout: 15000 })
     // PAUSE it, and not only for quiet: the shared profile has autoplay on
     // from the player-settings scenario, and these fixtures are two seconds
-    // long - left running, ep1 ends and ep2 is what the menu describes, which
-    // cost an afternoon to work out.
+    // long - left running, ep1 ends and ep2 is what the menu describes.
     await win.evaluate(() => {
       const v = document.querySelector('video')
       if (v) {
@@ -1980,54 +1987,72 @@ async function videoMenuScenario(fixtures) {
     await sleep(1000)
     const rows = () => win.locator('[role="menuitem"]').allTextContents()
     const cls = () => win.evaluate(() => document.querySelector('video')?.className ?? '')
-
-    // The sidecar tracks arrive over IPC, so the menu is opened again until
-    // they have: asserting on the first open tests the timing, not the menu.
     const openMenu = async () => {
-      // Escape only when a menu is actually up: with none, Escape closes the
-      // WINDOW, which is the app behaving correctly and the test not.
+      // Escape only when a menu is up: with none, Escape closes the WINDOW,
+      // which is the app behaving correctly and the test not.
       if (await win.locator('[role="menu"]').count()) await win.keyboard.press('Escape')
       await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
       await sleep(400)
       return rows()
     }
-    let items = await openMenu()
-    for (let i = 0; i < 8 && !items.some((t) => t.startsWith('Subtitles')); i += 1) {
-      await sleep(600)
-      items = await openMenu()
-    }
-    ok(items.some((t) => /^(Play|Pause)/.test(t)), 'right-click offers play/pause')
-    ok(items.some((t) => t.startsWith('Fullscreen')), 'and fullscreen')
+
+    const items = await openMenu()
+    ok(items.some((t) => t.startsWith('Next video')), 'the menu offers Next video')
+    ok(items.some((t) => t.startsWith('Previous video')), 'and Previous video')
     ok(items.some((t) => t.startsWith('Picture')), 'and the picture modes')
     ok(items.some((t) => t.startsWith('Speed')), 'and speed')
+    ok(items.some((t) => t.startsWith('Subtitles')), 'and subtitles')
     ok(items.some((t) => t.includes('Explorer')), 'and the file itself')
-    // ep1.mp4 has ep1.en.srt beside it, so subtitles belong here.
+    // Trimmed on purpose (owner, 2026-08-27): a click and a double-click
+    // already play and fullscreen.
+    ok(!items.some((t) => /^(Play|Pause)/.test(t)), 'and NOT play/pause')
+    ok(!items.some((t) => t.startsWith('Fullscreen')), 'and not fullscreen')
+
+    // The speed row carries the rate the cog's slider drives.
     ok(
-      items.some((t) => t.startsWith('Subtitles')),
-      `and subtitles, because this file has some (${JSON.stringify(items)})`
+      items.some((t) => /^Speed1\.00/.test(t.replace(/\s/g, ''))),
+      `speed shows the current rate (${JSON.stringify(items.find((t) => t.startsWith('Speed')))})`
     )
 
+    // Picture: fit is where it starts, fill crops instead.
     ok((await cls()).includes('object-contain'), 'the picture starts fitted to the window')
     await win.locator('[role="menuitem"]', { hasText: 'Picture' }).hover()
     await sleep(400)
+    const modes = await rows()
+    ok(!modes.some((t) => t.startsWith('Original size')), 'original size was cut, and is gone')
     await win.locator('[role="menuitem"]', { hasText: 'Fill window' }).click()
     await sleep(400)
     ok((await cls()).includes('object-cover'), 'Fill window crops instead of letterboxing')
-    ok((await win.locator('[role="menu"]').count()) === 0, 'and the menu closes behind the choice')
 
-    await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
+    // Subtitles: the sidecar is found, and a file can be added by hand.
+    await openMenu()
+    await win.locator('[role="menuitem"]', { hasText: 'Subtitles' }).hover()
     await sleep(400)
-    await win.locator('[role="menuitem"]', { hasText: 'Picture' }).hover()
-    await sleep(400)
-    await win.locator('[role="menuitem"]', { hasText: '4:3' }).click()
-    await sleep(400)
-    const forced = await win.evaluate(() => getComputedStyle(document.querySelector('video')).aspectRatio)
-    ok(forced.replace(/\s/g, '') === '4/3', `a forced ratio really forces it (${forced})`)
+    const subs = await rows()
+    ok(subs.some((t) => t.includes('Add subtitle file')), 'subtitles can be pointed at a file by hand')
 
-    // Escape closes the MENU, not the window: the app yields Escape to
-    // anything transient that is up (data-owns-escape).
-    await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
-    await sleep(400)
+    // Next video: ep2 is the next VIDEO, and the images in between are stepped over.
+    await openMenu()
+    await win.locator('[role="menuitem"]', { hasText: 'Next video' }).click()
+    await win
+      .waitForFunction(() => /ep2/.test(document.querySelector('video')?.getAttribute('src') ?? ''), null, { timeout: 8000 })
+      .catch(() => {})
+    ok(
+      /ep2/.test((await win.locator('video').getAttribute('src')) ?? ''),
+      'Next video moves to the next VIDEO in the folder'
+    )
+    await openMenu()
+    await win.locator('[role="menuitem"]', { hasText: 'Previous video' }).click()
+    await win
+      .waitForFunction(() => /ep1/.test(document.querySelector('video')?.getAttribute('src') ?? ''), null, { timeout: 8000 })
+      .catch(() => {})
+    ok(
+      /ep1/.test((await win.locator('video').getAttribute('src')) ?? ''),
+      'and Previous video comes back'
+    )
+
+    // Escape closes the MENU, not the window.
+    await openMenu()
     await win.keyboard.press('Escape')
     await sleep(400)
     ok((await win.locator('[role="menu"]').count()) === 0, 'Escape closes the menu')

@@ -81,6 +81,8 @@ function MemberView({
           path={path}
           onToggleFullscreen={noop}
           onAutoAdvance={noop}
+          onStep={noop}
+          canStep={() => false}
           transportStyle={loadTransportStyle()}
           transportBg={loadTransportBg()}
         />

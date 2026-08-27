@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
-import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
+import { usePlayerPrefs } from '../lib/playerPrefs'
 import { useSubtitles } from '../lib/useSubtitles'
 import { useSidecarAudio } from '../lib/useSidecarAudio'
 import { usePlayableVideo } from '../lib/usePlayableVideo'
@@ -29,6 +29,8 @@ export function VideoView({
   path,
   onToggleFullscreen,
   onAutoAdvance,
+  onStep,
+  canStep,
   transportStyle,
   transportBg
 }: {
@@ -38,6 +40,11 @@ export function VideoView({
   onToggleFullscreen: () => void
   /** Autoplay's exit: the app moves to the next video in the folder. */
   onAutoAdvance: () => void
+  /** The menu's Next / Previous: the next VIDEO in the folder, stepping over
+   *  everything else - the rule autoplay already follows at the end of a file. */
+  onStep: (dir: 1 | -1) => void
+  /** Whether there IS one that way, so a row can be greyed rather than dead. */
+  canStep: (dir: 1 | -1) => boolean
   transportStyle: TransportStyle
   /** How solid the band behind the controls is, 0-100%. */
   transportBg: number
@@ -183,26 +190,28 @@ export function VideoView({
    * reachable elsewhere too - this is the place people look first.
    */
   const menuItems = (): MenuItem[] => {
-    // Every row carries the tick column, ticked or not, so the labels line up:
-    // one row with a check and the rest without reads as a mistake.
+    // Trimmed to what belongs here (owner picks, 2026-08-27). Play/pause and
+    // fullscreen came out: a click and a double-click already do them, and a
+    // menu you trim is not the place for a third way. Every row carries the
+    // tick column, ticked or not, so the labels line up.
     const items: MenuItem[] = [
       {
-        label: c.playing ? 'Pause' : 'Play',
-        hint: 'Space',
+        label: 'Next video',
         icon: tickIf(false),
-        onPick: () => c.togglePlay()
+        disabled: !canStep(1),
+        onPick: () => onStep(1)
       },
       {
-        label: 'Fullscreen',
-        hint: 'F',
+        label: 'Previous video',
         icon: tickIf(false),
-        onPick: onToggleFullscreen
+        disabled: !canStep(-1),
+        onPick: () => onStep(-1)
       },
       {
         label: 'Picture',
         icon: tickIf(false),
-        // No hints here: in this menu `hint` is the shortcut column, and a
-        // sentence in it is a wall of text down the right-hand side.
+        // No hints in here: `hint` is the shortcut column, and a sentence in
+        // it is a wall of text down the right-hand side.
         children: VIDEO_FITS.map((f) => ({
           label: f.label,
           icon: tickIf(fit === f.id),
@@ -211,37 +220,37 @@ export function VideoView({
       },
       {
         label: 'Speed',
+        // The same rate the cog's slider drives - one setting, two ways in -
+        // so the current value belongs on the row that opens the list.
+        hint: `${c.rate.toFixed(2)}×`,
         icon: tickIf(false),
-        children: [
-          ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({
-            label: r === 1 ? 'Normal' : `${r}×`,
-            icon: tickIf(Math.abs(c.rate - r) < 0.01),
-            onPick: () => c.setRate(r)
-          }))
-        ]
+        children: [0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({
+          label: r === 1 ? 'Normal' : `${r}×`,
+          icon: tickIf(Math.abs(c.rate - r) < 0.01),
+          onPick: () => c.setRate(r)
+        }))
       },
       {
-        label: 'Loop',
-        icon: tickIf(prefs.loop),
-        onPick: () => setPlayerPref('loop', !prefs.loop)
-      }
-    ]
-    // Subtitles only when the file actually has some, like the cog.
-    if (subtitles.tracks.length) {
-      items.push({
+        // Always here, even with nothing found: this is the one place that can
+        // ADD a track, which is the point of the manual row. (The cog still
+        // hides its section when there is nothing to list - it is a list, not
+        // a way to do something.)
         label: 'Subtitles',
         icon: tickIf(false),
         children: [
-          { label: 'Off', icon: tickIf(subtitles.active === null), onPick: () => subtitles.pick(null) },
+          {
+            label: 'Off',
+            icon: tickIf(subtitles.active === null),
+            onPick: () => subtitles.pick(null)
+          },
           ...subtitles.tracks.map((t) => ({
             label: t.label,
             icon: tickIf(subtitles.active === t.path),
             onPick: () => subtitles.pick(t.path)
-          }))
+          })),
+          { label: 'Add subtitle file…', icon: tickIf(false), onPick: () => subtitles.add() }
         ]
-      })
-    }
-    items.push(
+      },
       {
         label: 'Show in File Explorer',
         icon: tickIf(false),
@@ -252,7 +261,7 @@ export function VideoView({
         icon: tickIf(false),
         onPick: () => void navigator.clipboard.writeText(path)
       }
-    )
+    ]
     return items
   }
 

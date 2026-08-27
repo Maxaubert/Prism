@@ -456,6 +456,11 @@ function pathFromArgv(argv: string[]): { path: string; dir: boolean } | null {
 
 let mainWindow: BrowserWindow | null = null
 let pendingOpen: { path: string; dir: boolean } | null = null
+/** Subtitle files the user chose in the dialog: reading those is allowed
+ *  wherever they live, because choosing them in main's own dialog is the
+ *  consent the root wall exists to ask for. */
+const pickedSubs = new Set<string>()
+
 /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
 let editorDirty = false
 /** The user has answered the "unsaved changes" question: let the close through. */
@@ -1102,8 +1107,28 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('subs:for', (_e, p: string): SubTrack[] =>
       insideAnyRoot(p) ? sidecarsFor(p) : []
     )
+    /**
+     * A subtitle file the user points at (2026-08-27), for the tracks the
+     * name-matching cannot find: a differently named .srt, or one kept
+     * somewhere else entirely.
+     *
+     * The dialog IS the consent, which is why the answer is remembered as
+     * readable - it can sit outside every root, and the root wall would
+     * otherwise refuse the file the user just chose.
+     */
+    ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
+      const r = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        ...(typeof near === 'string' && existsSync(dirname(near)) ? { defaultPath: dirname(near) } : {}),
+        filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
+      })
+      if (r.canceled || !r.filePaths.length) return null
+      const p = r.filePaths[0]
+      pickedSubs.add(p)
+      return { path: p, label: basename(p) }
+    })
     ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
-      insideAnyRoot(p)
+      insideAnyRoot(p) || pickedSubs.has(p)
         ? readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg)
         : null
     )

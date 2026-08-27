@@ -423,6 +423,8 @@ function Viewer({
   transportBg,
   onOpenLocal,
   onAutoAdvance,
+  onStep,
+  canStep,
   onBuffer,
   onRenameSelf,
   getPending
@@ -443,6 +445,9 @@ function Viewer({
   onOpenLocal: (path: string) => void
   /** Autoplay: a finished video/track moves to the next of its kind. */
   onAutoAdvance: () => void
+  /** The video menu's Next / Previous, by the same rule. */
+  onStep: (dir: 1 | -1) => void
+  canStep: (dir: 1 | -1) => boolean
   /** Code and text edit in place, so the viewer hands its buffer up to App. */
   onBuffer: (path: string, text: string | null) => void
   /** Asked for the unsaved text of a file, if App is holding any. */
@@ -457,6 +462,8 @@ function Viewer({
           path={file.path}
           onToggleFullscreen={onToggleFullscreen}
           onAutoAdvance={onAutoAdvance}
+          onStep={onStep}
+          canStep={canStep}
           transportStyle={transportStyle}
           transportBg={transportBg}
         />
@@ -1664,17 +1671,36 @@ export default function App(): JSX.Element {
   // Autoplay's landing: the next file of the SAME kind, however many images or
   // documents sit between - a folder of episodes plays like a season, whatever
   // else lives beside them. Stops quietly at the end of the folder.
-  const advanceSameKind = useCallback(() => {
-    if (!active || !view) return
-    const current = view.files[view.index]
-    if (!current) return
-    for (let i = view.index + 1; i < view.files.length; i += 1) {
-      if (view.files[i].kind === current.kind) {
-        setRawIndex(active.files.indexOf(view.files[i]))
-        return
+  /**
+   * The next (or previous) file of the SAME KIND, stepping over everything
+   * else - what autoplay does at the end of a video, and what the video's own
+   * right-click menu offers as Next / Previous (2026-08-27).
+   *
+   * Returns the index it would land on, or -1: the menu greys its rows out
+   * with the same answer it would act on, so a row is never offered when
+   * there is nothing on the other side of it.
+   */
+  const sameKindIndex = useCallback(
+    (dir: 1 | -1): number => {
+      if (!view) return -1
+      const current = view.files[view.index]
+      if (!current) return -1
+      for (let i = view.index + dir; i >= 0 && i < view.files.length; i += dir) {
+        if (view.files[i].kind === current.kind) return i
       }
-    }
-  }, [active, setRawIndex, view])
+      return -1
+    },
+    [view]
+  )
+  const stepSameKind = useCallback(
+    (dir: 1 | -1) => {
+      const i = sameKindIndex(dir)
+      if (i < 0 || !active || !view) return
+      setRawIndex(active.files.indexOf(view.files[i]))
+    },
+    [active, sameKindIndex, setRawIndex, view]
+  )
+  const advanceSameKind = useCallback(() => stepSameKind(1), [stepSameKind])
 
   // A different file closes the editor (render-phase adjustment, the sidebar's
   // pattern): the pencil applies to what you were looking at, not what's next.
@@ -2414,6 +2440,8 @@ export default function App(): JSX.Element {
                     transportBg={transportBg}
                     onOpenLocal={openFromTree}
                     onAutoAdvance={advanceSameKind}
+                    onStep={stepSameKind}
+                    canStep={(dir) => sameKindIndex(dir) >= 0}
                     onBuffer={onBuffer}
                     getPending={getPending}
                   />
@@ -2479,6 +2507,8 @@ export default function App(): JSX.Element {
                       transportBg,
                         onOpenLocal: openFromTree,
                         onAutoAdvance: () => {},
+                      onStep: () => {},
+                      canStep: () => false,
                         onBuffer,
                         getPending
                       }}
