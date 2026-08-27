@@ -17,12 +17,13 @@
 interface Mark {
   paused: boolean
   t: number
+  muted: boolean
 }
 
 const marks = new Map<string, Mark>()
 
 const mark = (key: string): Mark => {
-  const m = marks.get(key) ?? { paused: false, t: 0 }
+  const m = marks.get(key) ?? { paused: false, t: 0, muted: false }
   marks.set(key, m)
   return m
 }
@@ -41,6 +42,17 @@ export function wasPaused(key: string): boolean {
 export function rememberTime(key: string, t: number): void {
   if (!key || !Number.isFinite(t) || t < 0) return
   mark(key).t = t
+}
+
+/** Muted by hand, which nothing persists: without this a film you silenced
+ *  would come back at full volume in the background. */
+export function rememberMuted(key: string, muted: boolean): void {
+  if (!key) return
+  mark(key).muted = muted
+}
+
+export function wasMuted(key: string): boolean {
+  return marks.get(key)?.muted ?? false
 }
 
 /** 0 when this file has not been seen this session. */

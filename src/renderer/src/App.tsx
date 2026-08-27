@@ -84,6 +84,7 @@ import {
   type TransportStyle
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
+import { deckOf } from './lib/mediaDeck'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import {
   describe as describeUndo,
@@ -427,7 +428,8 @@ function Viewer({
   canStep,
   onBuffer,
   onRenameSelf,
-  getPending
+  getPending,
+  background = false
 }: {
   file: ViewerFile
   /** An archive reports its own undoable writes up to App's stack. */
@@ -452,6 +454,8 @@ function Viewer({
   onBuffer: (path: string, text: string | null) => void
   /** Asked for the unsaved text of a file, if App is holding any. */
   getPending: (path: string) => string | undefined
+  /** This tab is not the one in front: its player keeps going, unseen. */
+  background?: boolean
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -466,6 +470,7 @@ function Viewer({
           canStep={canStep}
           transportStyle={transportStyle}
           transportBg={transportBg}
+          background={background}
         />
       )
     case 'image':
@@ -480,6 +485,7 @@ function Viewer({
           onToggleFullscreen={onToggleFullscreen}
           onAutoAdvance={onAutoAdvance}
           transportStyle={transportStyle}
+          background={background}
         />
       )
     case 'pdf':
@@ -1660,6 +1666,23 @@ export default function App(): JSX.Element {
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
 
+  /* ------------------------------------------------------------------ *
+   * Every tab holding media keeps its player, and the strip only decides
+   * which one you can SEE (2026-08-27). Handing the sound to a second,
+   * hidden element was audible - a pause and an unpause at every switch -
+   * because nothing but the element itself surviving is seamless.
+   *
+   * The order is a ref rather than state on purpose: it is derived from the
+   * tabs in the same pass that renders them, and it only ever appends, so
+   * there is nothing for a re-render to settle.
+   * ------------------------------------------------------------------ */
+  const deckOrder = useRef<string[]>([])
+  const deck = useMemo(() => {
+    const next = deckOf(tabs, deckOrder.current, activeId)
+    deckOrder.current = next.order
+    return next.entries
+  }, [tabs, activeId])
+
   // Whether the open document currently holds focus. Documents mark their own
   // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
   // only after the user has actually clicked into (or tabbed to) the document.
@@ -2412,6 +2435,41 @@ export default function App(): JSX.Element {
               A viewer keeps itself in order across files of its own kind; only
               a change of kind needs a fresh one. */}
             {(() => {
+              // The tabs' own players, all of them mounted, only one on screen.
+              // Absolutely placed so the hidden ones take no room and the
+              // visible one fills the pane exactly as a viewer always did.
+              const activeDeck = deck.find((e) => e.tabId === activeId) ?? null
+              const players = deck.map((e) => (
+                <div
+                  key={e.tabId}
+                  aria-hidden={e.tabId === activeId ? undefined : true}
+                  className={
+                    e.tabId === activeId
+                      ? 'absolute inset-0'
+                      : 'pointer-events-none absolute left-0 top-0 h-px w-px overflow-hidden opacity-0'
+                  }
+                >
+                  <Viewer
+                    file={e.file}
+                    background={e.tabId !== activeId}
+                    onUndoable={noteUndo}
+                    onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
+                    refreshKey={refreshKey}
+                    onToggleFullscreen={toggleFullscreen}
+                    fullscreen={fullscreen}
+                    transportStyle={transportStyle}
+                    transportBg={transportBg}
+                    onOpenLocal={openFromTree}
+                    // A tab you are not looking at does not choose what plays
+                    // next: autoplay and the menu's Next belong to the front.
+                    onAutoAdvance={e.tabId === activeId ? advanceSameKind : () => {}}
+                    onStep={e.tabId === activeId ? stepSameKind : () => {}}
+                    canStep={(dir) => (e.tabId === activeId ? sameKindIndex(dir) >= 0 : false)}
+                    onBuffer={onBuffer}
+                    getPending={getPending}
+                  />
+                </div>
+              ))
               const liveContent =
                 file && editMode && file.kind === 'text' ? (
                   <Suspense fallback={<EditorLoading />}>
@@ -2427,7 +2485,7 @@ export default function App(): JSX.Element {
                       getPending={getPending}
                     />
                   </Suspense>
-                ) : file ? (
+                ) : activeDeck ? null : file ? (
                   <Viewer
                     key={`${file.kind}:${docVersion}`}
                     file={file}
@@ -2451,7 +2509,13 @@ export default function App(): JSX.Element {
                   <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
                 )
               const pins = active?.panes ?? []
-              if (!pins.length || fullscreen) return liveContent
+              const withPlayers = (
+                <>
+                  {players}
+                  {liveContent}
+                </>
+              )
+              if (!pins.length || fullscreen) return withPlayers
               // The quadrant grid: the live pane plus up to three pinned files,
               // hairline-separated, one window per corner at the full four.
               const areas = paneAreas(pins)
@@ -2465,7 +2529,7 @@ export default function App(): JSX.Element {
                     className="group/live relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
                     style={{ gridArea: areas.live }}
                   >
-                    {liveContent}
+                    {withPlayers}
                     {/* Its own X, like every pinned pane: closing the live
                       window promotes the oldest pin, the rest stand. */}
                     <button
@@ -2892,6 +2956,7 @@ export default function App(): JSX.Element {
           }}
         />
       )}
+
     </div>
   )
 }

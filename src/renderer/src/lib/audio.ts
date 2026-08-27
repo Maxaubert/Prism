@@ -26,11 +26,24 @@ export function getAudioContext(): AudioContext {
  */
 const graphs = new WeakMap<HTMLMediaElement, { source: MediaElementAudioSourceNode; gain: GainNode }>()
 
+/**
+ * Is this element safe to route? A media resource fetched WITHOUT CORS taints
+ * its MediaElementSource: the graph gets digital silence, and the element can
+ * never be un-routed, so the sound does not come back when the volume drops
+ * again. Measured 2026-08-27: peak 0 without `crossOrigin`, 0.129 with it.
+ * Refusing to route is a volume that stops at 100%, which is a far better
+ * failure than a film that has gone quiet.
+ */
+export function routable(el: HTMLMediaElement): boolean {
+  return el.crossOrigin === 'anonymous' || el.crossOrigin === 'use-credentials'
+}
+
 export function mediaGraph(
   el: HTMLMediaElement
 ): { source: MediaElementAudioSourceNode; gain: GainNode } | null {
   const existing = graphs.get(el)
   if (existing) return existing
+  if (!routable(el)) return null
   try {
     const ctx = getAudioContext()
     const source = ctx.createMediaElementSource(el)

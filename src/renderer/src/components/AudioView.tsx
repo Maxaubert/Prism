@@ -50,7 +50,8 @@ export function AudioView({
   fullscreen,
   onToggleFullscreen,
   onAutoAdvance,
-  transportStyle
+  transportStyle,
+  background = false
 }: {
   url: string
   /** The file's real path, for asking main whether Chromium can play it. */
@@ -61,13 +62,16 @@ export function AudioView({
   /** Autoplay's exit: the app moves to the next track in the folder. */
   onAutoAdvance: () => void
   transportStyle: TransportStyle
+  /** Mounted but not on screen: another tab is in front. The track plays on,
+   *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
+  background?: boolean
 }): JSX.Element {
   const v = useViz()
   const prefs = usePlayerPrefs()
   // Apple Lossless, WMA, AC-3 and friends arrive decoded; everything Chromium
   // can play is left exactly as it was.
   const { src, synthesising, failed: synthFailed } = useDecodedSource(path, url)
-  const peaks = useWaveform(path, transportStyle === 'wave' || transportStyle === 'wavebold')
+  const peaks = useWaveform(path, !background && (transportStyle === 'wave' || transportStyle === 'wavebold'))
   const transportBg = transportStyle !== 'edge' && transportStyle !== 'outline' && transportStyle !== 'island'
   const barFx = { palette: resolveVizTheme(v.barTheme).palette, glow: v.barGlow, cycle: v.barCycle, move: v.barMove }
   // A callback ref feeds both the controls hook (via the ref object) and the
@@ -110,7 +114,8 @@ export function AudioView({
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`,
-    resumeKey: url
+    resumeKey: url,
+    keys: !background
   })
 
   // Entering fullscreen arms the auto-hide; leaving it clears the timer. Chrome is
@@ -182,7 +187,9 @@ export function AudioView({
           >
             <div className={`mx-auto h-full ${WIDTHS[v.width] ?? WIDTHS.full}`}>
               <Visualizer
-                media={mediaEl}
+                // A hidden tab draws nothing: the analyser and its animation
+                // frame are for a canvas somebody is looking at.
+                media={background ? null : mediaEl}
                 styleId={v.style}
                 theme={resolveVizTheme(v.theme)}
                 dropStyle={v.drop}

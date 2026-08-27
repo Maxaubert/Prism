@@ -370,7 +370,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   The visualizer taps that same chain (a second MediaElementSource for one
   element throws, and a second path to the speakers would play the file twice).
   The sidecar decoder's `<audio>` gets the same treatment, since for a Dolby
-  film that element is the one making the sound.
+  film that element is the one making the sound. The elements are fetched
+  `crossOrigin="anonymous"`, and `lib/audio` REFUSES to route one that is not:
+  a media resource fetched without CORS taints its MediaElementSource, so the
+  graph gets digital silence - and since an element can never be un-routed,
+  turning the volume back down does not bring the sound back. Measured
+  2026-08-27: peak 0 without the attribute, 0.129 with it. That was the
+  200%-is-silent bug; refusing to route is a volume that stops at 100%, which
+  is a far better failure than a film that has gone quiet.
 - **A file comes back doing what it was doing** (2026-08-26, finished
   2026-08-27). A tab renders only while it is in front, so opening Settings - or
   any other tab - unmounts the viewer, and the player came back as a fresh
@@ -383,8 +390,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   of anything lost the place entirely. The session position therefore WINS over
   the stored one, and applies to a 5-second clip too. Not persisted: a file
   opened fresh tomorrow should play, from its own beginning if it is short,
-  because that is what opening a file means. Playback itself cannot continue
-  while the tab is away - there is no element to play it.
+  because that is what opening a file means. That covers a genuine remount
+  (a new file, a split view opening); the tab switch itself no longer is one,
+  see below.
+- **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
+  renders only while it is in front, so walking to Settings or another folder
+  stopped the film. Handing the sound to a second, hidden element was tried
+  first and REJECTED by ear: it pauses and unpauses at every switch, because
+  the only seamless answer is for the ELEMENT ITSELF to survive. So every tab
+  holding a video or a track keeps its player mounted and the strip only
+  decides which one you SEE - measured: the same element, zero `pause` events,
+  the clock never stalling, across Settings and a second tab. A hidden player
+  owns no keyboard (`useMediaControls`'s `keys`), draws no chrome, no menu, no
+  visualizer and asks for no waveform; it does not autoplay the next file
+  either, because a tab you are not looking at does not choose what plays.
+  Two rules keep it honest: the deck order is APPEND-ONLY (removing a media
+  element from the document pauses it, and React moves DOM nodes when a list
+  reorders, so a deck following the tab strip would stutter on a drag), and
+  there is a CEILING of 4 players, the oldest background one standing down,
+  never the active one. It does mean two films can play at once if you left
+  one running and go to another - which is what "keeps playing" means.
 - **Pause in background** (2026-08-26, the transport cog): one toggle, off by
   default. Away means another window has the focus OR Prism is minimised -
   PotPlayer's "Pause playback when focus lost", which covers VLC's
