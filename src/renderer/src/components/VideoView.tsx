@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 import { useMediaControls } from '../lib/useMediaControls'
-import { usePlayerPrefs } from '../lib/playerPrefs'
+import { setPlayerPref, usePlayerPrefs } from '../lib/playerPrefs'
 import { useSubtitles } from '../lib/useSubtitles'
 import { useSidecarAudio } from '../lib/useSidecarAudio'
 import { usePlayableVideo } from '../lib/usePlayableVideo'
@@ -11,6 +11,8 @@ import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { wasPaused } from '../lib/playState'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
 
@@ -64,6 +66,19 @@ export function VideoView({
     cycle: v.barCycle,
     move: v.barMove
   }
+  // How the picture sits in the frame, and the right-click menu that changes
+  // it. Per file: a ratio forced on one video means nothing for the next.
+  const [fit, setFit] = useState<VideoFit>('fit')
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Reset on the way IN to a new file rather than in an effect: a ratio forced
+  // on one video means nothing for the next, and the same shape the sidebar
+  // uses for its selection (an effect here cascades a second render).
+  const [fitFor, setFitFor] = useState(url)
+  if (fitFor !== url) {
+    setFitFor(url)
+    setFit('fit')
+  }
+
   const [chromeOn, setChromeOn] = useState(true)
   /**
    * When the last thing happened. The chrome hides on a CLOCK reading this,
@@ -154,6 +169,93 @@ export function VideoView({
     }
   }, [showChrome])
 
+
+  /** A ticked row: the menu has no checkbox of its own, so the tick is the icon. */
+  const tickIf = (on: boolean): JSX.Element => (
+    <span className="w-2.5 shrink-0 text-[var(--color-accent-hi)]" aria-hidden>
+      {on ? '✓' : ''}
+    </span>
+  )
+
+  /**
+   * The right-click menu (2026-08-27), VLC-shaped: what the picture does, how
+   * fast it plays, which subtitles, and the file itself. Everything here is
+   * reachable elsewhere too - this is the place people look first.
+   */
+  const menuItems = (): MenuItem[] => {
+    // Every row carries the tick column, ticked or not, so the labels line up:
+    // one row with a check and the rest without reads as a mistake.
+    const items: MenuItem[] = [
+      {
+        label: c.playing ? 'Pause' : 'Play',
+        hint: 'Space',
+        icon: tickIf(false),
+        onPick: () => c.togglePlay()
+      },
+      {
+        label: 'Fullscreen',
+        hint: 'F',
+        icon: tickIf(false),
+        onPick: onToggleFullscreen
+      },
+      {
+        label: 'Picture',
+        icon: tickIf(false),
+        // No hints here: in this menu `hint` is the shortcut column, and a
+        // sentence in it is a wall of text down the right-hand side.
+        children: VIDEO_FITS.map((f) => ({
+          label: f.label,
+          icon: tickIf(fit === f.id),
+          onPick: () => setFit(f.id)
+        }))
+      },
+      {
+        label: 'Speed',
+        icon: tickIf(false),
+        children: [
+          ...[0.5, 0.75, 1, 1.25, 1.5, 2].map((r) => ({
+            label: r === 1 ? 'Normal' : `${r}×`,
+            icon: tickIf(Math.abs(c.rate - r) < 0.01),
+            onPick: () => c.setRate(r)
+          }))
+        ]
+      },
+      {
+        label: 'Loop',
+        icon: tickIf(prefs.loop),
+        onPick: () => setPlayerPref('loop', !prefs.loop)
+      }
+    ]
+    // Subtitles only when the file actually has some, like the cog.
+    if (subtitles.tracks.length) {
+      items.push({
+        label: 'Subtitles',
+        icon: tickIf(false),
+        children: [
+          { label: 'Off', icon: tickIf(subtitles.active === null), onPick: () => subtitles.pick(null) },
+          ...subtitles.tracks.map((t) => ({
+            label: t.label,
+            icon: tickIf(subtitles.active === t.path),
+            onPick: () => subtitles.pick(t.path)
+          }))
+        ]
+      })
+    }
+    items.push(
+      {
+        label: 'Show in File Explorer',
+        icon: tickIf(false),
+        onPick: () => window.prism.showInExplorer(path)
+      },
+      {
+        label: 'Copy path',
+        icon: tickIf(false),
+        onPick: () => void navigator.clipboard.writeText(path)
+      }
+    )
+    return items
+  }
+
   // Click toggles play quietly - no centre icon at all (owner decision,
   // 2026-08-22): the transport says the state, the picture stays clean.
   const clickToggle = (): void => c.togglePlay()
@@ -199,6 +301,13 @@ export function VideoView({
       // woke themselves a frame later, for ever. Real movement arrives on the
       // window's pointermove, which content changes do not fire.
       style={{ cursor: chromeOn ? 'default' : 'none' }}
+      // Right-click anywhere on the picture: the menu VLC taught everyone to
+      // expect. The controls come up with it, as VLC's do.
+      onContextMenu={(e) => {
+        e.preventDefault()
+        showChrome()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
       {playable.converting && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8">
@@ -299,7 +408,8 @@ export function VideoView({
         // Fill the stage and letterbox only on the axis that needs it. max-w/max-h
         // would cap the video at its intrinsic size, so anything smaller than the
         // window (e.g. a 720p file fullscreened) sat boxed in on all four sides.
-        className="h-full w-full object-contain"
+        className={fitStyle(fit).className}
+        style={fitStyle(fit).style}
         onClick={clickToggle}
         onDoubleClick={onToggleFullscreen}
         {...c.bind}
@@ -328,6 +438,10 @@ export function VideoView({
           to opacity 0 inside a fullscreen element and comes back is composited
           once and never repainted, so the controls were painted at the right
           place and never appeared. */}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
+      )}
+
       {chromeOn && (
         <div
           data-transport

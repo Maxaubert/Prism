@@ -1724,7 +1724,10 @@ async function terminalScenario(fixtures) {
     await win.keyboard.press('Enter')
     // Detection is invisible while idle now: presence is a data attribute,
     // and the tab PAINTS only while the agent genuinely works.
-    await win.waitForSelector('[data-agent-present]', { timeout: 30000 })
+    // Sixty seconds, not thirty: this waits for a REAL claude CLI to start,
+    // and on a busy machine thirty is not always enough - which reads as a
+    // failure of the indicator rather than of the wait.
+    await win.waitForSelector('[data-agent-present]', { timeout: 60000 })
     ok(true, 'claude in the shell is detected')
     await sleep(1500)
     ok(
@@ -1954,6 +1957,86 @@ async function terminalScenario(fixtures) {
  * A paused film stays paused across a tab switch, and the cog's
  * "pause playback" choice (2026-08-26).
  */
+/**
+ * The video's right-click menu (2026-08-27): VLC-shaped, and the picture modes
+ * it carries.
+ */
+async function videoMenuScenario(fixtures) {
+  console.log('the video menu')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    // PAUSE it, and not only for quiet: the shared profile has autoplay on
+    // from the player-settings scenario, and these fixtures are two seconds
+    // long - left running, ep1 ends and ep2 is what the menu describes, which
+    // cost an afternoon to work out.
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      if (v) {
+        v.muted = true
+        v.pause()
+      }
+    })
+    await sleep(1000)
+    const rows = () => win.locator('[role="menuitem"]').allTextContents()
+    const cls = () => win.evaluate(() => document.querySelector('video')?.className ?? '')
+
+    // The sidecar tracks arrive over IPC, so the menu is opened again until
+    // they have: asserting on the first open tests the timing, not the menu.
+    const openMenu = async () => {
+      // Escape only when a menu is actually up: with none, Escape closes the
+      // WINDOW, which is the app behaving correctly and the test not.
+      if (await win.locator('[role="menu"]').count()) await win.keyboard.press('Escape')
+      await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
+      await sleep(400)
+      return rows()
+    }
+    let items = await openMenu()
+    for (let i = 0; i < 8 && !items.some((t) => t.startsWith('Subtitles')); i += 1) {
+      await sleep(600)
+      items = await openMenu()
+    }
+    ok(items.some((t) => /^(Play|Pause)/.test(t)), 'right-click offers play/pause')
+    ok(items.some((t) => t.startsWith('Fullscreen')), 'and fullscreen')
+    ok(items.some((t) => t.startsWith('Picture')), 'and the picture modes')
+    ok(items.some((t) => t.startsWith('Speed')), 'and speed')
+    ok(items.some((t) => t.includes('Explorer')), 'and the file itself')
+    // ep1.mp4 has ep1.en.srt beside it, so subtitles belong here.
+    ok(
+      items.some((t) => t.startsWith('Subtitles')),
+      `and subtitles, because this file has some (${JSON.stringify(items)})`
+    )
+
+    ok((await cls()).includes('object-contain'), 'the picture starts fitted to the window')
+    await win.locator('[role="menuitem"]', { hasText: 'Picture' }).hover()
+    await sleep(400)
+    await win.locator('[role="menuitem"]', { hasText: 'Fill window' }).click()
+    await sleep(400)
+    ok((await cls()).includes('object-cover'), 'Fill window crops instead of letterboxing')
+    ok((await win.locator('[role="menu"]').count()) === 0, 'and the menu closes behind the choice')
+
+    await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
+    await sleep(400)
+    await win.locator('[role="menuitem"]', { hasText: 'Picture' }).hover()
+    await sleep(400)
+    await win.locator('[role="menuitem"]', { hasText: '4:3' }).click()
+    await sleep(400)
+    const forced = await win.evaluate(() => getComputedStyle(document.querySelector('video')).aspectRatio)
+    ok(forced.replace(/\s/g, '') === '4/3', `a forced ratio really forces it (${forced})`)
+
+    // Escape closes the MENU, not the window: the app yields Escape to
+    // anything transient that is up (data-owns-escape).
+    await win.locator('video').click({ button: 'right', position: { x: 200, y: 150 } })
+    await sleep(400)
+    await win.keyboard.press('Escape')
+    await sleep(400)
+    ok((await win.locator('[role="menu"]').count()) === 0, 'Escape closes the menu')
+    ok((await win.locator('video').count()) === 1, 'and leaves the window alone')
+  } finally {
+    await app.close()
+  }
+}
+
 async function pauseScenario(fixtures) {
   console.log('pausing')
   const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
@@ -2377,6 +2460,8 @@ try {
   await gearScenario(fixtures)
   await sleep(900)
   await pauseScenario(fixtures)
+  await sleep(900)
+  await videoMenuScenario(fixtures)
   await sleep(900)
   await selectionScenario(fixtures)
   await sleep(900)
