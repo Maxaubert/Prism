@@ -6,6 +6,7 @@ import { useSidecarAudio } from '../lib/useSidecarAudio'
 import { usePlayableVideo } from '../lib/usePlayableVideo'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
+import { VolumeReadout } from './VolumeReadout'
 import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
@@ -33,7 +34,8 @@ export function VideoView({
   canStep,
   transportStyle,
   transportBg,
-  background = false
+  background = false,
+  volumeKey
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -53,11 +55,16 @@ export function VideoView({
    *  plays on (that is the whole point), but it owns no keyboard, shows no
    *  controls and opens no menus - see lib/mediaDeck. */
   background?: boolean
+  /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
+  volumeKey?: string
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
   // A file Chromium cannot open at all is converted first, and what plays is
   // the copy. Everything downstream (subtitles, waveform, the audio decoder)
   // then deals with an ordinary mp4.
+  // The volume readout on the picture: a timestamp, not a boolean, so every
+  // notch of the wheel restarts the same clock rather than stacking timers.
+  const [volFlash, setVolFlash] = useState(0)
   const playable = usePlayableVideo(path, url)
   const src = playable.src
   const prefs = usePlayerPrefs()
@@ -155,7 +162,9 @@ export function VideoView({
     },
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
     resumeKey: url,
-    keys: !background
+    keys: !background,
+    volumeKey,
+    onVolume: () => setVolFlash(Date.now())
   })
 
   /**
@@ -326,6 +335,15 @@ export function VideoView({
         showChrome()
         setMenu({ x: e.clientX, y: e.clientY })
       }}
+      // The wheel over the picture is the volume, VLC's oldest habit, and the
+      // ONLY way past 100% (the slider stops there). 5% a notch, which is what
+      // VLC steps by. No preventDefault: React attaches wheel passively, and
+      // there is nothing behind the picture to scroll anyway.
+      onWheel={(e) => {
+        if (background) return
+        c.bumpVol(e.deltaY < 0 ? 0.05 : -0.05)
+        showChrome()
+      }}
     >
       {playable.converting && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-[var(--p-bg)]/92 p-8">
@@ -471,6 +489,12 @@ export function VideoView({
           to opacity 0 inside a fullscreen element and comes back is composited
           once and never repainted, so the controls were painted at the right
           place and never appeared. */}
+      {/* What the wheel just did. Top-right, clear of the transport, and gone
+          again in a moment: an indicator, not a control. The bar behind it
+          runs to 200% with the 100% mark drawn on it, so a boost reads as a
+          boost rather than as a number you have to know the ceiling of. */}
+      {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
+
       {menu && !background && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
       )}

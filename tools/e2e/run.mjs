@@ -2115,6 +2115,49 @@ async function pauseScenario(fixtures) {
   }
 }
 
+async function volumeScenario(fixtures) {
+  console.log('volume')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(1000)
+    const readout = () => win.evaluate(() => document.querySelector('[aria-live="polite"]')?.textContent ?? null)
+    const box = await win.locator('video').boundingBox()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+
+    // The slider stops at 100%; the wheel over the picture is the way past it.
+    ok(
+      (await win.evaluate(() => document.querySelector('input[aria-label="Volume"]')?.max)) === '1',
+      'the volume slider stops at 100%'
+    )
+    for (let i = 0; i < 4; i++) {
+      await win.mouse.wheel(0, -100)
+      await sleep(80)
+    }
+    await sleep(200)
+    ok((await readout()) === '120%', 'the wheel goes past 100%, and says so on the picture')
+
+    // ...and no further than 200%, however long you spin it.
+    for (let i = 0; i < 30; i++) await win.mouse.wheel(0, -100)
+    await sleep(300)
+    ok((await readout()) === '200%', 'and stops at 200%')
+
+    for (let i = 0; i < 8; i++) {
+      await win.mouse.wheel(0, 100)
+      await sleep(60)
+    }
+    await sleep(200)
+    ok((await readout()) === '160%', 'and comes back down the same way')
+
+    // It is an indicator, not a control: it goes away on its own.
+    await sleep(1600)
+    ok((await readout()) === null, 'the readout leaves when it has been read')
+  } finally {
+    await app.close()
+  }
+}
+
 async function gearScenario(fixtures) {
   console.log('the settings gear')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -2512,6 +2555,8 @@ try {
   await gearScenario(fixtures)
   await sleep(900)
   await pauseScenario(fixtures)
+  await sleep(900)
+  await volumeScenario(fixtures)
   await sleep(900)
   await videoMenuScenario(fixtures)
   await sleep(900)

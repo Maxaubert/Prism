@@ -85,6 +85,7 @@ import {
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { deckOf } from './lib/mediaDeck'
+import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import {
   describe as describeUndo,
@@ -429,7 +430,8 @@ function Viewer({
   onBuffer,
   onRenameSelf,
   getPending,
-  background = false
+  background = false,
+  volumeKey = ''
 }: {
   file: ViewerFile
   /** An archive reports its own undoable writes up to App's stack. */
@@ -456,6 +458,8 @@ function Viewer({
   getPending: (path: string) => string | undefined
   /** This tab is not the one in front: its player keeps going, unseen. */
   background?: boolean
+  /** Whose volume this player uses - the tab's, for the session. */
+  volumeKey?: string
 }): JSX.Element {
   const url = window.prism.mediaUrl(file.path)
   switch (file.kind) {
@@ -471,6 +475,7 @@ function Viewer({
           transportStyle={transportStyle}
           transportBg={transportBg}
           background={background}
+          volumeKey={volumeKey}
         />
       )
     case 'image':
@@ -486,6 +491,7 @@ function Viewer({
           onAutoAdvance={onAutoAdvance}
           transportStyle={transportStyle}
           background={background}
+          volumeKey={volumeKey}
         />
       )
     case 'pdf':
@@ -1046,6 +1052,8 @@ export default function App(): JSX.Element {
         disposeSession(tab.term.id)
         termRoots.current.delete(tab.term.id)
       }
+      // ...and so does the level it was playing at: the id never comes back.
+      forgetTabVolume(id)
       return closeTab(s.tabs, id, s.activeId)
     })
   }, [])
@@ -2452,6 +2460,7 @@ export default function App(): JSX.Element {
                   <Viewer
                     file={e.file}
                     background={e.tabId !== activeId}
+                    volumeKey={e.tabId}
                     onUndoable={noteUndo}
                     onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
                     refreshKey={refreshKey}
@@ -2574,7 +2583,8 @@ export default function App(): JSX.Element {
                       onStep: () => {},
                       canStep: () => false,
                         onBuffer,
-                        getPending
+                        getPending,
+                        volumeKey: `${activeId ?? ''}:pin:${pn.path}`
                       }}
                     />
                   ))}

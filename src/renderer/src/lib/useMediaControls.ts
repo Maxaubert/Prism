@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
-import { rememberMuted, rememberPaused, rememberTime, sessionTime } from './playState'
+import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume } from './audio'
+import { setTabVolume, tabVolume } from './tabVolume'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -8,7 +9,6 @@ import { applyVolume } from './audio'
 // player is then just this hook + a Transport + its own stage (frame / visualiser).
 
 export const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
-const VOL_KEY = 'prism.volume'
 
 // Resume-position: long media reopens where you left off; short clips (music
 // videos, songs) always restart so you hear them whole. Position is saved per
@@ -56,7 +56,15 @@ interface Options {
   onPlayChange?: (playing: boolean) => void
   /** Called on any keyboard transport action (e.g. to re-show video chrome). */
   onActivity?: () => void
+  /** Volume or mute just changed, by any route - the wheel, the keys, the
+   *  slider. The video's on-screen volume readout listens for this rather than
+   *  watching the value, so nothing has to set state inside an effect. */
+  onVolume?: () => void
   errorMsg?: string
+  /** Whose volume this is: the tab, for this session (see lib/tabVolume). The
+   *  same level follows you across the files you open in that tab, and a new
+   *  tab starts at 100%. Omit and the player simply starts at 100%. */
+  volumeKey?: string
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
@@ -73,7 +81,16 @@ export const MAX_VOL = 2
 const clampVol = (v: number): number => Math.max(0, Math.min(MAX_VOL, v))
 
 export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: Options = {}): MediaControls {
-  const { onFullscreen, onPlayChange, onActivity, errorMsg, resumeKey, keys = true } = opts
+  const {
+    onFullscreen,
+    onPlayChange,
+    onActivity,
+    onVolume,
+    errorMsg,
+    resumeKey,
+    keys = true,
+    volumeKey = ''
+  } = opts
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
   const resumedRef = useRef(false)
@@ -82,11 +99,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const [cur, setCur] = useState(0)
   const [dur, setDur] = useState(0)
   const [buffered, setBuffered] = useState(0)
-  const [vol, setVolState] = useState(() => {
-    const v = Number(localStorage.getItem(VOL_KEY))
-    return Number.isFinite(v) && v > 0 ? clampVol(v) : 1
-  })
-  const [muted, setMuted] = useState(false)
+  const [vol, setVolState] = useState(() => clampVol(tabVolume(volumeKey).vol))
+  const [muted, setMuted] = useState(() => tabVolume(volumeKey).muted)
   const [rate, setRate] = useState(1)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,18 +110,32 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   useEffect(() => {
     const m = ref.current
     if (m) applyVolume(m, vol, muted)
-    localStorage.setItem(VOL_KEY, String(vol))
-    // Mute is per-file and for this session only, like the paused flag: it is
-    // what the background player reads so a silenced film stays silenced.
-    if (resumeKey) rememberMuted(resumeKey, muted)
-  }, [vol, muted, ref, resumeKey])
+    // Handed to the tab, not to disk: it survives moving between files in this
+    // tab and dies with the session.
+    setTabVolume(volumeKey, { vol, muted })
+  }, [vol, muted, ref, volumeKey])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
 
-  const setVol = useCallback((v: number) => setVolState(clampVol(v)), [])
-  const bumpVol = useCallback((d: number) => setVolState((x) => +clampVol(x + d).toFixed(2)), [])
-  const toggleMute = useCallback(() => setMuted((x) => !x), [])
+  const setVol = useCallback(
+    (v: number) => {
+      setVolState(clampVol(v))
+      onVolume?.()
+    },
+    [onVolume]
+  )
+  const bumpVol = useCallback(
+    (d: number) => {
+      setVolState((x) => +clampVol(x + d).toFixed(2))
+      onVolume?.()
+    },
+    [onVolume]
+  )
+  const toggleMute = useCallback(() => {
+    setMuted((x) => !x)
+    onVolume?.()
+  }, [onVolume])
   const stepRate = useCallback(
     (dir: number) =>
       setRate((r) => {
