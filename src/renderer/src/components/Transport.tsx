@@ -204,7 +204,7 @@ function PlayBtn({ c, square }: { c: MediaControls; square?: boolean }): JSX.Ele
  * exceed 100 has to be readable or it is just a longer slider. The readout
  * doubles as the way back to 100%.
  */
-function VolHover({ c }: { c: MediaControls }): JSX.Element {
+function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Element {
   const pct = Math.round((c.muted ? 0 : c.vol) * 100)
   return (
     <div className="group/vol relative flex items-center">
@@ -215,9 +215,20 @@ function VolHover({ c }: { c: MediaControls }): JSX.Element {
       >
         {c.muted || c.vol === 0 ? IconMute : IconVol}
       </button>
-      {/* Anchored to the button and hidden until hovered. pointer-events come
-          back with it, so the column can be dragged the moment it appears. */}
-      <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden -translate-x-1/2 flex-col items-center gap-1.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-1.5 py-2 shadow-[0_8px_20px_rgba(0,0,0,.45)] group-hover/vol:pointer-events-auto group-hover/vol:flex">
+      {/* Anchored to the button, hidden until hovered, and TOUCHING it: the gap
+          is padding INSIDE this box (pb-2), not a margin below it, so crossing
+          from the icon to the column never leaves the hover area. A margin put
+          dead space in the way and the column closed on the way to it. */}
+      <div
+        className={`pointer-events-none absolute bottom-full left-1/2 z-30 hidden -translate-x-1/2 flex-col items-center gap-1.5 px-1.5 pb-2 pt-2 group-hover/vol:pointer-events-auto group-hover/vol:flex ${
+          bare
+            ? // The band behind the controls is off, so the column brings no
+              // slab of its own: it sits on the film and carries a shadow, the
+              // same bargain the transport itself makes at low opacity.
+              '[filter:drop-shadow(0_1px_3px_rgba(0,0,0,.85))]'
+            : 'rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_8px_20px_rgba(0,0,0,.45)]'
+        }`}
+      >
         <span
           className={`cursor-pointer select-none text-[10px] tabular-nums ${
             pct > 100 ? 'text-[var(--color-accent-hi)]' : 'text-[var(--p-dim)]'
@@ -262,6 +273,7 @@ export function Transport({
   style,
   peaks,
   bar,
+  bare,
   settings,
   extra
 }: {
@@ -269,6 +281,9 @@ export function Transport({
   style: TransportStyle
   peaks: number[]
   bar: BarFx
+  /** No band behind the controls (the background slider is at 0), so the
+   *  volume column must not bring one of its own. */
+  bare?: boolean
   /** The player-settings cog (speed, loop, autoplay, subtitles). */
   settings?: ReactNode
   extra?: ReactNode
@@ -277,7 +292,7 @@ export function Transport({
   const stdRow = (
     <div className="flex items-center gap-3 text-[var(--p-text)]">
       <PlayBtn c={c} />
-      <VolHover c={c} />
+      <VolHover c={c} bare={bare} />
       <Time c={c} />
       <div className="flex-1" />
       {settings}
@@ -289,7 +304,7 @@ export function Transport({
       <PlayBtn c={c} square />
       <Time c={c} big />
       <div className="flex-1" />
-      <VolHover c={c} />
+      <VolHover c={c} bare={bare} />
       {settings}
       {extra}
     </div>
@@ -319,7 +334,7 @@ export function Transport({
           <span className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
           <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3.5 flex-1" />
           <span className="tabular-nums text-[12.5px] text-[var(--p-text)]/50">{formatTime(c.dur)}</span>
-          <VolHover c={c} />
+          <VolHover c={c} bare={bare} />
           {settings}
           {extra}
         </div>
@@ -385,7 +400,7 @@ export function Transport({
           <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} bar={bar} className="h-2.5" />
           <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-[var(--p-text)]">
             <PlayBtn c={c} />
-            <VolHover c={c} />
+            <VolHover c={c} bare={bare} />
             <Time c={c} />
             <div className="flex-1" />
             {settings}

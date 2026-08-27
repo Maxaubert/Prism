@@ -513,6 +513,7 @@ export function VideoView({
             style={transportStyle}
             peaks={peaks}
             bar={barFx}
+            bare={bandPct === 0}
             settings={
               <PlayerMenu
                 c={c}
