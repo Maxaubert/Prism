@@ -95,7 +95,16 @@ async function launch(file, keepTabs = false) {
     try {
       return await launchOnce(file, keepTabs)
     } catch (err) {
-      if (!/garbage collected|Target page, context or browser has been closed|Target closed/i.test(String(err))) throw err
+      // Every shape the handoff-exit takes on the way out. It has also been
+      // seen as an ECONNRESET on the debugging socket and as a plain launch
+      // timeout: the process this launch talked to had already decided to
+      // quit. They are all the same lock, so they all retry.
+      if (
+        !/garbage collected|Target page, context or browser has been closed|Target closed|ECONNRESET|WebSocket error|Timeout .* exceeded.*(launch|firstWindow)|browserType.launch/i.test(
+          String(err)
+        )
+      )
+        throw err
       last = err
       await sleep(2000 + attempt * 1500)
     }
@@ -2126,10 +2135,10 @@ async function volumeScenario(fixtures) {
     const box = await win.locator('video').boundingBox()
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
 
-    // The slider stops at 100%; the wheel over the picture is the way past it.
+    // Both ways reach 200%: the column in the transport, and the wheel.
     ok(
-      (await win.evaluate(() => document.querySelector('input[aria-label="Volume"]')?.max)) === '1',
-      'the volume slider stops at 100%'
+      (await win.evaluate(() => document.querySelector('input[aria-label="Volume"]')?.max)) === '2',
+      'the volume column runs to 200%'
     )
     for (let i = 0; i < 4; i++) {
       await win.mouse.wheel(0, -100)

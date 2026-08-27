@@ -363,12 +363,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   background CPU without solving that.
 - **Volume goes to 200%** (2026-08-27, VLC's ceiling), on a column that rises
   from the speaker button rather than a bar that grew sideways and shoved the
-  time readout about. The SLIDER stops at 100% and the WHEEL over the picture
-  is the only way past it (owner decision, VLC's habit): 5% a notch, in the
-  video and the audio player alike, with an on-picture readout - speaker,
-  a bar to 200% with the 100% mark drawn on it, and the number - that shows
-  for any volume change and leaves after 1.2s. It MOUNTS and UNMOUNTS, like
-  the transport, for the same fullscreen-compositing reason. Level and mute
+  time readout about. Two ways to the same place, neither a special mode: the
+  column runs the whole way to 200%, and so does the WHEEL over the picture
+  (VLC's habit, 5% a notch, in the video and the audio player alike). An
+  on-picture readout - speaker, a bar to 200% with the 100% mark drawn on it,
+  and the number - shows for any volume change and leaves after 1.2s, with ONE
+  look at every level: no dimming, no colour change past 100%, because the bar
+  and the number already say how loud it is. It MOUNTS and UNMOUNTS, like the
+  transport, for the same fullscreen-compositing reason. Level and mute
   belong to the TAB for the session (`lib/tabVolume`): the same level follows
   you across the files you open in that tab, a new tab starts at 100%, a
   closed tab forgets, and nothing is persisted - the old single localStorage

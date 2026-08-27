@@ -1,6 +1,6 @@
 import { useRef, useState, type JSX, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatTime } from '../lib/format'
-import { type MediaControls } from '../lib/useMediaControls'
+import { MAX_VOL, type MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
@@ -238,16 +238,15 @@ function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Elemen
         >
           {pct}
         </span>
-        {/* The SLIDER stops at 100% (2026-08-27, owner decision). Past that is
-            a boost, and a boost is a deliberate act: the wheel over the picture
-            is the only way to it, the way VLC does it. A boosted film shows the
-            column full and the real number above it. */}
+        {/* The column runs the whole way to 200%, like the wheel over the
+            picture: two ways to the same place, neither of them a special
+            mode. */}
         <input
           type="range"
           min={0}
-          max={1}
+          max={MAX_VOL}
           step={0.01}
-          value={Math.min(1, c.muted ? 0 : c.vol)}
+          value={c.muted ? 0 : c.vol}
           onChange={(e) => {
             c.setVol(Number(e.target.value))
             if (c.muted) c.toggleMute()
