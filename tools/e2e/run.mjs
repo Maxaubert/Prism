@@ -2083,6 +2083,37 @@ async function pauseScenario(fixtures) {
     await sleep(1200)
     ok((await win.locator('video').count()) === 1, 'and the film comes back')
     ok((await paused()) === true, 'still paused - it does not restart itself')
+
+    // ...and at the same PLACE. The persisted resume-position cannot cover
+    // this: it is films only, saved every few seconds, so a tab switch in the
+    // first moments used to lose your place entirely (2026-08-27).
+    const at = () => win.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
+    // 0.6s into a 1.5s fixture: far enough in to prove the seek, and clear of
+    // the half-second end guard that makes a finished file restart.
+    await win.evaluate(() => { document.querySelector('video').currentTime = 0.6 })
+    await sleep(300)
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(900)
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(1400)
+    ok(Math.abs((await at()) - 0.6) < 0.3, 'and it comes back where it was, not at the start')
+
+    // A film that was PLAYING keeps playing when you come back, from there.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 0.3; void v.play() })
+    await sleep(400)
+    const was = await at()
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(900)
+    await win.locator('[aria-label="Settings"]').click()
+    await sleep(600)
+    // The fixture is 1.5s long, so it can legitimately run to its end while we
+    // are looking: "not stopped where it was" is the claim, not "still playing".
+    const going = await win.evaluate(() => {
+      const v = document.querySelector('video')
+      return { live: !v.paused || v.ended, t: v.currentTime }
+    })
+    ok(going.live, 'a playing film is still going when you come back')
+    ok(going.t >= was - 0.3, 'and carries on from there rather than from 0')
   } finally {
     await app.close()
   }

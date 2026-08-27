@@ -248,8 +248,6 @@ const api = {
   /** Absolute path of a dropped File (Electron removed File.path). */
   getDroppedPath: (file: File): string => webUtils.getPathForFile(file),
 
-  /** TEMPORARY: background-pause diagnostics, into userData/prism-debug.log. */
-  debugLog: (line: string): void => ipcRenderer.send('debug:log', line),
   /** Minimised / focused, from main: the page cannot see either for itself. */
   onWindowState: (cb: (s: { minimised: boolean; focused: boolean }) => void): (() => void) => {
     const listener = (_: unknown, s: { minimised: boolean; focused: boolean }): void => cb(s)
