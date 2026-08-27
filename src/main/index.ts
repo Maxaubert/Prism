@@ -107,6 +107,22 @@ app.commandLine.appendSwitch('force-color-profile', 'srgb')
 // way. If this is what fixes the missing transport, it narrows to the lightest
 // switch that still does; if it is not, the fault is not compositing.
 app.commandLine.appendSwitch('disable-direct-composition')
+/**
+ * A film keeps playing when you click away (2026-08-27, from the owner's own
+ * log). Windows tells Chromium when another window COVERS this one, Chromium
+ * marks the page hidden - `document.hidden` goes true, `visibilitychange`
+ * fires - and its hidden-page media policy suspends playback a millisecond
+ * later. It resumed on the way back, which is what made it look like a
+ * setting rather than a policy:
+ *
+ *   window focused=false -> visibility hidden=true -> PAUSE, with the app's
+ *   own "pause in background" switched OFF the whole time.
+ *
+ * Occlusion detection exists to save work on windows nobody can see. A media
+ * viewer is the case where that is wrong: covered is not closed, and the
+ * sound is the point.
+ */
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 
 // Archive members extracted to temp for viewing: each grant is one exact
 // path, made when archive:extract writes it. The reads that honour the root
@@ -734,12 +750,14 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
-      /* Chromium throttles a window nobody can see down to about a frame a
-       * second, which is right for a viewer sitting in the background and wrong
-       * for the recorder: it films off-screen so it does not have to take over
-       * the display, and a throttled window films as a slideshow. Only --demo
-       * turns it off, so nothing about normal use changes. */
-      backgroundThrottling: !process.argv.includes('--demo'),
+      /* Never throttled (2026-08-27). Chromium takes a window nobody can see
+       * down to about a frame a second, and with it goes the media: a film
+       * paused the instant another window covered Prism. It was right for a
+       * viewer sitting idle in the background and wrong for one that is
+       * playing, and Prism cannot tell the difference cheaply enough to be
+       * worth the surprise. (The recorder needed this too - a throttled
+       * window films as a slideshow.) */
+      backgroundThrottling: false,
       // Setup launches Prism with --setup so the guide runs even on a machine
       // that has seen it before. It rides in the renderer's own argv rather
       // than an IPC message, so it is there before the first render.

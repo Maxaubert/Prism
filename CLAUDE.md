@@ -351,6 +351,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   SHORTCUT column - a sentence in it is a wall of text down the right-hand side.
   The COG still hides its subtitles section when there are no tracks: it is a
   list, while the menu is the one place that can add one.
+- **A covered window keeps playing** (2026-08-27, found in the owner's own log,
+  not reproduced by any test here). Windows tells Chromium when another window
+  COVERS this one; Chromium marks the page hidden - `document.hidden` true,
+  `visibilitychange` fires - and its hidden-page media policy suspends playback
+  a millisecond later, restoring it on the way back. It read exactly like a
+  setting misbehaving, and the app's own "pause in background" was off the whole
+  time. `--disable-features=CalculateNativeWinOcclusion` and
+  `backgroundThrottling: false` are the fix: covered is not closed, and for a
+  media viewer the sound is the point. Do not re-enable throttling to save
+  background CPU without solving that.
 - **Volume goes to 200%** (2026-08-27, VLC's ceiling), on a column that rises
   from the speaker button rather than a bar that grew sideways and shoved the
   time readout about. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
