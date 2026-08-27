@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused } from './playState'
+import { applyVolume } from './audio'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -61,7 +62,11 @@ interface Options {
   resumeKey?: string
 }
 
-const clamp01 = (v: number): number => Math.max(0, Math.min(1, v))
+/** Volume runs to 200%, as VLC's does; past 100% it is a gain (see lib/audio).
+ *  VLC's own default ceiling is 125%, but its slider goes to 200 and so does
+ *  this one - the point of the feature is the quiet film. */
+export const MAX_VOL = 2
+const clampVol = (v: number): number => Math.max(0, Math.min(MAX_VOL, v))
 
 export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: Options = {}): MediaControls {
   const { onFullscreen, onPlayChange, onActivity, errorMsg, resumeKey } = opts
@@ -75,27 +80,26 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const [buffered, setBuffered] = useState(0)
   const [vol, setVolState] = useState(() => {
     const v = Number(localStorage.getItem(VOL_KEY))
-    return Number.isFinite(v) && v > 0 ? Math.min(1, v) : 1
+    return Number.isFinite(v) && v > 0 ? clampVol(v) : 1
   })
   const [muted, setMuted] = useState(false)
   const [rate, setRate] = useState(1)
   const [error, setError] = useState<string | null>(null)
 
   // Mirror volume/mute/rate onto the element; remember volume across sessions.
+  // Past 100% the element cannot help - its volume stops at 1 - so applyVolume
+  // hands the rest to a gain node.
   useEffect(() => {
     const m = ref.current
-    if (m) {
-      m.volume = vol
-      m.muted = muted
-    }
+    if (m) applyVolume(m, vol, muted)
     localStorage.setItem(VOL_KEY, String(vol))
   }, [vol, muted, ref])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
 
-  const setVol = useCallback((v: number) => setVolState(clamp01(v)), [])
-  const bumpVol = useCallback((d: number) => setVolState((x) => +clamp01(x + d).toFixed(2)), [])
+  const setVol = useCallback((v: number) => setVolState(clampVol(v)), [])
+  const bumpVol = useCallback((d: number) => setVolState((x) => +clampVol(x + d).toFixed(2)), [])
   const toggleMute = useCallback(() => setMuted((x) => !x), [])
   const stepRate = useCallback(
     (dir: number) =>

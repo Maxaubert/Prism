@@ -265,6 +265,39 @@ export function VideoView({
     return items
   }
 
+  /* ------------------------------------------------------------------ *
+   * TEMPORARY (2026-08-27): "it always pauses when Prism goes to the
+   * background" - on a machine where the setting is off, and where it does
+   * not reproduce here with the same profile and the same film. Every play,
+   * every pause, and every window-state change is written down, so the next
+   * report can be read instead of guessed at. Remove once diagnosed.
+   * ------------------------------------------------------------------ */
+  useEffect(() => {
+    const el = video.current
+    if (!el) return
+    const log = (what: string): void =>
+      window.prism.debugLog?.(
+        `${what} paused=${el.paused} t=${el.currentTime.toFixed(1)} ` +
+          `bgPref=${prefs.background} hidden=${document.hidden} vis=${document.visibilityState}`
+      )
+    const onPlay = (): void => log('PLAY ')
+    const onPause = (): void => log('PAUSE')
+    const onVis = (): void => log('visibility')
+    el.addEventListener('play', onPlay)
+    el.addEventListener('pause', onPause)
+    document.addEventListener('visibilitychange', onVis)
+    const off = window.prism.onWindowState((s) =>
+      log(`window minimised=${s.minimised} focused=${s.focused}`)
+    )
+    log('viewer up')
+    return () => {
+      el.removeEventListener('play', onPlay)
+      el.removeEventListener('pause', onPause)
+      document.removeEventListener('visibilitychange', onVis)
+      off()
+    }
+  }, [prefs.background, video, url])
+
   // Click toggles play quietly - no centre icon at all (owner decision,
   // 2026-08-22): the transport says the state, the picture stays clean.
   const clickToggle = (): void => c.togglePlay()
