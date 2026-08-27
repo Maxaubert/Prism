@@ -35,7 +35,6 @@ export function VolumeReadout({
   }, [open, flash])
   if (!open) return null
   const pct = Math.round((muted ? 0 : vol) * 100)
-  const boosted = pct > 100
   return (
     <div
       className="pointer-events-none absolute right-4 top-4 z-40 flex items-center gap-2.5 rounded-full bg-black/70 px-3.5 py-2 text-[var(--p-text)] shadow-[0_8px_20px_rgba(0,0,0,.45)] backdrop-blur-sm"
@@ -46,21 +45,15 @@ export function VolumeReadout({
       <span className="relative h-1 w-24 overflow-hidden rounded-full bg-white/20">
         <span
           className="absolute inset-y-0 left-0 rounded-full"
-          style={{
-            width: `${Math.min(100, (pct / 200) * 100)}%`,
-            background: boosted ? 'var(--color-accent-hi)' : 'var(--p-text)'
-          }}
+          // One look at every level (owner decision, 2026-08-27): the number
+          // and the fill do not dim, grey out or change colour past 100%. How
+          // loud it is, the bar and the number already say.
+          style={{ width: `${Math.min(100, (pct / 200) * 100)}%`, background: 'var(--p-text)' }}
         />
         {/* Where 100% is: the halfway mark on a bar that runs to 200. */}
         <span className="absolute inset-y-0 left-1/2 w-px bg-black/50" />
       </span>
-      <span
-        className={`w-11 text-right text-[13px] font-semibold tabular-nums ${
-          boosted ? 'text-[var(--color-accent-hi)]' : ''
-        }`}
-      >
-        {pct}%
-      </span>
+      <span className="w-11 text-right text-[13px] font-semibold tabular-nums">{pct}%</span>
     </div>
   )
 }
