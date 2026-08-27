@@ -2,23 +2,13 @@ import { useEffect, useRef, type JSX } from 'react'
 import { clamp, type AudioFrame, type DrawFn, type VizOpts, type VizTheme } from '../lib/viz/core'
 import { styleById } from '../lib/viz/styles'
 import { analyzeDrops } from '../lib/viz/drops'
-import { getAudioContext } from '../lib/audio'
+import { getAudioContext, mediaGraph } from '../lib/audio'
 
 // Drives whichever visualizer style is selected. Owns the Web Audio graph and
 // the per-frame analysis (bands, level, beat) so the styles only have to draw.
 //
 // A MediaElementSource can only ever be created once per element, so it is
 // cached; the AudioContext is shared for the window.
-
-const sourceCache = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>()
-function getSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSourceNode {
-  let s = sourceCache.get(el)
-  if (!s) {
-    s = ctx.createMediaElementSource(el)
-    sourceCache.set(el, s)
-  }
-  return s
-}
 
 // The visualizer paints on the window, not on a slab of its own: the canvas is
 // transparent so a style's background (and its acrylic) shows through. Two
@@ -131,17 +121,16 @@ export function Visualizer({
   useEffect(() => {
     if (!media) return
     const ctx = getAudioContext()
-    let source: MediaElementAudioSourceNode
-    try {
-      source = getSource(ctx, media)
-    } catch {
-      return // not readable; leave the idle state
-    }
+    // ONE chain per element, owned by lib/audio: source -> gain -> destination.
+    // The gain is what carries volume past 100%, and the analyser taps it
+    // rather than making a second source (a second one throws) or a second
+    // path to the speakers (that would play the file twice).
+    const graph = mediaGraph(media)
+    if (!graph) return // already sourced elsewhere, or not readable
     const analyser = ctx.createAnalyser()
     analyser.fftSize = 2048
     analyser.smoothingTimeConstant = 0.6
-    source.connect(analyser)
-    analyser.connect(ctx.destination)
+    graph.gain.connect(analyser)
     analyserRef.current = analyser
     const resume = (): void => {
       if (ctx.state === 'suspended') void ctx.resume()
@@ -153,7 +142,9 @@ export function Visualizer({
       media.removeEventListener('play', resume)
       window.removeEventListener('pointerdown', resume)
       try {
-        source.disconnect()
+        // Only the tap comes down: the chain to the speakers belongs to the
+        // element, not to the visualizer.
+        graph.gain.disconnect(analyser)
       } catch {
         /* already disconnected */
       }

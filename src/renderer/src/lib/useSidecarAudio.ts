@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { applyVolume } from './audio'
 
 /**
  * Sound for the tracks Chromium refuses.
@@ -115,10 +116,9 @@ export function useSidecarAudio(
   // Volume and mute are the player's, applied here instead of to the video.
   useEffect(() => {
     const a = audio.current
-    if (a) {
-      a.volume = vol
-      a.muted = muted
-    }
+    // applyVolume sets mute as well: past 100% the loudness lives in a gain
+    // node, and muting only the element would leave the boost audible.
+    if (a) applyVolume(a, vol, muted)
   }, [vol, muted, url])
 
   // Follow the picture: transport, seeking, speed, and the slow drift between

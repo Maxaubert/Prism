@@ -351,6 +351,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   SHORTCUT column - a sentence in it is a wall of text down the right-hand side.
   The COG still hides its subtitles section when there are no tracks: it is a
   list, while the menu is the one place that can add one.
+- **Volume goes to 200%** (2026-08-27, VLC's ceiling), on a column that rises
+  from the speaker button rather than a bar that grew sideways and shoved the
+  time readout about. Past 100% the ELEMENT cannot help - `HTMLMediaElement.volume`
+  is capped at 1 by the spec - so `lib/audio` routes it through Web Audio:
+  source -> gain -> destination, built ONCE per element and only when a boost is
+  actually asked for, so an ordinary file at 80% never touches Web Audio at all.
+  The visualizer taps that same chain (a second MediaElementSource for one
+  element throws, and a second path to the speakers would play the file twice).
+  The sidecar decoder's `<audio>` gets the same treatment, since for a Dolby
+  film that element is the one making the sound.
 - **A paused file stays paused** (2026-08-26). A tab renders only while it is in
   front, so opening Settings - or any other tab - unmounts the viewer, and the
   player came back as a fresh `<video autoplay>` that restarted a film you had

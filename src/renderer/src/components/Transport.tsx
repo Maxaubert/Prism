@@ -1,6 +1,6 @@
 import { useRef, useState, type JSX, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatTime } from '../lib/format'
-import type { MediaControls } from '../lib/useMediaControls'
+import { MAX_VOL, type MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
 import type { TransportStyle } from '../lib/transport'
 import { paletteAt } from '../lib/viz/core'
@@ -195,24 +195,54 @@ function PlayBtn({ c, square }: { c: MediaControls; square?: boolean }): JSX.Ele
   )
 }
 
+/**
+ * Volume: a column that rises from the button (owner, 2026-08-27), where the
+ * old slider grew sideways and pushed the time readout about.
+ *
+ * It runs to 200%, VLC-style, and says so: past 100% the loudness is a gain
+ * node rather than the element's own volume (lib/audio), and a number that can
+ * exceed 100 has to be readable or it is just a longer slider. The readout
+ * doubles as the way back to 100%.
+ */
 function VolHover({ c }: { c: MediaControls }): JSX.Element {
+  const pct = Math.round((c.muted ? 0 : c.vol) * 100)
   return (
-    <div className="group/vol flex items-center gap-2">
-      <button className="grid place-items-center hover:text-[var(--color-accent-hi)]" onClick={c.toggleMute} title="Mute (M)">
+    <div className="group/vol relative flex items-center">
+      <button
+        className="grid place-items-center hover:text-[var(--color-accent-hi)]"
+        onClick={c.toggleMute}
+        title={`Mute (M) - now ${pct}%`}
+      >
         {c.muted || c.vol === 0 ? IconMute : IconVol}
       </button>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={c.muted ? 0 : c.vol}
-        onChange={(e) => {
-          c.setVol(Number(e.target.value))
-          if (c.muted) c.toggleMute()
-        }}
-        className="h-1 w-0 cursor-pointer accent-[var(--color-accent-hi)] opacity-0 transition-all group-hover/vol:w-20 group-hover/vol:opacity-100"
-      />
+      {/* Anchored to the button and hidden until hovered. pointer-events come
+          back with it, so the column can be dragged the moment it appears. */}
+      <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden -translate-x-1/2 flex-col items-center gap-1.5 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-1.5 py-2 shadow-[0_8px_20px_rgba(0,0,0,.45)] group-hover/vol:pointer-events-auto group-hover/vol:flex">
+        <span
+          className={`cursor-pointer select-none text-[10px] tabular-nums ${
+            pct > 100 ? 'text-[var(--color-accent-hi)]' : 'text-[var(--p-dim)]'
+          }`}
+          onClick={() => c.setVol(1)}
+          title="Back to 100%"
+        >
+          {pct}
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={MAX_VOL}
+          step={0.01}
+          value={c.muted ? 0 : c.vol}
+          onChange={(e) => {
+            c.setVol(Number(e.target.value))
+            if (c.muted) c.toggleMute()
+          }}
+          aria-label="Volume"
+          // The standard vertical range: bottom is quiet, top is loud.
+          style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '14px', height: '84px' }}
+          className="cursor-pointer accent-[var(--color-accent-hi)]"
+        />
+      </div>
     </div>
   )
 }
