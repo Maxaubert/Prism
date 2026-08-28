@@ -38,6 +38,7 @@ import {
   writeTerm
 } from './terminal'
 import { parseProcLines, treeAgentKind } from './agentDetect'
+import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
@@ -1197,7 +1198,13 @@ if (!app.requestSingleInstanceLock()) {
         // files and CodeMirror is handed one string (2026-08-28).
         const st = await fs.stat(p)
         if (st.size > TEXT_MAX_BYTES) return null
-        return await fs.readFile(p, 'utf-8')
+        const text = await fs.readFile(p, 'utf-8')
+        // A markdown document may point at pictures OUTSIDE the folder Prism
+        // opened in ("../assets/logo.png" from a doc in docs/), which the
+        // media wall would otherwise refuse. Main grants exactly the files
+        // this document names, having read it (see docImages.ts).
+        if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
+        return text
       } catch {
         return null
       }
