@@ -188,6 +188,18 @@ export function VideoView({
 
   useBackgroundPause(video)
 
+  /* Which audio track is playing (2026-08-28). Null is the file's own
+   * default, which Chromium plays itself whenever it can. A PICK always goes
+   * through Prism's decoder, because Chromium exposes no way to switch tracks
+   * on a <video> - so the picture is muted and the chosen track plays beside
+   * it, on the same clock the Dolby sidecar already runs on. Per file: the
+   * commentary you chose on one film means nothing about the next. */
+  const [trackFor, setTrackFor] = useState(url)
+  const [track, setTrack] = useState<number | null>(null)
+  if (trackFor !== url) {
+    setTrackFor(url)
+    setTrack(null)
+  }
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -202,6 +214,10 @@ export function VideoView({
     resumeKey: url,
     keys: !background,
     volumeKey,
+    // A picked track plays through the sidecar, so the file's own default
+    // track must stop coming out of the picture - and this is the ONLY writer
+    // of the element's mute, so nothing can undo it.
+    forceMute: track !== null,
     onVolume: () => setVolFlash(Date.now())
   })
 
@@ -349,18 +365,6 @@ export function VideoView({
   // main decodes them and this plays the result beside the picture. The video
   // element needs no muting - it has no decoder for that track either, which
   // is the entire problem.
-  /* Which audio track is playing (2026-08-28). Null is the file's own
-   * default, which Chromium plays itself whenever it can. A PICK always goes
-   * through Prism's decoder, because Chromium exposes no way to switch tracks
-   * on a <video> - so the picture is muted and the chosen track plays beside
-   * it, on the same clock the Dolby sidecar already runs on. Per file: the
-   * commentary you chose on one film means nothing about the next. */
-  const [trackFor, setTrackFor] = useState(url)
-  const [track, setTrack] = useState<number | null>(null)
-  if (trackFor !== url) {
-    setTrackFor(url)
-    setTrack(null)
-  }
   const {
     state: sidecarState,
     url: sidecarUrl,
@@ -368,12 +372,6 @@ export function VideoView({
     videoCodec,
     tracks: audioTracks
   } = useSidecarAudio(path, video, c.vol, c.muted, track)
-  // A chosen track plays through the sidecar, so the file's own default track
-  // must stop coming out of the video element - otherwise you hear both.
-  useEffect(() => {
-    const el = video.current
-    if (el) el.muted = track !== null
-  }, [track, src])
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
   const silent = sidecarState === 'unavailable' && hushedUrl !== url
 

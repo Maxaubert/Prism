@@ -202,13 +202,28 @@ export function Visualizer({
      * then idle until something plays again.
      */
     let stillFrames = 0
+    let idleW = 0
+    let idleH = 0
     const SETTLE_FRAMES = 45
 
     const tick = (now: number): void => {
       const idle = !!media && media.paused
       if (idle && stillFrames > SETTLE_FRAMES) {
-        raf = requestAnimationFrame(tick)
-        return
+        // Idle is not blind: a window resize or a style change still has to
+        // redraw, or the canvas keeps the old size and the old style until
+        // something plays again (2026-08-28).
+        const r = canvas.getBoundingClientRect()
+        const changed =
+          Math.round(r.width) !== idleW ||
+          Math.round(r.height) !== idleH ||
+          styleRef.current !== builtFor
+        if (!changed) {
+          raf = requestAnimationFrame(tick)
+          return
+        }
+        idleW = Math.round(r.width)
+        idleH = Math.round(r.height)
+        stillFrames = 0
       }
       stillFrames = idle ? stillFrames + 1 : 0
       const rect = canvas.getBoundingClientRect()

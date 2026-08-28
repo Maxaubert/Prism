@@ -74,9 +74,25 @@ export function ImageView({
       : 1
   const shownScale = fitScale * rotFit * zoom
   /** The zoom that would show this picture at its true size. */
+  /**
+   * The floor zoom (2026-08-28).
+   *
+   * 1 means "fit", and for a picture SMALLER than the window the fit is
+   * already an enlargement - so its true size sits below 1. The floor is
+   * therefore actual size or fit, whichever is smaller, and never below:
+   * without it, "actual size" on a small picture left the zoom outside the
+   * range every button clamps to, where zooming OUT made the picture bigger.
+   */
+  const trueZoom = fitScale ? 1 / (fitScale * rotFit) : 1
+  const zoomFloor = Math.min(1, trueZoom)
+
   const oneToOne = (): void => {
     if (!fitScale) return
-    setZoom(1 / (fitScale * rotFit))
+    // Clamped like every other zoom path: a picture SMALLER than the window is
+    // already being scaled up by the fit, so its true size is below 1 - and an
+    // unclamped 0.4 there made "actual size" a state the buttons could not
+    // leave, where zooming out made the picture bigger (2026-08-28).
+    setZoom(clamp(trueZoom, zoomFloor, MAX_ZOOM))
     setTx(0)
     setTy(0)
   }
@@ -166,7 +182,7 @@ export function ImageView({
 
   const zoomAt = useCallback(
     (e: { clientX: number; clientY: number }, next: number) => {
-      const ns = clamp(next, 1, MAX_ZOOM)
+      const ns = clamp(next, zoomFloor, MAX_ZOOM)
       if (ns === 1) {
         reset()
         return

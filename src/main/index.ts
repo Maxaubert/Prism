@@ -9,7 +9,7 @@ import {
   nativeTheme,
   utilityProcess
 } from 'electron'
-import { basename, dirname, extname, join, resolve, sep } from 'path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
   createReadStream,
   existsSync,
@@ -88,7 +88,8 @@ import type {
   OpenPayload,
   OpenWithApp,
   MediaProbe,
-  RenameResult
+  RenameResult,
+  TextRead
 } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -317,11 +318,17 @@ async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
     return hit
   }
   const id = ++heicSeq
-  const buf = await new Promise<Buffer>((resolve, reject) => {
-    heicPending.set(id, { resolve, reject })
-    heicWorker().postMessage({ id, path: filePath })
-  })
-  heicKeepWarm()
+  let buf: Buffer
+  try {
+    buf = await new Promise<Buffer>((resolve, reject) => {
+      heicPending.set(id, { resolve, reject })
+      heicWorker().postMessage({ id, path: filePath })
+    })
+  } finally {
+    // In a finally, not on the happy path: a HEIC that fails to decode used to
+    // leave the worker resident for the life of the app (2026-08-28).
+    heicKeepWarm()
+  }
   heicCache.set(key, buf)
   if (heicCache.size > HEIC_CACHE_MAX) {
     const oldest = heicCache.keys().next().value
@@ -350,8 +357,22 @@ function openDialog(opts: Electron.OpenDialogOptions): Promise<Electron.OpenDial
  *  on request, or from something main made itself (2026-08-28). The fsaudio://
  *  sibling has always been walled; this one was not, which was an accident of
  *  the two handlers being written a month apart rather than a decision. */
+/** Where the renderer's own files live. pdf.js fetches its cmaps, standard
+ *  fonts, wasm and icc profiles through fsmedia:// (fetch refuses file: URLs
+ *  in a packaged build), so the app's OWN asset tree has to be servable - and
+ *  the wall refused it, which broke every PDF that does not embed its fonts.
+ *  Invisible in dev, where the same data comes over the vite server. */
+const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
+
+function underDir(dir: string, p: string): boolean {
+  const rel = relative(dir.toLowerCase(), resolve(p).toLowerCase())
+  return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
 function mediaAllowed(p: string): boolean {
-  return insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p)
+  return (
+    insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p) || underDir(RENDERER_DIR, p)
+  )
 }
 
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
@@ -971,7 +992,7 @@ if (!app.requestSingleInstanceLock()) {
     // that quit (the close flow below), so without asking first the installer
     // would run over a live exe while a save dialog waited (2026-08-28). The
     // renderer answers Cancel / Discard / Save all before the download starts.
-    ipcMain.handle('update:install', (_e, url: string) => {
+    ipcMain.handle('update:install', async (_e, url: string) => {
       if (typeof url !== 'string') return false
       // Unsaved text VETOES the quit this ends in (win.on('close') below), so
       // installing over it would run NSIS against a live exe while a dialog
@@ -980,7 +1001,14 @@ if (!app.requestSingleInstanceLock()) {
       // route the user has already agreed to.
       if (editorDirty) return false
       closeConfirmed = true
-      return installUpdate(url, (pct) => mainWindow?.webContents.send('update:progress', pct))
+      const ok = await installUpdate(url, (pct) =>
+        mainWindow?.webContents.send('update:progress', pct)
+      )
+      // A download that FAILED must not leave the close question pre-answered
+      // for the rest of the session: the next Alt+F4 over unsaved text would
+      // close over the top of it without asking.
+      if (!ok) closeConfirmed = false
+      return ok
     })
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
@@ -1094,9 +1122,11 @@ if (!app.requestSingleInstanceLock()) {
       // A shell that has said nothing since the last look, whose answer we
       // already have, cannot have changed its mind.
       if (quiet && known) return
+      // The backoff is for an answer that keeps coming back the same; a
+      // session nobody has asked about yet has no answer to hold, so it is
+      // not made to wait 20 seconds for its first one (2026-08-28).
       const now = Date.now()
-      if (now < agentNext) return
-      agentSeenTicks = ticks
+      if (known && now < agentNext) return
       agentBusy = true
       execFile(
         'powershell.exe',
@@ -1104,9 +1134,13 @@ if (!app.requestSingleInstanceLock()) {
         { windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
         (err, stdout) => {
           agentBusy = false
+          // Only a query that actually answered counts as having looked: a
+          // failed one used to consume the activity tick, so a shell that then
+          // fell quiet kept a stale dot until it printed again (2026-08-28).
           if (err || !stdout) return
           const rows = parseProcLines(stdout)
           if (!rows.length) return
+          agentSeenTicks = ticks
           let changed = false
           for (const { id, pid } of livePids()) {
             const kind = treeAgentKind(rows, pid)
@@ -1187,26 +1221,29 @@ if (!app.requestSingleInstanceLock()) {
     // The same wall as every other handler. A text file only ever reaches the
     // renderer from inside the session root, and opening one from outside
     // re-roots first, so this refuses nothing the app legitimately asks for.
-    ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
+    ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
-      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return null
+      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
       try {
         const fs = await import('fs/promises')
         // AWAITED, so a read error is caught here rather than escaping as a
         // rejected invoke; and capped, because the contract is small text
         // files and CodeMirror is handed one string (2026-08-28).
         const st = await fs.stat(p)
-        if (st.size > TEXT_MAX_BYTES) return null
+        // Too big to hand over as one string. Answered as a REASON rather than
+        // as null: the editor used to seed itself with a placeholder and could
+        // then save that placeholder over the file (2026-08-28).
+        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
         const text = await fs.readFile(p, 'utf-8')
         // A markdown document may point at pictures OUTSIDE the folder Prism
         // opened in ("../assets/logo.png" from a doc in docs/), which the
         // media wall would otherwise refuse. Main grants exactly the files
         // this document names, having read it (see docImages.ts).
         if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
-        return text
+        return { text }
       } catch {
-        return null
+        return { error: 'unreadable' }
       }
     })
     // The editor's save. Text files only, in place, inside the root: this is
@@ -1393,8 +1430,11 @@ if (!app.requestSingleInstanceLock()) {
     // renderer waits on this and shows progress; a file already converted
     // comes back immediately.
     const convertDir = (): string => join(app.getPath('userData'), 'converted')
-    /** Source file -> the copy being written for it, while it is running. */
-    const converting = new Map<string, string>()
+    /** Source file -> the copy being written for it and how many viewers are
+     *  waiting. Two tabs can hold the same film (each tab keeps its own live
+     *  player), and they share ONE conversion: the first to walk away must not
+     *  cancel it out from under the other (2026-08-28). */
+    const converting = new Map<string, { out: string; viewers: number }>()
     ipcMain.handle(
       'video:convert',
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
@@ -1416,7 +1456,8 @@ if (!app.requestSingleInstanceLock()) {
           )
           // The renderer knows the FILE it asked about, never the copy's name,
           // so cancelling has to be answerable from the source (2026-08-28).
-          converting.set(p, handle.out)
+          const seen = converting.get(p)
+          converting.set(p, { out: handle.out, viewers: (seen?.viewers ?? 0) + 1 })
           const out = await handle.done
           converting.delete(p)
           extractedPaths.add(out) // the copy is ours to serve, wherever it sits
@@ -1431,10 +1472,12 @@ if (!app.requestSingleInstanceLock()) {
     // file while a whole film was being re-encoded behind it (2026-08-28).
     ipcMain.on('video:cancel', (_e, source: string) => {
       if (typeof source !== 'string') return
-      const out = converting.get(source)
-      if (!out) return
+      const job = converting.get(source)
+      if (!job) return
+      job.viewers -= 1
+      if (job.viewers > 0) return // somebody else is still waiting for it
       converting.delete(source)
-      cancelConversion(out)
+      cancelConversion(job.out)
     })
 
     // Office and ebook documents: converted to HTML in main, sanitised there

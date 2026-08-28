@@ -34,13 +34,20 @@ interface Token {
   quoted: boolean
 }
 
+/**
+ * The '-' is part of the TOKEN, not of the phrase: -"family dinner" is one
+ * exclusion of one phrase. Reading the quote first and the minus later meant
+ * the quoted branch never fired for an excluded phrase, so the term became a
+ * literal nothing could match and the whole query found zero files
+ * (2026-08-28).
+ */
 function scan(query: string): Token[] {
   const out: Token[] = []
-  const re = /"([^"]*)"|(\S+)/g
+  const re = /(-?)"([^"]*)"|(\S+)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(query)) !== null) {
-    const quoted = m[1] !== undefined
-    const raw = quoted ? m[1] : m[2]
+    const quoted = m[2] !== undefined
+    const raw = quoted ? (m[1] ?? '') + m[2] : m[3]
     if (raw.trim()) out.push({ text: raw, quoted })
   }
   return out
@@ -78,7 +85,11 @@ export function parseQuery(query: string): Term[] {
 /** A glob over the WHOLE name, so `*.mp4` needs its star and `report` does not
  *  accidentally become one. Only * and ? are special. */
 export function globToRegExp(pattern: string): RegExp {
+  // Runs of stars collapse first: `**.mp4` is the same pattern as `*.mp4`,
+  // and an uncollapsed run compiles to `.*.*`, which backtracks its way
+  // through every split of the name before it can say no (2026-08-28).
   const body = pattern
+    .replace(/\*{2,}/g, '*')
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/[*?]/g, (c) => (c === '*' ? '.*' : '.'))
   return new RegExp(`^${body}$`, 'i')

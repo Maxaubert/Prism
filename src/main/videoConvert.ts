@@ -241,10 +241,23 @@ export function convertVideo(
 /** Stop a conversion nobody is waiting for any more. */
 export function cancelConversion(out: string): void {
   const job = jobs.get(out)
-  if (job) {
-    job.kill()
-    jobs.delete(out)
+  if (!job) return
+  job.kill()
+  jobs.delete(out)
+  // kill() is TerminateProcess on Windows and returns before ffmpeg's handles
+  // are released, so removing the partial file can fail with EBUSY - and this
+  // runs inside a synchronous ipcMain.on listener, where a throw is an
+  // unhandled error in main (2026-08-28). Try, then leave it for the sweep.
+  try {
     rmSync(out + '.part', { force: true })
+  } catch {
+    setTimeout(() => {
+      try {
+        rmSync(out + '.part', { force: true })
+      } catch {
+        /* the next conversion of this file overwrites it anyway */
+      }
+    }, 2000).unref?.()
   }
 }
 

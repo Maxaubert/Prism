@@ -559,10 +559,17 @@ DOCUMENT GRANTS ITS OWN PICTURES (`src/main/docImages.ts`). A doc in `docs/` poi
 `../assets/logo.png` names a file outside the folder Prism opened in, and the wall refused it -
 measured, and a regression against the markdown viewer's own relative-path resolver. Main reads
 the document it is about to hand over and allows exactly the image files it names, so a page
-still cannot ask for a path the document does not mention. Native dialogs are parented to the
-window in the same pass - unparented, Windows makes them modeless and a fullscreen picker never
+still cannot ask for a path the document does not mention. The app's OWN asset tree is servable too, and that is not
+optional: pdf.js fetches its cmaps, standard fonts, wasm and icc profiles over
+`fsmedia://` because `fetch` refuses file: URLs in a packaged build, so walling
+them off broke every PDF that does not embed its fonts - and only in the
+PACKAGED app, since dev serves the same data over the vite server. Native
+dialogs are parented to the window in the same pass - unparented, Windows makes them modeless and a fullscreen picker never
 shows at all - and `file:text` is capped (64MB) and awaited, so a read error is caught rather
-than escaping as a rejected invoke.
+than escaping as a rejected invoke. It answers with a REASON, never null: the
+editor used to seed itself with "(could not read file)" and record that as the
+disk contents, so one Ctrl+S wrote the placeholder over a 200MB log. A file
+Prism could not read is now shown as unreadable and cannot be saved at all.
 
 **Standing step, every time a new file type is supported:** ask whether this change adds an
 extension. If it does, it goes in `src/shared/fileKind.ts` AND

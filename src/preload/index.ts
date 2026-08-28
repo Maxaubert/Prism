@@ -8,7 +8,8 @@ import type {
   RenameResult,
   SearchResult,
   ShellDef,
-  MediaProbe
+  MediaProbe,
+  TextRead
 } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
@@ -67,7 +68,7 @@ const api = {
   /** Send a file to the Recycle Bin. */
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
-  readText: (path: string): Promise<string | null> => ipcRenderer.invoke('file:text', path),
+  readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
   /** Save the editor's text over the file. Text kinds only, inside the root. */
   writeText: (path: string, text: string): Promise<boolean> =>
     ipcRenderer.invoke('file:write', path, text),

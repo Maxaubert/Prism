@@ -97,3 +97,30 @@ describe('the boring cases', () => {
     expect(finds('.mp4', 'photo.mp4.bak')).toBe(true)
   })
 })
+
+describe('the cases a reviewer found', () => {
+  it('can EXCLUDE a phrase, which used to return nothing at all', () => {
+    // The '-' was stripped after the quote test, so -"a b" was read as one
+    // literal term named '-"a b"' and every file failed it.
+    expect(finds('holiday -"family dinner"', '2024 holiday.jpg')).toBe(true)
+    expect(finds('holiday -"family dinner"', 'holiday family dinner.jpg')).toBe(false)
+  })
+
+  it('still keeps a quoted phrase a phrase when it is excluded', () => {
+    expect(parseQuery('-"a b"')).toEqual([{ kind: 'text', value: 'a b', negated: true }])
+  })
+
+  it('collapses a run of stars instead of compiling .*.*', () => {
+    expect(globToRegExp('**.mp4').source).toBe(globToRegExp('*.mp4').source)
+    expect(finds('**.mp4', 'trip.mp4')).toBe(true)
+  })
+
+  it('answers a hostile glob quickly rather than backtracking through it', () => {
+    const started = Date.now()
+    // 20 stars over a 200-character name: the shape that makes an anchored
+    // pattern with many .* run for minutes if the runs are not collapsed.
+    const name = 'a'.repeat(200) + '.txt'
+    expect(finds('*'.repeat(20) + 'zzz', name)).toBe(false)
+    expect(Date.now() - started).toBeLessThan(250)
+  })
+})

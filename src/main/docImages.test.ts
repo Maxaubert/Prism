@@ -64,6 +64,13 @@ describe('what a document is allowed to show', () => {
     ])
   })
 
+  it('grants nothing named by an ABSOLUTE path', () => {
+    // A document points at what sits beside it. An absolute reference would
+    // let any .md open a picture anywhere on the disk.
+    expect(documentImages(doc(), '![](' + join(assets, 'logo.png') + ')')).toEqual([])
+    expect(documentImages(doc(), '![](/assets/logo.png)')).toEqual([])
+  })
+
   it('knows a markdown file when it sees one', () => {
     expect(isMarkdownPath('a/b/README.md')).toBe(true)
     expect(isMarkdownPath('notes.markdown')).toBe(true)

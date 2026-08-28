@@ -22,7 +22,8 @@ function run(
     )
   })
 }
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync } from 'fs'
+import { copyFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
@@ -279,7 +280,12 @@ export async function extractSevenTo(
     const dir = dirname(target)
     mkdirSync(dir, { recursive: true })
     if (existsSync(target)) target = join(dir, uniqueName(dir, basename(target)))
-    copyFileSync(got.path, target)
+    // AWAITED, and the temp copy goes with it: main is one thread, and a 2GB
+    // member copied with copyFileSync freezes every window and the Range
+    // handler a playing film depends on. extractSeven makes a fresh temp dir
+    // per member and nothing else ever removes them (2026-08-28).
+    await copyFile(got.path, target)
+    await rm(dirname(got.path), { recursive: true, force: true }).catch(() => {})
     written += 1
   }
   return { ok: true, written }

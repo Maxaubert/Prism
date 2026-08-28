@@ -56,7 +56,11 @@ export function documentImages(docPath: string, text: string): string[] {
         /* a name with a stray % is still a name */
       }
       if (!rel) continue
-      const full = isAbsolute(rel) ? resolve(rel) : resolve(dir, rel)
+      // Relative only. An absolute path in a document is not a reference to
+      // something beside it, and granting one would let any markdown file open
+      // a picture anywhere on the disk for the rest of the session.
+      if (isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
+      const full = resolve(dir, rel)
       const key = full.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)

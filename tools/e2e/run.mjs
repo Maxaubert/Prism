@@ -122,10 +122,20 @@ function reapStrays() {
  *  difference between waiting longer and looking somewhere else. */
 function electronCount() {
   try {
-    const out = execFileSync('tasklist', ['/fi', 'imagename eq electron.exe', '/nh'], {
-      encoding: 'utf8'
-    })
-    return (out.match(/electron\.exe/g) ?? []).length
+    // OURS, not every electron on the machine: on a dev box the answer was
+    // always "some are alive", which told nobody anything (2026-08-28).
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | Measure-Object | ` +
+          '%{ $_.Count }'
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    return Number(out.trim()) || 0
   } catch {
     return -1
   }
@@ -149,7 +159,15 @@ async function launch(file, keepTabs = false) {
     } catch (err) {
       // Say so. A silent retry loop and a genuine hang look identical from
       // the outside, and this one has cost several runs.
-      if (attempt > 2) console.log(`  (waiting for the lock, attempt ${attempt + 1}, ${electronCount()} electron alive)`)
+      // A failed launch means the previous app is STILL holding the lock -
+      // it hangs in teardown often enough that the reap after the scenario
+      // can miss it by a second. Kill it here, where we know it is in the
+      // way, rather than waiting out a backoff it will never satisfy.
+      const killed = reapStrays()
+      if (attempt > 0 || killed)
+        console.log(
+          `  (launch ${attempt + 1} failed; ${killed} stray process(es) killed, ${electronCount()} left)`
+        )
       // Every shape the handoff-exit takes on the way out. It has also been
       // seen as an ECONNRESET on the debugging socket and as a plain launch
       // timeout: the process this launch talked to had already decided to
@@ -1349,6 +1367,18 @@ async function convertScenario(fixtures) {
       { timeout: 15000 }
     )
     ok(true, 'with both picture and sound really decoding')
+    // The element fails on the RAW url while the probe is still running, and
+    // that error used to outlive the conversion: a film playing perfectly
+    // under an opaque "can't be played" panel, because the panel is cleared
+    // by a change of resume key and the key is the original url (2026-08-28).
+    ok(
+      !(await win.evaluate(() =>
+        [...document.querySelectorAll('div')].some((d) =>
+          d.textContent?.includes('This video can’t be played')
+        )
+      )),
+      'and no error panel is left over the converted copy'
+    )
   } finally {
     await app.close()
   }
@@ -2739,6 +2769,13 @@ await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
 await run(unsupportedScenario)
+
+// A filter that matched nothing ran nothing, and "all e2e checks passed" over
+// zero scenarios is the most confident lie a suite can tell (2026-08-28).
+if (only.length && !results.length) {
+  failures += 1
+  console.error(`no scenario matched ${only.join(' ')}`)
+}
 
 const width = Math.max(...results.map((r) => r.name.length), 8)
 for (const r of results)

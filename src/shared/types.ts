@@ -155,3 +155,10 @@ export interface MediaProbe {
    *  otherwise the picture is re-encoded, which takes as long as it takes. */
   convert?: { reason: 'container' | 'codec'; quick: boolean }
 }
+
+/**
+ * What `file:text` answers (2026-08-28). A REASON rather than null, because an
+ * editor that cannot tell "empty file" from "could not read it" will happily
+ * save its own placeholder over the file it failed to open.
+ */
+export type TextRead = { text: string } | { error: 'too-large' | 'unreadable' }

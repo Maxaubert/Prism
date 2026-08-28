@@ -26,6 +26,7 @@ export interface MediaBindings {
   onDurationChange: (e: SyntheticEvent<HTMLMediaElement>) => void
   onProgress: (e: SyntheticEvent<HTMLMediaElement>) => void
   onError: () => void
+  onLoadStart: () => void
 }
 
 export interface MediaControls {
@@ -65,6 +66,11 @@ interface Options {
    *  same level follows you across the files you open in that tab, and a new
    *  tab starts at 100%. Omit and the player simply starts at 100%. */
   volumeKey?: string
+  /** Silence the ELEMENT without changing what the transport says (the video's
+   *  own default track, while a picked one plays through the sidecar). Two
+   *  writers of `el.muted` fought before this: one wheel notch un-muted the
+   *  picture and you heard both tracks at once (2026-08-28). */
+  forceMute?: boolean
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
@@ -89,7 +95,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     errorMsg,
     resumeKey,
     keys = true,
-    volumeKey = ''
+    volumeKey = '',
+    forceMute = false
   } = opts
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
@@ -109,11 +116,11 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // hands the rest to a gain node.
   useEffect(() => {
     const m = ref.current
-    if (m) applyVolume(m, vol, muted)
+    if (m) applyVolume(m, vol, muted || forceMute)
     // Handed to the tab, not to disk: it survives moving between files in this
     // tab and dies with the session.
     setTabVolume(volumeKey, { vol, muted })
-  }, [vol, muted, ref, volumeKey])
+  }, [vol, muted, forceMute, ref, volumeKey])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
@@ -153,7 +160,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     // 1x with the new src.
     m.playbackRate = rate
     m.defaultPlaybackRate = rate
-    applyVolume(m, vol, muted)
+    applyVolume(m, vol, muted || forceMute)
     // Deliberately only on a change of FILE: rate/vol/muted have their own
     // effects, and this one re-applies whatever they are at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +311,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       const m = e.currentTarget
       if (m.buffered.length) setBuffered(m.buffered.end(m.buffered.length - 1))
     },
+    // A new source is a new attempt: the element only fires loadstart when it
+    // begins loading something, which is exactly when the last failure stops
+    // being true. Without this, a file that arrives unplayable and is then
+    // CONVERTED plays on under a permanent "can't be played" panel, because
+    // the resume key (the original url) never changed (2026-08-28).
+    onLoadStart: () => setError(null),
     onError: () => setError(errorMsg ?? 'This file can’t be played.')
   }
 
