@@ -10,7 +10,7 @@
  * .e2e/shots for eyeballing; assertions throw, and the script exits non-zero.
  */
 import { _electron as electron } from 'playwright-core'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -79,6 +79,20 @@ async function offscreen(app) {
  * it had. Sleeping and hoping made roughly one run in four type into the wrong
  * file; waiting for the selected row settles it.
  */
+/** How many electron processes are alive right now. A failed launch with ZERO
+ *  of them is not a lock being held, whatever the error says - which is the
+ *  difference between waiting longer and looking somewhere else. */
+function electronCount() {
+  try {
+    const out = execFileSync('tasklist', ['/fi', 'imagename eq electron.exe', '/nh'], {
+      encoding: 'utf8'
+    })
+    return (out.match(/electron\.exe/g) ?? []).length
+  } catch {
+    return -1
+  }
+}
+
 async function launch(file, keepTabs = false) {
   // Prism is single-instance. If the previous scenario's window has not fully
   // let go of the lock, this launch hands its path over and EXITS at once, and
@@ -97,7 +111,7 @@ async function launch(file, keepTabs = false) {
     } catch (err) {
       // Say so. A silent retry loop and a genuine hang look identical from
       // the outside, and this one has cost several runs.
-      if (attempt > 2) console.log(`  (waiting for the lock, attempt ${attempt + 1})`)
+      if (attempt > 2) console.log(`  (waiting for the lock, attempt ${attempt + 1}, ${electronCount()} electron alive)`)
       // Every shape the handoff-exit takes on the way out. It has also been
       // seen as an ECONNRESET on the debugging socket and as a plain launch
       // timeout: the process this launch talked to had already decided to
