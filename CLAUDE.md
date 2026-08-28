@@ -152,6 +152,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Documents mark their scroller `data-doc-scroller`; App's `docFocused()` is the single test,
   and there is deliberately no kind-based DOC set any more. A window-level key listener in a
   viewer (PdfView's page keys, CodeView's Ctrl+S/Ctrl+F) must check focus itself.
+- **Search has operators** (2026-08-28, `shared/searchQuery.ts`, pure and
+  tested): every word must match, in any order (`holiday 2024` finds
+  "2024-06 holiday", which one substring never could), `"two words"` is a
+  phrase, `*.mp4` and `img_??.jpg` are globs over the WHOLE name, `ext:mp4`
+  is the extension, and `-raw` leaves those out. A bare `.mp4` stays a plain
+  substring on purpose - it is what someone looking for "photo.mp4.bak"
+  typed. A query of nothing but exclusions matches nothing, because that is a
+  folder listing with a hole in it, not a search. The box's tooltip is where
+  this is taught: a placeholder cannot hold five lines and a help panel in a
+  viewer's sidebar is chrome.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
   **Keyboard-navigable (2026-08-17)**: the arrows drive a cursor over the flattened visible rows
@@ -539,6 +549,20 @@ These already exist in Filesmith and are the seed of `prism-core` (extracted in 
 - `src/main/thumbnail.ts` + `Util/IconHelper` equivalents: thumbnail/decoded-image fallback.
 
 ## Build, test, release
+
+**The root wall covers `fsmedia://` too** (2026-08-28): media is served only from a root, from
+an archive member main extracted on request, or from something main made itself (a converted
+copy, a synthesised MIDI wav), each registered as it is handed over. The `fsaudio://` sibling
+was walled from the start; this one was not, which was an accident of the two handlers being
+written a month apart. One softening, because the wall broke something real: a MARKDOWN
+DOCUMENT GRANTS ITS OWN PICTURES (`src/main/docImages.ts`). A doc in `docs/` pointing at
+`../assets/logo.png` names a file outside the folder Prism opened in, and the wall refused it -
+measured, and a regression against the markdown viewer's own relative-path resolver. Main reads
+the document it is about to hand over and allows exactly the image files it names, so a page
+still cannot ask for a path the document does not mention. Native dialogs are parented to the
+window in the same pass - unparented, Windows makes them modeless and a fullscreen picker never
+shows at all - and `file:text` is capped (64MB) and awaited, so a read error is caught rather
+than escaping as a rejected invoke.
 
 **Standing step, every time a new file type is supported:** ask whether this change adds an
 extension. If it does, it goes in `src/shared/fileKind.ts` AND
