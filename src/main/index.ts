@@ -830,6 +830,28 @@ function applyMaterial(fullscreen: boolean): void {
  */
 const E2E = process.argv.includes('--e2e')
 
+/**
+ * Bring the window genuinely forward (2026-08-28).
+ *
+ * `show()` and `focus()` ask, and Windows' foreground lock is allowed to
+ * refuse: a process that did not have the foreground gets its window drawn
+ * but not activated, and then the user's FIRST CLICK is spent activating it
+ * instead of pressing what it landed on. That is what "I clicked the tab and
+ * nothing happened, then a second later it worked" is.
+ *
+ * The brief always-on-top is the documented way past the lock, and it is
+ * dropped in the same breath, so the window does not stay above others.
+ */
+function raise(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore()
+  win.show()
+  if (E2E) return
+  const wasOnTop = win.isAlwaysOnTop()
+  win.setAlwaysOnTop(true)
+  win.focus()
+  win.setAlwaysOnTop(wasOnTop)
+}
+
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
@@ -878,7 +900,7 @@ function createWindow(): void {
     // a window created maximised has no sensible un-maximised size to go back to.
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
-    else mainWindow?.show()
+    else if (mainWindow) raise(mainWindow)
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
@@ -943,8 +965,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', (_e, argv) => {
     const p = pathFromArgv(argv)
     if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      if (!E2E) mainWindow.focus()
+      // The handoff is the case the foreground lock bites hardest: Prism has
+      // been sitting in the background for an hour, and the file it is handed
+      // must arrive in a window that is actually in front of you.
+      if (E2E) mainWindow.show()
+      else raise(mainWindow)
       if (p) sendOpen(p)
     }
   })

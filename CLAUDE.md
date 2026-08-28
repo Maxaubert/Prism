@@ -440,9 +440,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   persisted resume-position could not do this job: that one is films only (over
   10 minutes) and saves every few seconds, so looking away in the first moments
   of anything lost the place entirely. The session position therefore WINS over
-  the stored one, and applies to a 5-second clip too. Not persisted: a file
-  opened fresh tomorrow should play, from its own beginning if it is short,
-  because that is what opening a file means. That covers a genuine remount
+  the stored one, and applies to a 5-second clip too. NOTHING AUTOPLAYS ON
+  OPEN any more (2026-08-28, owner decision, overturning the older rule that
+  opening a file meant playing it): a folder of films, and a window of
+  restored tabs, used to start every one of them at once - you would hear a
+  film from a tab you were not even looking at. Only a file that was ALREADY
+  playing a moment ago plays when its element appears, which is `wasPlaying`
+  rather than `!wasPaused` - the difference being the file nobody has played
+  yet. The playlist records its own intent (`intendToPlay`) for the file a
+  finished video hands over to, and for the menu's Next while you are
+  watching; stepping away from a film you had PAUSED lands paused.
+  That covers a genuine remount
   (a new file, a split view opening); the tab switch itself no longer is one,
   see below.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
@@ -500,7 +508,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   pointing at some other copy of Prism reads as off so turning it on repoints it here.
 - Keyboard-first controls; remember window size/position.
 - **Resident single-instance model**: one process; opening another file hands off to the running
-  window so it appears instantly (mitigates Electron cold-start).
+  window so it appears instantly (mitigates Electron cold-start). The window is RAISED past
+  Windows' foreground lock when it appears and when a file is handed to it (2026-08-28):
+  `show()` and `focus()` only ask, and a process that did not have the foreground can be
+  refused - the window is drawn but not activated, and the user's first click is then spent
+  activating it instead of pressing what it landed on. The brief always-on-top is the
+  documented way past that, and it is dropped in the same breath.
 - **Update chip** (title bar, right of the file name): one shape for every state, and it never
   changes width - the chip IS the progress bar, filling with accent from the left as the
   download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.

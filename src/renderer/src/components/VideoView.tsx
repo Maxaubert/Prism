@@ -11,7 +11,7 @@ import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
-import { wasPaused } from '../lib/playState'
+import { wasPlaying } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
@@ -526,10 +526,12 @@ export function VideoView({
         // it. fsmedia:// answers with ACAO '*' and is registered corsEnabled,
         // so asking for the CORS fetch is all that was missing (2026-08-27).
         crossOrigin="anonymous"
-        // Autoplay UNLESS this file was paused a moment ago: opening Settings
-        // or another tab unmounts the viewer, and a fresh element would start
-        // a film you had deliberately stopped (see lib/playState).
-        autoPlay={!wasPaused(url)}
+        // Play only what was ALREADY playing (2026-08-28, owner decision):
+        // opening a file does not start it, and neither does restoring a
+        // window full of tabs. A file whose player is being rebuilt mid-play
+        // (a change of kind, a split view opening) carries on, and the
+        // playlist records its own intent - see lib/playState.
+        autoPlay={wasPlaying(url)}
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on
         // (a looping video never ends, so this simply doesn't fire).

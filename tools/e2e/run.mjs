@@ -2170,6 +2170,12 @@ async function pauseScenario(fixtures) {
     await win.evaluate(() => { const v = document.querySelector('video'); v.muted = true })
     await sleep(1200)
     const paused = () => win.evaluate(() => document.querySelector('video')?.paused ?? null)
+    // Opening a file does NOT start it (2026-08-28, owner decision): a folder
+    // of films, or a window of restored tabs, would otherwise all play at once.
+    ok((await paused()) === true, 'a film Prism has just opened is not playing')
+    await win.evaluate(() => { void document.querySelector('video').play() })
+    await sleep(400)
+    ok((await paused()) === false, 'and it plays when told to')
     await win.evaluate(() => document.querySelector('video').pause())
     await sleep(300)
     ok((await paused()) === true, 'a film pauses when told to')

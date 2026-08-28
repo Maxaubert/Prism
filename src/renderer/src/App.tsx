@@ -85,6 +85,7 @@ import {
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { deckOf } from './lib/mediaDeck'
+import { intendToPlay, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import {
@@ -1737,9 +1738,17 @@ export default function App(): JSX.Element {
     (dir: 1 | -1) => {
       const i = sameKindIndex(dir)
       if (i < 0 || !active || !view) return
-      setRawIndex(active.files.indexOf(view.files[i]))
+      const next = view.files[i]
+      // The playlist carries its own intent (2026-08-28). Nothing autoplays on
+      // open any more, so the file a finished video hands over to - and the
+      // one the menu's Next reaches for while you are watching - has to say
+      // "I was already playing" on its own behalf. Stepping away from a file
+      // you had PAUSED lands paused, which is the same rule.
+      if (file && wasPlaying(window.prism.mediaUrl(file.path)))
+        intendToPlay(window.prism.mediaUrl(next.path))
+      setRawIndex(active.files.indexOf(next))
     },
-    [active, sameKindIndex, setRawIndex, view]
+    [active, file, sameKindIndex, setRawIndex, view]
   )
   const advanceSameKind = useCallback(() => stepSameKind(1), [stepSameKind])
 
