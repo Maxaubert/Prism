@@ -556,6 +556,16 @@ extension and they have none.
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
 off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
 truly hidden window stops answering clicks and screenshots, so parking it is the way.
+It also never takes the FOREGROUND (2026-08-28): the suite passes `--e2e`, and main then
+creates the window `focusable: false` and `showInactive()`s it, because thirty launches
+yanking the caret out of whatever the owner is typing is its own kind of broken. Playwright
+drives the page over CDP, which needs no OS focus. MEASURED both ways: without the flag the
+new window becomes the foreground window, with it the foreground never changes.
+And every scenario REAPS what it leaves behind (same date, same file): the terminal
+scenario's app outlived its `app.close()` - five electron processes still up - and since it
+holds the single-instance lock, every scenario after it launched, handed its file over and
+exited. Fifteen scenarios failed for one leak, and no amount of retrying could have helped;
+only the profile path is matched, so the machine's own Prism is never touched.
 `npm run e2e -- <name>` runs only the scenarios whose name contains `<name>`,
 and each scenario has its OWN try/catch (2026-08-28): they used to share one,
 so the first crash skipped every scenario after it and reported a single

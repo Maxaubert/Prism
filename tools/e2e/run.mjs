@@ -21,7 +21,8 @@ import { buildFixtures } from './fixtures.mjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 const MAIN = join(ROOT, 'out', 'main', 'index.js')
-const PROFILE = join(tmpdir(), 'prism-e2e-profile')
+const PROFILE_NAME = 'prism-e2e-profile'
+const PROFILE = join(tmpdir(), PROFILE_NAME)
 const SHOTS = join(ROOT, '.e2e', 'shots')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -38,7 +39,7 @@ const ok = (cond, name) => {
  *  seeding is its own launch (peek.mjs's trick): the file a scenario opens is
  *  delivered on first load, so the scenario launch must not reload. */
 async function seedProfile() {
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`] })
+  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'] })
   const win = await app.firstWindow()
   await offscreen(app)
   await win.evaluate((kv) => {
@@ -79,6 +80,43 @@ async function offscreen(app) {
  * it had. Sleeping and hoping made roughly one run in four type into the wrong
  * file; waiting for the selected row settles it.
  */
+/**
+ * Kill anything of ours still running (2026-08-28).
+ *
+ * MEASURED: the terminal scenario's app outlived its `app.close()` - five
+ * electron processes still up - and it holds the single-instance lock, so
+ * every scenario after it launched, handed its file over and exited. Fifteen
+ * scenarios failed for one leak, and no amount of retrying could have helped.
+ * Only OUR processes are touched: the match is on the e2e profile path, which
+ * the machine's own Prism never has.
+ */
+function reapStrays() {
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | ` +
+          'ForEach-Object { $_.ProcessId }'
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    const pids = out.split(/\s+/).filter(Boolean)
+    for (const pid of pids) {
+      try {
+        execFileSync('taskkill', ['/PID', pid, '/T', '/F'], { stdio: 'ignore' })
+      } catch {
+        /* already gone */
+      }
+    }
+    return pids.length
+  } catch {
+    return 0
+  }
+}
+
 /** How many electron processes are alive right now. A failed launch with ZERO
  *  of them is not a lock being held, whatever the error says - which is the
  *  difference between waiting longer and looking somewhere else. */
@@ -136,7 +174,7 @@ async function launchOnce(file, keepTabs = false) {
   // counts. Forgetting it is the isolation; the tab scenario opts out, because
   // surviving a restart is the thing it is checking.
   if (!keepTabs) rmSync(join(PROFILE, 'tabs.json'), { force: true })
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, file] })
+  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
@@ -1372,7 +1410,7 @@ async function stillsAndSubsScenario(fixtures) {
  * a new tab is supposed to come in through.
  */
 async function handoff(file) {
-  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, file], {
+  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file], {
     stdio: 'ignore'
   })
   await new Promise((done) => {
@@ -2158,11 +2196,19 @@ async function volumeScenario(fixtures) {
     const box = await win.locator('video').boundingBox()
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
 
-    // Both ways reach 200%: the column in the transport, and the wheel.
+    // Both ways reach 200%: the column in the transport, and the wheel. The
+    // column only EXISTS while it is being reached for (2026-08-28), so this
+    // asks after hovering rather than of a hidden element.
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(350)
     ok(
       (await win.evaluate(() => document.querySelector('input[aria-label="Volume"]')?.max)) === '2',
       'the volume column runs to 200%'
     )
+    await win.mouse.move(8, 380)
+    await sleep(800)
+    // ...and back over the picture, which is where the wheel means volume.
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     for (let i = 0; i < 4; i++) {
       await win.mouse.wheel(0, -100)
       await sleep(80)
@@ -2185,6 +2231,26 @@ async function volumeScenario(fixtures) {
     // It is an indicator, not a control: it goes away on its own.
     await sleep(1600)
     ok((await readout()) === null, 'the readout leaves when it has been read')
+
+    // The column: taller than it was, and forgiving of a wobble off its edge.
+    const slider = win.locator('input[aria-label="Volume"]')
+    ok((await slider.count()) === 0, 'the column is not there until you go for it')
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(350)
+    ok((await slider.count()) === 1, 'hovering the speaker brings it up')
+    const column = await slider.boundingBox()
+    ok(Math.round(column.height) === 105, 'and it is a quarter taller than it was')
+    // A micro-movement off the edge must not take it away mid-aim.
+    await win.mouse.move(column.x + column.width / 2, column.y - 30)
+    await sleep(250)
+    ok((await slider.count()) === 1, 'a step off the edge does not close it')
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(150)
+    ok((await slider.count()) === 1, 'and coming back keeps it')
+    // Walking away does.
+    await win.mouse.move(8, 380)
+    await sleep(900)
+    ok((await slider.count()) === 0, 'leaving it alone closes it')
   } finally {
     await app.close()
   }
@@ -2604,6 +2670,10 @@ async function unsupportedScenario(fixtures) {
   }
 }
 
+// Anything left over from a killed run still holds the profile open, and the
+// wipe below then fails with EBUSY before a single scenario has run.
+const stale = reapStrays()
+if (stale) console.log(`(reaped ${stale} process(es) left over from a previous run)`)
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
@@ -2633,6 +2703,8 @@ async function run(fn, gap = 900) {
     failures += 1
     console.error(`scenario crashed (${name}):`, e)
   }
+  const left = reapStrays()
+  if (left) console.log(`  (reaped ${left} stray process(es) from ${name})`)
   results.push({ name, failed: failures > before, ms: Date.now() - started })
   await sleep(gap) // let the single-instance lock go
 }

@@ -761,7 +761,7 @@ function watchWindowState(win: BrowserWindow): void {
     win.webContents.send('app:ask-close')
     // A minimised or background window can't show its own dialog usefully.
     if (win.isMinimized()) win.restore()
-    win.focus()
+    if (!E2E) win.focus()
   })
 }
 
@@ -797,6 +797,17 @@ function applyMaterial(fullscreen: boolean): void {
   }
 }
 
+/**
+ * The e2e's window never takes the foreground (2026-08-28).
+ *
+ * Electron has no headless mode, so the suite parks a real window offscreen -
+ * but every launch still ACTIVATED it, and a suite that launches thirty times
+ * yanked the caret out of whatever the machine's owner was typing. Playwright
+ * drives the page over CDP, which needs no OS focus at all, so in this mode
+ * the window is created unfocusable and shown inactive.
+ */
+const E2E = process.argv.includes('--e2e')
+
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
@@ -807,6 +818,7 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 400,
     show: false,
+    ...(E2E ? { focusable: false, skipTaskbar: true } : {}),
     // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
     // frameless window, which is why a translucent style came out as a hole in
     // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
@@ -843,7 +855,8 @@ function createWindow(): void {
     // Maximised is restored after the window exists rather than at construction:
     // a window created maximised has no sensible un-maximised size to go back to.
     if (remembered.maximised) mainWindow?.maximize()
-    mainWindow?.show()
+    if (E2E) mainWindow?.showInactive()
+    else mainWindow?.show()
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
@@ -909,7 +922,7 @@ if (!app.requestSingleInstanceLock()) {
     const p = pathFromArgv(argv)
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
+      if (!E2E) mainWindow.focus()
       if (p) sendOpen(p)
     }
   })
