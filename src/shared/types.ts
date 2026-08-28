@@ -113,6 +113,18 @@ export interface ShellDef {
  *  audio itself. Chromium ships no AC-3/E-AC-3/DTS/TrueHD decoder and no
  *  demuxer for ASF or raw AC-3, so those play as silence unless the sidecar
  *  takes over (src/main/audioSidecar.ts). */
+export interface AudioTrackOffer {
+  /** Absolute stream index; also the picker's identity for the track. */
+  index: number
+  codec: string
+  channels: number
+  language: string
+  /** The name the file gives it, when it gives one ("Commentary"). */
+  title: string
+  /** fsaudio:// url that plays this track. */
+  url: string
+}
+
 export interface MediaProbe {
   /** Is there an ffmpeg to decode with at all. */
   ffmpeg: boolean
@@ -126,6 +138,12 @@ export interface MediaProbe {
   layout?: string
   /** fsaudio:// url for the track, ready to hand to an <audio>. */
   url?: string
+  /** Every audio track the file holds (2026-08-28), for the picker. Present
+   *  whenever there is more than one; each carries the url that plays IT, so
+   *  choosing is handing a different src to the same sidecar element. A film
+   *  Chromium can play natively still lists them: picking a non-default track
+   *  mutes the picture's own sound and decodes the chosen one beside it. */
+  tracks?: AudioTrackOffer[]
   /** The video stream's codec, when there is one. Prism decodes audio but not
    *  video, so this exists to NAME what it cannot show. */
   videoCodec?: string

@@ -41,6 +41,46 @@ export function ImageView({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const huge = !!img && img.width * img.height > CANVAS_PATH_PIXELS
 
+  /* How big the stage is, measured rather than assumed (2026-08-28).
+   *
+   * `zoom` is a multiple of the FIT, not of the picture: at zoom 1 a 6000px
+   * photo in a 1200px window is showing at a fifth of its size. Two things
+   * need the real numbers - the readout, which used to say "100%" over that
+   * fifth, and rotation, which turned a landscape photo on its side and let
+   * the stage crop it, because nothing re-fitted it. */
+  const [stage, setStage] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setStage((p) => (p.w === width && p.h === height ? p : { w: width, h: height }))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  /** What object-contain is already doing: the picture's on-screen scale at
+   *  zoom 1. Zero while the size of either is unknown. */
+  const fitScale =
+    img?.width && img?.height && stage.w && stage.h
+      ? Math.min(stage.w / img.width, stage.h / img.height)
+      : 0
+  /** Turned on its side, the fitted picture is as wide as it was tall. This is
+   *  what makes it fit again rather than run off the top and bottom. */
+  const rotFit =
+    rot % 180 === 90 && fitScale
+      ? Math.min(stage.w / (img!.height * fitScale), stage.h / (img!.width * fitScale))
+      : 1
+  const shownScale = fitScale * rotFit * zoom
+  /** The zoom that would show this picture at its true size. */
+  const oneToOne = (): void => {
+    if (!fitScale) return
+    setZoom(1 / (fitScale * rotFit))
+    setTx(0)
+    setTy(0)
+  }
+
   /* The picture on screen stays there until the next one is ready.
    *
    * This component is no longer remounted per file, so `img` still holds the
@@ -176,12 +216,18 @@ export function ImageView({
   // Image-specific keys (arrows stay with the app for folder nav).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Never while typing. The sidebar's search box sits in the same window
+      // as the picture, so 'r' rotated it mid-word and '0' reset the zoom
+      // under someone searching for "r0ma" (2026-08-28).
+      const el = e.target as HTMLElement | null
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
       switch (e.key) {
         case '+':
         case '=': zoomCentered(1.18); break
         case '-':
         case '_': zoomCentered(1 / 1.18); break
         case '0': reset(); break
+        case '1': oneToOne(); break
         case 'r':
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
@@ -190,7 +236,9 @@ export function ImageView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [zoomCentered, reset, onToggleFullscreen])
+    // oneToOne closes over the measured scale, which changes with the window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit])
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
@@ -223,7 +271,7 @@ export function ImageView({
               onMouseDown={onImgDown}
               onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
               style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
+                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
                 cursor,
                 opacity: loaded ? 1 : 0,
                 transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
@@ -242,7 +290,7 @@ export function ImageView({
               onMouseDown={onImgDown}
               onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
               style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom}) rotate(${rot}deg)`,
+                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
                 cursor,
                 opacity: loaded ? 1 : 0,
                 transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
@@ -258,9 +306,16 @@ export function ImageView({
         <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
-            {Math.round(zoom * 100)}%
+            {Math.round((shownScale || zoom) * 100)}%
           </button>
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1.18)} title="Zoom in (+)">+</button>
+          <button
+            className="pointer-events-auto rounded-full px-2 text-[11px] font-semibold tabular-nums hover:bg-white/15"
+            onClick={oneToOne}
+            title="Actual size (1)"
+          >
+            1:1
+          </button>
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={() => setRot((d) => (d + 90) % 360)} title="Rotate (R)">
             <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

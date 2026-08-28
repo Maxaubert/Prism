@@ -91,10 +91,13 @@ async function launch(file, keepTabs = false) {
   // lock for longer than that. Eight tries with a longer backoff costs nothing
   // when the lock is free, which is almost always.
   let last
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 14; attempt++) {
     try {
       return await launchOnce(file, keepTabs)
     } catch (err) {
+      // Say so. A silent retry loop and a genuine hang look identical from
+      // the outside, and this one has cost several runs.
+      if (attempt > 2) console.log(`  (waiting for the lock, attempt ${attempt + 1})`)
       // Every shape the handoff-exit takes on the way out. It has also been
       // seen as an ECONNRESET on the debugging socket and as a plain launch
       // timeout: the process this launch talked to had already decided to
@@ -106,7 +109,7 @@ async function launch(file, keepTabs = false) {
       )
         throw err
       last = err
-      await sleep(2000 + attempt * 1500)
+      await sleep(Math.min(8000, 2000 + attempt * 1200))
     }
   }
   throw last
@@ -1024,16 +1027,22 @@ async function playerScenario(fixtures) {
     // Wait for the metadata: seeking against a duration of NaN throws, and
     // "the provided double value is non-finite" reads as a player bug when it
     // is only a test that jumped the gun.
+    // Check and seek in the SAME evaluation: waiting for a finite duration and
+    // then seeking in a second call leaves a window in which the element can
+    // reload (autoplay reaching the end of the previous take is enough), and
+    // the seek then throws "non-finite" - a test race that reads as a player
+    // bug (2026-08-28).
     await win.waitForFunction(
-      () => Number.isFinite(document.querySelector('video')?.duration),
+      () => {
+        const v = document.querySelector('video')
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return false
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        void v.play()
+        return true
+      },
       null,
-      { timeout: 10000 }
+      { timeout: 15000 }
     )
-    await win.evaluate(() => {
-      const v = document.querySelector('video')
-      v.currentTime = Math.max(0, v.duration - 0.3)
-      void v.play()
-    })
     await win.waitForSelector('[role="treeitem"][aria-selected="true"]:has-text("ep2.mp4")', { timeout: 10000 })
     ok(true, 'autoplay advances to the next video')
     ok(!win.isClosed(), 'window survives the whole tour')
@@ -2167,6 +2176,73 @@ async function volumeScenario(fixtures) {
   }
 }
 
+async function fullscreenBlackScenario(fixtures) {
+  console.log('fullscreen is black')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(800)
+    const stageBg = () =>
+      win.evaluate(() => {
+        const v = document.querySelector('video')
+        const stage = v?.parentElement
+        return stage ? getComputedStyle(stage).backgroundColor : null
+      })
+    const windowed = await stageBg()
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
+      'F11 goes fullscreen'
+    )
+    // The letterbox is part of the picture: a theme colour behind a film is
+    // the app leaking into it (2026-08-28).
+    ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+  } finally {
+    await app.close()
+  }
+}
+
+async function searchQueryScenario(fixtures) {
+  console.log('search operators')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    const box = win.locator('input[aria-label="Search files"]')
+    const names = async (q) => {
+      await box.fill(q)
+      await sleep(700)
+      return win.evaluate(() =>
+        [...document.querySelectorAll('[data-search-hit], [role="option"], [role="treeitem"]')]
+          .map((e) => e.textContent.trim())
+          .filter(Boolean)
+      )
+    }
+    // Words in any order, which one substring could never do: "mp4 ep1" is
+    // not a substring of "ep1.mp4", but both of its words are in there.
+    const both = await names('mp4 ep1')
+    ok(both.some((n) => n.includes('ep1.mp4')), 'both words match, in either order')
+    const other = await names('ep1 mp4')
+    ok(other.some((n) => n.includes('ep1.mp4')), 'and the other way round')
+    ok((await names('ep1 nowhere')).length === 0, 'but ALL of them have to match')
+    // A glob over the whole name.
+    const globbed = await names('*.mp4')
+    ok(globbed.length > 0 && globbed.every((n) => n.includes('.mp4')), '*.mp4 finds the videos')
+    ok(!globbed.some((n) => n.includes('.md')), 'and only the videos')
+    // ext: and exclusion.
+    const all = await names('ext:mp4')
+    const kept = await names('ext:mp4 -subbed')
+    ok(all.some((n) => n.includes('subbed')), 'ext:mp4 finds every video')
+    ok(kept.length > 0 && !kept.some((n) => n.includes('subbed')), 'and a minus leaves one out')
+    await box.fill('')
+  } finally {
+    await app.close()
+  }
+}
+
 async function gearScenario(fixtures) {
   console.log('the settings gear')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -2518,66 +2594,69 @@ rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
 
-try {
-  await seedProfile()
-  await mdScenario(fixtures)
-  await sleep(900) // let the single-instance lock go
-  await pdfScenario(fixtures)
-  await sleep(900)
-  await sortScenario(fixtures)
-  await sleep(900)
-  await contextMenuScenario(fixtures)
-  await sleep(900)
-  await editScenario(fixtures)
-  await sleep(900)
-  await codeScenario(fixtures)
-  await sleep(900)
-  await treeNavScenario(fixtures)
-  await sleep(900)
-  await unsavedScenario(fixtures)
-  await sleep(900)
-  await playerScenario(fixtures)
-  await dolbyScenario(fixtures)
-  await sleep(700)
-  await formatsScenario(fixtures)
-  await sleep(700)
-  await stillsAndSubsScenario(fixtures)
-  await sleep(700)
-  await convertScenario(fixtures)
-  await sleep(700)
-  await sevenZipScenario(fixtures)
-  // A longer gap than the others: the previous window must have released the
-  // single-instance lock, or this launch hands its file over and exits.
-  await sleep(2000)
-  await documentScenario(fixtures)
-  await sleep(1500)
-  await synthAndRawScenario(fixtures)
-  await sleep(900)
-  await tabsScenario(fixtures)
-  await sleep(900)
-  await terminalScenario(fixtures)
-  await sleep(900)
-  await archiveScenario(fixtures)
-  await sleep(900)
-  await folderArgScenario(fixtures)
-  await sleep(900)
-  await gearScenario(fixtures)
-  await sleep(900)
-  await pauseScenario(fixtures)
-  await sleep(900)
-  await volumeScenario(fixtures)
-  await sleep(900)
-  await videoMenuScenario(fixtures)
-  await sleep(900)
-  await selectionScenario(fixtures)
-  await sleep(900)
-  await dragScenario(fixtures)
-  await sleep(900)
-  await unsupportedScenario(fixtures)
-} catch (e) {
-  failures += 1
-  console.error('scenario crashed:', e)
+/**
+ * One scenario at a time, each in its own try/catch (2026-08-28).
+ *
+ * They all used to share one, so the FIRST crash skipped every scenario after
+ * it while reporting a single failure - a launch flake in the middle of the
+ * run hid twenty scenarios' worth of coverage and read as "1 failure".
+ *
+ * `npm run e2e -- <name>` runs only the scenarios whose name contains <name>,
+ * which is what makes iterating on one of them bearable.
+ */
+const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))
+const chosen = (name) => !only.length || only.some((o) => name.toLowerCase().includes(o.toLowerCase()))
+const results = []
+
+async function run(fn, gap = 900) {
+  const name = fn.name.replace(/Scenario$/, '')
+  if (!chosen(name)) return
+  const before = failures
+  const started = Date.now()
+  try {
+    await fn(fixtures)
+  } catch (e) {
+    failures += 1
+    console.error(`scenario crashed (${name}):`, e)
+  }
+  results.push({ name, failed: failures > before, ms: Date.now() - started })
+  await sleep(gap) // let the single-instance lock go
 }
+
+await seedProfile()
+await run(mdScenario)
+await run(pdfScenario)
+await run(sortScenario)
+await run(contextMenuScenario)
+await run(editScenario)
+await run(codeScenario)
+await run(treeNavScenario)
+await run(unsavedScenario)
+await run(playerScenario)
+await run(dolbyScenario)
+await run(formatsScenario)
+await run(stillsAndSubsScenario)
+await run(convertScenario)
+await run(sevenZipScenario)
+await run(documentScenario, 2000)
+await run(synthAndRawScenario)
+await run(tabsScenario)
+await run(terminalScenario)
+await run(archiveScenario)
+await run(folderArgScenario)
+await run(gearScenario)
+await run(pauseScenario)
+await run(volumeScenario)
+await run(fullscreenBlackScenario)
+await run(searchQueryScenario)
+await run(videoMenuScenario)
+await run(selectionScenario)
+await run(dragScenario)
+await run(unsupportedScenario)
+
+const width = Math.max(...results.map((r) => r.name.length), 8)
+for (const r of results)
+  console.log(`  ${r.failed ? 'FAIL' : 'ok  '}  ${r.name.padEnd(width)}  ${(r.ms / 1000).toFixed(1)}s`)
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall e2e checks passed')
 process.exit(failures ? 1 : 0)

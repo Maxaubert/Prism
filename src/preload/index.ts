@@ -106,6 +106,8 @@ const api = {
    *  Resolves when the copy is ready; progress arrives on onConvertProgress. */
   convertVideo: (path: string): Promise<{ url?: string; error?: string }> =>
     ipcRenderer.invoke('video:convert', path),
+  /** Stop converting a file nobody is looking at any more. */
+  cancelConvert: (path: string): void => ipcRenderer.send('video:cancel', path),
   onConvertProgress: (fn: (m: { path: string; pct: number }) => void): (() => void) => {
     const h = (_e: unknown, m: { path: string; pct: number }): void => fn(m)
     ipcRenderer.on('video:progress', h)

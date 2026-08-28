@@ -112,6 +112,17 @@ const MenuIcon = ({ d }: { d: string }): JSX.Element => (
   </svg>
 )
 
+/** What the search box can do, taught where you look for it: a placeholder
+ *  cannot hold five lines and a help panel in a viewer's sidebar would be
+ *  chrome nobody asked for (2026-08-28). */
+const SEARCH_HELP = [
+  'Every word, in any order. Also:',
+  '*.mp4 or img_??.jpg   a pattern',
+  'ext:mp4   the extension',
+  '"two words"   the phrase',
+  '-raw   leave these out'
+].join('\n')
+
 export function Sidebar({
   open,
   root,
@@ -690,6 +701,10 @@ export function Sidebar({
               }}
               placeholder="Search"
               aria-label="Search files"
+              // Where the operators are taught. A placeholder cannot hold them
+              // and a help panel in a viewer's sidebar would be chrome, so the
+              // box says what it can do when you rest on it (2026-08-28).
+              title={SEARCH_HELP}
               spellCheck={false}
               className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--p-text)] outline-none placeholder:text-[var(--p-dim2)]"
             />

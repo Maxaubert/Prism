@@ -7,6 +7,22 @@ export function getAudioContext(): AudioContext {
   return ctx
 }
 
+/**
+ * Let the context sleep when nothing is playing through it (2026-08-28).
+ *
+ * A running AudioContext keeps an audio thread and a device clock alive; ours
+ * was only ever resumed, so one boosted film left it running for the rest of
+ * the session. Suspending is safe because every path back in - applyVolume,
+ * the visualizer's tap, a play event - resumes it first.
+ */
+export function idleAudioContext(): void {
+  if (ctx && ctx.state === 'running') void ctx.suspend()
+}
+
+export function wakeAudioContext(): void {
+  if (ctx && ctx.state === 'suspended') void ctx.resume()
+}
+
 // loadPeaks lived here and pulled the WHOLE file into the page to decode it -
 // 7.4GB of renderer memory on a 2GB film, for 160 numbers. The envelope now
 // comes from ffmpeg in main, streamed: see src/main/peaks.ts and useWaveform.

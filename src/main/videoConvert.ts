@@ -1,6 +1,14 @@
 import { spawn } from 'child_process'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync
+} from 'fs'
 import { join } from 'path'
 import { chromiumCanDemux, needsSidecar, type MediaInfo } from './ffmpeg'
 
@@ -175,7 +183,16 @@ export function convertVideo(
   const out = join(dir, cacheName(file, st.mtimeMs, st.size))
 
   if (existsSync(out) && statSync(out).size > 0) {
-    // Touch it so the cache evicts genuinely cold entries, not this one.
+    // Touch it, so the cache evicts genuinely cold entries and not this one:
+    // eviction reads mtime oldest-first, so without this the film you rewatch
+    // every week is exactly the one that goes (2026-08-28). The comment said
+    // so; the code did not do it.
+    try {
+      const now = new Date()
+      utimesSync(out, now, now)
+    } catch {
+      /* a touch is an optimisation, never a reason to fail the open */
+    }
     return { out, done: Promise.resolve(out) }
   }
   const running = jobs.get(out)

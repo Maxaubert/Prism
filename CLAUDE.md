@@ -75,6 +75,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the same day added 74 extensions across `fileKind.ts` + `assoc.nsh`, every one of them
   opened in the app and checked before being claimed - including four (`.cr`, `.scm`,
   `.lisp`, `.el`) whose highlighter had shipped for months while the files refused to open.
+- **Audio track picker** (2026-08-28, the video's right-click menu): a film
+  with more than one track lists them ("English - AC-3 5.1", "Commentary -
+  AAC stereo" - the file's own title, else the language, else a number), with
+  Default ticked. Chromium exposes NO way to switch tracks on a `<video>`, so
+  a pick is not a switch: the picture is muted and the chosen stream plays
+  through the same fsaudio:// sidecar the Dolby path already runs on, on the
+  video's clock. Per file, and it resets on the way to the next one. One
+  track shows no picker, because a list of one is chrome.
 - **Audio** player: play / seek / volume, a live circular visualizer, cover art, and the same
   settings cog (speed, loop, autoplay next track). Loop/autoplay/subs-wanted persist. MIDI is
   SYNTHESISED, not decoded (2026-08-24, `midi.ts`): a `.mid` is a score, so Prism bundles
@@ -304,7 +312,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   keeping: `readdirSync(withFileTypes)` and ONE stat per file rather than two
   took `dir:list` on System32 from 159ms to 11ms, and lazy-loading pdf.js,
   react-markdown and DocView alongside CodeMirror halved the launch bundle
-  (3037KB to 1503KB).
+  (3037KB to 1503KB). MORE OF THE SAME (2026-08-28): the agent dot used to
+  spawn a PowerShell and dump EVERY process on the machine, command lines and
+  all, every 2.5s for as long as a terminal existed - 110KB of JSON a few
+  times a minute to answer a question that changes twice an hour. It now asks
+  only when a pty has PRINTED something since the last look (nothing can start
+  or finish in a silent shell), backs off to 20s while the answer holds, and
+  asks for "pid ppid" with the command line only where a broad prefilter hits:
+  measured 110KB/214ms down to 7KB/155ms, on top of far fewer calls. A
+  conversion nobody waits for is CANCELLED (`video:cancel` existed in main and
+  was called from nowhere, so arrowing past a WMV re-encoded a whole film for
+  no one), and the convert cache touches on a hit, so the film you rewatch is
+  not the one evicted. The HEIC utility process stands down after a minute
+  idle instead of living as long as the app; the shared AudioContext suspends
+  when nothing is playing; the visualizer's frame loop stops once a paused
+  picture has settled; and a cross-volume move copies with `fs/promises`
+  rather than `cpSync`, which blocked every window for as long as it took.
 - **The band behind the transport** is a slider (2026-08-25, Settings > Player):
   0-100%, opaque by default, which is the bar exactly as it always looked. Below
   55% the controls carry their own drop shadow, because at that point they are
@@ -351,6 +374,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   SHORTCUT column - a sentence in it is a wall of text down the right-hand side.
   The COG still hides its subtitles section when there are no tracks: it is a
   list, while the menu is the one place that can add one.
+- **Fullscreen is black, and read-only** (2026-08-28). The stage behind a
+  fullscreen film paints `#000` whatever the theme says: the letterbox is part
+  of the picture, so a light theme's paper-white bars or an accent-tinted
+  ground are the app leaking into the film. Windowed, the theme is the theme.
+  And nothing WRITES from a keystroke while fullscreen: Ctrl+Z/Ctrl+Y and the
+  archive's F2/Delete are inert there, because the tree, the crumbs and the
+  dialogs are off screen and a file change nobody can see is a change nobody
+  meant. A visible click on a verb still works.
 - **A covered window keeps playing** (2026-08-27, found in the owner's own log,
   not reproduced by any test here). Windows tells Chromium when another window
   COVERS this one; Chromium marks the page hidden - `document.hidden` true,
@@ -429,6 +460,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `visibilitychange` never fires and `document.hidden` stays false however small
   the window gets. It resumes only what IT paused (`lib/backgroundPause`, pure
   and tested), so a film you stopped by hand stays stopped.
+- **A new file is a new file** (2026-08-28). The viewer is keyed by KIND, not
+  by path, so arrowing through a folder never remounts `useMediaControls` -
+  and three things quietly outlived the file they belonged to: only the FIRST
+  long video in a tab ever resumed (`resumedRef` stayed true), one unplayable
+  file left its error overlay across every file after it, and the element came
+  back at 1x with the new src while the cog still read 1.50x. The reset is
+  done while RENDERING, not in an effect: by the time an effect runs, the new
+  file has already had a frame with the old one's error on top of it. Speed is
+  re-applied rather than cleared - it is a preference about watching, not
+  about one file.
 - **Playback position** (`useMediaControls`, tuned 2026-08-24 by owner decision): media longer
   than 10 MINUTES reopens where you left it, silently - no prompt, no banner. Anything shorter
   never is, which is why a 5-second clip always starts at the start. Stopping inside the LAST
@@ -505,6 +546,9 @@ extension. If it does, it goes in `src/shared/fileKind.ts` AND
 file happily and be missing from its "Open with", which is exactly what happened to 96
 extensions when the code viewer landed. `src/shared/fileAssoc.test.ts` enforces the parity and
 names the extensions to add, so the answer to "did I remember?" is `npm test`, not a re-read.
+It reads BOTH halves of the .nsh since 2026-08-28: the install macro was tested and the
+uninstall one was not, so it fell 96 extensions behind and uninstalling left dead "Open with"
+entries pointing at a ProgID that no longer existed.
 Bare names (`Dockerfile`, `Makefile`) and dotfiles cannot be registered: Windows associates on
 extension and they have none.
 
@@ -512,6 +556,10 @@ extension and they have none.
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
 off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
 truly hidden window stops answering clicks and screenshots, so parking it is the way.
+`npm run e2e -- <name>` runs only the scenarios whose name contains `<name>`,
+and each scenario has its OWN try/catch (2026-08-28): they used to share one,
+so the first crash skipped every scenario after it and reported a single
+failure. The run ends with a pass/fail/duration table.
 `npm run package` builds the NSIS installer;
 version lives in `package.json`. **Releasing is automated** (2026-08-21):
 `.github/workflows/release.yml` builds and publishes on every push to main - a new

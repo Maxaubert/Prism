@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused, rememberTime, sessionTime } from './playState'
-import { applyVolume } from './audio'
+import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
@@ -118,6 +118,47 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
 
+  /**
+   * A NEW FILE is a new file (2026-08-28).
+   *
+   * The viewer is keyed by KIND, not by path, so arrowing through a folder
+   * never remounts this hook - which meant three things quietly outlived the
+   * file they belonged to: `resumedRef` stayed true, so only the FIRST long
+   * video in a tab ever resumed; `error` stayed set, so one unplayable file
+   * left its overlay across every file after it; and the element's own
+   * playbackRate went back to 1 with the new src while `rate` still said 1.5,
+   * so the cog read 1.50x over a film playing at normal speed.
+   *
+   * Done while RENDERING rather than in an effect: by the time an effect runs
+   * the new file has already had a frame with the old file's error on top of
+   * it. The element half is an effect, because it is a DOM write.
+   */
+  const [fileKey, setFileKey] = useState(resumeKey)
+  if (fileKey !== resumeKey) {
+    setFileKey(resumeKey)
+    setError(null)
+    setCur(0)
+    setBuffered(0)
+  }
+  useEffect(() => {
+    // The bookkeeping refs are the other half of the same reset. Refs cannot
+    // be touched while rendering, so they are settled here - before the new
+    // element has loaded anything, which is what they are read against.
+    resumedRef.current = false
+    lastSavedRef.current = 0
+    const m = ref.current
+    if (!m) return
+    // The speed you chose is a preference about watching, not about one file,
+    // so it is re-applied rather than reset - the element itself came back at
+    // 1x with the new src.
+    m.playbackRate = rate
+    m.defaultPlaybackRate = rate
+    applyVolume(m, vol, muted)
+    // Deliberately only on a change of FILE: rate/vol/muted have their own
+    // effects, and this one re-applies whatever they are at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeKey, ref])
+
   const setVol = useCallback(
     (v: number) => {
       setVolState(clampVol(v))
@@ -204,6 +245,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
 
   const bind: MediaBindings = {
     onPlay: () => {
+      // A boosted element plays THROUGH the shared context, so it has to be
+      // awake before the sound can arrive (2026-08-28).
+      wakeAudioContext()
       setPlaying(true)
       // Remembered for the session, so opening Settings (or any other tab) and
       // coming back does not restart a film you had deliberately paused: a tab
@@ -214,6 +258,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     },
     onPause: () => {
       setPlaying(false)
+      // Nothing left playing anywhere in the window: let the audio thread and
+      // its device clock go. Any route back in wakes it first.
+      if (![...document.querySelectorAll('video,audio')].some((m) => !(m as HTMLMediaElement).paused))
+        idleAudioContext()
       if (resumeKey) rememberPaused(resumeKey, true)
       onPlayChange?.(false)
     },

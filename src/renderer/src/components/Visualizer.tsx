@@ -191,7 +191,26 @@ export function Visualizer({
       return c ? s / c / 255 : 0
     }
 
+    /**
+     * A paused track draws nothing (2026-08-28).
+     *
+     * The loop used to run at the display's full refresh whatever the media
+     * was doing, so a paused song held a 4K canvas redrawing 120 times a
+     * second over an analyser reading silence. It still has to draw a FEW
+     * frames after the pause - the styles decay rather than stop dead - so
+     * the rule is: while paused, keep drawing until the picture has settled,
+     * then idle until something plays again.
+     */
+    let stillFrames = 0
+    const SETTLE_FRAMES = 45
+
     const tick = (now: number): void => {
+      const idle = !!media && media.paused
+      if (idle && stillFrames > SETTLE_FRAMES) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+      stillFrames = idle ? stillFrames + 1 : 0
       const rect = canvas.getBoundingClientRect()
       // The display's real ratio, not a flat 2. A 225% screen was drawing a
       // 2360x611 buffer and letting the compositor stretch it to 2655x689, which
