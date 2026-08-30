@@ -28,6 +28,10 @@ npmRebuild: false
 extraResources:
   - from: build/icon.ico
     to: icon.ico
+  # One icon per ProgID, so a .zip opened with Prism does not wear the
+  # video icon in Explorer. assoc.nsh points each DefaultIcon here.
+  - from: build/icons
+    to: icons
   # ffmpeg, for the audio Chromium will not decode (AC-3/E-AC-3, DTS, TrueHD).
   # Fetched by tools/fetch-ffmpeg.mjs, never committed. BtbN's LGPL SHARED
   # build: the DLLs are replaceable, which is what LGPL asks for.

@@ -25,3 +25,9 @@ SERSADMIN*/
 vendor/
 
 .e2e/
+
+# Generated icon contact sheet (regenerate: python tools/icons/sheet.py)
+tools/icons/sheet.png
+tools/icons/__pycache__/
+tools/icons/sheet-*.png
+tools/icons/compare.png
