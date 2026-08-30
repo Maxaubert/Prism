@@ -1,4 +1,11 @@
-import { useRef, useState, type JSX, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import { formatTime } from '../lib/format'
 import { MAX_VOL, type MediaControls } from '../lib/useMediaControls'
 import { IconMute, IconPause, IconPlay, IconVol } from './icons'
@@ -204,10 +211,51 @@ function PlayBtn({ c, square }: { c: MediaControls; square?: boolean }): JSX.Ele
  * exceed 100 has to be readable or it is just a longer slider. The readout
  * doubles as the way back to 100%.
  */
+/** How long the column stays after the pointer leaves it (2026-08-28). The
+ *  gesture is a small target at the top of a thin popup, and a micro-movement
+ *  off its edge on the way to the thumb should not close what you are aiming
+ *  at. Long enough to forgive a wobble, short enough that it never feels
+ *  stuck. */
+const VOL_GRACE = 500
+
 function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Element {
   const pct = Math.round((c.muted ? 0 : c.vol) * 100)
+  // Open/close is JS rather than :hover because CSS cannot forgive anything:
+  // the moment the pointer crosses the edge the popup is gone, mid-drag
+  // included.
+  const [open, setOpen] = useState(false)
+  const closer = useRef<number | null>(null)
+  const dragging = useRef(false)
+  const inside = useRef(false)
+  const hold = (): void => {
+    if (closer.current !== null) window.clearTimeout(closer.current)
+    closer.current = null
+  }
+  const leave = (): void => {
+    hold()
+    // Dragging the thumb takes the pointer wherever it likes; the column stays
+    // until the button is let go, and the window-level pointerup below closes
+    // it then if the pointer has wandered off.
+    if (dragging.current) return
+    closer.current = window.setTimeout(() => {
+      closer.current = null
+      setOpen(false)
+    }, VOL_GRACE)
+  }
+  useEffect(() => () => hold(), [])
   return (
-    <div className="group/vol relative flex items-center">
+    <div
+      className="group/vol relative flex items-center"
+      onPointerEnter={() => {
+        inside.current = true
+        hold()
+        setOpen(true)
+      }}
+      onPointerLeave={() => {
+        inside.current = false
+        leave()
+      }}
+    >
       <button
         className="grid place-items-center hover:text-[var(--color-accent-hi)]"
         onClick={c.toggleMute}
@@ -219,8 +267,9 @@ function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Elemen
           is padding INSIDE this box (pb-2), not a margin below it, so crossing
           from the icon to the column never leaves the hover area. A margin put
           dead space in the way and the column closed on the way to it. */}
+      {open && (
       <div
-        className={`pointer-events-none absolute bottom-full left-1/2 z-30 hidden -translate-x-1/2 flex-col items-center gap-1.5 px-1.5 pb-2 pt-2 group-hover/vol:pointer-events-auto group-hover/vol:flex ${
+        className={`absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-1.5 px-1.5 pb-2 pt-2 ${
           bare
             ? // The band behind the controls is off, so the column brings no
               // slab of its own: it sits on the film and carries a shadow, the
@@ -252,11 +301,27 @@ function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Elemen
             if (c.muted) c.toggleMute()
           }}
           aria-label="Volume"
-          // The standard vertical range: bottom is quiet, top is loud.
-          style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '14px', height: '84px' }}
+          onPointerDown={() => {
+            dragging.current = true
+            const up = (): void => {
+              dragging.current = false
+              window.removeEventListener('pointerup', up)
+              // Let go somewhere else entirely: the column then goes on the
+              // same grace period a plain hover gets. `inside` is the wrapper's
+              // own enter/leave, which is cheaper and more honest than asking
+              // the document what is hovered.
+              if (!inside.current) leave()
+            }
+            window.addEventListener('pointerup', up)
+          }}
+          // The standard vertical range: bottom is quiet, top is loud. A
+          // quarter taller than it was (owner pick, 2026-08-28): 200% on a
+          // short column made every step a lunge.
+          style={{ writingMode: 'vertical-lr', direction: 'rtl', width: '14px', height: '105px' }}
           className="cursor-pointer accent-[var(--color-accent-hi)]"
         />
       </div>
+      )}
     </div>
   )
 }

@@ -11,11 +11,43 @@ import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
-import { wasPaused } from '../lib/playState'
+import { wasPlaying } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
+
+/** What a track is called in the picker: its own name if it has one, then the
+ *  language, then what it actually is - "English - AC-3 5.1". A file that says
+ *  nothing at all still gets a number, so the rows can be told apart. */
+function trackLabel(t: AudioTrackOffer, i: number): string {
+  const LANGS: Record<string, string> = {
+    eng: 'English',
+    fra: 'French',
+    fre: 'French',
+    deu: 'German',
+    ger: 'German',
+    spa: 'Spanish',
+    ita: 'Italian',
+    jpn: 'Japanese',
+    nor: 'Norwegian',
+    swe: 'Swedish',
+    dan: 'Danish',
+    nld: 'Dutch',
+    por: 'Portuguese',
+    rus: 'Russian',
+    kor: 'Korean',
+    zho: 'Chinese',
+    chi: 'Chinese'
+  }
+  const channels =
+    t.channels >= 8 ? '7.1' : t.channels >= 6 ? '5.1' : t.channels === 2 ? 'stereo' : t.channels === 1 ? 'mono' : ''
+  const codec = t.codec ? t.codec.replace(/^ac3$/i, 'AC-3').replace(/^eac3$/i, 'E-AC-3').toUpperCase() : ''
+  const name = t.title || LANGS[t.language.toLowerCase()] || t.language || `Track ${i + 1}`
+  const detail = [codec, channels].filter(Boolean).join(' ')
+  return detail ? `${name} - ${detail}` : name
+}
 
 /** How long the controls stay after the last sign of life, in ms. */
 const CHROME_IDLE = 2600
@@ -35,7 +67,8 @@ export function VideoView({
   transportStyle,
   transportBg,
   background = false,
-  volumeKey
+  volumeKey,
+  fullscreen = false
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -57,6 +90,11 @@ export function VideoView({
   background?: boolean
   /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
   volumeKey?: string
+  /** Fullscreen paints the stage BLACK, whatever the theme says (2026-08-28):
+   *  a film fills the screen and the letterbox is part of the picture, so a
+   *  light theme's paper-white bars, or an accent-tinted ground, are the
+   *  app leaking into the film. Windowed, the theme is the theme. */
+  fullscreen?: boolean
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
   // A file Chromium cannot open at all is converted first, and what plays is
@@ -150,6 +188,18 @@ export function VideoView({
 
   useBackgroundPause(video)
 
+  /* Which audio track is playing (2026-08-28). Null is the file's own
+   * default, which Chromium plays itself whenever it can. A PICK always goes
+   * through Prism's decoder, because Chromium exposes no way to switch tracks
+   * on a <video> - so the picture is muted and the chosen track plays beside
+   * it, on the same clock the Dolby sidecar already runs on. Per file: the
+   * commentary you chose on one film means nothing about the next. */
+  const [trackFor, setTrackFor] = useState(url)
+  const [track, setTrack] = useState<number | null>(null)
+  if (trackFor !== url) {
+    setTrackFor(url)
+    setTrack(null)
+  }
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -164,6 +214,10 @@ export function VideoView({
     resumeKey: url,
     keys: !background,
     volumeKey,
+    // A picked track plays through the sidecar, so the file's own default
+    // track must stop coming out of the picture - and this is the ONLY writer
+    // of the element's mute, so nothing can undo it.
+    forceMute: track !== null,
     onVolume: () => setVolFlash(Date.now())
   })
 
@@ -246,6 +300,27 @@ export function VideoView({
           onPick: () => c.setRate(r)
         }))
       },
+      ...(audioTracks.length > 1
+        ? [
+            {
+              // Only for a file that HAS a choice: one track needs no picker.
+              label: 'Audio track',
+              icon: tickIf(false),
+              children: [
+                {
+                  label: 'Default',
+                  icon: tickIf(track === null),
+                  onPick: () => setTrack(null)
+                },
+                ...audioTracks.map((t, i) => ({
+                  label: trackLabel(t, i),
+                  icon: tickIf(track === t.index),
+                  onPick: () => setTrack(t.index)
+                }))
+              ]
+            } as MenuItem
+          ]
+        : []),
       {
         // Always here, even with nothing found: this is the one place that can
         // ADD a track, which is the point of the manual row. (The cog still
@@ -294,8 +369,9 @@ export function VideoView({
     state: sidecarState,
     url: sidecarUrl,
     ref: sidecarRef,
-    videoCodec
-  } = useSidecarAudio(path, video, c.vol, c.muted)
+    videoCodec,
+    tracks: audioTracks
+  } = useSidecarAudio(path, video, c.vol, c.muted, track)
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
   const silent = sidecarState === 'unavailable' && hushedUrl !== url
 
@@ -320,7 +396,9 @@ export function VideoView({
 
   return (
     <div
-      className="group relative flex h-full w-full items-center justify-center"
+      className={`group relative flex h-full w-full items-center justify-center ${
+        fullscreen ? 'bg-black' : ''
+      }`}
       // No mouse handlers here either, and for a measured reason: Chromium
       // fires `mousemove` when the layout changes under a STATIONARY cursor,
       // and the bar unmounting is such a change - so the controls hid and
@@ -448,10 +526,12 @@ export function VideoView({
         // it. fsmedia:// answers with ACAO '*' and is registered corsEnabled,
         // so asking for the CORS fetch is all that was missing (2026-08-27).
         crossOrigin="anonymous"
-        // Autoplay UNLESS this file was paused a moment ago: opening Settings
-        // or another tab unmounts the viewer, and a fresh element would start
-        // a film you had deliberately stopped (see lib/playState).
-        autoPlay={!wasPaused(url)}
+        // Play only what was ALREADY playing (2026-08-28, owner decision):
+        // opening a file does not start it, and neither does restoring a
+        // window full of tabs. A file whose player is being rebuilt mid-play
+        // (a change of kind, a split view opening) carries on, and the
+        // playlist records its own intent - see lib/playState.
+        autoPlay={wasPlaying(url)}
         loop={prefs.loop}
         // Autoplay: the folder is a playlist. Loop wins while both are on
         // (a looping video never ends, so this simply doesn't fire).

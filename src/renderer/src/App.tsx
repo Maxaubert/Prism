@@ -85,6 +85,7 @@ import {
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { deckOf } from './lib/mediaDeck'
+import { intendToPlay, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import {
@@ -133,7 +134,7 @@ type Ask =
   | { kind: 'move-clash'; paths: string[]; dest: string; names: string[] }
   | { kind: 'clash'; path: string; name: string; suggestion: string }
   | { kind: 'failed'; message: string }
-  | { kind: 'close-dirty' }
+  | { kind: 'close-dirty'; then?: 'install' }
   // Closing a TAB whose root holds unsaved text. Same three answers as the
   // window's, because the stake is the same: leave that tab and the only route
   // back to those buffers is gone, even though the window stays open.
@@ -476,6 +477,7 @@ function Viewer({
           transportBg={transportBg}
           background={background}
           volumeKey={volumeKey}
+          fullscreen={fullscreen}
         />
       )
     case 'image':
@@ -510,6 +512,7 @@ function Viewer({
       return (
         <ArchiveView
           file={file}
+          fullscreen={fullscreen}
           onUndoable={onUndoable}
           onRenameSelf={onRenameSelf}
           refreshKey={refreshKey}
@@ -991,7 +994,7 @@ export default function App(): JSX.Element {
       }),
     []
   )
-  const installUpdate = useCallback(() => {
+  const runInstall = useCallback(() => {
     if (!update || update.mock) return
     setUpdatePhase('downloading')
     setUpdatePct(0)
@@ -1000,6 +1003,14 @@ export default function App(): JSX.Element {
       if (!ok) setUpdatePhase('idle')
     })
   }, [update])
+  const installUpdate = useCallback(() => {
+    if (!update || update.mock) return
+    // Installing ends in a quit, and unsaved text vetoes a quit - so the same
+    // question closing asks is asked here, BEFORE the download (2026-08-28).
+    // Main refuses the install outright while anything is dirty.
+    if (dirtyPaths.size) setAsk({ kind: 'close-dirty', then: 'install' })
+    else runInstall()
+  }, [update, dirtyPaths, runInstall])
 
   // Where the active tab is rooted, for handlers that must stay stable (the
   // + is handed to main once and must not be rebuilt whenever a tab changes).
@@ -1727,9 +1738,17 @@ export default function App(): JSX.Element {
     (dir: 1 | -1) => {
       const i = sameKindIndex(dir)
       if (i < 0 || !active || !view) return
-      setRawIndex(active.files.indexOf(view.files[i]))
+      const next = view.files[i]
+      // The playlist carries its own intent (2026-08-28). Nothing autoplays on
+      // open any more, so the file a finished video hands over to - and the
+      // one the menu's Next reaches for while you are watching - has to say
+      // "I was already playing" on its own behalf. Stepping away from a file
+      // you had PAUSED lands paused, which is the same rule.
+      if (file && wasPlaying(window.prism.mediaUrl(file.path)))
+        intendToPlay(window.prism.mediaUrl(next.path))
+      setRawIndex(active.files.indexOf(next))
     },
-    [active, sameKindIndex, setRawIndex, view]
+    [active, file, sameKindIndex, setRawIndex, view]
   )
   const advanceSameKind = useCallback(() => stepSameKind(1), [stepSameKind])
 
@@ -2111,9 +2130,12 @@ export default function App(): JSX.Element {
       if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
-      } else if (e.ctrlKey && !typing && !inTerm && /^[zy]$/i.test(e.key)) {
+      } else if (e.ctrlKey && !typing && !inTerm && !fullscreen && /^[zy]$/i.test(e.key)) {
         // Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) undo Prism's OWN writes. Behind
-        // the typing guard, so the text editor and the shell keep their own.
+        // the typing guard, so the text editor and the shell keep their own -
+        // and behind FULLSCREEN (2026-08-28), where the tree and its verbs are
+        // not on screen: a keystroke that moves files about while you cannot
+        // see them is a change you did not mean to make.
         e.preventDefault()
         if (e.key.toLowerCase() === 'y' || e.shiftKey) redo()
         else undo()
@@ -2746,10 +2768,12 @@ export default function App(): JSX.Element {
               // Cancel; "Save all changes" is the one carrying the accent.
               label: 'Discard',
               onPick: () => {
+                const then = ask.kind === 'close-dirty' ? ask.then : undefined
                 buffers.current.clear()
                 syncDirty()
                 setAsk(null)
-                window.prism.close(true)
+                if (then === 'install') runInstall()
+                else window.prism.close(true)
               }
             },
             {
@@ -2767,8 +2791,10 @@ export default function App(): JSX.Element {
                     })
                     return
                   }
+                  const then = ask.kind === 'close-dirty' ? ask.then : undefined
                   setAsk(null)
-                  window.prism.close(true)
+                  if (then === 'install') runInstall()
+                  else window.prism.close(true)
                 })()
               }
             }

@@ -40,6 +40,21 @@ export class OutputBatcher {
   }
 }
 
+/**
+ * How much has come out of any shell (2026-08-28).
+ *
+ * A bare counter, bumped on every chunk. The agent poll reads it to decide
+ * whether anything COULD have changed: a shell that has printed nothing since
+ * the last look cannot have started or finished an agent, so there is nothing
+ * to go looking for. It is a number rather than a timestamp so it cannot be
+ * confused by a clock, and it only ever goes up.
+ */
+let outputTicks = 0
+
+export function ptyOutputTicks(): number {
+  return outputTicks
+}
+
 interface Session {
   pty: IPty
   batcher: OutputBatcher
@@ -245,7 +260,10 @@ export async function spawnTerm(
     if (w.buf) send('term:data', id, w.buf)
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
     const subs = [
-      w.pty.onData((d) => batcher.push(d)),
+      w.pty.onData((d) => {
+        outputTicks += 1
+        batcher.push(d)
+      }),
       w.pty.onExit(() => {
         batcher.flush()
         sessions.delete(id)
@@ -270,7 +288,10 @@ export async function spawnTerm(
     })
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
     const subs = [
-      p.onData((d) => batcher.push(d)),
+      p.onData((d) => {
+        outputTicks += 1
+        batcher.push(d)
+      }),
       p.onExit(() => {
         batcher.flush()
         sessions.delete(id)

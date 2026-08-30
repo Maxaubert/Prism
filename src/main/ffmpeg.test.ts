@@ -167,7 +167,7 @@ describe('reading a probe', () => {
         { index: 1, codec_type: 'audio', codec_name: 'ac3', channels: 6, channel_layout: '5.1(side)', tags: { language: 'eng' } }
       ])
     )?.audio
-    expect(t).toEqual({ index: 1, codec: 'ac3', channels: 6, layout: '5.1(side)', language: 'eng', duration: 5387.392 })
+    expect(t).toEqual({ index: 1, title: '', codec: 'ac3', channels: 6, layout: '5.1(side)', language: 'eng', duration: 5387.392 })
   })
 
   it('names the video stream, so a picture it cannot show can be explained', () => {
@@ -221,5 +221,47 @@ describe('where ffmpeg is looked for', () => {
   it('never looks in resources unless packaged', () => {
     const dirs = ffmpegDirs(false, 'C:\\app\\resources', 'C:\\repo')
     expect(dirs.some((d) => d.startsWith('C:\\app\\resources'))).toBe(false)
+  })
+})
+
+describe('every audio track, for the picker', () => {
+  const probe = (streams: unknown[], duration = '5387.392'): string =>
+    JSON.stringify({ streams, format: { duration } })
+
+  it('keeps them all in file order, with names and languages', () => {
+    const r = readProbe(
+      probe([
+        { index: 0, codec_type: 'video', codec_name: 'h264' },
+        { index: 1, codec_type: 'audio', codec_name: 'ac3', channels: 6, tags: { language: 'eng' } },
+        {
+          index: 2,
+          codec_type: 'audio',
+          codec_name: 'aac',
+          channels: 2,
+          tags: { language: 'fra', title: 'Commentary' }
+        }
+      ])
+    )
+    expect(r?.tracks.map((t) => [t.index, t.language, t.title])).toEqual([
+      [1, 'eng', ''],
+      [2, 'fra', 'Commentary']
+    ])
+  })
+
+  it('still names ONE default track, which is what plays without a choice', () => {
+    const r = readProbe(
+      probe([
+        { index: 1, codec_type: 'audio', codec_name: 'aac' },
+        { index: 2, codec_type: 'audio', codec_name: 'ac3', disposition: { default: 1 } }
+      ])
+    )
+    expect(r?.audio?.index).toBe(2)
+    expect(r?.tracks).toHaveLength(2)
+  })
+
+  it('has no tracks at all for a file with no sound', () => {
+    const r = readProbe(probe([{ index: 0, codec_type: 'video', codec_name: 'h264' }]))
+    expect(r?.tracks).toEqual([])
+    expect(r?.audio).toBe(null)
   })
 })

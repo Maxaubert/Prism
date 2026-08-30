@@ -1,4 +1,5 @@
-import { cpSync, existsSync, renameSync, rmSync, statSync } from 'fs'
+import { existsSync, renameSync, statSync } from 'fs'
+import { cp, rm } from 'fs/promises'
 import { basename, dirname, join, resolve, sep } from 'path'
 import { uniqueName } from './fileOps'
 
@@ -29,15 +30,21 @@ export function insideSelf(src: string, dest: string): boolean {
   return d === s || d.startsWith(s.endsWith(sep) ? s : s + sep)
 }
 
-/** One move, rename first: `renameSync` is atomic on the same volume, and only
- *  a cross-volume move needs the copy-then-remove fallback. */
-function moveOne(src: string, target: string): void {
+/**
+ * One move, rename first: `renameSync` is atomic on the same volume and costs
+ * a syscall, so it stays synchronous. Only a CROSS-VOLUME move falls back to
+ * copy-then-remove, and that one is async (2026-08-28): copying a folder from
+ * one disk to another with cpSync blocked the whole main process - every
+ * window, every IPC reply, the terminals and the Range handler a playing film
+ * depends on - for as long as the copy took.
+ */
+async function moveOne(src: string, target: string): Promise<void> {
   try {
     renameSync(src, target)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
-    cpSync(src, target, { recursive: true, force: true })
-    rmSync(src, { recursive: true, force: true })
+    await cp(src, target, { recursive: true, force: true })
+    await rm(src, { recursive: true, force: true })
   }
 }
 
@@ -99,7 +106,7 @@ export async function moveEntries(
           await trash(target)
         } else target = join(destDir, uniqueName(destDir, name))
       }
-      moveOne(p, target)
+      await moveOne(p, target)
       out.moved.push({ from: p, to: target })
     } catch {
       out.failed.push(p)

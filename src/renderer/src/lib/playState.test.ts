@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { forgetPaused, rememberPaused, rememberTime, sessionTime, wasPaused } from './playState'
+import {
+  forgetPaused,
+  intendToPlay,
+  rememberPaused,
+  rememberTime,
+  sessionTime,
+  wasPaused,
+  wasPlaying
+} from './playState'
 
 beforeEach(() => {
   forgetPaused('a')
@@ -66,5 +74,35 @@ describe('session position', () => {
     forgetPaused('a')
     expect(wasPaused('a')).toBe(false)
     expect(sessionTime('a')).toBe(0)
+  })
+})
+
+describe('what starts playing on its own', () => {
+  it('does NOT play a file nobody has played this session', () => {
+    // Opening a file, or restoring a window full of tabs, must not start
+    // anything (2026-08-28, owner decision).
+    expect(wasPlaying('never-seen')).toBe(false)
+    expect(wasPaused('never-seen')).toBe(false)
+  })
+
+  it('plays one whose player is being rebuilt mid-play', () => {
+    rememberPaused('a', false)
+    expect(wasPlaying('a')).toBe(true)
+  })
+
+  it('leaves a file you stopped stopped', () => {
+    rememberPaused('a', true)
+    expect(wasPlaying('a')).toBe(false)
+  })
+
+  it('lets the playlist say "play this one when it arrives"', () => {
+    expect(wasPlaying('b')).toBe(false)
+    intendToPlay('b')
+    expect(wasPlaying('b')).toBe(true)
+  })
+
+  it('ignores an intent with no file', () => {
+    intendToPlay('')
+    expect(wasPlaying('')).toBe(false)
   })
 })

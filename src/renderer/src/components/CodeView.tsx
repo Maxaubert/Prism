@@ -75,6 +75,9 @@ export function CodeView({
   }, [path])
   const [dirty, setDirty] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** Why this file is not in the editor: too big to hand over as one string,
+   *  or unreadable. Null when it opened normally. */
+  const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
   const [editing, setEditing] = useState(false)
   // Which file the editor is actually showing. Derived rather than a `ready`
   // flag, so paging never leaves a stale spinner (or a stale file) on screen.
@@ -146,11 +149,17 @@ export function CodeView({
     let alive = true
     const lang = langFor(name)
     void Promise.all([window.prism.readText(path), lang ? lang.load() : Promise.resolve<Extension>([])]).then(
-      ([text, langExt]) => {
+      ([read, langExt]) => {
         const v = view.current
         if (!alive || !v) return
-        const disk = text ?? '(could not read file)'
-        saved.current = { path, text: disk }
+        // A file that could not be read is NOT an empty file: seeding the
+        // editor with a placeholder and calling it the disk contents meant one
+        // Ctrl+S wrote that placeholder over a 200MB log (2026-08-28). A
+        // reason comes back now, and a file we never read cannot be saved.
+        const failedRead = 'error' in read ? read.error : null
+        const disk = 'text' in read ? read.text : ''
+        setUnreadable(failedRead)
+        saved.current = failedRead ? null : { path, text: disk }
         // Unsaved text App kept for this file wins over what is on disk: coming
         // back to a file you edited must show your edits, not undo them.
         const body = getPending(path) ?? disk
@@ -187,6 +196,8 @@ export function CodeView({
 
   const save = useCallback(async (): Promise<boolean> => {
     const v = view.current
+    // `saved.current` is null for a file that never loaded, and that is the
+    // guard: nothing may be written over a file whose contents we never had.
     if (!v || !saved.current) return false
     const text = v.state.doc.toString()
     const ok = await window.prism.writeText(path, text)
@@ -251,6 +262,15 @@ export function CodeView({
 
       {/* Quiet until there is something to say: the pill appears when the buffer
           differs from disk, or when the pencil put us in a mode to leave. */}
+      {unreadable && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center">
+          <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
+            {unreadable === 'too-large'
+              ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
+              : 'This file could not be read. Nothing has been changed on disk.'}
+          </div>
+        </div>
+      )}
       {(dirty || onClose) && (
         <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]">
           {failed && <span className="px-2 text-[11.5px] text-[#d97b84]">Couldn’t save.</span>}

@@ -9,7 +9,7 @@ import {
   nativeTheme,
   utilityProcess
 } from 'electron'
-import { basename, dirname, extname, join, resolve, sep } from 'path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
   createReadStream,
   existsSync,
@@ -31,12 +31,14 @@ import {
   killTerm,
   killWarm,
   livePids,
+  ptyOutputTicks,
   prewarmShell,
   resizeTerm,
   spawnTerm,
   writeTerm
 } from './terminal'
-import { treeAgentKind, type ProcRow } from './agentDetect'
+import { parseProcLines, treeAgentKind } from './agentDetect'
+import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
@@ -47,7 +49,14 @@ import {
   planConversion
 } from './videoConvert'
 import { cachedPeaks, loadPeaks } from './peaks'
-import { bundledSeven, extractAllSeven, extractSeven, isSevenArchive, listSeven } from './sevenZip'
+import {
+  bundledSeven,
+  extractAllSeven,
+  extractSeven,
+  extractSevenTo,
+  isSevenArchive,
+  listSeven
+} from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
 import { installVerb, removeVerb, verbInstalled } from './shellVerb'
@@ -79,7 +88,8 @@ import type {
   OpenPayload,
   OpenWithApp,
   MediaProbe,
-  RenameResult
+  RenameResult,
+  TextRead
 } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -134,6 +144,27 @@ const extractedPaths = new Set<string>()
 const archivePasswords = new Map<string, string>()
 
 const MEDIA_SCHEME = 'fsmedia'
+/** file:text's contract is a text file, not a log nobody can read: 64MB of
+ *  utf-8 crosses the bridge as one string and lands in one CodeMirror doc. */
+const TEXT_MAX_BYTES = 64 * 1024 * 1024
+
+/* ------------------------------------------------------------------ *
+ * The agent poll's shape. See the poll itself for why it is like this.
+ * ------------------------------------------------------------------ */
+const AGENT_POLL_MIN = 2500
+const AGENT_POLL_MAX = 20000
+/**
+ * "pid ppid" for everything, plus the command line only where a cheap word
+ * match hits. The full dump with every command line was megabytes; this is a
+ * few KB. The prefilter is deliberately BROAD - the strict signatures live in
+ * agentDetect, which sees whatever this lets through.
+ */
+const AGENT_QUERY =
+  'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CommandLine | ' +
+  'ForEach-Object { if ($_.CommandLine -and $_.CommandLine -match ' +
+  "'claude|codex|aider|gemini') " +
+  '{ "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" } ' +
+  'else { "$($_.ProcessId) $($_.ParentProcessId)" } }'
 protocol.registerSchemesAsPrivileged([
   {
     scheme: MEDIA_SCHEME,
@@ -259,6 +290,25 @@ function heicWorker(): Electron.UtilityProcess {
   return proc
 }
 
+/**
+ * The worker is kept alive between decodes (a fork costs more than most
+ * decodes) but not FOREVER: a folder of photos browsed once used to leave a
+ * node process resident for as long as Prism was, which for a resident app is
+ * for as long as the machine is on (2026-08-28).
+ */
+const HEIC_IDLE_MS = 60_000
+let heicIdle: NodeJS.Timeout | null = null
+
+function heicKeepWarm(): void {
+  if (heicIdle) clearTimeout(heicIdle)
+  heicIdle = setTimeout(() => {
+    heicIdle = null
+    if (heicPending.size) return heicKeepWarm() // still busy; ask again later
+    heicProc?.kill()
+    heicProc = null
+  }, HEIC_IDLE_MS)
+}
+
 async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
   const key = `${filePath}|${mtimeMs}`
   const hit = heicCache.get(key)
@@ -268,10 +318,17 @@ async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
     return hit
   }
   const id = ++heicSeq
-  const buf = await new Promise<Buffer>((resolve, reject) => {
-    heicPending.set(id, { resolve, reject })
-    heicWorker().postMessage({ id, path: filePath })
-  })
+  let buf: Buffer
+  try {
+    buf = await new Promise<Buffer>((resolve, reject) => {
+      heicPending.set(id, { resolve, reject })
+      heicWorker().postMessage({ id, path: filePath })
+    })
+  } finally {
+    // In a finally, not on the happy path: a HEIC that fails to decode used to
+    // leave the worker resident for the life of the app (2026-08-28).
+    heicKeepWarm()
+  }
   heicCache.set(key, buf)
   if (heicCache.size > HEIC_CACHE_MAX) {
     const oldest = heicCache.keys().next().value
@@ -281,6 +338,43 @@ async function heicToJpeg(filePath: string, mtimeMs: number): Promise<Buffer> {
 }
 
 // Serve a local file honouring Range requests (206), so media can seek. Mirrors
+/**
+ * Files main built itself and handed to the renderer as a media url: the
+ * converted copy of a video, the wav a MIDI score was rendered to. They live
+ * in userData, outside every root, so the wall below has to know about them.
+ */
+const servable = new Set<string>()
+
+/** Native dialogs are OWNED by the window (2026-08-28). Unparented, Windows
+ *  makes them modeless: a click on Prism buries the picker, and in fullscreen
+ *  it never shows at all, which reads as the app hanging. Before there is a
+ *  window there is nothing to own them, so those keep the old shape. */
+function openDialog(opts: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
+  return mainWindow ? dialog.showOpenDialog(mainWindow, opts) : dialog.showOpenDialog(opts)
+}
+
+/** Media may only be served from a root, from an archive member main extracted
+ *  on request, or from something main made itself (2026-08-28). The fsaudio://
+ *  sibling has always been walled; this one was not, which was an accident of
+ *  the two handlers being written a month apart rather than a decision. */
+/** Where the renderer's own files live. pdf.js fetches its cmaps, standard
+ *  fonts, wasm and icc profiles through fsmedia:// (fetch refuses file: URLs
+ *  in a packaged build), so the app's OWN asset tree has to be servable - and
+ *  the wall refused it, which broke every PDF that does not embed its fonts.
+ *  Invisible in dev, where the same data comes over the vite server. */
+const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
+
+function underDir(dir: string, p: string): boolean {
+  const rel = relative(dir.toLowerCase(), resolve(p).toLowerCase())
+  return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+function mediaAllowed(p: string): boolean {
+  return (
+    insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p) || underDir(RENDERER_DIR, p)
+  )
+}
+
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
 async function serveMedia(request: Request): Promise<Response> {
   let filePath: string
@@ -289,6 +383,7 @@ async function serveMedia(request: Request): Promise<Response> {
   } catch {
     return new Response(null, { status: 400 })
   }
+  if (!mediaAllowed(filePath)) return new Response(null, { status: 403 })
   let st: ReturnType<typeof statSync>
   try {
     st = statSync(filePath)
@@ -688,7 +783,7 @@ function watchWindowState(win: BrowserWindow): void {
     win.webContents.send('app:ask-close')
     // A minimised or background window can't show its own dialog usefully.
     if (win.isMinimized()) win.restore()
-    win.focus()
+    if (!E2E) win.focus()
   })
 }
 
@@ -724,6 +819,39 @@ function applyMaterial(fullscreen: boolean): void {
   }
 }
 
+/**
+ * The e2e's window never takes the foreground (2026-08-28).
+ *
+ * Electron has no headless mode, so the suite parks a real window offscreen -
+ * but every launch still ACTIVATED it, and a suite that launches thirty times
+ * yanked the caret out of whatever the machine's owner was typing. Playwright
+ * drives the page over CDP, which needs no OS focus at all, so in this mode
+ * the window is created unfocusable and shown inactive.
+ */
+const E2E = process.argv.includes('--e2e')
+
+/**
+ * Bring the window genuinely forward (2026-08-28).
+ *
+ * `show()` and `focus()` ask, and Windows' foreground lock is allowed to
+ * refuse: a process that did not have the foreground gets its window drawn
+ * but not activated, and then the user's FIRST CLICK is spent activating it
+ * instead of pressing what it landed on. That is what "I clicked the tab and
+ * nothing happened, then a second later it worked" is.
+ *
+ * The brief always-on-top is the documented way past the lock, and it is
+ * dropped in the same breath, so the window does not stay above others.
+ */
+function raise(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore()
+  win.show()
+  if (E2E) return
+  const wasOnTop = win.isAlwaysOnTop()
+  win.setAlwaysOnTop(true)
+  win.focus()
+  win.setAlwaysOnTop(wasOnTop)
+}
+
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
@@ -734,6 +862,7 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 400,
     show: false,
+    ...(E2E ? { focusable: false, skipTaskbar: true } : {}),
     // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
     // frameless window, which is why a translucent style came out as a hole in
     // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
@@ -770,7 +899,8 @@ function createWindow(): void {
     // Maximised is restored after the window exists rather than at construction:
     // a window created maximised has no sensible un-maximised size to go back to.
     if (remembered.maximised) mainWindow?.maximize()
-    mainWindow?.show()
+    if (E2E) mainWindow?.showInactive()
+    else if (mainWindow) raise(mainWindow)
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
@@ -835,8 +965,11 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', (_e, argv) => {
     const p = pathFromArgv(argv)
     if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
+      // The handoff is the case the foreground lock bites hardest: Prism has
+      // been sitting in the background for an hour, and the file it is handed
+      // must arrive in a window that is actually in front of you.
+      if (E2E) mainWindow.show()
+      else raise(mainWindow)
       if (p) sendOpen(p)
     }
   })
@@ -880,14 +1013,31 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('update:announce', (e) => {
       if (pendingUpdate) e.sender.send('update:available', pendingUpdate)
     })
-    ipcMain.handle('update:install', (_e, url: string) =>
-      typeof url === 'string'
-        ? installUpdate(url, (pct) => mainWindow?.webContents.send('update:progress', pct))
-        : false
-    )
+    // Installing quits the app so NSIS can replace it. A dirty buffer VETOES
+    // that quit (the close flow below), so without asking first the installer
+    // would run over a live exe while a save dialog waited (2026-08-28). The
+    // renderer answers Cancel / Discard / Save all before the download starts.
+    ipcMain.handle('update:install', async (_e, url: string) => {
+      if (typeof url !== 'string') return false
+      // Unsaved text VETOES the quit this ends in (win.on('close') below), so
+      // installing over it would run NSIS against a live exe while a dialog
+      // waited (2026-08-28). The renderer settles the question first and this
+      // refuses until it has; then the quit is pre-answered, like any other
+      // route the user has already agreed to.
+      if (editorDirty) return false
+      closeConfirmed = true
+      const ok = await installUpdate(url, (pct) =>
+        mainWindow?.webContents.send('update:progress', pct)
+      )
+      // A download that FAILED must not leave the close question pre-answered
+      // for the rest of the session: the next Alt+F4 over unsaved text would
+      // close over the top of it without asking.
+      if (!ok) closeConfirmed = false
+      return ok
+    })
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
-      const r = await dialog.showOpenDialog({ properties: ['openFile'] })
+      const r = await openDialog({ properties: ['openFile'] })
       if (r.canceled || !r.filePaths.length) return null
       return buildPayload(r.filePaths[0])
     })
@@ -898,7 +1048,7 @@ if (!app.requestSingleInstanceLock()) {
       // almost always means a sibling or a child of the one it is on, and
       // starting at Documents made every one of those a walk.
       const at = typeof from === 'string' && existsSync(from) ? from : undefined
-      const r = await dialog.showOpenDialog({
+      const r = await openDialog({
         properties: ['openDirectory'],
         ...(at ? { defaultPath: at } : {})
       })
@@ -915,12 +1065,12 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('open:root', (_e, dir: string): OpenPayload | null => folderPayload(dir))
     // Choose a folder WITHOUT opening it - the Settings picker.
     ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
-      const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      const r = await openDialog({ properties: ['openDirectory'] })
       return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
     })
     /** Several real files at once: the archive panel's "Add files" verb. */
     ipcMain.handle('dialog:pick-files', async (): Promise<string[]> => {
-      const r = await dialog.showOpenDialog({ properties: ['openFile', 'multiSelections'] })
+      const r = await openDialog({ properties: ['openFile', 'multiSelections'] })
       return r.canceled ? [] : r.filePaths
     })
     ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
@@ -963,62 +1113,78 @@ if (!app.requestSingleInstanceLock()) {
       if (insideAnyRoot(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
     })
 
-    // The agent poll behind the tab dots. Every 2.5s WHILE shells exist, one
-    // CIM query lists processes and each session's tree is checked for an AI
-    // CLI (agentDetect). Only changes cross the bridge.
-    //
-    // The timeout is generous on purpose: a COLD WMI service can take well
-    // over ten seconds on its first query, and an 8s timeout killed it, only
-    // to try again cold - a kill-retry loop that delayed the first dot by
-    // half a minute. Warm, the query is ~250ms; letting one slow first call
-    // finish is what warms it.
+    /**
+     * The agent poll behind the tab dots (rewritten 2026-08-28).
+     *
+     * It used to spawn a PowerShell and dump EVERY process on the machine,
+     * with command lines, into a 32MB buffer, every 2.5 seconds, for as long
+     * as a terminal existed. That is a process launch and a megabyte or two of
+     * JSON a few times a minute, forever, to answer a question whose answer
+     * almost never changes.
+     *
+     * Three things fix it without giving up the feature:
+     *
+     *  - ASK ONLY WHEN SOMETHING COULD HAVE CHANGED. An agent cannot start or
+     *    finish in a shell that has printed nothing, so a poll is skipped
+     *    entirely unless a pty has produced output since the last look.
+     *  - BACK OFF WHILE THE ANSWER HOLDS. Same answer twice, look half as
+     *    often, up to 20s; a changed answer goes back to 2.5s.
+     *  - CARRY LESS. The query returns plain "pid ppid" lines, with the
+     *    command line only on rows a cheap prefilter matched. The strict
+     *    decision stays in agentDetect, on the few rows that reach it.
+     */
     const agentState = new Map<string, boolean>()
     let agentBusy = false
+    let agentSeenTicks = -1
+    let agentEvery = AGENT_POLL_MIN
+    let agentNext = 0
     const pollAgents = (): void => {
       const pids = livePids()
       if (!pids.length || agentBusy) return
+      const ticks = ptyOutputTicks()
+      const quiet = ticks === agentSeenTicks
+      const known = pids.every((s) => agentState.has(s.id))
+      // A shell that has said nothing since the last look, whose answer we
+      // already have, cannot have changed its mind.
+      if (quiet && known) return
+      // The backoff is for an answer that keeps coming back the same; a
+      // session nobody has asked about yet has no answer to hold, so it is
+      // not made to wait 20 seconds for its first one (2026-08-28).
+      const now = Date.now()
+      if (known && now < agentNext) return
       agentBusy = true
       execFile(
         'powershell.exe',
-        [
-          '-NoProfile',
-          '-Command',
-          'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
-        ],
-        { windowsHide: true, timeout: 30000, maxBuffer: 32 * 1024 * 1024 },
+        ['-NoProfile', '-Command', AGENT_QUERY],
+        { windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
         (err, stdout) => {
           agentBusy = false
+          // Only a query that actually answered counts as having looked: a
+          // failed one used to consume the activity tick, so a shell that then
+          // fell quiet kept a stale dot until it printed again (2026-08-28).
           if (err || !stdout) return
-          let rows: ProcRow[]
-          try {
-            const raw = JSON.parse(stdout) as Array<{
-              ProcessId: number
-              ParentProcessId: number
-              CommandLine: string | null
-            }>
-            rows = raw.map((r) => ({
-              pid: r.ProcessId,
-              ppid: r.ParentProcessId,
-              cmd: r.CommandLine ?? ''
-            }))
-          } catch {
-            return
-          }
+          const rows = parseProcLines(stdout)
+          if (!rows.length) return
+          agentSeenTicks = ticks
+          let changed = false
           for (const { id, pid } of livePids()) {
             const kind = treeAgentKind(rows, pid)
             const has = kind !== null
             if (agentState.get(id) !== has) {
               agentState.set(id, has)
+              changed = true
               mainWindow?.webContents.send('term:agent', id, has, kind)
             }
           }
           // forget sessions that ended
           const live = new Set(livePids().map((s) => s.id))
           for (const id of [...agentState.keys()]) if (!live.has(id)) agentState.delete(id)
+          agentEvery = changed ? AGENT_POLL_MIN : Math.min(AGENT_POLL_MAX, agentEvery * 2)
+          agentNext = Date.now() + agentEvery
         }
       )
     }
-    setInterval(pollAgents, 2500)
+    setInterval(pollAgents, AGENT_POLL_MIN)
     // The terminal's clickable links. http(s) only, checked on both sides.
     ipcMain.on('shell:open-external', (_e, url: string) => {
       if (/^https?:/i.test(url)) void shell.openExternal(url)
@@ -1080,14 +1246,29 @@ if (!app.requestSingleInstanceLock()) {
     // The same wall as every other handler. A text file only ever reaches the
     // renderer from inside the session root, and opening one from outside
     // re-roots first, so this refuses nothing the app legitimately asks for.
-    ipcMain.handle('file:text', async (_e, p: string): Promise<string | null> => {
+    ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
-      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return null
+      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
       try {
-        return (await import('fs/promises')).readFile(p, 'utf-8')
+        const fs = await import('fs/promises')
+        // AWAITED, so a read error is caught here rather than escaping as a
+        // rejected invoke; and capped, because the contract is small text
+        // files and CodeMirror is handed one string (2026-08-28).
+        const st = await fs.stat(p)
+        // Too big to hand over as one string. Answered as a REASON rather than
+        // as null: the editor used to seed itself with a placeholder and could
+        // then save that placeholder over the file (2026-08-28).
+        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
+        const text = await fs.readFile(p, 'utf-8')
+        // A markdown document may point at pictures OUTSIDE the folder Prism
+        // opened in ("../assets/logo.png" from a doc in docs/), which the
+        // media wall would otherwise refuse. Main grants exactly the files
+        // this document names, having read it (see docImages.ts).
+        if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
+        return { text }
       } catch {
-        return null
+        return { error: 'unreadable' }
       }
     })
     // The editor's save. Text files only, in place, inside the root: this is
@@ -1135,7 +1316,7 @@ if (!app.requestSingleInstanceLock()) {
      * otherwise refuse the file the user just chose.
      */
     ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
-      const r = await dialog.showOpenDialog({
+      const r = await openDialog({
         properties: ['openFile'],
         ...(typeof near === 'string' && existsSync(dirname(near)) ? { defaultPath: dirname(near) } : {}),
         filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
@@ -1220,13 +1401,27 @@ if (!app.requestSingleInstanceLock()) {
         videoCodec: info.videoCodec ?? undefined,
         convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
       }
-      if (!info.audio || info.duration <= 0) return { ...base, blind: true }
+      // More than one track: offer them all, each with the url that plays it.
+      // One track needs no picker, and a picker with one row is chrome.
+      const tracks =
+        info.duration > 0 && info.tracks.length > 1
+          ? info.tracks.map((t) => ({
+              index: t.index,
+              codec: t.codec,
+              channels: t.channels,
+              language: t.language,
+              title: t.title,
+              url: sidecarUrl(p, t.index, info.duration)
+            }))
+          : undefined
+      if (!info.audio || info.duration <= 0) return { ...base, blind: true, tracks }
       return {
         ...base,
         codec: info.audio.codec,
         channels: info.audio.channels,
         layout: info.audio.layout,
-        url: sidecarUrl(p, info.audio.index, info.duration)
+        url: sidecarUrl(p, info.audio.index, info.duration),
+        tracks
       }
     })
 
@@ -1239,6 +1434,7 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const wav = await renderMidi(fluid, p, join(app.getPath('userData'), 'converted'))
         extractedPaths.add(wav)
+        servable.add(wav)
         return `${MEDIA_SCHEME}://local/${encodeURIComponent(wav)}`
       } catch {
         return null
@@ -1259,6 +1455,11 @@ if (!app.requestSingleInstanceLock()) {
     // renderer waits on this and shows progress; a file already converted
     // comes back immediately.
     const convertDir = (): string => join(app.getPath('userData'), 'converted')
+    /** Source file -> the copy being written for it and how many viewers are
+     *  waiting. Two tabs can hold the same film (each tab keeps its own live
+     *  player), and they share ONE conversion: the first to walk away must not
+     *  cancel it out from under the other (2026-08-28). */
+    const converting = new Map<string, { out: string; viewers: number }>()
     ipcMain.handle(
       'video:convert',
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
@@ -1278,16 +1479,30 @@ if (!app.requestSingleInstanceLock()) {
             info?.duration ?? 0,
             (pct) => e.sender.send('video:progress', { path: p, pct })
           )
+          // The renderer knows the FILE it asked about, never the copy's name,
+          // so cancelling has to be answerable from the source (2026-08-28).
+          const seen = converting.get(p)
+          converting.set(p, { out: handle.out, viewers: (seen?.viewers ?? 0) + 1 })
           const out = await handle.done
+          converting.delete(p)
           extractedPaths.add(out) // the copy is ours to serve, wherever it sits
+          servable.add(out)
           return { url: `${MEDIA_SCHEME}://local/${encodeURIComponent(out)}` }
         } catch (err) {
           return { error: err instanceof Error ? err.message : 'conversion failed' }
         }
       }
     )
-    ipcMain.on('video:cancel', (_e, out: string) => {
-      if (typeof out === 'string') cancelConversion(out)
+    // Nobody is waiting for this any more: the viewer moved on to another
+    // file while a whole film was being re-encoded behind it (2026-08-28).
+    ipcMain.on('video:cancel', (_e, source: string) => {
+      if (typeof source !== 'string') return
+      const job = converting.get(source)
+      if (!job) return
+      job.viewers -= 1
+      if (job.viewers > 0) return // somebody else is still waiting for it
+      converting.delete(source)
+      cancelConversion(job.out)
     })
 
     // Office and ebook documents: converted to HTML in main, sanitised there
@@ -1503,7 +1718,12 @@ if (!app.requestSingleInstanceLock()) {
       (_e, zip: string, entries: string[], destDir: string, password?: string) => {
         if (!archiveOk(zip) || !Array.isArray(entries) || !insideAnyRoot(destDir))
           return { ok: false, reason: 'failed' }
-        return extractTo(zip, entries, destDir, typeof password === 'string' ? password : undefined)
+        const pw = typeof password === 'string' ? password : ''
+        // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
+        // member out of one always failed (2026-08-28).
+        const exe = seven(zip)
+        if (exe) return extractSevenTo(exe, zip, entries, destDir, pw)
+        return extractTo(zip, entries, destDir, pw || undefined)
       }
     )
 
@@ -1554,8 +1774,11 @@ if (!app.requestSingleInstanceLock()) {
       async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
         if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
         try {
-          if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
           const exe = seven(p)
+          // The cap is ADM-ZIP's - it reads the whole container into memory.
+          // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
+          // by a check that ran before the branch (2026-08-28).
+          if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
           if (exe) {
             const pw = typeof password === 'string' ? password : ''
             const s7 = await extractSeven(exe, p, entry, pw)
@@ -1592,7 +1815,7 @@ if (!app.requestSingleInstanceLock()) {
         | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
       > => {
         if (!archiveOk(p)) return { ok: false, reason: 'failed' }
-        const r = await dialog.showOpenDialog({
+        const r = await openDialog({
           properties: ['openDirectory', 'createDirectory'],
           defaultPath: dirname(p),
           buttonLabel: 'Extract here'

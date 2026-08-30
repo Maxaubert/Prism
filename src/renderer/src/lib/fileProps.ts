@@ -98,8 +98,9 @@ async function probeArchive(path: string, sizeOnDisk: number): Promise<PropRow[]
 }
 
 async function probeText(path: string): Promise<PropRow[]> {
-  const text = await window.prism.readText(path)
-  if (text === null) return []
+  const read = await window.prism.readText(path)
+  if (!('text' in read)) return []
+  const text = read.text
   const words = text.split(/\s+/).filter(Boolean).length
   return [
     { label: 'Lines', value: String(text.split('\n').length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') },

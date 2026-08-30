@@ -22,6 +22,20 @@ const registered = new Set(
   [...nsh.matchAll(/PRISM_EXT\s+"([a-z0-9]+)"/gi)].map((m) => m[1].toLowerCase())
 )
 
+/** ...and the ones its UNINSTALL half takes back again. */
+const unregistered = new Map(
+  [...nsh.matchAll(/PRISM_UNEXT\s+"([a-z0-9]+)"\s+"([^"]+)"/gi)].map((m) => [
+    m[1].toLowerCase(),
+    m[2]
+  ])
+)
+const registeredIds = new Map(
+  [...nsh.matchAll(/PRISM_EXT\s+"([a-z0-9]+)"\s+"([^"]+)"/gi)].map((m) => [
+    m[1].toLowerCase(),
+    m[2]
+  ])
+)
+
 /** Every extension fileKind calls viewable, read from the source it lives in. */
 const supported = (() => {
   const src = readFileSync('src/shared/fileKind.ts', 'utf8')
@@ -55,6 +69,26 @@ describe('file associations', () => {
 
   it('agrees with isViewable, not just with the source text', () => {
     for (const ext of registered) expect(isViewable('.' + ext), ext).toBe(true)
+  })
+
+  it('takes back every extension it registered', () => {
+    // The install half was tested and the uninstall half was not, so it fell 96
+    // extensions behind (2026-08-28): uninstalling left dead "Open with" entries
+    // pointing at a ProgID that no longer existed.
+    const left = [...registered].filter((e) => !unregistered.has(e)).sort()
+    expect(left, `add these to the uninstall macro: ${left.join(' ')}`).toEqual([])
+  })
+
+  it('takes back nothing it never registered', () => {
+    const strays = [...unregistered.keys()].filter((e) => !registered.has(e)).sort()
+    expect(strays, `these are unregistered but never registered: ${strays.join(' ')}`).toEqual([])
+  })
+
+  it('removes each extension under the ProgID it was registered with', () => {
+    const wrong = [...registeredIds]
+      .filter(([ext, id]) => unregistered.has(ext) && unregistered.get(ext) !== id)
+      .map(([ext, id]) => `${ext}: ${id} vs ${unregistered.get(ext)}`)
+    expect(wrong, `install and uninstall disagree: ${wrong.join(', ')}`).toEqual([])
   })
 
   it('points every extension at a ProgID the installer defines', () => {

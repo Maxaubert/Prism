@@ -37,6 +37,28 @@ export function wasPaused(key: string): boolean {
   return marks.get(key)?.paused ?? false
 }
 
+/**
+ * Should this file start PLAYING when its element appears (2026-08-28, owner
+ * decision)? Only if it was already playing a moment ago - a file Prism has
+ * just opened waits for you to press play.
+ *
+ * The difference from `!wasPaused` is the file nobody has played yet: that one
+ * has no mark at all, and used to fall through to "not paused, so autoplay".
+ * Opening a folder of films, or restoring a window full of tabs, then started
+ * every one of them at once.
+ */
+export function wasPlaying(key: string): boolean {
+  const m = marks.get(key)
+  return !!m && !m.paused
+}
+
+/** "Play this one when it arrives": the playlist's own intent, recorded for a
+ *  file that has never been seen. */
+export function intendToPlay(key: string): void {
+  if (!key) return
+  mark(key).paused = false
+}
+
 /** Where it had got to, whatever its length. */
 export function rememberTime(key: string, t: number): void {
   if (!key || !Number.isFinite(t) || t < 0) return

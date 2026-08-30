@@ -1,6 +1,14 @@
 import { spawn } from 'child_process'
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync
+} from 'fs'
 import { join } from 'path'
 import { chromiumCanDemux, needsSidecar, type MediaInfo } from './ffmpeg'
 
@@ -175,7 +183,16 @@ export function convertVideo(
   const out = join(dir, cacheName(file, st.mtimeMs, st.size))
 
   if (existsSync(out) && statSync(out).size > 0) {
-    // Touch it so the cache evicts genuinely cold entries, not this one.
+    // Touch it, so the cache evicts genuinely cold entries and not this one:
+    // eviction reads mtime oldest-first, so without this the film you rewatch
+    // every week is exactly the one that goes (2026-08-28). The comment said
+    // so; the code did not do it.
+    try {
+      const now = new Date()
+      utimesSync(out, now, now)
+    } catch {
+      /* a touch is an optimisation, never a reason to fail the open */
+    }
     return { out, done: Promise.resolve(out) }
   }
   const running = jobs.get(out)
@@ -224,10 +241,23 @@ export function convertVideo(
 /** Stop a conversion nobody is waiting for any more. */
 export function cancelConversion(out: string): void {
   const job = jobs.get(out)
-  if (job) {
-    job.kill()
-    jobs.delete(out)
+  if (!job) return
+  job.kill()
+  jobs.delete(out)
+  // kill() is TerminateProcess on Windows and returns before ffmpeg's handles
+  // are released, so removing the partial file can fail with EBUSY - and this
+  // runs inside a synchronous ipcMain.on listener, where a throw is an
+  // unhandled error in main (2026-08-28). Try, then leave it for the sweep.
+  try {
     rmSync(out + '.part', { force: true })
+  } catch {
+    setTimeout(() => {
+      try {
+        rmSync(out + '.part', { force: true })
+      } catch {
+        /* the next conversion of this file overwrites it anyway */
+      }
+    }, 2000).unref?.()
   }
 }
 

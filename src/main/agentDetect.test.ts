@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { looksLikeAgent, treeAgentKind, treeHasAgent, type ProcRow } from './agentDetect'
+import {
+  looksLikeAgent,
+  parseProcLines,
+  treeAgentKind,
+  treeHasAgent,
+  type ProcRow
+} from './agentDetect'
 
 const CLAUDE = String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\Admin\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js"`
 const CODEX = String.raw`node "C:\Users\Admin\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js"`
@@ -65,5 +71,34 @@ describe('treeAgentKind', () => {
 
   it('a plain shell hosts nothing', () => {
     expect(treeAgentKind([shell(60)], 60)).toBeNull()
+  })
+})
+
+describe('the compact process listing', () => {
+  it('reads pid and ppid off a row with no command line', () => {
+    expect(parseProcLines('1234 5678')).toEqual([{ pid: 1234, ppid: 5678, cmd: '' }])
+  })
+
+  it('keeps the whole command line, spaces and quotes and all', () => {
+    const cmd = '"C:\\Program Files\\nodejs\\node.exe" C:\\np\\claude-code\\cli.js --resume abc'
+    const [row] = parseProcLines(`42 7 ${cmd}`)
+    expect(row.cmd).toBe(cmd)
+    expect(looksLikeAgent(row.cmd)).toBe(true)
+  })
+
+  it('skips blank lines and anything that is not a row', () => {
+    const out = '\r\n1 0\r\nSystem.Object[]\r\n\r\n9 1 claude\r\n'
+    expect(parseProcLines(out).map((r) => r.pid)).toEqual([1, 9])
+  })
+
+  it('feeds the tree walk, so an agent four deep is still found', () => {
+    const rows = parseProcLines(['100 1', '200 100', '300 200', '400 300 node claude-code/cli.js'].join('\n'))
+    expect(treeAgentKind(rows, 100)).toBe('claude')
+    expect(treeAgentKind(rows, 300)).toBe('claude')
+    expect(treeAgentKind(rows, 999)).toBe(null)
+  })
+
+  it('survives a listing that came back empty', () => {
+    expect(parseProcLines('')).toEqual([])
   })
 })

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { applyVolume } from './audio'
+import type { AudioTrackOffer } from '@shared/types'
 
 /**
  * Sound for the tracks Chromium refuses.
@@ -44,13 +45,20 @@ export interface Sidecar {
   url: string | null
   /** Attach to the hidden <audio>. */
   ref: RefObject<HTMLAudioElement | null>
+  /** Every audio track the file holds, when it holds more than one. */
+  tracks: AudioTrackOffer[]
 }
 
 export function useSidecarAudio(
   path: string,
   video: RefObject<HTMLVideoElement | null>,
   vol: number,
-  muted: boolean
+  muted: boolean,
+  /** A track the user PICKED (2026-08-28). Null means the file's own default:
+   *  Chromium plays it if it can, and the sidecar only steps in when it
+   *  cannot. A pick always decodes, because a track Chromium is not already
+   *  playing can only arrive this way - Chromium exposes no track switching. */
+  pick: number | null = null
 ): Sidecar {
   const audio = useRef<HTMLAudioElement>(null)
   // Keyed by the file it is about, so a new file is 'asking' by construction
@@ -60,10 +68,13 @@ export function useSidecarAudio(
     state: SidecarState
     url: string | null
     videoCodec?: string
+    tracks?: AudioTrackOffer[]
   } | null>(null)
   const mine = ans?.path === path ? ans : null
-  const state: SidecarState = mine ? mine.state : 'asking'
-  const url = mine ? mine.url : null
+  const offered = mine?.tracks ?? []
+  const picked = pick !== null ? offered.find((t) => t.index === pick) : undefined
+  const state: SidecarState = picked ? 'on' : mine ? mine.state : 'asking'
+  const url = picked ? picked.url : mine ? mine.url : null
   const videoCodec = mine?.videoCodec ?? null
 
   // Ask main what this file's audio is. A probe answers in a few milliseconds,
@@ -73,9 +84,12 @@ export function useSidecarAudio(
     void window.prism.probeMedia(path).then((offer) => {
       if (!live) return
       const vc = offer.videoCodec
-      if (offer.needed && offer.url) setAns({ path, state: 'on', url: offer.url, videoCodec: vc })
-      else if (offer.needed && !offer.ffmpeg) setAns({ path, state: 'unavailable', url: null, videoCodec: vc })
-      else setAns({ path, state: 'off', url: null, videoCodec: vc })
+      const tracks = offer.tracks
+      if (offer.needed && offer.url)
+        setAns({ path, state: 'on', url: offer.url, videoCodec: vc, tracks })
+      else if (offer.needed && !offer.ffmpeg)
+        setAns({ path, state: 'unavailable', url: null, videoCodec: vc, tracks })
+      else setAns({ path, state: 'off', url: null, videoCodec: vc, tracks })
     })
     return () => {
       live = false
@@ -193,5 +207,5 @@ export function useSidecarAudio(
     }
   }, [url, video])
 
-  return { state, url, ref: audio, videoCodec }
+  return { state, url, ref: audio, videoCodec, tracks: offered }
 }

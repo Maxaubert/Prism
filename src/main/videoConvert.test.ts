@@ -2,13 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { cacheName, convertArgs, planConversion, readProgress, type ConvertPlan } from './videoConvert'
 import type { MediaInfo } from './ffmpeg'
 
-const info = (videoCodec: string | null, audioCodec?: string): MediaInfo => ({
-  videoCodec,
-  duration: 100,
-  audio: audioCodec
-    ? { index: 1, codec: audioCodec, channels: 2, layout: 'stereo', language: '', duration: 100 }
+const info = (videoCodec: string | null, audioCodec?: string): MediaInfo => {
+  const audio = audioCodec
+    ? {
+        index: 1,
+        title: '',
+        codec: audioCodec,
+        channels: 2,
+        layout: 'stereo',
+        language: '',
+        duration: 100
+      }
     : null
-})
+  return { videoCodec, duration: 100, audio, tracks: audio ? [audio] : [] }
+}
 
 describe('deciding what to convert', () => {
   it('leaves a file Chromium can already play alone', () => {
