@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { addArgs, pointsAt, queryArgs, removeArgs, verbKeys, verbSpec } from './shellVerb'
 
@@ -87,5 +88,32 @@ HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\OpenWithPrism\\command
 
   it('reads an empty answer as absent', () => {
     expect(pointsAt('', EXE)).toBe(false)
+  })
+})
+
+
+/**
+ * Every verb key the app can write must be a key the uninstaller deletes.
+ *
+ * Two of these keys survived uninstall for months, pointing at an exe that no
+ * longer existed (2026-08-30), and the reason nobody noticed is that a
+ * registry key is invisible until someone right-clicks. This is the same
+ * shape as fileAssoc.test.ts: two lists in two languages, checked by a test
+ * rather than by a comment claiming they agree.
+ */
+describe('the uninstaller removes every verb key', () => {
+  const nsh = readFileSync('build/installer/assoc.nsh', 'utf8')
+
+  it.each(verbKeys())('deletes %s', (key) => {
+    // HKCU is SHELL_CONTEXT in the .nsh; the rest of the path is written as is.
+    const sub = key.replace(/^HKCU\\/, '')
+    expect(nsh).toContain(`DeleteRegKey SHELL_CONTEXT "${sub}"`)
+  })
+
+  it('and the macro that runs them is where the uninstaller can see it', () => {
+    // pages.nsh is excluded from the uninstaller build, so customUnInstall
+    // defined there is a macro the uninstaller never has.
+    expect(nsh).toContain('!macro customUnInstall')
+    expect(readFileSync('build/installer/pages.nsh', 'utf8')).not.toContain('!macro customUnInstall')
   })
 })

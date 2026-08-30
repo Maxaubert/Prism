@@ -678,18 +678,57 @@ function ArchiveInner({
   const colTone = (path: string): string =>
     sel.items.has(path) ? 'text-[var(--p-on-accent)] opacity-75' : 'text-[var(--p-dim2)]'
 
+  /** Every FILE member inside a folder, at any depth. A folder in a zip is a
+   *  prefix, not a container, so its verbs act on what carries that prefix. */
+  const under = (folder: string): string[] =>
+    (entries === null || entries === 'error' || entries === 'locked' ? [] : entries)
+      .filter((e) => !e.dir && (e.path === folder || e.path.startsWith(folder + '/')))
+      .map((e) => e.path)
+
+  /**
+   * A FOLDER row's menu (2026-08-30).
+   *
+   * Right-clicking one used to open nothing at all, which reads as a broken
+   * app rather than as a limit. Its verbs are the ones that mean something for
+   * a prefix: walk into it, copy out everything under it, delete all of that.
+   * No rename: renaming a folder inside a zip means rewriting every member
+   * path under it, and that is a decision, not a gap to be filled here.
+   */
+  const folderItems = (entry: Entry): MenuItem[] => {
+    const members = under(entry.path)
+    const n = members.length
+    const items: MenuItem[] = [
+      { label: 'Open', onPick: () => setCwd(entry.path) },
+      {
+        label: `Copy ${n} file${n === 1 ? '' : 's'}`,
+        disabled: n === 0,
+        onPick: () => copyMany(members)
+      }
+    ]
+    if (!readOnly)
+      items.push({
+        label: `Delete ${n} file${n === 1 ? '' : 's'} from archive`,
+        danger: true,
+        disabled: n === 0,
+        onPick: () => setConfirmDelMany(members)
+      })
+    return items
+  }
+
   const menuItems = (entry: Entry): MenuItem[] =>
-    readOnly
-      ? [
-          { label: 'View', onPick: () => view(entry) },
-          { label: 'Copy file', onPick: () => copyOut(entry) }
-        ]
-      : [
-          { label: 'View', onPick: () => view(entry) },
-          { label: 'Copy file', onPick: () => copyOut(entry) },
-          { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
-          { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
-        ]
+    entry.dir
+      ? folderItems(entry)
+      : readOnly
+        ? [
+            { label: 'View', onPick: () => view(entry) },
+            { label: 'Copy file', onPick: () => copyOut(entry) }
+          ]
+        : [
+            { label: 'View', onPick: () => view(entry) },
+            { label: 'Copy file', onPick: () => copyOut(entry) },
+            { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
+            { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
+          ]
   /** Only file members can be copied out or deleted; a folder in the
    *  selection is carried by its members, and counting it made the labels
    *  promise more than the verbs could do. */
@@ -919,7 +958,6 @@ function ArchiveInner({
                                 ? [...sel.items]
                                 : undefined
                             if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
-                            if (r.dir && !multi) return // single folders have no verbs yet
                             setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
                           }}
                           onKeyDown={(e) => {

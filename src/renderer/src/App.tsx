@@ -764,7 +764,7 @@ export default function App(): JSX.Element {
   const saveAll = useCallback(async (): Promise<string[]> => {
     const failed: string[] = []
     for (const [key, buf] of [...buffers.current]) {
-      if (await window.prism.writeText(buf.path, buf.text)) buffers.current.delete(key)
+      if ((await window.prism.writeText(buf.path, buf.text)).ok) buffers.current.delete(key)
       else failed.push(buf.path)
     }
     syncDirty()

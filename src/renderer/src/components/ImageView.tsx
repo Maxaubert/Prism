@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
+import { clampPan, panBounds } from '../lib/imagePan'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -188,14 +189,24 @@ export function ImageView({
         return
       }
       const [cx, cy] = cursorFromCentre(e)
+      // Clamped against the NEW scale: zooming out towards a corner used to
+      // leave the picture parked off stage.
+      const b =
+        img && fitScale ? panBounds(img, stage, fitScale * rotFit * ns, rot) : null
       setZoom((z) => {
         const k = ns / z
-        setTx((x) => cx - k * (cx - x))
-        setTy((y) => cy - k * (cy - y))
+        setTx((x) => {
+          const nx = cx - k * (cx - x)
+          return b ? clampPan(nx, 0, b)[0] : nx
+        })
+        setTy((y) => {
+          const ny = cy - k * (cy - y)
+          return b ? clampPan(0, ny, b)[1] : ny
+        })
         return ns
       })
     },
-    [reset]
+    [reset, img, stage, fitScale, rotFit, rot]
   )
 
   const zoomCentered = useCallback(
@@ -216,9 +227,15 @@ export function ImageView({
     e.preventDefault()
     const orig = { x: e.clientX, y: e.clientY, tx, ty }
     setPanning(true)
+    // Read once: the zoom cannot change mid-drag, and the picture may only
+    // travel until its edge reaches the middle of the stage.
+    const b = img && fitScale ? panBounds(img, stage, shownScale, rot) : null
     const move = (ev: globalThis.MouseEvent): void => {
-      setTx(orig.tx + (ev.clientX - orig.x))
-      setTy(orig.ty + (ev.clientY - orig.y))
+      const nx = orig.tx + (ev.clientX - orig.x)
+      const ny = orig.ty + (ev.clientY - orig.y)
+      const [cx2, cy2] = b ? clampPan(nx, ny, b) : [nx, ny]
+      setTx(cx2)
+      setTy(cy2)
     }
     const up = (): void => {
       setPanning(false)

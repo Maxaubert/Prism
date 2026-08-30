@@ -74,7 +74,9 @@ export function CodeView({
     pathRef.current = path
   }, [path])
   const [dirty, setDirty] = useState(false)
-  const [failed, setFailed] = useState(false)
+  /** Why the last save failed, or null. Carried rather than a bare flag:
+   *  a read-only file and a folder that has gone are different problems. */
+  const [failed, setFailed] = useState<string | null>(null)
   /** Why this file is not in the editor: too big to hand over as one string,
    *  or unreadable. Null when it opened normally. */
   const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
@@ -108,6 +110,12 @@ export function CodeView({
           lintComp.of([]),
           history(),
           drawSelection(),
+          // Ctrl+D (selectNextOccurrence) has been bound by searchKeymap all
+          // along and did nothing, because a second range needs this and the
+          // native selection paints only one (hence drawSelection above).
+          // Selecting a name and seeing its other eleven uses is a READING
+          // feature as much as an editing one.
+          EditorState.allowMultipleSelections.of(true),
           // No drop cursor, and no drag handling at all: a folder carried
           // across the window is not an edit, but CodeMirror treated every
           // dragover as a drop-target preview and walked the caret about
@@ -178,7 +186,7 @@ export function CodeView({
           ]
         })
         report(body === disk ? null : body)
-        setFailed(false)
+        setFailed(null)
         setLoadedPath(path)
         // A fresh file is a document, not a cursor, and it takes no focus at
         // all: the arrows stay the folder's until the user clicks in.
@@ -200,14 +208,16 @@ export function CodeView({
     // guard: nothing may be written over a file whose contents we never had.
     if (!v || !saved.current) return false
     const text = v.state.doc.toString()
-    const ok = await window.prism.writeText(path, text)
-    if (!ok) {
-      setFailed(true)
+    const r = await window.prism.writeText(path, text)
+    if (!r.ok) {
+      // The reason is worth carrying: "read-only" and "the folder is gone"
+      // are different problems and the user can act on both.
+      setFailed(r.reason === 'gone' ? 'gone' : r.message || 'failed')
       return false
     }
     saved.current = { path, text }
     report(null)
-    setFailed(false)
+    setFailed(null)
     onSaved()
     return true
   }, [path, report, onSaved])
@@ -273,7 +283,17 @@ export function CodeView({
       )}
       {(dirty || onClose) && (
         <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]">
-          {failed && <span className="px-2 text-[11.5px] text-[#d97b84]">Couldn’t save.</span>}
+          {failed && (
+            <span className="px-2 text-[11.5px] text-[#d97b84]">
+              {failed === 'gone'
+                ? 'Couldn’t save: that folder is gone.'
+                : failed === 'EACCES' || failed === 'EPERM'
+                  ? 'Couldn’t save: the file is read-only.'
+                  : failed === 'ENOSPC'
+                    ? 'Couldn’t save: the disk is full.'
+                    : 'Couldn’t save.'}
+            </span>
+          )}
           {onClose && (
             <button
               className="rounded-full px-3 py-1 text-[12px] font-semibold text-[var(--p-text-soft)] hover:bg-white/15 hover:text-[var(--p-text)]"

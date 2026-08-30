@@ -10,7 +10,8 @@ import type {
   SearchResult,
   ShellDef,
   MediaProbe,
-  TextRead
+  TextRead,
+  WriteResult
 } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
@@ -70,8 +71,10 @@ const api = {
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
-  /** Save the editor's text over the file. Text kinds only, inside the root. */
-  writeText: (path: string, text: string): Promise<boolean> =>
+  /** Save the editor's text over the file. Text kinds only, inside the root.
+   *  Answers with a reason, so a failed save can say why rather than only
+   *  that it failed. */
+  writeText: (path: string, text: string): Promise<WriteResult> =>
     ipcRenderer.invoke('file:write', path, text),
 
   /** Size, modified time and folder-ness for the Properties popup. */

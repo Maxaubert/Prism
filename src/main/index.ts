@@ -64,6 +64,7 @@ import { findFluid, isMidi, renderMidi } from './midi'
 import { installVerb, removeVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
 import { sanitizeDoc } from './docSanitize'
+import { encodeText, shapeOf, type TextShape } from './textFile'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -92,7 +93,8 @@ import type {
   OpenWithApp,
   MediaProbe,
   RenameResult,
-  TextRead
+  TextRead,
+  WriteResult
 } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -141,14 +143,25 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 // wall (file:text, file:copy-clip) accept these too; writes never do.
 const extractedPaths = new Set<string>()
 
+/**
+ * The encoding and line endings each text file arrived with.
+ *
+ * Held here rather than threaded through the renderer because there are two
+ * writers (the editor's own Ctrl+S and App's close-time "Save all changes")
+ * and App's buffer map holds nothing but a path and a string. A path with no
+ * entry - a file written before it was ever read - falls back to utf-8 with
+ * LF, which is exactly what saving did before any of this existed.
+ */
+const textShape = new Map<string, TextShape>()
+
 // Passwords that worked, for the read-only formats: 7-Zip needs one to LIST an
 // encrypted rar or 7z, not just to extract, so a password the user typed once
 // has to be remembered here as well as in the renderer.
 const archivePasswords = new Map<string, string>()
 
 const MEDIA_SCHEME = 'fsmedia'
-/** file:text's contract is a text file, not a log nobody can read: 64MB of
- *  utf-8 crosses the bridge as one string and lands in one CodeMirror doc. */
+/** file:text's contract is a text file, not a log nobody can read: 64MB
+ *  crosses the bridge as one string and lands in one CodeMirror doc. */
 const TEXT_MAX_BYTES = 64 * 1024 * 1024
 
 /* ------------------------------------------------------------------ *
@@ -544,7 +557,7 @@ function folderPayload(dir: string): OpenPayload | null {
 }
 
 /**
- * The path an OS "open" passed us, if any.
+ * EVERY path an OS "open" or a command line passed us.
  *
  * A FOLDER counts (2026-08-25). Explorer's Directory verb and its
  * Directory\Background verb both hand over a folder, and this used to demand
@@ -552,34 +565,42 @@ function folderPayload(dir: string): OpenPayload | null {
  * The caller needs to know which it got, because a folder roots a tab and a
  * file opens inside one.
  *
- * The FIRST path wins, not the last (2026-08-30). This walked argv backwards,
- * so `prism a.jpg b.jpg` showed b.jpg and dropped a.jpg silently - and the
- * command line is not a rare case now that the app ships a terminal. Every
- * extra path is in the same folder in practice, so the tab's own file list
- * already holds them and the arrows reach them; what matters is landing on
- * the one that was named first, which is the one that was clicked.
+ * ALL of them, not one (2026-08-30). This returned at the first existing path
+ * walking argv BACKWARDS, so `prism a.jpg b.jpg` showed b.jpg and dropped
+ * a.jpg without a word - and a command line is not a rare case now that the
+ * app ships a terminal. Each path goes through the ordinary arriving-file
+ * route, so the documented rule still holds: five photos from one folder is
+ * one tab, not five. Capped, because argv is not a promise.
  */
-function pathFromArgv(argv: string[]): { path: string; dir: boolean } | null {
-  let folder: { path: string; dir: boolean } | null = null
-  for (let i = 1; i < argv.length; i += 1) {
+const ARGV_MAX = 32
+
+export function pathsFromArgv(argv: string[]): Array<{ path: string; dir: boolean }> {
+  const out: Array<{ path: string; dir: boolean }> = []
+  const seen = new Set<string>()
+  for (let i = 1; i < argv.length && out.length < ARGV_MAX; i += 1) {
     const a = argv[i]
     if (a.startsWith('--')) continue
     try {
       if (!existsSync(a)) continue
+      const key = resolve(a).toLowerCase()
+      if (seen.has(key)) continue
       const st = statSync(a)
-      // A file beats a folder however they were ordered: "prism . photo.jpg"
-      // means show the photo, and the folder is where it lives.
-      if (st.isFile()) return { path: a, dir: false }
-      if (st.isDirectory() && !folder) folder = { path: a, dir: true }
+      if (st.isFile()) {
+        seen.add(key)
+        out.push({ path: a, dir: false })
+      } else if (st.isDirectory()) {
+        seen.add(key)
+        out.push({ path: a, dir: true })
+      }
     } catch {
       /* ignore */
     }
   }
-  return folder
+  return out
 }
 
 let mainWindow: BrowserWindow | null = null
-let pendingOpen: { path: string; dir: boolean } | null = null
+let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
@@ -1010,10 +1031,11 @@ function createWindow(): void {
   // already open lands in that tab rather than opening a second copy of it.
   mainWindow.webContents.on('did-finish-load', () => {
     for (const payload of restoreTabs()) mainWindow?.webContents.send('open:file', payload)
-    if (pendingOpen) {
-      sendOpen(pendingOpen)
-      pendingOpen = null
-    }
+    // In argv order, each through the ordinary arriving-file route, so several
+    // files from one folder still fold into ONE tab and the last named ends up
+    // in front - which is the one a "prism a.jpg b.jpg" reader means to see.
+    for (const t of pendingOpen) sendOpen(t)
+    pendingOpen = []
   })
 }
 
@@ -1023,18 +1045,18 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
-    const p = pathFromArgv(argv)
+    const paths = pathsFromArgv(argv)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
       // been sitting in the background for an hour, and the file it is handed
       // must arrive in a window that is actually in front of you.
       if (E2E) mainWindow.show()
       else raise(mainWindow)
-      if (p) sendOpen(p)
+      for (const p of paths) sendOpen(p)
     }
   })
 
-  pendingOpen = pathFromArgv(process.argv)
+  pendingOpen = pathsFromArgv(process.argv)
 
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => {
@@ -1323,7 +1345,15 @@ if (!app.requestSingleInstanceLock()) {
         // as null: the editor used to seed itself with a placeholder and could
         // then save that placeholder over the file (2026-08-28).
         if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        const text = await fs.readFile(p, 'utf-8')
+        // Decoded by its own byte-order mark rather than assumed utf-8: a
+        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
+        // anything PowerShell 5.1 redirected to a file. Those used to open as
+        // mojibake, which Prism would then offer to save back over them. The
+        // file's SHAPE is remembered so the save can reproduce it, line
+        // endings included (see textFile.ts).
+        const buf = await fs.readFile(p)
+        const { text, encoding, eol } = shapeOf(buf)
+        textShape.set(p.toLowerCase(), { encoding, eol })
         // A markdown document may point at pictures OUTSIDE the folder Prism
         // opened in ("../assets/logo.png" from a doc in docs/), which the
         // media wall would otherwise refuse. Main grants exactly the files
@@ -1336,14 +1366,34 @@ if (!app.requestSingleInstanceLock()) {
     })
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
-    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<boolean> => {
-      if (!insideAnyRoot(p) || !existsSync(p)) return false
-      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text') return false
+    /**
+     * Save the editor's text. Answers with a REASON (2026-08-30).
+     *
+     * It used to demand that the file already exist, and answer a bare
+     * boolean. Both hurt: a file renamed or moved out from under a dirty
+     * buffer could never be saved at all, and "Save all changes" at close
+     * time failed with nothing to show the user but a silence. The parent
+     * folder still has to exist, so a save cannot create a file somewhere
+     * nothing asked for, and the root wall and the text-kind check are
+     * unchanged. Extracted archive members stay unwritable: reads honour
+     * `extractedPaths`, writes never do.
+     */
+    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
+      if (!insideAnyRoot(p)) return { ok: false, reason: 'refused' }
+      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
+        return { ok: false, reason: 'refused' }
+      if (!existsSync(dirname(p))) return { ok: false, reason: 'gone' }
       try {
-        await writeFile(p, text, 'utf-8')
-        return true
-      } catch {
-        return false
+        // Back in the shape it came in. CodeMirror rejoins its document with
+        // a bare newline whatever it read, so without this one fixed typo in
+        // a .bat was 400 changed lines, and a UTF-16 file came back as UTF-8.
+        const shape = textShape.get(p.toLowerCase()) ?? { encoding: 'utf8' as const, eol: 'lf' as const }
+        await writeFile(p, encodeText(text, shape))
+        return { ok: true }
+      } catch (e) {
+        // EACCES, EROFS, ENOSPC: the cases worth naming rather than leaving
+        // the user to guess why their work would not save.
+        return { ok: false, reason: 'failed', message: String((e as NodeJS.ErrnoException)?.code ?? '') }
       }
     })
 

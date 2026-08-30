@@ -53,6 +53,14 @@ export type ArchiveListing =
   | { ok: true; entries: ArchiveEntry[] }
   | { ok: false; reason: 'password' | 'aes' | 'failed' }
 
+/** What saving the editor's text answered. A REASON rather than a bare false
+ *  (2026-08-30): the close-time "Save all changes" could fail with nothing to
+ *  show but a silence, and a file moved out from under a dirty buffer was
+ *  unsaveable for a reason nobody could see. */
+export type WriteResult =
+  | { ok: true }
+  | { ok: false; reason: 'refused' | 'gone' | 'failed'; message?: string }
+
 export interface SearchResult {
   hits: SearchHit[]
   /** True when a cap stopped the walk: there may be more than what came back. */

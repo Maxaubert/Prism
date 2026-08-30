@@ -28,14 +28,29 @@ export function needsImageDecode(path: string): boolean {
 
 export const decodableImages = (): string[] => [...FFMPEG_IMAGES]
 
-/** ffmpeg argv for "one frame of this, as PNG, on stdout". */
+/**
+ * ffmpeg argv for "one frame of this, as PNG, on stdout".
+ *
+ * EXR and Radiance HDR hold LINEAR, high-dynamic-range light, and squeezing
+ * that into 8 bits by truncation blows every highlight out (2026-08-30).
+ * MEASURED on the bundled ffmpeg: a synthetic linear EXR clipped 31.6% of its
+ * pixels to pure white through the plain args, and 0% through the tonemap.
+ *
+ * Gated strictly on those two extensions: `tonemap` assumes linear input, so
+ * running it over an ordinary 8-bit .tga or .psd would darken a correct
+ * picture. `format=gbrpf32le` rather than the usual `zscale=t=linear` chain,
+ * because EXR frames carry unspecified primaries and zscale refuses them
+ * ("no path between colorspaces").
+ */
 export function imageArgs(file: string): string[] {
+  const hdr = /\.(exr|hdr)$/i.test(file)
   return [
     '-hide_banner',
     '-loglevel', 'error',
     '-nostdin',
     '-i', file,
     '-frames:v', '1',
+    ...(hdr ? ['-vf', 'format=gbrpf32le,tonemap=hable:desat=0,format=rgba'] : []),
     // Some of these carry an alpha channel; rgba keeps it rather than
     // compositing onto a colour the file never asked for.
     '-pix_fmt', 'rgba',
