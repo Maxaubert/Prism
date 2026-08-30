@@ -511,7 +511,7 @@ function Viewer({
     case 'pdf':
       return (
         <Suspense fallback={<EditorLoading />}>
-          <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+          <PdfView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} />
         </Suspense>
       )
     case 'doc':

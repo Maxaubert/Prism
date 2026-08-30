@@ -4,6 +4,7 @@ import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { fileVerbs, MenuIcon, stepVerbs } from '../lib/fileVerbs'
+import { pngFromBlob } from '../lib/copyImage'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -289,6 +290,11 @@ export function ImageView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit])
 
+  const copyImage = useCallback(async (): Promise<void> => {
+    const png = await pngFromBlob(img?.blob ?? null)
+    if (png) window.prism.copyImageToClipboard(png)
+  }, [img])
+
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
   /**
@@ -324,6 +330,17 @@ export function ImageView({
       hint: '1',
       icon: <MenuIcon d="M4 4h16v16H4zM9 9h6v6H9z" />,
       onPick: () => oneToOne()
+    },
+    {
+      // The PICTURE, not the file: for a HEIC or a camera RAW, handing over
+      // the file gives the other application bytes it cannot open. Copied
+      // from the decoded blob rather than from the element, which carries the
+      // zoom and rotation, or from the big-image canvas, which is downscaled.
+      label: 'Copy image',
+      hint: 'Ctrl+C',
+      disabled: !img,
+      icon: <MenuIcon d="M3.5 5h17v14h-17zM6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" />,
+      onPick: () => void copyImage()
     },
     {
       label: 'Rotate',

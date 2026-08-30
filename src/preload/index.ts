@@ -1,4 +1,4 @@
-import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type {
   ArchiveListing,
   DirListing,
@@ -139,6 +139,23 @@ const api = {
   /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
   copyFileToClipboard: (path: string): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', path),
+  /**
+   * The PICTURE on the clipboard, not the file (2026-08-30).
+   *
+   * For a HEIC, a camera RAW or any of the ffmpeg-decoded formats, copying
+   * the file hands the other application bytes it cannot open. This hands it
+   * pixels, which is what "copy this photo" means everywhere else. Done here
+   * rather than over IPC because the PNG is already in the renderer and
+   * shipping a few MB through main to put it back on the clipboard buys
+   * nothing.
+   */
+  copyImageToClipboard: (png: ArrayBuffer): boolean => {
+    const img = nativeImage.createFromBuffer(Buffer.from(png))
+    if (img.isEmpty()) return false
+    clipboard.clear()
+    clipboard.writeImage(img)
+    return true
+  },
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),

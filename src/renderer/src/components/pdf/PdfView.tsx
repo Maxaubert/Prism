@@ -7,6 +7,7 @@ import {
   useState,
   type JSX
 } from 'react'
+import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { IconFull } from '../icons'
@@ -63,9 +64,13 @@ interface DocState {
 
 export function PdfView({
   url,
+  path,
   onToggleFullscreen
 }: {
   url: string
+  /** The file on disk, which is what a remembered PAGE is keyed by. Absent for
+   *  an archive member, which lives in temp and is not worth remembering. */
+  path?: string
   onToggleFullscreen: () => void
 }): JSX.Element {
   const [docState, setDocState] = useState<DocState | null>(null)
@@ -90,6 +95,15 @@ export function PdfView({
   const wrappers = useRef<Map<number, HTMLDivElement>>(new Map())
   const layers = useRef<Map<number, HTMLElement[]>>(new Map())
   const textCache = useRef<Map<number, Promise<PageText>>>(new Map())
+  /** The document this viewer has already restored, so it happens once. */
+  const restoredFor = useRef<string | null>(null)
+  const lastSavedPage = useRef(0)
+  /** The page count, for the save's "is this document long enough" test. A
+   *  ref written in an effect, because onScroll must not be rebuilt per page
+   *  and a ref may not be written while rendering. */
+  const totalPages = useRef(0)
+  /** What a remembered page is filed under. Empty for an archive member. */
+  const key = path ?? ''
 
   // A new file in the same viewer: reset the per-document state during render
   // (the pattern the sidebar uses), and let the load effect fill docState in.
@@ -107,6 +121,13 @@ export function PdfView({
     setMatches([])
     setCurMatch(-1)
   }
+  // A ref cannot be written while rendering, so the one-shot flag that guards
+  // the page restore is reset in an effect - the same split useMediaControls
+  // makes for exactly this reason.
+  useEffect(() => {
+    restoredFor.current = null
+    lastSavedPage.current = 0
+  }, [url])
 
   /* ---------- document ---------- */
 
@@ -149,6 +170,9 @@ export function PdfView({
   // a stale document from the previous file renders nothing.
   const loaded = docState?.url === url ? docState : null
   const doc = loaded?.doc ?? null
+  useEffect(() => {
+    totalPages.current = doc?.numPages ?? 0
+  }, [doc])
   const error = loaded?.error ?? null
   const baseDims = loaded?.base ?? FALLBACK_DIMS
   const pageCount = doc?.numPages ?? 0
@@ -251,6 +275,7 @@ export function PdfView({
   const onScroll = useCallback(() => {
     const box = scroller.current
     if (!box) return
+    const total = totalPages.current
     // The current page is the one crossing a line a third of the way down.
     const line = box.getBoundingClientRect().top + box.clientHeight / 3
     let best = 1
@@ -260,7 +285,16 @@ export function PdfView({
       else if (r.bottom < line && n > best) best = n
     })
     setPage(best)
-  }, [])
+    // Remember the PAGE, not the offset: the offset depends on the zoom and
+    // on which pages are virtualized, so it means nothing on the way back in.
+    if (key && total) {
+      rememberDocPos(key, best)
+      if (Math.abs(best - lastSavedPage.current) >= 1) {
+        lastSavedPage.current = best
+        saveDocPos(key, best, total, true)
+      }
+    }
+  }, [key])
 
   const goToPage = useCallback((n: number) => {
     const el = wrappers.current.get(n)
@@ -269,6 +303,29 @@ export function PdfView({
     box.scrollTo({ top: el.offsetTop - PAGE_GAP })
     setPage(n)
   }, [])
+
+  /**
+   * Open at the page you left off on (2026-08-30).
+   *
+   * A 10-minute film reopened where you stopped and a 400-page PDF opened at
+   * page 1. Runs once the pages have been laid out, since goToPage needs a
+   * wrapper to scroll to, and once per document.
+   */
+  useEffect(() => {
+    if (!key || !doc || restoredFor.current === url) return
+    const want = openDocAt(key)
+    if (want <= 1) {
+      restoredFor.current = url
+      return
+    }
+    if (!wrappers.current.has(Math.min(want, doc.numPages))) return // not laid out yet
+    restoredFor.current = url
+    goToPage(clamp(Math.round(want), 1, doc.numPages))
+    // near/dims change as pages mount, which is what re-runs this until the
+    // wanted page exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, doc, url, near, dims])
+
 
   /* ---------- find ---------- */
 
