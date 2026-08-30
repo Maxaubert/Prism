@@ -160,6 +160,10 @@ export interface MediaInfo {
    *  video, so this exists to NAME what it cannot show rather than leave a
    *  black window with no explanation. */
   videoCodec: string | null
+  /** Frames per second, when the file has a video stream that says. Frame
+   *  stepping is a lie without it: a step of 1/30 on 24fps film moves most of
+   *  a frame and lands between two of them. */
+  fps: number | null
   duration: number
 }
 
@@ -180,6 +184,10 @@ interface ProbeStream {
   codec_type?: string
   index?: number
   codec_name?: string
+  /** "30000/1001" and friends. avg is the honest one for a whole file; r is
+   *  the container's nominal rate and is what a variable-rate file reports. */
+  avg_frame_rate?: string
+  r_frame_rate?: string
   channels?: number
   channel_layout?: string
   disposition?: { default?: number }
@@ -218,7 +226,13 @@ export function readProbe(json: string): MediaInfo | null {
   const tracks = audios.map(toTrack).filter((t): t is AudioTrack => t !== null)
   const audio = pick ? toTrack(pick) : null
   if (!audio && !video) return null
-  return { audio, tracks, videoCodec: video?.codec_name ?? null, duration }
+  return {
+    audio,
+    tracks,
+    videoCodec: video?.codec_name ?? null,
+    fps: frameRate(video),
+    duration
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -281,8 +295,27 @@ export function resetFfmpeg(): void {
 const PROBE_ARGS = [
   '-v', 'error',
   '-print_format', 'json',
-  '-show_entries', 'stream=index,codec_type,codec_name,channels,channel_layout,disposition:stream_tags=language,title:format=duration'
+  '-show_entries',
+  'stream=index,codec_type,codec_name,channels,channel_layout,disposition,avg_frame_rate,r_frame_rate:stream_tags=language,title:format=duration'
 ]
+
+/**
+ * Frames per second, from ffprobe's rational strings ("30000/1001").
+ *
+ * avg_frame_rate first, since it is measured over the file; r_frame_rate is
+ * the container's nominal rate and reads "90000/1" on some streams, which is
+ * a timebase rather than a frame rate. Anything outside plausible video is
+ * refused rather than believed.
+ */
+function frameRate(video: ProbeStream | undefined): number | null {
+  for (const raw of [video?.avg_frame_rate, video?.r_frame_rate]) {
+    if (!raw) continue
+    const [n, d] = raw.split('/')
+    const fps = Number(n) / (Number(d) || 1)
+    if (Number.isFinite(fps) && fps > 0.5 && fps <= 480) return fps
+  }
+  return null
+}
 
 /** Ask ffprobe what a file carries. null when it cannot say. */
 export async function probeMedia(ffprobe: string, file: string): Promise<MediaInfo | null> {

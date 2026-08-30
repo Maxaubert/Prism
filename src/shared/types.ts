@@ -26,7 +26,32 @@ export interface SearchHit {
   kind: FileKind
   /** Where it lives, relative to the searched root ('' at the root itself). */
   dir: string
+  /** This hit is a FOLDER, not a file (2026-08-30). Clicking it walks the tree
+   *  there rather than opening it in a viewer. Kept separate from `dir`, which
+   *  is the row's subtitle and means something else. */
+  isFolder?: boolean
 }
+
+/** One entry inside an archive. */
+export interface ArchiveEntry {
+  path: string
+  name: string
+  dir: boolean
+  size: number
+  /** What it occupies inside the container; absent on folders. */
+  packed?: number
+  /** The entry's own modified time, epoch ms. */
+  mtime?: number
+  encrypted?: boolean
+}
+
+/** What listing an archive answered. A REASON rather than a bare null
+ *  (2026-08-30): a 7z or rar written with encrypted file names cannot be
+ *  listed without the password, and null reached the panel as "this archive
+ *  looks corrupt" with nowhere to type one. */
+export type ArchiveListing =
+  | { ok: true; entries: ArchiveEntry[] }
+  | { ok: false; reason: 'password' | 'aes' | 'failed' }
 
 export interface SearchResult {
   hits: SearchHit[]
@@ -41,6 +66,10 @@ export interface DirListing {
   folders: DirEntry[]
   files: ViewerFile[]
   unreadable?: boolean
+  /** How many files were dropped for being unviewable. Absent when none were,
+   *  so a truly empty folder still reads as empty rather than as "0 files
+   *  Prism can't open". */
+  hidden?: number
 }
 
 /** An app the "Open in" submenu can hand a file to. `id` is the executable's
@@ -136,6 +165,9 @@ export interface MediaProbe {
   codec?: string
   channels?: number
   layout?: string
+  /** Frames per second of the video stream, when the file says. What frame
+   *  stepping steps by: 1/30 on 24fps film is not a frame. */
+  fps?: number
   /** fsaudio:// url for the track, ready to hand to an <audio>. */
   url?: string
   /** Every audio track the file holds (2026-08-28), for the picker. Present

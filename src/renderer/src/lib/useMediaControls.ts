@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject, type Syntheti
 import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
+import { forgetPlayer, reportPlaying } from './awake'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -18,6 +19,10 @@ const RESUME_MIN_DURATION = 600 // seconds (10 minutes)
 const RESUME_END_PAD = 5 // don't resume/save within this many seconds of the end
 const RESUME_SAVE_STEP = 5 // save at most once per this many seconds of movement
 const SESSION_END_PAD = 0.5 // a file that ran to its end restarts, however short it is
+
+// Player identities for the keep-awake count. A counter, not the path: the
+// same file can be mounted twice (a split view), and both are playing.
+let awakeSeq = 0
 
 export interface MediaBindings {
   onPlay: () => void
@@ -74,6 +79,10 @@ interface Options {
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
+  /** The file's real frame rate, when it is known. Frame stepping without it
+   *  is a guess: 1/30 on 24fps film moves 1.25 frames and lands between two.
+   *  Omit for audio, and for a file whose rate the probe could not say. */
+  fps?: number | null
   /** Stable per-file key (the media url). Enables resume-position for media
    *  longer than RESUME_MIN_DURATION - which is why a 5-second clip is never
    *  remembered, and a film is. Both players pass it. Omit to disable. */
@@ -96,12 +105,18 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     resumeKey,
     keys = true,
     volumeKey = '',
-    forceMute = false
+    forceMute = false,
+    fps = null
   } = opts
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
   const resumedRef = useRef(false)
   const lastSavedRef = useRef(0)
+  // One identity per mounted player, because up to four are mounted at once
+  // (the media deck) and the screen stays awake while ANY of them is playing.
+  const awakeRef = useRef<string>('')
+  if (!awakeRef.current) awakeRef.current = `player-${++awakeSeq}`
+  const awakeKey = awakeRef.current
   const [playing, setPlaying] = useState(false)
   const [cur, setCur] = useState(0)
   const [dur, setDur] = useState(0)
@@ -124,6 +139,11 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
+
+  // A player that has gone away is not playing. Without this a tab closed
+  // mid-film would hold the screen awake for the rest of the session, and
+  // there is no event on the way out that says "paused".
+  useEffect(() => () => forgetPlayer(awakeKey), [awakeKey])
 
   /**
    * A NEW FILE is a new file (2026-08-28).
@@ -212,6 +232,25 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   )
   const seekBy = useCallback((d: number) => seekTo((ref.current?.currentTime ?? 0) + d), [seekTo, ref])
 
+  /**
+   * One frame forwards or backwards, on a paused picture.
+   *
+   * `fps` comes from ffprobe (avg_frame_rate). Without it this stepped a flat
+   * 1/30s whatever the file was, so on 24fps film every step moved 1.25
+   * frames and landed between two of them, and on 60fps it moved two. And it
+   * never paused, so a step during playback was invisible.
+   */
+  const stepFrame = useCallback(
+    (dir: number) => {
+      const m = ref.current
+      if (!m) return
+      if (!m.paused) m.pause()
+      const frame = fps && fps > 0 ? 1 / fps : 1 / 30
+      seekTo(m.currentTime + dir * frame)
+    },
+    [ref, fps, seekTo]
+  )
+
   // Keyboard transport. The app-level handler (capture phase) owns ←/→ while the
   // user is paging through a folder and calls preventDefault; here we honour that
   // by yielding any key it already claimed. Otherwise the player owns ←/→ (seek)
@@ -236,8 +275,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
         case 'ArrowDown': e.preventDefault(); bumpVol(-0.05); act(); break
         case 'm': toggleMute(); act(); break
         case 'f': onFullscreen?.(); break
-        case '.': seekBy(1 / 30); break
-        case ',': seekBy(-1 / 30); break
+        // Frame step. PAUSES first, because stepping a playing video is a
+        // request to look at one frame and the next timeupdate would take it
+        // away again - every player does this. The step is the file's own
+        // frame time when the probe knew it, and 1/30 only as a last resort.
+        case '.': e.preventDefault(); stepFrame(1); act(); break
+        case ',': e.preventDefault(); stepFrame(-1); act(); break
         case '>': stepRate(1); break
         case '<': stepRate(-1); break
         case 'Home': seekTo(0); break
@@ -248,7 +291,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, onFullscreen, onActivity, ref, keys])
+  }, [togglePlay, seekBy, bumpVol, toggleMute, stepRate, seekTo, stepFrame, onFullscreen, onActivity, ref, keys])
 
   const bind: MediaBindings = {
     onPlay: () => {
@@ -256,6 +299,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       // awake before the sound can arrive (2026-08-28).
       wakeAudioContext()
       setPlaying(true)
+      // Two hours of film is two hours of no input, which is exactly what the
+      // screen lock waits for.
+      reportPlaying(awakeKey, true)
       // Remembered for the session, so opening Settings (or any other tab) and
       // coming back does not restart a film you had deliberately paused: a tab
       // renders only while it is in front, so the player comes back as a fresh
@@ -265,6 +311,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     },
     onPause: () => {
       setPlaying(false)
+      reportPlaying(awakeKey, false)
       // Nothing left playing anywhere in the window: let the audio thread and
       // its device clock go. Any route back in wakes it first.
       if (![...document.querySelectorAll('video,audio')].some((m) => !(m as HTMLMediaElement).paused))

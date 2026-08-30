@@ -2217,11 +2217,23 @@ export default function App(): JSX.Element {
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
-        e.preventDefault()
         // The tree gets first refusal: it walks folders as well as files, and
         // says no when it isn't there to walk.
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
-        if (!fullscreen && treeNav.current?.(dir)) return
+        if (!fullscreen && treeNav.current?.(dir)) {
+          e.preventDefault()
+          return
+        }
+        // Nothing to walk, and a player in front of you: Up/Down are the
+        // VOLUME, which is what every media player has taught (2026-08-30).
+        // They used to be preventDefault-ed unconditionally here, and
+        // useMediaControls yields on defaultPrevented, so the volume keys were
+        // dead everywhere - most obviously in fullscreen, where the sidebar is
+        // gone and there is nothing else for them to do. The player only gets
+        // them when the tree does not want them, so browsing a folder from the
+        // sidebar is unchanged.
+        if (!!file && PLAYABLE.has(file.kind)) return // player handles it
+        e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if (
         (e.key === 'ArrowRight' || e.key === 'ArrowLeft') &&

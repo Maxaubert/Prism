@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react'
 import type { SearchHit } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
-import { iconColour, KindIcon } from './TreeRows'
+import { FolderIcon, iconColour, KindIcon } from './TreeRows'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 
 // What the sidebar shows while its search box holds a query: a flat list of
@@ -26,9 +26,10 @@ export function SearchResults({
   refreshKey: number
   currentPath: string | null
   size: (typeof TREE_SIZES)[number]
-  onOpen: (path: string) => void
+  /** A file opens in the viewer; a FOLDER walks the tree there instead. */
+  onOpen: (path: string, isFolder?: boolean) => void
   /** Right-click on one hit: the ordinary file menu. */
-  onMenu: (e: MouseEvent, path: string, name: string) => void
+  onMenu: (e: MouseEvent, path: string, name: string, isFolder?: boolean) => void
   /** Right-click inside a multi-selection: the menu that acts on all of it. */
   onMultiMenu: (e: MouseEvent, paths: string[]) => void
 }): JSX.Element {
@@ -62,9 +63,9 @@ export function SearchResults({
   const ready = found?.q === query ? found : null
   const order = useMemo(() => (ready?.hits ?? []).map((h) => h.path), [ready])
   const onRowClick = useCallback(
-    (e: MouseEvent, path: string): void => {
+    (e: MouseEvent, path: string, isFolder?: boolean): void => {
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
-      if (!e.shiftKey && !e.ctrlKey) onOpen(path)
+      if (!e.shiftKey && !e.ctrlKey) onOpen(path, isFolder)
     },
     [order, onOpen]
   )
@@ -95,13 +96,13 @@ export function SearchResults({
               role="option"
               aria-selected={on}
               data-selected={picked || undefined}
-              onClick={(e) => onRowClick(e, h.path)}
+              onClick={(e) => onRowClick(e, h.path, h.isFolder)}
               onContextMenu={(e) => {
                 e.preventDefault()
                 if (sel.items.has(h.path) && sel.items.size > 1) onMultiMenu(e, [...sel.items])
                 else {
                   setSel({ anchor: h.path, items: new Set([h.path]) })
-                  onMenu(e, h.path, h.name)
+                  onMenu(e, h.path, h.name, h.isFolder)
                 }
               }}
               className={`flex w-full items-center gap-1.5 rounded-md py-[3px] pl-2 pr-2 text-left outline-none focus-visible:outline-none ${
@@ -117,7 +118,11 @@ export function SearchResults({
                 borderBottomRightRadius: j.bottom ? 0 : undefined
               }}
             >
-              <KindIcon kind={h.kind} color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)} path={h.path} />
+              {h.isFolder ? (
+                <FolderIcon color={picked ? 'var(--p-on-accent)' : iconColour('folder')} />
+              ) : (
+                <KindIcon kind={h.kind} color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)} path={h.path} />
+              )}
               <span className="min-w-0">
                 <span className="block truncate">{h.name}</span>
                 {h.dir && (

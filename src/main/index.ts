@@ -7,7 +7,9 @@ import {
   ipcMain,
   dialog,
   nativeTheme,
-  utilityProcess
+  utilityProcess,
+  Menu,
+  powerSaveBlocker
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
@@ -75,13 +77,14 @@ import {
   listArchive,
   moveMembers,
   renameMember,
-  type ArchiveEntry,
+  setSevenExe,
   type ArchiveStat
 } from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type {
+  ArchiveListing,
   DirListing,
   FileKind,
   OnClash,
@@ -541,28 +544,38 @@ function folderPayload(dir: string): OpenPayload | null {
 }
 
 /**
- * The path an OS "open" passed us, if any (last argv entry that exists).
+ * The path an OS "open" passed us, if any.
  *
  * A FOLDER counts (2026-08-25). Explorer's Directory verb and its
  * Directory\Background verb both hand over a folder, and this used to demand
  * `isFile()`: the menu entry was there, Prism launched, and nothing happened.
  * The caller needs to know which it got, because a folder roots a tab and a
  * file opens inside one.
+ *
+ * The FIRST path wins, not the last (2026-08-30). This walked argv backwards,
+ * so `prism a.jpg b.jpg` showed b.jpg and dropped a.jpg silently - and the
+ * command line is not a rare case now that the app ships a terminal. Every
+ * extra path is in the same folder in practice, so the tab's own file list
+ * already holds them and the arrows reach them; what matters is landing on
+ * the one that was named first, which is the one that was clicked.
  */
 function pathFromArgv(argv: string[]): { path: string; dir: boolean } | null {
-  for (let i = argv.length - 1; i >= 1; i -= 1) {
+  let folder: { path: string; dir: boolean } | null = null
+  for (let i = 1; i < argv.length; i += 1) {
     const a = argv[i]
     if (a.startsWith('--')) continue
     try {
       if (!existsSync(a)) continue
       const st = statSync(a)
+      // A file beats a folder however they were ordered: "prism . photo.jpg"
+      // means show the photo, and the folder is where it lives.
       if (st.isFile()) return { path: a, dir: false }
-      if (st.isDirectory()) return { path: a, dir: true }
+      if (st.isDirectory() && !folder) folder = { path: a, dir: true }
     } catch {
       /* ignore */
     }
   }
-  return null
+  return folder
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -829,6 +842,53 @@ function applyMaterial(fullscreen: boolean): void {
  * the window is created unfocusable and shown inactive.
  */
 const E2E = process.argv.includes('--e2e')
+
+/**
+ * Two things Windows needs told before the first window exists (2026-08-30).
+ *
+ * The AppUserModelID is how Windows decides that a running process and a
+ * pinned shortcut are the SAME application. Told nothing, Electron invents one
+ * from the executable path, the installed shortcut carries the one
+ * electron-builder wrote from `appId`, and launching from the pin gave two
+ * taskbar buttons for one Prism. It has to match the shortcut's, and it has to
+ * be set before any window is created.
+ *
+ * The stock application menu is Electron's, not Prism's: an invisible menu bar
+ * whose accelerators (Ctrl+R reload, Ctrl+Shift+I devtools, Ctrl+0 and
+ * Ctrl+plus/minus zoom) were live over a frameless window that draws no menu
+ * and hands those keys to the image viewer. Removing it costs nothing Prism
+ * uses; the e2e keeps it, since the suite has no menu bar to be confused by
+ * and devtools is worth having when a scenario fails.
+ */
+app.setAppUserModelId('com.prism.viewer')
+if (!E2E) Menu.setApplicationMenu(null)
+// The AES-zip path used to look for 7-Zip in Program Files and tell the user
+// to install one, while Prism has been shipping it in resources/bin since
+// 2026-08-24. Injected here so archive.ts stays electron-free and testable.
+setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+
+/**
+ * Keep the screen awake while something is playing (2026-08-30).
+ *
+ * A film is the one thing a computer does that involves no input for two
+ * hours, so Windows dims and then locks the screen in the middle of it. The
+ * renderer owns the truth (it knows whether a media element is actually
+ * playing) and asks for the block; main holds at most one, and releases it the
+ * moment nothing is playing or the window goes away. `prevent-display-sleep`
+ * and not `prevent-app-suspension`: the point is the screen, and the weaker
+ * block is implied by the stronger one anyway.
+ */
+let awakeId: number | null = null
+function keepAwake(on: boolean): void {
+  if (on) {
+    if (awakeId === null || !powerSaveBlocker.isStarted(awakeId)) {
+      awakeId = powerSaveBlocker.start('prevent-display-sleep')
+    }
+    return
+  }
+  if (awakeId !== null && powerSaveBlocker.isStarted(awakeId)) powerSaveBlocker.stop(awakeId)
+  awakeId = null
+}
 
 /**
  * Bring the window genuinely forward (2026-08-28).
@@ -1198,6 +1258,9 @@ if (!app.requestSingleInstanceLock()) {
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
+    // The renderer is the only thing that knows whether a media element is
+    // actually playing, so it owns the answer and main just holds the block.
+    ipcMain.on('power:awake', (_e, on: boolean) => keepAwake(on))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.
     ipcMain.on('roots:drop', (_e, root: string) => {
@@ -1399,6 +1462,7 @@ if (!app.requestSingleInstanceLock()) {
         ffmpeg: true,
         needed,
         videoCodec: info.videoCodec ?? undefined,
+        fps: info.fps ?? undefined,
         convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
       }
       // More than one track: offer them all, each with the url that plays it.
@@ -1747,8 +1811,9 @@ if (!app.requestSingleInstanceLock()) {
       if (!archiveOk(p)) return null
       const exe = seven(p)
       if (!exe) return archiveStat(p)
-      const list = await listSeven(exe, p, archivePasswords.get(p) ?? '')
-      if (!list) return null
+      const listed = await listSeven(exe, p, archivePasswords.get(p) ?? '')
+      if (!listed.ok) return null
+      const list = listed.entries
       return {
         files: list.filter((e) => !e.dir).length,
         folders: list.filter((e) => e.dir).length,
@@ -1757,15 +1822,31 @@ if (!app.requestSingleInstanceLock()) {
         readOnly: true
       }
     })
-    ipcMain.handle('archive:list', async (_e, p: string): Promise<ArchiveEntry[] | null> => {
-      if (!archiveOk(p)) return null
-      try {
-        const exe = seven(p)
-        return exe ? await listSeven(exe, p, archivePasswords.get(p) ?? '') : listArchive(p)
-      } catch {
-        return null
+    // Answers WHY it could not list (2026-08-30). A 7z or rar written with
+    // encrypted file NAMES cannot be listed at all without the password, and
+    // the old flat null reached the panel as "this archive looks corrupt": a
+    // good archive read as broken, with nowhere to type what it was asking
+    // for. A password that works is remembered here too, so the member verbs
+    // and the drag-out do not ask again.
+    ipcMain.handle(
+      'archive:list',
+      async (_e, p: string, password?: string): Promise<ArchiveListing> => {
+        if (!archiveOk(p)) return { ok: false, reason: 'failed' }
+        try {
+          const exe = seven(p)
+          if (!exe) {
+            const entries = listArchive(p)
+            return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
+          }
+          const pw = typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+          const listed = await listSeven(exe, p, pw)
+          if (listed.ok && pw) archivePasswords.set(p, pw)
+          return listed
+        } catch {
+          return { ok: false, reason: 'failed' }
+        }
       }
-    })
+    )
     type ExtractResult =
       | { ok: true; path: string; kind: FileKind }
       | { ok: false; reason: 'password' | 'aes' | 'failed' }
@@ -1938,6 +2019,9 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('window-all-closed', () => {
+    // Nothing can be playing without a window, and a block that outlives the
+    // thing it was held for is a laptop that never sleeps again.
+    keepAwake(false)
     if (process.platform !== 'darwin') app.quit()
   })
 }

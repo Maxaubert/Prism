@@ -134,7 +134,7 @@ function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: stri
   )
 }
 
-function FolderIcon({ color }: { color: string }): JSX.Element {
+export function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
     <Glyph color={color}>
       <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
@@ -353,7 +353,20 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const sort = useSort()
   const pad = 4 + depth * t.size.indent
   if (listing.unreadable) return <Note text="can't read this folder" pad={pad} />
-  if (!listing.folders.length && !listing.files.length) return <Note text="empty" pad={pad} />
+  // "empty" is a claim about the FOLDER; a folder of installers is not empty,
+  // Prism just has nothing to show from it, and saying "empty" there reads as
+  // a missing or broken folder (2026-08-30).
+  if (!listing.folders.length && !listing.files.length)
+    return (
+      <Note
+        text={
+          listing.hidden
+            ? `${listing.hidden} file${listing.hidden === 1 ? '' : 's'} Prism can't open`
+            : 'empty'
+        }
+        pad={pad}
+      />
+    )
   // The sort orders the rows the same way it orders the paging.
   const files = sortFiles(listing.files, sort.field, sort.dir)
   // Folders sort by name (they have no size or kind worth ordering by) and

@@ -214,6 +214,8 @@ export function VideoView({
     resumeKey: url,
     keys: !background,
     volumeKey,
+    // What a frame actually is, for the . and , keys.
+    fps: playable.fps,
     // A picked track plays through the sidecar, so the file's own default
     // track must stop coming out of the picture - and this is the ONLY writer
     // of the element's mute, so nothing can undo it.

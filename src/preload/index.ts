@@ -1,5 +1,6 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
+  ArchiveListing,
   DirListing,
   FileKind,
   OnClash,
@@ -206,20 +207,12 @@ const api = {
     /** 7z, rar, tar and the rest: listed and extracted, never written. */
     readOnly?: boolean
   } | null> => ipcRenderer.invoke('archive:stat', path),
-  /** Every entry in the archive (folders derived when the zip omits them). */
-  archiveList: (
-    path: string
-  ): Promise<Array<{
-    path: string
-    name: string
-    dir: boolean
-    size: number
-    /** What it occupies inside the container; absent on folders. */
-    packed?: number
-    /** The entry's own modified time, epoch ms. */
-    mtime?: number
-    encrypted?: boolean
-  }> | null> => ipcRenderer.invoke('archive:list', path),
+  /** Every entry in the archive (folders derived when the zip omits them).
+   *  Answers with a REASON rather than null (2026-08-30): a 7z or rar written
+   *  with encrypted file names cannot be listed without the password, and a
+   *  bare null read as "corrupt archive" with nowhere to type one. */
+  archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
+    ipcRenderer.invoke('archive:list', path, password),
   /** Extract the whole archive somewhere the user picks (main asks), into a
    *  folder named after it. Resolves with where it landed. */
   archiveExtractAll: (
@@ -330,6 +323,8 @@ const api = {
   close: (force = false): void => ipcRenderer.send('window:close', force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
   setDirty: (dirty: boolean): void => ipcRenderer.send('editor:dirty', dirty),
+  /** Something is playing: hold the screen awake until told otherwise. */
+  setAwake: (on: boolean): void => ipcRenderer.send('power:awake', on),
   /** Main blocked a close because the editor is dirty: put the question up. */
   onAskClose: (cb: () => void): (() => void) => {
     const listener = (): void => cb()

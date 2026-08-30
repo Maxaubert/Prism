@@ -14,7 +14,7 @@ const info = (videoCodec: string | null, audioCodec?: string): MediaInfo => {
         duration: 100
       }
     : null
-  return { videoCodec, duration: 100, audio, tracks: audio ? [audio] : [] }
+  return { videoCodec, fps: 25, duration: 100, audio, tracks: audio ? [audio] : [] }
 }
 
 describe('deciding what to convert', () => {

@@ -198,10 +198,15 @@ function ArchiveInner({
   refreshKey: number
   fullscreen: boolean
 }): JSX.Element {
-  const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
+  // 'locked' is its own state (2026-08-30): a 7z or rar written with encrypted
+  // file NAMES cannot be listed at all without the password, which is not the
+  // same thing as a broken archive and must not read as one.
+  const [entries, setEntries] = useState<Entry[] | null | 'error' | 'locked'>(null)
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
   // panel offers no verbs that would fail. zip keeps all of its.
   const [readOnly, setReadOnly] = useState(false)
+  /** A password has already been tried and refused, so the dialog says so. */
+  const [triedPass, setTriedPass] = useState(false)
   useEffect(() => {
     void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
   }, [file.path])
@@ -253,21 +258,33 @@ function ArchiveInner({
   } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
-  const load = useCallback(() => {
-    void window.prism.archiveList(file.path).then((list) => setEntries(list ?? 'error'))
-  }, [file.path])
+  const load = useCallback(
+    (password?: string) => {
+      void window.prism.archiveList(file.path, password).then((r) => {
+        if (r.ok) {
+          // A password that got us in belongs to the renderer's own store too,
+          // so dragging a member out to a folder does not ask again.
+          if (password) rememberArchivePassword(file.path, password)
+          setEntries(r.entries)
+          return
+        }
+        setEntries(r.reason === 'password' ? 'locked' : 'error')
+      })
+    },
+    [file.path]
+  )
   useEffect(() => load(), [load, refreshKey])
 
   // The rows of the CURRENT folder only: folders first, names ordered.
   const rows = useMemo((): Entry[] => {
-    if (!entries || entries === 'error') return []
+    if (!entries || entries === 'error' || entries === 'locked') return []
     return entries
       .filter((e) => parentOf(e.path) === cwd)
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
   }, [entries, cwd])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
-    if (!entries || entries === 'error') return ''
+    if (!entries || entries === 'error' || entries === 'locked') return ''
     const folders = entries.filter((e) => e.dir).length
     const files = entries.length - folders
     const parts = [`${files} file${files === 1 ? '' : 's'}`]
@@ -295,8 +312,10 @@ function ArchiveInner({
               }
             })
           else if (r === 'aes')
+            // Prism ships its own 7-Zip, so reaching this now means the
+            // bundled copy is missing rather than that the machine lacks one.
             setOops(
-              `"${entry.name}" is AES-encrypted, and opening that needs 7-Zip installed. With 7-Zip on this machine Prism opens it in place.`
+              `"${entry.name}" is AES-encrypted, and the 7-Zip that opens those is missing from this install.`
             )
           else setOops(`Couldn't read "${entry.name}" from the archive.`)
         })
@@ -428,7 +447,7 @@ function ArchiveInner({
    *  says for a row that has no size of its own. */
   const childCount = useCallback(
     (path: string): string => {
-      if (!entries || entries === 'error') return ''
+      if (!entries || entries === 'error' || entries === 'locked') return ''
       const n = entries.filter((e) => e.path.startsWith(path + '/')).length
       return n ? `${n} item${n === 1 ? '' : 's'}` : 'empty'
     },
@@ -699,6 +718,22 @@ function ArchiveInner({
       }
     ]
   }
+
+  // Locked is a question, not a failure: the archive is fine, it wants the
+  // password before it will even say what is inside.
+  if (entries === 'locked')
+    return (
+      <PasswordDialog
+        name={file.name}
+        wrong={triedPass}
+        onCancel={() => setEntries('error')}
+        onSubmit={(pw) => {
+          setTriedPass(true)
+          setEntries(null)
+          load(pw)
+        }}
+      />
+    )
 
   if (entries === 'error')
     return (

@@ -320,6 +320,28 @@ export function Sidebar({
     [load, setState]
   )
 
+  /**
+   * A folder hit in the search results (2026-08-30).
+   *
+   * Folders match the query now, and a folder is not something to open in a
+   * viewer: clicking one leaves the search, walks the tree to it and expands
+   * it, which is where you were trying to get. Reuses the reveal chain rather
+   * than writing a second expander.
+   */
+  const revealFolder = useCallback(
+    (p: string): void => {
+      setQuery('')
+      setState((s) => {
+        const expanded = new Set(s.expanded)
+        ancestorChain(root, p).forEach((a) => expanded.add(a))
+        expanded.add(p)
+        return { ...s, expanded }
+      })
+      void load(p)
+    },
+    [load, root, setState]
+  )
+
   // Reveal: when the open file changes, expand every folder between the root and
   // it. Adjusting state during render (rather than in an effect) keeps a folder
   // the user collapsed collapsed until the file actually moves.
@@ -745,8 +767,8 @@ export function Sidebar({
               refreshKey={refreshKey}
               currentPath={currentPath}
               size={size}
-              onOpen={onOpenFile}
-              onMenu={(e, path, name) => onMenu(e, path, name, false, undefined, true)}
+              onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
+              onMenu={(e, path, name, isFolder) => onMenu(e, path, name, !!isFolder, undefined, true)}
               onMultiMenu={(e, paths) =>
                 setMenu({
                   x: e.clientX,
