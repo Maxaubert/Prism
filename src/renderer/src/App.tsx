@@ -910,6 +910,7 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => window.prism.onOpenFile(open), [open])
+
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
    * Fullscreen the way YouTube actually does it: the DOM Fullscreen API on
@@ -1457,6 +1458,41 @@ export default function App(): JSX.Element {
       return { ...s, tabs: s.tabs.map((t) => (t.id === id ? { ...t, tree } : t)) }
     })
   }, [])
+  /**
+   * The folder changed and Prism did not change it (2026-08-30).
+   *
+   * Only folders a tab has ALREADY loaded are re-listed: a change deep in a
+   * collapsed subtree is not a reason to go and read it. Nothing else is
+   * touched - expansion is a separate Set, the rows are keyed by path so the
+   * scroll position and the DOM nodes survive, and refreshKey is deliberately
+   * NOT bumped, because that is what clears the selection.
+   */
+  useEffect(
+    () =>
+      window.prism.onDirChanged(({ root, dirs }) => {
+        setTabState((s) => {
+          for (const tab of s.tabs) {
+            if (tab.kind === 'settings' || !sameRoot(tab.root, root)) continue
+            for (const dir of dirs) {
+              // Never fetch a folder this tab has not opened.
+              if (!(dir in tab.tree.children)) continue
+              const id = tab.id
+              void window.prism.listDir(tab.root, dir).then((listing) => {
+                if (!listing) return
+                setTree(id, (tree) =>
+                  dir in tree.children
+                    ? { ...tree, children: { ...tree.children, [dir]: listing } }
+                    : tree
+                )
+              })
+            }
+          }
+          return s
+        })
+      }),
+    [setTree]
+  )
+
   /** Bound to the active tab, so Sidebar's handle is stable within a tab. */
   const onTree = useCallback(
     (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),

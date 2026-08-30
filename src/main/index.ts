@@ -24,8 +24,9 @@ import {
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
-import { listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
+import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, onRootsChanged, validRoot } from './roots'
+import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import {
@@ -83,7 +84,7 @@ import {
 } from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
-import { fileKind } from '@shared/fileKind'
+import { fileKind, isViewable } from '@shared/fileKind'
 import type {
   ArchiveListing,
   DirListing,
@@ -881,6 +882,38 @@ const E2E = process.argv.includes('--e2e')
  * uses; the e2e keeps it, since the suite has no menu bar to be confused by
  * and devtools is worth having when a scenario fails.
  */
+/**
+ * The tree follows the folder, not just Prism's own writes (2026-08-30).
+ *
+ * The watcher set is the ROOT set by construction: roots.ts announces every
+ * open and close and this is the only thing that starts or stops a watch, so
+ * it can never drift onto a path the renderer named.
+ */
+onRootsChanged((root, open) => {
+  if (!open) {
+    unwatchRoot(root)
+    return
+  }
+  watchRoot(
+    root,
+    (change) => mainWindow?.webContents.send('dir:changed', change),
+    isSkipped,
+    (name) => isViewable(extname(name).toLowerCase(), name)
+  )
+})
+
+/**
+ * Prism is about to write here itself, so the watcher should say nothing.
+ *
+ * Every one of these handlers is already followed by the renderer refreshing
+ * that folder; a watcher echo would be a second, redundant refresh that also
+ * costs the selection twice.
+ */
+function ownWrite(...paths: Array<string | null | undefined>): void {
+  const now = Date.now()
+  for (const p of paths) if (typeof p === 'string' && p) muteDir(dirname(p), now)
+}
+
 app.setAppUserModelId('com.prism.viewer')
 if (!E2E) Menu.setApplicationMenu(null)
 // The AES-zip path used to look for 7-Zip in Program Files and tell the user
@@ -1314,12 +1347,14 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle(
       'file:rename',
-      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> =>
+      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => (
+        ownWrite(p),
         editable(p)
           ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
-          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' })
     )
     ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
+      ownWrite(p)
       if (!editable(p)) return false
       try {
         await shell.trashItem(p)
@@ -1379,6 +1414,7 @@ if (!app.requestSingleInstanceLock()) {
      * `extractedPaths`, writes never do.
      */
     ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
+      ownWrite(p)
       if (!insideAnyRoot(p)) return { ok: false, reason: 'refused' }
       if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
         return { ok: false, reason: 'refused' }
@@ -1749,6 +1785,7 @@ if (!app.requestSingleInstanceLock()) {
     // and the namespace move is not. Best effort: an item the user has since
     // emptied simply is not there any more.
     ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+      ownWrite(...(Array.isArray(paths) ? paths : []))
       if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideAnyRoot(p)))
         return Promise.resolve(false)
       const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
@@ -1791,6 +1828,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
+        // Both ends: a move empties one folder and fills another.
+        ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
         if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.
@@ -2003,6 +2042,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
+      ownWrite(p)
       if (!insideAnyRoot(p)) return null
       try {
         if (!statSync(p).isFile()) return null // folders are a different feature
@@ -2072,6 +2112,7 @@ if (!app.requestSingleInstanceLock()) {
     // Nothing can be playing without a window, and a block that outlives the
     // thing it was held for is a laptop that never sleeps again.
     keepAwake(false)
+    closeAllWatches()
     if (process.platform !== 'darwin') app.quit()
   })
 }

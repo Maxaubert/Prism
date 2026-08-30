@@ -80,6 +80,13 @@ export interface DirListing {
   hidden?: number
 }
 
+/** A folder Prism has open changed, and Prism did not change it (2026-08-30).
+ *  `root` says which tab it belongs to; `dirs` are the folders to re-list. */
+export interface DirChange {
+  root: string
+  dirs: string[]
+}
+
 /** An app the "Open in" submenu can hand a file to. `id` is the executable's
  *  path; main only ever launches an id it enumerated itself. */
 export interface OpenWithApp {

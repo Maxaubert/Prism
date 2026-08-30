@@ -1,6 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type {
   ArchiveListing,
+  DirChange,
   DirListing,
   FileKind,
   OnClash,
@@ -275,6 +276,18 @@ const api = {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
     ipcRenderer.on('open:file', listener)
     return () => ipcRenderer.removeListener('open:file', listener)
+  },
+  /**
+   * Something changed in a folder Prism has open, and Prism did not do it.
+   *
+   * `root` names which tab (two tabs can share one), `dirs` the folders that
+   * actually changed. Coalesced and filtered in main; Prism's own writes are
+   * muted, since the renderer refreshes after those itself.
+   */
+  onDirChanged: (cb: (m: DirChange) => void): (() => void) => {
+    const listener = (_: unknown, m: DirChange): void => cb(m)
+    ipcRenderer.on('dir:changed', listener)
+    return () => ipcRenderer.removeListener('dir:changed', listener)
   },
 
   /* ----- the terminal ----- */

@@ -19,6 +19,20 @@ import { isInsideRoot, isRoot } from './dirList'
 
 const roots: string[] = []
 
+/**
+ * Told whenever the set changes, so the folder watcher can follow it.
+ *
+ * A subscriber rather than an fs call here: this module is the authority on
+ * WHICH folders are open, and knows nothing about watching them. The watcher
+ * set is then exactly the root set by construction - it can never drift onto
+ * a path the renderer named.
+ */
+type RootListener = (root: string, open: boolean) => void
+let listener: RootListener | null = null
+export function onRootsChanged(fn: RootListener | null): void {
+  listener = fn
+}
+
 /** Roots in the order they were opened. */
 export function openRoots(): readonly string[] {
   return roots
@@ -30,12 +44,17 @@ export function openRoots(): readonly string[] {
 export function addRoot(root: string): void {
   if (!root || roots.some((r) => isRoot(r, root))) return
   roots.push(root)
+  listener?.(root, true)
 }
 
 /** Close a root. Nothing beneath it is reachable afterwards. */
 export function dropRoot(root: string): void {
   const i = roots.findIndex((r) => isRoot(r, root))
-  if (i >= 0) roots.splice(i, 1)
+  if (i >= 0) {
+    const gone = roots[i]
+    roots.splice(i, 1)
+    listener?.(gone, false)
+  }
 }
 
 /** True when `p` sits in any open root. The general wall. */

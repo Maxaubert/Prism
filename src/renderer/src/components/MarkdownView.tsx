@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { ContextMenu } from './ContextMenu'
+import { fileVerbs, MenuIcon } from '../lib/fileVerbs'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
@@ -90,6 +92,7 @@ export function MarkdownView({
   const restoredFor = useRef<string | null>(null)
   const lastSaved = useRef(0)
   const [finding, setFinding] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
   const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
   const text = loaded?.path === path ? loaded.text : null
@@ -211,8 +214,30 @@ export function MarkdownView({
   }, [])
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
+    >
     {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
+    {menu && (
+      <ContextMenu
+        x={menu.x}
+        y={menu.y}
+        onClose={() => setMenu(null)}
+        items={[
+          {
+            label: 'Find',
+            hint: 'Ctrl+F',
+            icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20" />,
+            onPick: () => setFinding(true)
+          },
+          ...fileVerbs(path)
+        ]}
+      />
+    )}
     <div
       ref={box}
       // 0, not -1: Tab is the keyboard's way into the document, and clicking

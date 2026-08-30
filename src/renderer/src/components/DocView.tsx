@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { ContextMenu } from './ContextMenu'
+import { fileVerbs, MenuIcon } from '../lib/fileVerbs'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
@@ -28,6 +30,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
   const restoredFor = useRef<string | null>(null)
   const lastSaved = useRef(0)
   const [finding, setFinding] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     let live = true
@@ -95,8 +98,38 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
     )
   }
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
+    >
     {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
+    {menu && (
+      <ContextMenu
+        x={menu.x}
+        y={menu.y}
+        onClose={() => setMenu(null)}
+        items={[
+          {
+            label: 'Find',
+            hint: 'Ctrl+F',
+            icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20" />,
+            onPick: () => setFinding(true)
+          },
+          {
+            // The honest escape hatch: this is a READING view, with no layout
+            // fidelity and no editing, so the app that made the file is one
+            // row away rather than a thing to go and hunt for.
+            label: 'Open in default app',
+            icon: <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />,
+            onPick: () => window.prism.openInDefault(path)
+          },
+          ...fileVerbs(path)
+        ]}
+      />
+    )}
     <div
       ref={box}
       data-doc-scroller

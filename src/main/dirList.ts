@@ -11,6 +11,10 @@ import type { DirListing, SearchHit, SearchResult, ViewerFile } from '@shared/ty
 // Windows clutter nobody wants in a viewer's tree. Dotfiles are dropped too.
 const SKIP = new Set(['desktop.ini', 'thumbs.db', '$recycle.bin', 'system volume information'])
 
+/** The same rule, for the folder watcher: waking the renderer for a change
+ *  to something it would never draw a row for is all cost and no answer. */
+export const isSkipped = (name: string): boolean => SKIP.has(name.toLowerCase())
+
 const isWin = process.platform === 'win32'
 
 /** Resolved, symlink-free, comparable form of a path. Falls back to `resolve`
