@@ -114,9 +114,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const lastSavedRef = useRef(0)
   // One identity per mounted player, because up to four are mounted at once
   // (the media deck) and the screen stays awake while ANY of them is playing.
-  const awakeRef = useRef<string>('')
-  if (!awakeRef.current) awakeRef.current = `player-${++awakeSeq}`
-  const awakeKey = awakeRef.current
+  // State rather than a ref: a ref may not be read while rendering.
+  const [awakeKey] = useState(() => `player-${++awakeSeq}`)
   const [playing, setPlaying] = useState(false)
   const [cur, setCur] = useState(0)
   const [dur, setDur] = useState(0)

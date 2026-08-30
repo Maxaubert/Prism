@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
-import { useMediaControls } from '../lib/useMediaControls'
+import { RATES, useMediaControls } from '../lib/useMediaControls'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { fileVerbs, MenuIcon, stepVerbs, tickIf } from '../lib/fileVerbs'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
@@ -51,6 +53,8 @@ export function AudioView({
   fullscreen,
   onToggleFullscreen,
   onAutoAdvance,
+  onStep,
+  canStep,
   transportStyle,
   background = false,
   volumeKey
@@ -63,6 +67,10 @@ export function AudioView({
   onToggleFullscreen: () => void
   /** Autoplay's exit: the app moves to the next track in the folder. */
   onAutoAdvance: () => void
+  /** Next/Previous TRACK, from the menu. Same rule as autoplay: the next file
+   *  of this kind, stepping over photos and documents. */
+  onStep?: (dir: 1 | -1) => void
+  canStep?: (dir: 1 | -1) => boolean
   transportStyle: TransportStyle
   /** Mounted but not on screen: another tab is in front. The track plays on,
    *  with no controls, no keyboard and no visualizer - see lib/mediaDeck. */
@@ -71,6 +79,7 @@ export function AudioView({
   volumeKey?: string
 }): JSX.Element {
   const v = useViz()
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // See VolumeReadout: a timestamp, so every notch restarts one clock.
   const [volFlash, setVolFlash] = useState(0)
   const prefs = usePlayerPrefs()
@@ -141,10 +150,39 @@ export function AudioView({
   }, [fullscreen])
   const chromeVisible = !fullscreen || chromeOn
 
+  /**
+   * The audio stage's menu (2026-08-30).
+   *
+   * A strict subset of the video's, for the reason the video's own rows were
+   * trimmed: play/pause and fullscreen are a click and a double-click away
+   * already. What is left is what you cannot otherwise reach without leaving
+   * the file - the next track, the speed, and where the thing lives.
+   */
+  const menuItems = (): MenuItem[] => [
+    ...(onStep && canStep ? stepVerbs('track', onStep, canStep) : []),
+    {
+      label: 'Speed',
+      hint: `${c.rate.toFixed(2)}x`,
+      icon: <MenuIcon d="M12 4a8 8 0 1 1-8 8M12 8v4l3 2M12 4V2" />,
+      children: RATES.map((r) => ({
+        label: r === 1 ? 'Normal' : `${r}x`,
+        icon: tickIf(Math.abs(c.rate - r) < 0.001),
+        onPick: () => c.setRate(r)
+      }))
+    },
+    ...fileVerbs(path)
+  ]
+
   return (
     <div
       className="relative h-full w-full overflow-hidden"
       onMouseMove={showChrome}
+      onContextMenu={(e) => {
+        if (background) return
+        e.preventDefault()
+        showChrome()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
       // The wheel is the volume here too, and the only way past 100%: the
       // gesture should not change because the file has no picture.
       onWheel={(e) => {
@@ -155,6 +193,9 @@ export function AudioView({
       style={{ cursor: chromeVisible ? undefined : 'none' }}
     >
       {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
+      {menu && !background && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
+      )}
       {(synthesising || synthFailed) && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-[var(--p-bg)]/90 p-8 text-center">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">

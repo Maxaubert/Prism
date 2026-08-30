@@ -481,7 +481,17 @@ function Viewer({
         />
       )
     case 'image':
-      return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
+      return (
+        <ImageView
+          url={url}
+          path={file.path}
+          name={file.name}
+          onToggleFullscreen={onToggleFullscreen}
+          onStep={onStep}
+          canStep={canStep}
+          fullscreen={fullscreen}
+        />
+      )
     case 'audio':
       return (
         <AudioView
@@ -491,6 +501,8 @@ function Viewer({
           fullscreen={fullscreen}
           onToggleFullscreen={onToggleFullscreen}
           onAutoAdvance={onAutoAdvance}
+          onStep={onStep}
+          canStep={canStep}
           transportStyle={transportStyle}
           background={background}
           volumeKey={volumeKey}

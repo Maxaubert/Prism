@@ -16,6 +16,8 @@ export function SearchResults({
   currentPath,
   size,
   onOpen,
+  onRows,
+  cursorPath,
   onMenu,
   onMultiMenu
 }: {
@@ -30,6 +32,12 @@ export function SearchResults({
   onOpen: (path: string, isFolder?: boolean) => void
   /** Right-click on one hit: the ordinary file menu. */
   onMenu: (e: MouseEvent, path: string, name: string, isFolder?: boolean) => void
+  /** Lend the hits upward so the arrows can walk them, the same shape as the
+   *  tree lends its own rows. Without this the keys fell through to App and
+   *  paged the folder BEHIND the results panel. */
+  onRows?: (rows: Array<{ path: string; name: string; isFolder: boolean }>) => void
+  /** Which hit the cursor is on, for the roving tab stop. */
+  cursorPath?: string | null
   /** Right-click inside a multi-selection: the menu that acts on all of it. */
   onMultiMenu: (e: MouseEvent, paths: string[]) => void
 }): JSX.Element {
@@ -61,6 +69,11 @@ export function SearchResults({
   }
 
   const ready = found?.q === query ? found : null
+  // Reported upward whenever the answer changes, so Sidebar's `step` has a
+  // list to walk while the search panel is showing.
+  useEffect(() => {
+    onRows?.((ready?.hits ?? []).map((h) => ({ path: h.path, name: h.name, isFolder: !!h.isFolder })))
+  }, [ready, onRows])
   const order = useMemo(() => (ready?.hits ?? []).map((h) => h.path), [ready])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder?: boolean): void => {
@@ -94,6 +107,8 @@ export function SearchResults({
           <li key={h.path} role="none">
             <button
               role="option"
+              data-row={h.path}
+              tabIndex={cursorPath && h.path.toLowerCase() === cursorPath.toLowerCase() ? 0 : -1}
               aria-selected={on}
               data-selected={picked || undefined}
               onClick={(e) => onRowClick(e, h.path, h.isFolder)}

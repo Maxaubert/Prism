@@ -207,6 +207,8 @@ function ArchiveInner({
   const [readOnly, setReadOnly] = useState(false)
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
+  /** The panel's dead-space menu, kept apart from the row menu's state. */
+  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => {
     void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
   }, [file.path])
@@ -868,6 +870,16 @@ function ArchiveInner({
           <div
             ref={panelBox}
             onPointerDown={onPanelPointerDown}
+            // The panel's DEAD SPACE answers a right-click too (2026-08-30).
+            // It already answers the pointer - a press there clears the marks
+            // and a drag sweeps a band - so a right-click landing on nothing
+            // read as a miss. It carries the verbs the row above does, where
+            // the pointer is, plus Select all.
+            onContextMenu={(e) => {
+              if ((e.target as HTMLElement | null)?.closest('[data-arc-row]')) return
+              e.preventDefault()
+              setPanelMenu({ x: e.clientX, y: e.clientY })
+            }}
             className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-[var(--p-side-flat)] ${
               dropTarget === cwd
                 ? 'border-[color:var(--p-accent-hi)]'
@@ -1077,6 +1089,32 @@ function ArchiveInner({
         </div>
       )}
 
+      {panelMenu && (
+        <ContextMenu
+          x={panelMenu.x}
+          y={panelMenu.y}
+          onClose={() => setPanelMenu(null)}
+          items={[
+            { label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() },
+            ...(readOnly
+              ? []
+              : [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]),
+            {
+              label: 'Select all',
+              hint: 'Ctrl+A',
+              disabled: rows.length === 0,
+              onPick: () =>
+                setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
+            },
+            { label: 'Copy archive', onPick: () => void window.prism.copyFileToClipboard(file.path) },
+            {
+              label: 'Show in File Explorer',
+              onPick: () => window.prism.showInExplorer(file.path)
+            },
+            { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(file.path) }
+          ]}
+        />
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}

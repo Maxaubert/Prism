@@ -11,6 +11,8 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, codeFolding, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
 import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { fileVerbs, MenuIcon } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { jsonLinter, syntaxLinter } from '../lib/codeLint'
@@ -77,6 +79,7 @@ export function CodeView({
   /** Why the last save failed, or null. Carried rather than a bare flag:
    *  a read-only file and a folder that has gone are different problems. */
   const [failed, setFailed] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null)
   /** Why this file is not in the editor: too big to hand over as one string,
    *  or unreadable. Null when it opened normally. */
   const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
@@ -256,14 +259,108 @@ export function CodeView({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [save])
 
+  // The menu's verbs, as callbacks: a ref may not be read while rendering, and
+  // menuItems() runs in the render pass that draws the menu.
+  const pasteHere = useCallback((): void => {
+    void navigator.clipboard.readText().then((text) => {
+      const ed = view.current
+      if (!ed || !text) return
+      ed.dispatch(ed.state.replaceSelection(text))
+      ed.focus()
+    })
+  }, [])
+  const selectAll = useCallback((): void => {
+    const ed = view.current
+    if (!ed) return
+    ed.dispatch({ selection: { anchor: 0, head: ed.state.doc.length } })
+    ed.focus()
+  }, [])
+  const findHere = useCallback((): void => {
+    const ed = view.current
+    if (ed) openSearchPanel(ed)
+  }, [])
+
+  /**
+   * The editor's own menu (2026-08-30).
+   *
+   * Right-clicking a selection used to give nothing at all, not even Copy,
+   * which reads as a broken text field. CodeMirror renders a contenteditable,
+   * so preventing the default here removes Chromium's native menu: this one
+   * has to carry the clipboard verbs itself, and it does them through the
+   * document APIs rather than by dispatching keystrokes.
+   */
+  const menuItems = (hasSel: boolean): MenuItem[] => {
+    return [
+      {
+        label: 'Cut',
+        hint: 'Ctrl+X',
+        disabled: !hasSel,
+        icon: <MenuIcon d="M6 4l12 12M18 4L6 16M7 18a2 2 0 1 0 0 .01M17 18a2 2 0 1 0 0 .01" />,
+        onPick: () => void document.execCommand('cut')
+      },
+      {
+        label: 'Copy',
+        hint: 'Ctrl+C',
+        disabled: !hasSel,
+        icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+        onPick: () => void document.execCommand('copy')
+      },
+      {
+        label: 'Paste',
+        hint: 'Ctrl+V',
+        icon: <MenuIcon d="M9 4h6v3H9zM7 5H5v15h14V5h-2" />,
+        onPick: pasteHere
+      },
+      {
+        label: 'Select all',
+        hint: 'Ctrl+A',
+        icon: <MenuIcon d="M4 4h16v16H4zM8 12h8M12 8v8" />,
+        onPick: selectAll
+      },
+      {
+        label: 'Find',
+        hint: 'Ctrl+F',
+        icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20" />,
+        onPick: findHere
+      },
+      {
+        label: 'Save',
+        hint: 'Ctrl+S',
+        icon: <MenuIcon d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
+        onPick: () => void save()
+      },
+      ...fileVerbs(path)
+    ]
+  }
+
   return (
     <div
       // Only while the caret is actually in the file: App's Escape (close the
       // window) has to yield to the editor's, but only when there is one.
       data-owns-escape={editing ? '' : undefined}
       ref={host}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        // Whether anything is selected is read HERE, not while rendering: a
+        // ref may not be touched during render, and the selection that
+        // matters is the one at the moment of the right-click anyway.
+        const v = view.current
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          hasSel: !!v && v.state.selection.ranges.some((r) => !r.empty)
+        })
+      }}
       className="relative h-full w-full"
     >
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.hasSel)}
+          onClose={() => setMenu(null)}
+        />
+      )}
       {!ready && (
         <div className="delayed-loader absolute inset-0 grid place-items-center">
           <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />

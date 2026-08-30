@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, ty
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { fileVerbs, MenuIcon, stepVerbs } from '../lib/fileVerbs'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -23,13 +25,27 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 
 export function ImageView({
   url,
+  path,
   name,
-  onToggleFullscreen
+  onToggleFullscreen,
+  onStep,
+  canStep,
+  fullscreen = false
 }: {
   url: string
+  /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
+  path?: string
   name: string
   onToggleFullscreen: () => void
+  /** Next/Previous image, of the same kind, which is autoplay's rule. */
+  onStep?: (dir: 1 | -1) => void
+  canStep?: (dir: 1 | -1) => boolean
+  /** Fullscreen makes the write-shaped rows inert, the same rule the archive
+   *  and the undo stack follow: a change nobody can see is a change nobody
+   *  meant. Nothing here writes yet, but rotate is a view, not a file edit. */
+  fullscreen?: boolean
 }): JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [tx, setTx] = useState(0)
@@ -275,12 +291,66 @@ export function ImageView({
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
+  /**
+   * The picture's own menu (2026-08-30).
+   *
+   * Everything here was already reachable by a key or a button, and none of it
+   * was reachable by the gesture people actually try on a photo. The rows are
+   * the view verbs the button cluster carries, with their shortcuts in the
+   * hint column, plus the file verbs every surface shares.
+   */
+  const menuItems = (): MenuItem[] => [
+    ...(onStep && canStep && !fullscreen ? stepVerbs('image', onStep, canStep) : []),
+    {
+      label: 'Zoom in',
+      hint: '+',
+      icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20M11 8.5v5M8.5 11h5" />,
+      onPick: () => zoomCentered(1.18)
+    },
+    {
+      label: 'Zoom out',
+      hint: '-',
+      icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20M8.5 11h5" />,
+      onPick: () => zoomCentered(1 / 1.18)
+    },
+    {
+      label: 'Fit to window',
+      hint: '0',
+      icon: <MenuIcon d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5" />,
+      onPick: () => reset()
+    },
+    {
+      label: 'Actual size',
+      hint: '1',
+      icon: <MenuIcon d="M4 4h16v16H4zM9 9h6v6H9z" />,
+      onPick: () => oneToOne()
+    },
+    {
+      label: 'Rotate',
+      hint: 'R',
+      icon: <MenuIcon d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5" />,
+      onPick: () => setRot((d) => (d + 90) % 360)
+    },
+    {
+      label: fullscreen ? 'Exit fullscreen' : 'Fullscreen',
+      hint: 'F',
+      icon: <MenuIcon d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5" />,
+      onPick: onToggleFullscreen
+    },
+    ...(path ? fileVerbs(path) : [])
+  ]
+
   return (
     <div
       ref={stageRef}
       onWheel={onWheel}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
       className="group relative flex h-full w-full items-center justify-center overflow-hidden"
     >
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
       {failed ? (
         <div className="grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
           This image can’t be displayed (unsupported format or corrupt file).

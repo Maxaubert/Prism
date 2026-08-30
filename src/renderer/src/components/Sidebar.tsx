@@ -214,6 +214,9 @@ export function Sidebar({
   // The search box. A query swaps the tree for a flat result list; clearing it
   // brings the tree back exactly as it was (its state never unmounts).
   const [query, setQuery] = useState('')
+  /** The hits the search panel is showing, lent upward so the arrows can walk
+   *  them. Empty while the tree is showing. */
+  const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>([])
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
   // The terminal button's right-click menu: its own tiny state, since the file
   // menu carries a path and this one is about the tab's shell.
@@ -613,7 +616,18 @@ export function Sidebar({
   // while search has replaced the tree, or at the ends of the tree.
   const step = useCallback(
     (dir: 'up' | 'down' | 'left' | 'right'): boolean => {
-      if (!open || query) return false
+      if (!open) return false
+      // While search has replaced the tree, the arrows walk the HITS. They used
+      // to bail here, so Up/Down paged the folder behind the panel instead -
+      // the results scrolled past under a cursor that was not in them.
+      if (query) {
+        if (!hitRows.length) return false
+        // A flat list: up/left and down/right mean the same thing in it.
+        const next = stepRow(hitRows, at, dir === 'down' || dir === 'right' ? 1 : -1, false)
+        if (!next) return false
+        land(next)
+        return true
+      }
       const here = rows.find((r) => r.path.toLowerCase() === (at ?? '').toLowerCase())
       // Left and right on a folder are its chevron: collapse, or open.
       if (here?.isFolder && (dir === 'left' || dir === 'right')) {
@@ -634,7 +648,7 @@ export function Sidebar({
       land(next)
       return true
     },
-    [open, query, rows, at, state.expanded, toggle, land]
+    [open, query, hitRows, rows, at, state.expanded, toggle, land]
   )
 
   // Lend the tree's keyboard to App, which owns the window's key handling and
@@ -719,6 +733,17 @@ export function Sidebar({
                   e.stopPropagation()
                   setQuery('')
                   e.currentTarget.blur()
+                  return
+                }
+                // Up/Down walk the results while the caret stays in the box, so
+                // typing a query and arrowing to the one you want is one
+                // gesture. App's typing guard treats an INPUT as owning every
+                // key, so this has to be done here. Left/Right are deliberately
+                // left to the caret: someone editing a query expects them.
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  step(e.key === 'ArrowDown' ? 'down' : 'up')
                 }
               }}
               placeholder="Search"
@@ -768,6 +793,8 @@ export function Sidebar({
               currentPath={currentPath}
               size={size}
               onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
+              onRows={setHitRows}
+              cursorPath={at}
               onMenu={(e, path, name, isFolder) => onMenu(e, path, name, !!isFolder, undefined, true)}
               onMultiMenu={(e, paths) =>
                 setMenu({
