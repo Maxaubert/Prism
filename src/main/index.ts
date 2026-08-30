@@ -24,6 +24,7 @@ import {
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
+import { pathsFromArgv } from './argv'
 import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, onRootsChanged, validRoot } from './roots'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
@@ -44,7 +45,7 @@ import { parseProcLines, treeAgentKind } from './agentDetect'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
-import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
+import { decodableImages, decodeImage, needsImageDecode, tiffPages } from './imageDecode'
 import {
   cancelAllConversions,
   cancelConversion,
@@ -433,12 +434,26 @@ async function serveMedia(request: Request): Promise<Response> {
     if (tools) {
       try {
         const png = await decodeImage(tools.ffmpeg, filePath, st.mtimeMs)
+        // A multi-page TIFF shows its first page and nothing said so. ffmpeg
+        // cannot reach page 2 at all, so this is a hint rather than a picker -
+        // scans and faxes arrive this way constantly, and silence there is
+        // how someone misses eleven pages of a document.
+        const pages = /\.tiff?$/i.test(filePath) ? await tiffPages(filePath) : 1
         return new Response(png, {
           status: 200,
           headers: {
             'Content-Type': 'image/png',
             'Content-Length': String(png.length),
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            // fsmedia:// is a different origin from the renderer, so without
+            // the expose header res.headers.get() reads null and the hint
+            // silently never appears.
+            ...(pages > 1
+              ? {
+                  'X-Prism-Pages': String(pages),
+                  'Access-Control-Expose-Headers': 'X-Prism-Pages'
+                }
+              : {})
           }
         })
       } catch {
@@ -555,49 +570,6 @@ function folderPayload(dir: string): OpenPayload | null {
   addRoot(dir)
   const files = listDir(dir).files
   return { files, index: files.length ? 0 : -1, root: dir }
-}
-
-/**
- * EVERY path an OS "open" or a command line passed us.
- *
- * A FOLDER counts (2026-08-25). Explorer's Directory verb and its
- * Directory\Background verb both hand over a folder, and this used to demand
- * `isFile()`: the menu entry was there, Prism launched, and nothing happened.
- * The caller needs to know which it got, because a folder roots a tab and a
- * file opens inside one.
- *
- * ALL of them, not one (2026-08-30). This returned at the first existing path
- * walking argv BACKWARDS, so `prism a.jpg b.jpg` showed b.jpg and dropped
- * a.jpg without a word - and a command line is not a rare case now that the
- * app ships a terminal. Each path goes through the ordinary arriving-file
- * route, so the documented rule still holds: five photos from one folder is
- * one tab, not five. Capped, because argv is not a promise.
- */
-const ARGV_MAX = 32
-
-export function pathsFromArgv(argv: string[]): Array<{ path: string; dir: boolean }> {
-  const out: Array<{ path: string; dir: boolean }> = []
-  const seen = new Set<string>()
-  for (let i = 1; i < argv.length && out.length < ARGV_MAX; i += 1) {
-    const a = argv[i]
-    if (a.startsWith('--')) continue
-    try {
-      if (!existsSync(a)) continue
-      const key = resolve(a).toLowerCase()
-      if (seen.has(key)) continue
-      const st = statSync(a)
-      if (st.isFile()) {
-        seen.add(key)
-        out.push({ path: a, dir: false })
-      } else if (st.isDirectory()) {
-        seen.add(key)
-        out.push({ path: a, dir: true })
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return out
 }
 
 let mainWindow: BrowserWindow | null = null

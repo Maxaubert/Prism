@@ -368,6 +368,17 @@ export function ImageView({
       className="group relative flex h-full w-full items-center justify-center overflow-hidden"
     >
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+      {/* A multi-page TIFF shows its first page and used to say nothing about
+          the rest. ffmpeg cannot reach page 2, so this is honest about what
+          it is: a note, not a picker. Scans and faxes arrive this way. */}
+      {!!img?.pages && img.pages > 1 && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] text-white/85"
+          title={`This file holds ${img.pages} pages. Prism shows the first.`}
+        >
+          Page 1 of {img.pages}
+        </div>
+      )}
       {failed ? (
         <div className="grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
           This image can’t be displayed (unsupported format or corrupt file).
