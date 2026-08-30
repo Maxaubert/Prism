@@ -1,6 +1,7 @@
 import { readdirSync, realpathSync, statSync, type Dirent } from 'fs'
 import { basename, extname, join, resolve, sep } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
+import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import type { DirListing, SearchHit, SearchResult, ViewerFile } from '@shared/types'
 
 // Reading directories for the sidebar tree, and the guard that keeps it inside
@@ -70,9 +71,12 @@ const byName = (a: { name: string }, b: { name: string }): number =>
  * become a hang.
  */
 export function searchFiles(root: string, query: string, maxHits = 200, maxEntries = 20000): SearchResult {
-  const q = query.trim().toLowerCase()
+  // Every word, in any order, plus globs and ext: and exclusion - see
+  // shared/searchQuery.ts. It used to be one substring, so "holiday 2024"
+  // found nothing in a folder full of "2024-06 holiday" (2026-08-28).
+  const terms = parseQuery(query)
   const hits: SearchHit[] = []
-  if (!q) return { hits, truncated: false }
+  if (!terms.length) return { hits, truncated: false }
 
   let scanned = 0
   const queue: string[] = [root]
@@ -94,7 +98,7 @@ export function searchFiles(root: string, query: string, maxHits = 200, maxEntri
       }
       const ext = extname(name)
       if (!isViewable(ext, name)) continue
-      if (!name.toLowerCase().includes(q)) continue
+      if (!matchesQuery(name, terms)) continue
       const rel = dir.slice(root.length).replace(/^[\\/]/, '')
       hits.push({ path: join(dir, name), name, kind: fileKind(ext.toLowerCase(), name), dir: rel })
       if (hits.length >= maxHits) return { hits, truncated: true }

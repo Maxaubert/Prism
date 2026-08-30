@@ -155,7 +155,8 @@ export function ArchiveView({
   file,
   onUndoable,
   onRenameSelf,
-  refreshKey = 0
+  refreshKey = 0,
+  fullscreen = false
 }: {
   file: ViewerFile
   /** Something undoable happened in here (a move IN); App keeps the stack. */
@@ -166,10 +167,16 @@ export function ArchiveView({
   onRenameSelf?: (name: string) => void
   /** Bumped by App after an undo, so the listing re-reads the container. */
   refreshKey?: number
+  /** Fullscreen makes the row KEYS inert (2026-08-28). A rename or a delete
+   *  that a keystroke starts while the tree, the crumbs and the dialogs are
+   *  off screen is a change nobody saw coming; a click on a verb, which is
+   *  visible and deliberate, still works. */
+  fullscreen?: boolean
 }): JSX.Element {
   return (
     <ArchiveInner
       key={file.path}
+      fullscreen={fullscreen}
       file={file}
       onUndoable={onUndoable}
       onRenameSelf={onRenameSelf}
@@ -182,12 +189,14 @@ function ArchiveInner({
   file,
   onUndoable,
   onRenameSelf,
-  refreshKey
+  refreshKey,
+  fullscreen
 }: {
   file: ViewerFile
   onUndoable?: (entry: UndoEntry) => void
   onRenameSelf?: (name: string) => void
   refreshKey: number
+  fullscreen: boolean
 }): JSX.Element {
   const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
@@ -883,10 +892,10 @@ function ArchiveInner({
                               e.preventDefault()
                               if (r.dir) setCwd(r.path)
                               else view(r)
-                            } else if (!r.dir && e.key === 'F2' && !readOnly) {
+                            } else if (!r.dir && e.key === 'F2' && !readOnly && !fullscreen) {
                               e.preventDefault()
                               setEditing(r.path)
-                            } else if (e.key === 'Delete' && !readOnly) {
+                            } else if (e.key === 'Delete' && !readOnly && !fullscreen) {
                               e.preventDefault()
                               if (sel.items.size > 1 && sel.items.has(r.path))
                                 setConfirmDelMany(filesOf([...sel.items]))

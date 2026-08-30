@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused, rememberTime, sessionTime } from './playState'
-import { applyVolume } from './audio'
+import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
@@ -26,6 +26,7 @@ export interface MediaBindings {
   onDurationChange: (e: SyntheticEvent<HTMLMediaElement>) => void
   onProgress: (e: SyntheticEvent<HTMLMediaElement>) => void
   onError: () => void
+  onLoadStart: () => void
 }
 
 export interface MediaControls {
@@ -65,6 +66,11 @@ interface Options {
    *  same level follows you across the files you open in that tab, and a new
    *  tab starts at 100%. Omit and the player simply starts at 100%. */
   volumeKey?: string
+  /** Silence the ELEMENT without changing what the transport says (the video's
+   *  own default track, while a picked one plays through the sidecar). Two
+   *  writers of `el.muted` fought before this: one wheel notch un-muted the
+   *  picture and you heard both tracks at once (2026-08-28). */
+  forceMute?: boolean
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
@@ -89,7 +95,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     errorMsg,
     resumeKey,
     keys = true,
-    volumeKey = ''
+    volumeKey = '',
+    forceMute = false
   } = opts
   // Resume-position bookkeeping. This hook is remounted per file (the viewer is
   // keyed by path), so these refs start fresh for each media element.
@@ -109,14 +116,55 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // hands the rest to a gain node.
   useEffect(() => {
     const m = ref.current
-    if (m) applyVolume(m, vol, muted)
+    if (m) applyVolume(m, vol, muted || forceMute)
     // Handed to the tab, not to disk: it survives moving between files in this
     // tab and dies with the session.
     setTabVolume(volumeKey, { vol, muted })
-  }, [vol, muted, ref, volumeKey])
+  }, [vol, muted, forceMute, ref, volumeKey])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
   }, [rate, ref])
+
+  /**
+   * A NEW FILE is a new file (2026-08-28).
+   *
+   * The viewer is keyed by KIND, not by path, so arrowing through a folder
+   * never remounts this hook - which meant three things quietly outlived the
+   * file they belonged to: `resumedRef` stayed true, so only the FIRST long
+   * video in a tab ever resumed; `error` stayed set, so one unplayable file
+   * left its overlay across every file after it; and the element's own
+   * playbackRate went back to 1 with the new src while `rate` still said 1.5,
+   * so the cog read 1.50x over a film playing at normal speed.
+   *
+   * Done while RENDERING rather than in an effect: by the time an effect runs
+   * the new file has already had a frame with the old file's error on top of
+   * it. The element half is an effect, because it is a DOM write.
+   */
+  const [fileKey, setFileKey] = useState(resumeKey)
+  if (fileKey !== resumeKey) {
+    setFileKey(resumeKey)
+    setError(null)
+    setCur(0)
+    setBuffered(0)
+  }
+  useEffect(() => {
+    // The bookkeeping refs are the other half of the same reset. Refs cannot
+    // be touched while rendering, so they are settled here - before the new
+    // element has loaded anything, which is what they are read against.
+    resumedRef.current = false
+    lastSavedRef.current = 0
+    const m = ref.current
+    if (!m) return
+    // The speed you chose is a preference about watching, not about one file,
+    // so it is re-applied rather than reset - the element itself came back at
+    // 1x with the new src.
+    m.playbackRate = rate
+    m.defaultPlaybackRate = rate
+    applyVolume(m, vol, muted || forceMute)
+    // Deliberately only on a change of FILE: rate/vol/muted have their own
+    // effects, and this one re-applies whatever they are at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeKey, ref])
 
   const setVol = useCallback(
     (v: number) => {
@@ -204,6 +252,9 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
 
   const bind: MediaBindings = {
     onPlay: () => {
+      // A boosted element plays THROUGH the shared context, so it has to be
+      // awake before the sound can arrive (2026-08-28).
+      wakeAudioContext()
       setPlaying(true)
       // Remembered for the session, so opening Settings (or any other tab) and
       // coming back does not restart a film you had deliberately paused: a tab
@@ -214,6 +265,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     },
     onPause: () => {
       setPlaying(false)
+      // Nothing left playing anywhere in the window: let the audio thread and
+      // its device clock go. Any route back in wakes it first.
+      if (![...document.querySelectorAll('video,audio')].some((m) => !(m as HTMLMediaElement).paused))
+        idleAudioContext()
       if (resumeKey) rememberPaused(resumeKey, true)
       onPlayChange?.(false)
     },
@@ -256,6 +311,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       const m = e.currentTarget
       if (m.buffered.length) setBuffered(m.buffered.end(m.buffered.length - 1))
     },
+    // A new source is a new attempt: the element only fires loadstart when it
+    // begins loading something, which is exactly when the last failure stops
+    // being true. Without this, a file that arrives unplayable and is then
+    // CONVERTED plays on under a permanent "can't be played" panel, because
+    // the resume key (the original url) never changed (2026-08-28).
+    onLoadStart: () => setError(null),
     onError: () => setError(errorMsg ?? 'This file can’t be played.')
   }
 

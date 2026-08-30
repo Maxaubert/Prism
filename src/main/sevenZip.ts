@@ -22,10 +22,12 @@ function run(
     )
   })
 }
-import { existsSync, mkdtempSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync } from 'fs'
+import { copyFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
+import { uniqueName } from './fileOps'
 
 /**
  * Archives that are not zip: 7z, rar, tar, gz, bz2, xz, iso, cab.
@@ -234,4 +236,57 @@ export async function extractSeven(
   const rel = relative(resolve(dir), resolve(out))
   if (!rel || rel.startsWith('..') || isAbsolute(rel)) return { ok: false, reason: 'failed' }
   return existsSync(out) ? { ok: true, path: out } : { ok: false, reason: 'failed' }
+}
+
+/**
+ * Extract members OUT to a real folder from a 7z/rar/iso/tar (2026-08-28).
+ *
+ * The zip path (archive.ts extractTo) reads entries with adm-zip, which knows
+ * nothing about these containers - so dragging a member out of a .7z onto a
+ * folder always answered "failed", with no reason to show. The landing rules
+ * are the zip path's, deliberately: the dragged folder's parent is stripped so
+ * the shape below it is kept, a name that would land outside destDir is
+ * dropped rather than sanitised, and an existing file is never overwritten -
+ * it lands as "name (2)", the answer every other Prism verb gives.
+ */
+export async function extractSevenTo(
+  exe: string,
+  file: string,
+  entryPaths: readonly string[],
+  destDir: string,
+  password = ''
+): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
+  if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+  const listing = await listSeven(exe, file, password)
+  if (!listing) return { ok: false, reason: 'failed' }
+  const clean = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const wanted = entryPaths.map(clean)
+  const base = resolve(destDir)
+  let written = 0
+  for (const entry of listing) {
+    if (entry.dir) continue
+    const p = clean(entry.path)
+    const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
+    if (hit === undefined) continue
+    const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
+    const rel = parent ? p.slice(parent.length + 1) : p
+    if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
+    let target = resolve(base, ...rel.split('/'))
+    const inside = relative(base, target)
+    if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
+      continue
+    const got = await extractSeven(exe, file, p, password)
+    if (!got.ok) return { ok: false, reason: got.reason }
+    const dir = dirname(target)
+    mkdirSync(dir, { recursive: true })
+    if (existsSync(target)) target = join(dir, uniqueName(dir, basename(target)))
+    // AWAITED, and the temp copy goes with it: main is one thread, and a 2GB
+    // member copied with copyFileSync freezes every window and the Range
+    // handler a playing film depends on. extractSeven makes a fresh temp dir
+    // per member and nothing else ever removes them (2026-08-28).
+    await copyFile(got.path, target)
+    await rm(dirname(got.path), { recursive: true, force: true }).catch(() => {})
+    written += 1
+  }
+  return { ok: true, written }
 }

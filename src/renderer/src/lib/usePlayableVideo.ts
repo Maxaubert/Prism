@@ -53,6 +53,10 @@ export function usePlayableVideo(path: string, url: string): Playable {
     })
     return () => {
       live = false
+      // Arrowing past a WMV used to leave a whole film re-encoding behind the
+      // viewer, for nobody (2026-08-28). Cancelling a conversion that already
+      // finished is a no-op, so this is safe to say every time.
+      window.prism.cancelConvert(path)
     }
   }, [path])
 

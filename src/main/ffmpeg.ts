@@ -153,6 +153,9 @@ export function sidecarArgs(file: string, streamIndex: number, at: number): stri
 
 export interface MediaInfo {
   audio: AudioTrack | null
+  /** EVERY audio stream, in file order (2026-08-28). `audio` is the one that
+   *  plays by default; this is what the track picker offers. */
+  tracks: AudioTrack[]
   /** The video stream's codec, when the file has one. Prism does not decode
    *  video, so this exists to NAME what it cannot show rather than leave a
    *  black window with no explanation. */
@@ -163,6 +166,8 @@ export interface MediaInfo {
 export interface AudioTrack {
   /** Absolute stream index, for -map 0:N. */
   index: number
+  /** The track's own name, when the file carries one ("Commentary"). */
+  title: string
   codec: string
   channels: number
   layout: string
@@ -178,7 +183,7 @@ interface ProbeStream {
   channels?: number
   channel_layout?: string
   disposition?: { default?: number }
-  tags?: { language?: string }
+  tags?: { language?: string; title?: string }
 }
 
 /**
@@ -198,19 +203,22 @@ export function readProbe(json: string): MediaInfo | null {
   const audios = streams.filter((s) => s.codec_type === 'audio')
   const video = streams.find((s) => s.codec_type === 'video')
   const pick = audios.find((s) => s.disposition?.default === 1) ?? audios[0]
-  const audio: AudioTrack | null =
-    pick && typeof pick.index === 'number' && pick.codec_name
+  const toTrack = (s: ProbeStream): AudioTrack | null =>
+    typeof s.index === 'number' && s.codec_name
       ? {
-          index: pick.index,
-          codec: pick.codec_name,
-          channels: pick.channels ?? 0,
-          layout: pick.channel_layout ?? '',
-          language: pick.tags?.language ?? '',
+          index: s.index,
+          title: s.tags?.title ?? '',
+          codec: s.codec_name,
+          channels: s.channels ?? 0,
+          layout: s.channel_layout ?? '',
+          language: s.tags?.language ?? '',
           duration
         }
       : null
+  const tracks = audios.map(toTrack).filter((t): t is AudioTrack => t !== null)
+  const audio = pick ? toTrack(pick) : null
   if (!audio && !video) return null
-  return { audio, videoCodec: video?.codec_name ?? null, duration }
+  return { audio, tracks, videoCodec: video?.codec_name ?? null, duration }
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +281,7 @@ export function resetFfmpeg(): void {
 const PROBE_ARGS = [
   '-v', 'error',
   '-print_format', 'json',
-  '-show_entries', 'stream=index,codec_type,codec_name,channels,channel_layout,disposition:stream_tags=language:format=duration'
+  '-show_entries', 'stream=index,codec_type,codec_name,channels,channel_layout,disposition:stream_tags=language,title:format=duration'
 ]
 
 /** Ask ffprobe what a file carries. null when it cannot say. */

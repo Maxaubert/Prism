@@ -89,7 +89,19 @@ export function MarkdownView({
     let alive = true
     void window.prism
       .readText(path)
-      .then((t) => alive && setLoaded({ path, text: t ?? '(could not read file)' }))
+      .then(
+        (r) =>
+          alive &&
+          setLoaded({
+            path,
+            text:
+              'text' in r
+                ? r.text
+                : r.error === 'too-large'
+                  ? '_This document is too large to render (over 64MB)._'
+                  : '_This document could not be read._'
+          })
+      )
     return () => {
       alive = false
     }

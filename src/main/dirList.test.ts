@@ -113,6 +113,30 @@ describe('searchFiles', () => {
     return r
   })()
 
+  it('finds a file whose words are in the other order', () => {
+      // The tree the other tests build holds ep1.mp4, ep1-bts.mp4 and friends.
+      const names = searchFiles(root, 'bts ep1').hits.map((h) => h.name)
+      expect(names).toContain('ep1-bts.mp4')
+    })
+
+    it('takes a glob over the whole name', () => {
+      const names = searchFiles(root, '*.mp4').hits.map((h) => h.name)
+      expect(names.length).toBeGreaterThan(0)
+      expect(names.every((n) => n.endsWith('.mp4'))).toBe(true)
+    })
+
+    it('takes ext:, and drops what a minus names', () => {
+      const all = searchFiles(root, 'ext:mp4').hits.map((h) => h.name)
+      const some = searchFiles(root, 'ext:mp4 -bts').hits.map((h) => h.name)
+      expect(all).toContain('ep1-bts.mp4')
+      expect(some).not.toContain('ep1-bts.mp4')
+      expect(some.length).toBeLessThan(all.length)
+    })
+
+    it('still finds nothing for an empty query', () => {
+      expect(searchFiles(root, '   ').hits).toEqual([])
+    })
+
   it('finds matches in folders the tree never expanded', () => {
     const { hits, truncated } = searchFiles(root, 'ep1')
     expect(truncated).toBe(false)

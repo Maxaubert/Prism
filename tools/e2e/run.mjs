@@ -10,7 +10,7 @@
  * .e2e/shots for eyeballing; assertions throw, and the script exits non-zero.
  */
 import { _electron as electron } from 'playwright-core'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -21,7 +21,8 @@ import { buildFixtures } from './fixtures.mjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 const MAIN = join(ROOT, 'out', 'main', 'index.js')
-const PROFILE = join(tmpdir(), 'prism-e2e-profile')
+const PROFILE_NAME = 'prism-e2e-profile'
+const PROFILE = join(tmpdir(), PROFILE_NAME)
 const SHOTS = join(ROOT, '.e2e', 'shots')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -38,7 +39,7 @@ const ok = (cond, name) => {
  *  seeding is its own launch (peek.mjs's trick): the file a scenario opens is
  *  delivered on first load, so the scenario launch must not reload. */
 async function seedProfile() {
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`] })
+  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'] })
   const win = await app.firstWindow()
   await offscreen(app)
   await win.evaluate((kv) => {
@@ -79,6 +80,67 @@ async function offscreen(app) {
  * it had. Sleeping and hoping made roughly one run in four type into the wrong
  * file; waiting for the selected row settles it.
  */
+/**
+ * Kill anything of ours still running (2026-08-28).
+ *
+ * MEASURED: the terminal scenario's app outlived its `app.close()` - five
+ * electron processes still up - and it holds the single-instance lock, so
+ * every scenario after it launched, handed its file over and exited. Fifteen
+ * scenarios failed for one leak, and no amount of retrying could have helped.
+ * Only OUR processes are touched: the match is on the e2e profile path, which
+ * the machine's own Prism never has.
+ */
+function reapStrays() {
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | ` +
+          'ForEach-Object { $_.ProcessId }'
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    const pids = out.split(/\s+/).filter(Boolean)
+    for (const pid of pids) {
+      try {
+        execFileSync('taskkill', ['/PID', pid, '/T', '/F'], { stdio: 'ignore' })
+      } catch {
+        /* already gone */
+      }
+    }
+    return pids.length
+  } catch {
+    return 0
+  }
+}
+
+/** How many electron processes are alive right now. A failed launch with ZERO
+ *  of them is not a lock being held, whatever the error says - which is the
+ *  difference between waiting longer and looking somewhere else. */
+function electronCount() {
+  try {
+    // OURS, not every electron on the machine: on a dev box the answer was
+    // always "some are alive", which told nobody anything (2026-08-28).
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "Name='electron.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*${PROFILE_NAME}*' } | Measure-Object | ` +
+          '%{ $_.Count }'
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    return Number(out.trim()) || 0
+  } catch {
+    return -1
+  }
+}
+
 async function launch(file, keepTabs = false) {
   // Prism is single-instance. If the previous scenario's window has not fully
   // let go of the lock, this launch hands its path over and EXITS at once, and
@@ -91,10 +153,21 @@ async function launch(file, keepTabs = false) {
   // lock for longer than that. Eight tries with a longer backoff costs nothing
   // when the lock is free, which is almost always.
   let last
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 14; attempt++) {
     try {
       return await launchOnce(file, keepTabs)
     } catch (err) {
+      // Say so. A silent retry loop and a genuine hang look identical from
+      // the outside, and this one has cost several runs.
+      // A failed launch means the previous app is STILL holding the lock -
+      // it hangs in teardown often enough that the reap after the scenario
+      // can miss it by a second. Kill it here, where we know it is in the
+      // way, rather than waiting out a backoff it will never satisfy.
+      const killed = reapStrays()
+      if (attempt > 0 || killed)
+        console.log(
+          `  (launch ${attempt + 1} failed; ${killed} stray process(es) killed, ${electronCount()} left)`
+        )
       // Every shape the handoff-exit takes on the way out. It has also been
       // seen as an ECONNRESET on the debugging socket and as a plain launch
       // timeout: the process this launch talked to had already decided to
@@ -106,7 +179,7 @@ async function launch(file, keepTabs = false) {
       )
         throw err
       last = err
-      await sleep(2000 + attempt * 1500)
+      await sleep(Math.min(8000, 2000 + attempt * 1200))
     }
   }
   throw last
@@ -119,7 +192,7 @@ async function launchOnce(file, keepTabs = false) {
   // counts. Forgetting it is the isolation; the tab scenario opts out, because
   // surviving a restart is the thing it is checking.
   if (!keepTabs) rmSync(join(PROFILE, 'tabs.json'), { force: true })
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, file] })
+  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
@@ -1024,16 +1097,22 @@ async function playerScenario(fixtures) {
     // Wait for the metadata: seeking against a duration of NaN throws, and
     // "the provided double value is non-finite" reads as a player bug when it
     // is only a test that jumped the gun.
+    // Check and seek in the SAME evaluation: waiting for a finite duration and
+    // then seeking in a second call leaves a window in which the element can
+    // reload (autoplay reaching the end of the previous take is enough), and
+    // the seek then throws "non-finite" - a test race that reads as a player
+    // bug (2026-08-28).
     await win.waitForFunction(
-      () => Number.isFinite(document.querySelector('video')?.duration),
+      () => {
+        const v = document.querySelector('video')
+        if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return false
+        v.currentTime = Math.max(0, v.duration - 0.3)
+        void v.play()
+        return true
+      },
       null,
-      { timeout: 10000 }
+      { timeout: 15000 }
     )
-    await win.evaluate(() => {
-      const v = document.querySelector('video')
-      v.currentTime = Math.max(0, v.duration - 0.3)
-      void v.play()
-    })
     await win.waitForSelector('[role="treeitem"][aria-selected="true"]:has-text("ep2.mp4")', { timeout: 10000 })
     ok(true, 'autoplay advances to the next video')
     ok(!win.isClosed(), 'window survives the whole tour')
@@ -1288,6 +1367,18 @@ async function convertScenario(fixtures) {
       { timeout: 15000 }
     )
     ok(true, 'with both picture and sound really decoding')
+    // The element fails on the RAW url while the probe is still running, and
+    // that error used to outlive the conversion: a film playing perfectly
+    // under an opaque "can't be played" panel, because the panel is cleared
+    // by a change of resume key and the key is the original url (2026-08-28).
+    ok(
+      !(await win.evaluate(() =>
+        [...document.querySelectorAll('div')].some((d) =>
+          d.textContent?.includes('This video can’t be played')
+        )
+      )),
+      'and no error panel is left over the converted copy'
+    )
   } finally {
     await app.close()
   }
@@ -1349,7 +1440,7 @@ async function stillsAndSubsScenario(fixtures) {
  * a new tab is supposed to come in through.
  */
 async function handoff(file) {
-  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, file], {
+  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file], {
     stdio: 'ignore'
   })
   await new Promise((done) => {
@@ -2079,6 +2170,12 @@ async function pauseScenario(fixtures) {
     await win.evaluate(() => { const v = document.querySelector('video'); v.muted = true })
     await sleep(1200)
     const paused = () => win.evaluate(() => document.querySelector('video')?.paused ?? null)
+    // Opening a file does NOT start it (2026-08-28, owner decision): a folder
+    // of films, or a window of restored tabs, would otherwise all play at once.
+    ok((await paused()) === true, 'a film Prism has just opened is not playing')
+    await win.evaluate(() => { void document.querySelector('video').play() })
+    await sleep(400)
+    ok((await paused()) === false, 'and it plays when told to')
     await win.evaluate(() => document.querySelector('video').pause())
     await sleep(300)
     ok((await paused()) === true, 'a film pauses when told to')
@@ -2135,11 +2232,19 @@ async function volumeScenario(fixtures) {
     const box = await win.locator('video').boundingBox()
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
 
-    // Both ways reach 200%: the column in the transport, and the wheel.
+    // Both ways reach 200%: the column in the transport, and the wheel. The
+    // column only EXISTS while it is being reached for (2026-08-28), so this
+    // asks after hovering rather than of a hidden element.
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(350)
     ok(
       (await win.evaluate(() => document.querySelector('input[aria-label="Volume"]')?.max)) === '2',
       'the volume column runs to 200%'
     )
+    await win.mouse.move(8, 380)
+    await sleep(800)
+    // ...and back over the picture, which is where the wheel means volume.
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     for (let i = 0; i < 4; i++) {
       await win.mouse.wheel(0, -100)
       await sleep(80)
@@ -2162,6 +2267,93 @@ async function volumeScenario(fixtures) {
     // It is an indicator, not a control: it goes away on its own.
     await sleep(1600)
     ok((await readout()) === null, 'the readout leaves when it has been read')
+
+    // The column: taller than it was, and forgiving of a wobble off its edge.
+    const slider = win.locator('input[aria-label="Volume"]')
+    ok((await slider.count()) === 0, 'the column is not there until you go for it')
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(350)
+    ok((await slider.count()) === 1, 'hovering the speaker brings it up')
+    const column = await slider.boundingBox()
+    ok(Math.round(column.height) === 105, 'and it is a quarter taller than it was')
+    // A micro-movement off the edge must not take it away mid-aim.
+    await win.mouse.move(column.x + column.width / 2, column.y - 30)
+    await sleep(250)
+    ok((await slider.count()) === 1, 'a step off the edge does not close it')
+    await win.locator('button[title^="Mute"]').hover()
+    await sleep(150)
+    ok((await slider.count()) === 1, 'and coming back keeps it')
+    // Walking away does.
+    await win.mouse.move(8, 380)
+    await sleep(900)
+    ok((await slider.count()) === 0, 'leaving it alone closes it')
+  } finally {
+    await app.close()
+  }
+}
+
+async function fullscreenBlackScenario(fixtures) {
+  console.log('fullscreen is black')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(800)
+    const stageBg = () =>
+      win.evaluate(() => {
+        const v = document.querySelector('video')
+        const stage = v?.parentElement
+        return stage ? getComputedStyle(stage).backgroundColor : null
+      })
+    const windowed = await stageBg()
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
+      'F11 goes fullscreen'
+    )
+    // The letterbox is part of the picture: a theme colour behind a film is
+    // the app leaking into it (2026-08-28).
+    ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+  } finally {
+    await app.close()
+  }
+}
+
+async function searchQueryScenario(fixtures) {
+  console.log('search operators')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    const box = win.locator('input[aria-label="Search files"]')
+    const names = async (q) => {
+      await box.fill(q)
+      await sleep(700)
+      return win.evaluate(() =>
+        [...document.querySelectorAll('[data-search-hit], [role="option"], [role="treeitem"]')]
+          .map((e) => e.textContent.trim())
+          .filter(Boolean)
+      )
+    }
+    // Words in any order, which one substring could never do: "mp4 ep1" is
+    // not a substring of "ep1.mp4", but both of its words are in there.
+    const both = await names('mp4 ep1')
+    ok(both.some((n) => n.includes('ep1.mp4')), 'both words match, in either order')
+    const other = await names('ep1 mp4')
+    ok(other.some((n) => n.includes('ep1.mp4')), 'and the other way round')
+    ok((await names('ep1 nowhere')).length === 0, 'but ALL of them have to match')
+    // A glob over the whole name.
+    const globbed = await names('*.mp4')
+    ok(globbed.length > 0 && globbed.every((n) => n.includes('.mp4')), '*.mp4 finds the videos')
+    ok(!globbed.some((n) => n.includes('.md')), 'and only the videos')
+    // ext: and exclusion.
+    const all = await names('ext:mp4')
+    const kept = await names('ext:mp4 -subbed')
+    ok(all.some((n) => n.includes('subbed')), 'ext:mp4 finds every video')
+    ok(kept.length > 0 && !kept.some((n) => n.includes('subbed')), 'and a minus leaves one out')
+    await box.fill('')
   } finally {
     await app.close()
   }
@@ -2514,70 +2706,86 @@ async function unsupportedScenario(fixtures) {
   }
 }
 
+// Anything left over from a killed run still holds the profile open, and the
+// wipe below then fails with EBUSY before a single scenario has run.
+const stale = reapStrays()
+if (stale) console.log(`(reaped ${stale} process(es) left over from a previous run)`)
 rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
 
-try {
-  await seedProfile()
-  await mdScenario(fixtures)
-  await sleep(900) // let the single-instance lock go
-  await pdfScenario(fixtures)
-  await sleep(900)
-  await sortScenario(fixtures)
-  await sleep(900)
-  await contextMenuScenario(fixtures)
-  await sleep(900)
-  await editScenario(fixtures)
-  await sleep(900)
-  await codeScenario(fixtures)
-  await sleep(900)
-  await treeNavScenario(fixtures)
-  await sleep(900)
-  await unsavedScenario(fixtures)
-  await sleep(900)
-  await playerScenario(fixtures)
-  await dolbyScenario(fixtures)
-  await sleep(700)
-  await formatsScenario(fixtures)
-  await sleep(700)
-  await stillsAndSubsScenario(fixtures)
-  await sleep(700)
-  await convertScenario(fixtures)
-  await sleep(700)
-  await sevenZipScenario(fixtures)
-  // A longer gap than the others: the previous window must have released the
-  // single-instance lock, or this launch hands its file over and exits.
-  await sleep(2000)
-  await documentScenario(fixtures)
-  await sleep(1500)
-  await synthAndRawScenario(fixtures)
-  await sleep(900)
-  await tabsScenario(fixtures)
-  await sleep(900)
-  await terminalScenario(fixtures)
-  await sleep(900)
-  await archiveScenario(fixtures)
-  await sleep(900)
-  await folderArgScenario(fixtures)
-  await sleep(900)
-  await gearScenario(fixtures)
-  await sleep(900)
-  await pauseScenario(fixtures)
-  await sleep(900)
-  await volumeScenario(fixtures)
-  await sleep(900)
-  await videoMenuScenario(fixtures)
-  await sleep(900)
-  await selectionScenario(fixtures)
-  await sleep(900)
-  await dragScenario(fixtures)
-  await sleep(900)
-  await unsupportedScenario(fixtures)
-} catch (e) {
-  failures += 1
-  console.error('scenario crashed:', e)
+/**
+ * One scenario at a time, each in its own try/catch (2026-08-28).
+ *
+ * They all used to share one, so the FIRST crash skipped every scenario after
+ * it while reporting a single failure - a launch flake in the middle of the
+ * run hid twenty scenarios' worth of coverage and read as "1 failure".
+ *
+ * `npm run e2e -- <name>` runs only the scenarios whose name contains <name>,
+ * which is what makes iterating on one of them bearable.
+ */
+const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))
+const chosen = (name) => !only.length || only.some((o) => name.toLowerCase().includes(o.toLowerCase()))
+const results = []
+
+async function run(fn, gap = 900) {
+  const name = fn.name.replace(/Scenario$/, '')
+  if (!chosen(name)) return
+  const before = failures
+  const started = Date.now()
+  try {
+    await fn(fixtures)
+  } catch (e) {
+    failures += 1
+    console.error(`scenario crashed (${name}):`, e)
+  }
+  const left = reapStrays()
+  if (left) console.log(`  (reaped ${left} stray process(es) from ${name})`)
+  results.push({ name, failed: failures > before, ms: Date.now() - started })
+  await sleep(gap) // let the single-instance lock go
 }
+
+await seedProfile()
+await run(mdScenario)
+await run(pdfScenario)
+await run(sortScenario)
+await run(contextMenuScenario)
+await run(editScenario)
+await run(codeScenario)
+await run(treeNavScenario)
+await run(unsavedScenario)
+await run(playerScenario)
+await run(dolbyScenario)
+await run(formatsScenario)
+await run(stillsAndSubsScenario)
+await run(convertScenario)
+await run(sevenZipScenario)
+await run(documentScenario, 2000)
+await run(synthAndRawScenario)
+await run(tabsScenario)
+await run(terminalScenario)
+await run(archiveScenario)
+await run(folderArgScenario)
+await run(gearScenario)
+await run(pauseScenario)
+await run(volumeScenario)
+await run(fullscreenBlackScenario)
+await run(searchQueryScenario)
+await run(videoMenuScenario)
+await run(selectionScenario)
+await run(dragScenario)
+await run(unsupportedScenario)
+
+// A filter that matched nothing ran nothing, and "all e2e checks passed" over
+// zero scenarios is the most confident lie a suite can tell (2026-08-28).
+if (only.length && !results.length) {
+  failures += 1
+  console.error(`no scenario matched ${only.join(' ')}`)
+}
+
+const width = Math.max(...results.map((r) => r.name.length), 8)
+for (const r of results)
+  console.log(`  ${r.failed ? 'FAIL' : 'ok  '}  ${r.name.padEnd(width)}  ${(r.ms / 1000).toFixed(1)}s`)
 
 console.log(failures ? `\n${failures} failure(s)` : '\nall e2e checks passed')
 process.exit(failures ? 1 : 0)

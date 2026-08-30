@@ -80,3 +80,26 @@ export function treeHasAgent(rows: ProcRow[], rootPid: number): boolean {
   }
   return false
 }
+
+/**
+ * Read the process table back from the compact form main asks for
+ * (2026-08-28): one row per line, "pid ppid" and then the command line if the
+ * query's prefilter matched it.
+ *
+ * Lines rather than JSON because the JSON of every command line on a machine
+ * ran to megabytes several times a minute, to answer a question that changes
+ * perhaps twice an hour. The tree still needs every pid/ppid pair - that is
+ * what makes an agent five processes deep findable - but only a handful of
+ * rows ever need their text.
+ */
+export function parseProcLines(out: string): ProcRow[] {
+  const rows: ProcRow[] = []
+  for (const line of out.split(/\r?\n/)) {
+    const s = line.trim()
+    if (!s) continue
+    const m = /^(\d+) (\d+)(?: (.*))?$/.exec(s)
+    if (!m) continue
+    rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3] ?? '' })
+  }
+  return rows
+}
