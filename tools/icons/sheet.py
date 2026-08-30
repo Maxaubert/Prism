@@ -4,7 +4,8 @@ import pathlib
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from icons import KINDS  # noqa: E402
+mod = sys.argv[1] if len(sys.argv) > 1 else "icons"
+KINDS = __import__(mod).KINDS  # noqa: E402
 
 BIG = 96
 SMALL = 16
@@ -28,15 +29,21 @@ def font(sz):
 F_LABEL = font(14)
 F_TITLE = font(19)
 
-rows = len(KINDS)
-cols = max(len(v) for v in KINDS.values())
+MAX_COLS = 5
+# A kind with more variants than fits wraps onto a second row, still labelled once.
+ROWS = []
+for kind, variants in KINDS.items():
+    for i in range(0, len(variants), MAX_COLS):
+        ROWS.append((kind if i == 0 else "", variants[i:i + MAX_COLS], i))
+rows = len(ROWS)
+cols = min(MAX_COLS, max(len(v) for v in KINDS.values()))
 W = PAD * 2 + 140 + cols * CELL_W
 H = PAD * 2 + rows * CELL_H
 
 sheet = Image.new("RGB", (W, H), BG)
 d = ImageDraw.Draw(sheet)
 
-for r, (kind, variants) in enumerate(KINDS.items()):
+for r, (kind, variants, offset) in enumerate(ROWS):
     y = PAD + r * CELL_H
     d.text((PAD, y + CELL_H // 2 - 12), kind, font=F_TITLE, fill=TITLE)
     for c, (name, fn) in enumerate(variants):
@@ -48,8 +55,9 @@ for r, (kind, variants) in enumerate(KINDS.items()):
         sheet.paste(small, (x + BIG + 22, y + 14), small)
         shown = small.resize((SMALL * 3, SMALL * 3), Image.NEAREST)
         sheet.paste(shown, (x + BIG + 22, y + 40), shown)
-        d.text((x, y + BIG + 16), f"{c + 1}. {name}", font=F_LABEL, fill=LABEL)
+        d.text((x, y + BIG + 16), f"{offset + c + 1}. {name}", font=F_LABEL, fill=LABEL)
         d.text((x + BIG + 22, y + 96), "16px", font=F_LABEL, fill=(90, 96, 122))
 
-sheet.save(str(pathlib.Path(__file__).parent / "sheet.png"))
-print("sheet", sheet.size)
+out = pathlib.Path(__file__).parent / ("sheet.png" if mod == "icons" else f"sheet-{mod}.png")
+sheet.save(str(out))
+print("sheet", sheet.size, out.name)
