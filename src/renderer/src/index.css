@@ -375,11 +375,11 @@ input[type='color']::-webkit-color-swatch {
    render HTML that main sanitised, and the markdown view is React's, so
    injecting elements into either would fight the renderer that owns those
    nodes. A highlight paints ranges and touches nothing. */
-::highlight(prism-find) {
+::highlight(prism-find-1), ::highlight(prism-find-2), ::highlight(prism-find-3), ::highlight(prism-find-4), ::highlight(prism-find-5), ::highlight(prism-find-6), ::highlight(prism-find-7), ::highlight(prism-find-8) {
   background: color-mix(in srgb, var(--p-accent) 32%, transparent);
   color: inherit;
 }
-::highlight(prism-find-current) {
+::highlight(prism-find-current-1), ::highlight(prism-find-current-2), ::highlight(prism-find-current-3), ::highlight(prism-find-current-4), ::highlight(prism-find-current-5), ::highlight(prism-find-current-6), ::highlight(prism-find-current-7), ::highlight(prism-find-current-8) {
   background: var(--p-accent);
   color: var(--p-on-accent);
 }

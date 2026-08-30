@@ -85,7 +85,7 @@ import {
 } from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
-import { fileKind, isViewable } from '@shared/fileKind'
+import { fileKind } from '@shared/fileKind'
 import type {
   ArchiveListing,
   DirListing,
@@ -866,12 +866,7 @@ onRootsChanged((root, open) => {
     unwatchRoot(root)
     return
   }
-  watchRoot(
-    root,
-    (change) => mainWindow?.webContents.send('dir:changed', change),
-    isSkipped,
-    (name) => isViewable(extname(name).toLowerCase(), name)
-  )
+  watchRoot(root, (change) => mainWindow?.webContents.send('dir:changed', change), isSkipped)
 })
 
 /**

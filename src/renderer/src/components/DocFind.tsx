@@ -16,8 +16,25 @@ import { matchRanges, stepMatch } from '../lib/findInText'
  * different applications.
  */
 
-const HL = 'prism-find'
-const HL_CURRENT = 'prism-find-current'
+/**
+ * Highlight names are per INSTANCE (2026-08-30).
+ *
+ * `CSS.highlights` is one registry for the whole document, so two find bars -
+ * split view mounts up to four viewers - wrote to the same two names and each
+ * repaint wiped the other's ranges. The stylesheet matches the prefix, so a
+ * new instance needs no new CSS.
+ */
+const SLOTS = 8
+const taken = new Set<number>()
+
+/** The lowest free slot, so the numbers stay small and the CSS stays finite. */
+function claimSlot(): number {
+  for (let i = 1; i <= SLOTS; i += 1) if (!taken.has(i)) {
+    taken.add(i)
+    return i
+  }
+  return 1 // more find bars than panes can exist: share, rather than go unstyled
+}
 
 interface TextBit {
   node: Text
@@ -71,6 +88,8 @@ export function DocFind({
   scroller: RefObject<HTMLElement | null>
   onClose: () => void
 }): JSX.Element {
+  const [slot] = useState(claimSlot)
+  const hl = { all: `prism-find-${slot}`, current: `prism-find-current-${slot}` }
   const [query, setQuery] = useState('')
   const [at, setAt] = useState(-1)
   const input = useRef<HTMLInputElement>(null)
@@ -83,6 +102,25 @@ export function DocFind({
     input.current?.focus()
     input.current?.select()
   }, [])
+
+  /**
+   * Escape closes it from anywhere (2026-08-30).
+   *
+   * The bar carries `data-owns-escape`, which is App's signal to yield the
+   * key - so while it is up, an Escape that this component does not handle is
+   * an Escape that does NOTHING. Handling it only inside the input meant that
+   * clicking into the document to read a hit left Escape dead: the bar would
+   * not close, the document would not blur and fullscreen would not exit.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
 
   /** Walk the text once per query; stepping then costs nothing. Not memoized:
    *  it is called from one change handler, and the DOM ranges it builds are
@@ -112,28 +150,31 @@ export function DocFind({
     const Ctor = (window as unknown as { Highlight?: new (...r: Range[]) => Highlight }).Highlight
     if (!highlights || !Ctor) return
     const rs = ranges
-    highlights.delete(HL)
-    highlights.delete(HL_CURRENT)
+    highlights.delete(hl.all)
+    highlights.delete(hl.current)
     if (!rs.length) return
     const others = rs.filter((_, i) => i !== at)
-    if (others.length) highlights.set(HL, new Ctor(...others))
+    if (others.length) highlights.set(hl.all, new Ctor(...others))
     if (at >= 0 && rs[at]) {
-      highlights.set(HL_CURRENT, new Ctor(rs[at]))
+      highlights.set(hl.current, new Ctor(rs[at]))
       // block: 'center' rather than 'nearest': a hit that lands one line under
       // the top edge of the window is a hit you have to hunt for.
       const el = rs[at].startContainer.parentElement
       el?.scrollIntoView({ block: 'center', behavior: 'auto' })
     }
-  }, [at, ranges])
+  }, [at, ranges, hl])
 
-  // Everything the highlight owns goes when the bar does.
+  // Everything the highlight owns goes when the bar does, slot included.
   useEffect(() => {
     return () => {
+      taken.delete(slot)
       const highlights = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights
-      highlights?.delete(HL)
-      highlights?.delete(HL_CURRENT)
+      highlights?.delete(hl.all)
+      highlights?.delete(hl.current)
     }
-  }, [])
+    // hl is derived from slot, which never changes for this instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slot])
 
   const step = (delta: number): void => setAt((i) => stepMatch(ranges.length, i, delta))
 

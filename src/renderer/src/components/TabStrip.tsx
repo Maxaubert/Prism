@@ -302,7 +302,7 @@ export function TabStrip({
             // click cannot start a carry - onTabPointerDown ignores button 2.
             onContextMenu={(e) => {
               e.preventDefault()
-              setTabMenu({ x: e.clientX, y: e.clientY, id: t.id, root: t.root })
+              setTabMenu({ x: e.clientX, y: e.clientY, id: t.id, root: t.kind === 'settings' ? '' : t.root })
             }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
@@ -418,14 +418,21 @@ export function TabStrip({
               hint: 'Ctrl+T',
               onPick: () => onNew()
             },
-            {
-              label: 'Show folder in File Explorer',
-              onPick: () => window.prism.showInExplorer(tabMenu.root)
-            },
-            {
-              label: 'Copy folder path',
-              onPick: () => void navigator.clipboard.writeText(tabMenu.root)
-            }
+            // Settings is a tab with no folder. Offering these there did
+            // nothing for one of them and wrote an EMPTY STRING over the
+            // clipboard for the other, which is worse than doing nothing.
+            ...(tabMenu.root
+              ? [
+                  {
+                    label: 'Show folder in File Explorer',
+                    onPick: () => window.prism.showInExplorer(tabMenu.root)
+                  },
+                  {
+                    label: 'Copy folder path',
+                    onPick: () => void navigator.clipboard.writeText(tabMenu.root)
+                  }
+                ]
+              : [])
           ]}
         />
       )}

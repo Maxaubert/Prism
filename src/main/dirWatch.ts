@@ -17,9 +17,9 @@ import { dirname, join } from 'path'
  * a quiet window, with a hard ceiling so a continuously-writing folder still
  * gets one flush a second rather than none at all.
  *
- * FILTERED, by the same rules the listing uses. Waking the renderer for a
- * `.git` write, or for a file it would never draw a row for, is all cost and
- * no answer.
+ * FILTERED, but only of what nobody could ever see: dot paths and Windows
+ * clutter. A `.git` write is not the folder changing, and an agent committing
+ * in the folder you have open does that constantly.
  *
  * MUTED around Prism's own writes. Every rename, bin, duplicate and save
  * already bumps the tree itself; an echo would be a second refresh that also
@@ -34,6 +34,8 @@ const QUIET_MS = 500
 const MAX_WAIT_MS = 1500
 /** How long Prism's own write silences a directory. */
 const MUTE_MS = 1200
+/** ...and how soon a deferred directory is looked at again. */
+const MUTE_RETRY_MS = 400
 
 export interface DirChange {
   root: string
@@ -76,16 +78,11 @@ export function isMuted(dir: string, now: number): boolean {
 /**
  * Should a change to this name be reported at all?
  *
- * `interesting` is the caller's rule (dirList's own, injected rather than
- * duplicated here): it answers for a FILE name. A change with no name, or one
- * that looks like a directory, is always reported - a new subfolder is a new
- * row, and the renderer decides what it can draw.
+ * Only the noise nobody could ever see is dropped: dot paths and Windows
+ * clutter. Everything else goes through, because a watch event carries no
+ * type and the renderer is the one that knows what it can draw.
  */
-export function shouldReport(
-  name: string | null,
-  skip: (name: string) => boolean,
-  interesting: (name: string) => boolean
-): boolean {
+export function shouldReport(name: string | null, skip: (name: string) => boolean): boolean {
   if (!name) return true // Windows can report a change with no name
   // EVERY segment, not just the last. A recursive watch reports paths relative
   // to the root, so a commit arrives as ".git/HEAD" - and an agent working in
@@ -96,16 +93,26 @@ export function shouldReport(
   for (const seg of parts.slice(0, -1)) if (seg.startsWith('.') || skip(seg)) return false
   const base = parts[parts.length - 1]
   if (base.startsWith('.') || skip(base)) return false
-  // No extension: almost certainly a directory, and a new one is a new row.
-  if (!/\.[^.]+$/.test(base)) return true
-  return interesting(base)
+  // Anything else is reported (2026-08-30).
+  //
+  // This used to treat "has a dot in it" as "is a file" and then ask whether
+  // that file was viewable, which quietly lost every FOLDER with a dot in its
+  // name - `v1.2.3`, `dist.old`, `My.Project` - because `.3` is not a
+  // viewable extension. A watch event carries no type, and stat-ing here
+  // would put a filesystem call on main's thread per event.
+  //
+  // So the filter's job is only to drop the noise nobody could ever see: dot
+  // paths and Windows clutter, both handled above. Everything else goes to
+  // the renderer, which re-lists the DIRECTORY and draws whatever it can -
+  // and the coalescing means one re-list however many files arrived. An
+  // unviewable file changes the "N files Prism can't open" count anyway.
+  return true
 }
 
 export function watchRoot(
   root: string,
   emit: Emit,
   skip: (name: string) => boolean,
-  interesting: (name: string) => boolean,
   now: () => number = Date.now
 ): void {
   if (!root || watched.has(key(root))) return
@@ -114,9 +121,19 @@ export function watchRoot(
     if (!w) return
     if (w.timer) clearTimeout(w.timer)
     w.timer = null
-    const dirs = [...w.pending].filter((d) => !isMuted(d, now()))
-    w.pending.clear()
-    w.firstAt = 0
+    const t = now()
+    const dirs: string[] = []
+    const held: string[] = []
+    for (const d of w.pending) (isMuted(d, t) ? held : dirs).push(d)
+    // A muted directory is DEFERRED, not dropped (2026-08-30). Clearing it
+    // here lost the change outright: Ctrl+S mutes the folder for 1200ms, and
+    // an agent writing a file into it inside that window never appeared in
+    // the tree at all - which is the "a forgotten filter reads as missing
+    // files" failure wearing a different hat. The save path has no
+    // compensating refresh of its own, so nothing else would have caught it.
+    w.pending = new Set(held)
+    w.firstAt = held.length ? t : 0
+    if (held.length) w.timer = setTimeout(flush, MUTE_RETRY_MS)
     if (dirs.length) emit({ root, dirs })
   }
   let watcher: FSWatcher
@@ -133,7 +150,7 @@ export function watchRoot(
   watcher.on('error', () => unwatchRoot(root))
   watcher.on('change', (_event, filename) => {
     const name = typeof filename === 'string' ? filename : filename?.toString() ?? null
-    if (!shouldReport(name, skip, interesting)) return
+    if (!shouldReport(name, skip)) return
     const full = name ? join(root, name) : root
     entry.pending.add(name ? dirname(full) : root)
     const t = now()

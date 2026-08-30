@@ -593,10 +593,14 @@ export function Sidebar({
 
   /** Put the cursor on a row: folders only highlight, files open. */
   const land = useCallback(
-    (row: { path: string; isFolder: boolean }): void => {
+    (row: { path: string; isFolder: boolean }, keepFocus = false): void => {
       setCursor(row.path)
       setSel({ anchor: row.path, items: new Set([row.path]) })
       if (!row.isFolder) onOpenFile(row.path)
+      // Arrowing from inside the SEARCH BOX must not take the caret out of it
+      // (2026-08-30): one press moved focus to the row, and the letters that
+      // followed reached the viewer's own shortcuts instead of the query.
+      if (keepFocus) return
       // Roving focus, so Enter and Space reach the row without any key handling
       // of our own, and so a screen reader follows the cursor. preventScroll:
       // the scroller below decides how the row is brought into view.
@@ -617,15 +621,21 @@ export function Sidebar({
   const step = useCallback(
     (dir: 'up' | 'down' | 'left' | 'right'): boolean => {
       if (!open) return false
+      // The SAME test the render uses. Gating on the raw query let a stale hit
+      // list be walked (and a file opened) while the tree was back on screen:
+      // typing a single space leaves `query` truthy and `query.trim()` empty.
+      const searching = !!query.trim()
       // While search has replaced the tree, the arrows walk the HITS. They used
       // to bail here, so Up/Down paged the folder behind the panel instead -
       // the results scrolled past under a cursor that was not in them.
-      if (query) {
+      if (searching) {
         if (!hitRows.length) return false
         // A flat list: up/left and down/right mean the same thing in it.
         const next = stepRow(hitRows, at, dir === 'down' || dir === 'right' ? 1 : -1, false)
         if (!next) return false
-        land(next)
+        // Keep the caret where it is when the press came from the search box:
+        // an INPUT has the focus only when someone is typing a query.
+        land(next, (document.activeElement as HTMLElement | null)?.tagName === 'INPUT')
         return true
       }
       const here = rows.find((r) => r.path.toLowerCase() === (at ?? '').toLowerCase())

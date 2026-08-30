@@ -47,6 +47,7 @@ export function ImageView({
   fullscreen?: boolean
 }): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [copyNote, setCopyNote] = useState<string | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [tx, setTx] = useState(0)
@@ -263,6 +264,18 @@ export function ImageView({
     window.addEventListener('mouseup', up)
   }
 
+
+  /** The picture on the clipboard, and a word when it could not go. A canvas
+   *  has a backing-store limit, so a big enough panorama gives back no bytes
+   *  at all - and a verb that silently does nothing is worse than one that
+   *  says so. */
+  const copyImage = useCallback(async (): Promise<void> => {
+    const png = await pngFromBlob(img?.blob ?? null)
+    const ok = !!png && window.prism.copyImageToClipboard(png)
+    setCopyNote(ok ? 'Image copied' : 'That image is too large to copy')
+    window.setTimeout(() => setCopyNote(null), 1800)
+  }, [img])
+
   // Image-specific keys (arrows stay with the app for folder nav).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -282,18 +295,22 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
+        // The menu advertises this in its shortcut column, so it has to exist.
+        // A text selection keeps its own copy: only an untouched page gets it.
+        case 'c':
+        case 'C':
+          if (e.ctrlKey && !window.getSelection()?.toString()) {
+            e.preventDefault()
+            void copyImage()
+          }
+          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // oneToOne closes over the measured scale, which changes with the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit])
-
-  const copyImage = useCallback(async (): Promise<void> => {
-    const png = await pngFromBlob(img?.blob ?? null)
-    if (png) window.prism.copyImageToClipboard(png)
-  }, [img])
+  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage])
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
@@ -371,6 +388,11 @@ export function ImageView({
       {/* A multi-page TIFF shows its first page and used to say nothing about
           the rest. ffmpeg cannot reach page 2, so this is honest about what
           it is: a note, not a picker. Scans and faxes arrive this way. */}
+      {copyNote && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
+          {copyNote}
+        </div>
+      )}
       {!!img?.pages && img.pages > 1 && (
         <div
           className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] text-white/85"

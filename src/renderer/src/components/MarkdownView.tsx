@@ -92,6 +92,16 @@ export function MarkdownView({
   const restoredFor = useRef<string | null>(null)
   const lastSaved = useRef(0)
   const [finding, setFinding] = useState(false)
+  // The bar belongs to the document it was opened on. Paging to the next file
+  // left it up, still counting matches in a document that is no longer there:
+  // its Ranges point at detached nodes, so the arrows scrolled nothing. Done
+  // while RENDERING, the way the viewer resets everything else per file - an
+  // effect would show one frame of the old bar over the new document.
+  const [findFor, setFindFor] = useState(path)
+  if (findFor !== path) {
+    setFindFor(path)
+    setFinding(false)
+  }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
   const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
@@ -200,11 +210,39 @@ export function MarkdownView({
     })
   }, [text, path])
 
+  /**
+   * Ctrl+F belongs to the document you are LOOKING at (2026-08-30).
+   *
+   * A window listener is right - nothing focuses a document on arrival, so
+   * this key has to work without focus - but "the window" holds more than one
+   * viewer: split view mounts up to four, and the media deck keeps others
+   * alive behind the strip. Without an ownership test every mounted document
+   * opened its own find bar, and the last one to register won the focus, so
+   * pressing Ctrl+F over a PDF opened the markdown pane's bar instead.
+   *
+   * Three tests, cheapest first: not covered by Settings (`[inert]`, the same
+   * check PdfView makes), not in a hidden tab, and either this pane holds the
+   * focus or nothing in another pane does.
+   */
+  const ownsKeys = (): boolean => {
+    const el = box.current
+    if (!el || el.closest('[inert]') || el.closest('[hidden]')) return false
+    if (!el.isConnected || !el.offsetParent) return false
+    const active = document.activeElement as HTMLElement | null
+    if (active && active !== document.body) {
+      // Somebody has the focus: only the pane containing it may answer.
+      const pane = active.closest('[data-doc-scroller], .cm-editor, [data-pdf-scroller]')
+      if (pane && pane !== el && !el.contains(active)) return false
+    }
+    return true
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey && (e.key === 'f' || e.key === 'F'))) return
       const el = e.target as HTMLElement | null
       if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return
+      if (!ownsKeys()) return
       e.preventDefault()
       e.stopPropagation()
       setFinding(true)
@@ -212,6 +250,7 @@ export function MarkdownView({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
+
 
   return (
     <div

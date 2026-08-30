@@ -3,6 +3,7 @@ import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { quotePaths } from '../lib/termPaste'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { pasteInto } from '../lib/termBus'
 import { tickIf } from '../lib/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
@@ -156,12 +157,13 @@ export function TermDock({
             {
               label: 'Paste',
               hint: 'Ctrl+V',
-              onPick: () =>
-                void navigator.clipboard.readText().then((text) => {
-                  // Bracketed paste is the shell's business; this is the same
-                  // route a dropped file's path takes.
-                  if (text) window.prism.termInput(sessionId, text)
-                })
+              // Through the terminal's OWN paste (lib/termBus), which is
+              // bracketed for text and forwards the ^V keystroke for an image
+              // so the TUI can read the clipboard itself. Writing the text
+              // straight to the pty instead would send a multi-line paste as
+              // a run of Enter presses: the first line runs and the rest are
+              // typed in after it.
+              onPick: () => void pasteInto(sessionId)
             },
             ...(full
               ? []

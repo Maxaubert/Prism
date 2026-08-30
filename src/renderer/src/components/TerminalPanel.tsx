@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { decidePaste } from '../lib/termPaste'
+import { registerPaste } from '../lib/termBus'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import { onTermLookChange, termAcrylic, termBaseFontPx, termFontStack, termThemeId } from '../lib/termLook'
 import { forgetSession, markTouched, suppressActivity, takeResume } from '../lib/termActivity'
@@ -161,6 +162,23 @@ function createSession(id: string, root: string, shellId: string | undefined): S
       term.write('\r\x1b[2K')
     }
   }
+  /**
+   * The one paste. Bracketed for text - without that framing a multi-line
+   * paste reaches the shell as a run of Enter presses, so the first line runs
+   * and the rest are typed after it - and the ^V KEYSTROKE for an image,
+   * which is what lets the TUI read the clipboard itself.
+   *
+   * Named and registered so the dock's right-click Paste calls THIS rather
+   * than growing a second, wrong copy of it.
+   */
+  const pasteHere = (): void => {
+    const decision = decidePaste(window.prism.readClipboard())
+    if (decision.kind === 'key') {
+      markTouched(id)
+      window.prism.termInput(id, '')
+    } else if (decision.kind === 'text') term.paste(decision.data)
+  }
+
   const unsub = [
     window.prism.onTermData((forId, data) => {
       if (forId === id) {
@@ -168,7 +186,10 @@ function createSession(id: string, root: string, shellId: string | undefined): S
         term.write(data)
       }
     }),
-    stopSpin
+    stopSpin,
+    // The dock's menu reaches this session's paste through lib/termBus while
+    // it is alive; dropping the entry is part of disposing the session.
+    registerPaste(id, pasteHere),
     // Exit is App's to handle: it owns the tab's term slot and must hear the
     // exit even while this panel is hidden. App disposes us via
     // disposeTermSession, so nothing is subscribed here.
@@ -202,13 +223,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
       return false
     }
     if ((e.key === 'v' || e.key === 'V') && e.ctrlKey && !e.shiftKey) {
-      const decision = decidePaste(window.prism.readClipboard())
-      // An image forwards the ^V byte: the TUI reads the clipboard itself.
-      if (decision.kind === 'key') {
-        markTouched(id)
-        window.prism.termInput(id, '\x16')
-      }
-      else if (decision.kind === 'text') term.paste(decision.data)
+      pasteHere()
       return false
     }
     if ((e.key === 'v' || e.key === 'V') && e.ctrlKey && e.shiftKey) {
