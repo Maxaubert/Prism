@@ -20,9 +20,11 @@
 
 ; One class per kind, rather than one per extension: the Open With menu then
 ; says "Prism" once instead of listing thirty near-identical entries.
-!macro PRISM_PROGID ID DESC
+!macro PRISM_PROGID ID DESC ICON
   WriteRegStr SHELL_CONTEXT "Software\Classes\${ID}" "" "${DESC}"
-  WriteRegStr SHELL_CONTEXT "Software\Classes\${ID}\DefaultIcon" "" "$INSTDIR\${PRODUCT_FILENAME}.exe,0"
+  ; Its OWN icon, not the exe's: every ProgID pointed at "Prism.exe,0" once, so
+  ; a .zip and a .mkv opened with Prism were indistinguishable in Explorer.
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${ID}\DefaultIcon" "" "$INSTDIR\resources\icons\prism-${ICON}.ico"
   WriteRegStr SHELL_CONTEXT "Software\Classes\${ID}\shell\open" "" "Open with ${PRODUCT_NAME}"
   WriteRegStr SHELL_CONTEXT "Software\Classes\${ID}\shell\open\command" "" '"$INSTDIR\${PRODUCT_FILENAME}.exe" "%1"'
 !macroend
@@ -45,12 +47,12 @@
 !macroend
 
 !macro PRISM_REGISTER_TYPES
-  !insertmacro PRISM_PROGID "Prism.Image" "Image"
-  !insertmacro PRISM_PROGID "Prism.Video" "Video"
-  !insertmacro PRISM_PROGID "Prism.Audio" "Audio"
-  !insertmacro PRISM_PROGID "Prism.Document" "Document"
-  !insertmacro PRISM_PROGID "Prism.Text" "Text file"
-  !insertmacro PRISM_PROGID "Prism.Archive" "Archive"
+  !insertmacro PRISM_PROGID "Prism.Image" "Image" "image"
+  !insertmacro PRISM_PROGID "Prism.Video" "Video" "video"
+  !insertmacro PRISM_PROGID "Prism.Audio" "Audio" "audio"
+  !insertmacro PRISM_PROGID "Prism.Document" "Document" "document"
+  !insertmacro PRISM_PROGID "Prism.Text" "Text file" "code"
+  !insertmacro PRISM_PROGID "Prism.Archive" "Archive" "archive"
 
   ; The same lists src/shared/fileKind.ts calls viewable - ALL of them. Code
   ; and config types were excluded once ("a .ts belongs to an editor"), but the
