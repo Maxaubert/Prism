@@ -312,6 +312,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **Reaching the terminal, and leaving it alone** (2026-08-31). Ctrl+` is THREE-WAY,
+  VS Code's rule: a terminal that is showing but does not have the keyboard gets the
+  keyboard, and only a press from INSIDE it hides. The old two-way toggle meant that
+  reaching for the shell you could already see put it away. `toggleTermView` itself is
+  unchanged and still tested; the branch lives in App, where `inTerm` already exists.
+  **Ctrl+Shift+F finds in the SCROLLBACK** (xterm's own `addon-search`, so it knows about
+  wrapped lines and the alternate screen), a DocFind-shaped bar over the panel; xterm's
+  key handler must return false for it or the pty gets the bytes too, and it is added
+  EXPLICITLY rather than by widening the `/^[twb]$/i` tab-key regex, which ignores shift
+  and would cost the shell plain Ctrl+F. **"Open terminal here"** on a folder row follows
+  the reroot policy verbatim: an UNTOUCHED shell is replaced by one spawned in that
+  folder, a TOUCHED one is somebody's work and is never taken away - that folder gets a
+  terminal in a NEW TAB instead. The tab's own root does not move; the sidebar's folder
+  button is the verb for that. And the close question now NAMES what it interrupts:
+  `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
+  cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
+  'Off' still means off: a confirmation that appears anyway is a setting that lies.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range
@@ -739,7 +756,10 @@ works, that the associations still register, and that the resident app actually 
   `heic-convert` (HEIC decode), `adm-zip` (the archive viewer: reading and rewriting zip
   containers is not a thing to hand-roll; pure JS, no native code), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
   its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
-  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it). Shells spawn
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it; `@xterm/*` now
+  includes `addon-search`, because searching a terminal means the SCROLLBACK buffer,
+  wrapped lines and the alternate screen, none of which a DOM search over the rendered
+  rows can see), `exifr` (main-only, the photo's own EXIF). Shells spawn
   with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS
   the whole app (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
 

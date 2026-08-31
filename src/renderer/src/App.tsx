@@ -44,6 +44,7 @@ import {
   markResume,
   suppressActivity
 } from './lib/termActivity'
+import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
@@ -128,6 +129,21 @@ const RAIL_KEY = 'prism.settings.rail'
 const SETUP_KEY = 'prism.onboarded'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
+/** An agent that is mid-answer in the tab about to close: what it is, and
+ *  how long it has been at it. Null when nothing is working. */
+interface AgentBusy {
+  kind: 'claude' | 'codex' | 'other'
+  forMs: number
+}
+
+/** What to call it in the sentence. 'other' is anything main recognised as an
+ *  agent without knowing which - it still deserves a question. */
+const AGENT_NAMES: Record<AgentBusy['kind'], string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  other: 'An agent'
+}
+
 type Ask =
   | { kind: 'delete'; path: string; name: string; isFolder: boolean }
   | { kind: 'delete-many'; paths: string[] }
@@ -141,7 +157,7 @@ type Ask =
   | { kind: 'close-tab'; id: string; names: readonly string[] }
   // The plain "sure?" for a clean tab, on by default and switchable in
   // Settings. Dirty tabs take the unsaved-changes question above instead.
-  | { kind: 'close-tab-confirm'; id: string; label: string }
+  | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy | null }
   // Pointing a tab at a different folder strands its unsaved text exactly as
   // closing it would, so it asks the same question and carries the payload it
   // will apply on the way through.
@@ -1188,6 +1204,12 @@ export default function App(): JSX.Element {
   // here because the close path below consults it; the polling effect that
   // feeds it lives with the rest of the terminal wiring.
   const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
+  // Which of those are mid-answer right now, and which agent each one is.
+  // Up here for the same reason as `agentIds`: the close path asks what it
+  // is about to interrupt. Scored by the polling effect further down.
+  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
+  /** Which agent each session hosts - resume is claude-only. */
+  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -1204,16 +1226,26 @@ export default function App(): JSX.Element {
       else {
         const mode = confirmCloseMode()
         const agentLive = !!tab.term && agentIds.has(tab.term.id)
+        // What is actually at stake, so the question can say it: an agent
+        // that is WORKING (not merely present) and how long it has been at
+        // it. 'never' still means never - it is an explicit choice, and a
+        // confirmation that appears anyway is a setting that lies.
+        const busy = tab.term && workingIds.has(tab.term.id) ? workingFor(tab.term.id) : null
+        const agent: AgentBusy | null =
+          busy === null || !tab.term
+            ? null
+            : { kind: agentKinds.current.get(tab.term.id) ?? 'other', forMs: busy }
         if (mode === 'always' || (mode === 'agent' && agentLive))
           setAsk({
             kind: 'close-tab-confirm',
             id,
-            label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root
+            label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root,
+            agent
           })
         else forceCloseTab(id)
       }
     },
-    [agentIds, dirtyUnder, forceCloseTab, tabs]
+    [agentIds, dirtyUnder, forceCloseTab, tabs, workingIds]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
@@ -1327,9 +1359,6 @@ export default function App(): JSX.Element {
    * a finished answer, waiting.
    */
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
-  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
-  /** Which agent each session hosts - resume is claude-only. */
-  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   useEffect(
     () =>
       window.prism.onTermAgent((id, present, kind) => {
@@ -1442,6 +1471,9 @@ export default function App(): JSX.Element {
   const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(new Set())
   const prevWorking = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
+    // The one place that sees the transition, so the one place that can time
+    // it: `outputRuns.start` is a burst length, not a work duration.
+    noteWorking(workingIds)
     const was = prevWorking.current
     prevWorking.current = workingIds
     const activeTerm = tabs.find((t) => t.id === activeId)?.term?.id
@@ -1744,9 +1776,8 @@ export default function App(): JSX.Element {
     })
   }, [])
   /** The terminal menu's version: a new tab on the same root, shell in front. */
-  const openTermInNewTab = useCallback(() => {
-    const root = active?.root
-    if (!root) return
+  /** A fresh tab rooted at `root`, with its terminal in front. */
+  const termTabAt = useCallback((root: string) => {
     void window.prism.openRoot(root).then((p) => {
       if (!p) return
       setTabState((s) => addTab(s.tabs, p, nextTabId()))
@@ -1758,7 +1789,46 @@ export default function App(): JSX.Element {
         return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
       })
     })
-  }, [active])
+  }, [])
+  const openTermInNewTab = useCallback(() => {
+    if (active?.root) termTabAt(active.root)
+  }, [active, termTabAt])
+  /**
+   * "Open terminal here", on a folder in the tree (2026-08-31).
+   *
+   * A tab has exactly ONE terminal, so this cannot mean "a second shell".
+   * It follows the reroot policy that already exists instead: an UNTOUCHED
+   * shell (nobody has typed into it) is replaced by one spawned in that
+   * folder, and a TOUCHED one is somebody's work - a half-typed command, a
+   * Claude session - so it is never taken away. That folder gets a terminal
+   * in a NEW TAB instead, which is the only other honest answer.
+   *
+   * The tab's own root does not move: this opens a shell somewhere, it does
+   * not renavigate the window. The sidebar's folder button is the verb for
+   * that, and it is deliberately a different button.
+   */
+  const openTermHere = useCallback(
+    (folder: string) => {
+      if (!active || active.kind === 'settings') return
+      const term = active.term
+      if (term && isTouched(term.id)) {
+        termTabAt(folder)
+        return
+      }
+      if (term) {
+        window.prism.termKill(term.id)
+        disposeSession(term.id)
+        termRoots.current.delete(term.id)
+      }
+      const termId = nextTermId()
+      termRoots.current.set(termId, folder)
+      setTabState((s) => ({
+        ...s,
+        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
+      }))
+    },
+    [active, termTabAt]
+  )
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
@@ -1786,6 +1856,9 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
+  /** The terminal's own find bar. Lives here because Ctrl+Shift+F is claimed
+   *  in App's key handler, like every other key the shell does not keep. */
+  const [termFind, setTermFind] = useState(false)
 
   /* ------------------------------------------------------------------ *
    * Every tab holding media keeps its player, and the strip only decides
@@ -2251,8 +2324,28 @@ export default function App(): JSX.Element {
         // NOT behind the typing guard: one of the few keys Prism claims over
         // a focused terminal (F11 and Ctrl+Shift+T are the others).
         // Everything else, Escape and Ctrl+W included, belongs to the shell.
+        //
+        // Three-way, VS Code's rule (2026-08-31): a terminal that is SHOWING
+        // but does not have the keyboard gets the keyboard, and only a second
+        // press - from inside it - hides it. The old two-way toggle meant
+        // that reaching for the shell you could already see put it away, so
+        // you pressed it twice and got a scroll position you had not asked
+        // for. `toggleTermView` itself is unchanged, and still tested.
         e.preventDefault()
-        toggleTerm()
+        if (termView !== 'hidden' && !inTerm) restoreTermFocus()
+        else toggleTerm()
+      } else if (
+        (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') &&
+        e.ctrlKey &&
+        e.shiftKey &&
+        termView !== 'hidden'
+      ) {
+        // Claimed over a focused shell too (xterm's own handler returns false
+        // for it, or the pty would get the bytes as well). Only while a
+        // terminal is showing: Ctrl+Shift+F means nothing otherwise, and
+        // swallowing it everywhere would be chrome pretending to be a feature.
+        e.preventDefault()
+        setTermFind(true)
       } else if ((e.code === 'KeyT' || e.key === 't' || e.key === 'T') && e.ctrlKey && e.shiftKey) {
         // Also claimed while the shell is focused: it never hides, it only
         // brings the terminal to full view, so it cannot eat typed text.
@@ -2372,6 +2465,7 @@ export default function App(): JSX.Element {
     newTab,
     openTermFull,
     redo,
+    restoreTermFocus,
     settingsOpen,
     setup,
     stepTab,
@@ -2532,6 +2626,7 @@ export default function App(): JSX.Element {
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
             onTermNewTab={openTermInNewTab}
+            onTermHere={openTermHere}
             onTermSplit={openTermSplit}
             onClearTerm={active.term ? clearTerm : null}
             state={active.tree}
@@ -2719,11 +2814,11 @@ export default function App(): JSX.Element {
                         onToggleFullscreen: toggleFullscreen,
                         fullscreen,
                         transportStyle,
-                      transportBg,
+                        transportBg,
                         onOpenLocal: openFromTree,
                         onAutoAdvance: () => {},
-                      onStep: () => {},
-                      canStep: () => false,
+                        onStep: () => {},
+                        canStep: () => false,
                         onBuffer,
                         getPending,
                         volumeKey: `${activeId ?? ''}:pin:${pn.path}`
@@ -2773,8 +2868,10 @@ export default function App(): JSX.Element {
               onResize={resizeTermPanel}
               onDockPick={pickDock}
               sessionId={active.term.id}
-              root={active.root}
+              root={termRoots.current.get(active.term.id) ?? active.root}
               shellId={savedShellId()}
+              find={termFind}
+              onFind={setTermFind}
             />
           )}
         </div>
@@ -2924,12 +3021,25 @@ export default function App(): JSX.Element {
 
       {ask?.kind === 'close-tab-confirm' && (
         <Dialog
-          title="Close this tab?"
+          title={ask.agent ? 'Stop the agent and close?' : 'Close this tab?'}
           body={
-            <>
-              <span className="text-[#d7dae1]">{ask.label}</span> closes, and its shell (if one is
-              running) goes with it. Settings can turn this question off.
-            </>
+            ask.agent ? (
+              // Naming the work is the whole point of asking (2026-08-31).
+              // "its shell (if one is running) goes with it" is true of an
+              // idle prompt and of an agent eleven minutes into an answer,
+              // and only one of those is worth a keystroke's hesitation.
+              <>
+                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> has been
+                working for {humanFor(ask.agent.forMs)} in{' '}
+                <span className="text-[#d7dae1]">{ask.label}</span>. Closing the tab kills the
+                shell, and the answer with it.
+              </>
+            ) : (
+              <>
+                <span className="text-[#d7dae1]">{ask.label}</span> closes, and its shell (if one is
+                running) goes with it. Settings can turn this question off.
+              </>
+            )
           }
           onCancel={() => setAsk(null)}
           choices={[
@@ -3112,7 +3222,6 @@ export default function App(): JSX.Element {
           }}
         />
       )}
-
     </div>
   )
 }

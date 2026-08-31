@@ -145,6 +145,7 @@ export function Sidebar({
   pinnedPaths,
   onOpenNewTab,
   onTermNewTab,
+  onTermHere,
   onTermSplit,
   onClearTerm,
   state,
@@ -190,6 +191,8 @@ export function Sidebar({
   onOpenNewTab: (path: string) => void
   /** The terminal button menu's "Open in new tab". */
   onTermNewTab: () => void
+  /** A folder row's "Open terminal here": a shell spawned in that folder. */
+  onTermHere: (folder: string) => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
   /** Null while no shell exists: there is nothing to clear yet. */
@@ -216,7 +219,9 @@ export function Sidebar({
   const [query, setQuery] = useState('')
   /** The hits the search panel is showing, lent upward so the arrows can walk
    *  them. Empty while the tree is showing. */
-  const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>([])
+  const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>(
+    []
+  )
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
   // The terminal button's right-click menu: its own tiny state, since the file
   // menu carries a path and this one is about the tab's shell.
@@ -805,7 +810,9 @@ export function Sidebar({
               onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
               onRows={setHitRows}
               cursorPath={at}
-              onMenu={(e, path, name, isFolder) => onMenu(e, path, name, !!isFolder, undefined, true)}
+              onMenu={(e, path, name, isFolder) =>
+                onMenu(e, path, name, !!isFolder, undefined, true)
+              }
               onMultiMenu={(e, paths) =>
                 setMenu({
                   x: e.clientX,
@@ -1066,6 +1073,15 @@ export function Sidebar({
                         onPick: () => window.prism.openWithChooser(menu.path)
                       }
                     ]
+                  }
+                ]
+              : []),
+            ...(menu.isFolder
+              ? [
+                  {
+                    label: 'Open terminal here',
+                    icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+                    onPick: () => onTermHere(menu.path)
                   }
                 ]
               : []),

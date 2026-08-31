@@ -615,7 +615,22 @@ async function contextMenuScenario(fixtures) {
         .catch(() => false),
       'files offer Open in split view'
     )
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 0,
+      'a FILE is offered no "Open terminal here": you open a terminal in a folder'
+    )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The folder half of the same menu.
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 1,
+      'a folder is'
+    )
     await win.keyboard.press('Escape')
     await sleep(300)
 
@@ -1692,10 +1707,26 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'the shell echoes back through the pty')
 
-    // Hide, then show: same session, scrollback intact, shell still alive.
+    // Ctrl+` is three-way (2026-08-31): a SHOWING terminal that does not have
+    // the keyboard gets it, and only a press from inside hides. So click
+    // away first and prove the panel survives.
+    await win.locator('[data-row]').first().click()
+    await sleep(200)
     await win.keyboard.press('Control+`')
     await sleep(300)
-    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` hides the panel')
+    ok(
+      (await win.locator('.xterm').count()) === 1,
+      'Ctrl+` from outside focuses the terminal rather than hiding it'
+    )
+    ok(
+      await win.evaluate(() => !!document.activeElement?.closest('.xterm')),
+      'and the keyboard is in the terminal afterwards'
+    )
+
+    // Now from inside: same key, and this time it hides.
+    await win.keyboard.press('Control+`')
+    await sleep(300)
+    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` from inside hides the panel')
     await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 10000 })
     await sleep(300)
@@ -1703,6 +1734,17 @@ async function terminalScenario(fixtures) {
       ((await win.locator('.xterm').textContent()) ?? '').includes('prism-e2e-marker'),
       'reopening shows the same shell, scrollback intact'
     )
+
+    // Find in the scrollback: the marker is up there, and the bar counts it.
+    await win.keyboard.press('Control+Shift+F')
+    await win.waitForSelector('[data-term-find]', { timeout: 5000 })
+    await win.locator('[data-term-find] input').fill('prism-e2e-marker')
+    await sleep(400)
+    const findCount = (await win.locator('[data-term-find] span').first().textContent()) ?? ''
+    ok(/of|\+/.test(findCount), `the find bar counts matches in the scrollback (${findCount})`)
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ok((await win.locator('[data-term-find]').count()) === 0, 'Escape closes the terminal find bar')
 
     const countMarker = async () =>
       (((await win.locator('.xterm').textContent()) ?? '').match(/prism-e2e-marker/g) ?? []).length

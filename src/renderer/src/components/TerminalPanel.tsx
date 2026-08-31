@@ -3,10 +3,17 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { SearchAddon } from '@xterm/addon-search'
 import { decidePaste } from '../lib/termPaste'
 import { registerPaste } from '../lib/termBus'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
-import { onTermLookChange, termAcrylic, termBaseFontPx, termFontStack, termThemeId } from '../lib/termLook'
+import {
+  onTermLookChange,
+  termAcrylic,
+  termBaseFontPx,
+  termFontStack,
+  termThemeId
+} from '../lib/termLook'
 import { forgetSession, markTouched, suppressActivity, takeResume } from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
@@ -20,6 +27,7 @@ import '@xterm/xterm/css/xterm.css'
 interface Session {
   term: Terminal
   fit: FitAddon
+  search: SearchAddon
   el: HTMLDivElement
   unsub: Array<() => void>
   /** Ctrl+scroll zoom, this session only: never persisted, dies with it. */
@@ -107,8 +115,80 @@ export function disposeTermSession(id: string): void {
   sessions.delete(id)
   forgetSession(id)
   s.unsub.forEach((u) => u())
+  s.search.dispose()
   s.term.dispose()
   s.el.remove()
+}
+
+/**
+ * Find in the scrollback (2026-08-31).
+ *
+ * The session store is keyed by shell id and outlives every component, so
+ * the find bar reaches its terminal the same way `focusTermSession` does
+ * rather than threading a ref through the dock. The decorations are painted
+ * in the LIVE accent - the terminal already reads --p-bg/--p-text/--p-accent
+ * for its palette, and a highlight in some other colour would be the one
+ * part of the panel that ignores the style.
+ *
+ * `matchOverviewRuler` and `activeMatchColorOverviewRuler` are required
+ * members of xterm's ISearchDecorationOptions, not optional extras: leave
+ * them out and the whole decorations object is a type error.
+ */
+function findOptions(incremental: boolean): Parameters<SearchAddon['findNext']>[1] {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--p-accent-hi').trim()
+  // xterm's decorations want #RRGGBB and nothing else: an rgba() or an
+  // eight-digit hex paints as transparent-black, which is a match you cannot
+  // see. The style variables are hex today, and this is the guard for the
+  // day one of them is not.
+  const accent = /^#[0-9a-f]{6}$/i.test(raw) ? raw : '#5b5bd6'
+  return {
+    incremental,
+    decorations: {
+      matchBackground: '#4a5160',
+      matchBorder: '#6b7482',
+      matchOverviewRuler: '#8a93a3',
+      activeMatchBackground: accent,
+      activeMatchBorder: accent,
+      activeMatchColorOverviewRuler: accent
+    }
+  }
+}
+
+/**
+ * Step to the next (or previous) match. False when there is no session.
+ *
+ * `incremental` is for TYPING: it keeps the selection where it is while the
+ * query still matches, so the view does not leap down the scrollback one
+ * character at a time. Enter and the arrows pass false, which is what makes
+ * them step.
+ */
+export function findInTerm(id: string, query: string, dir: 1 | -1, incremental = false): boolean {
+  const s = sessions.get(id)
+  if (!s) return false
+  if (!query) {
+    s.search.clearDecorations()
+    return true
+  }
+  if (dir === 1) s.search.findNext(query, findOptions(incremental))
+  else s.search.findPrevious(query, findOptions(false))
+  return true
+}
+
+/** Drop the highlights: the bar closed, or the query emptied. */
+export function clearTermFind(id: string): void {
+  sessions.get(id)?.search.clearDecorations()
+}
+
+/** Hear the running count. `resultIndex` is -1 past xterm's match threshold,
+ *  which the bar reports as "many" rather than as "none". */
+export function onTermFindResults(
+  id: string,
+  cb: (r: { index: number; count: number }) => void
+): () => void {
+  const s = sessions.get(id)
+  if (!s) return () => {}
+  const d = s.search.onDidChangeResults((e) => cb({ index: e.resultIndex, count: e.resultCount }))
+  return () => d.dispose()
 }
 
 function createSession(id: string, root: string, shellId: string | undefined): Session {
@@ -126,6 +206,8 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  const search = new SearchAddon()
+  term.loadAddon(search)
   // Ink UIs (Claude Code) draw boxes and spinners whose width math assumes
   // Unicode 11 - without this addon the emoji misalign, which is the tell of
   // a terminal that didn't bother.
@@ -189,7 +271,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     stopSpin,
     // The dock's menu reaches this session's paste through lib/termBus while
     // it is alive; dropping the entry is part of disposing the session.
-    registerPaste(id, pasteHere),
+    registerPaste(id, pasteHere)
     // Exit is App's to handle: it owns the tab's term slot and must hear the
     // exit even while this panel is hidden. App disposes us via
     // disposeTermSession, so nothing is subscribed here.
@@ -199,11 +281,21 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     if (e.type !== 'keydown') return true
     // Ctrl+C over a SELECTION copies it, the way Windows Terminal does; with
     // nothing selected it stays the interrupt every shell expects.
-    if ((e.key === 'c' || e.key === 'C') && e.ctrlKey && !e.shiftKey && !e.altKey && term.hasSelection()) {
+    if (
+      (e.key === 'c' || e.key === 'C') &&
+      e.ctrlKey &&
+      !e.shiftKey &&
+      !e.altKey &&
+      term.hasSelection()
+    ) {
       void navigator.clipboard.writeText(term.getSelection())
       term.clearSelection()
       return false
     }
+    // Find in the scrollback. Explicitly, and BEFORE the block below, whose
+    // regex is case-insensitive and ignores shift: widening it to include f
+    // would cost the shell plain Ctrl+F as well.
+    if ((e.key === 'f' || e.key === 'F') && e.ctrlKey && e.shiftKey && !e.altKey) return false
     // Prism's tab-management keys work over a focused shell (no shell uses
     // them): returning false keeps xterm from also feeding bytes to the pty.
     // App's window listener does the actual work.
@@ -235,7 +327,7 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     return true
   })
 
-  const session: Session = { term, fit, el, unsub }
+  const session: Session = { term, fit, search, el, unsub }
   sessions.set(id, session)
 
   // A session restored over a Claude conversation launches straight into it:
