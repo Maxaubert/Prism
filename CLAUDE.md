@@ -632,7 +632,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   for this one, which is why nothing collides. The code glyph carries THREE bars and not
   four, measured not assumed: at 16px four leave a 1.1px gap and a light bar on a near-black
   tile blooms across it, so the top two merged into one smudge. `tools/icons/round8.py` keeps
-  every candidate and `sheet8.py` renders the comparison page they were picked from.
+  every candidate and `mockups.py <round>` renders the comparison page they were picked
+  from. ROUND TEN (2026-08-31) re-cut ARCHIVE: three thick layers now, belted. The belt is
+  the lesson - round nine laid a strap OVER the layers and it read as a vertical line on top
+  of the icon, because it had no relationship to the shape underneath. At icon scale the only
+  depth cue that survives is SILHOUETTE, so the channel is CARVED: the glyph is drawn on its
+  own layer and the channel sets that layer's alpha to zero, which makes the near-black tile
+  show through as a real hole. A shadow, a gradient or a highlight edge would have been a
+  grey smudge at 16px. The belt carries the one indigo now that the top layer has given it up.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's

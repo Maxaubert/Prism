@@ -73,10 +73,29 @@ def draw(size, p, body_fn):
 
 # ------------------------------------------------------------------ glyphs
 def _archive(d, n, p):
-    """Round one's layers: three bound volumes."""
-    for i, col in enumerate((p.accent, p.alt, p.body)):
-        y = g(n, 3 + i * 4)
-        d.rounded_rectangle([g(n, 1.5), y, g(n, 14.5), y + g(n, 3)], radius=g(n, 0.8), fill=col)
+    """Round ten's pick: three thick layers, belted in a cut channel.
+
+    Round one's stack, packed tighter, and the belt is the point. Round nine
+    laid a strap OVER the layers and it read as exactly that - a vertical line
+    on top of the icon, with no relationship to the shape underneath. At icon
+    scale the only depth cue that survives is SILHOUETTE: a shadow, a gradient
+    or a highlight edge is a grey smudge at 16px.
+
+    So the channel is CARVED. The glyph is drawn on its own layer and the
+    channel sets that layer's alpha to zero, which means the near-black tile
+    shows through and the gap is a real hole rather than a painted line. The
+    layers stop for the belt, so the belt is part of the stack.
+    """
+    for i, col in enumerate((p.body, p.alt, p.body)):
+        y = g(n, 2.4 + i * 4.2)
+        d.rounded_rectangle([g(n, 1.5), y, g(n, 14.5), y + g(n, 3.6)], radius=g(n, 0.8), fill=col)
+    # The channel, cut clean through the layers.
+    d.rectangle([g(n, 5.9), g(n, 1.0), g(n, 10.1), g(n, 15.4)], fill=(0, 0, 0, 0))
+    # The belt, sitting in it, and carrying the one indigo now that the top
+    # layer has given it up.
+    d.rounded_rectangle(
+        [g(n, 6.6), g(n, 1.4), g(n, 9.4), g(n, 15.0)], radius=g(n, 0.6), fill=p.accent
+    )
 
 
 def _video(d, n, p):
