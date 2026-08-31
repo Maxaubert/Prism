@@ -156,7 +156,6 @@ export function TermDock({
           items={[
             {
               label: 'Paste',
-              hint: 'Ctrl+V',
               // Through the terminal's OWN paste (lib/termBus), which is
               // bracketed for text and forwards the ^V keystroke for an image
               // so the TUI can read the clipboard itself. Writing the text

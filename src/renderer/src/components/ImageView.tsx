@@ -3,7 +3,7 @@ import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, MenuIcon, stepVerbs } from '../lib/fileVerbs'
+import { fileVerbs } from '../lib/fileVerbs'
 import { pngFromBlob } from '../lib/copyImage'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
@@ -28,23 +28,13 @@ export function ImageView({
   url,
   path,
   name,
-  onToggleFullscreen,
-  onStep,
-  canStep,
-  fullscreen = false
+  onToggleFullscreen
 }: {
   url: string
   /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
   path?: string
   name: string
   onToggleFullscreen: () => void
-  /** Next/Previous image, of the same kind, which is autoplay's rule. */
-  onStep?: (dir: 1 | -1) => void
-  canStep?: (dir: 1 | -1) => boolean
-  /** Fullscreen makes the write-shaped rows inert, the same rule the archive
-   *  and the undo stack follow: a change nobody can see is a change nobody
-   *  meant. Nothing here writes yet, but rotate is a view, not a file edit. */
-  fullscreen?: boolean
 }): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [copyNote, setCopyNote] = useState<string | null>(null)
@@ -315,62 +305,23 @@ export function ImageView({
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
 
   /**
-   * The picture's own menu (2026-08-30).
+   * The picture's own menu (2026-08-30, cut back 2026-08-31).
    *
-   * Everything here was already reachable by a key or a button, and none of it
-   * was reachable by the gesture people actually try on a photo. The rows are
-   * the view verbs the button cluster carries, with their shortcuts in the
-   * hint column, plus the file verbs every surface shares.
+   * It started as everything the picture could do and read like a toolbar:
+   * next, previous, zoom in, zoom out, fit, actual size, rotate, fullscreen,
+   * copy, and a shortcut against nearly every row. All of that was already
+   * one press or one button away - the arrows page the folder, the zoom
+   * cluster sits in the corner, F is fullscreen - so the menu was teaching
+   * keys nobody needed taught and burying the two verbs that are only here.
+   *
+   * What is left is what you cannot do another way with a pointer: turn the
+   * picture, take the PIXELS (which for a HEIC or a RAW is the one thing
+   * Windows itself cannot do), and get to the file. No icons: this is a short
+   * list of verbs, not a toolbar.
    */
   const menuItems = (): MenuItem[] => [
-    ...(onStep && canStep && !fullscreen ? stepVerbs('image', onStep, canStep) : []),
-    {
-      label: 'Zoom in',
-      hint: '+',
-      icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20M11 8.5v5M8.5 11h5" />,
-      onPick: () => zoomCentered(1.18)
-    },
-    {
-      label: 'Zoom out',
-      hint: '-',
-      icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20M8.5 11h5" />,
-      onPick: () => zoomCentered(1 / 1.18)
-    },
-    {
-      label: 'Fit to window',
-      hint: '0',
-      icon: <MenuIcon d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5" />,
-      onPick: () => reset()
-    },
-    {
-      label: 'Actual size',
-      hint: '1',
-      icon: <MenuIcon d="M4 4h16v16H4zM9 9h6v6H9z" />,
-      onPick: () => oneToOne()
-    },
-    {
-      // The PICTURE, not the file: for a HEIC or a camera RAW, handing over
-      // the file gives the other application bytes it cannot open. Copied
-      // from the decoded blob rather than from the element, which carries the
-      // zoom and rotation, or from the big-image canvas, which is downscaled.
-      label: 'Copy image',
-      hint: 'Ctrl+C',
-      disabled: !img,
-      icon: <MenuIcon d="M3.5 5h17v14h-17zM6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" />,
-      onPick: () => void copyImage()
-    },
-    {
-      label: 'Rotate',
-      hint: 'R',
-      icon: <MenuIcon d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5" />,
-      onPick: () => setRot((d) => (d + 90) % 360)
-    },
-    {
-      label: fullscreen ? 'Exit fullscreen' : 'Fullscreen',
-      hint: 'F',
-      icon: <MenuIcon d="M4 9V4h5M20 15v5h-5M15 4h5v5M9 20H4v-5" />,
-      onPick: onToggleFullscreen
-    },
+    { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
+    { label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() },
     ...(path ? fileVerbs(path) : [])
   ]
 

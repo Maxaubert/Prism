@@ -536,6 +536,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   has NO "close others" (each close can raise the unsaved-changes question, and firing several
   would overwrite it and lose the work it protects), and the terminal's menu carries paste but
   not copy (xterm owns its selection; Ctrl+C over one already copies).
+  **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
+  first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
+  fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one
+  of those was already a press or a button away, so the menu taught keys nobody needed taught
+  and buried the two verbs that live only there. A menu over the thing you are looking at is a
+  short list of verbs: the PICTURE's is Rotate, Copy image, and where the file is. Ticks are not
+  icons (they say what is currently on), and the SIDEBAR keeps its glyphs - it sits among
+  icon-led file rows and is the one menu long enough to need scanning.
 - **The screen stays awake while something plays** (2026-08-30). Two hours of film is two hours
   of no input, which is exactly what the lock screen waits for. `lib/awake` COUNTS players
   rather than toggling, because the media deck keeps up to four mounted and a background tab

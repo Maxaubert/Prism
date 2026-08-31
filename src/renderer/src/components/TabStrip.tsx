@@ -413,11 +413,7 @@ export function TabStrip({
               hint: 'Ctrl+W',
               onPick: () => onClose(tabMenu.id)
             },
-            {
-              label: 'New tab',
-              hint: 'Ctrl+T',
-              onPick: () => onNew()
-            },
+            { label: 'New tab', onPick: () => onNew() },
             // Settings is a tab with no folder. Offering these there did
             // nothing for one of them and wrote an EMPTY STRING over the
             // clipboard for the other, which is worse than doing nothing.

@@ -12,7 +12,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { bracketMatching, codeFolding, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
 import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, MenuIcon } from '../lib/fileVerbs'
+import { fileVerbs } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { jsonLinter, syntaxLinter } from '../lib/codeLint'
@@ -291,44 +291,16 @@ export function CodeView({
    */
   const menuItems = (hasSel: boolean): MenuItem[] => {
     return [
-      {
-        label: 'Cut',
-        hint: 'Ctrl+X',
-        disabled: !hasSel,
-        icon: <MenuIcon d="M6 4l12 12M18 4L6 16M7 18a2 2 0 1 0 0 .01M17 18a2 2 0 1 0 0 .01" />,
-        onPick: () => void document.execCommand('cut')
-      },
-      {
-        label: 'Copy',
-        hint: 'Ctrl+C',
-        disabled: !hasSel,
-        icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
-        onPick: () => void document.execCommand('copy')
-      },
-      {
-        label: 'Paste',
-        hint: 'Ctrl+V',
-        icon: <MenuIcon d="M9 4h6v3H9zM7 5H5v15h14V5h-2" />,
-        onPick: pasteHere
-      },
-      {
-        label: 'Select all',
-        hint: 'Ctrl+A',
-        icon: <MenuIcon d="M4 4h16v16H4zM8 12h8M12 8v8" />,
-        onPick: selectAll
-      },
-      {
-        label: 'Find',
-        hint: 'Ctrl+F',
-        icon: <MenuIcon d="M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM15.5 15.5L20 20" />,
-        onPick: findHere
-      },
-      {
-        label: 'Save',
-        hint: 'Ctrl+S',
-        icon: <MenuIcon d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
-        onPick: () => void save()
-      },
+      // No shortcut hints on the clipboard verbs: Ctrl+X/C/V are the three
+      // keys nobody has ever needed a menu to teach them. Find and Save keep
+      // theirs, because those are the habits worth having in a viewer that
+      // happens to be editable.
+      { label: 'Cut', disabled: !hasSel, onPick: () => void document.execCommand('cut') },
+      { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+      { label: 'Paste', onPick: pasteHere },
+      { label: 'Select all', onPick: selectAll },
+      { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
+      { label: 'Save', hint: 'Ctrl+S', onPick: () => void save() },
       ...fileVerbs(path)
     ]
   }

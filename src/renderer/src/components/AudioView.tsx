@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type SyntheticEvent } from 'react'
 import { RATES, useMediaControls } from '../lib/useMediaControls'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs, MenuIcon, stepVerbs, tickIf } from '../lib/fileVerbs'
+import { fileVerbs, stepVerbs, tickIf } from '../lib/fileVerbs'
 import { usePlayerPrefs } from '../lib/playerPrefs'
 import { Transport } from './Transport'
 import { PlayerMenu } from './PlayerMenu'
@@ -162,8 +162,9 @@ export function AudioView({
     ...(onStep && canStep ? stepVerbs('track', onStep, canStep) : []),
     {
       label: 'Speed',
+      // The hint is the current RATE, not a shortcut: the row says what the
+      // speed IS, which is the reason to open it.
       hint: `${c.rate.toFixed(2)}x`,
-      icon: <MenuIcon d="M12 4a8 8 0 1 1-8 8M12 8v4l3 2M12 4V2" />,
       children: RATES.map((r) => ({
         label: r === 1 ? 'Normal' : `${r}x`,
         icon: tickIf(Math.abs(c.rate - r) < 0.001),
