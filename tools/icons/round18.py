@@ -34,6 +34,7 @@ from icons import S
 from round12 import CHIP, INK, font, page_mask
 from round15 import _label_at
 from round5 import g
+from round12 import PX0, PX1, PY0, PY1, fold_points
 
 # The reference's own box, sampled off it.
 CYAN = (41, 196, 210)
@@ -44,7 +45,11 @@ INK_A = tuple(INK) + (255,)
 PINK_A, LEMON_A, CREAM_A, CYAN_A = (PINK + (255,), LEMON + (255,),
                                     CREAM + (255,), CYAN + (255,))
 
-P = (3.0, 2.0, 13.0, 15.0)        # the page's box
+# The page's own box, READ from round12 rather than copied: four files
+# held their own copy of these four numbers, and the comic artwork drawn
+# against them would have gone on filling the old rectangle, silently,
+# while the page grew underneath it.
+P = (PX0, PY0, PX1, PY1)
 CX, CY = 8.0, 9.6                 # centre of the area below the chip
 KEY = 0.80                        # keyline weight, matched to the reference
 
@@ -225,8 +230,7 @@ def comic_layers(size, accents, ext="CBZ"):
     accents(ImageDraw.Draw(art), n)
     art = Image.composite(art, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m)
     d = ImageDraw.Draw(art)
-    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
-               (g(n, 10.0), g(n, 5.0))], fill=INK_A)
+    d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=INK_A)
     d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
                         radius=g(n, 0.7), fill=INK_A)
     (tx, ty), f = _label_at(n, ext, CHIP)

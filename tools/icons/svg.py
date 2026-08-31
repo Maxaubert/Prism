@@ -59,7 +59,7 @@ reduction of its icon.
 import pathlib
 import sys
 
-from round12 import CHIP, CUT, PX0, PX1, PY0, PY1
+from round12 import CHIP, CUT, PX0, PX1, PY0, PY1, on_page
 from round12 import lines as doc_lines
 from round13 import clapper
 from round14 import GLYPHS as R14
@@ -68,7 +68,9 @@ from round17 import quarter
 from round18 import _splat
 
 SCALE = 1.5          # 16 grid units -> a 24x24 viewBox
-BOX = (3.8, 7.0, 12.2, 14.0)     # where a page kind's mark sits
+# Where a page kind's mark sits. Derived from the page, or the mark keeps its
+# old size inside a bigger page and the icon reads emptier rather than bigger.
+BOX = on_page((3.8, 7.0, 12.2, 14.0))
 BODY, KO, HI = "body", "ko", "hi"
 
 

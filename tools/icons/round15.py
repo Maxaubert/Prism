@@ -31,6 +31,7 @@ from PIL import Image, ImageChops, ImageDraw
 from icons import S
 from round12 import CHIP, INK, font, page_mask
 from round5 import g
+from round12 import PX0, PX1, PY0, PY1, fold_points
 
 NEUTRAL = (126, 138, 160)
 CHOSEN_YELLOW = (255, 255, 0)
@@ -47,7 +48,9 @@ MAGENTA = (178, 62, 119)   # the owner's picked comic colour, kept in the box
 # paper, but every container's identity lives at its top - a folder's tab, a
 # box's flaps, a case's handle - and a chip there hides the one feature that
 # says which container it is.
-CHIP_A = (0.8, 10.8, 9.6, 14.6)
+# Sized off the container the way the page kinds' chip is sized off the page,
+# and its bottom edge stays flush with the container's.
+CHIP_A = (0.8, 11.0, 9.7, 15.2)
 
 
 def _label_at(n, text, chip):
@@ -79,7 +82,11 @@ def _chip_and_label(ink, body, n, ext, chip=CHIP):
 # ======================================================================= archive
 # Containers, laid out landscape in x 1.5..14.5, y 4.0..15.0 - deliberately a
 # different footprint from the portrait page, so a zip never reads as a sheet.
-AX0, AY0, AX1, AY1 = 1.5, 3.2, 14.5, 14.6
+# Grown with the page (2026-08-31), about its own centre, and by less: it was
+# already 81% of the frame's width where the page was 62%, so what it lacked was
+# HEIGHT - 11.4 units against a page's 15. Width is the binding constraint here,
+# since a container any wider than 14 leaves no margin for the tab's radius.
+AX0, AY0, AX1, AY1 = 1.0, 2.6, 15.0, 15.2
 
 
 def _folder_body(d, n, fill, tab=True):
@@ -329,7 +336,11 @@ def _bubble(d, n, box, col):
                (g(n, x0 + (x1 - x0) * 0.26), g(n, y1))], fill=col)
 
 
-P = (3.0, 2.0, 13.0, 15.0)   # the page's own box, from round12
+# The page's own box, READ from round12 rather than copied: four files
+# held their own copy of these four numbers, and the comic artwork drawn
+# against them would have gone on filling the old rectangle, silently,
+# while the page grew underneath it.
+P = (PX0, PY0, PX1, PY1)
 
 
 def art_panels(d, n):
@@ -460,8 +471,7 @@ def comic_flat(size, art, ext="CBZ"):
 
     d = ImageDraw.Draw(out)
     K = tuple(INK) + (255,)
-    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
-               (g(n, 10.0), g(n, 5.0))], fill=K)
+    d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=K)
     d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
                         radius=g(n, 0.7), fill=K)
     (tx, ty), f = _label_at(n, ext, CHIP)

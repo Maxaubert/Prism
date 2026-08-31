@@ -84,8 +84,54 @@ def font(px):
 # The page stands on a baseline (1 unit below, 2 above) rather than sitting
 # centred. A file icon reads as an object resting on something, and the fold
 # wants the air at the top anyway.
-PX0, PY0, PX1, PY1 = 3.0, 2.0, 13.0, 15.0
+#
+# IT GREW (2026-08-31). MEASURED against Explorer, not adjusted by eye: in one
+# column of the owner's own screenshot, Adobe's .pdf glyph is 36px tall and our
+# .cbz is 30px, which with our page at 13/16 of its frame puts that frame at
+# 36.9px - so Adobe fills 97.5% of the same box and we filled 81%. A page icon
+# beside a page icon is exactly where a sixth of a difference reads.
+#
+# 11 by 15 now. WHOLE UNITS, which is why it is not the 12 by 15.6 that would
+# have held 0.769 exactly: a fractional edge lands on a half-covered pixel row
+# at 16px, and 16px is the frame that has to be crisp. 11:15 is 0.733, which is
+# actually CLOSER to the reference pair (0.761 and 0.715, mean 0.738) than the
+# 0.769 it replaces, so the aspect moved toward the references rather than away.
+#
+# PX0 STAYS 3.0 on purpose: the chip overhangs to its left, and had the page
+# been centred at 12 wide (2 to 14) that overhang would have had to halve to
+# stay on the frame. Growing rightward and downward instead keeps it whole. The
+# page is then 3 units from the left and 2 from the right, which is not off
+# centre so much as balancing the overhang: the composition's own span is
+# 0.8-14, centre 7.4, against a frame centre of 8 - closer to centred than the
+# 6.9 it was.
+PX0, PY0, PX1, PY1 = 3.0, 1.0, 14.0, 16.0
 CUT = 3.0
+
+# The page it grew FROM. Numbers written against that rectangle - a chip, a
+# glyph box, a band - are carried onto the current one by `on_page` rather than
+# re-eyeballed, so the composition scales as a whole and one edit moves it all.
+_WAS = (3.0, 2.0, 13.0, 15.0)
+
+
+def on_page(box, keep_left=False):
+    """A box drawn against the old page, expressed on the current one.
+
+    `keep_left` pins the left edge where it is instead of scaling it, which is
+    what the CHIP wants: its overhang is a fixed bite out of the frame's left
+    margin, and scaling it would push it off the frame.
+    """
+    ox0, oy0, ox1, oy1 = _WAS
+    sx = (PX1 - PX0) / (ox1 - ox0)
+    sy = (PY1 - PY0) / (oy1 - oy0)
+    fx = lambda v: PX0 + (v - ox0) * sx  # noqa: E731
+    fy = lambda v: PY0 + (v - oy0) * sy  # noqa: E731
+    x0, y0, x1, y1 = box
+    return (x0 if keep_left else fx(x0), fy(y0), fx(x1), fy(y1))
+
+
+def fold_points():
+    """The dog-ear, as three points. Written out in five files before this."""
+    return [(PX1 - CUT, PY0), (PX1, PY0 + CUT), (PX1 - CUT, PY0 + CUT)]
 
 
 def page_mask(n):
@@ -105,8 +151,7 @@ def draw_page(img, n, body, fold):
     img.paste(sheet, (0, 0), page_mask(n))
     flap = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     ImageDraw.Draw(flap).polygon(
-        [(g(n, PX1 - CUT), g(n, PY0)), (g(n, PX1), g(n, PY0 + CUT)),
-         (g(n, PX1 - CUT), g(n, PY0 + CUT))],
+        [(g(n, x), g(n, y)) for x, y in fold_points()],
         fill=tuple(fold) if len(fold) == 4 else tuple(fold) + (255,))
     img.alpha_composite(flap)
 
@@ -220,9 +265,15 @@ def _spec(**kw):
     return base
 
 
-BAND_TOP = 11.0   # 4 of the page's 13 units: the 0.31 of its height that the
-                  # first reference's band occupies, measured off the original
-CHIP = (0.8, 2.8, 9.6, 6.6)   # the overhanging top-left chip of reference two
+# 4 of the page's old 13 units: the 0.31 of its height that the first
+# reference's band occupies, measured off the original. Derived now, so it
+# holds that proportion whatever the page is.
+BAND_TOP = on_page((0.0, 11.0, 0.0, 11.0))[1]
+# The overhanging top-left chip of reference two. Its LEFT edge is pinned: the
+# overhang is a bite out of the frame's margin rather than a part of the page,
+# so it does not scale with one. Everything else does, which is also what gives
+# a four or five character extension more room than it had.
+CHIP = on_page((0.8, 2.8, 9.6, 6.6), keep_left=True)
 
 
 def build(size, k, spec):
@@ -342,11 +393,15 @@ def build_layers(size, k, spec):
             ink.resize((size, size), Image.LANCZOS))
 
 
+_on_page = on_page
+
+
 def treatments(k):
     """The ten, spread from the muted reference to the saturated one."""
-    on_page = (4.5, 3.8, 11.5, 10.2)    # sits above a bottom band
-    full_page = (4.5, 4.6, 11.5, 12.4)  # a page with no band, centred on 8.5
-    chip_page = (4.0, 7.2, 12.0, 13.8)  # below the overhanging chip
+    # Written against the page, so they follow it when it changes size.
+    on_page = _on_page((4.5, 3.8, 11.5, 10.2))    # sits above a bottom band
+    full_page = _on_page((4.5, 4.6, 11.5, 12.4))  # no band, centred on the page
+    chip_page = _on_page((4.0, 7.2, 12.0, 13.8))  # below the overhanging chip
     bare = (1.6, 1.4, 14.4, 14.6)       # no page at all, so nothing to match
     return [
         ("muted", "Muted page, band, tone-on-tone glyph|(reference 1)",

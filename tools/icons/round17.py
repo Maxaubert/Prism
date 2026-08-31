@@ -32,6 +32,7 @@ from round12 import CHIP, INK, Kind, _spec, build_layers, font, page_mask
 from round15 import BLUE, PAPER, RED, YELLOW, _label_at
 from round16 import LIGHT, LIGHTER, SHADE, _jag
 from round5 import g
+from round12 import PX0, PX1, PY0, PY1, fold_points
 
 BOX = (3.8, 7.0, 12.2, 14.0)
 INK_A = tuple(INK) + (255,)
@@ -281,7 +282,11 @@ def _word(d, n, text, cx, cy, size_u, col, outline=None):
     d.text((g(n, cx), g(n, cy)), text, font=f, fill=col, anchor="mm")
 
 
-P = (3.0, 2.0, 13.0, 15.0)
+# The page's own box, READ from round12 rather than copied: four files
+# held their own copy of these four numbers, and the comic artwork drawn
+# against them would have gone on filling the old rectangle, silently,
+# while the page grew underneath it.
+P = (PX0, PY0, PX1, PY1)
 
 
 def art_pow(d, n):
@@ -436,8 +441,7 @@ def comic_layers(size, accents, ext="CBZ"):
     accents(ImageDraw.Draw(art), n)
     art = Image.composite(art, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m)
     d = ImageDraw.Draw(art)
-    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
-               (g(n, 10.0), g(n, 5.0))], fill=INK_A)
+    d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=INK_A)
     d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
                         radius=g(n, 0.7), fill=INK_A)
     (tx, ty), f = _label_at(n, ext, CHIP)

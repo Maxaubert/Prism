@@ -752,6 +752,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   own layer and the channel sets that layer's alpha to zero, which makes the near-black tile
   show through as a real hole. A shadow, a gradient or a highlight edge would have been a
   grey smudge at 16px. The belt carries the one indigo now that the top layer has given it up.
+  **AND THEN IT GREW** (2026-08-31). MEASURED against Explorer rather than adjusted by
+  eye: in one column of the owner's own screenshot Adobe's .pdf glyph is 36px tall and our
+  .cbz is 30px, which with our page at 13/16 of its frame puts that frame at 36.9px - so
+  Adobe filled 97.5% of the same box and we filled 81%. A page icon beside a page icon is
+  exactly where a sixth of a difference reads. The page is 11 by 15 now (96% of the
+  frame's height, 73% of its width, against 85% and 67%), and it is WHOLE UNITS rather
+  than the 12 by 15.6 that would have held the approved 0.769 ratio exactly: a fractional
+  edge lands on a half-covered pixel row at 16px, which is the frame that has to be crisp.
+  11:15 is 0.733, which is CLOSER to the owner's own reference pair (0.761 and 0.715) than
+  the 0.769 it replaces. `PX0` stays at 3.0 on purpose - the chip overhangs to its left,
+  and a page centred at 12 wide would have forced that overhang to halve to stay on the
+  frame; growing rightward and downward keeps it whole, and the composition's own centre
+  moves from 6.9 to 7.4 against a frame centre of 8. Everything written against the old
+  page is carried onto the new one by `round12.on_page`, so the chip, the glyph boxes and
+  the band all scaled with it and nothing had to be re-eyeballed. The lesson is the FIVE
+  COPIES: `P = (3.0, 2.0, 13.0, 15.0)` was written out in round15, 16, 17 and 18 and the
+  comic's fold in five files, so changing round12 alone would have left the comic's
+  artwork filling the old rectangle while the page grew underneath it - silently, since
+  nothing errors. They read round12 now. The archive is a landscape container with its own
+  box and grew separately, by less: it was already 88% of the frame's width where the page
+  was 67%, so what it lacked was height (75% -> 81%).
   **AND THE SAME ICONS ARE IN PRISM** (2026-08-31, owner ask: the sidebar was "so
   colorful"). `tools/icons/svg.py` replays the very functions that draw the .ico frames
   into a path recorder, so the sidebar and Explorer cannot drift. Three layers: the page

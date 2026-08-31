@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw
 
 from icons import S
 from round5 import g
-from round12 import CHIP, INK, Kind, _spec, build, page_mask
+from round12 import CHIP, INK, Kind, _spec, build, fold_points, on_page, page_mask
 from round12 import lines as doc_lines
 from round13 import clapper
 from round14 import GLYPHS as R14
@@ -41,7 +41,10 @@ from round18 import CREAM, art_splat_bam
 from round21 import framed
 from round23 import bg_warm
 
-BOX = (3.8, 7.0, 12.2, 14.0)
+# Where a page kind's mark sits, inset from the page. Derived, or every glyph
+# would keep its old size inside a bigger page and the set would read emptier
+# rather than bigger.
+BOX = on_page((3.8, 7.0, 12.2, 14.0))
 INK_A = tuple(INK) + (255,)
 
 # kind -> (extension shown on the chip, page colour)
@@ -101,8 +104,7 @@ def _comic(kind, size):
     out.alpha_composite(Image.composite(art, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m))
 
     d = ImageDraw.Draw(out)
-    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
-               (g(n, 10.0), g(n, 5.0))], fill=INK_A)
+    d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=INK_A)
     d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
                         radius=g(n, 0.7), fill=INK_A)
     (tx, ty), f = _label_at(n, ext, CHIP)

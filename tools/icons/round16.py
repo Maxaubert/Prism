@@ -29,8 +29,13 @@ from icons import S
 from round12 import CHIP, INK, page_mask
 from round15 import BLUE, MAGENTA, PAPER, RED, YELLOW, _label_at, _rays, _star
 from round5 import g
+from round12 import PX0, PX1, PY0, PY1, fold_points
 
-P = (3.0, 2.0, 13.0, 15.0)
+# The page's own box, READ from round12 rather than copied: four files
+# held their own copy of these four numbers, and the comic artwork drawn
+# against them would have gone on filling the old rectangle, silently,
+# while the page grew underneath it.
+P = (PX0, PY0, PX1, PY1)
 CX, CY = 8.0, 9.2                 # the page's optical centre, below the chip
 
 LIGHT = (255, 255, 255, 64)       # lightens any ground
@@ -239,8 +244,7 @@ def comic_layers(size, accents, ext="CBZ"):
     art = Image.composite(art, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m)
 
     d = ImageDraw.Draw(art)
-    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
-               (g(n, 10.0), g(n, 5.0))], fill=INK_A)
+    d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=INK_A)
     d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
                         radius=g(n, 0.7), fill=INK_A)
     (tx, ty), f = _label_at(n, ext, CHIP)
