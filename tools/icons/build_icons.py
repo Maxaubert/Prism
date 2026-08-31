@@ -1,4 +1,4 @@
-"""Write the six per-kind .ico files the installer points each ProgID at.
+"""Write the per-kind .ico files the installer points each ProgID at.
 
 Every size is DRAWN at that size rather than downsampled from one big render:
 the glyphs are laid out in sixteenths of the tile, so a 16px frame drawn as
@@ -6,9 +6,11 @@ the glyphs are laid out in sixteenths of the tile, so a 16px frame drawn as
 lands wherever LANCZOS puts it. Explorer's details view is the 16px frame, so
 that is the one worth getting right.
 
-The glyphs sit on the near-black rounded tile, which is the look every mockup
-round was judged on and which carries its own contrast, so the icons read the
-same on Explorer light and dark without depending on either.
+Most glyphs sit on the near-black rounded tile, which carries its own contrast
+so they read the same on Explorer light and dark without depending on either.
+ARCHIVE is the exception (owner pick, 2026-08-31): a zipped folder with no tile
+at all, drawn light with a dark edge, which is the other way to be legible on
+both grounds. KIND_PALETTE in round7.py is where that exception is recorded.
 
 The frames are stored as PNG inside the .ico, which Windows has read since
 Vista and which keeps a 256px frame from costing 256KB.
@@ -19,7 +21,7 @@ import sys
 from io import BytesIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from round7 import KIND_GLYPHS, TILED  # noqa: E402
+from round7 import KIND_GLYPHS, KIND_PALETTE, TILED  # noqa: E402
 
 # What Windows asks for: details/list (16), small (20/24), medium (32/40/48),
 # large (64/96), extra large (128) and the jumbo/preview frame (256).
@@ -50,7 +52,8 @@ def write_ico(path, frames):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for kind, fn in KIND_GLYPHS:
-        frames = [(s, fn(s, TILED)) for s in SIZES]
+        pal = KIND_PALETTE.get(kind, TILED)
+        frames = [(s, fn(s, pal)) for s in SIZES]
         path = OUT / f"prism-{kind}.ico"
         write_ico(path, frames)
         print(f"{path.name:24} {len(SIZES)} frames  {path.stat().st_size:>7} bytes")

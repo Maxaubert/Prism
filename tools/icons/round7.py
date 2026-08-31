@@ -72,29 +72,46 @@ def draw(size, p, body_fn):
 
 
 # ------------------------------------------------------------------ glyphs
-def _archive(d, n, p):
-    """Round ten's pick: three thick layers, belted in a cut channel.
+def _folder_shape(d, n, p):
+    """The folder silhouette, solid.
 
-    Round one's stack, packed tighter, and the belt is the point. Round nine
-    laid a strap OVER the layers and it read as exactly that - a vertical line
-    on top of the icon, with no relationship to the shape underneath. At icon
-    scale the only depth cue that survives is SILHOUETTE: a shadow, a gradient
-    or a highlight edge is a grey smudge at 16px.
-
-    So the channel is CARVED. The glyph is drawn on its own layer and the
-    channel sets that layer's alpha to zero, which means the near-black tile
-    shows through and the gap is a real hole rather than a painted line. The
-    layers stop for the belt, so the belt is part of the stack.
+    The STEP is the whole thing. A tab rising one unit above the face reads
+    as a rounded rectangle with a nick in it; at 2.4 units it reads as a
+    folder, and that is the difference between this working at 16px and
+    not. The tab also stops well short of half width, because one that runs
+    most of the way across stops looking like a tab.
     """
-    for i, col in enumerate((p.body, p.alt, p.body)):
-        y = g(n, 2.4 + i * 4.2)
-        d.rounded_rectangle([g(n, 1.5), y, g(n, 14.5), y + g(n, 3.6)], radius=g(n, 0.8), fill=col)
-    # The channel, cut clean through the layers.
-    d.rectangle([g(n, 5.9), g(n, 1.0), g(n, 10.1), g(n, 15.4)], fill=(0, 0, 0, 0))
-    # The belt, sitting in it, and carrying the one indigo now that the top
-    # layer has given it up.
+    d.rounded_rectangle([g(n, 0.8), g(n, 2.0), g(n, 6.8), g(n, 6.4)], radius=g(n, 1.0), fill=p.body)
+    d.rounded_rectangle([g(n, 0.8), g(n, 4.4), g(n, 15.2), g(n, 14.2)], radius=g(n, 1.2), fill=p.body)
+
+
+def _archive(d, n, p):
+    """Round eleven's pick: a zipped folder, and the ONE kind with no tile.
+
+    The idiom Windows itself uses for a compressed folder, and what 7-Zip
+    and WinRAR both reach for. Rendered in the OUTLINE treatment (light body,
+    dark edge dilated from the glyph's own alpha) rather than on the
+    near-black tile every other kind sits on - see KIND_PALETTE below, which
+    is where that exception lives.
+
+    NOTHING HERE IS CARVED, and that is the whole lesson of the round. The
+    shipped stack cut its belt channel by setting the glyph layer's alpha to
+    zero, which works because the tile is a stable outer silhouette for the
+    hole to sit in. Without a tile every hole eats the silhouette instead,
+    and the first cut of this folder came out as two blobs at 16px. So the
+    shape is solid and the zip is drawn ON it in the ink colour.
+    """
+    _folder_shape(d, n, p)
+    # The seam.
+    d.rectangle([g(n, 7.4), g(n, 4.4), g(n, 8.6), g(n, 14.2)], fill=p.ink)
+    # Teeth, staggered either side. Fat and few: at 16px they stop being
+    # countable and become texture, which is the most a zip can ask for.
+    for k in (5.2, 7.6):
+        d.rectangle([g(n, 5.9), g(n, k), g(n, 7.4), g(n, k + 1.2)], fill=p.ink)
+        d.rectangle([g(n, 8.6), g(n, k + 1.2), g(n, 10.1), g(n, k + 2.4)], fill=p.ink)
+    # The pull, which is the part that still reads once the teeth do not.
     d.rounded_rectangle(
-        [g(n, 6.6), g(n, 1.4), g(n, 9.4), g(n, 15.0)], radius=g(n, 0.6), fill=p.accent
+        [g(n, 6.3), g(n, 10.6), g(n, 9.7), g(n, 13.4)], radius=g(n, 0.9), fill=p.ink
     )
 
 
@@ -220,6 +237,14 @@ def _make(body_fn, after=None):
         return finish(img, size, p, layer)
     return fn
 
+
+KIND_PALETTE = {
+    # ARCHIVE is the one kind with no tile (owner pick, 2026-08-31): a zipped
+    # folder in the OUTLINE treatment, whose light body holds it off Explorer
+    # dark and whose dark edge holds it off Explorer light. Everything else
+    # sits on the near-black tile, which does that job for them.
+    "archive": OUTLINE,
+}
 
 KIND_GLYPHS = [
     ("archive", _make(_archive)),
