@@ -327,6 +327,17 @@ const api = {
     return () => ipcRenderer.removeListener('file:appended', listener)
   },
 
+  /**
+   * Open a comic book: unpack it once (cached) and answer its pages in
+   * reading order, as absolute paths for mediaUrl. Read-only - a comic has
+   * none of the archive panel's verbs, deliberately.
+   */
+  comicOpen: (
+    path: string,
+    password?: string
+  ): Promise<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }> =>
+    ipcRenderer.invoke('comic:open', path, password),
+
   /* ----- the terminal ----- */
 
   /** The shells main detected; the only things term:spawn will ever launch. */

@@ -140,6 +140,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   renderer never holds it. Paged rather than scrolled on purpose: a continuous hex view of a
   big file is a 268-million-row virtualized list, which is a viewer, not a panel. The tree
   HIDES unviewable files, so the only route to that screen is Windows handing the file over.
+- **Comic books** (2026-08-31, `.cbz`/`.cbr`, kind `comic`): a page list wrapped around the
+  IMAGE viewer, so zoom, pan, rotate, fullscreen and the picture menu all come for free. Its
+  own kind and deliberately NOT `archive`: widening `archiveOk` would put Extract all, Add
+  files and member Delete - the one permanent delete in Prism - onto a book. Read-only, both
+  formats. **LEFT AND RIGHT TURN PAGES** (owner decision), the one place in Prism where they
+  do not page the folder; Ctrl+arrow still does, which is how you reach the next book, and App
+  yields by finding `data-owns-arrows` in the DOM the way Escape does rather than by listener
+  order (both listeners are on the window in the capture phase and App's was registered
+  first). The container is unpacked ONCE into `userData/comics`, LRU-evicted at 2GB: a page
+  turn then costs what showing a jpeg costs. Per-page extraction was the obvious design and is
+  the one the performance rules forbid - adm-zip reads the whole container synchronously per
+  call, and the 7-Zip route spawns a process into a fresh temp directory per member (~278ms),
+  neither of which is a page turn, and both of which leave temp directories nothing removes.
+  Because every page lives under ONE directory, the media wall grants that directory rather
+  than growing `extractedPaths`, which is a Set that never shrinks. Page ORDER is numeric
+  (`shared/comicPages.ts`, pure and tested): real comics are numbered 1, 2, 10 as often as
+  001, 002, 010, and a plain sort puts page 10 second - which is the archive panel's own bug,
+  not to be copied. `ComicInfo.xml`, `__MACOSX/` forks and `Thumbs.db` are not pages, so the
+  filter is positive: it is a page if Prism calls it an image. Position is remembered like a
+  PDF's.
 - **Archives beyond zip** (2026-08-24): `.7z .rar .tar .gz .tgz .bz2 .xz .iso .cab` open
   READ-ONLY through a bundled 7-Zip (`sevenZip.ts`; `tools/fetch-7zip.mjs` expands the official
   MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view

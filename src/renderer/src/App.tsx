@@ -64,6 +64,7 @@ const MarkdownView = lazy(() =>
   import('./components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
 )
 const DocView = lazy(() => import('./components/DocView').then((m) => ({ default: m.DocView })))
+const ComicView = lazy(() => import('./components/ComicView').then((m) => ({ default: m.ComicView })))
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
@@ -541,6 +542,17 @@ function Viewer({
       return (
         <Suspense fallback={<EditorLoading />}>
           <DocView path={file.path} name={file.name} />
+        </Suspense>
+      )
+    case 'comic':
+      return (
+        <Suspense fallback={<EditorLoading />}>
+          <ComicView
+            path={file.path}
+            name={file.name}
+            onToggleFullscreen={onToggleFullscreen}
+            fullscreen={fullscreen}
+          />
         </Suspense>
       )
     case 'archive':
@@ -2463,7 +2475,14 @@ export default function App(): JSX.Element {
         termView !== 'full'
       ) {
         const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
-        if (!playerOwnsArrows) {
+        // A COMIC turns its own pages (2026-08-31, owner decision), and it is
+        // the one kind that does: everywhere else Left/Right page the folder,
+        // and that stays true here too - with Ctrl held, which is how you get
+        // to the next book. Yielded by asking the DOM, the way Escape does,
+        // rather than by listener order: both listeners are on the window in
+        // the capture phase, and App's was registered first.
+        const comicOwnsArrows = !e.ctrlKey && !!document.querySelector('[data-owns-arrows]')
+        if (!playerOwnsArrows && !comicOwnsArrows) {
           e.preventDefault() // player checks defaultPrevented and yields
           // Left/Right keep meaning previous/next FILE, and on a folder row
           // they are its chevron. Either way the tree answers first.

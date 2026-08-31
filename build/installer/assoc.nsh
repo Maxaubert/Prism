@@ -53,6 +53,7 @@
   !insertmacro PRISM_PROGID "Prism.Document" "Document" "document"
   !insertmacro PRISM_PROGID "Prism.Text" "Text file" "code"
   !insertmacro PRISM_PROGID "Prism.Archive" "Archive" "archive"
+  !insertmacro PRISM_PROGID "Prism.Comic" "Comic book" "comic"
 
   ; The same lists src/shared/fileKind.ts calls viewable - ALL of them. Code
   ; and config types were excluded once ("a .ts belongs to an editor"), but the
@@ -361,6 +362,11 @@
   !insertmacro PRISM_EXT "iso"   "Prism.Archive"
   !insertmacro PRISM_EXT "cab"   "Prism.Archive"
 
+  ; Comic books: a zip and a rar, but a BOOK, so their own ProgID and their
+  ; own read-only viewer rather than the archive panel.
+  !insertmacro PRISM_EXT "cbz"   "Prism.Comic"
+  !insertmacro PRISM_EXT "cbr"   "Prism.Comic"
+
   ; Office and ebook documents (docConvert.ts).
   !insertmacro PRISM_EXT "docx"  "Prism.Document"
   !insertmacro PRISM_EXT "docm"  "Prism.Document"
@@ -427,6 +433,7 @@
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Audio"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Document"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Archive"
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Comic"
   DeleteRegKey SHELL_CONTEXT "Software\Classes\Prism.Text"
   !insertmacro PRISM_UNEXT "png"  "Prism.Image"
   !insertmacro PRISM_UNEXT "jpg"  "Prism.Image"
@@ -593,6 +600,8 @@
   !insertmacro PRISM_UNEXT "txz"   "Prism.Archive"
   !insertmacro PRISM_UNEXT "iso"   "Prism.Archive"
   !insertmacro PRISM_UNEXT "cab"   "Prism.Archive"
+  !insertmacro PRISM_UNEXT "cbz"   "Prism.Comic"
+  !insertmacro PRISM_UNEXT "cbr"   "Prism.Comic"
   !insertmacro PRISM_UNEXT "docx"  "Prism.Document"
   !insertmacro PRISM_UNEXT "docm"  "Prism.Document"
   !insertmacro PRISM_UNEXT "odt"   "Prism.Document"

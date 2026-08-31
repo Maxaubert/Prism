@@ -98,6 +98,19 @@ export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; 
           </>
         </Glyph>
       )
+    case 'comic':
+      // A stack of pages with a picture on the front: an archive of pictures,
+      // which is exactly what a comic is, and readable at 16px.
+      return (
+        <Glyph color={color}>
+          <>
+            <path d="M4 3.5h11.5L20 7.6v13H4z" />
+            <path d="M15.5 3.5v4.1H20z" fillOpacity={0.55} />
+            <path d="M6.4 15.6l2.7-3.2 2 2.3 1.8-1.9 2.7 2.8z" {...ko} />
+            <circle cx="8.6" cy="10.4" r="1.3" {...ko} />
+          </>
+        </Glyph>
+      )
     case 'archive':
       return <ArchiveIcon color={color} koColour={koColour} path={path} />
     default:

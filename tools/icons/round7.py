@@ -120,6 +120,15 @@ def _audio_head(img, n, p):
     img.alpha_composite(head, (int(hx - head.width / 2), int(hy - head.height / 2)))
 
 
+def _comic(d, n, p):
+    """A book of pictures: a page behind, and a panel on the front."""
+    d.rounded_rectangle([g(n, 4), g(n, 1.5), g(n, 15), g(n, 12.5)], radius=g(n, 0.9), fill=p.accent)
+    d.rounded_rectangle([g(n, 1), g(n, 3.5), g(n, 12), g(n, 14.5)], radius=g(n, 0.9), fill=p.body)
+    d.ellipse([g(n, 8), g(n, 5.4), g(n, 10.3), g(n, 7.7)], fill=p.accent)
+    d.polygon([(g(n, 2.2), g(n, 12.6)), (g(n, 5.4), g(n, 7.4)), (g(n, 8.6), g(n, 12.6))], fill=p.ink)
+    d.polygon([(g(n, 6.9), g(n, 12.6)), (g(n, 9.1), g(n, 9.0)), (g(n, 11.0), g(n, 12.6))], fill=p.ink)
+
+
 def _document(d, n, p):
     """Round one's header page (provisional: this kind is not settled)."""
     d.rounded_rectangle([g(n, 2.5), g(n, 1.5), g(n, 13.5), g(n, 14.5)], radius=g(n, 0.9), fill=p.body)
@@ -155,6 +164,7 @@ KIND_GLYPHS = [
     ("video", _make(_video)),
     ("image", _make(_image)),
     ("audio", _make(_audio, _audio_head)),
+    ("comic", _make(_comic)),
     ("document", _make(_document)),
     ("code", _make(_code)),
 ]

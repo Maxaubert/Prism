@@ -447,6 +447,23 @@ export function buildFixtures() {
   bundle.addFile('notes/todo.md', Buffer.from('# todo\n- try prism\n'))
   bundle.addFile('notes/deep/extra.txt', Buffer.from('deep'))
   bundle.writeZip(join(FIXTURES, 'zips', 'bundle.zip'))
+  // A comic book. Deliberately UNPADDED numbering with a page 10 in it: a
+  // plain string sort puts page10 second, which is the bug comicPages exists
+  // to avoid, and a fixture that cannot catch it is not worth having. The
+  // ComicInfo.xml is what every scanned comic carries and must not be a page.
+  mkdirSync(join(FIXTURES, 'comics'), { recursive: true })
+  const cbz = new AdmZip()
+  cbz.addFile('ComicInfo.xml', Buffer.from('<ComicInfo><Title>Test</Title></ComicInfo>'))
+  cbz.addFile('page10.png', PNG)
+  cbz.addFile('page2.png', PNG)
+  cbz.addFile('page1.png', PNG)
+  cbz.addFile('__MACOSX/._page1.png', Buffer.from('resource fork'))
+  cbz.writeZip(join(FIXTURES, 'comics', 'story.cbz'))
+  // A second one, so Ctrl+Right has somewhere to go.
+  const cbz2 = new AdmZip()
+  cbz2.addFile('001.png', PNG)
+  cbz2.writeZip(join(FIXTURES, 'comics', 'sequel.cbz'))
+
   // Somewhere for a member dragged OUT of the archive to land (#70), and a
   // little tree of its own for the sidebar's move.
   mkdirSync(join(FIXTURES, 'zips', 'out'), { recursive: true })

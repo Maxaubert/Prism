@@ -1,4 +1,13 @@
-export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'other'
+export type FileKind =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'pdf'
+  | 'doc'
+  | 'text'
+  | 'archive'
+  | 'comic'
+  | 'other'
 
 /** One openable file, as the renderer sees it. */
 export interface ViewerFile {

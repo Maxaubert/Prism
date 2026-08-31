@@ -19,6 +19,7 @@ const KIND_NAMES: Record<FileKind, string> = {
   doc: 'Document',
   text: 'Text document',
   archive: 'Archive',
+  comic: 'Comic book',
   other: 'File'
 }
 

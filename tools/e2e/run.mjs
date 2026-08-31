@@ -1109,6 +1109,67 @@ async function hexScenario(fixtures) {
   }
 }
 
+/**
+ * A comic book (2026-08-31).
+ *
+ * Two things worth proving beyond "it opens". The page order is NUMERIC, so
+ * page10 is last and not second - the fixture is unpadded on purpose. And the
+ * arrow keys turn pages here and only here: everywhere else in Prism they
+ * page the folder, and Ctrl+arrow still does, which is how you get to the
+ * next book.
+ */
+async function comicScenario(fixtures) {
+  console.log('comic books')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  try {
+    await win.waitForSelector('text=Page 1 of 3', { timeout: 20000 })
+    ok(true, 'a .cbz opens on its first page')
+    const shown = async () => (await win.getAttribute('img[alt]', 'alt')) ?? ''
+    ok((await shown()) === 'page1.png', `and page one is page1.png (${await shown()})`)
+    ok(
+      (await win.locator('text=Page 1 of 3').count()) === 1,
+      'ComicInfo.xml and the macOS resource fork are not pages'
+    )
+
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Right turns the page')
+    ok((await shown()) === 'page2.png', `to page2, not page10 (${await shown()})`)
+
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok((await shown()) === 'page10.png', `and page10 sorts last, numerically (${await shown()})`)
+
+    // The end is the end: Right again stays put rather than wrapping.
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    ok((await win.locator('text=Page 3 of 3').count()) === 1, 'the last page is the last page')
+
+    await win.keyboard.press('ArrowLeft')
+    await sleep(400)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Left goes back')
+
+    // Ctrl+arrow is still the FOLDER. sequel.cbz sorts BEFORE story.cbz, so
+    // the way to it is Left.
+    await win.keyboard.press('Control+ArrowLeft')
+    await sleep(1200)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
+        'sequel'
+      ),
+      'Ctrl+arrow pages the FOLDER, to the next comic'
+    )
+
+    // And coming back opens where the book was put down.
+    await win.keyboard.press('Control+ArrowRight')
+    await sleep(1500)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'a comic reopens where you left it')
+    ok(!win.isClosed(), 'window survives the comic')
+  } finally {
+    await app.close()
+  }
+}
+
 async function codeScenario(fixtures) {
   console.log('code viewer')
   const dir = join(fixtures, 'code')
@@ -3119,6 +3180,7 @@ await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
 await run(archiveScenario)
+await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
 await run(pauseScenario)

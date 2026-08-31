@@ -69,6 +69,7 @@ import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
+import { openComic } from './comic'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -390,13 +391,26 @@ function saveDialog(opts: Electron.SaveDialogOptions): Promise<Electron.SaveDial
  *  Invisible in dev, where the same data comes over the vite server. */
 const RENDERER_DIR = resolve(join(__dirname, '..', 'renderer'))
 
+/** Where comic books are unpacked. Granted as a DIRECTORY (2026-08-31): a
+ *  200-page book would otherwise put 200 entries into `extractedPaths`, which
+ *  is a Set that never shrinks and doubles as the wall's allowlist - and
+ *  evicting a page's file without evicting its grant leaves a permission for
+ *  a file that is gone. One directory, one rule, nothing to keep in step. */
+let comicsDir = ''
+
 function underDir(dir: string, p: string): boolean {
   const rel = relative(dir.toLowerCase(), resolve(p).toLowerCase())
   return !!rel && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 function mediaAllowed(p: string): boolean {
-  return insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p) || underDir(RENDERER_DIR, p)
+  return (
+    insideAnyRoot(p) ||
+    extractedPaths.has(p) ||
+    servable.has(p) ||
+    underDir(RENDERER_DIR, p) ||
+    (!!comicsDir && underDir(comicsDir, p))
+  )
 }
 
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
@@ -889,6 +903,10 @@ if (!E2E) Menu.setApplicationMenu(null)
 // to install one, while Prism has been shipping it in resources/bin since
 // 2026-08-24. Injected here so archive.ts stays electron-free and testable.
 setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+// Set once rather than on first use: the media wall consults it, and a wall
+// whose rule appears part way through a session is a rule nobody can reason
+// about.
+comicsDir = join(app.getPath('userData'), 'comics')
 
 /**
  * Keep the screen awake while something is playing (2026-08-30).
@@ -1980,6 +1998,29 @@ if (!app.requestSingleInstanceLock()) {
     // rather than frozen over.
     const archiveOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
+    /**
+     * A comic book has its OWN guard, not `archiveOk` widened (2026-08-31).
+     *
+     * Widening that one would put Extract all, Add files and member Delete -
+     * the one permanent delete in Prism - onto a comic. The whole reason
+     * `.cbz` is not the archive kind is that its verbs are the wrong menu.
+     */
+    const comicOk = (p: unknown): p is string =>
+      typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'comic'
+
+    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
+      if (!comicOk(p)) return { error: 'failed' as const }
+      comicsDir = join(app.getPath('userData'), 'comics')
+      const pw = typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+      const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!exe) return { error: 'failed' as const }
+      const got = await openComic(exe, p, comicsDir, pw)
+      if ('error' in got) return got
+      if (pw) archivePasswords.set(p, pw)
+      // No per-page grant: the pages live under `comicsDir`, which the media
+      // wall allows as a directory.
+      return { pages: got.pages }
+    })
     // 7z, rar, tar, gz and friends are READ-ONLY: they are read through the
     // bundled 7-Zip, which can list and extract them all but which Prism does
     // not write with. zip keeps its own in-process path, and its verbs.
