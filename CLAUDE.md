@@ -821,6 +821,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   contrast against BOTH Explorer grounds while you choose - a colour can look right on the
   one you happen to be picking on and vanish on the other, which is what the white image
   page does at 1.07:1 on light.
+  ONE COLOUR FOR THE SIX (owner pick, 2026-08-31, off that sheet): archive, audio, code,
+  document, image and video all wear `#aab2c0`, so the KIND lives entirely in the
+  silhouette, the mark and the extension on the chip - the same call the sidebar's icons
+  went through, now made in Explorer too. COMIC keeps its own, being artwork rather than
+  one flat colour, which leaves it the only coloured icon in the set. Measured while
+  choosing: 7.63:1 on Explorer's dark ground and 1.99:1 on its light one, quiet there but
+  well clear of the 1.07:1 the white image page managed, where the silhouette vanished
+  outright. The chip is near-black with the extension knocked out of it, so the label
+  carries on both grounds whatever the page does.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's

@@ -48,14 +48,29 @@ BOX = on_page((3.8, 7.0, 12.2, 14.0))
 INK_A = tuple(INK) + (255,)
 
 # kind -> (extension shown on the chip, page colour)
+#
+# ONE COLOUR FOR THE SIX (owner pick, 2026-08-31, off `repick.py`'s sheet): the
+# page is #aab2c0 for archive, audio, code, document, image and video alike, so
+# the KIND lives entirely in the silhouette, the mark and the extension on the
+# chip - which is the same call the sidebar's icons already went through. Comic
+# keeps its own, being artwork rather than one flat colour.
+#
+# Measured while choosing: 7.63:1 on Explorer's dark ground, 1.99:1 on its light
+# one. The light figure is the one to know - it is quiet there, though well clear
+# of the 1.07:1 the white image page used to manage, where the silhouette
+# vanished outright and only the chip was left. The chip is near-black and the
+# extension is knocked out of it, so the label carries on both grounds whatever
+# the page does.
+PAGE = (170, 178, 192)
+
 COLOURS = {
-    "archive": ("ZIP", (139, 139, 226)),
-    "audio": ("MP3", (105, 180, 133)),
-    "code": ("PY", (74, 85, 104)),
+    "archive": ("ZIP", PAGE),
+    "audio": ("MP3", PAGE),
+    "code": ("PY", PAGE),
     "comic": ("CBZ", (210, 96, 58)),
-    "document": ("DOCX", (47, 143, 157)),
-    "image": ("JPG", (255, 255, 255)),
-    "video": ("MP4", (83, 132, 223)),
+    "document": ("DOCX", PAGE),
+    "image": ("JPG", PAGE),
+    "video": ("MP4", PAGE),
 }
 
 PAGE_GLYPHS = {
