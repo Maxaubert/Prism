@@ -149,6 +149,18 @@ def chip_path(chip=CHIP):
     return rect_path(*chip, 0.7)
 
 
+def chip_path_clipped(chip=CHIP):
+    """The chip with its overhang trimmed to the page's left edge.
+
+    Only used by the single-path `solid` variant. Under fill-rule="evenodd" a
+    hole that strays OUTSIDE the body is not a hole at all - it is one crossing
+    instead of two, so it fills - and the chip's overhang would come out as a
+    solid tab sticking off the side of the icon.
+    """
+    x0, y0, x1, y1 = chip
+    return rect_path(max(x0, PX0), y0, x1, y1, 0.7)
+
+
 def label(chip=CHIP):
     """Placement for an optional <text>, since a font must not become outlines."""
     return {"x": u((chip[0] + chip[2]) / 2), "y": u((chip[1] + chip[3]) / 2),
@@ -217,14 +229,87 @@ def _archive():
 
 
 def icons():
-    """kind -> {body, ko, hi, label}. An empty layer means: skip the element."""
+    """kind -> {body, ko, hi, solid, label}. An empty layer means skip it.
+
+    `solid` is every layer concatenated for fill-rule="evenodd": ONE path, one
+    colour, and the knockouts are real holes rather than shapes painted in the
+    panel colour. Use it wherever the ground behind the icon is not a flat known
+    colour - a selected row's accent fill, an accent-tinted theme, anything
+    built later - because a painted knockout would show the panel colour there
+    while a hole shows whatever is actually behind.
+    """
     out = {}
     for kind in sorted(EXT):
+        chip = CHIP_A if kind == "archive" else CHIP
         layers = _archive() if kind == "archive" else _page_kind(PAGE_GLYPHS[kind])
         out[kind] = {k: " ".join(v) for k, v in layers.items()}
-        out[kind]["label"] = label(CHIP_A if kind == "archive" else CHIP)
+        solid = list(layers[BODY])
+        solid += [p for p in layers[KO] if p != chip_path(chip)]
+        solid += [chip_path_clipped(chip)] + list(layers[HI])
+        out[kind]["solid"] = " ".join(solid)
+        out[kind]["label"] = label(chip)
         out[kind]["ext"] = EXT[kind]
     return out
+
+
+# ------------------------------------------------------------------- contrast
+# Which way round the icon goes is decided from the BACKGROUND, not from a
+# theme name. Prism has custom styles - void, accent-tinted grounds, whatever is
+# built later - so "is the theme dark" is a question with no reliable answer,
+# while "what does this background measure" always has one.
+INK_LIGHT = (233, 237, 247)   # --p-text
+INK_DARK = (27, 29, 34)
+
+
+def _lum(c):
+    def ch(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2])
+
+
+def contrast(a, b):
+    la, lb = _lum(a), _lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def ink_for(bg):
+    """The body colour for a given background: whichever contrasts more.
+
+    No threshold and no midpoint test. A midpoint gets mid-tone grounds wrong -
+    two colours either side of it can both be poor - whereas picking the better
+    of the two ratios is right by construction and degrades gracefully when
+    neither is good.
+    """
+    light, dark = contrast(INK_LIGHT, bg), contrast(INK_DARK, bg)
+    return (INK_LIGHT, light) if light >= dark else (INK_DARK, dark)
+
+
+TS_HELPER = """// Which way round the icon goes, measured rather than assumed. Prism has custom
+// styles, so "is the theme dark" has no reliable answer while "what does this
+// background measure" always does. Pick the better of the two ratios rather
+// than testing a midpoint: two colours either side of a midpoint can both be
+// poor, and the better-of-two is right by construction.
+const INK_LIGHT = '#e9edf7'
+const INK_DARK = '#1b1d22'
+
+const lum = (hex: string): number => {
+  const c = [1, 3, 5]
+    .map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+const ratio = (a: string, b: string): number => {
+  const x = lum(a)
+  const y = lum(b)
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+}
+
+/** The icon colour for a given background. Feed it the panel's resolved bg. */
+export const inkFor = (bg: string): string =>
+  ratio(INK_LIGHT, bg) >= ratio(INK_DARK, bg) ? INK_LIGHT : INK_DARK
+"""
 
 
 def svg_for(kind, d, px=96, fg="#e9edf7", panel="#1b1d22", with_label=True):
@@ -261,12 +346,14 @@ def main():
     print("export const ICON_PATHS = {")
     for kind, d in ic.items():
         print(f"  {kind}: {{")
-        for k in (BODY, KO, HI):
+        for k in (BODY, KO, HI, "solid"):
             print(f'    {k}: "{d[k]}",')
         L = d["label"]
         print(f'    label: {{ x: {L["x"]}, y: {L["y"]}, size: {L["size"]} }},')
         print("  },")
     print("} as const")
+    print()
+    print(TS_HELPER)
 
 
 if __name__ == "__main__":
