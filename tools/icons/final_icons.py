@@ -1,0 +1,136 @@
+"""The settled icon set: one definition per kind, and the only thing build_icons reads.
+
+Every choice here was made by the owner across rounds twelve to twenty-three.
+The construction they all share:
+
+    a PAGE silhouette (10 by 13 units, A4's proportion, measured off his own
+    reference images), a folded corner, a black CHIP overhanging the top-left
+    carrying the file's EXTENSION, and one flat glyph knocked out of the page.
+
+Two colours and no outline. Every mark is drawn ON a solid shape and every
+knockout is an ABSENCE of ink rather than a third colour, which is what lets a
+mid-tone page carry the contrast on Explorer light and dark alike without the
+near-black tile the old set needed. ARCHIVE breaks the page silhouette on
+purpose - a zip is a container, not a sheet, so it is a landscape folder with
+the chip moved LOW, because a chip over the top hides the tab that says
+"folder". COMIC breaks the two-colour rule on purpose - it carries pop-art
+artwork, so it is the one kind whose label is drawn rather than knocked out.
+
+EVERYTHING IS BAKED, not layered. The picker sheet composites in the browser
+after downsampling because it has to tint live; here the composite happens at
+4x and is downsampled once, which is the better of the two and the reason the
+shipped file can differ from the picker by a pixel edge.
+
+IMAGE IS PURE WHITE by explicit owner pick, and it measures 1.07:1 against
+Explorer's light ground: the page silhouette is invisible there and only the
+chip and glyph read. He was shown that number live while choosing and chose it
+anyway. Recorded here so it is never "fixed" as a bug by someone who was not in
+the room.
+"""
+from PIL import Image, ImageDraw
+
+from icons import S
+from round5 import g
+from round12 import CHIP, INK, Kind, _spec, build, page_mask
+from round12 import lines as doc_lines
+from round13 import clapper
+from round14 import GLYPHS as R14
+from round15 import _label_at, archive_layers, folder_zip, folder_zip_ink
+from round17 import quarter
+from round18 import CREAM, art_splat_bam
+from round21 import framed
+from round23 import bg_warm
+
+BOX = (3.8, 7.0, 12.2, 14.0)
+INK_A = tuple(INK) + (255,)
+
+# kind -> (extension shown on the chip, page colour)
+COLOURS = {
+    "archive": ("ZIP", (139, 139, 226)),
+    "audio": ("MP3", (105, 180, 133)),
+    "code": ("PY", (74, 85, 104)),
+    "comic": ("CBZ", (210, 96, 58)),
+    "document": ("DOCX", (47, 143, 157)),
+    "image": ("JPG", (255, 255, 255)),
+    "video": ("MP4", (83, 132, 223)),
+}
+
+PAGE_GLYPHS = {
+    "audio": quarter,
+    "code": dict((k, f) for k, _l, f in R14["code"][2])["bars"],
+    "document": doc_lines,
+    "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
+    "video": clapper,
+}
+
+
+def _page_kind(kind, size):
+    """The five that are a page, a chip and one knocked-out glyph."""
+    ext, colour = COLOURS[kind]
+    obj = Kind(kind, ext, colour, colour, "", PAGE_GLYPHS[kind], PAGE_GLYPHS[kind])
+    spec = _spec(page=colour, fold=INK, band=INK, band_at="chip", glyph_col=INK,
+                 glyph_box=BOX, text=ext, text_col=colour, sprocket=colour)
+    return build(size, obj, spec)
+
+
+def _archive(kind, size):
+    """A container, not a page, with the chip low so the folder tab shows."""
+    ext, colour = COLOURS[kind]
+    body, ink = archive_layers(size, folder_zip, folder_zip_ink, ext)
+    out = Image.new("RGBA", body.size, (0, 0, 0, 0))
+    out.paste(Image.new("RGBA", body.size, tuple(colour) + (255,)), (0, 0), body)
+    out.alpha_composite(ink)
+    return out
+
+
+def _comic(kind, size):
+    """Pop-art sunburst ground, BAM lettered into a splat, baked at 4x.
+
+    Deliberately not the layered path the picker uses: compositing before the
+    downsample rather than after avoids the edge fringing that resizing
+    non-premultiplied alpha produces, and this file is the one that ships.
+    """
+    ext, colour = COLOURS[kind]
+    n = size * S
+    m = page_mask(n)
+    out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    out.paste(Image.new("RGBA", (n, n), tuple(colour) + (255,)), (0, 0), m)
+
+    art = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    framed(bg_warm, art_splat_bam)(ImageDraw.Draw(art), n)
+    out.alpha_composite(Image.composite(art, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m))
+
+    d = ImageDraw.Draw(out)
+    d.polygon([(g(n, 10.0), g(n, 2.0)), (g(n, 13.0), g(n, 5.0)),
+               (g(n, 10.0), g(n, 5.0))], fill=INK_A)
+    d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
+                        radius=g(n, 0.7), fill=INK_A)
+    (tx, ty), f = _label_at(n, ext, CHIP)
+    # Drawn, not knocked out: there is artwork behind the chip rather than one
+    # flat colour, and where the chip overhangs the page there is nothing at
+    # all, so a hole would read as a rip rather than as a word.
+    d.text((tx, ty), ext, font=f, fill=CREAM + (255,), anchor="mm")
+    return out.resize((size, size), Image.LANCZOS)
+
+
+RENDER = {k: _page_kind for k in PAGE_GLYPHS}
+RENDER["archive"] = _archive
+RENDER["comic"] = _comic
+
+# The seven filenames are load-bearing: the installer's ProgIDs point
+# DefaultIcon at resources/icons/prism-<kind>.ico, so these names cannot move
+# without src/shared/fileKind.ts and both macros in build/installer/assoc.nsh
+# moving with them.
+KINDS = sorted(COLOURS)
+
+
+def render(kind, size):
+    return RENDER[kind](kind, size)
+
+
+if __name__ == "__main__":
+    for k in KINDS:
+        ext, col = COLOURS[k]
+        print(f"{k:10} {ext:5} #{col[0]:02x}{col[1]:02x}{col[2]:02x}")
+        _ = render(k, 16)
+    print("all seven render")

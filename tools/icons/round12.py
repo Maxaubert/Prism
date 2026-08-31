@@ -30,7 +30,7 @@ Everything is on the sixteenths grid, so a 16px frame lands on whole pixels.
 import pathlib
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from icons import S
 from round5 import g
@@ -259,23 +259,87 @@ def build(size, k, spec):
         img.alpha_composite(chip)
 
     if spec["text"]:
-        td = ImageDraw.Draw(img)
-        if spec["band_at"] == "chip":
-            cx = (CHIP[0] + CHIP[2]) / 2, (CHIP[1] + CHIP[3]) / 2
-            fh = (CHIP[3] - CHIP[1]) * 0.62
-        else:
-            cx = (PX0 + PX1) / 2, (BAND_TOP + PY1) / 2
-            fh = (PY1 - BAND_TOP) * 0.60
-        f = font(g(n, fh))
-        room = g(n, (PX1 - PX0) * 0.86 if spec["band_at"] != "chip"
-                 else (CHIP[2] - CHIP[0]) * 0.86)
-        while f.getlength(spec["text"]) > room and fh > 0.6:
-            fh *= 0.92
-            f = font(g(n, fh))
-        td.text((g(n, cx[0]), g(n, cx[1])), spec["text"], font=f,
-                fill=tuple(spec["text_col"]), anchor="mm")
+        (tx, ty), f = label_layout(n, spec)
+        ImageDraw.Draw(img).text((tx, ty), spec["text"], font=f,
+                                 fill=tuple(spec["text_col"]), anchor="mm")
 
     return img.resize((size, size), Image.LANCZOS)
+
+
+def label_layout(n, spec):
+    """Where the extension sits and how big it gets, shared by both renderers.
+
+    The label SHRINKS to fit rather than spilling: MP3 is three characters and
+    WEBM is four, and a band that a longer one runs out of is a band that only
+    works for the extensions it was tried on.
+    """
+    if spec["band_at"] == "chip":
+        centre = (CHIP[0] + CHIP[2]) / 2, (CHIP[1] + CHIP[3]) / 2
+        fh = (CHIP[3] - CHIP[1]) * 0.62
+        room = g(n, (CHIP[2] - CHIP[0]) * 0.86)
+    else:
+        centre = (PX0 + PX1) / 2, (BAND_TOP + PY1) / 2
+        fh = (PY1 - BAND_TOP) * 0.60
+        room = g(n, (PX1 - PX0) * 0.86)
+    f = font(g(n, fh))
+    while f.getlength(spec["text"]) > room and fh > 0.6:
+        fh *= 0.92
+        f = font(g(n, fh))
+    return (g(n, centre[0]), g(n, centre[1])), f
+
+
+def build_layers(size, k, spec):
+    """The same icon as build(), split into a tintable PAGE and a black INK layer.
+
+    The construction is exactly two colours - a page, and ink on top of it - and
+    every knockout (a sprocket, a panel, the extension text) is an ABSENCE of ink
+    rather than a third colour. That is what makes the split lossless, and it is
+    what lets a sheet recolour the whole set live from one <input type="color">
+    instead of baking a PNG per colour per candidate per size.
+
+    Returns (page, ink): page is white with the silhouette in its alpha, so CSS
+    can mask a background colour through it; ink is black over transparent.
+    """
+    n = size * S
+    m = page_mask(n)
+    page = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    page.paste(Image.new("RGBA", (n, n), (255, 255, 255, 255)), (0, 0), m)
+
+    # INK's real value, not pure black: the layer carries the ink COLOUR and
+    # only the page is tinted, so an approximation here is a visible constant
+    # error across every mark in the set.
+    K, T = tuple(INK) + (255,), (0, 0, 0, 0)
+    ink = Image.new("RGBA", (n, n), T)
+    d = ImageDraw.Draw(ink)
+    d.polygon([(g(n, PX1 - CUT), g(n, PY0)), (g(n, PX1), g(n, PY0 + CUT)),
+               (g(n, PX1 - CUT), g(n, PY0 + CUT))], fill=K)
+    if spec["band"] is not None and spec["band_at"] == "bottom":
+        d.rectangle([g(n, PX0), g(n, BAND_TOP), g(n, PX1), g(n, PY1)], fill=K)
+    getattr(k, spec["glyph"])(d, n, spec["glyph_box"], K, T)
+
+    # Clipped to the page BEFORE the chip, because the chip overhangs it.
+    ink = Image.composite(ink, Image.new("RGBA", (n, n), T), m)
+    if spec["band"] is not None and spec["band_at"] == "chip":
+        ImageDraw.Draw(ink).rounded_rectangle(
+            [g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
+            radius=g(n, 0.7), fill=K)
+
+    if spec["text"]:
+        # Subtracted from the alpha rather than drawn transparent: the letters
+        # have to be a HOLE in the chip so the page colour shows through them,
+        # and that has to survive whatever colour is chosen later.
+        (tx, ty), f = label_layout(n, spec)
+        cut = Image.new("L", (n, n), 0)
+        ImageDraw.Draw(cut).text((tx, ty), spec["text"], font=f, fill=255, anchor="mm")
+        ink.putalpha(ImageChops.subtract(ink.getchannel("A"), cut))
+        # The letters JOIN the page layer as well as cutting the ink. The chip
+        # OVERHANGS the page's left edge, so part of the first character sits
+        # where there is no page behind it: cutting alone would leave a hole
+        # straight through to the desktop instead of a page-coloured letter.
+        page.putalpha(ImageChops.lighter(page.getchannel("A"), cut))
+
+    return (page.resize((size, size), Image.LANCZOS),
+            ink.resize((size, size), Image.LANCZOS))
 
 
 def treatments(k):
