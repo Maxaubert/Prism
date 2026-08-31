@@ -1,4 +1,7 @@
-"""Round seven: the six settled glyphs, drawn against a palette rather than a fixed one.
+"""Round seven: the settled glyphs, drawn against a palette rather than a fixed one.
+
+Code, document and comic were re-picked in round eight (2026-08-31); their
+bodies below are that round's, and round8.py keeps every candidate.
 
 The tile was doing the contrast work: a white glyph reads on near-black and
 vanishes on Explorer's light mode. So each glyph here takes a Palette and can
@@ -121,32 +124,72 @@ def _audio_head(img, n, p):
 
 
 def _comic(d, n, p):
-    """A book of pictures: a page behind, and a panel on the front."""
-    d.rounded_rectangle([g(n, 4), g(n, 1.5), g(n, 15), g(n, 12.5)], radius=g(n, 0.9), fill=p.accent)
-    d.rounded_rectangle([g(n, 1), g(n, 3.5), g(n, 12), g(n, 14.5)], radius=g(n, 0.9), fill=p.body)
-    d.ellipse([g(n, 8), g(n, 5.4), g(n, 10.3), g(n, 7.7)], fill=p.accent)
-    d.polygon([(g(n, 2.2), g(n, 12.6)), (g(n, 5.4), g(n, 7.4)), (g(n, 8.6), g(n, 12.6))], fill=p.ink)
-    d.polygon([(g(n, 6.9), g(n, 12.6)), (g(n, 9.1), g(n, 9.0)), (g(n, 11.0), g(n, 12.6))], fill=p.ink)
+    """Round eight's pick: an open book.
+
+    Drawn for the DOCUMENT column and chosen for this one, which is the right
+    way round: document is the folded page now, so nothing collides, and a
+    comic is a book you hold open rather than a stack of loose pictures.
+    """
+    d.polygon(
+        [(g(n, 1.2), g(n, 3.4)), (g(n, 7.6), g(n, 4.8)), (g(n, 7.6), g(n, 14.0)), (g(n, 1.2), g(n, 12.6))],
+        fill=p.body,
+    )
+    d.polygon(
+        [(g(n, 14.8), g(n, 3.4)), (g(n, 8.4), g(n, 4.8)), (g(n, 8.4), g(n, 14.0)), (g(n, 14.8), g(n, 12.6))],
+        fill=p.accent,
+    )
+    for i in range(2):
+        y = g(n, 7.2 + i * 2.4)
+        d.rounded_rectangle([g(n, 2.6), y, g(n, 6.4), y + g(n, 1.1)], radius=g(n, 0.55), fill=p.ink)
 
 
 def _document(d, n, p):
-    """Round one's header page (provisional: this kind is not settled)."""
-    d.rounded_rectangle([g(n, 2.5), g(n, 1.5), g(n, 13.5), g(n, 14.5)], radius=g(n, 0.9), fill=p.body)
-    d.rounded_rectangle([g(n, 2.5), g(n, 1.5), g(n, 13.5), g(n, 5)], radius=g(n, 0.9), fill=p.accent)
-    d.rectangle([g(n, 2.5), g(n, 4), g(n, 13.5), g(n, 5)], fill=p.accent)
-    for i in range(4):
-        y = g(n, 6.5 + i * 1.9)
-        d.rounded_rectangle([g(n, 4.5), y, g(n, 11.5), y + g(n, 1)], radius=g(n, 0.3), fill=p.ink)
+    """Round eight's pick: a page with its corner turned.
+
+    Settled at last - what shipped before this was marked provisional and had
+    never actually been chosen. The fold is the oldest document mark there is,
+    and it survives 16px because it is one big silhouette rather than a band
+    plus four hairlines.
+    """
+    d.polygon(
+        [
+            (g(n, 2.6), g(n, 1.4)),
+            (g(n, 10.2), g(n, 1.4)),
+            (g(n, 13.4), g(n, 4.9)),
+            (g(n, 13.4), g(n, 14.6)),
+            (g(n, 2.6), g(n, 14.6)),
+        ],
+        fill=p.body,
+    )
+    d.polygon(
+        [(g(n, 10.2), g(n, 1.4)), (g(n, 13.4), g(n, 4.9)), (g(n, 10.2), g(n, 4.9))], fill=p.accent
+    )
+    for i in range(3):
+        y = g(n, 7.4 + i * 2.3)
+        d.rounded_rectangle([g(n, 4.6), y, g(n, 11.4), y + g(n, 1.2)], radius=g(n, 0.6), fill=p.ink)
 
 
 def _code(d, n, p):
-    """Round two's chevrons."""
-    w = int(g(n, 1.9))
-    d.line([(g(n, 6.5), g(n, 4.5)), (g(n, 2), g(n, 8)), (g(n, 6.5), g(n, 11.5))],
-           fill=p.body, width=w, joint="curve")
-    d.line([(g(n, 9.5), g(n, 4.5)), (g(n, 14), g(n, 8)), (g(n, 9.5), g(n, 11.5))],
-           fill=p.accent, width=w, joint="curve")
+    """Round eight's pick: the shape of code itself, nested and indented.
 
+    The chevrons it replaces were legible but generic - every editor on the
+    machine draws them. Bars at stepped indents are unmistakably source, and
+    they are solid shapes at 16px rather than six thin strokes.
+
+    THREE bars, not four, and that was measured rather than assumed: at 16px
+    four bars leave a 1.1px gap, and a light bar on a near-black tile blooms
+    across a gap that thin - the top two merged into one grey smudge. Three
+    bars at a 4.4 pitch leave 1.8px, which survives. The indent step is what
+    says "code", and three steps say it as well as four.
+    """
+    rows = ((1.8, 9.6, False), (5.0, 14.2, True), (1.8, 7.6, False))
+    for i, (x0, x1, hot) in enumerate(rows):
+        y = g(n, 3.2 + i * 4.4)
+        d.rounded_rectangle(
+            [g(n, x0), y, g(n, x1), y + g(n, 2.6)],
+            radius=g(n, 1.3),
+            fill=p.accent if hot else p.body,
+        )
 
 def _make(body_fn, after=None):
     def fn(size, p):

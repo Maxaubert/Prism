@@ -1,0 +1,110 @@
+"""Round eight's mockups as a page, because 16px is judged on a screen.
+
+Deliberately quiet chrome: the icons are the subject, and a comparison sheet
+that competes with what it is comparing is a worse sheet. Every icon is shown
+at its TRUE size on both Explorer grounds first - that is the decision - with
+a magnified 16px frame underneath only so the pixel landing can be checked.
+"""
+import pathlib
+import sys
+
+from round8 import CANDIDATES, SIZES
+
+FILENAMES = {"code": "build-hooks.ps1", "document": "Q3 report.docx", "comic": "American Dreams 01.cbz"}
+
+HEAD = """<meta charset="utf-8">
+<title>Prism icons, round eight</title>
+<style>
+  :root { color-scheme: dark; --bg:#141519; --panel:#1b1d22; --line:#2b2e36;
+          --text:#e9edf7; --dim:#8b90a0; --accent:#7c7cf0; }
+  * { box-sizing: border-box }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; }
+  header { padding:28px 32px 8px; }
+  h1 { margin:0 0 6px; font-size:19px; font-weight:650; letter-spacing:-.01em }
+  header p { margin:0; color:var(--dim); max-width:62ch }
+  h2 { margin:36px 32px 4px; font-size:15px; font-weight:650; text-transform:uppercase;
+       letter-spacing:.09em; color:var(--accent) }
+  h2 + p { margin:0 32px 14px; color:var(--dim); max-width:70ch }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(430px,1fr));
+          gap:14px; padding:0 32px 8px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+          padding:14px 16px 16px }
+  .name { display:flex; align-items:baseline; gap:9px; margin-bottom:12px }
+  .num { display:grid; place-items:center; width:22px; height:22px; flex:0 0 auto;
+         border-radius:6px; background:var(--accent); color:#0d0f16;
+         font-size:12px; font-weight:750; font-variant-numeric:tabular-nums }
+  .what { font-weight:600 }
+  .grounds { display:flex; gap:10px }
+  .ground { flex:1; border-radius:8px; padding:11px 12px; border:1px solid var(--line) }
+  .dark { background:#202020 }
+  .light { background:#f7f7f7; border-color:#dcdcdc }
+  .sizes { display:flex; align-items:flex-end; gap:11px; height:52px }
+  .sizes img { image-rendering:auto }
+  .row { display:flex; align-items:center; gap:7px; margin-top:11px;
+         font:12px/1 "Segoe UI",system-ui,sans-serif; white-space:nowrap;
+         overflow:hidden; text-overflow:ellipsis }
+  .dark .row { color:#e6e6e6 } .light .row { color:#1b1b1b }
+  .zoom { margin-top:11px; display:flex; gap:10px; align-items:center }
+  .zoom img { image-rendering:pixelated; width:96px; height:96px; border-radius:6px }
+  .zoom .cap { color:var(--dim); font-size:11.5px; line-height:1.4 }
+  footer { color:var(--dim); padding:26px 32px 44px; max-width:74ch }
+  code { background:#262932; padding:1px 5px; border-radius:4px; font-size:12.5px }
+</style>
+"""
+
+
+def card(kind, i, key, label, dirname):
+    def imgs(size_list):
+        return "".join(f'<img src="{dirname}/{kind}-{key}-{s}.png" width="{s}" height="{s}" alt="">' for s in size_list)
+
+    fname = FILENAMES[kind]
+    return f"""
+  <div class="card">
+    <div class="name"><span class="num">{i}</span><span class="what">{label}</span></div>
+    <div class="grounds">
+      <div class="ground dark">
+        <div class="sizes">{imgs(SIZES)}</div>
+        <div class="row"><img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">{fname}</div>
+      </div>
+      <div class="ground light">
+        <div class="sizes">{imgs(SIZES)}</div>
+        <div class="row"><img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">{fname}</div>
+      </div>
+    </div>
+    <div class="zoom">
+      <img src="{dirname}/{kind}-{key}-16.png" alt="16px, magnified">
+      <div class="cap">16px, magnified 6x.<br>Every size is drawn at that size,<br>never downsampled.</div>
+    </div>
+  </div>"""
+
+
+SECTIONS = {
+    "code": "Replacing the chevrons. Note that 5 and 6 are pages, which puts them close to the document icon two sections down: in a folder holding both, that similarity is the thing to judge.",
+    "document": "Never actually chosen. What shipped is marked <em>provisional</em> in the source. This kind covers .docx, .odt, .pptx, spreadsheets and .epub, so it has to carry both a report and a book.",
+    "comic": "Drawn when the comic reader landed and never put to you. Option 1 is what is on disk now.",
+}
+
+
+def main(out_dir, dirname="icons8"):
+    out = pathlib.Path(out_dir)
+    parts = [HEAD, """<header>
+  <h1>Prism file icons, round eight</h1>
+  <p>Three kinds that were never picked. Each option is shown at its true size on
+  Explorer's dark and light grounds, then as a details-view row, which is the frame
+  that decides it. Pick by number.</p>
+</header>"""]
+    for kind, blurb in SECTIONS.items():
+        parts.append(f"<h2>{kind}</h2><p>{blurb}</p><div class='grid'>")
+        for i, (key, label, _fn) in enumerate(CANDIDATES[kind], 1):
+            parts.append(card(kind, i, key, label, dirname))
+        parts.append("</div>")
+    parts.append("""<footer>The four settled kinds are untouched: image, video, audio and archive.
+  Sizes shown are 16, 20, 24, 32 and 48; the shipped <code>.ico</code> also carries
+  40, 64, 96, 128 and 256.</footer>""")
+    (out / "index.html").write_text("\n".join(parts), encoding="utf-8")
+    print(out / "index.html")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1] if len(sys.argv) > 1 else ".")
