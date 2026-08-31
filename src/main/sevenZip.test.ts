@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  countFiles,
   extractArgs,
   isSevenArchive,
   listArgs,
   parseListing,
   readPercent,
   safeMemberPath,
+  sevenMessage,
   sevenDirs
 } from './sevenZip'
 
@@ -195,5 +197,40 @@ describe('the progress percentage 7-Zip prints', () => {
   it('ignores a number that is not a percentage', () => {
     // A member whose NAME has a percent in it must not move the bar.
     expect(readPercent('Extracting  discount 200% off.jpg')).toBeNull()
+  })
+})
+
+describe('counting files out of 7-Zip -bb1 output', () => {
+  it('counts one per logged member', () => {
+    expect(countFiles('  0%    - a/one.jpg\r\n  0%    - a/two.jpg\r\n')).toBe(2)
+  })
+
+  it('counts a line with no percentage on it', () => {
+    expect(countFiles('- plain.txt')).toBe(1)
+  })
+
+  it('counts nothing in a line that merely contains a dash', () => {
+    expect(countFiles('Everything is Ok\r\nSize: 12-34')).toBe(0)
+  })
+})
+
+describe('the message worth showing a person', () => {
+  it('prefers the ERROR line', () => {
+    const raw = 'Scanning\r\nERROR: Data Error in encrypted file\r\nSub items Errors: 1'
+    expect(sevenMessage(raw)).toBe('ERROR: Data Error in encrypted file')
+  })
+
+  it('falls back to a line that names a cause', () => {
+    expect(sevenMessage('blah\r\nThere is not enough space on the disk\r\nblah2')).toContain(
+      'space'
+    )
+  })
+
+  it('falls back to the last line rather than nothing', () => {
+    expect(sevenMessage('one\r\ntwo')).toBe('two')
+  })
+
+  it('answers empty for empty', () => {
+    expect(sevenMessage('')).toBe('')
   })
 })

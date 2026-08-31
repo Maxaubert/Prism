@@ -152,7 +152,27 @@ export function listArgs(file: string, password: string): string[] {
 
 /** argv for extracting the WHOLE archive into `dir`, folders and all. */
 export function extractAllArgs(file: string, dir: string, password: string): string[] {
-  return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file]
+  // `-p` with nothing after it is not "no password", it is an EMPTY one, and
+  // on an archive with encrypted members that is a wrong answer rather than
+  // no answer. Omitted entirely when there is none.
+  return ['x', `-o${dir}`, '-y', ...(password ? [`-p${password}`] : []), '--', file]
+}
+
+/**
+ * The switches that make 7-Zip report progress at all.
+ *
+ * MEASURED, because the obvious one is not enough: with `-bsp1` alone and
+ * stdout redirected, 7-Zip prints NOTHING between "Extracting archive" and
+ * "Everything is Ok" - the progress indicator is suppressed when the output
+ * is not a console. Adding `-bb1` (log the name of each file) brings both the
+ * names AND the percentages back, so it is the pair that works, not either.
+ */
+export const PROGRESS_ARGS = ['-bb1', '-bsp1']
+
+/** How many "- name" lines are in this chunk: with `-bb1` 7-Zip logs one per
+ *  file, so counting them is a percentage even when no % ever appears. */
+export function countFiles(chunk: string): number {
+  return (chunk.match(/(^|[\r\n])\s*(\d{1,3}%\s+)?- /g) ?? []).length
 }
 
 /** The percentage out of a 7-Zip progress line, or null. `-bsp1` writes them
@@ -177,22 +197,41 @@ export function readPercent(chunk: string): number | null {
 function runWithProgress(
   exe: string,
   args: string[],
-  onPercent: (pct: number) => void
+  onPercent: (pct: number) => void,
+  total = 0
 ): Promise<{ ok: true } | { ok: false; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(exe, args, { windowsHide: true })
     let err = ''
+    let out = ''
+    let done = 0
     child.stdout.setEncoding('utf8')
     child.stdout.on('data', (d: string) => {
+      // 7-Zip writes its errors to STDOUT as often as to stderr, so the tail
+      // of both is kept: a failure that says only "failed" is a failure
+      // nobody can act on.
+      out = (out + d).slice(-4000)
       const pct = readPercent(d)
-      if (pct !== null) onPercent(pct)
+      if (pct !== null) {
+        onPercent(pct)
+        return
+      }
+      // No percentage in this chunk: fall back to counting files done, which
+      // is the only signal on an archive whose members are few and huge.
+      done += countFiles(d)
+      if (total > 0 && done > 0) onPercent(Math.min(99, Math.floor((done / total) * 100)))
     })
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (d: string) => {
-      err = (err + d).slice(-2000)
+      err = (err + d).slice(-4000)
     })
     child.on('error', () => resolve({ ok: false, stderr: 'could not start 7-Zip' }))
-    child.on('close', (code) => resolve(code === 0 ? { ok: true } : { ok: false, stderr: err }))
+    child.on('close', (code) => {
+      // 1 is 7-Zip's WARNING code: some files were skipped, the rest came out.
+      // Treating it as failure threw away a working extraction.
+      if (code === 0 || code === 1) resolve({ ok: true })
+      else resolve({ ok: false, stderr: (err + '\n' + out).trim() })
+    })
   })
 }
 
@@ -260,17 +299,33 @@ export async function extractAllSeven(
   file: string,
   dir: string,
   password = '',
-  onPercent?: (pct: number) => void
-): Promise<{ ok: true } | { ok: false; reason: MemberFail }> {
+  onPercent?: (pct: number) => void,
+  total = 0
+): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
   const args = extractAllArgs(file, dir, password)
   const r = onPercent
-    ? await runWithProgress(exe, ['-bsp1', ...args], onPercent)
-    : await run(exe, args, 600000)
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent, total)
+    : await run(exe, args, 3600000)
   if (r.ok) return { ok: true }
   return {
     ok: false,
-    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    // The line 7-Zip actually printed, so a failure can be acted on rather
+    // than only noticed.
+    message: sevenMessage(r.stderr)
   }
+}
+
+/** The most useful line out of 7-Zip's noise, for showing to a person. */
+export function sevenMessage(raw: string): string {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const named =
+    lines.find((l) => /^ERROR/i.test(l)) ??
+    lines.find((l) => /(cannot|denied|space|corrupt|unsupported|unavailable)/i.test(l))
+  return (named ?? lines[lines.length - 1] ?? '').slice(0, 300)
 }
 
 export async function extractSeven(

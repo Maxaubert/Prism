@@ -2121,20 +2121,34 @@ if (!app.requestSingleInstanceLock()) {
     async function extractWhole(
       p: string,
       into: string
-    ): Promise<{ ok: true } | { ok: false; reason: 'password' | 'aes' | 'failed' }> {
+    ): Promise<
+      { ok: true } | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+    > {
       const pw = archivePasswords.get(p) ?? ''
       const exe = seven(p)
       if (exe) {
         // 7-Zip's own percentage, forwarded to the panel: a 2GB archive takes
         // minutes, and a button reading "Extracting..." for minutes is
         // indistinguishable from one that has hung.
+        // How many members there are, so the file-count fallback has
+        // something to be a fraction OF. One extra 7z listing, measured at
+        // 88ms on a 1.9GB archive - nothing against the minutes that follow.
+        const listed = await listSeven(exe, p, pw)
+        const total = listed.ok ? listed.entries.filter((e) => !e.dir).length : 0
         let last = -1
-        const s7 = await extractAllSeven(exe, p, into, pw, (pct) => {
-          if (pct === last) return
-          last = pct
-          mainWindow?.webContents.send('archive:progress', { path: p, pct })
-        })
-        return s7.ok ? { ok: true } : { ok: false, reason: s7.reason }
+        const s7 = await extractAllSeven(
+          exe,
+          p,
+          into,
+          pw,
+          (pct) => {
+            if (pct === last) return
+            last = pct
+            mainWindow?.webContents.send('archive:progress', { path: p, pct })
+          },
+          total
+        )
+        return s7.ok ? { ok: true } : { ok: false, reason: s7.reason, message: s7.message }
       }
       // Every top-level entry: extractTo matches members by prefix, and the
       // roots of the tree are what covers all of them.
@@ -2245,7 +2259,7 @@ if (!app.requestSingleInstanceLock()) {
         here?: boolean
       ): Promise<
         | { ok: true; dest: string }
-        | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+        | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed'; message?: string }
       > => {
         if (!archiveOk(p)) return { ok: false, reason: 'failed' }
         let parent = dirname(p)

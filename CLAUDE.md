@@ -205,9 +205,18 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Both sit on the verb row and on the panel's own menu, and a FOLDER row offers Copy folder
   and Extract folder here - its Copy used to extract the members one at a time and put the
   loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
-  7-Zip path reports its own percentage (`-bsp1`, streamed rather than buffered), because a
-  button reading "Extracting..." for the minutes a 2GB archive takes is indistinguishable
-  from one that has hung. **A ZIP RECORDS ITS FOLDERS OPTIONALLY** and plenty of writers
+  7-Zip path reports its own percentage, and getting it to say ANYTHING was measured rather
+  than assumed: with `-bsp1` alone and stdout redirected 7-Zip prints nothing at all between
+  "Extracting archive" and "Everything is Ok", because it suppresses the progress indicator
+  when its output is not a console. `-bb1` (log each file) is what brings both the names and
+  the percentages back, so it is the PAIR that works and neither alone; a file COUNT out of
+  the listing's total is the fallback for an archive of a few huge members. Exit code 1 is
+  7-Zip's WARNING, not a failure - treating it as one threw away a working extraction - and
+  a real failure now carries 7-Zip's own line up to the panel, because "couldn't be
+  extracted" on its own is a failure nobody can act on. `-p` is omitted entirely when there
+  is no password, since `-p` with nothing after it is an EMPTY password rather than none.
+  All of it matters because a button reading "Extracting..." for the minutes a 2GB archive
+  takes is indistinguishable from one that has hung. **A ZIP RECORDS ITS FOLDERS OPTIONALLY** and plenty of writers
   leave them out (Google Takeout, `zip -D`, most Java tooling), which made such an archive
   read as EMPTY: the panel lists one level at a time by matching each member's parent, and
   every member's parent was two levels down with nothing naming those folders.

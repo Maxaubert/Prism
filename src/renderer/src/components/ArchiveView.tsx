@@ -526,7 +526,14 @@ function ArchiveInner({
           setOops(
             'This archive is password protected. Open a member first to unlock it, then extract.'
           )
-        else setOops("That archive couldn't be extracted.")
+        // The line 7-Zip actually printed, when there is one: "couldn't be
+        // extracted" on its own is a failure nobody can act on.
+        else
+          setOops(
+            r.message
+              ? `That archive couldn't be extracted. ${r.message}`
+              : "That archive couldn't be extracted."
+          )
       })
     },
     [file.path]

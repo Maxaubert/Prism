@@ -278,7 +278,8 @@ const api = {
     path: string,
     here = false
   ): Promise<
-    { ok: true; dest: string } | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+    | { ok: true; dest: string }
+    | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed'; message?: string }
   > => ipcRenderer.invoke('archive:extract-all', path, here),
   /** A FOLDER inside the archive, extracted whole to a temp copy, shape
    *  intact - so copying a folder gives you the folder and not a flat pile
