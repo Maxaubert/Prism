@@ -328,7 +328,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   keeping: `readdirSync(withFileTypes)` and ONE stat per file rather than two
   took `dir:list` on System32 from 159ms to 11ms, and lazy-loading pdf.js,
   react-markdown and DocView alongside CodeMirror halved the launch bundle
-  (3037KB to 1503KB). MORE OF THE SAME (2026-08-28): the agent dot used to
+  (3037KB to 1503KB). MORE OF THE SAME (2026-08-31): `dir:list` and
+  `search:files` were `readdirSync` plus a stat per file, on main's one
+  thread, up to 20000 entries per debounced keystroke - the exact thing this
+  block rules out, left in place because it was fast enough not to notice on
+  a warm local disk. They are async now, and the important part is that the
+  OBVIOUS translation is a REGRESSION: measured on System32 (about 5000
+  entries, median of five), sync 140ms, naive await 269ms, bounded-16 44ms.
+  One await per entry is a round trip per entry; the win is the CONCURRENCY,
+  and the bound is what keeps 8400 stats out of the same libuv pool the
+  `fsmedia://` Range handler reads a playing film through. The search also had
+  to learn to be SUPERSEDED: while it was synchronous it finished inside one
+  keystroke and there was never a second walk in flight, so each call takes a
+  ticket now and a stale walk stops where it is. And the biggest single win in
+  that file was not the fs at all - `localeCompare` builds a fresh collator on
+  EVERY comparison, so sorting 5000 names built 5000 of them: 23.3ms against
+  0.5ms with one hoisted collator.
+  MORE OF THE SAME (2026-08-28): the agent dot used to
   spawn a PowerShell and dump EVERY process on the machine, command lines and
   all, every 2.5s for as long as a terminal existed - 110KB of JSON a few
   times a minute to answer a question that changes twice an hour. It now asks
