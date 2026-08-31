@@ -79,21 +79,42 @@ const KIND_ICON: Record<FileKind, keyof typeof ICON_PATHS> = {
 export function KindIcon({
   kind,
   color,
+  ext,
   bg = 'var(--p-side-flat)'
 }: {
   kind: FileKind
   color: string
+  /** The file's own extension, with or without the dot. Drawn on the chip. */
+  ext?: string
   bg?: string
 }): JSX.Element {
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
   // stripes and the splat's core from filling in solid.
   const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
+  const label = (ext ?? '').replace(/^\./, '').toUpperCase()
+  const L = g.label
   return (
     <svg viewBox="0 0 24 24" width={14} height={14} className="shrink-0" aria-hidden>
       <path d={g.body} fill={color} />
       {g.ko ? <path d={g.ko} fill={bg} /> : null}
       {g.hi ? <path d={g.hi} fill={color} /> : null}
+      {label ? (
+        <text
+          x={L.x}
+          y={L.y}
+          // Keyed by CHARACTER COUNT, not scaled: two and three characters keep
+          // the full size and only WEBM-length ones step down, which is what
+          // stops a long extension running out of the chip.
+          fontSize={L.sizes[Math.min(label.length, 6) as keyof typeof L.sizes]}
+          fill={color}
+          fontWeight={700}
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
+          {label}
+        </text>
+      ) : null}
     </svg>
   )
 }
@@ -456,6 +477,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 // The knockouts take what is BEHIND the row, which on a
                 // selected one is the accent fill and not the panel.
                 bg={onSel ? 'var(--p-accent)' : undefined}
+                ext={f.ext}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>

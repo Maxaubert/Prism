@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { archiveIconOf, derive, mix, paletteOf, resolveVizTheme, setOverride, setStyle, STYLES } from './theme'
+import {
+  archiveIconOf,
+  derive,
+  fileIconOf,
+  mix,
+  paletteOf,
+  resolveVizTheme,
+  setOverride,
+  setStyle,
+  STYLES
+} from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
@@ -172,5 +182,31 @@ describe('the archive fallback colour', () => {
     for (const s of STYLES) {
       expect(contrast(archiveIconOf(s), s.bg)).toBeGreaterThanOrEqual(3)
     }
+  })
+})
+
+describe('the file icon is white or black, whichever the ground takes', () => {
+  // Owner instruction, 2026-08-31. The rule it replaced dimmed the theme's own
+  // text by 0.38, which is a mid-tone by construction and so could never be
+  // either. Measured against the ground rather than read off the mode flag,
+  // because a custom style's ground is whatever somebody made it.
+  it.each(STYLES.map((s) => [s.name, s] as const))('%s picks the readable extreme', (_n, s) => {
+    const ink = fileIconOf(s)
+    expect(['#ffffff', '#000000']).toContain(ink)
+    expect(ink).toBe(s.mode === 'light' ? '#000000' : '#ffffff')
+    expect(contrast(ink, derive(s)['--p-side-flat'])).toBeGreaterThan(4.5)
+  })
+
+  it('takes the BETTER of the two, which a midpoint test would get wrong', () => {
+    // Mid-grey is the case that separates the two rules: black wins at 5.32:1
+    // against white's 5.28:1, close enough that a midpoint would be a toss-up.
+    expect(fileIconOf({ ...STYLES[0], bg: '#808080' })).toBe('#000000')
+    expect(fileIconOf({ ...STYLES[0], bg: '#5b5bd6' })).toBe('#ffffff')
+  })
+
+  it('still lets the Settings picker win', () => {
+    // The rule is the DEFAULT, not an override: a style naming its own colour
+    // keeps it, or the picker in Settings would be a control that does nothing.
+    expect(fileIconOf({ ...STYLES[0], fileIcon: '#d9a53f' })).toBe('#d9a53f')
   })
 })

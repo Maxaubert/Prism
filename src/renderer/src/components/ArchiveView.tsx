@@ -1141,6 +1141,7 @@ function ArchiveInner({
                             <KindIcon
                               kind={fileKind(extOf(r.name), r.name)}
                               color={iconColour(fileKind(extOf(r.name), r.name))}
+                              ext={extOf(r.name)}
                             />
                           )}
                           <span className="min-w-0 flex-1 truncate">{r.name}</span>

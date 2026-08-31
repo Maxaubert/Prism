@@ -4,6 +4,9 @@ import type { TREE_SIZES } from '../lib/treePrefs'
 import { FolderIcon, iconColour, KindIcon } from './TreeRows'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 
+/** A hit carries a name, not an extension; the icon's chip wants one. */
+const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
+
 // What the sidebar shows while its search box holds a query: a flat list of
 // every match under the session root, subfolders included - files the tree
 // never even loaded. Main does the walking (bounded); this just asks, waits a
@@ -140,6 +143,7 @@ export function SearchResults({
                   kind={h.kind}
                   color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)}
                   bg={picked ? 'var(--p-accent)' : undefined}
+                  ext={extOf(h.name)}
                 />
               )}
               <span className="min-w-0">

@@ -765,9 +765,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the body is one crossing rather than two, so the chip loses its overhang. The nine
   FileKinds map onto the seven icons by Explorer's own table (`Prism.Text` -> the code
   icon), so a .ts in the tree and the same .ts on the desktop are one picture. The colour
-  is `--p-tree-file`, the Settings picker `theme.ts` already derives against the style's
-  own ground at 4.5:1, which is why the icons carry no light/dark switch of their own: a
-  light style resolves that token to dark ink. Archives lost their amber with the rest,
+  is `--p-tree-file`, and it resolves to WHITE OR BLACK, whichever the style's own ground
+  takes (owner instruction, 2026-08-31). It is measured, never read off the mode flag - a
+  custom ground is whatever somebody made it - and it takes the BETTER of the two ratios
+  rather than testing a midpoint, since two colours either side of a midpoint can both be
+  poor: mid-grey is the case that shows it, black at 5.32:1 against white's 5.28:1. What
+  it replaced was a 0.38 dimming of the theme's text, which is a mid-tone by construction
+  and so could never be either. The Settings picker still WINS - the rule is the default,
+  not an override, or the control would be one that does nothing - and the icons need no
+  light/dark switch of their own, because a light style resolves the token to black. And
+  the chip carries THE FILE'S OWN EXTENSION (owner instruction, same day): seven icons
+  cover a hundred-odd extensions between them, so ZIP against RAR is what the chip is FOR
+  and an empty one is just a black bar. It is TEXT rather than outlines, set in the app's
+  own face, and its size comes from a table keyed by CHARACTER COUNT - two and three keep
+  the full size, and only a WEBM-length one steps down, measured against the widest glyph
+  rather than a typical one. A file with no extension (`Dockerfile`) draws no label; the
+  chip is drawn either way. Archives lost their amber with the rest,
   and the tree stopped showing WINDOWS' association icon for them - that was the colourful
   thing - while the archive VIEW's header keeps it (#68), because there the box is
   introducing itself.

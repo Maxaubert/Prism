@@ -635,12 +635,31 @@ export const folderIconOf = (s: Style): string => {
   return c
 }
 
-/** The tree's file colour: the chosen one, or ONE per-mode grey for every
- *  style (owner decision, 2026-08-21) - the same dim ink derivation the
- *  chrome icons use, which is what Void always looked like. The file's KIND
- *  still shows in the glyph's shape; colour no longer carries it. */
+/**
+ * The tree's file ink: the chosen one, else WHITE OR BLACK, whichever reads
+ * better on the style's own ground (owner instruction, 2026-08-31 - "they
+ * should either be white or black depending on the background").
+ *
+ * It replaces a 0.38 dimming of the theme's text, which was a mid-tone BY
+ * CONSTRUCTION and so could never be either. The file's KIND lives in the
+ * glyph's shape (2026-08-21); the ink only has to be legible.
+ *
+ * MEASURED, not read off the mode flag: Prism has custom styles, so "is this
+ * theme dark" has no reliable answer while "what does this ground measure"
+ * always does. And it takes the BETTER OF THE TWO ratios rather than testing a
+ * midpoint - two colours either side of a midpoint can both be poor, while
+ * better-of-two is right by construction. Mid-grey #808080 is the case that
+ * shows it: black at 5.32:1 against white's 5.28:1, which a midpoint test
+ * would have called a coin toss.
+ *
+ * The PICKER still wins. A style that names its own fileIcon keeps it, so the
+ * white/black rule is the default rather than an override of a choice made in
+ * Settings. `s.bg` is the ground rather than the resolved panel because a
+ * tinted material only washes 7% of the accent over it, which cannot move a
+ * background across the boundary between the two extremes.
+ */
 export const fileIconOf = (s: Style): string =>
-  s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
+  s.fileIcon ?? (contrast('#ffffff', s.bg) >= contrast('#000000', s.bg) ? '#ffffff' : '#000000')
 
 /** The parcel FALLBACK colour (#68): archives normally wear the system's own
  *  association icon, and this amber - stepped toward readability like the
