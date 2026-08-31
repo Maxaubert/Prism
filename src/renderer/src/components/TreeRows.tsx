@@ -284,8 +284,10 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             e.stopPropagation()
             t.onDropOn(e, path)
           }}
-          // A plain click still expands, quick-look style; shift and ctrl
-          // build a selection without touching the chevron state.
+          // A plain click SELECTS a folder; a second one expands it. Shift and
+          // ctrl build a selection without touching the chevron state either
+          // way. The chevron itself still expands on the first click, since
+          // that is the one control whose whole job is the folder's state.
           onClick={(e) => t.onRowClick(e, path, true)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {

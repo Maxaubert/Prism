@@ -563,17 +563,27 @@ export function Sidebar({
   }, [order])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
+      // Was this row ALREADY the whole selection before this click? Read
+      // before the click changes it, since that is what a second click means.
+      const wasOnlySelection = sel.items.size === 1 && sel.items.has(path)
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
-      // A plain click keeps the tree's quick-look reflex: it opens (or
-      // expands) as it always did. Shift and ctrl select WITHOUT opening -
-      // that is what makes select-then-right-click and multi-select work.
+      // A FILE keeps the tree's quick-look reflex: one click opens it, which
+      // is what the sidebar is for. A FOLDER selects first and expands on the
+      // second click (owner decision, 2026-08-31) - it is a destination for
+      // drops, a rename target and the thing "Open terminal here" acts on, so
+      // being able to point at one without walking into it is worth a click.
+      // This narrows the 2026-08-22 rule rather than reversing it: single
+      // click still opens FILES, and double-click still opens nothing.
+      //
+      // Shift and ctrl select WITHOUT opening or expanding either way - that
+      // is what makes select-then-right-click and multi-select work.
       if (!e.shiftKey && !e.ctrlKey) {
-        if (isFolder) toggle(path)
-        else onOpenFile(path)
+        if (!isFolder) onOpenFile(path)
+        else if (wasOnlySelection) toggle(path)
       }
     },
-    [order, toggle, onOpenFile]
+    [order, toggle, onOpenFile, sel]
   )
   const selJoin = useCallback(
     (path: string): { top: boolean; bottom: boolean } => {

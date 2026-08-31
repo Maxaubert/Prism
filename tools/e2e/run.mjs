@@ -3137,6 +3137,23 @@ async function selectionScenario(fixtures) {
       'and still opens nothing'
     )
 
+    // A FOLDER selects on the first click and expands on the second
+    // (2026-08-31). Files keep their quick-look single click, above.
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click()
+    await sleep(400)
+    ok(
+      (await codeRow.getAttribute('aria-expanded')) === 'false',
+      'the first click on a folder does not expand it'
+    )
+    ok((await codeRow.getAttribute('data-selected')) !== null, 'it selects it instead')
+    await codeRow.click()
+    await sleep(400)
+    ok(
+      (await codeRow.getAttribute('aria-expanded')) === 'true',
+      'and the second click expands it'
+    )
+
     // Ctrl+A takes every row the tree is SHOWING (2026-08-25)...
     const visible = await win.locator('aside [data-row]').count()
     await win.keyboard.press('Control+a')
