@@ -126,9 +126,18 @@ def rect_path(x0, y0, x1, y1, r=0.0):
 
 
 def ellipse_path(x0, y0, x1, y1):
+    """An ellipse, wound CLOCKWISE like every rectangle and polygon here.
+
+    The direction is not cosmetic. A layer is one <path> of several subpaths
+    under the default nonzero fill rule, and two subpaths wound OPPOSITE ways
+    cancel where they overlap. The quarter note is exactly that overlap - a
+    stem rectangle sitting on a head ellipse - and with the arcs sweeping the
+    other way it came out with a quadrant punched out of the note head, on a
+    shape that is solid in the .ico the very same functions draw.
+    """
     a, b, c, d = u(x0), u(y0), u(x1), u(y1)
     rx, ry, cy = round((c - a) / 2, 2), round((d - b) / 2, 2), round((b + d) / 2, 2)
-    return f"M{a} {cy}A{rx} {ry} 0 1 0 {c} {cy}A{rx} {ry} 0 1 0 {a} {cy}Z"
+    return f"M{a} {cy}A{rx} {ry} 0 1 1 {c} {cy}A{rx} {ry} 0 1 1 {a} {cy}Z"
 
 
 def poly_path(pts):

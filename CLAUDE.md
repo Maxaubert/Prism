@@ -810,6 +810,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   and the tree stopped showing WINDOWS' association icon for them - that was the colourful
   thing - while the archive VIEW's header keeps it (#68), because there the box is
   introducing itself.
+  A LAYER IS ONE PATH OF SEVERAL SUBPATHS, and under the default nonzero fill rule two
+  subpaths wound OPPOSITE ways cancel where they overlap. The quarter note is exactly that
+  overlap - a stem rectangle sitting on a head ellipse - and the emitter drew rectangles
+  clockwise and ellipses anticlockwise, so the note came out with a quadrant punched out of
+  its head, on a shape that is solid in the .ico the very same functions draw. Every shape
+  the emitter writes winds clockwise now. `tools/icons/repick.py` is where the page COLOURS
+  are chosen: it splits the shipped renderer into a tintable page and an ink overlay, so a
+  live recolour is what the .ico would hold rather than a mock-up of it, and it reads the
+  contrast against BOTH Explorer grounds while you choose - a colour can look right on the
+  one you happen to be picking on and vanish on the other, which is what the white image
+  page does at 1.07:1 on light.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
