@@ -108,6 +108,8 @@ video::cue {
   --p-dim2: #6b7280;
   --p-accent: #3f5570;
   --p-accent-hi: #6a7f99;
+  --p-checker-a: #202329;
+  --p-checker-b: #191c21;
   --p-on-accent: #ffffff;
   --p-icon: #868d96;
   --p-hover: rgba(255, 255, 255, 0.06);
@@ -158,6 +160,10 @@ video::cue {
    until each clears AA on the palest background Prism ships (Daybreak). Without
    this the dark set carries over and code is effectively unreadable. */
 :root[data-mode='light'] {
+  /* Light mode gets the conventional pale checker: on a paper-white ground
+     the dark pair would read as the picture rather than as the ground. */
+  --p-checker-a: #ffffff;
+  --p-checker-b: #e6e8ee;
   --p-code-keyword: #6f42c1;
   --p-code-string: #1f6640;
   --p-code-number: #7f4800;
@@ -382,4 +388,21 @@ input[type='color']::-webkit-color-swatch {
 ::highlight(prism-find-current-1), ::highlight(prism-find-current-2), ::highlight(prism-find-current-3), ::highlight(prism-find-current-4), ::highlight(prism-find-current-5), ::highlight(prism-find-current-6), ::highlight(prism-find-current-7), ::highlight(prism-find-current-8) {
   background: var(--p-accent);
   color: var(--p-on-accent);
+}
+
+/* The ground behind a transparent picture (2026-08-31). A PNG with alpha used
+   to be drawn straight onto the viewer's near-black, so a transparent logo
+   looked like an empty window and a white one looked like it had a black
+   halo. Deliberately DARK greys, not Photoshop's white-and-light-grey: a
+   bright slab in a near-black viewer is worse than no checker at all, and the
+   picture is still the thing that has to read. */
+.p-checker {
+  background-image:
+    linear-gradient(45deg, var(--p-checker-b) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--p-checker-b) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--p-checker-b) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--p-checker-b) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-color: var(--p-checker-a);
 }

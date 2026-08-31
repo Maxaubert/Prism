@@ -65,6 +65,7 @@ import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
 import { installVerb, removeVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
+import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { renameFile, uniqueName } from './fileOps'
@@ -369,6 +370,12 @@ const servable = new Set<string>()
  *  window there is nothing to own them, so those keep the old shape. */
 function openDialog(opts: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
   return mainWindow ? dialog.showOpenDialog(mainWindow, opts) : dialog.showOpenDialog(opts)
+}
+
+/** The same, for saving. Parented for the same reason: an unparented dialog is
+ *  modeless, and a fullscreen picker never shows at all. */
+function saveDialog(opts: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> {
+  return mainWindow ? dialog.showSaveDialog(mainWindow, opts) : dialog.showSaveDialog(opts)
 }
 
 /** Media may only be served from a root, from an archive member main extracted
@@ -1167,6 +1174,36 @@ if (!app.requestSingleInstanceLock()) {
       return r.canceled ? [] : r.filePaths
     })
     ipcMain.handle('open:path', (_e, p: string): Promise<OpenPayload | null> => buildPayload(p))
+
+    /**
+     * Save the picture as an ordinary PNG or JPEG, somewhere the user picks.
+     *
+     * The destination is OUTSIDE every root on purpose, and that is not a hole
+     * in the wall: main's own save dialog IS the consent, exactly as it is for
+     * "Extract all" and for picking a subtitle file. The renderer hands over
+     * bytes it encoded from the decoded picture; main never re-reads the
+     * source, so a HEIC or a camera RAW saves as easily as a PNG.
+     */
+    ipcMain.handle(
+      'image:save-copy',
+      async (_e, bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg'): Promise<string | null> => {
+        if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength) return null
+        const ext = format === 'png' ? 'png' : 'jpg'
+        const r = await saveDialog({
+          defaultPath: suggested.replace(/\.[^.]*$/, '') + '.' + ext,
+          filters: [{ name: format === 'png' ? 'PNG image' : 'JPEG image', extensions: [ext] }]
+        })
+        if (r.canceled || !r.filePath) return null
+        try {
+          // Muted so the folder watcher does not report Prism's own write.
+          ownWrite(r.filePath)
+          await writeFile(r.filePath, Buffer.from(bytes))
+          return r.filePath
+        } catch {
+          return null
+        }
+      }
+    )
     /* ----- the terminal ----- */
 
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
@@ -1409,6 +1446,20 @@ if (!app.requestSingleInstanceLock()) {
         // the user to guess why their work would not save.
         return { ok: false, reason: 'failed', message: String((e as NodeJS.ErrnoException)?.code ?? '') }
       }
+    })
+
+    /**
+     * What the camera wrote into the photo, for the Properties rows.
+     *
+     * Read in MAIN from the path, because the renderer's copy of a HEIC, a
+     * camera RAW or an ffmpeg-decoded still is a re-encoded picture with the
+     * metadata stripped - exactly the photos worth asking about. Answers an
+     * empty object rather than throwing: a picture with no EXIF is not an
+     * error.
+     */
+    ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return {}
+      return photoInfo(p)
     })
 
     // What the Properties popup can't compute in the renderer: dates and the

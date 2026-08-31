@@ -78,6 +78,18 @@ const api = {
   writeText: (path: string, text: string): Promise<WriteResult> =>
     ipcRenderer.invoke('file:write', path, text),
 
+  /** What the camera wrote into a photo: camera, lens, exposure, when, GPS.
+   *  Read in main from the file itself, so it works for HEIC and camera RAW,
+   *  whose decoded copies carry no metadata at all. */
+  photoInfo: (path: string): Promise<{
+    camera?: string
+    lens?: string
+    exposure?: string
+    taken?: string
+    colour?: string
+    gps?: { lat: number; lon: number }
+    dimensions?: string
+  }> => ipcRenderer.invoke('image:photo-info', path),
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
@@ -157,6 +169,13 @@ const api = {
     clipboard.writeImage(img)
     return true
   },
+  /**
+   * Save the picture as an ordinary PNG or JPEG. Main asks where, and that
+   * dialog is the consent that lets it land outside every root. Resolves with
+   * where it went, or null if the dialog was cancelled or the write failed.
+   */
+  saveImageCopy: (bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg'): Promise<string | null> =>
+    ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),

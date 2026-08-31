@@ -487,6 +487,9 @@ function Viewer({
           path={file.path}
           name={file.name}
           onToggleFullscreen={onToggleFullscreen}
+          onStep={onStep}
+          canStep={canStep}
+          fullscreen={fullscreen}
         />
       )
     case 'audio':
