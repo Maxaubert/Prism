@@ -1090,7 +1090,7 @@ function ArchiveInner({
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
                                 ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-                                : `${rowIndex % 2 === 0 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
+                                : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
                           draggable
                           onDragStart={(e) => onRowDragStart(e, r.path)}

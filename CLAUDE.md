@@ -246,6 +246,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `color-mix(in srgb, var(--p-text) 3.5%, transparent)` rather than a fixed grey - Prism has
   custom styles, so it has to hold on void, on an accent-tinted ground and on anything built
   later, and mixing against the TEXT colour gets the direction right by construction. The
+  FIRST row is the plain ground and the second is the stripe (owner pick, 2026-08-31, after
+  seeing it the other way round). The
   crumb row ends in a chevron at EVERY level, the current folder included: chevrons only
   BETWEEN segments read as a separator between two names, and the trailing one is what makes
   the row read as a path. Rows run EDGE TO EDGE with no radius, so the stripe and the
