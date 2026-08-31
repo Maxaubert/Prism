@@ -244,7 +244,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   a tab rooted at a FOLDER you then browse: it left you holding one file with no obvious next
   move. It is "New tab" now, instant and rooted per the "New tabs show" setting exactly as the
   + is, with the folder chooser beside it. Dropping a file still works and the line above still
-  says so.  in main is left in place but is now reachable from nothing.
+  says so. `open:dialog` in main is left in place but is now reachable from nothing.
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
