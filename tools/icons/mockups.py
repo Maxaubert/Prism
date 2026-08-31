@@ -51,6 +51,11 @@ HEAD = """<meta charset="utf-8">
   .zoom { margin-top:11px; display:flex; gap:10px; align-items:center }
   .zoom img { image-rendering:pixelated; width:96px; height:96px; border-radius:6px }
   .zoom .cap { color:var(--dim); font-size:11.5px; line-height:1.4 }
+  .hero { display:flex; gap:10px; margin-bottom:12px }
+  .hero div { flex:1; display:grid; place-items:center; padding:10px 0;
+              border-radius:8px; border:1px solid var(--line) }
+  .measure { margin-top:10px; color:var(--dim); font-size:11.5px;
+             font-variant-numeric:tabular-nums }
   footer { color:var(--dim); padding:26px 32px 44px; max-width:74ch }
   code { background:#262932; padding:1px 5px; border-radius:4px; font-size:12.5px }
 </style>
@@ -66,9 +71,20 @@ def card(mod, kind, i, key, label, dirname):
 
     fname = mod.FILENAMES[kind]
     small = f'<img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">'
+
+    # Optional, so every earlier round renders exactly as it did before.
+    hero_px = getattr(mod, "HERO", None)
+    hero = ""
+    if hero_px:
+        h = f'<img src="{dirname}/{kind}-{key}-{hero_px}.png" width="{hero_px}" height="{hero_px}" alt="">'
+        hero = f'<div class="hero"><div class="dark">{h}</div><div class="light">{h}</div></div>'
+    fn_cap = getattr(mod, "caption", None)
+    measure = f'<div class="measure">{fn_cap(kind, key)}</div>' if fn_cap else ""
+
     return f"""
   <div class="card">
-    <div class="name"><span class="num">{i}</span><span class="what">{label}</span></div>
+    <div class="name"><span class="num">{i}</span><span class="what">{label.replace("|", "<br>")}</span></div>
+    {hero}
     <div class="grounds">
       <div class="ground dark">
         <div class="sizes">{imgs()}</div>
@@ -83,6 +99,7 @@ def card(mod, kind, i, key, label, dirname):
       <img src="{dirname}/{kind}-{key}-16.png" alt="16px, magnified">
       <div class="cap">16px, magnified 6x.<br>Every size is drawn at that size,<br>never downsampled.</div>
     </div>
+    {measure}
   </div>"""
 
 

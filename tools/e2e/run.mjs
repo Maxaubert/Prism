@@ -1240,6 +1240,13 @@ async function extractScenario(fixtures) {
       (await win.locator('[role="progressbar"]').count()) === 1,
       'the progress track is present before anything runs'
     )
+    // The first row starts ON the header's hairline: no gutter above it.
+    const gap = await win.evaluate(() => {
+      const list = document.querySelector('[data-arc-list]')
+      const row = document.querySelector('[data-arc-row]')
+      return row.getBoundingClientRect().top - list.getBoundingClientRect().top
+    })
+    ok(Math.abs(gap) < 0.6, `the first row sits on the header hairline (${gap.toFixed(2)}px)`)
     await win.click('button:has-text("Extract here")')
     await win.waitForFunction(
       () => !document.body.textContent.includes('Extracting'),
