@@ -10,13 +10,14 @@ import {
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, codeFolding, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
-import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
+import { gotoLine, openSearchPanel, search, searchKeymap, searchPanelOpen } from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
+import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { jsonLinter, syntaxLinter } from '../lib/codeLint'
 import { prismCodeTheme } from '../lib/codeTheme'
+import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/codePrefs'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -33,11 +34,21 @@ import { prismCodeTheme } from '../lib/codeTheme'
 const langComp = new Compartment()
 const lintComp = new Compartment()
 const chromeComp = new Compartment()
+const wrapComp = new Compartment()
 
-/** Line numbers, folding and wrapping, decided per file. Prose gets none. */
+/** Line numbers and folding, decided per file. Prose gets none.
+ *
+ *  Wrapping used to live here and does NOT any more (2026-08-31): it is a
+ *  preference now, so it has a compartment of its own. Two extensions setting
+ *  lineWrapping from two compartments would fight on every path change. */
 function chromeFor(name: string): Extension {
-  if (isProse(name)) return EditorView.lineWrapping
+  if (isProse(name)) return []
   return [lineNumbers(), highlightActiveLineGutter(), foldGutter(), codeFolding(), highlightActiveLine()]
+}
+
+/** The wrapping extension for this file, under the current preference. */
+function wrapFor(name: string, pref: WrapPref): Extension {
+  return wrapsFor(pref, isProse(name)) ? EditorView.lineWrapping : []
 }
 
 export function CodeView({
@@ -80,6 +91,9 @@ export function CodeView({
    *  a read-only file and a folder that has gone are different problems. */
   const [failed, setFailed] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null)
+  const wrap = useWrapPref()
+  /** Where the caret is, for the status pill. Only read while focused. */
+  const [caret, setCaret] = useState({ line: 1, col: 1, sel: 0 })
   /** Why this file is not in the editor: too big to hand over as one string,
    *  or unreadable. Null when it opened normally. */
   const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
@@ -109,6 +123,7 @@ export function CodeView({
         extensions: [
           prismCodeTheme,
           chromeComp.of([]),
+          wrapComp.of([]),
           langComp.of([]),
           lintComp.of([]),
           history(),
@@ -132,6 +147,14 @@ export function CodeView({
           keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, ...lintKeymap, indentWithTab]),
           EditorView.updateListener.of((u) => {
             if (u.focusChanged) setEditing(u.view.hasFocus)
+            // The caret readout, BEFORE the docChanged early-return: moving
+            // the caret changes neither the document nor the focus.
+            if (u.selectionSet || u.docChanged || u.focusChanged) {
+              const head = u.state.selection.main.head
+              const line = u.state.doc.lineAt(head)
+              const sel = u.state.selection.ranges.reduce((n, r) => n + (r.to - r.from), 0)
+              setCaret({ line: line.number, col: head - line.from + 1, sel })
+            }
             if (!u.docChanged) return
             const disk = saved.current
             const now = u.state.doc.toString()
@@ -180,6 +203,7 @@ export function CodeView({
           scrollIntoView: true,
           effects: [
             chromeComp.reconfigure(chromeFor(name)),
+            wrapComp.reconfigure(wrapFor(name, wrapPref())),
             langComp.reconfigure(langExt),
             // Squiggles need a grammar to be wrong against. A stream lexer has
             // none, so those languages get colour and no claims about errors.
@@ -225,6 +249,13 @@ export function CodeView({
     return true
   }, [path, report, onSaved])
 
+  // The wrap preference is live: changing it in Settings or the menu must
+  // reach the editor that is already open, not just the next file.
+  useEffect(() => {
+    const v = view.current
+    if (v) v.dispatch({ effects: wrapComp.reconfigure(wrapFor(name, wrap)) })
+  }, [wrap, name])
+
   // Ctrl+S and Ctrl+F belong to the open file whether or not it has focus -
   // and since nothing focuses it on arrival, that has to be a window listener
   // rather than one on this subtree, which is how the pdf viewer does it too.
@@ -247,6 +278,16 @@ export function CodeView({
         e.stopPropagation()
         v.focus()
         openSearchPanel(v)
+      } else if (e.ctrlKey && (e.key === 'g' || e.key === 'G') && !searchPanelOpen(v.state)) {
+        // "Which line is the stack trace pointing at" had no answer but
+        // counting. Only while the find panel is SHUT: searchKeymap binds
+        // Ctrl+G to find-next, and claiming it at the window would quietly
+        // take that away from someone in the middle of a search. F3 is
+        // find-next either way.
+        e.preventDefault()
+        e.stopPropagation()
+        v.focus()
+        gotoLine(v)
       } else if (e.key === 'Escape' && v.hasFocus) {
         // Back out to the folder's keys. The buffer keeps whatever was typed;
         // App asks about it if and when the user actually leaves the file.
@@ -279,6 +320,12 @@ export function CodeView({
     const ed = view.current
     if (ed) openSearchPanel(ed)
   }, [])
+  const gotoHere = useCallback((): void => {
+    const ed = view.current
+    if (!ed) return
+    ed.focus()
+    gotoLine(ed)
+  }, [])
 
   /**
    * The editor's own menu (2026-08-30).
@@ -300,6 +347,14 @@ export function CodeView({
       { label: 'Paste', onPick: pasteHere },
       { label: 'Select all', onPick: selectAll },
       { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
+      { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
+      {
+        label: 'Word wrap',
+        icon: tickIf(wrapsFor(wrap, isProse(name))),
+        // Sets the OVERRIDE, so ticking it off a .txt stops that file
+        // wrapping rather than putting the auto rule back.
+        onPick: () => setWrapPref(wrapsFor(wrap, isProse(name)) ? 'off' : 'on')
+      },
       { label: 'Save', hint: 'Ctrl+S', onPick: () => void save() },
       ...fileVerbs(path)
     ]
@@ -348,6 +403,17 @@ export function CodeView({
               ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
               : 'This file could not be read. Nothing has been changed on disk.'}
           </div>
+        </div>
+      )}
+      {/* Where the caret is. Only while the editor has FOCUS, so a file you
+          are reading from the sidebar stays chrome-free - the same rule that
+          decides who owns the vertical keys. Bottom RIGHT, because the dirty
+          and Done pill already owns the centre and two pills at one anchor
+          would sit on top of each other. */}
+      {editing && (
+        <div className="pointer-events-none absolute bottom-4 right-4 z-10 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-2.5 py-1 text-[11px] tabular-nums text-[var(--p-dim)]">
+          Ln {caret.line}, Col {caret.col}
+          {caret.sel > 0 && ` (${caret.sel} selected)`}
         </div>
       )}
       {(dirty || onClose) && (
