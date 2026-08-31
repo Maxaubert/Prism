@@ -237,6 +237,27 @@ def _clapper_two_stripes(d, n, box, col, hole):
                    (sx + w * 0.05, y0 + h * 0.27), (sx - w * 0.10, y0 + h * 0.27)], fill=hole)
 
 
+def _code_guide(d, n, box, col, hole):
+    """CODE in-app: an indent guide with rungs, not the shipped stepped bars.
+
+    The .ico tells code from document with COLOUR - one bar in Prism's indigo.
+    In-app everything is painted in a single ink, so that difference cannot
+    survive, and code and document would both be three rounded bars in one
+    colour: the same smudge in a 14px tree row. A vertical spine with rungs
+    hanging off it is the same visual language - flat, geometric, knocked out
+    of the page - and reads as STRUCTURE where three full-width bars read as
+    prose. The third of the three deliberate divergences from the .ico, after
+    the clapperboard's stripe count and the comic splat.
+    """
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    d.rounded_rectangle([x0, y0, x0 + w * 0.13, y1], radius=w * 0.065, fill=col)
+    for i, wide in enumerate((0.62, 0.86, 0.48)):
+        y = y0 + i * h * 0.37
+        d.rounded_rectangle([x0 + w * 0.28, y, x0 + w * (0.28 + wide * 0.72), y + h * 0.26],
+                            radius=h * 0.07, fill=col)
+
+
 def _comic_splat(d, n, box, col, hole):
     """COMIC in-app: the splat, which is the only part that survives one colour."""
     x0, y0, x1, y1 = box
@@ -248,7 +269,7 @@ def _comic_splat(d, n, box, col, hole):
 
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": dict((k, f) for k, _l, f in R14["code"][2])["bars"],
+    "code": _code_guide,
     "comic": _comic_splat,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],

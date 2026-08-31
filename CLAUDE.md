@@ -821,15 +821,32 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   contrast against BOTH Explorer grounds while you choose - a colour can look right on the
   one you happen to be picking on and vanish on the other, which is what the white image
   page does at 1.07:1 on light.
-  ONE COLOUR FOR THE SIX (owner pick, 2026-08-31, off that sheet): archive, audio, code,
-  document, image and video all wear `#aab2c0`, so the KIND lives entirely in the
-  silhouette, the mark and the extension on the chip - the same call the sidebar's icons
-  went through, now made in Explorer too. COMIC keeps its own, being artwork rather than
-  one flat colour, which leaves it the only coloured icon in the set. Measured while
-  choosing: 7.63:1 on Explorer's dark ground and 1.99:1 on its light one, quiet there but
-  well clear of the 1.07:1 the white image page managed, where the silhouette vanished
-  outright. The chip is near-black with the extension knocked out of it, so the label
-  carries on both grounds whatever the page does.
+  ONE COLOUR, AND THREE EXCEPTIONS (owner picks, 2026-08-31). archive, audio, image and
+  video wear `#aab2c0`, so the KIND lives in the silhouette, the mark and the extension on
+  the chip. Measured while choosing: 7.63:1 on Explorer's dark ground and 1.99:1 on its
+  light one. The chip is near-black with the extension knocked out of it, so the label
+  carries on both grounds whatever the page does. The exceptions each earn their keep:
+  COMIC is artwork rather than a flat colour; CODE carries ONE BAR in Prism's indigo,
+  because it and document are both three rounded bars in the same box and the shared
+  colour left the silhouette as the only thing telling them apart - which at 16px is
+  nothing. Colour is the right axis there and it was MEASURED, not assumed: breaking the
+  silhouette instead was tried first (`round24.py`) and its zigzag, nested and
+  bars-plus-caret candidates all still read as document at 16px, because geometry is the
+  first thing downsampling spends and hue is not. DOCUMENT is PAPER, `#ffffff` - a docx,
+  pdf, xlsx or pptx is a sheet of paper and Word shows one as white on a canvas that is
+  not white. Pure white measures 1.07:1 on Explorer light, where the silhouette vanishes
+  outright, so the page carries a HAIRLINE (`#c4c9d2`, a third of a unit) eroded from its
+  own mask - the boundary a page has against its canvas, not the heavy dark outline the
+  set rejected. Eroded rather than drawn as a second shape, so it follows the rounded
+  corners and the fold's diagonal and cannot drift out of step.
+  THE IN-APP ICONS CANNOT CARRY ANY OF THAT, being painted in one ink, so `svg.py` has
+  THREE deliberate divergences from the .ico and they are divergences rather than drift:
+  the clapperboard has two stripes instead of three (three are a pixel each at 14px and
+  merge into a grey bar), the comic is a bare splat (its sunburst and halftone exist to be
+  different COLOURS from each other and flatten to a grey rectangle), and CODE is an
+  indent guide with rungs rather than the stepped bars - a spine reads as structure where
+  three full-width bars read as prose, which is the only way code and document stay apart
+  when both are one colour.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's

@@ -27,7 +27,7 @@ chip and glyph read. He was shown that number live while choosing and chose it
 anyway. Recorded here so it is never "fixed" as a bug by someone who was not in
 the room.
 """
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from icons import S
 from round5 import g
@@ -62,13 +62,17 @@ INK_A = tuple(INK) + (255,)
 # extension is knocked out of it, so the label carries on both grounds whatever
 # the page does.
 PAGE = (170, 178, 192)
+PAPER = (255, 255, 255)
 
 COLOURS = {
     "archive": ("ZIP", PAGE),
     "audio": ("MP3", PAGE),
     "code": ("PY", PAGE),
     "comic": ("CBZ", (210, 96, 58)),
-    "document": ("DOCX", PAGE),
+    # PAPER, not the shared grey. A docx, a pdf, an xlsx and a pptx are all
+    # sheets of paper, and Word shows one as white on a canvas that is not
+    # white - so document is the third exception, after comic and code.
+    "document": ("DOCX", PAPER),
     "image": ("JPG", PAGE),
     "video": ("MP4", PAGE),
 }
@@ -101,6 +105,39 @@ PAGE_GLYPHS = {
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
     "video": clapper,
 }
+
+
+# The boundary a page has against the canvas it sits on. Pure white measures
+# 1.07:1 against Explorer's light ground, which means the SILHOUETTE disappears
+# there and only the chip, the fold and the text lines are left floating. The
+# hairline is what a page in Word actually has - white paper, a canvas that is
+# not white, and an edge between them - and it is a light grey a third of a unit
+# wide, not the heavy dark outline the set rejected.
+PAPER_EDGE = (196, 201, 210)
+EDGE_UNITS = 0.35
+
+
+def _hairline(base, size):
+    """Lay a hairline along the page's own silhouette.
+
+    Eroded from the page mask rather than drawn as a second shape, so it
+    follows the rounded corners and the fold's diagonal exactly and cannot
+    drift out of step with them.
+    """
+    n = size * S
+    m = page_mask(n)
+    inner = m.filter(ImageFilter.MinFilter(2 * int(EDGE_UNITS * S) + 1))
+    band = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    band.paste(Image.new("RGBA", (n, n), PAPER_EDGE + (255,)), (0, 0), m)
+    band.paste(Image.new("RGBA", (n, n), (0, 0, 0, 0)), (0, 0), inner)
+    out = base.copy()
+    out.alpha_composite(band.resize((size, size), Image.LANCZOS))
+    return out
+
+
+def _document(kind, size):
+    """A page kind, plus the hairline that keeps white paper visible on white."""
+    return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind]), size)
 
 
 def _page_kind_with(kind, size, glyph):
@@ -163,6 +200,7 @@ def _comic(kind, size):
 
 
 RENDER = {k: _page_kind for k in PAGE_GLYPHS}
+RENDER["document"] = _document
 RENDER["archive"] = _archive
 RENDER["comic"] = _comic
 
