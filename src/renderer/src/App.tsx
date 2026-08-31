@@ -158,6 +158,7 @@ type Ask =
   // The plain "sure?" for a clean tab, on by default and switchable in
   // Settings. Dirty tabs take the unsaved-changes question above instead.
   | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy | null }
+  | { kind: 'file-changed'; path: string; name: string }
   // Pointing a tab at a different folder strands its unsaved text exactly as
   // closing it would, so it asks the same question and carries the payload it
   // will apply on the way through.
@@ -447,6 +448,8 @@ function Viewer({
   onBuffer,
   onRenameSelf,
   getPending,
+  onExternalChange,
+  reloadAnswer,
   background = false,
   volumeKey = ''
 }: {
@@ -462,6 +465,10 @@ function Viewer({
   transportStyle: TransportStyle
   /** How solid the band behind the video's controls is, 0-100%. */
   transportBg: number
+  /** Something outside Prism rewrote a file that holds unsaved edits. */
+  onExternalChange: (path: string) => void
+  /** What the user answered about it. */
+  reloadAnswer: { path: string; reload: boolean } | null
   /** A markdown link to a local file; opened the same way as a tree click. */
   onOpenLocal: (path: string) => void
   /** Autoplay: a finished video/track moves to the next of its kind. */
@@ -562,6 +569,9 @@ function Viewer({
             onSaved={() => {}}
             onBuffer={onBuffer}
             getPending={getPending}
+            onExternalChange={onExternalChange}
+            answer={reloadAnswer}
+            fullscreen={fullscreen}
           />
         </Suspense>
       )
@@ -836,6 +846,17 @@ export default function App(): JSX.Element {
     },
     [syncDirty]
   )
+  /**
+   * Something outside Prism rewrote a file that holds unsaved edits
+   * (2026-08-31). The editor swaps a CLEAN file silently - taking the new
+   * version costs nothing and asking would be noise - and reports a dirty one
+   * here, because Prism has no diff and no merge: it is keep mine or take
+   * theirs, and only the user can pick.
+   */
+  const [reloadAnswer, setReloadAnswer] = useState<{ path: string; reload: boolean } | null>(null)
+  const onExternalChange = useCallback((path: string) => {
+    setAsk({ kind: 'file-changed', path, name: path.split(/[\\/]/).filter(Boolean).pop() ?? path })
+  }, [])
   /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
    *  drive (panel shut, search showing); App then pages the folder itself. */
   const treeNav = useRef<((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null>(null)
@@ -2713,6 +2734,8 @@ export default function App(): JSX.Element {
                     canStep={(dir) => (e.tabId === activeId ? sameKindIndex(dir) >= 0 : false)}
                     onBuffer={onBuffer}
                     getPending={getPending}
+                    onExternalChange={onExternalChange}
+                    reloadAnswer={reloadAnswer}
                   />
                 </div>
               ))
@@ -2729,6 +2752,9 @@ export default function App(): JSX.Element {
                       }}
                       onBuffer={onBuffer}
                       getPending={getPending}
+                      onExternalChange={onExternalChange}
+                      answer={reloadAnswer}
+                      fullscreen={fullscreen}
                     />
                   </Suspense>
                 ) : activeDeck ? null : file ? (
@@ -2748,6 +2774,8 @@ export default function App(): JSX.Element {
                     canStep={(dir) => sameKindIndex(dir) >= 0}
                     onBuffer={onBuffer}
                     getPending={getPending}
+                    onExternalChange={onExternalChange}
+                    reloadAnswer={reloadAnswer}
                   />
                 ) : active ? (
                   <NoFileState />
@@ -2821,6 +2849,8 @@ export default function App(): JSX.Element {
                         canStep: () => false,
                         onBuffer,
                         getPending,
+                        onExternalChange,
+                        reloadAnswer,
                         volumeKey: `${activeId ?? ''}:pin:${pn.path}`
                       }}
                     />
@@ -3013,6 +3043,40 @@ export default function App(): JSX.Element {
                   if (then === 'install') runInstall()
                   else window.prism.close(true)
                 })()
+              }
+            }
+          ]}
+        />
+      )}
+
+      {ask?.kind === 'file-changed' && (
+        <Dialog
+          title="This file changed on disk"
+          body={
+            <>
+              Something outside Prism rewrote <span className="text-[#d7dae1]">{ask.name}</span>{' '}
+              while you have unsaved changes in it. There is no merge: it is your version or the one
+              on disk.
+            </>
+          }
+          onCancel={() => {
+            setReloadAnswer({ path: ask.path, reload: false })
+            setAsk(null)
+          }}
+          choices={[
+            {
+              label: 'Keep mine',
+              onPick: () => {
+                setReloadAnswer({ path: ask.path, reload: false })
+                setAsk(null)
+              }
+            },
+            {
+              label: 'Reload from disk',
+              danger: true,
+              onPick: () => {
+                setReloadAnswer({ path: ask.path, reload: true })
+                setAsk(null)
               }
             }
           ]}

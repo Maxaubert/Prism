@@ -624,6 +624,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `roots.ts` announces every open and close and that is the only thing that starts a watch. The
   renderer re-lists only folders a tab has already loaded and does NOT bump `refreshKey`, which
   is what would clear the selection.
+- **And so does the open file** (2026-08-31, `lib/fileReload.ts`). The watcher above
+  refreshed the TREE and left the EDITOR showing a frozen copy, whose `saved.current.text`
+  was now a lie - so one Ctrl+S wrote the stale version back over the agent's work. The
+  signal cannot be trusted on its own: `DirChange` carries directories and never a file
+  name, and Prism's OWN save emits one about 1.2s late, because a muted directory is
+  DEFERRED rather than dropped. So the correctness condition is the file's own stamp
+  (mtime + size), taken after every read and after every write. A CLEAN editor swaps
+  silently: `saved.current` is set BEFORE the dispatch (or the update listener marks the
+  file dirty against text nobody typed) and the transaction is kept OUT of the history
+  (or Ctrl+Z walks back to the stale text and the next Ctrl+S commits the very corruption
+  this fixes). A DIRTY one asks, once per file however many times it is rewritten, and
+  never in fullscreen, where a dialog composites outside the fullscreen element and nobody
+  sees it: Prism has no diff and no merge, so it is Keep mine or Reload from disk and
+  nothing in between. A file that has momentarily VANISHED (a rename-into-place write, a
+  git checkout) is left entirely alone - nulling `saved.current` there would disarm Ctrl+S
+  on the user's own unsaved work. Markdown re-reads the same way with no question, having
+  nothing unsaved to lose. Deliberately NOT extended to the pdf viewer or to office and
+  ebook documents: those cost a conversion in main per event, and nobody rewrites a .docx
+  underneath a reader. The paging list is still frozen (it comes from the open payload), so
+  a file an agent CREATES appears in the tree and is not arrow-pageable until the tab
+  re-roots - said rather than half-fixed.
 - **The uninstaller had never run** (2026-08-30). `customUnInstall` was defined in `pages.nsh`,
   which `installer.nsh` excludes when `BUILD_UNINSTALLER` is set, so electron-builder's
   `!ifmacrodef` found nothing: every ProgID, every OpenWithProgids entry and the Explorer verb

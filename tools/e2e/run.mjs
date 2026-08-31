@@ -809,6 +809,96 @@ async function editScenario(fixtures) {
   }
 }
 
+/**
+ * A file rewritten underneath the open editor (2026-08-31).
+ *
+ * The folder watcher landed before this and only refreshed the tree, so an
+ * agent in Prism's own terminal could rewrite the open file and the editor
+ * went on showing a frozen copy - which one Ctrl+S then wrote back over the
+ * agent's work. The negative case matters as much as the positive: Prism's
+ * OWN save emits a dir:changed about a second later (a muted directory is
+ * deferred, not dropped), and that must never raise the question.
+ */
+async function reloadScenario(fixtures) {
+  console.log('the file changed on disk')
+  const notes = join(fixtures, 'reload.txt')
+  writeFileSync(notes, 'first version\n')
+  const { app, win } = await launch(notes)
+  try {
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('first version'),
+      null,
+      { timeout: 10000 }
+    )
+
+    // Clean: swap silently, no question.
+    writeFileSync(notes, 'rewritten by something else\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('rewritten by'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a clean editor takes the new version silently')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'and asks nothing about it')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'the swap does not mark the file dirty against text nobody typed'
+    )
+
+    // Undo must not walk back to the version that is no longer on disk: that
+    // is how a Ctrl+Z followed by a Ctrl+S overwrites the other program.
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+z')
+    await sleep(300)
+    ok(
+      (await win.textContent('.cm-content')).includes('rewritten by'),
+      'and Ctrl+Z cannot walk back to the stale text'
+    )
+
+    // Our OWN save must not look like somebody else's write.
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('mine')
+    await sleep(200)
+    await win.keyboard.press('Control+s')
+    await sleep(2500) // past the 1.2s mute and the watcher's quiet window
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      "Prism's own save does not raise the question, late event and all"
+    )
+    ok(readFileSync(notes, 'utf-8').includes('mine'), 'and it really wrote')
+
+    // Dirty: ask, and Keep mine keeps the typing.
+    await win.keyboard.type('-typed')
+    await sleep(300)
+    writeFileSync(notes, 'a third version from outside\n')
+    await win.waitForSelector('[role="dialog"]', { timeout: 10000 })
+    ok(true, 'unsaved edits raise the question instead')
+    await win.click('[role="dialog"] button:has-text("Keep mine")')
+    await sleep(400)
+    ok(
+      (await win.textContent('.cm-content')).includes('-typed'),
+      'Keep mine leaves the buffer exactly as it was'
+    )
+
+    // And the other answer takes the disk version.
+    writeFileSync(notes, 'the version that wins\n')
+    await win.waitForSelector('[role="dialog"]', { timeout: 10000 })
+    await win.click('[role="dialog"] button:has-text("Reload from disk")')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('version that wins'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'Reload from disk takes theirs')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'and the file is clean again afterwards'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function codeScenario(fixtures) {
   console.log('code viewer')
   const dir = join(fixtures, 'code')
@@ -2802,6 +2892,7 @@ await run(pdfScenario)
 await run(sortScenario)
 await run(contextMenuScenario)
 await run(editScenario)
+await run(reloadScenario)
 await run(codeScenario)
 await run(treeNavScenario)
 await run(unsavedScenario)
