@@ -548,16 +548,16 @@ async function serveMedia(request: Request): Promise<Response> {
  * from outside (launch argv, handoff, dialog, drag) does, and the renderer
  * decides from `root` whether that lands in an existing tab or a new one.
  */
-function buildPayload(p: string, root?: string): OpenPayload | null {
+async function buildPayload(p: string, root?: string): Promise<OpenPayload | null> {
   if (!existsSync(p)) return null
   const dir = dirname(p)
   if (root === undefined) addRoot(dir)
   const here = root ?? dir
-  const files = listDir(dir).files
+  const files = (await listDir(dir)).files
   const idx = files.findIndex((v) => resolve(v.path) === resolve(p))
   // An opened file the tree wouldn't list (an unknown extension) still shows,
   // alone: you asked for this file, so you get it.
-  if (idx < 0) return { files: [toViewerFile(p)], index: 0, root: here }
+  if (idx < 0) return { files: [await toViewerFile(p)], index: 0, root: here }
   return { files, index: idx, root: here }
 }
 
@@ -565,10 +565,10 @@ function buildPayload(p: string, root?: string): OpenPayload | null {
  *  the viewer shows its first viewable file. A folder holding nothing Prism can
  *  show still opens - you get its tree and an empty viewer, which is a usable
  *  place to browse from rather than a refusal. */
-function folderPayload(dir: string): OpenPayload | null {
+async function folderPayload(dir: string): Promise<OpenPayload | null> {
   if (!existsSync(dir)) return null
   addRoot(dir)
-  const files = listDir(dir).files
+  const files = (await listDir(dir)).files
   return { files, index: files.length ? 0 : -1, root: dir }
 }
 
@@ -584,16 +584,12 @@ let editorDirty = false
 /** The user has answered the "unsaved changes" question: let the close through. */
 let closeConfirmed = false
 
-function sendOpen(target: { path: string; dir: boolean }): void {
+async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
   // Came from outside: it becomes the root. A folder roots there and tells the
   // renderer so, which is what lets the "New tabs show" setting decide whether
   // that lands on the first file, a terminal, or nothing.
-  const payload = target.dir
-    ? (() => {
-        const p = folderPayload(target.path)
-        return p && { ...p, folder: true as const }
-      })()
-    : buildPayload(target.path)
+  const built = target.dir ? await folderPayload(target.path) : await buildPayload(target.path)
+  const payload = target.dir && built ? { ...built, folder: true as const } : built
   if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
 }
 
@@ -633,7 +629,7 @@ function claudeSessions(root: string): string[] {
 
 /** Restore last session's strip: register each surviving root so the wall
  *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
-function restoreTabs(): OpenPayload[] {
+async function restoreTabs(): Promise<OpenPayload[]> {
   const saved = readTabs(TABS_STATE())
   const out: OpenPayload[] = []
   // Two tabs on the SAME root can each hold their own claude conversation;
@@ -650,7 +646,7 @@ function restoreTabs(): OpenPayload[] {
     const keptRoot =
       t.file && existsSync(t.root) && insideRootPath(t.root, t.file) ? t.root : undefined
     if (keptRoot) addRoot(keptRoot)
-    const payload = t.file ? buildPayload(t.file, keptRoot) : folderPayload(t.root)
+    const payload = t.file ? await buildPayload(t.file, keptRoot) : await folderPayload(t.root)
     if (payload) {
       // A claude session resumes by ID - a session claude itself recorded for
       // this folder. No session on disk means no resume at all: never a bare
@@ -1030,12 +1026,19 @@ function createWindow(): void {
   // rule as everything else, so double-clicking a photo in a folder that was
   // already open lands in that tab rather than opening a second copy of it.
   mainWindow.webContents.on('did-finish-load', () => {
-    for (const payload of restoreTabs()) mainWindow?.webContents.send('open:file', payload)
-    // In argv order, each through the ordinary arriving-file route, so several
-    // files from one folder still fold into ONE tab and the last named ends up
-    // in front - which is the one a "prism a.jpg b.jpg" reader means to see.
-    for (const t of pendingOpen) sendOpen(t)
-    pendingOpen = []
+    // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
+    // became async when listDir did, and firing them off together would let
+    // the launch file race the restored tabs: the arriving-file rule folds a
+    // file into a tab whose root already holds it, so a launch file that
+    // arrives BEFORE its own restored tab spawns a duplicate instead.
+    void (async () => {
+      for (const payload of await restoreTabs()) mainWindow?.webContents.send('open:file', payload)
+      // In argv order, each through the ordinary arriving-file route, so
+      // several files from one folder still fold into ONE tab and the last
+      // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
+      for (const t of pendingOpen) await sendOpen(t)
+      pendingOpen = []
+    })()
   })
 }
 
@@ -1052,7 +1055,13 @@ if (!app.requestSingleInstanceLock()) {
       // must arrive in a window that is actually in front of you.
       if (E2E) mainWindow.show()
       else raise(mainWindow)
-      for (const p of paths) sendOpen(p)
+      // Raised FIRST and unawaited, so the foreground-lock fix still runs the
+      // instant the handoff arrives. The opens are sequential for the same
+      // reason as the launch drain above: order is what folds them into one
+      // tab and leaves the last-named file in front.
+      void (async () => {
+        for (const p of paths) await sendOpen(p)
+      })()
     }
   })
 
@@ -1140,11 +1149,13 @@ if (!app.requestSingleInstanceLock()) {
     // A new tab, with nothing to answer first. The + is meant to be instant, so
     // it lands somewhere sensible - the user's own folder - and the sidebar's
     // folder button is where choosing happens.
-    ipcMain.handle('open:home', (): OpenPayload | null => folderPayload(app.getPath('home')))
+    ipcMain.handle('open:home', (): Promise<OpenPayload | null> =>
+      folderPayload(app.getPath('home'))
+    )
     // The Settings "new tabs open in" folder: stored renderer-side, opened
     // here. folderPayload refuses a path that no longer exists, and the
     // renderer falls back to home when it does.
-    ipcMain.handle('open:root', (_e, dir: string): OpenPayload | null => folderPayload(dir))
+    ipcMain.handle('open:root', (_e, dir: string): Promise<OpenPayload | null> => folderPayload(dir))
     // Choose a folder WITHOUT opening it - the Settings picker.
     ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
       const r = await openDialog({ properties: ['openDirectory'] })
@@ -1155,7 +1166,7 @@ if (!app.requestSingleInstanceLock()) {
       const r = await openDialog({ properties: ['openFile', 'multiSelections'] })
       return r.canceled ? [] : r.filePaths
     })
-    ipcMain.handle('open:path', (_e, p: string): OpenPayload | null => buildPayload(p))
+    ipcMain.handle('open:path', (_e, p: string): Promise<OpenPayload | null> => buildPayload(p))
     /* ----- the terminal ----- */
 
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
@@ -1296,15 +1307,15 @@ if (!app.requestSingleInstanceLock()) {
     //
     // A click in the sidebar tree. It leaves the root alone: the tree you
     // clicked from stays the tree you're in.
-    ipcMain.handle('open:within', (_e, root: string, p: string): OpenPayload | null =>
-      validRoot(root, p) ? buildPayload(p, root) : null
+    ipcMain.handle('open:within', async (_e, root: string, p: string): Promise<OpenPayload | null> =>
+      validRoot(root, p) ? await buildPayload(p, root) : null
     )
-    ipcMain.handle('dir:list', (_e, root: string, p: string): DirListing | null =>
-      validRoot(root, p) ? listDir(p) : null
+    ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> =>
+      validRoot(root, p) ? await listDir(p) : null
     )
     // The sidebar's search: that tab's whole root, bounded, never outside it.
-    ipcMain.handle('search:files', (_e, root: string, query: string) =>
-      validRoot(root, root) ? searchFiles(root, query) : { hits: [], truncated: false }
+    ipcMain.handle('search:files', async (_e, root: string, query: string) =>
+      validRoot(root, root) ? await searchFiles(root, query) : { hits: [], truncated: false }
     )
     // File operations. Inside the root only, and nothing is ever destroyed: an
     // overwritten or deleted file goes to the Recycle Bin.
