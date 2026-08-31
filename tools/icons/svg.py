@@ -267,8 +267,11 @@ def icons():
 # theme name. Prism has custom styles - void, accent-tinted grounds, whatever is
 # built later - so "is the theme dark" is a question with no reliable answer,
 # while "what does this background measure" always has one.
-INK_LIGHT = (233, 237, 247)   # --p-text
-INK_DARK = (27, 29, 34)
+# White and black, not Prism's near-white and near-black. Owner's call: the
+# in-app icon is a monochrome mark rather than body text, so it takes the two
+# extremes and gets the widest ratio available on any ground.
+INK_LIGHT = (255, 255, 255)
+INK_DARK = (0, 0, 0)
 
 
 def _lum(c):
@@ -300,8 +303,8 @@ TS_HELPER = """// Which way round the icon goes, measured rather than assumed. P
 // background measure" always does. Pick the better of the two ratios rather
 // than testing a midpoint: two colours either side of a midpoint can both be
 // poor, and the better-of-two is right by construction.
-const INK_LIGHT = '#e9edf7'
-const INK_DARK = '#1b1d22'
+const INK_LIGHT = '#ffffff'
+const INK_DARK = '#000000'
 
 const lum = (hex: string): number => {
   const c = [1, 3, 5]
