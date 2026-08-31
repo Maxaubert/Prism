@@ -587,8 +587,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   MINUTE counts as watched: the position is neither saved nor restored there, so a film never
   reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
   resume and songs do not.
-- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), off by default, switched
-  in Settings > General. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
+- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), ON by default since
+  2026-08-31 (owner decision), switched in Settings > General. Applied ONCE, and the marker
+  file in userData is the whole design: a default that reapplied itself every launch would be
+  a setting that lies - turn the verb off and it would be back tomorrow. Never in dev and
+  never under `--e2e`, where `app.getPath('exe')` is a throwaway build and writing those keys
+  would repoint the real installed Prism's verb at it. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
   `Directory\Background`, where it reads "Open Prism here" and takes `%V` rather than `%1`
   (which is empty on a background click) - per user, no
   elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way

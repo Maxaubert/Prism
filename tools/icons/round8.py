@@ -275,6 +275,15 @@ CANDIDATES = {
 
 SIZES = (16, 20, 24, 32, 48)
 
+FILENAMES = {"code": "build-hooks.ps1", "document": "Q3 report.docx", "comic": "American Dreams 01.cbz"}
+
+SECTIONS = {
+    "code": "Replacing the chevrons. Note that 5 and 6 are pages, which puts them close to the "
+    "document icon two sections down.",
+    "document": "Never actually chosen. What shipped was marked <em>provisional</em> in the source.",
+    "comic": "Drawn when the comic reader landed and never put to anyone. 1 is what shipped.",
+}
+
 
 def main(out_dir):
     import pathlib

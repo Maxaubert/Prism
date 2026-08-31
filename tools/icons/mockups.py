@@ -1,19 +1,23 @@
-"""Round eight's mockups as a page, because 16px is judged on a screen.
+"""A round of icon mockups as a page, because 16px is judged on a screen.
+
+Takes the round module to render:
+
+    python mockups.py round9 <outdir>
+
+so a new round is a new round file and never a new copy of this one. The round
+module supplies CANDIDATES, SIZES, FILENAMES and SECTIONS.
 
 Deliberately quiet chrome: the icons are the subject, and a comparison sheet
 that competes with what it is comparing is a worse sheet. Every icon is shown
-at its TRUE size on both Explorer grounds first - that is the decision - with
-a magnified 16px frame underneath only so the pixel landing can be checked.
+at its TRUE size on both Explorer grounds first - that is the decision - with a
+magnified 16px frame underneath only so the pixel landing can be checked.
 """
+import importlib
 import pathlib
 import sys
 
-from round8 import CANDIDATES, SIZES
-
-FILENAMES = {"code": "build-hooks.ps1", "document": "Q3 report.docx", "comic": "American Dreams 01.cbz"}
-
 HEAD = """<meta charset="utf-8">
-<title>Prism icons, round eight</title>
+<title>Prism icons</title>
 <style>
   :root { color-scheme: dark; --bg:#141519; --panel:#1b1d22; --line:#2b2e36;
           --text:#e9edf7; --dim:#8b90a0; --accent:#7c7cf0; }
@@ -40,7 +44,6 @@ HEAD = """<meta charset="utf-8">
   .dark { background:#202020 }
   .light { background:#f7f7f7; border-color:#dcdcdc }
   .sizes { display:flex; align-items:flex-end; gap:11px; height:52px }
-  .sizes img { image-rendering:auto }
   .row { display:flex; align-items:center; gap:7px; margin-top:11px;
          font:12px/1 "Segoe UI",system-ui,sans-serif; white-space:nowrap;
          overflow:hidden; text-overflow:ellipsis }
@@ -54,22 +57,26 @@ HEAD = """<meta charset="utf-8">
 """
 
 
-def card(kind, i, key, label, dirname):
-    def imgs(size_list):
-        return "".join(f'<img src="{dirname}/{kind}-{key}-{s}.png" width="{s}" height="{s}" alt="">' for s in size_list)
+def card(mod, kind, i, key, label, dirname):
+    def imgs():
+        return "".join(
+            f'<img src="{dirname}/{kind}-{key}-{s}.png" width="{s}" height="{s}" alt="">'
+            for s in mod.SIZES
+        )
 
-    fname = FILENAMES[kind]
+    fname = mod.FILENAMES[kind]
+    small = f'<img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">'
     return f"""
   <div class="card">
     <div class="name"><span class="num">{i}</span><span class="what">{label}</span></div>
     <div class="grounds">
       <div class="ground dark">
-        <div class="sizes">{imgs(SIZES)}</div>
-        <div class="row"><img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">{fname}</div>
+        <div class="sizes">{imgs()}</div>
+        <div class="row">{small}{fname}</div>
       </div>
       <div class="ground light">
-        <div class="sizes">{imgs(SIZES)}</div>
-        <div class="row"><img src="{dirname}/{kind}-{key}-16.png" width="16" height="16" alt="">{fname}</div>
+        <div class="sizes">{imgs()}</div>
+        <div class="row">{small}{fname}</div>
       </div>
     </div>
     <div class="zoom">
@@ -79,32 +86,32 @@ def card(kind, i, key, label, dirname):
   </div>"""
 
 
-SECTIONS = {
-    "code": "Replacing the chevrons. Note that 5 and 6 are pages, which puts them close to the document icon two sections down: in a folder holding both, that similarity is the thing to judge.",
-    "document": "Never actually chosen. What shipped is marked <em>provisional</em> in the source. This kind covers .docx, .odt, .pptx, spreadsheets and .epub, so it has to carry both a report and a book.",
-    "comic": "Drawn when the comic reader landed and never put to you. Option 1 is what is on disk now.",
-}
-
-
-def main(out_dir, dirname="icons8"):
+def main(module, out_dir, dirname=None):
+    mod = importlib.import_module(module)
+    dirname = dirname or module
     out = pathlib.Path(out_dir)
-    parts = [HEAD, """<header>
-  <h1>Prism file icons, round eight</h1>
-  <p>Three kinds that were never picked. Each option is shown at its true size on
-  Explorer's dark and light grounds, then as a details-view row, which is the frame
-  that decides it. Pick by number.</p>
-</header>"""]
-    for kind, blurb in SECTIONS.items():
+    title = module.replace("round", "round ")
+    parts = [
+        HEAD,
+        f"""<header>
+  <h1>Prism file icons, {title}</h1>
+  <p>Each option is shown at its true size on Explorer's dark and light grounds,
+  then as a details-view row, which is the frame that decides it. Pick by number.</p>
+</header>""",
+    ]
+    for kind, blurb in mod.SECTIONS.items():
         parts.append(f"<h2>{kind}</h2><p>{blurb}</p><div class='grid'>")
-        for i, (key, label, _fn) in enumerate(CANDIDATES[kind], 1):
-            parts.append(card(kind, i, key, label, dirname))
+        for i, (key, label, _fn) in enumerate(mod.CANDIDATES[kind], 1):
+            parts.append(card(mod, kind, i, key, label, dirname))
         parts.append("</div>")
-    parts.append("""<footer>The four settled kinds are untouched: image, video, audio and archive.
-  Sizes shown are 16, 20, 24, 32 and 48; the shipped <code>.ico</code> also carries
-  40, 64, 96, 128 and 256.</footer>""")
+    parts.append(
+        """<footer>Sizes shown are 16, 20, 24, 32 and 48; the shipped <code>.ico</code>
+  also carries 40, 64, 96, 128 and 256. Every size is drawn at that size, never
+  downsampled from one big render.</footer>"""
+    )
     (out / "index.html").write_text("\n".join(parts), encoding="utf-8")
     print(out / "index.html")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else ".")
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ".", *sys.argv[3:])

@@ -909,6 +909,40 @@ setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()
 comicsDir = join(app.getPath('userData'), 'comics')
 
 /**
+ * "Open in Prism" is ON by default (2026-08-31, owner decision).
+ *
+ * Applied ONCE, and the marker file is the whole design. A default that
+ * reapplied itself every launch would be a setting that lies: turn the verb
+ * off in Settings and it would be back tomorrow, which is exactly the failure
+ * the confirm-close setting's own rule warns about.
+ *
+ * Not in dev and not under --e2e. `app.getPath('exe')` is the built electron
+ * binary in both, and writing HKCU keys pointing at it would repoint the real
+ * installed Prism's verb at a throwaway build - thirty e2e launches doing that
+ * is its own kind of broken.
+ *
+ * One wart, said rather than hidden: someone who deliberately turned the verb
+ * off before this change has no record of having done so - the switch reads
+ * the registry, not a preference - so they get it back once on upgrade, and
+ * have to turn it off again.
+ */
+async function applyVerbDefault(): Promise<void> {
+  if (!app.isPackaged || E2E) return
+  const marker = join(app.getPath('userData'), 'shell-verb-applied')
+  try {
+    const fs = await import('fs/promises')
+    if (await fs.stat(marker).catch(() => null)) return
+    await installVerb(app.getPath('exe'))
+    // After the attempt, whatever it answered: the fact recorded is "the
+    // default has been applied", not "the write succeeded". A reg.exe that
+    // fails every launch is worse than a verb that is missing.
+    await fs.writeFile(marker, new Date().toISOString())
+  } catch {
+    /* no userData, no registry: the switch in Settings still works */
+  }
+}
+
+/**
  * Keep the screen awake while something is playing (2026-08-30).
  *
  * A film is the one thing a computer does that involves no input for two
@@ -2246,6 +2280,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     createWindow()
+    void applyVerbDefault()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
