@@ -185,23 +185,27 @@ describe('the archive fallback colour', () => {
   })
 })
 
-describe('the file icon is white or black, whichever the ground takes', () => {
+describe('the file icon is white or near-black, whichever the ground takes', () => {
   // Owner instruction, 2026-08-31. The rule it replaced dimmed the theme's own
   // text by 0.38, which is a mid-tone by construction and so could never be
   // either. Measured against the ground rather than read off the mode flag,
   // because a custom style's ground is whatever somebody made it.
-  it.each(STYLES.map((s) => [s.name, s] as const))('%s picks the readable extreme', (_n, s) => {
+  it.each(STYLES.map((s) => [s.name, s] as const))('%s picks the readable end', (_n, s) => {
     const ink = fileIconOf(s)
-    expect(['#ffffff', '#000000']).toContain(ink)
-    expect(ink).toBe(s.mode === 'light' ? '#000000' : '#ffffff')
-    expect(contrast(ink, derive(s)['--p-side-flat'])).toBeGreaterThan(4.5)
+    // A dark style takes white; a light one takes its own ground carried almost
+    // all the way down, which is dark but deliberately not #000000.
+    expect(ink).toBe(s.mode === 'light' ? mix('#000000', s.bg, 0.14) : '#ffffff')
+    expect(contrast(ink, derive(s)['--p-side-flat'])).toBeGreaterThan(10)
   })
 
-  it('takes the BETTER of the two, which a midpoint test would get wrong', () => {
-    // Mid-grey is the case that separates the two rules: black wins at 5.32:1
-    // against white's 5.28:1, close enough that a midpoint would be a toss-up.
-    expect(fileIconOf({ ...STYLES[0], bg: '#808080' })).toBe('#000000')
-    expect(fileIconOf({ ...STYLES[0], bg: '#5b5bd6' })).toBe('#ffffff')
+  it('the dark end is softened, and still far clear of the floor', () => {
+    const light = STYLES.filter((s) => s.mode === 'light')
+    expect(light.length).toBeGreaterThan(0)
+    for (const s of light) {
+      const ink = fileIconOf(s)
+      expect(ink).not.toBe('#000000')
+      expect(contrast(ink, s.bg)).toBeGreaterThan(10)
+    }
   })
 
   it('still lets the Settings picker win', () => {

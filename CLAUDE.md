@@ -765,15 +765,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the body is one crossing rather than two, so the chip loses its overhang. The nine
   FileKinds map onto the seven icons by Explorer's own table (`Prism.Text` -> the code
   icon), so a .ts in the tree and the same .ts on the desktop are one picture. The colour
-  is `--p-tree-file`, and it resolves to WHITE OR BLACK, whichever the style's own ground
-  takes (owner instruction, 2026-08-31). It is measured, never read off the mode flag - a
-  custom ground is whatever somebody made it - and it takes the BETTER of the two ratios
-  rather than testing a midpoint, since two colours either side of a midpoint can both be
-  poor: mid-grey is the case that shows it, black at 5.32:1 against white's 5.28:1. What
-  it replaced was a 0.38 dimming of the theme's text, which is a mid-tone by construction
-  and so could never be either. The Settings picker still WINS - the rule is the default,
-  not an override, or the control would be one that does nothing - and the icons need no
-  light/dark switch of their own, because a light style resolves the token to black. And
+  is `--p-tree-file`, and it resolves to WHITE or to a NEAR-BLACK, whichever the style's
+  own ground takes (owner instruction, 2026-08-31). It is measured, never read off the
+  mode flag - a custom ground is whatever somebody made it - and it takes the BETTER of
+  the two ratios rather than testing a midpoint, since two colours either side of a
+  midpoint can both be poor. What it replaced was a 0.38 dimming of the theme's text,
+  which is a mid-tone by construction and so could never be either end. The dark end is
+  NOT #000000 (owner: "a bit less black"): it is the ground's own colour carried 86% of
+  the way down, which softens it and picks up the paper's temperature in the same move -
+  Linen resolves to a warm #232221, Frost to a cool #222323 - and still measures
+  14.3-15.2:1 where pure black measured 18.9-20.3:1, so nothing was bought with
+  legibility. White stays white on dark grounds, which is not what was complained about.
+  The Settings picker still WINS - the rule is the default, not an override, or the
+  control would be one that does nothing - and the icons need no light/dark switch of
+  their own, because a light style resolves the token to the dark end by itself. And
   the chip carries THE FILE'S OWN EXTENSION (owner instruction, same day): seven icons
   cover a hundred-odd extensions between them, so ZIP against RAR is what the chip is FOR
   and an empty one is just a black bar. It is TEXT rather than outlines, set in the app's

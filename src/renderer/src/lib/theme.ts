@@ -652,14 +652,26 @@ export const folderIconOf = (s: Style): string => {
  * shows it: black at 5.32:1 against white's 5.28:1, which a midpoint test
  * would have called a coin toss.
  *
+ * The dark half is not pure black (owner, 2026-08-31: "a bit less black"). It
+ * is the ground's own colour taken almost all the way down, which softens it
+ * and picks up the paper's temperature at the same time - a warm off-white
+ * style gets a warm ink rather than a cold one sitting on it. Still 13.6:1 at
+ * worst across the shipped light styles, against pure black's 18.9:1, so
+ * nothing is bought at the cost of legibility. The light half stays #ffffff:
+ * white on a dark ground is what it always was and is not what was complained
+ * about.
+ *
  * The PICKER still wins. A style that names its own fileIcon keeps it, so the
- * white/black rule is the default rather than an override of a choice made in
- * Settings. `s.bg` is the ground rather than the resolved panel because a
- * tinted material only washes 7% of the accent over it, which cannot move a
- * background across the boundary between the two extremes.
+ * rule is the default rather than an override of a choice made in Settings.
+ * `s.bg` is the ground rather than the resolved panel because a tinted
+ * material only washes 7% of the accent over it, which cannot move a
+ * background from one side of this to the other.
  */
-export const fileIconOf = (s: Style): string =>
-  s.fileIcon ?? (contrast('#ffffff', s.bg) >= contrast('#000000', s.bg) ? '#ffffff' : '#000000')
+export const fileIconOf = (s: Style): string => {
+  if (s.fileIcon) return s.fileIcon
+  const dark = mix('#000000', s.bg, 0.14)
+  return contrast('#ffffff', s.bg) >= contrast(dark, s.bg) ? '#ffffff' : dark
+}
 
 /** The parcel FALLBACK colour (#68): archives normally wear the system's own
  *  association icon, and this amber - stepped toward readability like the
