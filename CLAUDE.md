@@ -754,19 +754,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   grey smudge at 16px. The belt carries the one indigo now that the top layer has given it up.
   **AND THE SAME ICONS ARE IN PRISM** (2026-08-31, owner ask: the sidebar was "so
   colorful"). `tools/icons/svg.py` replays the very functions that draw the .ico frames
-  into a path recorder, so the sidebar and Explorer cannot drift, and emits each kind as
-  ONE path for `fill-rule="evenodd"`: the fold, the chip and the mark are HOLES, not
-  shapes painted in the panel colour. That is the whole point - a two-tone icon carries a
-  rectangle of panel colour across it the moment the row behind it is the accent fill of a
-  SELECTION. The trade is the chip's overhang, which under evenodd would render solid (one
-  crossing, not two) and is clipped to the page. The nine FileKinds map onto the seven
-  icons by Explorer's own table (`Prism.Text` -> the code icon), so a .ts in the tree and
-  the same .ts on the desktop are one picture. The colour is `--p-tree-file`, the Settings
-  picker `theme.ts` already derives against the style's own ground at 4.5:1, which is why
-  the icons carry no light/dark switch of their own: a light style resolves that token to
-  dark ink. Archives lost their amber with the rest, and the tree stopped showing WINDOWS'
-  association icon for them - that was the colourful thing - while the archive VIEW's
-  header keeps it (#68), because there the box is introducing itself.
+  into a path recorder, so the sidebar and Explorer cannot drift. Three layers: the page
+  in the ink, the fold and chip and mark in the BACKGROUND BEHIND THE ROW, then the
+  detail inside the mark punched back in the ink (the clapperboard's stripes, the splat's
+  core; only those two have that layer). The middle one is the whole contract - wiring it
+  to a panel token looks perfect in every screenshot of an unselected tree and is wrong
+  the moment somebody clicks a row, where the icon then carries a rectangle of panel
+  colour across the accent fill. A one-path `fill-rule="evenodd"` variant that makes those
+  real HOLES was built and NOT taken (owner pick): under evenodd a hole straying outside
+  the body is one crossing rather than two, so the chip loses its overhang. The nine
+  FileKinds map onto the seven icons by Explorer's own table (`Prism.Text` -> the code
+  icon), so a .ts in the tree and the same .ts on the desktop are one picture. The colour
+  is `--p-tree-file`, the Settings picker `theme.ts` already derives against the style's
+  own ground at 4.5:1, which is why the icons carry no light/dark switch of their own: a
+  light style resolves that token to dark ink. Archives lost their amber with the rest,
+  and the tree stopped showing WINDOWS' association icon for them - that was the colourful
+  thing - while the archive VIEW's header keeps it (#68), because there the box is
+  introducing itself.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's

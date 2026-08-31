@@ -54,10 +54,12 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
  * on the desktop are the same picture. 'other' is not registered with Windows
  * at all and takes the plain page.
  *
- * ONE PATH, evenodd, so the fold and the chip are holes rather than shapes
- * painted in the panel colour - which is what lets the same icon sit on a
- * plain row and on the accent fill of a selected one without carrying a
- * rectangle of the wrong background across it.
+ * `bg` IS THE BACKGROUND ACTUALLY BEHIND THE ROW, and the fold and the chip
+ * are painted in it. Passing the panel token instead looks perfect in every
+ * screenshot of an unselected tree and is wrong the moment somebody clicks a
+ * row: the icon then carries a rectangle of panel colour across the accent
+ * fill. Both surfaces that draw these rows sit on --p-side-flat, which is why
+ * that is the default.
  *
  * Exported for the search results and the archive panel, which draw the same
  * rows outside the tree.
@@ -74,10 +76,24 @@ const KIND_ICON: Record<FileKind, keyof typeof ICON_PATHS> = {
   other: 'document'
 }
 
-export function KindIcon({ kind, color }: { kind: FileKind; color: string }): JSX.Element {
+export function KindIcon({
+  kind,
+  color,
+  bg = 'var(--p-side-flat)'
+}: {
+  kind: FileKind
+  color: string
+  bg?: string
+}): JSX.Element {
+  // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
+  // punched back OVER ko in the ink, which is what keeps the clapperboard's
+  // stripes and the splat's core from filling in solid.
+  const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
   return (
     <svg viewBox="0 0 24 24" width={14} height={14} className="shrink-0" aria-hidden>
-      <path d={ICON_PATHS[KIND_ICON[kind] ?? 'document'].solid} fill={color} fillRule="evenodd" />
+      <path d={g.body} fill={color} />
+      {g.ko ? <path d={g.ko} fill={bg} /> : null}
+      {g.hi ? <path d={g.hi} fill={color} /> : null}
     </svg>
   )
 }
@@ -436,9 +452,10 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 kind={f.kind}
                 // The knockout only applies on the filled row, which is now the
                 // selection's rather than the open file's.
-                // On a selected row the ink flips and the holes simply show
-                // the accent through - no knockout colour to keep in step.
                 color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
+                // The knockouts take what is BEHIND the row, which on a
+                // selected one is the accent fill and not the panel.
+                bg={onSel ? 'var(--p-accent)' : undefined}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>

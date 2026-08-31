@@ -4,25 +4,30 @@
 // not redrawn there either: the same functions that draw the .ico frames are
 // replayed into a path recorder, so the sidebar and Explorer cannot drift.
 //
-// `solid` IS THE ONE TO USE. It concatenates every layer for fill-rule
-// "evenodd", so the fold, the chip and the mark are REAL HOLES rather than
-// shapes painted in the panel colour. That matters because the panel is not
-// always what is behind the icon: on a selected row the accent fill is, and a
-// two-tone icon carries a rectangle of panel colour across it. One path, one
-// fill, whatever is behind showing through - flat panel, accent, or a custom
-// ground built later. The trade is that the chip loses its overhang: under
-// evenodd a hole straying outside the body is one crossing, not two, so an
-// overhanging chip would render solid.
+// THREE LAYERS, and the order is load-bearing:
 //
-// `body`/`ko`/`hi` are the two-tone form, kept for a caller that wants the
-// overhang and knows its own background. Prism uses none of them.
+//     body  the page silhouette         -> the ink
+//     ko    the fold, chip and mark     -> THE BACKGROUND BEHIND THE ICON
+//     hi    knockouts inside the mark   -> the ink again, painted over ko
 //
-// THE COLOUR IS NOT HERE. The emitter also offers an `inkFor(bg)` helper that
-// picks black or white by measuring the background, and Prism deliberately
-// does not lift it: `theme.ts` already derives the tree's file ink from the
-// style's own text and ground with a 4.5:1 floor (`fileIconOf`), which is the
-// same measurement done against THIS app's palette, and it is a picker in
-// Settings besides. Hardcoding a pair of hexes here would overrule both.
+// `hi` is what keeps the clapperboard's stripes and the comic splat's core
+// from filling in solid; only those two have one, the rest are "" and are
+// skipped rather than painted (an empty path draws the layer beneath twice).
+//
+// `ko` TAKES THE ROW'S OWN BACKGROUND, never a fixed panel token. On an
+// ordinary row that IS the panel and nothing looks different; on a SELECTED
+// row it is the accent fill, and wiring a panel token there would carry a
+// rectangle of panel colour across the selection. Same for a tinted style, or
+// anything built later. The emitter also offers a `solid` path (every layer
+// concatenated for fill-rule="evenodd", holes instead of a second colour) and
+// Prism does not use it: it clips the chip's overhang away, because under
+// evenodd a hole straying outside the body is one crossing, not two.
+//
+// THE COLOUR IS NOT HERE. The emitter offers an `inkFor(bg)` helper that picks
+// black or white by measuring the background; Prism deliberately does not lift
+// it, because `theme.ts` already derives the tree's file ink from the style's
+// own text and ground with a 4.5:1 floor (`fileIconOf`) - the same measurement
+// against THIS app's palette - and it is a picker in Settings besides.
 //
 // The extension LABEL is offered as a placement rather than outlines, so it
 // can be set in the app's own font. The tree does not draw it: at 14px it is a

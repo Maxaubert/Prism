@@ -136,7 +136,11 @@ export function SearchResults({
               {h.isFolder ? (
                 <FolderIcon color={picked ? 'var(--p-on-accent)' : iconColour('folder')} />
               ) : (
-                <KindIcon kind={h.kind} color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)} />
+                <KindIcon
+                  kind={h.kind}
+                  color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)}
+                  bg={picked ? 'var(--p-accent)' : undefined}
+                />
               )}
               <span className="min-w-0">
                 <span className="block truncate">{h.name}</span>
