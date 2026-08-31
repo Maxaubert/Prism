@@ -205,6 +205,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Both sit on the verb row and on the panel's own menu, and a FOLDER row offers Copy folder
   and Extract folder here - its Copy used to extract the members one at a time and put the
   loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
+  "Extract folder here" stages BESIDE THE ARCHIVE, not in temp: it finishes with a rename, and
+  `fs.rename` CANNOT CROSS VOLUMES - it throws EXDEV. Temp is on C: and the archive very often
+  is not (an X: drive of comics is what found it), so every extract onto another disk failed
+  AFTER 7-Zip had done the work, and said nothing useful because the failure was the move
+  rather than the extraction. Staging on the destination's own volume makes the rename
+  same-volume and instant whatever the folder weighs; a copy fallback catches EXDEV anyway.
+  The clipboard copy still stages in temp, because nothing renames it anywhere.
   A FOLDER comes out in ONE 7-Zip call, never one per member (2026-08-31): the member-at-a-time
   route spawns a process each, and each one RE-OPENS the container, so "Extract folder here" on
   a 2GB archive was hundreds of full re-reads and simply failed. MEASURED on that archive: the

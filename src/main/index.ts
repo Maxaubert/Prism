@@ -2395,7 +2395,24 @@ if (!app.requestSingleInstanceLock()) {
         try {
           const clean = entry.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
           const name = clean.split('/').pop() || 'folder'
-          const dir = mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
+          /**
+           * Staged on the DESTINATION's volume when it is going to land
+           * somewhere real (2026-08-31).
+           *
+           * `here` finishes with a rename, and `fs.rename` CANNOT CROSS
+           * VOLUMES - it throws EXDEV. The temp directory is on C: and the
+           * archive very often is not (an X: drive full of comics is what
+           * found this), so every "Extract folder here" onto another disk
+           * failed after 7-Zip had already done the work, with no message,
+           * because the failure was the move and not the extraction.
+           *
+           * Staging beside the archive makes the rename same-volume and
+           * therefore instant, whatever the folder weighs. The clipboard copy
+           * still stages in temp: nothing renames it anywhere.
+           */
+          const dir = here
+            ? mkdtempSync(join(dirname(p), '.prism-extract-'))
+            : mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
           const pw = archivePasswords.get(p) ?? ''
           const exe = seven(p)
           let made = join(dir, name)
@@ -2432,7 +2449,15 @@ if (!app.requestSingleInstanceLock()) {
           let out2 = join(parent, name)
           for (let n = 2; existsSync(out2) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
           const fs = await import('fs/promises')
-          await fs.rename(made, out2)
+          try {
+            await fs.rename(made, out2)
+          } catch (e) {
+            // Belt and braces: if the stage ever does end up on another
+            // volume, copy across rather than answering "failed" for work
+            // that has already been done.
+            if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
+            await fs.cp(made, out2, { recursive: true })
+          }
           await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
           return { ok: true, path: out2 }
         } catch {
