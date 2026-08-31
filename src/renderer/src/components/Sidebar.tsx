@@ -37,6 +37,9 @@ const MIN_W = 170
 const MAX_W = 520
 const DEFAULT_W = 260
 
+/** How many folders the gap-filler asks for at once. */
+const LOAD_AT_ONCE = 6
+
 const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
 
 function loadWidth(): number {
@@ -294,9 +297,28 @@ export function Sidebar({
     return () => window.removeEventListener('pointerdown', away, true)
   }, [])
 
+  /** Fetches in flight, so the same folder is never asked for twice at once.
+   *  Without it the gap-filling effect below re-issues every outstanding load
+   *  each time one of them lands, which is O(n^2) requests on a big tree. */
+  const loading = useRef(new Set<string>())
+
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(
+    async (p: string, force = false): Promise<void> => {
+      if (!force && loading.current.has(p)) return
+      loading.current.add(p)
+      try {
+        await loadNow(p, force)
+      } finally {
+        loading.current.delete(p)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [root, setState]
+  )
+
+  const loadNow = useCallback(
     async (p: string, force = false): Promise<void> => {
       const listing = (await window.prism.listDir(root, p)) ?? {
         folders: [],
@@ -376,6 +398,30 @@ export function Sidebar({
     const chain = currentPath ? ancestorChain(root, currentPath) : []
     ;[root, ...chain].forEach((p) => void load(p))
   }, [root, currentPath, load])
+
+  /**
+   * Fill in anything EXPANDED but not loaded (2026-08-31).
+   *
+   * Only a toggle ever fetched a folder's children, which was fine while the
+   * only open folders were ones you had just clicked. A RESTORED tree arrives
+   * with its folders already open and nothing in them, so every one of those
+   * rows sat on "loading..." forever and had to be collapsed and reopened by
+   * hand.
+   *
+   * Bounded, and that is not a nicety: a tree restored 400 folders deep would
+   * otherwise fire 400 listDir calls at once into the same libuv pool the
+   * fsmedia:// Range handler reads a playing film through, which is the
+   * failure the performance rules already name.
+   */
+  useEffect(() => {
+    const missing = [...state.expanded].filter((p) => !state.children[p] && !loading.current.has(p))
+    if (!missing.length) return
+    void (async () => {
+      for (let i = 0; i < missing.length; i += LOAD_AT_ONCE) {
+        await Promise.all(missing.slice(i, i + LOAD_AT_ONCE).map((p) => load(p)))
+      }
+    })()
+  }, [state.expanded, state.children, load])
 
   // Follow the open file. While the panel is shut nothing moves, so the scroll
   // it wakes up with is the one it went to sleep with; the reveal then happens

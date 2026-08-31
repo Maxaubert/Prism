@@ -406,7 +406,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   folders, because it is a suggestion and not a record. Separately and always, ANY tab opens
   the folders between its root and the file it is showing (`ancestorsWithin`, pure and
   tested): a file handed over by Explorer has no saved tree at all and still has to be
-  markable. The strip is present from the
+  markable. The tree also FILLS IN anything expanded but not loaded, which a restored one
+  entirely is: only a toggle ever fetched a folder's children, so the folders came back open
+  with nothing in them and every row sat on "loading..." until it was collapsed and reopened
+  by hand. Bounded six at a time, and that is not a nicety - a tree restored 400 folders deep
+  would otherwise fire 400 `listDir` calls at once into the same libuv pool the `fsmedia://`
+  Range handler reads a playing film through. In-flight fetches are tracked too, or the
+  gap-filler re-issues every outstanding load each time one lands, which is O(n^2) requests. The strip is present from the
   FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
   opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
   strip's `+` (and `Ctrl+T`) ADDS a tab instantly (its RIGHT click offers the last five folders

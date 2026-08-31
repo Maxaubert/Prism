@@ -2327,6 +2327,12 @@ async function tabsScenario(fixtures) {
       rows.some((r) => r.includes('buried.py')),
       'so the file deep inside them has a row again'
     )
+    // ...and they are FILLED IN, not left spinning. Only a toggle ever
+    // fetched a folder's children, so a restored tree came back open with
+    // nothing in it and every row sat on "loading..." until it was collapsed
+    // and reopened by hand.
+    const stuck = ((await win.locator('aside').textContent()) ?? '').includes('loading')
+    ok(!stuck, 'and none of them is still saying "loading"')
   } finally {
     await app.close()
   }
