@@ -254,13 +254,22 @@ export function Sidebar({
    *  right-click that missed every row here simply read as a miss. */
   const [placeMenu, setPlaceMenu] = useState<{ x: number; y: number } | null>(null)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
+  /** A folder something was just dropped INTO. State and not a ref, because
+   *  the reset below reads it while RENDERING, which a ref may not be. */
+  const [droppedOn, setDroppedOn] = useState<string | null>(null)
   // A new place - or anything that rewrote the folder (a delete, a rename, a
   // move) - starts clean: the old paths may not exist any more, and acting on
   // them later took files the user could no longer see.
   const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
   if (selFor !== `${root}\u0000${refreshKey}`) {
     setSelFor(`${root}\u0000${refreshKey}`)
-    setSel(emptySelection)
+    // The one exception is the folder a drop just landed in: it still
+    // exists, it is what you are now looking at, and the refresh being
+    // cleared up after is the move's own.
+    setSel(droppedOn ? { anchor: droppedOn, items: new Set([droppedOn]) } : emptySelection)
+    // Consumed once: left set it would restore that folder's mark on the NEXT
+    // refresh too, after a rename or a delete with nothing to do with it.
+    if (droppedOn) setDroppedOn(null)
   }
   // What a drag carries when the dragged row is part of a selection.
   // Mirrored via effect (refs must not be written during render).
@@ -657,6 +666,14 @@ export function Sidebar({
       setDropTarget(null)
       const payload = dragPayload(e.dataTransfer)
       setDrag(null)
+      // The folder you dropped ONTO becomes the marked row (2026-08-31). What
+      // you dragged has left - its row is about to disappear from where it was
+      // - so leaving the mark on it points at nothing, and clearing it points
+      // at nothing either. The destination is the thing you are now looking
+      // at, and it is where the arrows should carry on from.
+      setDroppedOn(folderPath)
+      setSel({ anchor: folderPath, items: new Set([folderPath]) })
+      setCursor(folderPath)
       if (payload) onDropInto(folderPath, payload)
       else {
         // Nothing of ours: Explorer, then. Its files are outside the root, so

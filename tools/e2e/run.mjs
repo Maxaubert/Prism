@@ -3346,6 +3346,12 @@ async function dragScenario(fixtures) {
         { timeout: 8000 }
       )
       ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
+      // The folder you dropped ONTO is what is marked afterwards: what you
+      // dragged has left, so a mark on it would point at nothing.
+      const marked = await win.evaluate(
+        () => document.querySelector('aside [data-selected]')?.textContent ?? ''
+      )
+      ok(marked.includes('into'), `the destination folder is marked after the drop (${marked})`)
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.

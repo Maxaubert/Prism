@@ -328,7 +328,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
   natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
   ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
-  taken names asking cancel / keep both / replace - EXCEPT that TWO FOLDERS OF THE SAME NAME
+  taken names asking cancel / keep both / replace. THE FOLDER DROPPED INTO becomes the marked
+  row (2026-08-31): what you dragged has left, so a mark on it points at nothing, and clearing
+  it points at nothing either - the destination is what you are now looking at, and where the
+  arrows carry on from. It has to survive the refresh the move itself triggers, which
+  otherwise clears every mark; that is one piece of STATE and not a ref, because the reset
+  reads it while rendering. EXCEPT that TWO FOLDERS OF THE SAME NAME
   MERGE (2026-08-31). They are one folder with more in it, which is what every file manager
   does; asking there offered either a second copy of a whole tree or the destruction of one.
   The merge is recursive, so a same-named folder one level down merges too, and the question
