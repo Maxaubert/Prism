@@ -1096,6 +1096,13 @@ async function hexScenario(fixtures) {
     ok(true, 'an unreadable file offers its bytes')
     await win.click('button:has-text("Show the bytes")')
     await win.waitForSelector('text=Page 1 of 1', { timeout: 10000 })
+    // The page arrives over a Range request a frame or two later; the header
+    // above it is there from the first render, so waiting on that is a race.
+    await win.waitForFunction(
+      () => !(document.querySelector('.font-mono')?.textContent ?? '').includes('Reading'),
+      null,
+      { timeout: 10000 }
+    )
     const dump = await win.textContent('.font-mono')
     ok(dump.includes('50 52 49 53 4d 00 01 ff'), `the row reads the file's bytes (${JSON.stringify(dump.trim())})`)
     ok(dump.includes('PRISM'), 'and the ascii gutter shows the printable ones')
