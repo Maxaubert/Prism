@@ -36,9 +36,8 @@
   SetAutoClose true
 !macroend
 
-!macro customUnInstall
-  !insertmacro PRISM_UNREGISTER_TYPES
-!macroend
+; customUnInstall lives in assoc.nsh: this file is not compiled into the
+; uninstaller, so a macro defined here is one the uninstaller never has.
 
 ; Prism installs for whoever runs it and has no other mode, so the "anyone who
 ; uses this computer / only me" page has nothing to ask. Answering it here makes

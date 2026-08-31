@@ -11,6 +11,8 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, codeFolding, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
 import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { fileVerbs } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { jsonLinter, syntaxLinter } from '../lib/codeLint'
@@ -74,7 +76,10 @@ export function CodeView({
     pathRef.current = path
   }, [path])
   const [dirty, setDirty] = useState(false)
-  const [failed, setFailed] = useState(false)
+  /** Why the last save failed, or null. Carried rather than a bare flag:
+   *  a read-only file and a folder that has gone are different problems. */
+  const [failed, setFailed] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null)
   /** Why this file is not in the editor: too big to hand over as one string,
    *  or unreadable. Null when it opened normally. */
   const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
@@ -108,6 +113,12 @@ export function CodeView({
           lintComp.of([]),
           history(),
           drawSelection(),
+          // Ctrl+D (selectNextOccurrence) has been bound by searchKeymap all
+          // along and did nothing, because a second range needs this and the
+          // native selection paints only one (hence drawSelection above).
+          // Selecting a name and seeing its other eleven uses is a READING
+          // feature as much as an editing one.
+          EditorState.allowMultipleSelections.of(true),
           // No drop cursor, and no drag handling at all: a folder carried
           // across the window is not an edit, but CodeMirror treated every
           // dragover as a drop-target preview and walked the caret about
@@ -178,7 +189,7 @@ export function CodeView({
           ]
         })
         report(body === disk ? null : body)
-        setFailed(false)
+        setFailed(null)
         setLoadedPath(path)
         // A fresh file is a document, not a cursor, and it takes no focus at
         // all: the arrows stay the folder's until the user clicks in.
@@ -200,14 +211,16 @@ export function CodeView({
     // guard: nothing may be written over a file whose contents we never had.
     if (!v || !saved.current) return false
     const text = v.state.doc.toString()
-    const ok = await window.prism.writeText(path, text)
-    if (!ok) {
-      setFailed(true)
+    const r = await window.prism.writeText(path, text)
+    if (!r.ok) {
+      // The reason is worth carrying: "read-only" and "the folder is gone"
+      // are different problems and the user can act on both.
+      setFailed(r.reason === 'gone' ? 'gone' : r.message || 'failed')
       return false
     }
     saved.current = { path, text }
     report(null)
-    setFailed(false)
+    setFailed(null)
     onSaved()
     return true
   }, [path, report, onSaved])
@@ -246,14 +259,80 @@ export function CodeView({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [save])
 
+  // The menu's verbs, as callbacks: a ref may not be read while rendering, and
+  // menuItems() runs in the render pass that draws the menu.
+  const pasteHere = useCallback((): void => {
+    void navigator.clipboard.readText().then((text) => {
+      const ed = view.current
+      if (!ed || !text) return
+      ed.dispatch(ed.state.replaceSelection(text))
+      ed.focus()
+    })
+  }, [])
+  const selectAll = useCallback((): void => {
+    const ed = view.current
+    if (!ed) return
+    ed.dispatch({ selection: { anchor: 0, head: ed.state.doc.length } })
+    ed.focus()
+  }, [])
+  const findHere = useCallback((): void => {
+    const ed = view.current
+    if (ed) openSearchPanel(ed)
+  }, [])
+
+  /**
+   * The editor's own menu (2026-08-30).
+   *
+   * Right-clicking a selection used to give nothing at all, not even Copy,
+   * which reads as a broken text field. CodeMirror renders a contenteditable,
+   * so preventing the default here removes Chromium's native menu: this one
+   * has to carry the clipboard verbs itself, and it does them through the
+   * document APIs rather than by dispatching keystrokes.
+   */
+  const menuItems = (hasSel: boolean): MenuItem[] => {
+    return [
+      // No shortcut hints on the clipboard verbs: Ctrl+X/C/V are the three
+      // keys nobody has ever needed a menu to teach them. Find and Save keep
+      // theirs, because those are the habits worth having in a viewer that
+      // happens to be editable.
+      { label: 'Cut', disabled: !hasSel, onPick: () => void document.execCommand('cut') },
+      { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+      { label: 'Paste', onPick: pasteHere },
+      { label: 'Select all', onPick: selectAll },
+      { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
+      { label: 'Save', hint: 'Ctrl+S', onPick: () => void save() },
+      ...fileVerbs(path)
+    ]
+  }
+
   return (
     <div
       // Only while the caret is actually in the file: App's Escape (close the
       // window) has to yield to the editor's, but only when there is one.
       data-owns-escape={editing ? '' : undefined}
       ref={host}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        // Whether anything is selected is read HERE, not while rendering: a
+        // ref may not be touched during render, and the selection that
+        // matters is the one at the moment of the right-click anyway.
+        const v = view.current
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          hasSel: !!v && v.state.selection.ranges.some((r) => !r.empty)
+        })
+      }}
       className="relative h-full w-full"
     >
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems(menu.hasSel)}
+          onClose={() => setMenu(null)}
+        />
+      )}
       {!ready && (
         <div className="delayed-loader absolute inset-0 grid place-items-center">
           <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
@@ -273,7 +352,17 @@ export function CodeView({
       )}
       {(dirty || onClose) && (
         <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]">
-          {failed && <span className="px-2 text-[11.5px] text-[#d97b84]">Couldn’t save.</span>}
+          {failed && (
+            <span className="px-2 text-[11.5px] text-[#d97b84]">
+              {failed === 'gone'
+                ? 'Couldn’t save: that folder is gone.'
+                : failed === 'EACCES' || failed === 'EPERM'
+                  ? 'Couldn’t save: the file is read-only.'
+                  : failed === 'ENOSPC'
+                    ? 'Couldn’t save: the disk is full.'
+                    : 'Couldn’t save.'}
+            </span>
+          )}
           {onClose && (
             <button
               className="rounded-full px-3 py-1 text-[12px] font-semibold text-[var(--p-text-soft)] hover:bg-white/15 hover:text-[var(--p-text)]"

@@ -198,10 +198,17 @@ function ArchiveInner({
   refreshKey: number
   fullscreen: boolean
 }): JSX.Element {
-  const [entries, setEntries] = useState<Entry[] | null | 'error'>(null)
+  // 'locked' is its own state (2026-08-30): a 7z or rar written with encrypted
+  // file NAMES cannot be listed at all without the password, which is not the
+  // same thing as a broken archive and must not read as one.
+  const [entries, setEntries] = useState<Entry[] | null | 'error' | 'locked'>(null)
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
   // panel offers no verbs that would fail. zip keeps all of its.
   const [readOnly, setReadOnly] = useState(false)
+  /** A password has already been tried and refused, so the dialog says so. */
+  const [triedPass, setTriedPass] = useState(false)
+  /** The panel's dead-space menu, kept apart from the row menu's state. */
+  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => {
     void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
   }, [file.path])
@@ -253,21 +260,33 @@ function ArchiveInner({
   } | null>(null)
   const sysIcon = useSysIcon(file.path)
 
-  const load = useCallback(() => {
-    void window.prism.archiveList(file.path).then((list) => setEntries(list ?? 'error'))
-  }, [file.path])
+  const load = useCallback(
+    (password?: string) => {
+      void window.prism.archiveList(file.path, password).then((r) => {
+        if (r.ok) {
+          // A password that got us in belongs to the renderer's own store too,
+          // so dragging a member out to a folder does not ask again.
+          if (password) rememberArchivePassword(file.path, password)
+          setEntries(r.entries)
+          return
+        }
+        setEntries(r.reason === 'password' ? 'locked' : 'error')
+      })
+    },
+    [file.path]
+  )
   useEffect(() => load(), [load, refreshKey])
 
   // The rows of the CURRENT folder only: folders first, names ordered.
   const rows = useMemo((): Entry[] => {
-    if (!entries || entries === 'error') return []
+    if (!entries || entries === 'error' || entries === 'locked') return []
     return entries
       .filter((e) => parentOf(e.path) === cwd)
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
   }, [entries, cwd])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
-    if (!entries || entries === 'error') return ''
+    if (!entries || entries === 'error' || entries === 'locked') return ''
     const folders = entries.filter((e) => e.dir).length
     const files = entries.length - folders
     const parts = [`${files} file${files === 1 ? '' : 's'}`]
@@ -295,8 +314,10 @@ function ArchiveInner({
               }
             })
           else if (r === 'aes')
+            // Prism ships its own 7-Zip, so reaching this now means the
+            // bundled copy is missing rather than that the machine lacks one.
             setOops(
-              `"${entry.name}" is AES-encrypted, and opening that needs 7-Zip installed. With 7-Zip on this machine Prism opens it in place.`
+              `"${entry.name}" is AES-encrypted, and the 7-Zip that opens those is missing from this install.`
             )
           else setOops(`Couldn't read "${entry.name}" from the archive.`)
         })
@@ -428,7 +449,7 @@ function ArchiveInner({
    *  says for a row that has no size of its own. */
   const childCount = useCallback(
     (path: string): string => {
-      if (!entries || entries === 'error') return ''
+      if (!entries || entries === 'error' || entries === 'locked') return ''
       const n = entries.filter((e) => e.path.startsWith(path + '/')).length
       return n ? `${n} item${n === 1 ? '' : 's'}` : 'empty'
     },
@@ -659,18 +680,57 @@ function ArchiveInner({
   const colTone = (path: string): string =>
     sel.items.has(path) ? 'text-[var(--p-on-accent)] opacity-75' : 'text-[var(--p-dim2)]'
 
+  /** Every FILE member inside a folder, at any depth. A folder in a zip is a
+   *  prefix, not a container, so its verbs act on what carries that prefix. */
+  const under = (folder: string): string[] =>
+    (entries === null || entries === 'error' || entries === 'locked' ? [] : entries)
+      .filter((e) => !e.dir && (e.path === folder || e.path.startsWith(folder + '/')))
+      .map((e) => e.path)
+
+  /**
+   * A FOLDER row's menu (2026-08-30).
+   *
+   * Right-clicking one used to open nothing at all, which reads as a broken
+   * app rather than as a limit. Its verbs are the ones that mean something for
+   * a prefix: walk into it, copy out everything under it, delete all of that.
+   * No rename: renaming a folder inside a zip means rewriting every member
+   * path under it, and that is a decision, not a gap to be filled here.
+   */
+  const folderItems = (entry: Entry): MenuItem[] => {
+    const members = under(entry.path)
+    const n = members.length
+    const items: MenuItem[] = [
+      { label: 'Open', onPick: () => setCwd(entry.path) },
+      {
+        label: `Copy ${n} file${n === 1 ? '' : 's'}`,
+        disabled: n === 0,
+        onPick: () => copyMany(members)
+      }
+    ]
+    if (!readOnly)
+      items.push({
+        label: `Delete ${n} file${n === 1 ? '' : 's'} from archive`,
+        danger: true,
+        disabled: n === 0,
+        onPick: () => setConfirmDelMany(members)
+      })
+    return items
+  }
+
   const menuItems = (entry: Entry): MenuItem[] =>
-    readOnly
-      ? [
-          { label: 'View', onPick: () => view(entry) },
-          { label: 'Copy file', onPick: () => copyOut(entry) }
-        ]
-      : [
-          { label: 'View', onPick: () => view(entry) },
-          { label: 'Copy file', onPick: () => copyOut(entry) },
-          { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
-          { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
-        ]
+    entry.dir
+      ? folderItems(entry)
+      : readOnly
+        ? [
+            { label: 'View', onPick: () => view(entry) },
+            { label: 'Copy file', onPick: () => copyOut(entry) }
+          ]
+        : [
+            { label: 'View', onPick: () => view(entry) },
+            { label: 'Copy file', onPick: () => copyOut(entry) },
+            { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
+            { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
+          ]
   /** Only file members can be copied out or deleted; a folder in the
    *  selection is carried by its members, and counting it made the labels
    *  promise more than the verbs could do. */
@@ -699,6 +759,22 @@ function ArchiveInner({
       }
     ]
   }
+
+  // Locked is a question, not a failure: the archive is fine, it wants the
+  // password before it will even say what is inside.
+  if (entries === 'locked')
+    return (
+      <PasswordDialog
+        name={file.name}
+        wrong={triedPass}
+        onCancel={() => setEntries('error')}
+        onSubmit={(pw) => {
+          setTriedPass(true)
+          setEntries(null)
+          load(pw)
+        }}
+      />
+    )
 
   if (entries === 'error')
     return (
@@ -794,6 +870,16 @@ function ArchiveInner({
           <div
             ref={panelBox}
             onPointerDown={onPanelPointerDown}
+            // The panel's DEAD SPACE answers a right-click too (2026-08-30).
+            // It already answers the pointer - a press there clears the marks
+            // and a drag sweeps a band - so a right-click landing on nothing
+            // read as a miss. It carries the verbs the row above does, where
+            // the pointer is, plus Select all.
+            onContextMenu={(e) => {
+              if ((e.target as HTMLElement | null)?.closest('[data-arc-row]')) return
+              e.preventDefault()
+              setPanelMenu({ x: e.clientX, y: e.clientY })
+            }}
             className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-[var(--p-side-flat)] ${
               dropTarget === cwd
                 ? 'border-[color:var(--p-accent-hi)]'
@@ -884,7 +970,6 @@ function ArchiveInner({
                                 ? [...sel.items]
                                 : undefined
                             if (!multi) setSel({ anchor: r.path, items: new Set([r.path]) })
-                            if (r.dir && !multi) return // single folders have no verbs yet
                             setMenu({ x: e.clientX, y: e.clientY, entry: r, multi })
                           }}
                           onKeyDown={(e) => {
@@ -1004,6 +1089,32 @@ function ArchiveInner({
         </div>
       )}
 
+      {panelMenu && (
+        <ContextMenu
+          x={panelMenu.x}
+          y={panelMenu.y}
+          onClose={() => setPanelMenu(null)}
+          items={[
+            { label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() },
+            ...(readOnly
+              ? []
+              : [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]),
+            {
+              label: 'Select all',
+              hint: 'Ctrl+A',
+              disabled: rows.length === 0,
+              onPick: () =>
+                setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
+            },
+            { label: 'Copy archive', onPick: () => void window.prism.copyFileToClipboard(file.path) },
+            {
+              label: 'Show in File Explorer',
+              onPick: () => window.prism.showInExplorer(file.path)
+            },
+            { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(file.path) }
+          ]}
+        />
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}

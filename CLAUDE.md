@@ -239,6 +239,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
   one).
+- **The empty window offers a TAB, not a file** (2026-08-31). With nothing open at all the
+  first button was "Open file...", which is the narrowest way into an app whose whole model is
+  a tab rooted at a FOLDER you then browse: it left you holding one file with no obvious next
+  move. It is "New tab" now, instant and rooted per the "New tabs show" setting exactly as the
+  + is, with the folder chooser beside it. Dropping a file still works and the line above still
+  says so. `open:dialog` in main is left in place but is now reachable from nothing.
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
@@ -528,6 +534,68 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   glyphs are laid out in sixteenths of the tile so a 16px frame lands on whole pixels rather
   than wherever LANCZOS puts it. 16px is the size that decides it: details view is what most
   people look at all day, and it is the frame every mockup round was judged on.
+- **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
+  the video had a carefully trimmed one, and almost every verb they needed already existed
+  somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
+  DEAD SPACE, the documents and the terminal all have one now, and `lib/fileVerbs.tsx` holds
+  the rows that mean the same thing wherever a file is on screen. Two deliberate gaps: a tab
+  has NO "close others" (each close can raise the unsaved-changes question, and firing several
+  would overwrite it and lose the work it protects), and the terminal's menu carries paste but
+  not copy (xterm owns its selection; Ctrl+C over one already copies).
+  **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
+  first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
+  fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one
+  of those was already a press or a button away, so the menu taught keys nobody needed taught
+  and buried the two verbs that live only there. A menu over the thing you are looking at is a
+  short list of verbs: the PICTURE's is Rotate, Copy image, and where the file is. Ticks are not
+  icons (they say what is currently on), and the SIDEBAR keeps its glyphs - it sits among
+  icon-led file rows and is the one menu long enough to need scanning.
+- **The screen stays awake while something plays** (2026-08-30). Two hours of film is two hours
+  of no input, which is exactly what the lock screen waits for. `lib/awake` COUNTS players
+  rather than toggling, because the media deck keeps up to four mounted and a background tab
+  pausing must not unblock what you are watching.
+- **A frame step is a frame** (2026-08-30). It was a flat 1/30s that did not pause, so on 24fps
+  film it moved 1.25 frames and landed between two of them, and during playback it was
+  invisible. ffprobe reports `avg_frame_rate` now and the step pauses first.
+- **Up/Down are the volume when the tree does not want them** (2026-08-30). App preventDefaulted
+  them unconditionally and `useMediaControls` yields on `defaultPrevented`, so the volume keys
+  were dead everywhere - most obviously in fullscreen, where the sidebar is gone. The tree still
+  gets first refusal.
+- **A save puts the file back the way it found it** (2026-08-30, `src/main/textFile.ts`). Two
+  silent corruptions. Every read was utf-8, but a `.reg` is UTF-16LE BY DEFINITION and Prism
+  claims `.reg`, as is anything PowerShell 5.1 redirected to a file: those opened as mojibake
+  and Prism offered to save the mojibake back. And CodeMirror rejoins its document with `
+`
+  whatever it read, so one fixed typo in a `.bat` was 400 changed lines. The sniff is BOM-ONLY
+  and deliberately so: guessing UTF-16 from interleaved NUL bytes mis-fires and turns a working
+  file into nonsense, and every real Windows producer writes the mark.
+- **Copy the PICTURE, not the file** (2026-08-30). For HEIC, camera RAW and the ffmpeg-decoded
+  formats, "copy the file" hands the other application bytes it cannot open. Copy image works
+  from the decoded blob, NOT from the `<img>` (which carries the zoom and rotation - how you are
+  looking at it, not what it is) and NOT from the big-image canvas (downscaled to 2560px, so the
+  copy would silently shrink). Copy frame is the video's, greyed when there is no picture.
+- **Ctrl+F in every document, and it opens where you left off** (2026-08-30). A polished find bar
+  sat in the PDF viewer while Ctrl+F did nothing on a README or a 300-page epub. Highlighting
+  goes through the CSS Custom Highlight API rather than wrapping matches in `<mark>`: the office
+  and ebook views render HTML main sanitised and the markdown view is React's, so injecting
+  nodes would fight the renderer that owns them. Reading position is session-first then stored,
+  only for documents long enough to be worth it, cleared at the end (a document read to the
+  bottom opens at the top next time). The PDF remembers a PAGE, because an offset depends on the
+  zoom and on which pages are virtualized.
+- **The tree notices changes Prism did not make** (2026-08-30, `src/main/dirWatch.ts`).
+  `refreshKey` only ever moved on Prism's own writes, so a download finishing or an agent
+  writing files left the tree lying. Coalesced into a set of directories on a quiet window with
+  a hard ceiling; filtered by the listing's own rules and by EVERY path segment (a recursive
+  watch reports `.git/HEAD`, and an agent committing does that constantly); muted around Prism's
+  own writes, which refresh the tree themselves. Scoped to the root set BY CONSTRUCTION -
+  `roots.ts` announces every open and close and that is the only thing that starts a watch. The
+  renderer re-lists only folders a tab has already loaded and does NOT bump `refreshKey`, which
+  is what would clear the selection.
+- **The uninstaller had never run** (2026-08-30). `customUnInstall` was defined in `pages.nsh`,
+  which `installer.nsh` excludes when `BUILD_UNINSTALLER` is set, so electron-builder's
+  `!ifmacrodef` found nothing: every ProgID, every OpenWithProgids entry and the Explorer verb
+  survived an uninstall. The macro lives in `assoc.nsh` now and a parity test asserts both that
+  and that every key `shellVerb.ts` writes is one the uninstaller deletes.
 - **Opt-in file associations**: register Prism as the handler for chosen types, from Settings.
   Never hijack defaults silently. The installer offers EVERY viewable type
   (`build/installer/assoc.nsh`); the app itself just opens Windows' Default apps page, so that

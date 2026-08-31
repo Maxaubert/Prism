@@ -43,15 +43,31 @@ const failOf = (e: ZipEntryLike, hasPassword: boolean): MemberFail => {
 }
 
 // AES-encrypted zips (7-Zip's and WinRAR's default) are beyond adm-zip, so
-// they go through the system's own 7-Zip when it is installed - args-only
-// execFile against a fixed detected path, the same enumerated-exe rule the
-// "Open in" menu holds to. Without 7-Zip the answer stays an honest 'aes'.
+// they go through 7-Zip - args-only execFile against a fixed path, the same
+// enumerated-exe rule the "Open in" menu holds to.
+//
+// The BUNDLED 7-Zip is the one to use (2026-08-30). This looked only in
+// Program Files and then told the user to install a tool Prism has been
+// shipping in resources/bin since 2026-08-24, so the commonest encrypted zip
+// there is (AES-256 is what 7-Zip and WinRAR both write by default) was
+// refused on a machine that could open it perfectly well. main injects the
+// bundled path at startup; the installed copies stay as a fallback for a
+// process that never injected one - the unit tests, and a dev run with no
+// vendor dir fetched yet.
 const SEVEN_ZIP_PATHS = [
   'C:\\Program Files\\7-Zip\\7z.exe',
   'C:\\Program Files (x86)\\7-Zip\\7z.exe'
 ]
 let sevenCache: string | null | undefined
+let injected: string | null = null
+
+/** Point the AES path at the 7-Zip Prism ships. Called once, from main. */
+export function setSevenExe(exe: string | null): void {
+  injected = exe
+}
+
 export function sevenZipExe(): string | null {
+  if (injected) return injected
   if (sevenCache === undefined) sevenCache = SEVEN_ZIP_PATHS.find((p) => existsSync(p)) ?? null
   return sevenCache
 }

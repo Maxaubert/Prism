@@ -369,3 +369,17 @@ input[type='color']::-webkit-color-swatch {
   text-align: left;
 }
 .p-doc th { background: var(--p-side-flat); font-weight: 600 }
+
+/* Find-in-document (2026-08-30). Painted through the CSS Custom Highlight API
+   rather than by wrapping matches in <mark>: the office and ebook viewers
+   render HTML that main sanitised, and the markdown view is React's, so
+   injecting elements into either would fight the renderer that owns those
+   nodes. A highlight paints ranges and touches nothing. */
+::highlight(prism-find-1), ::highlight(prism-find-2), ::highlight(prism-find-3), ::highlight(prism-find-4), ::highlight(prism-find-5), ::highlight(prism-find-6), ::highlight(prism-find-7), ::highlight(prism-find-8) {
+  background: color-mix(in srgb, var(--p-accent) 32%, transparent);
+  color: inherit;
+}
+::highlight(prism-find-current-1), ::highlight(prism-find-current-2), ::highlight(prism-find-current-3), ::highlight(prism-find-current-4), ::highlight(prism-find-current-5), ::highlight(prism-find-current-6), ::highlight(prism-find-current-7), ::highlight(prism-find-current-8) {
+  background: var(--p-accent);
+  color: var(--p-on-accent);
+}

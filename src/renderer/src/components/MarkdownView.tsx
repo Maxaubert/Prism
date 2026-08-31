@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { ContextMenu } from './ContextMenu'
+import { fileVerbs } from '../lib/fileVerbs'
+import { DocFind } from './DocFind'
+import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
+
+/** How far the reader must move before the position is written to disk. */
+const SAVE_STEP = 200
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
@@ -81,6 +88,21 @@ export function MarkdownView({
   // effect fills it in, and the render below ignores an entry for another path.
   const [loaded, setLoaded] = useState<{ path: string; text: string } | null>(null)
   const box = useRef<HTMLDivElement>(null)
+  /** Which path the restore has run for, so it happens once per file. */
+  const restoredFor = useRef<string | null>(null)
+  const lastSaved = useRef(0)
+  const [finding, setFinding] = useState(false)
+  // The bar belongs to the document it was opened on. Paging to the next file
+  // left it up, still counting matches in a document that is no longer there:
+  // its Ranges point at detached nodes, so the arrows scrolled nothing. Done
+  // while RENDERING, the way the viewer resets everything else per file - an
+  // effect would show one frame of the old bar over the new document.
+  const [findFor, setFindFor] = useState(path)
+  if (findFor !== path) {
+    setFindFor(path)
+    setFinding(false)
+  }
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // The folder the document lives in, which its relative paths resolve against.
   const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
   const text = loaded?.path === path ? loaded.text : null
@@ -168,7 +190,88 @@ export function MarkdownView({
     }
   }, [baseDir])
 
+  /**
+   * Open where you left off, and Ctrl+F.
+   *
+   * This view had no scroll handling at all: switching between two markdown
+   * files kept the previous file's scrollTop on the reused div, so a long
+   * README opened halfway down for no reason anyone could see. The restore
+   * fixes that as well as remembering the place.
+   */
+  useEffect(() => {
+    if (text === null) return
+    if (restoredFor.current === path) return
+    restoredFor.current = path
+    const el = box.current
+    if (!el) return
+    requestAnimationFrame(() => {
+      const want = openDocAt(path)
+      el.scrollTo({ top: want > 0 ? want : 0 })
+    })
+  }, [text, path])
+
+  /**
+   * Ctrl+F belongs to the document you are LOOKING at (2026-08-30).
+   *
+   * A window listener is right - nothing focuses a document on arrival, so
+   * this key has to work without focus - but "the window" holds more than one
+   * viewer: split view mounts up to four, and the media deck keeps others
+   * alive behind the strip. Without an ownership test every mounted document
+   * opened its own find bar, and the last one to register won the focus, so
+   * pressing Ctrl+F over a PDF opened the markdown pane's bar instead.
+   *
+   * Three tests, cheapest first: not covered by Settings (`[inert]`, the same
+   * check PdfView makes), not in a hidden tab, and either this pane holds the
+   * focus or nothing in another pane does.
+   */
+  const ownsKeys = (): boolean => {
+    const el = box.current
+    if (!el || el.closest('[inert]') || el.closest('[hidden]')) return false
+    if (!el.isConnected || !el.offsetParent) return false
+    const active = document.activeElement as HTMLElement | null
+    if (active && active !== document.body) {
+      // Somebody has the focus: only the pane containing it may answer.
+      const pane = active.closest('[data-doc-scroller], .cm-editor, [data-pdf-scroller]')
+      if (pane && pane !== el && !el.contains(active)) return false
+    }
+    return true
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey && (e.key === 'f' || e.key === 'F'))) return
+      const el = e.target as HTMLElement | null
+      if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return
+      if (!ownsKeys()) return
+      e.preventDefault()
+      e.stopPropagation()
+      setFinding(true)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
+
   return (
+    <div
+      className="relative h-full w-full"
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
+    >
+    {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
+    {menu && (
+      <ContextMenu
+        x={menu.x}
+        y={menu.y}
+        onClose={() => setMenu(null)}
+        items={[
+          { label: 'Find', hint: 'Ctrl+F', onPick: () => setFinding(true) },
+          ...fileVerbs(path)
+        ]}
+      />
+    )}
     <div
       ref={box}
       // 0, not -1: Tab is the keyboard's way into the document, and clicking
@@ -177,6 +280,13 @@ export function MarkdownView({
       data-doc-scroller
       onClick={onClick}
       onAuxClick={onAuxClick}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        rememberDocPos(path, el.scrollTop)
+        if (Math.abs(el.scrollTop - lastSaved.current) < SAVE_STEP) return
+        lastSaved.current = el.scrollTop
+        saveDocPos(path, el.scrollTop, el.scrollHeight - el.clientHeight)
+      }}
       className="h-full w-full overflow-y-auto outline-none select-text"
     >
       {text === null ? (
@@ -195,6 +305,7 @@ export function MarkdownView({
           </ReactMarkdown>
         </div>
       )}
+    </div>
     </div>
   )
 }

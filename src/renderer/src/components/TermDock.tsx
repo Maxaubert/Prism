@@ -1,7 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { quotePaths } from '../lib/termPaste'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { pasteInto } from '../lib/termBus'
+import { tickIf } from '../lib/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
@@ -70,17 +73,6 @@ export function TermDock({
     [edge, onResize, size, vertical]
   )
 
-  useEffect(() => {
-    if (!menu) return
-    const shut = (): void => setMenu(null)
-    window.addEventListener('pointerdown', shut)
-    window.addEventListener('blur', shut)
-    return () => {
-      window.removeEventListener('pointerdown', shut)
-      window.removeEventListener('blur', shut)
-    }
-  }, [menu])
-
   // A file dropped ON the terminal types its quoted path - the other way
   // images (and any file) get into an AI prompt. stopPropagation keeps App's
   // window-level drop from opening it in the viewer instead.
@@ -124,7 +116,11 @@ export function TermDock({
       style={full ? undefined : vertical ? { height: size } : { width: size }}
       onContextMenu={(e) => {
         e.preventDefault()
-        if (!full) setMenu({ x: e.clientX, y: e.clientY })
+        // Full view gets one too now (2026-08-30). It used to be split-only,
+        // because the menu was nothing but the four dock edges - and an edge
+        // means nothing when the terminal IS the view. Paste means something
+        // in both, and that is what a right-click in a terminal is for.
+        setMenu({ x: e.clientX, y: e.clientY })
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -153,30 +149,33 @@ export function TermDock({
       {!full && !inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
 
       {menu && (
-        <div
-          role="menu"
-          aria-label="Dock the terminal"
-          className="fixed z-50 overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-0.5 shadow-[0_10px_28px_rgba(0,0,0,.5)]"
-          style={{ left: menu.x, top: menu.y }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {EDGE_NAMES.map((it) => (
-            <button
-              key={it.edge}
-              role="menuitemradio"
-              aria-checked={it.edge === edge}
-              className={`block w-full px-3 py-1 text-left text-[12px] hover:bg-white/10 ${
-                it.edge === edge ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text)]'
-              }`}
-              onClick={() => {
-                setMenu(null)
-                onDockPick(it.edge)
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
-        </div>
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: 'Paste',
+              // Through the terminal's OWN paste (lib/termBus), which is
+              // bracketed for text and forwards the ^V keystroke for an image
+              // so the TUI can read the clipboard itself. Writing the text
+              // straight to the pty instead would send a multi-line paste as
+              // a run of Enter presses: the first line runs and the rest are
+              // typed in after it.
+              onPick: () => void pasteInto(sessionId)
+            },
+            ...(full
+              ? []
+              : ([
+                  ...EDGE_NAMES.map((it) => ({
+                    label: it.label,
+                    icon: tickIf(it.edge === edge),
+                    onPick: () => onDockPick(it.edge)
+                  })),
+                  { label: 'Remove from split view', onPick: onClose }
+                ] as MenuItem[]))
+          ]}
+        />
       )}
     </div>
   )

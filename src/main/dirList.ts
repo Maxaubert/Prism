@@ -11,6 +11,10 @@ import type { DirListing, SearchHit, SearchResult, ViewerFile } from '@shared/ty
 // Windows clutter nobody wants in a viewer's tree. Dotfiles are dropped too.
 const SKIP = new Set(['desktop.ini', 'thumbs.db', '$recycle.bin', 'system volume information'])
 
+/** The same rule, for the folder watcher: waking the renderer for a change
+ *  to something it would never draw a row for is all cost and no answer. */
+export const isSkipped = (name: string): boolean => SKIP.has(name.toLowerCase())
+
 const isWin = process.platform === 'win32'
 
 /** Resolved, symlink-free, comparable form of a path. Falls back to `resolve`
@@ -94,6 +98,21 @@ export function searchFiles(root: string, query: string, maxHits = 200, maxEntri
       if (name.startsWith('.') || SKIP.has(name.toLowerCase())) continue
       if (e.isDirectory()) {
         queue.push(join(dir, name))
+        // A folder is a search hit too (2026-08-30). This enqueued and moved
+        // on without ever consulting the query, so searching for the name of
+        // a folder you can see in the tree found nothing. Same parser, same
+        // budget: a folder hit spends from `hits` exactly as a file does, or
+        // a folder-heavy tree overruns the cap the walk is bounded by.
+        if (matchesQuery(name, terms)) {
+          hits.push({
+            path: join(dir, name),
+            name,
+            kind: 'other',
+            dir: dir.slice(root.length).replace(/^[\\/]/, ''),
+            isFolder: true
+          })
+          if (hits.length >= maxHits) return { hits, truncated: true }
+        }
         continue
       }
       const ext = extname(name)
@@ -126,6 +145,12 @@ export function listDir(dir: string): DirListing {
   } catch {
     return { folders, files, unreadable: true }
   }
+  // Files dropped for being unviewable, counted so the tree can say so. A
+  // folder of installers used to read "empty", which is a different and
+  // alarming claim: it says the folder is gone or wrong, not that Prism has
+  // nothing to show from it. Counting costs nothing - no extra stat, which
+  // the 2026-08-26 measurement rules out.
+  let hidden = 0
   for (const e of entries) {
     const name = e.name
     if (name.startsWith('.') || SKIP.has(name.toLowerCase())) continue
@@ -135,9 +160,12 @@ export function listDir(dir: string): DirListing {
       const isDir = e.isSymbolicLink() ? statSync(p).isDirectory() : e.isDirectory()
       if (isDir) folders.push({ path: p, name })
       else if (isViewable(extname(p), name)) files.push(toViewerFile(p))
+      else hidden += 1
     } catch {
       /* vanished or unreadable between readdir and stat; skip it */
     }
   }
-  return { folders: folders.sort(byName), files: files.sort(byName) }
+  // Spread only when there is something to say: a genuinely empty folder must
+  // not start reporting "0 files Prism can't open".
+  return { folders: folders.sort(byName), files: files.sort(byName), ...(hidden ? { hidden } : {}) }
 }

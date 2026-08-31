@@ -7,7 +7,9 @@ import {
   ipcMain,
   dialog,
   nativeTheme,
-  utilityProcess
+  utilityProcess,
+  Menu,
+  powerSaveBlocker
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
@@ -22,8 +24,10 @@ import {
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
-import { listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, validRoot } from './roots'
+import { pathsFromArgv } from './argv'
+import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, onRootsChanged, validRoot } from './roots'
+import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import {
@@ -41,7 +45,7 @@ import { parseProcLines, treeAgentKind } from './agentDetect'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
-import { decodableImages, decodeImage, needsImageDecode } from './imageDecode'
+import { decodableImages, decodeImage, needsImageDecode, tiffPages } from './imageDecode'
 import {
   cancelAllConversions,
   cancelConversion,
@@ -62,6 +66,7 @@ import { findFluid, isMidi, renderMidi } from './midi'
 import { installVerb, removeVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
 import { sanitizeDoc } from './docSanitize'
+import { encodeText, shapeOf, type TextShape } from './textFile'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -75,13 +80,14 @@ import {
   listArchive,
   moveMembers,
   renameMember,
-  type ArchiveEntry,
+  setSevenExe,
   type ArchiveStat
 } from './archive'
 import { moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type {
+  ArchiveListing,
   DirListing,
   FileKind,
   OnClash,
@@ -89,7 +95,8 @@ import type {
   OpenWithApp,
   MediaProbe,
   RenameResult,
-  TextRead
+  TextRead,
+  WriteResult
 } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -138,14 +145,25 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 // wall (file:text, file:copy-clip) accept these too; writes never do.
 const extractedPaths = new Set<string>()
 
+/**
+ * The encoding and line endings each text file arrived with.
+ *
+ * Held here rather than threaded through the renderer because there are two
+ * writers (the editor's own Ctrl+S and App's close-time "Save all changes")
+ * and App's buffer map holds nothing but a path and a string. A path with no
+ * entry - a file written before it was ever read - falls back to utf-8 with
+ * LF, which is exactly what saving did before any of this existed.
+ */
+const textShape = new Map<string, TextShape>()
+
 // Passwords that worked, for the read-only formats: 7-Zip needs one to LIST an
 // encrypted rar or 7z, not just to extract, so a password the user typed once
 // has to be remembered here as well as in the renderer.
 const archivePasswords = new Map<string, string>()
 
 const MEDIA_SCHEME = 'fsmedia'
-/** file:text's contract is a text file, not a log nobody can read: 64MB of
- *  utf-8 crosses the bridge as one string and lands in one CodeMirror doc. */
+/** file:text's contract is a text file, not a log nobody can read: 64MB
+ *  crosses the bridge as one string and lands in one CodeMirror doc. */
 const TEXT_MAX_BYTES = 64 * 1024 * 1024
 
 /* ------------------------------------------------------------------ *
@@ -416,12 +434,26 @@ async function serveMedia(request: Request): Promise<Response> {
     if (tools) {
       try {
         const png = await decodeImage(tools.ffmpeg, filePath, st.mtimeMs)
+        // A multi-page TIFF shows its first page and nothing said so. ffmpeg
+        // cannot reach page 2 at all, so this is a hint rather than a picker -
+        // scans and faxes arrive this way constantly, and silence there is
+        // how someone misses eleven pages of a document.
+        const pages = /\.tiff?$/i.test(filePath) ? await tiffPages(filePath) : 1
         return new Response(png, {
           status: 200,
           headers: {
             'Content-Type': 'image/png',
             'Content-Length': String(png.length),
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            // fsmedia:// is a different origin from the renderer, so without
+            // the expose header res.headers.get() reads null and the hint
+            // silently never appears.
+            ...(pages > 1
+              ? {
+                  'X-Prism-Pages': String(pages),
+                  'Access-Control-Expose-Headers': 'X-Prism-Pages'
+                }
+              : {})
           }
         })
       } catch {
@@ -540,33 +572,8 @@ function folderPayload(dir: string): OpenPayload | null {
   return { files, index: files.length ? 0 : -1, root: dir }
 }
 
-/**
- * The path an OS "open" passed us, if any (last argv entry that exists).
- *
- * A FOLDER counts (2026-08-25). Explorer's Directory verb and its
- * Directory\Background verb both hand over a folder, and this used to demand
- * `isFile()`: the menu entry was there, Prism launched, and nothing happened.
- * The caller needs to know which it got, because a folder roots a tab and a
- * file opens inside one.
- */
-function pathFromArgv(argv: string[]): { path: string; dir: boolean } | null {
-  for (let i = argv.length - 1; i >= 1; i -= 1) {
-    const a = argv[i]
-    if (a.startsWith('--')) continue
-    try {
-      if (!existsSync(a)) continue
-      const st = statSync(a)
-      if (st.isFile()) return { path: a, dir: false }
-      if (st.isDirectory()) return { path: a, dir: true }
-    } catch {
-      /* ignore */
-    }
-  }
-  return null
-}
-
 let mainWindow: BrowserWindow | null = null
-let pendingOpen: { path: string; dir: boolean } | null = null
+let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
@@ -831,6 +838,80 @@ function applyMaterial(fullscreen: boolean): void {
 const E2E = process.argv.includes('--e2e')
 
 /**
+ * Two things Windows needs told before the first window exists (2026-08-30).
+ *
+ * The AppUserModelID is how Windows decides that a running process and a
+ * pinned shortcut are the SAME application. Told nothing, Electron invents one
+ * from the executable path, the installed shortcut carries the one
+ * electron-builder wrote from `appId`, and launching from the pin gave two
+ * taskbar buttons for one Prism. It has to match the shortcut's, and it has to
+ * be set before any window is created.
+ *
+ * The stock application menu is Electron's, not Prism's: an invisible menu bar
+ * whose accelerators (Ctrl+R reload, Ctrl+Shift+I devtools, Ctrl+0 and
+ * Ctrl+plus/minus zoom) were live over a frameless window that draws no menu
+ * and hands those keys to the image viewer. Removing it costs nothing Prism
+ * uses; the e2e keeps it, since the suite has no menu bar to be confused by
+ * and devtools is worth having when a scenario fails.
+ */
+/**
+ * The tree follows the folder, not just Prism's own writes (2026-08-30).
+ *
+ * The watcher set is the ROOT set by construction: roots.ts announces every
+ * open and close and this is the only thing that starts or stops a watch, so
+ * it can never drift onto a path the renderer named.
+ */
+onRootsChanged((root, open) => {
+  if (!open) {
+    unwatchRoot(root)
+    return
+  }
+  watchRoot(root, (change) => mainWindow?.webContents.send('dir:changed', change), isSkipped)
+})
+
+/**
+ * Prism is about to write here itself, so the watcher should say nothing.
+ *
+ * Every one of these handlers is already followed by the renderer refreshing
+ * that folder; a watcher echo would be a second, redundant refresh that also
+ * costs the selection twice.
+ */
+function ownWrite(...paths: Array<string | null | undefined>): void {
+  const now = Date.now()
+  for (const p of paths) if (typeof p === 'string' && p) muteDir(dirname(p), now)
+}
+
+app.setAppUserModelId('com.prism.viewer')
+if (!E2E) Menu.setApplicationMenu(null)
+// The AES-zip path used to look for 7-Zip in Program Files and tell the user
+// to install one, while Prism has been shipping it in resources/bin since
+// 2026-08-24. Injected here so archive.ts stays electron-free and testable.
+setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+
+/**
+ * Keep the screen awake while something is playing (2026-08-30).
+ *
+ * A film is the one thing a computer does that involves no input for two
+ * hours, so Windows dims and then locks the screen in the middle of it. The
+ * renderer owns the truth (it knows whether a media element is actually
+ * playing) and asks for the block; main holds at most one, and releases it the
+ * moment nothing is playing or the window goes away. `prevent-display-sleep`
+ * and not `prevent-app-suspension`: the point is the screen, and the weaker
+ * block is implied by the stronger one anyway.
+ */
+let awakeId: number | null = null
+function keepAwake(on: boolean): void {
+  if (on) {
+    if (awakeId === null || !powerSaveBlocker.isStarted(awakeId)) {
+      awakeId = powerSaveBlocker.start('prevent-display-sleep')
+    }
+    return
+  }
+  if (awakeId !== null && powerSaveBlocker.isStarted(awakeId)) powerSaveBlocker.stop(awakeId)
+  awakeId = null
+}
+
+/**
  * Bring the window genuinely forward (2026-08-28).
  *
  * `show()` and `focus()` ask, and Windows' foreground lock is allowed to
@@ -950,10 +1031,11 @@ function createWindow(): void {
   // already open lands in that tab rather than opening a second copy of it.
   mainWindow.webContents.on('did-finish-load', () => {
     for (const payload of restoreTabs()) mainWindow?.webContents.send('open:file', payload)
-    if (pendingOpen) {
-      sendOpen(pendingOpen)
-      pendingOpen = null
-    }
+    // In argv order, each through the ordinary arriving-file route, so several
+    // files from one folder still fold into ONE tab and the last named ends up
+    // in front - which is the one a "prism a.jpg b.jpg" reader means to see.
+    for (const t of pendingOpen) sendOpen(t)
+    pendingOpen = []
   })
 }
 
@@ -963,18 +1045,18 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
-    const p = pathFromArgv(argv)
+    const paths = pathsFromArgv(argv)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
       // been sitting in the background for an hour, and the file it is handed
       // must arrive in a window that is actually in front of you.
       if (E2E) mainWindow.show()
       else raise(mainWindow)
-      if (p) sendOpen(p)
+      for (const p of paths) sendOpen(p)
     }
   })
 
-  pendingOpen = pathFromArgv(process.argv)
+  pendingOpen = pathsFromArgv(process.argv)
 
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => {
@@ -1198,6 +1280,9 @@ if (!app.requestSingleInstanceLock()) {
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
+    // The renderer is the only thing that knows whether a media element is
+    // actually playing, so it owns the answer and main just holds the block.
+    ipcMain.on('power:awake', (_e, on: boolean) => keepAwake(on))
     // A root no longer held by ANY tab (closed, or rerooted away). Explicit,
     // one at a time, from the owner of the tab list.
     ipcMain.on('roots:drop', (_e, root: string) => {
@@ -1229,12 +1314,14 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle(
       'file:rename',
-      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> =>
+      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => (
+        ownWrite(p),
         editable(p)
           ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
-          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' })
     )
     ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
+      ownWrite(p)
       if (!editable(p)) return false
       try {
         await shell.trashItem(p)
@@ -1260,7 +1347,15 @@ if (!app.requestSingleInstanceLock()) {
         // as null: the editor used to seed itself with a placeholder and could
         // then save that placeholder over the file (2026-08-28).
         if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        const text = await fs.readFile(p, 'utf-8')
+        // Decoded by its own byte-order mark rather than assumed utf-8: a
+        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
+        // anything PowerShell 5.1 redirected to a file. Those used to open as
+        // mojibake, which Prism would then offer to save back over them. The
+        // file's SHAPE is remembered so the save can reproduce it, line
+        // endings included (see textFile.ts).
+        const buf = await fs.readFile(p)
+        const { text, encoding, eol } = shapeOf(buf)
+        textShape.set(p.toLowerCase(), { encoding, eol })
         // A markdown document may point at pictures OUTSIDE the folder Prism
         // opened in ("../assets/logo.png" from a doc in docs/), which the
         // media wall would otherwise refuse. Main grants exactly the files
@@ -1273,14 +1368,35 @@ if (!app.requestSingleInstanceLock()) {
     })
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
-    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<boolean> => {
-      if (!insideAnyRoot(p) || !existsSync(p)) return false
-      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text') return false
+    /**
+     * Save the editor's text. Answers with a REASON (2026-08-30).
+     *
+     * It used to demand that the file already exist, and answer a bare
+     * boolean. Both hurt: a file renamed or moved out from under a dirty
+     * buffer could never be saved at all, and "Save all changes" at close
+     * time failed with nothing to show the user but a silence. The parent
+     * folder still has to exist, so a save cannot create a file somewhere
+     * nothing asked for, and the root wall and the text-kind check are
+     * unchanged. Extracted archive members stay unwritable: reads honour
+     * `extractedPaths`, writes never do.
+     */
+    ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
+      ownWrite(p)
+      if (!insideAnyRoot(p)) return { ok: false, reason: 'refused' }
+      if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
+        return { ok: false, reason: 'refused' }
+      if (!existsSync(dirname(p))) return { ok: false, reason: 'gone' }
       try {
-        await writeFile(p, text, 'utf-8')
-        return true
-      } catch {
-        return false
+        // Back in the shape it came in. CodeMirror rejoins its document with
+        // a bare newline whatever it read, so without this one fixed typo in
+        // a .bat was 400 changed lines, and a UTF-16 file came back as UTF-8.
+        const shape = textShape.get(p.toLowerCase()) ?? { encoding: 'utf8' as const, eol: 'lf' as const }
+        await writeFile(p, encodeText(text, shape))
+        return { ok: true }
+      } catch (e) {
+        // EACCES, EROFS, ENOSPC: the cases worth naming rather than leaving
+        // the user to guess why their work would not save.
+        return { ok: false, reason: 'failed', message: String((e as NodeJS.ErrnoException)?.code ?? '') }
       }
     })
 
@@ -1399,6 +1515,7 @@ if (!app.requestSingleInstanceLock()) {
         ffmpeg: true,
         needed,
         videoCodec: info.videoCodec ?? undefined,
+        fps: info.fps ?? undefined,
         convert: plan.needed ? { reason: plan.reason ?? 'codec', quick: plan.copyVideo } : undefined
       }
       // More than one track: offer them all, each with the url that plays it.
@@ -1635,6 +1752,7 @@ if (!app.requestSingleInstanceLock()) {
     // and the namespace move is not. Best effort: an item the user has since
     // emptied simply is not there any more.
     ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+      ownWrite(...(Array.isArray(paths) ? paths : []))
       if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideAnyRoot(p)))
         return Promise.resolve(false)
       const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
@@ -1677,6 +1795,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
+        // Both ends: a move empties one folder and fills another.
+        ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
         if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.
@@ -1747,8 +1867,9 @@ if (!app.requestSingleInstanceLock()) {
       if (!archiveOk(p)) return null
       const exe = seven(p)
       if (!exe) return archiveStat(p)
-      const list = await listSeven(exe, p, archivePasswords.get(p) ?? '')
-      if (!list) return null
+      const listed = await listSeven(exe, p, archivePasswords.get(p) ?? '')
+      if (!listed.ok) return null
+      const list = listed.entries
       return {
         files: list.filter((e) => !e.dir).length,
         folders: list.filter((e) => e.dir).length,
@@ -1757,15 +1878,31 @@ if (!app.requestSingleInstanceLock()) {
         readOnly: true
       }
     })
-    ipcMain.handle('archive:list', async (_e, p: string): Promise<ArchiveEntry[] | null> => {
-      if (!archiveOk(p)) return null
-      try {
-        const exe = seven(p)
-        return exe ? await listSeven(exe, p, archivePasswords.get(p) ?? '') : listArchive(p)
-      } catch {
-        return null
+    // Answers WHY it could not list (2026-08-30). A 7z or rar written with
+    // encrypted file NAMES cannot be listed at all without the password, and
+    // the old flat null reached the panel as "this archive looks corrupt": a
+    // good archive read as broken, with nowhere to type what it was asking
+    // for. A password that works is remembered here too, so the member verbs
+    // and the drag-out do not ask again.
+    ipcMain.handle(
+      'archive:list',
+      async (_e, p: string, password?: string): Promise<ArchiveListing> => {
+        if (!archiveOk(p)) return { ok: false, reason: 'failed' }
+        try {
+          const exe = seven(p)
+          if (!exe) {
+            const entries = listArchive(p)
+            return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
+          }
+          const pw = typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+          const listed = await listSeven(exe, p, pw)
+          if (listed.ok && pw) archivePasswords.set(p, pw)
+          return listed
+        } catch {
+          return { ok: false, reason: 'failed' }
+        }
       }
-    })
+    )
     type ExtractResult =
       | { ok: true; path: string; kind: FileKind }
       | { ok: false; reason: 'password' | 'aes' | 'failed' }
@@ -1872,6 +2009,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
+      ownWrite(p)
       if (!insideAnyRoot(p)) return null
       try {
         if (!statSync(p).isFile()) return null // folders are a different feature
@@ -1938,6 +2076,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('window-all-closed', () => {
+    // Nothing can be playing without a window, and a block that outlives the
+    // thing it was held for is a laptop that never sleeps again.
+    keepAwake(false)
+    closeAllWatches()
     if (process.platform !== 'darwin') app.quit()
   })
 }

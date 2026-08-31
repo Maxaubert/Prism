@@ -21,6 +21,9 @@ export interface Playable {
   error: string | null
   /** True once this is the converted copy rather than the original file. */
   converted: boolean
+  /** Frames per second, when the file says. Null until the probe answers, and
+   *  for a file with no video stream. Frame stepping steps by this. */
+  fps: number | null
 }
 
 export function usePlayableVideo(path: string, url: string): Playable {
@@ -33,11 +36,16 @@ export function usePlayableVideo(path: string, url: string): Playable {
     error: string | null
   } | null>(null)
   const mine = state?.path === path ? state : null
+  // Kept apart from the conversion state, which only exists for the files that
+  // need converting: every file has a frame rate worth knowing.
+  const [fps, setFps] = useState<{ path: string; fps: number | null } | null>(null)
 
   useEffect(() => {
     let live = true
     void window.prism.probeMedia(path).then((probe) => {
-      if (!live || !probe.convert) return
+      if (!live) return
+      setFps({ path, fps: probe.fps ?? null })
+      if (!probe.convert) return
       setState({ path, converting: true, pct: null, quick: probe.convert.quick, error: null })
       void window.prism.convertVideo(path).then((r) => {
         if (!live) return
@@ -74,6 +82,7 @@ export function usePlayableVideo(path: string, url: string): Playable {
     pct: mine?.pct ?? null,
     quick: !!mine?.quick,
     error: mine?.error ?? null,
-    converted: !!mine?.src
+    converted: !!mine?.src,
+    fps: fps?.path === path ? fps.fps : null
   }
 }

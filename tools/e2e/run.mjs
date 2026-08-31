@@ -770,7 +770,16 @@ async function editScenario(fixtures) {
     await win.waitForSelector('.p-md h1', { timeout: 10000 })
     ok((await win.locator('[aria-label="Edit"]').count()) === 1, 'markdown keeps the pencil')
     await win.click('[aria-label="Edit"]')
-    await win.waitForSelector('.cm-content', { timeout: 5000 })
+    // .cm-content EXISTS before the file has loaded into it - CodeMirror
+    // creates the container when the view is constructed and the text
+    // arrives over IPC a frame or two later (measured: ~85ms). Waiting for
+    // the element and then reading it was a race this scenario had all
+    // along; wait for the content itself.
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').length > 0,
+      null,
+      { timeout: 5000 }
+    )
     ok(
       (await win.textContent('.cm-content')).startsWith('<div align="center">'),
       'the pencil shows raw markdown source'

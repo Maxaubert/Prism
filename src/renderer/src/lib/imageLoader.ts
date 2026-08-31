@@ -13,6 +13,9 @@ const CEILING_BYTES = 400 * 1024 * 1024 // cap on retained (compressed) bytes
 export interface LoadedImage {
   objectUrl: string
   blob: Blob
+  /** How many pages the source holds, when it holds more than one (a
+   *  multi-page TIFF). Prism shows the first; the viewer says so. */
+  pages?: number
   /** 0 when the header couldn't be parsed. */
   width: number
   height: number
@@ -114,11 +117,15 @@ async function fetchEntry(url: string): Promise<Entry> {
   // response.blob() lets the browser drain the body off the JS main thread.
   const blob = await res.blob()
   const [width, height] = await probeDimensions(blob)
+  // Main sets this only for a multi-page TIFF, and exposes it through CORS -
+  // fsmedia:// is a different origin, so an unexposed header reads as null.
+  const pages = Number(res.headers.get('X-Prism-Pages') ?? '') || 0
   const entry: Entry = {
     objectUrl: URL.createObjectURL(blob),
     blob,
     width,
     height,
+    ...(pages > 1 ? { pages } : {}),
     bytes: blob.size,
     lastUsed: Date.now()
   }

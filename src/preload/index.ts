@@ -1,5 +1,7 @@
-import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type {
+  ArchiveListing,
+  DirChange,
   DirListing,
   FileKind,
   OnClash,
@@ -9,7 +11,8 @@ import type {
   SearchResult,
   ShellDef,
   MediaProbe,
-  TextRead
+  TextRead,
+  WriteResult
 } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
@@ -69,8 +72,10 @@ const api = {
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
-  /** Save the editor's text over the file. Text kinds only, inside the root. */
-  writeText: (path: string, text: string): Promise<boolean> =>
+  /** Save the editor's text over the file. Text kinds only, inside the root.
+   *  Answers with a reason, so a failed save can say why rather than only
+   *  that it failed. */
+  writeText: (path: string, text: string): Promise<WriteResult> =>
     ipcRenderer.invoke('file:write', path, text),
 
   /** Size, modified time and folder-ness for the Properties popup. */
@@ -135,6 +140,23 @@ const api = {
   /** Put the real file on the clipboard, so Ctrl+V in Explorer pastes it. */
   copyFileToClipboard: (path: string): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', path),
+  /**
+   * The PICTURE on the clipboard, not the file (2026-08-30).
+   *
+   * For a HEIC, a camera RAW or any of the ffmpeg-decoded formats, copying
+   * the file hands the other application bytes it cannot open. This hands it
+   * pixels, which is what "copy this photo" means everywhere else. Done here
+   * rather than over IPC because the PNG is already in the renderer and
+   * shipping a few MB through main to put it back on the clipboard buys
+   * nothing.
+   */
+  copyImageToClipboard: (png: ArrayBuffer): boolean => {
+    const img = nativeImage.createFromBuffer(Buffer.from(png))
+    if (img.isEmpty()) return false
+    clipboard.clear()
+    clipboard.writeImage(img)
+    return true
+  },
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),
@@ -206,20 +228,12 @@ const api = {
     /** 7z, rar, tar and the rest: listed and extracted, never written. */
     readOnly?: boolean
   } | null> => ipcRenderer.invoke('archive:stat', path),
-  /** Every entry in the archive (folders derived when the zip omits them). */
-  archiveList: (
-    path: string
-  ): Promise<Array<{
-    path: string
-    name: string
-    dir: boolean
-    size: number
-    /** What it occupies inside the container; absent on folders. */
-    packed?: number
-    /** The entry's own modified time, epoch ms. */
-    mtime?: number
-    encrypted?: boolean
-  }> | null> => ipcRenderer.invoke('archive:list', path),
+  /** Every entry in the archive (folders derived when the zip omits them).
+   *  Answers with a REASON rather than null (2026-08-30): a 7z or rar written
+   *  with encrypted file names cannot be listed without the password, and a
+   *  bare null read as "corrupt archive" with nowhere to type one. */
+  archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
+    ipcRenderer.invoke('archive:list', path, password),
   /** Extract the whole archive somewhere the user picks (main asks), into a
    *  folder named after it. Resolves with where it landed. */
   archiveExtractAll: (
@@ -262,6 +276,18 @@ const api = {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
     ipcRenderer.on('open:file', listener)
     return () => ipcRenderer.removeListener('open:file', listener)
+  },
+  /**
+   * Something changed in a folder Prism has open, and Prism did not do it.
+   *
+   * `root` names which tab (two tabs can share one), `dirs` the folders that
+   * actually changed. Coalesced and filtered in main; Prism's own writes are
+   * muted, since the renderer refreshes after those itself.
+   */
+  onDirChanged: (cb: (m: DirChange) => void): (() => void) => {
+    const listener = (_: unknown, m: DirChange): void => cb(m)
+    ipcRenderer.on('dir:changed', listener)
+    return () => ipcRenderer.removeListener('dir:changed', listener)
   },
 
   /* ----- the terminal ----- */
@@ -330,6 +356,8 @@ const api = {
   close: (force = false): void => ipcRenderer.send('window:close', force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
   setDirty: (dirty: boolean): void => ipcRenderer.send('editor:dirty', dirty),
+  /** Something is playing: hold the screen awake until told otherwise. */
+  setAwake: (on: boolean): void => ipcRenderer.send('power:awake', on),
   /** Main blocked a close because the editor is dirty: put the question up. */
   onAskClose: (cb: () => void): (() => void) => {
     const listener = (): void => cb()
