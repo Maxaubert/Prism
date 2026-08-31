@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
+import { clampPan, panBounds } from '../lib/imagePan'
+import { ContextMenu, type MenuItem } from './ContextMenu'
+import { fileVerbs } from '../lib/fileVerbs'
+import { pngFromBlob } from '../lib/copyImage'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -22,13 +26,18 @@ const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.m
 
 export function ImageView({
   url,
+  path,
   name,
   onToggleFullscreen
 }: {
   url: string
+  /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
+  path?: string
   name: string
   onToggleFullscreen: () => void
 }): JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [copyNote, setCopyNote] = useState<string | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [tx, setTx] = useState(0)
@@ -188,14 +197,24 @@ export function ImageView({
         return
       }
       const [cx, cy] = cursorFromCentre(e)
+      // Clamped against the NEW scale: zooming out towards a corner used to
+      // leave the picture parked off stage.
+      const b =
+        img && fitScale ? panBounds(img, stage, fitScale * rotFit * ns, rot) : null
       setZoom((z) => {
         const k = ns / z
-        setTx((x) => cx - k * (cx - x))
-        setTy((y) => cy - k * (cy - y))
+        setTx((x) => {
+          const nx = cx - k * (cx - x)
+          return b ? clampPan(nx, 0, b)[0] : nx
+        })
+        setTy((y) => {
+          const ny = cy - k * (cy - y)
+          return b ? clampPan(0, ny, b)[1] : ny
+        })
         return ns
       })
     },
-    [reset]
+    [reset, img, stage, fitScale, rotFit, rot]
   )
 
   const zoomCentered = useCallback(
@@ -216,9 +235,15 @@ export function ImageView({
     e.preventDefault()
     const orig = { x: e.clientX, y: e.clientY, tx, ty }
     setPanning(true)
+    // Read once: the zoom cannot change mid-drag, and the picture may only
+    // travel until its edge reaches the middle of the stage.
+    const b = img && fitScale ? panBounds(img, stage, shownScale, rot) : null
     const move = (ev: globalThis.MouseEvent): void => {
-      setTx(orig.tx + (ev.clientX - orig.x))
-      setTy(orig.ty + (ev.clientY - orig.y))
+      const nx = orig.tx + (ev.clientX - orig.x)
+      const ny = orig.ty + (ev.clientY - orig.y)
+      const [cx2, cy2] = b ? clampPan(nx, ny, b) : [nx, ny]
+      setTx(cx2)
+      setTy(cy2)
     }
     const up = (): void => {
       setPanning(false)
@@ -228,6 +253,18 @@ export function ImageView({
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
   }
+
+
+  /** The picture on the clipboard, and a word when it could not go. A canvas
+   *  has a backing-store limit, so a big enough panorama gives back no bytes
+   *  at all - and a verb that silently does nothing is worse than one that
+   *  says so. */
+  const copyImage = useCallback(async (): Promise<void> => {
+    const png = await pngFromBlob(img?.blob ?? null)
+    const ok = !!png && window.prism.copyImageToClipboard(png)
+    setCopyNote(ok ? 'Image copied' : 'That image is too large to copy')
+    window.setTimeout(() => setCopyNote(null), 1800)
+  }, [img])
 
   // Image-specific keys (arrows stay with the app for folder nav).
   useEffect(() => {
@@ -248,22 +285,73 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
+        // The menu advertises this in its shortcut column, so it has to exist.
+        // A text selection keeps its own copy: only an untouched page gets it.
+        case 'c':
+        case 'C':
+          if (e.ctrlKey && !window.getSelection()?.toString()) {
+            e.preventDefault()
+            void copyImage()
+          }
+          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // oneToOne closes over the measured scale, which changes with the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit])
+  }, [zoomCentered, reset, onToggleFullscreen, fitScale, rotFit, copyImage])
 
   const cursor = zoom > 1 ? (panning ? 'grabbing' : 'grab') : 'default'
+
+  /**
+   * The picture's own menu (2026-08-30, cut back 2026-08-31).
+   *
+   * It started as everything the picture could do and read like a toolbar:
+   * next, previous, zoom in, zoom out, fit, actual size, rotate, fullscreen,
+   * copy, and a shortcut against nearly every row. All of that was already
+   * one press or one button away - the arrows page the folder, the zoom
+   * cluster sits in the corner, F is fullscreen - so the menu was teaching
+   * keys nobody needed taught and burying the two verbs that are only here.
+   *
+   * What is left is what you cannot do another way with a pointer: turn the
+   * picture, take the PIXELS (which for a HEIC or a RAW is the one thing
+   * Windows itself cannot do), and get to the file. No icons: this is a short
+   * list of verbs, not a toolbar.
+   */
+  const menuItems = (): MenuItem[] => [
+    { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
+    { label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() },
+    ...(path ? fileVerbs(path) : [])
+  ]
 
   return (
     <div
       ref={stageRef}
       onWheel={onWheel}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
       className="group relative flex h-full w-full items-center justify-center overflow-hidden"
     >
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />}
+      {/* A multi-page TIFF shows its first page and used to say nothing about
+          the rest. ffmpeg cannot reach page 2, so this is honest about what
+          it is: a note, not a picker. Scans and faxes arrive this way. */}
+      {copyNote && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-[11.5px] text-white/90">
+          {copyNote}
+        </div>
+      )}
+      {!!img?.pages && img.pages > 1 && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-full bg-black/55 px-2.5 py-1 text-[11px] text-white/85"
+          title={`This file holds ${img.pages} pages. Prism shows the first.`}
+        >
+          Page 1 of {img.pages}
+        </div>
+      )}
       {failed ? (
         <div className="grid place-items-center p-8 text-center text-sm text-[#c9ccd6]">
           This image can’t be displayed (unsupported format or corrupt file).

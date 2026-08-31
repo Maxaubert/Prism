@@ -481,7 +481,14 @@ function Viewer({
         />
       )
     case 'image':
-      return <ImageView url={url} name={file.name} onToggleFullscreen={onToggleFullscreen} />
+      return (
+        <ImageView
+          url={url}
+          path={file.path}
+          name={file.name}
+          onToggleFullscreen={onToggleFullscreen}
+        />
+      )
     case 'audio':
       return (
         <AudioView
@@ -491,6 +498,8 @@ function Viewer({
           fullscreen={fullscreen}
           onToggleFullscreen={onToggleFullscreen}
           onAutoAdvance={onAutoAdvance}
+          onStep={onStep}
+          canStep={canStep}
           transportStyle={transportStyle}
           background={background}
           volumeKey={volumeKey}
@@ -499,7 +508,7 @@ function Viewer({
     case 'pdf':
       return (
         <Suspense fallback={<EditorLoading />}>
-          <PdfView url={url} onToggleFullscreen={onToggleFullscreen} />
+          <PdfView url={url} path={file.path} onToggleFullscreen={onToggleFullscreen} />
         </Suspense>
       )
     case 'doc':
@@ -594,11 +603,22 @@ function PinnedPaneView({
   )
 }
 
+/**
+ * The window with nothing in it at all.
+ *
+ * The first button is NEW TAB, not "Open file…" (owner pick, 2026-08-31).
+ * Picking one file from a dialog is the narrowest way into an app whose whole
+ * model is a tab rooted at a FOLDER you then browse: it left you with one
+ * file and no obvious next move. New tab is instant and lands you somewhere
+ * to look around, exactly as the + does, and the folder chooser is beside it
+ * for when you know where you are going. Dropping a file still works and the
+ * line above still says so.
+ */
 function EmptyState({
-  onOpen,
+  onNewTab,
   onOpenFolder
 }: {
-  onOpen: () => void
+  onNewTab: () => void
   onOpenFolder: () => void
 }): JSX.Element {
   return (
@@ -628,9 +648,9 @@ function EmptyState({
       <div className="flex items-center gap-2">
         <button
           className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110"
-          onClick={onOpen}
+          onClick={onNewTab}
         >
-          Open file…
+          New tab
         </button>
         <button
           className="no-drag rounded-xl border border-[color:var(--p-line)] px-4 py-2 text-sm font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-accent-hi)]"
@@ -741,6 +761,50 @@ export default function App(): JSX.Element {
     // Main needs this too: it is what holds the window open on a close.
     window.prism.setDirty(buffers.current.size > 0)
   }, [])
+  /**
+   * A file Prism just binned has no unsaved text to save (2026-08-30).
+   *
+   * `file:write` no longer demands the target exist, which is what lets a
+   * file renamed out from under a dirty buffer still be saved. The other side
+   * of that coin is this: without dropping the buffer, closing the window and
+   * answering "Save all changes" would RECREATE a file the user had put in
+   * the Recycle Bin. Prism did the deleting, so Prism knows.
+   */
+  const dropBuffers = useCallback(
+    (paths: readonly string[]) => {
+      let hit = false
+      for (const gone of paths) {
+        const under = gone.toLowerCase()
+        for (const key of [...buffers.current.keys()]) {
+          // A folder takes its files with it.
+          if (key === under || key.startsWith(under + '\\')) {
+            buffers.current.delete(key)
+            hit = true
+          }
+        }
+      }
+      if (hit) syncDirty()
+    },
+    [syncDirty]
+  )
+
+  /**
+   * ...and a file Prism RENAMED keeps its unsaved text, under the new name.
+   * Dropping it here would throw away the work; leaving it under the old name
+   * would recreate the old file on the next save.
+   */
+  const rekeyBuffer = useCallback(
+    (from: string, to: string) => {
+      const old = from.toLowerCase()
+      const buf = buffers.current.get(old)
+      if (!buf) return
+      buffers.current.delete(old)
+      buffers.current.set(to.toLowerCase(), { path: to, text: buf.text })
+      syncDirty()
+    },
+    [syncDirty]
+  )
+
   /** What the editor should show for a file: unsaved text if we kept any. */
   const getPending = useCallback((p: string) => buffers.current.get(p.toLowerCase())?.text, [])
   /** The editor reports its buffer as it changes; null once it matches disk. */
@@ -764,7 +828,7 @@ export default function App(): JSX.Element {
   const saveAll = useCallback(async (): Promise<string[]> => {
     const failed: string[] = []
     for (const [key, buf] of [...buffers.current]) {
-      if (await window.prism.writeText(buf.path, buf.text)) buffers.current.delete(key)
+      if ((await window.prism.writeText(buf.path, buf.text)).ok) buffers.current.delete(key)
       else failed.push(buf.path)
     }
     syncDirty()
@@ -898,6 +962,7 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => window.prism.onOpenFile(open), [open])
+
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
    * Fullscreen the way YouTube actually does it: the DOM Fullscreen API on
@@ -1021,7 +1086,6 @@ export default function App(): JSX.Element {
     activeIdRef.current = activeId
   }, [tabs, activeId])
 
-  const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   /**
    * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
    * so a tab arrives rooted at the user's own folder and you browse from there.
@@ -1445,6 +1509,41 @@ export default function App(): JSX.Element {
       return { ...s, tabs: s.tabs.map((t) => (t.id === id ? { ...t, tree } : t)) }
     })
   }, [])
+  /**
+   * The folder changed and Prism did not change it (2026-08-30).
+   *
+   * Only folders a tab has ALREADY loaded are re-listed: a change deep in a
+   * collapsed subtree is not a reason to go and read it. Nothing else is
+   * touched - expansion is a separate Set, the rows are keyed by path so the
+   * scroll position and the DOM nodes survive, and refreshKey is deliberately
+   * NOT bumped, because that is what clears the selection.
+   */
+  useEffect(
+    () =>
+      window.prism.onDirChanged(({ root, dirs }) => {
+        setTabState((s) => {
+          for (const tab of s.tabs) {
+            if (tab.kind === 'settings' || !sameRoot(tab.root, root)) continue
+            for (const dir of dirs) {
+              // Never fetch a folder this tab has not opened.
+              if (!(dir in tab.tree.children)) continue
+              const id = tab.id
+              void window.prism.listDir(tab.root, dir).then((listing) => {
+                if (!listing) return
+                setTree(id, (tree) =>
+                  dir in tree.children
+                    ? { ...tree, children: { ...tree.children, [dir]: listing } }
+                    : tree
+                )
+              })
+            }
+          }
+          return s
+        })
+      }),
+    [setTree]
+  )
+
   /** Bound to the active tab, so Sidebar's handle is stable within a tab. */
   const onTree = useCallback(
     (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),
@@ -1810,6 +1909,8 @@ export default function App(): JSX.Element {
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
+      // Unsaved text follows the file to its new name.
+      rekeyBuffer(path, r.path)
       if (track !== false)
         noteUndo({ kind: 'rename', from: path, to: r.path, replaced: r.replaced })
       // Follow whatever is on screen: it may have been the thing renamed, or a
@@ -1820,7 +1921,7 @@ export default function App(): JSX.Element {
       else reopen(cur)
       return r.path
     },
-    [file, noteUndo, reopen]
+    [file, noteUndo, reopen, rekeyBuffer]
   )
 
   const runDelete = useCallback(
@@ -1832,6 +1933,7 @@ export default function App(): JSX.Element {
         return
       }
       setRefreshKey((n) => n + 1)
+      dropBuffers([path])
       noteUndo({ kind: 'trash', paths: [path] })
       const cur = file?.path
       if (!cur || !within(cur, path)) {
@@ -1845,7 +1947,7 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else closeActiveTab()
     },
-    [closeActiveTab, file, noteUndo, reopen, view]
+    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
@@ -1860,7 +1962,10 @@ export default function App(): JSX.Element {
       setRefreshKey((n) => n + 1)
       // Only the ones that really went: undoing a path that never left would
       // restore a file the user deliberately binned earlier.
-      if (binned.length) noteUndo({ kind: 'trash', paths: binned })
+      if (binned.length) {
+        dropBuffers(binned)
+        noteUndo({ kind: 'trash', paths: binned })
+      }
       const cur = file?.path
       if (cur && paths.some((p) => within(cur, p))) {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
@@ -1874,7 +1979,7 @@ export default function App(): JSX.Element {
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
-    [closeActiveTab, file, noteUndo, reopen, view]
+    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
@@ -2217,11 +2322,23 @@ export default function App(): JSX.Element {
         // from the sidebar behaves the same whatever kind of file it lands on.
         // (`typing` already covered the text editor's caret, above.)
         if (docFocused()) return
-        e.preventDefault()
         // The tree gets first refusal: it walks folders as well as files, and
         // says no when it isn't there to walk.
         const dir = e.key === 'ArrowDown' ? 'down' : 'up'
-        if (!fullscreen && treeNav.current?.(dir)) return
+        if (!fullscreen && treeNav.current?.(dir)) {
+          e.preventDefault()
+          return
+        }
+        // Nothing to walk, and a player in front of you: Up/Down are the
+        // VOLUME, which is what every media player has taught (2026-08-30).
+        // They used to be preventDefault-ed unconditionally here, and
+        // useMediaControls yields on defaultPrevented, so the volume keys were
+        // dead everywhere - most obviously in fullscreen, where the sidebar is
+        // gone and there is nothing else for them to do. The player only gets
+        // them when the tree does not want them, so browsing a folder from the
+        // sidebar is unchanged.
+        if (!!file && PLAYABLE.has(file.kind)) return // player handles it
+        e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
       } else if (
         (e.key === 'ArrowRight' || e.key === 'ArrowLeft') &&
@@ -2537,7 +2654,7 @@ export default function App(): JSX.Element {
                 ) : active ? (
                   <NoFileState />
                 ) : (
-                  <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
+                  <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
               const pins = active?.panes ?? []
               const withPlayers = (

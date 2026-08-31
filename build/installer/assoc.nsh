@@ -724,5 +724,23 @@
   !insertmacro PRISM_UNEXT "gradle"       "Prism.Text"
   !insertmacro PRISM_UNEXT "cmake"        "Prism.Text"
   !insertmacro PRISM_UNEXT "mk"           "Prism.Text"
+  ; "Open in Prism" in Explorer's own menu (shellVerb.ts). A per-user
+  ; runtime toggle, so the uninstaller cannot read whether it is on and simply
+  ; removes all three keys. What was left behind was a live menu entry pointing
+  ; at an exe that no longer exists, which is the last impression Prism makes.
+  ; Before SHChangeNotify, which is what makes Explorer notice.
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\*\shell\OpenWithPrism"
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\Directory\shell\OpenWithPrism"
+  DeleteRegKey SHELL_CONTEXT "Software\Classes\Directory\Background\shell\OpenWithPrism"
   System::Call 'shell32::SHChangeNotify(i 0x8000000, i 0, p 0, p 0)'
+!macroend
+
+; The uninstaller is compiled from installer.nsh with BUILD_UNINSTALLER set,
+; which excludes pages.nsh - and customUnInstall used to be defined in there, so
+; electron-builder's !ifmacrodef found nothing and NONE of this ever ran (found
+; 2026-08-30). Uninstalling left every ProgID, every OpenWithProgids entry and
+; the Explorer verb behind. It belongs here, in the file installer.nsh includes
+; unconditionally for exactly this reason.
+!macro customUnInstall
+  !insertmacro PRISM_UNREGISTER_TYPES
 !macroend

@@ -160,14 +160,26 @@ export function extractArgs(file: string, entry: string, dir: string, password: 
   return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file, entry]
 }
 
-/** List an archive 7-Zip understands. null when it could not be read. */
+/**
+ * List an archive 7-Zip understands.
+ *
+ * Says WHY it failed (2026-08-30). A 7z or rar written with "encrypt file
+ * names" cannot even be listed without the password, and this used to answer
+ * a flat null, which the panel rendered as "this archive looks corrupt" - so
+ * a perfectly good archive read as broken and there was nowhere to type the
+ * password it was asking for. Same test as the member paths use.
+ */
 export async function listSeven(
   exe: string,
   file: string,
   password = ''
-): Promise<ArchiveEntry[] | null> {
+): Promise<{ ok: true; entries: ArchiveEntry[] } | { ok: false; reason: MemberFail }> {
   const r = await run(exe, listArgs(file, password), 60000)
-  return r.ok ? parseListing(r.out, basename(file)) : null
+  if (r.ok) return { ok: true, entries: parseListing(r.out, basename(file)) }
+  return {
+    ok: false,
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+  }
 }
 
 /**
@@ -257,8 +269,9 @@ export async function extractSevenTo(
   password = ''
 ): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
   if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
-  const listing = await listSeven(exe, file, password)
-  if (!listing) return { ok: false, reason: 'failed' }
+  const listed = await listSeven(exe, file, password)
+  if (!listed.ok) return { ok: false, reason: listed.reason }
+  const listing = listed.entries
   const clean = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const wanted = entryPaths.map(clean)
   const base = resolve(destDir)

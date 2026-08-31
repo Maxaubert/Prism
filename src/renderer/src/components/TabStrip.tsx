@@ -102,6 +102,13 @@ export function TabStrip({
     }
   }, [])
   const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; recent: string[] } | null>(null)
+  /** A tab's own menu. Deliberately WITHOUT 'close others': each close can
+   *  raise the unsaved-changes question, and firing several would overwrite
+   *  it and lose the work it exists to protect. That wants App-side
+   *  batching, which is a decision rather than a gap to fill here. */
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string } | null>(
+    null
+  )
   const [dropAt, setDropAt] = useState<number | null>(null)
   const [carry, setCarry] = useState<{
     id: string
@@ -289,6 +296,14 @@ export function TabStrip({
               onPick(t.id)
             }}
             onAuxClick={(e) => auxClose(e, t.id)}
+            // The tab's own menu (2026-08-30). The wrapper owns it, not the
+            // inner button: the padding and the icon slot are part of the
+            // target, the same reasoning the click handler gives. A right
+            // click cannot start a carry - onTabPointerDown ignores button 2.
+            onContextMenu={(e) => {
+              e.preventDefault()
+              setTabMenu({ x: e.clientX, y: e.clientY, id: t.id, root: t.kind === 'settings' ? '' : t.root })
+            }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             data-tab
@@ -387,6 +402,34 @@ export function TabStrip({
           <path d="M12 6v12m6-6H6" />
         </svg>
       </button>
+      {tabMenu && (
+        <ContextMenu
+          x={tabMenu.x}
+          y={tabMenu.y}
+          onClose={() => setTabMenu(null)}
+          items={[
+            // Every row acts on the tab you clicked. "New tab" was here and
+            // went (2026-08-31): the + is one pixel away and its tooltip
+            // already teaches Ctrl+T.
+            { label: 'Close tab', hint: 'Ctrl+W', onPick: () => onClose(tabMenu.id) },
+            // Settings is a tab with no folder. Offering these there did
+            // nothing for one of them and wrote an EMPTY STRING over the
+            // clipboard for the other, which is worse than doing nothing.
+            ...(tabMenu.root
+              ? [
+                  {
+                    label: 'Show folder in File Explorer',
+                    onPick: () => window.prism.showInExplorer(tabMenu.root)
+                  },
+                  {
+                    label: 'Copy folder path',
+                    onPick: () => void navigator.clipboard.writeText(tabMenu.root)
+                  }
+                ]
+              : [])
+          ]}
+        />
+      )}
       {plusMenu && (
         <ContextMenu
           x={plusMenu.x}

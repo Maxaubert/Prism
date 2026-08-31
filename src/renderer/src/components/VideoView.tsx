@@ -13,6 +13,7 @@ import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
 import { wasPlaying } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { pngFromVideo, videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
@@ -126,7 +127,20 @@ export function VideoView({
   // How the picture sits in the frame, and the right-click menu that changes
   // it. Per file: a ratio forced on one video means nothing for the next.
   const [fit, setFit] = useState<VideoFit>('fit')
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * The menu, and the element it was opened over.
+   *
+   * The element is captured HERE rather than read from the ref when a row is
+   * picked: the rows are built during the render that draws the menu, and
+   * reading a ref from there is what the refs rule exists to stop. It is the
+   * same element for the life of one menu, so capturing it costs nothing.
+   */
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    hasFrame: boolean
+    el: HTMLVideoElement | null
+  } | null>(null)
   // Reset on the way IN to a new file rather than in an effect: a ratio forced
   // on one video means nothing for the next, and the same shape the sidebar
   // uses for its selection (an effect here cascades a second render).
@@ -214,6 +228,8 @@ export function VideoView({
     resumeKey: url,
     keys: !background,
     volumeKey,
+    // What a frame actually is, for the . and , keys.
+    fps: playable.fps,
     // A picked track plays through the sidecar, so the file's own default
     // track must stop coming out of the picture - and this is the ONLY writer
     // of the element's mute, so nothing can undo it.
@@ -259,7 +275,7 @@ export function VideoView({
    * fast it plays, which subtitles, and the file itself. Everything here is
    * reachable elsewhere too - this is the place people look first.
    */
-  const menuItems = (): MenuItem[] => {
+  const menuItems = (hasFrame: boolean, el: HTMLVideoElement | null): MenuItem[] => {
     // Trimmed to what belongs here (owner picks, 2026-08-27). Play/pause and
     // fullscreen came out: a click and a double-click already do them, and a
     // menu you trim is not the place for a third way. Every row carries the
@@ -343,6 +359,22 @@ export function VideoView({
         ]
       },
       {
+        // VLC's Shift+S, as a visible verb rather than a keystroke: the
+        // fullscreen read-only rule allows a click on something you can see.
+        // Greyed when there is no picture to take - an enabled row that does
+        // nothing is the failure that got the other rows cut.
+        label: 'Copy frame',
+        icon: tickIf(false),
+        disabled: !hasFrame,
+        // Wrapped rather than passed: menuItems() runs in the render pass that
+        // draws the menu, and the linter follows a bare reference into
+        // copyFrame's ref access. The extra closure is the seam.
+        onPick: () =>
+          void pngFromVideo(el).then((png) => {
+            if (png) window.prism.copyImageToClipboard(png)
+          })
+      },
+      {
         label: 'Show in File Explorer',
         icon: tickIf(false),
         onPick: () => window.prism.showInExplorer(path)
@@ -411,7 +443,9 @@ export function VideoView({
         if (background) return
         e.preventDefault()
         showChrome()
-        setMenu({ x: e.clientX, y: e.clientY })
+        // Whether there is a frame is read HERE: a ref may not be touched
+        // while rendering, and what matters is the state at the right-click.
+        setMenu({ x: e.clientX, y: e.clientY, hasFrame: videoHasFrame(video.current), el: video.current })
       }}
       // The wheel over the picture is the volume, VLC's oldest habit, and the
       // ONLY way past 100% (the slider stops there). 5% a notch, which is what
@@ -576,7 +610,7 @@ export function VideoView({
       {!background && <VolumeReadout flash={volFlash} vol={c.vol} muted={c.muted} />}
 
       {menu && !background && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems()} onClose={() => setMenu(null)} />
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.hasFrame, menu.el)} onClose={() => setMenu(null)} />
       )}
 
       {chromeOn && !background && (
