@@ -16,6 +16,7 @@ import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
+import { Dialog } from './Dialog'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -245,6 +246,11 @@ export function Sidebar({
   /* The selection (2026-08-22): a click opens as it always did; shift ranges
      and ctrl toggles build a selection without opening. */
   const [sel, setSel] = useState<Selection>(emptySelection)
+  /** The tree's DEAD SPACE menu: verbs on the PLACE rather than on a row
+   *  (2026-08-31). The archive panel has had one since 2026-08-30, and a
+   *  right-click that missed every row here simply read as a miss. */
+  const [placeMenu, setPlaceMenu] = useState<{ x: number; y: number } | null>(null)
+  const [pasteNote, setPasteNote] = useState<string | null>(null)
   // A new place - or anything that rewrote the folder (a delete, a rename, a
   // move) - starts clean: the old paths may not exist any more, and acting on
   // them later took files the user could no longer see.
@@ -808,6 +814,13 @@ export function Sidebar({
         <div
           ref={scroller}
           className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          // A right-click that lands on no row is about the PLACE, not about a
+          // file. Rows stop it themselves, exactly as the archive panel's do.
+          onContextMenu={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            setPlaceMenu({ x: e.clientX, y: e.clientY })
+          }}
         >
           {query.trim() ? (
             <SearchResults
@@ -976,6 +989,57 @@ export function Sidebar({
                 ]
               : [])
           ]}
+        />
+      )}
+
+      {placeMenu && (
+        <ContextMenu
+          x={placeMenu.x}
+          y={placeMenu.y}
+          onClose={() => setPlaceMenu(null)}
+          items={[
+            {
+              label: 'Paste',
+              icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
+              onPick: () => {
+                void window.prism.pasteInto(root).then((r) => {
+                  // Said out loud rather than silently: a paste that finds an
+                  // empty clipboard looks exactly like one that failed.
+                  if (r.empty) setPasteNote('There are no files on the clipboard.')
+                  else if (r.refused) setPasteNote('That folder is outside this tab.')
+                  else if (!r.pasted) setPasteNote('Nothing could be pasted here.')
+                  else if (r.failed)
+                    setPasteNote(`Pasted ${r.pasted}, but ${r.failed} could not be copied.`)
+                })
+              }
+            },
+            {
+              label: 'Open terminal here',
+              icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+              onPick: () => onTermHere(root)
+            },
+            {
+              label: 'Show in File Explorer',
+              icon: <MenuIcon d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />,
+              onPick: () => window.prism.showInExplorer(root)
+            },
+            {
+              label: 'Copy path',
+              icon: (
+                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+              ),
+              onPick: () => void navigator.clipboard.writeText(root)
+            }
+          ]}
+        />
+      )}
+
+      {pasteNote && (
+        <Dialog
+          title="Paste"
+          body={pasteNote}
+          onCancel={() => setPasteNote(null)}
+          choices={[{ label: 'Close', primary: true, onPick: () => setPasteNote(null) }]}
         />
       )}
 

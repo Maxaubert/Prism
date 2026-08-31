@@ -1907,6 +1907,72 @@ if (!app.requestSingleInstanceLock()) {
       })
     })
 
+    /**
+     * The files on the clipboard, if any (2026-08-31).
+     *
+     * Through PowerShell, symmetrically with the copy above: Windows puts a
+     * multi-file copy on the clipboard as CF_HDROP, which Electron's own
+     * clipboard API does not expose - `readBuffer('FileNameW')` gives one
+     * path and nothing else. `Get-Clipboard -Format FileDropList` gives the
+     * list, and the copy side is already a PowerShell call for the same
+     * reason.
+     */
+    function clipboardFiles(): Promise<string[]> {
+      return new Promise((done) => {
+        execFile(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-Command',
+            '(Get-Clipboard -Format FileDropList) | ForEach-Object { $_.FullName }'
+          ],
+          { windowsHide: true, timeout: 5000, encoding: 'utf8' },
+          (err, out) =>
+            done(
+              err
+                ? []
+                : String(out ?? '')
+                    .split(/\r?\n/)
+                    .map((l) => l.trim())
+                    .filter(Boolean)
+            )
+        )
+      })
+    }
+
+    /**
+     * Paste whatever is on the clipboard into a folder.
+     *
+     * The SOURCES may be anywhere - that is the point, you copied them in
+     * Explorer - but the DESTINATION has to be inside a root, which is the
+     * wall doing its job. Names never collide: `uniqueName` picks "name (2)"
+     * the way Duplicate does, so a paste can add to a folder but never write
+     * over what is in it.
+     */
+    ipcMain.handle('file:paste-into', async (_e, destDir: string) => {
+      if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
+        return { pasted: 0, failed: 0, refused: true }
+      }
+      const src = await clipboardFiles()
+      if (!src.length) return { pasted: 0, failed: 0, empty: true }
+      ownWrite(join(destDir, 'x'))
+      const fs = await import('fs/promises')
+      let pasted = 0
+      let failed = 0
+      for (const s of src) {
+        try {
+          const target = join(destDir, uniqueName(destDir, basename(s)))
+          // AWAITED and recursive: a folder travels whole, and cpSync on main's
+          // one thread would freeze every window for as long as it took.
+          await fs.cp(s, target, { recursive: true, errorOnExist: true, force: false })
+          pasted += 1
+        } catch {
+          failed += 1
+        }
+      }
+      return { pasted, failed }
+    })
+
     // The icon Windows itself shows for a file of this type - the user's own
     // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
     // extension; the tree shows it for archives (#68, revised 2026-08-22).

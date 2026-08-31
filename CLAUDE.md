@@ -699,6 +699,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   has NO "close others" (each close can raise the unsaved-changes question, and firing several
   would overwrite it and lose the work it protects), and the terminal's menu carries paste but
   not copy (xterm owns its selection; Ctrl+C over one already copies).
+  The SIDEBAR's dead space answers one too (2026-08-31): Paste, Open terminal here, Show in
+  File Explorer and Copy path, all on the PLACE rather than on a row, since a right-click
+  that missed every row simply read as a miss. Paste reads the clipboard through PowerShell
+  (`Get-Clipboard -Format FileDropList`) because Windows puts a multi-file copy on as
+  CF_HDROP and Electron's own clipboard API exposes only one path; the copy side was already
+  a PowerShell call for the same reason. The SOURCES may be anywhere - you copied them in
+  Explorer - and only the DESTINATION is walled. Nothing is ever written over: a taken name
+  becomes "name (2)", the way Duplicate does. Deliberately NOT `ownWrite`'d, because the
+  tree has no other way to hear about a paste and muting only DEFERS the watcher's event by
+  a second and a half anyway.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one

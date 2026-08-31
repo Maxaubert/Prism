@@ -719,6 +719,27 @@ async function contextMenuScenario(fixtures) {
     await win.keyboard.press('Escape')
     await sleep(300)
 
+    // The tree's DEAD SPACE answers a right-click too: verbs on the PLACE
+    // rather than on a row. Clicking below the last row is the reliable way
+    // to miss every one of them.
+    const box = await win.locator('[role="tree"]').first().boundingBox()
+    // Below the last row, inside the scroller: the one place that is reliably
+    // dead space whatever the fixture holds.
+    await win.mouse.click(box.x + box.width / 2, box.y + box.height + 24, { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    for (const label of ['Paste', 'Show in File Explorer', 'Copy path', 'Open terminal here']) {
+      ok(
+        (await win.locator(`[role="menuitem"]:has-text("${label}")`).count()) >= 1,
+        `the tree's dead space offers ${label}`
+      )
+    }
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Rename")').count()) === 0,
+      'and none of the row verbs, which have no row to act on'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
     // Split panes are file-agnostic: pin notes.txt to the RIGHT of the live
     // pane via the flyout, and both files render at once.
     const notesRow = win.locator('[role="treeitem"]:has-text("notes.txt")')

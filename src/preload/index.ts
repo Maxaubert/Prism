@@ -104,6 +104,13 @@ const api = {
     gps?: { lat: number; lon: number }
     dimensions?: string
   }> => ipcRenderer.invoke('image:photo-info', path),
+  /** Paste whatever files are on the clipboard into a folder. The sources may
+   *  be anywhere (you copied them in Explorer); the destination must be inside
+   *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
+  pasteInto: (
+    dir: string
+  ): Promise<{ pasted: number; failed: number; refused?: boolean; empty?: boolean }> =>
+    ipcRenderer.invoke('file:paste-into', dir),
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
