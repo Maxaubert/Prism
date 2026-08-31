@@ -230,6 +230,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `color-mix(in srgb, var(--p-text) 3.5%, transparent)` rather than a fixed grey - Prism has
   custom styles, so it has to hold on void, on an accent-tinted ground and on anything built
   later, and mixing against the TEXT colour gets the direction right by construction. The
+  crumb row ends in a chevron at EVERY level, the current folder included: chevrons only
+  BETWEEN segments read as a separator between two names, and the trailing one is what makes
+  the row read as a path. Rows run EDGE TO EDGE with no radius, so the stripe and the
+  selection fill reach both borders rather than floating as tiles in a gutter - the scroller
+  gives up its horizontal padding and the rows carry the inset themselves, at the same px-4
+  the column header uses, so the columns still line up. The
   extraction progress track is ALWAYS in the layout and only fades in, because inserting it
   when the work began pushed the member list down and pulled it back up; the e2e measures
   that the list does not move. And finishing raises NO popup (owner decision) - the button
@@ -316,9 +322,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   was tried and REMOVED the same day: dragging is for moving, and the sweep's pointer
   state outlived real drags); right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single
-  click - a plain click still opens a file or expands a folder (double-click-to-open was
-  tried and rolled back the same day; only the ARCHIVE is double-click, where single
-  click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  click for FILES - one click opens one. A FOLDER selects on the first click and expands on
+  the SECOND (owner decision, 2026-08-31): it is a drop destination, a rename target and what
+  "Open terminal here" acts on, so pointing at one without walking into it is worth a click.
+  That NARROWS the 2026-08-22 rule rather than reversing it - what was tried and rolled back
+  then was double-click-to-OPEN, which still does not exist. The chevron still expands on the
+  first click, being the one control whose whole job is the folder's state. The ARCHIVE stays
+  double-click, where single click selects. Contiguous selected rows fuse in the TREE (shared
+  edges drop their rounding); the archive's rows are square and edge to edge, so there is
+  nothing there to fuse.
   Search results speak the same selection language, multi right-click included.
   DRAG-SELECT came back for the ARCHIVE alone (2026-08-25): it starts only on the
   panel's DEAD SPACE, so a row drag (which moves members) can never leave a phantom
