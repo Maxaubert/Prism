@@ -325,14 +325,41 @@ input[type='color']::-webkit-color-swatch {
    9-point Word text is unreadable, and every one of these files is something
    somebody wrote to be read. Tables get to use the whole width, since a
    spreadsheet is the one thing here that is not prose. */
+/*
+ * A document is a SHEET on a CANVAS, the way Word shows one - and the way the
+ * file looks anywhere else it is opened. Before this the reading view had no
+ * background at all and inherited the theme's, so a .docx on the void style
+ * opened as white text on pure black: legible, and nothing like the document.
+ *
+ * The canvas keeps the theme. The SHEET is always paper and always dark ink,
+ * whatever the style, and it redefines the handful of tokens the rules below
+ * use rather than restating them - so borders, quotes, slide numbers and table
+ * headers all come out paper-appropriate without a second set of selectors.
+ * Deliberately scoped to this view: DocView is its only consumer, so markdown,
+ * code and the rest keep the theme they are supposed to have.
+ */
 .p-doc {
-  padding: 2.5rem clamp(1rem, 6vw, 4rem);
+  padding: clamp(0.75rem, 3vw, 2.25rem) clamp(0.5rem, 3vw, 2rem);
+  background: var(--p-bg);
+}
+.p-sheet {
+  --p-text: #1f2126;
+  --p-text-soft: #55585f;
+  --p-dim2: #8a8d94;
+  --p-line: #d9dce1;
+  --p-side-flat: #f1f2f4;
+  max-width: 52rem;
+  margin-inline: auto;
+  padding: 3.25rem clamp(1.25rem, 5vw, 3.5rem);
+  background: #ffffff;
   color: var(--p-text);
+  border-radius: 5px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16), 0 10px 34px rgb(0 0 0 / 0.24);
   font-size: 15px;
   line-height: 1.68;
 }
-.p-doc > * {
-  max-width: 46rem;
+.p-sheet > * {
+  max-width: 44rem;
   margin-inline: auto;
 }
 .p-doc h1, .p-doc h2, .p-doc h3, .p-doc h4 {
