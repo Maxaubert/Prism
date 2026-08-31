@@ -68,6 +68,7 @@ import { isRaw, rawPreview } from './rawPreview'
 import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
+import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -1409,6 +1410,31 @@ if (!app.requestSingleInstanceLock()) {
     // The same wall as every other handler. A text file only ever reaches the
     // renderer from inside the session root, and opening one from outside
     // re-roots first, so this refuses nothing the app legitimately asks for.
+    /**
+     * The LAST slice of a file, read-only (2026-08-31).
+     *
+     * For a file `file:text` refuses: over 64MB it cannot be handed over as
+     * one string, and the honest answer used to be an overlay saying so. The
+     * tail is the useful half of a 900MB log. Answers with the offset and
+     * the real size, so the editor can say what it is showing - and it never
+     * pretends to be the file, so nothing can save it back.
+     */
+    ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
+      return readTail(p, want)
+    })
+
+    /** Follow a file that is still being written: new bytes arrive on
+     *  `file:appended` until `tail:stop`. One watch per path. */
+    ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
+      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return false
+      return startTail(p, Number(from) || 0, (e) => mainWindow?.webContents.send('file:appended', e))
+    })
+    ipcMain.handle('tail:stop', (_e, p: string) => {
+      if (typeof p === 'string') stopTail(p)
+    })
+
     ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
@@ -2189,6 +2215,7 @@ if (!app.requestSingleInstanceLock()) {
     // thing it was held for is a laptop that never sleeps again.
     keepAwake(false)
     closeAllWatches()
+    stopAllTails()
     if (process.platform !== 'darwin') app.quit()
   })
 }

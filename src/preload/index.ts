@@ -11,6 +11,8 @@ import type {
   SearchResult,
   ShellDef,
   MediaProbe,
+  TailEvent,
+  TailRead,
   TextRead,
   WriteResult
 } from '@shared/types'
@@ -72,6 +74,16 @@ const api = {
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
+  /** The LAST `max` bytes of a file, for one too big for readText. Read-only
+   *  by construction: it answers where it starts and how big the file really
+   *  is, and never claims to be the file. */
+  tailBytes: (path: string, max: number): Promise<TailRead | null> =>
+    ipcRenderer.invoke('file:tailBytes', path, max),
+  /** Follow a file that is still being written, from `from` bytes in. New
+   *  text arrives through onFileAppended until stopTail. */
+  startTail: (path: string, from: number): Promise<boolean> =>
+    ipcRenderer.invoke('tail:start', path, from),
+  stopTail: (path: string): Promise<void> => ipcRenderer.invoke('tail:stop', path),
   /** Save the editor's text over the file. Text kinds only, inside the root.
    *  Answers with a reason, so a failed save can say why rather than only
    *  that it failed. */
@@ -307,6 +319,12 @@ const api = {
     const listener = (_: unknown, m: DirChange): void => cb(m)
     ipcRenderer.on('dir:changed', listener)
     return () => ipcRenderer.removeListener('dir:changed', listener)
+  },
+  /** A followed file grew (or was truncated, which is `reset`). */
+  onFileAppended: (cb: (e: TailEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: TailEvent): void => cb(e)
+    ipcRenderer.on('file:appended', listener)
+    return () => ipcRenderer.removeListener('file:appended', listener)
   },
 
   /* ----- the terminal ----- */

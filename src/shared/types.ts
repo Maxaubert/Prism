@@ -209,3 +209,21 @@ export interface MediaProbe {
  * save its own placeholder over the file it failed to open.
  */
 export type TextRead = { text: string } | { error: 'too-large' | 'unreadable' }
+
+/** The last slice of a file that is too big to open whole, plus where it
+ *  starts and how big the file really is. Never a substitute for the file:
+ *  the editor keeps its "what was on disk" ref null for one of these, which
+ *  is what makes saving structurally impossible. */
+export interface TailRead {
+  text: string
+  from: number
+  size: number
+}
+
+/** A followed file grew. `reset` means it got SHORTER - rotated, truncated,
+ *  replaced - so the new bytes must not be spliced onto the old tail. */
+export interface TailEvent {
+  path: string
+  text: string
+  reset: boolean
+}

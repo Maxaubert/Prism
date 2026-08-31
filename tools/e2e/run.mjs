@@ -12,7 +12,16 @@
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -965,6 +974,138 @@ async function reloadScenario(fixtures) {
     )
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * Files that grow, files too big to open, and files Prism cannot read at all
+ * (2026-08-31).
+ *
+ * The safety property is the one worth asserting: none of these three may
+ * ever be saveable. A followed log that reported a buffer would be starred in
+ * the tree and offered under "Save all changes" on the way out, which is how
+ * a partial tail ends up written over a 900MB file.
+ */
+async function tailScenario(fixtures) {
+  console.log('following, tailing and bytes')
+  const grow = join(fixtures, 'grow.log')
+  const huge = join(fixtures, 'huge.log')
+  writeFileSync(grow, 'line one\n')
+  // Just over the editor's 64MB ceiling, with a marker at the very end so the
+  // assertion proves it is the TAIL and not the head.
+  const block = 'x'.repeat(1023) + '\n'
+  const chunks = []
+  for (let i = 0; i < 66 * 1024; i += 1) chunks.push(block)
+  chunks.push('THE-VERY-LAST-LINE\n')
+  writeFileSync(huge, chunks.join(''))
+
+  const { app, win } = await launch(grow)
+  try {
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('line one'),
+      null,
+      { timeout: 10000 }
+    )
+
+    // Follow it, from the context menu.
+    await win.click('.cm-content', { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.click('[role="menuitem"]:has-text("Follow the file")')
+    await sleep(400)
+    ok((await win.locator('text=Following this file').count()) === 1, 'following says so')
+
+    appendFileSync(grow, 'line two\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('line two'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a followed file grows in the editor')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'and the appended text is NOT an unsaved change'
+    )
+
+    // Stop, and it is an ordinary editable file again.
+    await win.click('.cm-content', { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.click('[role="menuitem"]:has-text("Follow the file")')
+    await sleep(600)
+    ok((await win.locator('text=Following this file').count()) === 0, 'stopping puts the banner away')
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('typed')
+    await sleep(300)
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 1,
+      'and the file is editable again afterwards'
+    )
+    await win.keyboard.press('Control+s')
+    await sleep(500)
+    ok(readFileSync(grow, 'utf-8').includes('typed'), 'which really saves')
+
+    // A file past the 64MB ceiling shows its END instead of an apology.
+    await win.click('[role="treeitem"]:has-text("huge.log")')
+    await win.waitForSelector('text=Showing the end of this file', { timeout: 20000 })
+    // CodeMirror only renders the lines in view, so the marker at the very
+    // end of a 2MB tail is not in the DOM until we go there.
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('THE-VERY-LAST-LINE'),
+      null,
+      { timeout: 20000 }
+    )
+    ok(true, 'a file too big for the editor shows its tail')
+    ok(
+      (await win.locator('text=Showing the end of this file').count()) === 1,
+      'and says so, with the real size'
+    )
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'a tail is never an unsaved change'
+    )
+    appendFileSync(huge, 'AND-THEN-MORE\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('AND-THEN-MORE'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'and it keeps following')
+
+  } finally {
+    await app.close()
+    for (const f of [huge, grow]) rmSync(f, { force: true })
+  }
+}
+
+/**
+ * A file Prism cannot read at all can still show its bytes (2026-08-31).
+ *
+ * Launched on directly, because the tree hides unviewable files: the only
+ * route to this screen is Windows handing the file over, which is exactly
+ * why the screen exists.
+ */
+async function hexScenario(fixtures) {
+  console.log('showing the bytes')
+  const bin = join(fixtures, 'mystery.qqq')
+  writeFileSync(bin, Buffer.from([0x50, 0x52, 0x49, 0x53, 0x4d, 0x00, 0x01, 0xff]))
+  const { app, win } = await launch(bin)
+  try {
+    await win.waitForSelector('button:has-text("Show the bytes")', { timeout: 15000 })
+    ok(true, 'an unreadable file offers its bytes')
+    await win.click('button:has-text("Show the bytes")')
+    await win.waitForSelector('text=Page 1 of 1', { timeout: 10000 })
+    const dump = await win.textContent('.font-mono')
+    ok(dump.includes('50 52 49 53 4d 00 01 ff'), `the row reads the file's bytes (${JSON.stringify(dump.trim())})`)
+    ok(dump.includes('PRISM'), 'and the ascii gutter shows the printable ones')
+    ok(dump.includes('00000000'), 'with an offset column')
+    await win.click('button:has-text("Close")')
+    await sleep(300)
+    ok((await win.locator('button:has-text("Show the bytes")').count()) === 1, 'and Close goes back')
+  } finally {
+    await app.close()
+    rmSync(bin, { force: true })
   }
 }
 
@@ -2962,6 +3103,8 @@ await run(sortScenario)
 await run(contextMenuScenario)
 await run(editScenario)
 await run(reloadScenario)
+await run(tailScenario)
+await run(hexScenario)
 await run(codeScenario)
 await run(treeNavScenario)
 await run(unsavedScenario)

@@ -122,6 +122,24 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+  **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
+  written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
+  its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed
+  file keeps no `saved.current` at all, which is the ref `save()` checks, so nothing has to
+  remember to test a flag. That matters because the editor's one update listener treats any
+  document change as the user typing - an appended chunk would star the file in the tree and
+  arm "Save all changes" on the way out, which is how a partial tail gets written over a
+  900MB file. Appends are kept out of the undo history too (Ctrl+Z would otherwise un-grow
+  the log). The watching is `src/main/fileTail.ts`: an offset, a 500ms poll and a read of
+  exactly the new bytes, never sync, with a STREAMING decoder because a chunk boundary can
+  fall mid-character, and a RESET when the file gets SHORTER - a rotated log is not new
+  bytes to splice on. `TEXT_MAX_BYTES` is untouched; the tail is a separate read-only path.
+  **HEX** (`lib/hexRows.ts` + `HexView`): a file Prism cannot interpret is still one it can
+  read, so `UnsupportedView` grew its one button. A page at a time over a Range request
+  against `fsmedia://`, so it costs 4KB whether the file is a header or a 4GB ISO - the
+  renderer never holds it. Paged rather than scrolled on purpose: a continuous hex view of a
+  big file is a 268-million-row virtualized list, which is a viewer, not a panel. The tree
+  HIDES unviewable files, so the only route to that screen is Windows handing the file over.
 - **Archives beyond zip** (2026-08-24): `.7z .rar .tar .gz .tgz .bz2 .xz .iso .cab` open
   READ-ONLY through a bundled 7-Zip (`sevenZip.ts`; `tools/fetch-7zip.mjs` expands the official
   MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view
