@@ -73,22 +73,54 @@ COLOURS = {
     "video": ("MP4", PAGE),
 }
 
+# Prism's own accent. CODE is the second exception to the one page colour the
+# other kinds share, after comic, and it exists to solve a real collision: code
+# and document are both three rounded bars in the same box, so once the six went
+# to a single page colour the silhouette was the only thing telling them apart,
+# and at 16px that is nothing. One bar in the accent separates them without
+# either glyph moving - and colour is the right axis for it, because hue
+# survives downsampling where geometry does not.
+CODE_ACCENT = (91, 91, 214)
+
+
+def _code_bars(d, n, box, col, hole=None):
+    """Stepped indent bars, the middle one in the accent and the rest in ink."""
+    x0, y0, x1, y1 = box
+    w, h = x1 - x0, y1 - y0
+    rows = ((0.00, 0.74, col), (0.22, 1.00, CODE_ACCENT), (0.00, 0.56, col))
+    for i, (a, b, fill) in enumerate(rows):
+        y = y0 + i * h * 0.37
+        d.rounded_rectangle([g(n, x0 + w * a), g(n, y), g(n, x0 + w * b), g(n, y + h * 0.26)],
+                            radius=g(n, h * 0.07), fill=fill)
+
+
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": dict((k, f) for k, _l, f in R14["code"][2])["bars"],
+    "code": _code_bars,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
     "video": clapper,
 }
 
 
-def _page_kind(kind, size):
-    """The five that are a page, a chip and one knocked-out glyph."""
+def _page_kind_with(kind, size, glyph):
+    """A page kind rendered with an arbitrary glyph.
+
+    Exists so a mockup round can try alternative marks through the REAL
+    construction - this page, this chip, this label, this colour - rather than
+    through a copy of it that can drift. `_page_kind` is this with the kind's
+    own settled glyph.
+    """
     ext, colour = COLOURS[kind]
-    obj = Kind(kind, ext, colour, colour, "", PAGE_GLYPHS[kind], PAGE_GLYPHS[kind])
+    obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
     spec = _spec(page=colour, fold=INK, band=INK, band_at="chip", glyph_col=INK,
                  glyph_box=BOX, text=ext, text_col=colour, sprocket=colour)
     return build(size, obj, spec)
+
+
+def _page_kind(kind, size):
+    """The five that are a page, a chip and one knocked-out glyph."""
+    return _page_kind_with(kind, size, PAGE_GLYPHS[kind])
 
 
 def _archive(kind, size):

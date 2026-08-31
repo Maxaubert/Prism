@@ -88,7 +88,15 @@ class Recorder:
         self.ops = []
 
     def _layer(self, fill):
-        return self.inks.get(id(fill))
+        """Map a fill to a layer, defaulting UNKNOWN colours to the knockout.
+
+        Dropping them was the old behaviour and it fails silently: the code
+        glyph's accent bar is drawn in Prism's indigo rather than in the ink
+        sentinel, and it simply vanished from the SVG. In-app everything is one
+        colour anyway, so an unrecognised fill belongs with the ink - a bar that
+        would have gone missing is now just monochrome, which is the point.
+        """
+        return self.inks.get(id(fill), KO)
 
     def rectangle(self, xy, fill=None, **_):
         if (lay := self._layer(fill)):
