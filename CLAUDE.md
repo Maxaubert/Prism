@@ -207,7 +207,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
   7-Zip path reports its own percentage (`-bsp1`, streamed rather than buffered), because a
   button reading "Extracting..." for the minutes a 2GB archive takes is indistinguishable
-  from one that has hung. Properties on a zip reports what it
+  from one that has hung. **A ZIP RECORDS ITS FOLDERS OPTIONALLY** and plenty of writers
+  leave them out (Google Takeout, `zip -D`, most Java tooling), which made such an archive
+  read as EMPTY: the panel lists one level at a time by matching each member's parent, and
+  every member's parent was two levels down with nothing naming those folders.
+  `shared/archiveTree.ts` fills them in from the member names, pure and tested, applied to
+  BOTH readers' output because what the container says is the problem. Member order is
+  NUMERIC now too, the same hoisted collator `dirList.ts` uses: a plain localeCompare put
+  "issue 10" before "issue 2", which for an archive full of comics was the whole listing in
+  the wrong order. Properties on a zip reports what it
   holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
@@ -300,6 +308,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
+  menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
+  "these are what I am about to act on", and the menu already acts on the row you opened it
+  over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
+  are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
+  clicking INSIDE a multi-selection still acts on all of it.
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.

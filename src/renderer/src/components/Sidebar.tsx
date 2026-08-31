@@ -455,13 +455,23 @@ export function Sidebar({
       fromSearch = false
     ) => {
       e.preventDefault()
-      // Right-clicking INSIDE a multi-selection acts on all of it; outside,
-      // the clicked row becomes the selection first, the way Explorer does.
+      // Right-clicking INSIDE a multi-selection acts on all of it. OUTSIDE it,
+      // the row is only the menu's TARGET and is marked in grey by `menuPath`
+      // (TreeRows' `onMenuHl`) - it does not become the accent selection.
+      // The accent means "these are what I am about to act on", and the menu
+      // already acts on the row it was opened over, so selecting it as well
+      // says the same thing twice in the louder of the two ways.
+      //
+      // Existing marks are DROPPED for that same reason: right-clicking row A
+      // while B and C are marked leaves the verb going to A, and marks that
+      // claim otherwise are lying about what is about to happen. Same rule as
+      // a press on dead space.
+      //
       // A SEARCH hit never inherits the tree's selection: those are different
       // lists, and the menu would have acted on rows the user could not see.
       const multi =
         !fromSearch && sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
-      if (!multi && !fromSearch) setSel({ anchor: path, items: new Set([path]) })
+      if (!multi && !fromSearch && sel.items.size) setSel(emptySelection)
       setMenu({
         x: e.clientX,
         y: e.clientY,

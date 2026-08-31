@@ -472,6 +472,14 @@ export function buildFixtures() {
   wrapped.addFile('Collection/sub/two.txt', Buffer.from('second'))
   wrapped.writeZip(join(FIXTURES, 'zips', 'wrapped.zip'))
 
+  // A zip with NO directory records, which is what Google Takeout and `zip -D`
+  // produce: every member is a deep path and nothing names the folders. The
+  // panel used to show such an archive as empty.
+  const flat = new AdmZip()
+  for (const name of ['Deep/Inner/one.txt', 'Deep/Inner/two.txt', 'Deep/other.txt'])
+    flat.addFile(name, Buffer.from(name))
+  flat.writeZip(join(FIXTURES, 'zips', 'nodirs.zip'))
+
   // Somewhere for a member dragged OUT of the archive to land (#70), and a
   // little tree of its own for the sidebar's move.
   mkdirSync(join(FIXTURES, 'zips', 'out'), { recursive: true })

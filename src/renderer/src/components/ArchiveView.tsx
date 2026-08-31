@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
@@ -149,6 +150,10 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
+/** One collator, hoisted: a fresh one per comparison is the 23ms-vs-0.5ms
+ *  lesson dirList.ts already paid for. */
+const collator = new Intl.Collator(undefined, { numeric: true })
+
 export function ArchiveView({
   file,
   onUndoable,
@@ -267,7 +272,11 @@ function ArchiveInner({
           // A password that got us in belongs to the renderer's own store too,
           // so dragging a member out to a folder does not ask again.
           if (password) rememberArchivePassword(file.path, password)
-          setEntries(r.entries)
+          // A zip's directory records are OPTIONAL and plenty of writers
+          // leave them out, which used to make such an archive read as
+          // EMPTY: every member's parent was two levels down and the
+          // folders those names imply did not exist to be listed.
+          setEntries(withImpliedFolders(r.entries))
           return
         }
         setEntries(r.reason === 'password' ? 'locked' : 'error')
@@ -282,7 +291,7 @@ function ArchiveInner({
     if (!entries || entries === 'error' || entries === 'locked') return []
     return entries
       .filter((e) => parentOf(e.path) === cwd)
-      .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
+      .sort((a, b) => (a.dir === b.dir ? collator.compare(a.name, b.name) : a.dir ? -1 : 1))
   }, [entries, cwd])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {

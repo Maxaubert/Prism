@@ -1224,6 +1224,33 @@ async function extractScenario(fixtures) {
   }
 }
 
+/**
+ * A zip with NO directory records (2026-08-31).
+ *
+ * Directory entries are optional in a zip and plenty of writers leave them
+ * out - Google Takeout is the one that found this. The panel lists one level
+ * at a time by matching each member's parent, so such an archive showed
+ * NOTHING at its root: every member's parent was two levels down and the
+ * folders those names imply did not exist to be listed.
+ */
+async function flatZipScenario(fixtures) {
+  console.log('a zip that records no folders')
+  const { app, win } = await launch(join(fixtures, 'zips', 'nodirs.zip'))
+  try {
+    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    const names = async () =>
+      (await win.locator('[data-arc-row]').allTextContents()).join(' | ')
+    ok((await win.locator('[data-arc-row]').count()) > 0, 'the archive does not read as empty')
+    ok((await names()).includes('Deep'), 'the folder its member names imply is listed')
+    await win.locator('[data-arc-row]:has-text("Deep")').first().dblclick()
+    await sleep(500)
+    ok((await names()).includes('Inner'), 'and so is the one below that')
+    ok((await names()).includes('other.txt'), 'beside the real member at that level')
+  } finally {
+    await app.close()
+  }
+}
+
 async function codeScenario(fixtures) {
   console.log('code viewer')
   const dir = join(fixtures, 'code')
@@ -3235,6 +3262,7 @@ await run(tabsScenario)
 await run(terminalScenario)
 await run(archiveScenario)
 await run(extractScenario)
+await run(flatZipScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
