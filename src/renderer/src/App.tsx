@@ -603,11 +603,22 @@ function PinnedPaneView({
   )
 }
 
+/**
+ * The window with nothing in it at all.
+ *
+ * The first button is NEW TAB, not "Open file…" (owner pick, 2026-08-31).
+ * Picking one file from a dialog is the narrowest way into an app whose whole
+ * model is a tab rooted at a FOLDER you then browse: it left you with one
+ * file and no obvious next move. New tab is instant and lands you somewhere
+ * to look around, exactly as the + does, and the folder chooser is beside it
+ * for when you know where you are going. Dropping a file still works and the
+ * line above still says so.
+ */
 function EmptyState({
-  onOpen,
+  onNewTab,
   onOpenFolder
 }: {
-  onOpen: () => void
+  onNewTab: () => void
   onOpenFolder: () => void
 }): JSX.Element {
   return (
@@ -637,9 +648,9 @@ function EmptyState({
       <div className="flex items-center gap-2">
         <button
           className="no-drag rounded-xl bg-[var(--p-accent)] px-4 py-2 text-sm font-semibold text-[var(--p-on-accent)] hover:brightness-110"
-          onClick={onOpen}
+          onClick={onNewTab}
         >
-          Open file…
+          New tab
         </button>
         <button
           className="no-drag rounded-xl border border-[color:var(--p-line)] px-4 py-2 text-sm font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-accent-hi)]"
@@ -1075,7 +1086,6 @@ export default function App(): JSX.Element {
     activeIdRef.current = activeId
   }, [tabs, activeId])
 
-  const browse = useCallback(() => void window.prism.openDialog().then(open), [open])
   /**
    * A new tab, immediately. No dialog: the + and Ctrl+T are meant to be instant,
    * so a tab arrives rooted at the user's own folder and you browse from there.
@@ -2644,7 +2654,7 @@ export default function App(): JSX.Element {
                 ) : active ? (
                   <NoFileState />
                 ) : (
-                  <EmptyState onOpen={browse} onOpenFolder={rerootHere} />
+                  <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
               const pins = active?.panes ?? []
               const withPlayers = (
