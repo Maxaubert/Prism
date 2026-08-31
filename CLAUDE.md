@@ -224,7 +224,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   BOTH readers' output because what the container says is the problem. Member order is
   NUMERIC now too, the same hoisted collator `dirList.ts` uses: a plain localeCompare put
   "issue 10" before "issue 2", which for an archive full of comics was the whole listing in
-  the wrong order. Properties on a zip reports what it
+  the wrong order. The crumb row is CHEVRONS with the folder you are in in full contrast and
+  semibold (2026-08-31): it was all one grey with `/` between, which read as a sentence
+  rather than as a path you can click back along. Rows are ZEBRA-striped, and the stripe is
+  `color-mix(in srgb, var(--p-text) 3.5%, transparent)` rather than a fixed grey - Prism has
+  custom styles, so it has to hold on void, on an accent-tinted ground and on anything built
+  later, and mixing against the TEXT colour gets the direction right by construction. The
+  extraction progress track is ALWAYS in the layout and only fades in, because inserting it
+  when the work began pushed the member list down and pulled it back up; the e2e measures
+  that the list does not move. And finishing raises NO popup (owner decision) - the button
+  you pressed says "Extracted" for two seconds and goes back, which is closure without
+  ceremony. A FAILURE still speaks, and carries 7-Zip's own line. Properties on a zip reports what it
   holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED

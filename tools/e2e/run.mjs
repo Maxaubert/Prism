@@ -424,6 +424,13 @@ async function pdfScenario(fixtures) {
     ok(!win.isClosed(), 'and does not close the window')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
 
+    // 100% IS A WIDTH ON SCREEN, not 1.9x whatever the page measures. A
+    // 1822pt-wide page used to render 3462 CSS px across at "100%".
+    const letterW = await win.evaluate(
+      () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
+    )
+    ok(Math.abs(letterW - 612 * 1.9) < 2, `a letter page is unchanged at 100% (${letterW.toFixed(0)}px)`)
+
     // Links. Page 1 carries three annotations in the fixture and Prism must
     // render exactly two: the /Launch at calc.exe is refused, and that
     // refusal is the point of the whole layer.
@@ -1202,6 +1209,16 @@ async function extractScenario(fixtures) {
       (await win.locator('button:has-text("Extract to")').count()) === 1,
       'and Extract to... beside it'
     )
+    // The progress track is ALWAYS in the layout, so nothing moves when an
+    // extraction starts or ends. Measured, because "it looks fine" is exactly
+    // how the jump got shipped.
+    const listTop = async () =>
+      win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
+    const beforeTop = await listTop()
+    ok(
+      (await win.locator('[role="progressbar"]').count()) === 1,
+      'the progress track is present before anything runs'
+    )
     await win.click('button:has-text("Extract here")')
     await win.waitForFunction(
       () => !document.body.textContent.includes('Extracting'),
@@ -1209,6 +1226,15 @@ async function extractScenario(fixtures) {
       { timeout: 30000 }
     )
     await sleep(600)
+    const afterTop = await listTop()
+    ok(
+      Math.abs(afterTop - beforeTop) < 0.5,
+      `the member list never moved (${beforeTop.toFixed(1)} -> ${afterTop.toFixed(1)})`
+    )
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      'and finishing raises no popup'
+    )
     ok(existsSync(landed), 'the single top-level folder landed directly, not wrapped')
     ok(
       existsSync(join(landed, 'one.txt')) && existsSync(join(landed, 'sub', 'two.txt')),
@@ -1246,6 +1272,43 @@ async function flatZipScenario(fixtures) {
     await sleep(500)
     ok((await names()).includes('Inner'), 'and so is the one below that')
     ok((await names()).includes('other.txt'), 'beside the real member at that level')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * 100% is a WIDTH ON SCREEN, not a multiple of the page's own size
+ * (2026-08-31).
+ *
+ * pdf.js scales are relative to the page, so a flat "100% = 1.9 units" meant
+ * an artbook with 1822pt pages opened three times the width of a letter
+ * document and read as the viewer being broken.
+ */
+async function pdfZoomScenario(fixtures) {
+  console.log('pdf zoom baseline')
+  const { app, win } = await launch(join(fixtures, 'bigpdf', 'big.pdf'))
+  try {
+    await win.waitForSelector('[data-page="1"] canvas', { timeout: 15000 })
+    await sleep(600)
+    ok(
+      (await win.textContent('button[title="Default zoom (0)"]')) === '100%',
+      'a big-page document still opens at 100%'
+    )
+    const w = await win.evaluate(
+      () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
+    )
+    ok(
+      Math.abs(w - 612 * 1.9) < 3,
+      `and lands the same width as a letter page (${w.toFixed(0)}px, letter is ${(612 * 1.9).toFixed(0)})`
+    )
+    await win.hover('[data-page="1"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    await sleep(400)
+    ok(
+      (await win.textContent('button[title="Default zoom (0)"]')) === '118%',
+      'and the zoom ladder still reads in percent from there'
+    )
   } finally {
     await app.close()
   }
@@ -3241,6 +3304,7 @@ async function run(fn, gap = 900) {
 await seedProfile()
 await run(mdScenario)
 await run(pdfScenario)
+await run(pdfZoomScenario)
 await run(sortScenario)
 await run(contextMenuScenario)
 await run(editScenario)

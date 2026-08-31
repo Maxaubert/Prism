@@ -66,7 +66,7 @@ const FFMPEG = findFfmpeg()
  * The third is the point of the other two: the allowlist is only proven by
  * the thing it turns away.
  */
-function makePdf(pages, links = false) {
+function makePdf(pages, links = false, box = '0 0 612 792') {
   const objects = []
   const pageRefs = pages.map((_, i) => `${4 + i * 2} 0 R`)
   // Annotations get the numbers after the last page's content stream, which
@@ -89,7 +89,7 @@ function makePdf(pages, links = false) {
     ].join('\n')
     const annots = links && i === 0 ? `/Annots [${annotRefs.join(' ')}] ` : ''
     objects.push(
-      `${4 + i * 2} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+      `${4 + i * 2} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [${box}] ` +
         `${annots}/Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>\nendobj\n`
     )
     objects.push(
@@ -157,6 +157,17 @@ export function buildFixtures() {
       ['The second page mentions grape once.'],
       ['The last page ends with grape and Grape.']
     ], true)
+  )
+
+  // A PDF with BIG pages (2026-08-31). pdf.js units are relative to the page's
+  // own size, so a flat "100% = 1.9 units" made this render three times the
+  // width of the letter one above. It must now land at the same width.
+  // In its own folder: the root listing is what the sort scenario counts, and
+  // a fixture that quietly joins it breaks a test about something else.
+  mkdirSync(join(FIXTURES, 'bigpdf'), { recursive: true })
+  writeFileSync(
+    join(FIXTURES, 'bigpdf', 'big.pdf'),
+    makePdf([['A very large page indeed.']], false, '0 0 1822 2600')
   )
 
   // Mixed kinds for the filter scenarios: 2 images + 1 audio (media) and

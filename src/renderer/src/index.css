@@ -396,6 +396,19 @@ input[type='color']::-webkit-color-swatch {
    halo. Deliberately DARK greys, not Photoshop's white-and-light-grey: a
    bright slab in a near-black viewer is worse than no checker at all, and the
    picture is still the thing that has to read. */
+/* Zebra rows in the archive panel (2026-08-31).
+   Alternating stripes make a long member list far easier to read across, and
+   the colour has to come from the THEME rather than a fixed grey: Prism has
+   custom styles, so "one line black, the next dark grey" has to hold on void,
+   on an accent-tinted ground, and on anything somebody builds later.
+   color-mix against --p-text does exactly that, and in the right direction by
+   construction - a dark theme has light text and gets a light film, a light
+   one has dark text and gets a dark film. Kept well under the hover overlay's
+   strength so hovering a striped row still reads as a change. */
+.p-zebra {
+  background-color: color-mix(in srgb, var(--p-text) 3.5%, transparent);
+}
+
 .p-checker {
   background-image:
     linear-gradient(45deg, var(--p-checker-b) 25%, transparent 25%),

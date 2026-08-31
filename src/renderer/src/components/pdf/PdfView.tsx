@@ -6,6 +6,7 @@ import { IconFull } from '../icons'
 import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
 import { PdfPage } from './PdfPage'
 import { type PdfLink } from '../../lib/pdfLinks'
+import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
 import '../../assets/pdf.css'
 
@@ -33,11 +34,13 @@ const sideData = (dir: string): string => {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
 const STEP = 1.18
-// The default zoom, and what the pill calls 100%: pdf.js's own 1.0 (one PDF
-// point per CSS px) reads small on a modern screen, so the baseline sits at
-// 1.9 (owner decision, 2026-08-12: "190% is the new 100%"). Fit modes and the
-// absolute clamps still work in pdf.js units; only the label is rebased.
-const DEFAULT_ZOOM = 1.9
+// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdfZoom.ts:
+// pdf.js units are relative to the page's own size, so a flat 1.9 meant "1.9x
+// whatever this document happens to measure" and an artbook with 1800pt pages
+// opened three times the width of a letter one (2026-08-31). 100% is a fixed
+// width on screen now, and a letter page still lands at exactly 1.9, so the
+// documents that were already right are unchanged. Fit modes and the absolute
+// clamps still work in pdf.js units.
 const PAGE_GAP = 16
 const PAD_X = 48
 const PAD_Y = 24
@@ -68,7 +71,10 @@ export function PdfView({
 }): JSX.Element {
   const [docState, setDocState] = useState<DocState | null>(null)
   const [mode, setMode] = useState<FitMode>('manual')
-  const [manualScale, setManualScale] = useState(DEFAULT_ZOOM)
+  /** The manual zoom as a MULTIPLE of this document's base, so 1 is 100%
+   *  whatever the pages measure. Stored relative rather than absolute
+   *  because the base is not known until page one has loaded. */
+  const [manualZoom, setManualZoom] = useState(1)
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState<string | null>(null)
@@ -104,7 +110,7 @@ export function PdfView({
   if (forUrl !== url) {
     setForUrl(url)
     setMode('manual')
-    setManualScale(DEFAULT_ZOOM)
+    setManualZoom(1)
     setPage(1)
     setPageEdit(null)
     setDims(new Map())
@@ -193,7 +199,9 @@ export function PdfView({
     [boxSize, baseDims]
   )
 
-  const scale = mode === 'manual' ? manualScale : fitFor(mode)
+  /** The pdf.js scale this document calls 100%. */
+  const base = baseZoom(baseDims.w)
+  const scale = mode === 'manual' ? clamp(manualZoom * base, MIN_SCALE, MAX_SCALE) : fitFor(mode)
 
   // Zoom keeps the point of the document you were looking at where it was:
   // remember the scroll centre as a fraction, restore it after the resize.
@@ -216,13 +224,14 @@ export function PdfView({
     box.scrollTop = a.y * box.scrollHeight - box.clientHeight / 2
   }, [scale])
 
+  /** Takes a pdf.js scale, stores it relative to the document's base. */
   const rescale = useCallback(
     (next: number) => {
       holdCentre()
       setMode('manual')
-      setManualScale(clamp(next, MIN_SCALE, MAX_SCALE))
+      setManualZoom(clamp(next, MIN_SCALE, MAX_SCALE) / base)
     },
-    [holdCentre]
+    [holdCentre, base]
   )
 
   const zoomBy = useCallback((f: number) => rescale(scale * f), [rescale, scale])
@@ -534,7 +543,7 @@ export function PdfView({
           zoomBy(1 / STEP)
           break
         case '0':
-          rescale(DEFAULT_ZOOM)
+          rescale(base)
           break
         case 'w':
         case 'W':
@@ -553,6 +562,7 @@ export function PdfView({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [
+    base,
     findOpen,
     stepFind,
     closeFind,
@@ -709,10 +719,10 @@ export function PdfView({
           </button>
           <button
             className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15"
-            onClick={() => rescale(DEFAULT_ZOOM)}
+            onClick={() => rescale(base)}
             title="Default zoom (0)"
           >
-            {Math.round((scale / DEFAULT_ZOOM) * 100)}%
+            {zoomPercent(scale, base)}%
           </button>
           <button
             className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15"

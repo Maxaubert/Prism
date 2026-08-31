@@ -250,7 +250,21 @@ function ArchiveInner({
   }, [])
   const [oops, setOops] = useState<string | null>(null)
   /** Where "Extract all" put things, so the note can offer to show you. */
-  const [extracted, setExtracted] = useState<string | null>(null)
+  /**
+   * Just finished, for about two seconds.
+   *
+   * The completion POPUP is gone (owner decision, 2026-08-31): a modal is a
+   * lot of ceremony for "the thing you asked for happened". But a multi-minute
+   * extraction that ends in silence is not much better, so the button you
+   * pressed says so and then goes back to what it was. No new element, so
+   * nothing moves.
+   */
+  const [justDone, setJustDone] = useState(false)
+  useEffect(() => {
+    if (!justDone) return
+    const t = window.setTimeout(() => setJustDone(false), 2200)
+    return () => window.clearTimeout(t)
+  }, [justDone])
   const [busy, setBusy] = useState<'extract' | 'add' | null>(null)
   /** Renaming the archive itself, from the verb row. */
   const [renamingSelf, setRenamingSelf] = useState(false)
@@ -475,7 +489,7 @@ function ArchiveInner({
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
         setBusy(null)
-        if (r.ok) setExtracted(r.path)
+        if (r.ok) setJustDone(true)
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops('That folder is password protected. Open a member first to unlock the archive.')
         else setOops("That folder couldn't be extracted.")
@@ -520,7 +534,7 @@ function ArchiveInner({
       void window.prism.archiveExtractAll(file.path, here).then((r) => {
         setBusy(null)
         setPct(null)
-        if (r.ok) setExtracted(r.dest)
+        if (r.ok) setJustDone(true)
         else if (r.reason === 'cancelled') return
         else if (r.reason === 'password')
           setOops(
@@ -885,7 +899,9 @@ function ArchiveInner({
                 ? pct === null
                   ? 'Extracting…'
                   : `Extracting… ${pct}%`
-                : 'Extract here'
+                : justDone
+                  ? 'Extracted'
+                  : 'Extract here'
             }
             disabled={busy !== null}
             onClick={() => extractAll(true)}
@@ -923,24 +939,28 @@ function ArchiveInner({
             path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
           />
         </div>
-        {/* Only while something is actually running, and only once 7-Zip has
-            said a number: a bar that appears at 0 and sits there is worse
-            than the word on the button. */}
-        {busy === 'extract' && pct !== null && (
+        {/* The track is ALWAYS in the layout and only fades in, so starting
+            and finishing an extraction moves nothing: the first cut of this
+            inserted the bar when the work began, which pushed the member list
+            down and pulled it back up again. Only painted once 7-Zip has said
+            a number - a bar that appears at 0 and sits there is worse than the
+            word on the button. */}
+        <div
+          className={`mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)] transition-opacity duration-200 ${
+            busy === 'extract' && pct !== null ? 'opacity-100' : 'opacity-0'
+          }`}
+          role="progressbar"
+          aria-valuenow={pct ?? 0}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Extracting"
+          aria-hidden={busy === 'extract' && pct !== null ? undefined : true}
+        >
           <div
-            className="mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)]"
-            role="progressbar"
-            aria-valuenow={pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Extracting"
-          >
-            <div
-              className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        )}
+            className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
+            style={{ width: `${pct ?? 0}%` }}
+          />
+        </div>
 
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
@@ -949,18 +969,24 @@ function ArchiveInner({
                 never jumps a line). */}
           <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
             <button
-              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
               onClick={() => setCwd('')}
             >
               {file.name}
             </button>
             {crumbs.length > 0 && (
               <>
+                {/* Chevrons rather than slashes, and the folder you are IN in
+                    full contrast and semibold (2026-08-31). It was all one
+                    grey with `/` between, which read as a sentence rather than
+                    as a path you can click your way back along. */}
                 {crumbs.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
-                    <span className="text-[var(--p-dim2)]">/</span>
+                    <span aria-hidden className="text-[var(--p-dim2)]">
+                      ›
+                    </span>
                     <button
-                      className={`no-drag rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+                      className={`no-drag rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
                       onClick={() => setCwd(crumbs.slice(0, i + 1).join('/'))}
                     >
                       {seg}
@@ -1012,7 +1038,7 @@ function ArchiveInner({
                   aria-label={`Contents of ${cwd || file.name}`}
                   className="list-none"
                 >
-                  {rows.map((r) =>
+                  {rows.map((r, rowIndex) =>
                     editing === r.path ? (
                       <li key={r.path} className="px-2">
                         <RenameInput
@@ -1038,7 +1064,7 @@ function ArchiveInner({
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
                                 ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-                                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
+                                : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
                           style={
                             // Contiguous selected rows fuse into one block.
@@ -1280,28 +1306,6 @@ function ArchiveInner({
           ]}
         />
       )}
-      {extracted && (
-        <Dialog
-          title="Extracted"
-          body={
-            <>
-              Everything in this archive is now in <b>{extracted}</b>.
-            </>
-          }
-          onCancel={() => setExtracted(null)}
-          choices={[
-            { label: 'Close', onPick: () => setExtracted(null) },
-            {
-              label: 'Show me',
-              primary: true,
-              onPick: () => {
-                window.prism.showInExplorer(extracted)
-                setExtracted(null)
-              }
-            }
-          ]}
-        />
-      )}
       {renamingSelf && (
         <RenameArchiveDialog
           name={file.name}
@@ -1312,6 +1316,7 @@ function ArchiveInner({
           }}
         />
       )}
+
       {oops && (
         <Dialog
           title="Archive"
