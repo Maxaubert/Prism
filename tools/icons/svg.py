@@ -1,127 +1,109 @@
-"""The seven glyphs as SVG paths, for Prism's own tree rows, search and archive panel.
+"""The seven icons as SVG, monochrome, for Prism's own tree rows, search and archive panel.
 
-In-app they are MONOCHROME and GLYPH ONLY: no page silhouette, no black chip,
-no extension label. At 14px in a tree row a page plus a chip plus a label is a
-smudge, and the row already carries the file's name.
+THE WHOLE ICON, not a glyph. The page silhouette, the folded corner, the black
+chip and the mark on it - the same composition the .ico ships - drawn in one
+colour instead of seven. An earlier cut of this file emitted the bare glyphs
+and that was wrong: the owner asked for the actual icons, just not colourful.
 
-HOW THE SHAPES GET HERE, because it is the whole point of the file. They are
-not redrawn. `Recorder` duck-types the handful of ImageDraw calls the glyph
-functions use - rectangle, rounded_rectangle, polygon, ellipse - and records
-them instead of rasterising, so the SAME functions that draw the .ico frames
-emit the path data. There is one definition of each mark and the two outputs
-cannot drift.
+HOW THE SHAPES GET HERE. The glyph bodies are not redrawn: `Recorder`
+duck-types the four ImageDraw calls the glyph functions use and records them
+instead of rasterising, so the SAME functions that draw the .ico frames emit
+the path data. The page, the fold and the chip are built from round12's own
+constants (PX0/PY0/PX1/PY1, CUT, CHIP) rather than copied numbers, so a change
+to the icon's proportions moves both outputs together.
 
-TWO LAYERS, matching what Prism's existing in-app glyphs do: `body` is the
-solid mass, `ko` is the detail knocked out of it. The caller paints body with
-currentColor and ko with the panel colour, which is what keeps these legible at
-14px without a single stroke. Kinds whose mark has no interior detail return an
-empty `ko`, and the caller should skip the element rather than paint nothing.
+THREE LAYERS, because a monochrome version of a two-colour icon needs one more
+than the icon does:
 
-Everything is emitted on a 24x24 viewBox. Each glyph is recorded at its natural
-geometry and then FITTED to the box from its own measured bounds, which is what
-lets archive - whose folder was laid out around a chip that is not here - fill
-the frame like the rest.
+    body  the page silhouette          -> paint with currentColor
+    ko    fold, chip, and the mark     -> paint with the panel colour
+    hi    knockouts inside the mark    -> paint with currentColor again, over ko
 
-TWO DELIBERATE SIMPLIFICATIONS, invited rather than assumed, and the same trade
-as four text lines becoming three:
+`hi` exists because some marks have detail punched back out to the page colour -
+the clapperboard's stripes, the comic splat's core. In the colour icon those
+are simply the page showing through; in a flat monochrome stack they have to be
+painted back on top. Four of the seven have no `hi` and return "".
 
-- VIDEO's clapperboard has three diagonal stripes in the .ico. At 14px those
-  are about a pixel each and merge into a grey bar, so the in-app mark has TWO
-  fatter ones.
-- COMIC is a bare splat. The shipped icon is a keylined sunburst with a warm
-  halftone and BAM lettered into it; none of that is a 14px mark, and reducing
-  it faithfully gives a coloured smudge. The splat silhouette with an inner
-  knockout is what survives, and it still reads as a comic burst.
+Everything is on a 24x24 viewBox with NO refitting: the icon's own 16-unit grid
+is scaled by 1.5, so the composition keeps the margins and the chip overhang it
+was designed with rather than being stretched to the edges.
 
-    python svg.py           # the paths, ready to paste
-    python svg.py --check   # render each path back out and eyeball it
+THE EXTENSION LABEL is not a path - it is text, and turning a font into
+outlines here would freeze it. `LABEL` gives the placement and size so the
+caller can render <text> with the app's own font if it wants it. At 14px it is
+an unreadable smudge and the tree row already carries the file's name, so
+leaving it out is reasonable; at 20px and up in the archive panel it starts to
+earn its place. The chip is drawn either way.
+
+COMIC IS REDUCED, deliberately. Its shipped icon is a keylined pop-art sunburst
+with a warm halftone under a splat, and every one of those elements exists to
+be a DIFFERENT COLOUR from the one beside it. Flattened to one colour they
+become a grey rectangle. What survives monochrome is the splat, so that is what
+this emits, and it is the only kind whose in-app mark is not a faithful
+reduction of its icon.
+
+    python svg.py            # the paths, ready to paste
+    python svg.py --check <dir>   # write them as .svg files to look at
 """
+import pathlib
 import sys
-from math import cos, pi, sin
 
+from round12 import CHIP, CUT, PX0, PX1, PY0, PY1
 from round12 import lines as doc_lines
+from round13 import clapper
 from round14 import GLYPHS as R14
-from round15 import folder_zip, folder_zip_ink
+from round15 import CHIP_A, folder_zip, folder_zip_ink
 from round17 import quarter
 from round18 import _splat
 
-VIEW = 24.0
-MARGIN = 0.25
+SCALE = 1.5          # 16 grid units -> a 24x24 viewBox
+BOX = (3.8, 7.0, 12.2, 14.0)     # where a page kind's mark sits
+BODY, KO, HI = "body", "ko", "hi"
 
-BODY, KO = "body", "ko"
+
+def u(v):
+    return round(v * SCALE, 2)
 
 
 class Recorder:
     """Records the ImageDraw calls the glyph functions make, per layer."""
 
-    def __init__(self, body_ink, ko_ink):
-        self.body_ink, self.ko_ink = body_ink, ko_ink
+    def __init__(self, ko_ink, hi_ink, body_ink=None):
+        self.inks = {id(ko_ink): KO, id(hi_ink): HI}
+        if body_ink is not None:
+            self.inks[id(body_ink)] = BODY
         self.ops = []
 
     def _layer(self, fill):
-        if fill is self.body_ink:
-            return BODY
-        if fill is self.ko_ink:
-            return KO
-        return None  # a colour we were not told about: dropped, not guessed
+        return self.inks.get(id(fill))
 
     def rectangle(self, xy, fill=None, **_):
-        layer = self._layer(fill)
-        if layer:
-            x0, y0, x1, y1 = xy
-            self.ops.append((layer, "rect", (x0, y0, x1, y1, 0.0)))
+        if (lay := self._layer(fill)):
+            self.ops.append((lay, "rect", (*xy, 0.0)))
 
     def rounded_rectangle(self, xy, radius=0.0, fill=None, **_):
-        layer = self._layer(fill)
-        if layer:
-            x0, y0, x1, y1 = xy
-            self.ops.append((layer, "rect", (x0, y0, x1, y1, float(radius))))
+        if (lay := self._layer(fill)):
+            self.ops.append((lay, "rect", (*xy, float(radius))))
 
     def polygon(self, xy, fill=None, **_):
-        layer = self._layer(fill)
-        if layer:
-            self.ops.append((layer, "poly", tuple(xy)))
+        if (lay := self._layer(fill)):
+            self.ops.append((lay, "poly", tuple(xy)))
 
     def ellipse(self, xy, fill=None, **_):
-        layer = self._layer(fill)
-        if layer:
-            x0, y0, x1, y1 = xy
-            self.ops.append((layer, "ellipse", (x0, y0, x1, y1)))
+        if (lay := self._layer(fill)):
+            self.ops.append((lay, "ellipse", tuple(xy)))
 
-    # Never used by the seven, but present so an unexpected call fails loudly
-    # rather than silently dropping part of a glyph.
     def arc(self, *a, **k):
-        raise NotImplementedError("arc has no path emitter; the glyph needs one")
+        raise NotImplementedError("arc has no path emitter; add one before using it")
 
     def text(self, *a, **k):
-        raise NotImplementedError("text does not belong in an in-app glyph")
+        raise NotImplementedError("the label is emitted as <text>, not as a path")
 
 
-def _points(ops):
-    for _layer, op, p in ops:
-        if op == "poly":
-            for x, y in p:
-                yield x, y
-        else:
-            yield p[0], p[1]
-            yield p[2], p[3]
-
-
-def _fit(ops):
-    """Map the recorded geometry onto the viewBox from its own bounds."""
-    xs = [x for x, _ in _points(ops)]
-    ys = [y for _, y in _points(ops)]
-    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-    span = max(x1 - x0, y1 - y0) or 1.0
-    s = (VIEW - 2 * MARGIN) / span
-    dx = MARGIN + (VIEW - 2 * MARGIN - (x1 - x0) * s) / 2 - x0 * s
-    dy = MARGIN + (VIEW - 2 * MARGIN - (y1 - y0) * s) / 2 - y0 * s
-    return (lambda x: round(x * s + dx, 2)), (lambda y: round(y * s + dy, 2)), s
-
-
-def _rect_path(fx, fy, s, x0, y0, x1, y1, r):
-    a, b, c, d = fx(x0), fy(y0), fx(x1), fy(y1)
-    r = round(min(r * s, (c - a) / 2, (d - b) / 2), 2)
+# ------------------------------------------------------------------- paths
+def rect_path(x0, y0, x1, y1, r=0.0):
+    a, b, c, d = u(x0), u(y0), u(x1), u(y1)
+    r = round(min(r * SCALE, (c - a) / 2, (d - b) / 2), 2)
     if r <= 0.05:
         return f"M{a} {b}H{c}V{d}H{a}Z"
     return (f"M{round(a + r, 2)} {b}H{round(c - r, 2)}A{r} {r} 0 0 1 {c} {round(b + r, 2)}"
@@ -130,41 +112,55 @@ def _rect_path(fx, fy, s, x0, y0, x1, y1, r):
             f"V{round(b + r, 2)}A{r} {r} 0 0 1 {round(a + r, 2)} {b}Z")
 
 
-def _ellipse_path(fx, fy, x0, y0, x1, y1):
-    a, b, c, d = fx(x0), fy(y0), fx(x1), fy(y1)
-    rx, ry = round((c - a) / 2, 2), round((d - b) / 2, 2)
-    cy = round((b + d) / 2, 2)
-    return (f"M{a} {cy}A{rx} {ry} 0 1 0 {c} {cy}A{rx} {ry} 0 1 0 {a} {cy}Z")
+def ellipse_path(x0, y0, x1, y1):
+    a, b, c, d = u(x0), u(y0), u(x1), u(y1)
+    rx, ry, cy = round((c - a) / 2, 2), round((d - b) / 2, 2), round((b + d) / 2, 2)
+    return f"M{a} {cy}A{rx} {ry} 0 1 0 {c} {cy}A{rx} {ry} 0 1 0 {a} {cy}Z"
 
 
-def _poly_path(fx, fy, pts):
-    head = f"M{fx(pts[0][0])} {fy(pts[0][1])}"
-    return head + "".join(f"L{fx(x)} {fy(y)}" for x, y in pts[1:]) + "Z"
+def poly_path(pts):
+    return (f"M{u(pts[0][0])} {u(pts[0][1])}"
+            + "".join(f"L{u(x)} {u(y)}" for x, y in pts[1:]) + "Z")
 
 
-def _emit(ops):
-    fx, fy, s = _fit(ops)
-    out = {BODY: [], KO: []}
-    for layer, op, p in ops:
-        if op == "rect":
-            out[layer].append(_rect_path(fx, fy, s, *p))
-        elif op == "ellipse":
-            out[layer].append(_ellipse_path(fx, fy, *p))
-        else:
-            out[layer].append(_poly_path(fx, fy, p))
-    return {k: " ".join(v) for k, v in out.items()}
+def op_path(op, p):
+    if op == "rect":
+        return rect_path(*p)
+    if op == "ellipse":
+        return ellipse_path(*p)
+    return poly_path(p)
+
+
+def page_path(r=1.0):
+    """The page: a rounded rectangle with its top-right corner cut for the fold."""
+    a, b, c, d = u(PX0), u(PY0), u(PX1), u(PY1)
+    rr, cut = round(r * SCALE, 2), u(PX1 - CUT)
+    return (f"M{round(a + rr, 2)} {b}H{cut}L{c} {u(PY0 + CUT)}"
+            f"V{round(d - rr, 2)}A{rr} {rr} 0 0 1 {round(c - rr, 2)} {d}"
+            f"H{round(a + rr, 2)}A{rr} {rr} 0 0 1 {a} {round(d - rr, 2)}"
+            f"V{round(b + rr, 2)}A{rr} {rr} 0 0 1 {round(a + rr, 2)} {b}Z")
+
+
+def fold_path():
+    return poly_path([(PX1 - CUT, PY0), (PX1, PY0 + CUT), (PX1 - CUT, PY0 + CUT)])
+
+
+def chip_path(chip=CHIP):
+    return rect_path(*chip, 0.7)
+
+
+def label(chip=CHIP):
+    """Placement for an optional <text>, since a font must not become outlines."""
+    return {"x": u((chip[0] + chip[2]) / 2), "y": u((chip[1] + chip[3]) / 2),
+            "size": u((chip[3] - chip[1]) * 0.62), "anchor": "middle",
+            "baseline": "central"}
 
 
 # ------------------------------------------------------------------- glyphs
-# n=24 so g(n, k) already lands in viewBox units before fitting.
-N = 24
-FULL = (0.0, 0.0, 16.0, 16.0)
-
-
 def _clapper_two_stripes(d, n, box, col, hole):
-    """VIDEO in-app: the clapperboard with TWO stripes instead of three.
+    """VIDEO in-app: TWO clapper stripes, not three.
 
-    Three at 14px are about a pixel each and merge into a grey bar. Two fatter
+    At 14px three are about a pixel each and merge into a grey bar. Two fatter
     ones keep the diagonal, which is the only part that says clapperboard.
     """
     x0, y0, x1, y1 = box
@@ -178,70 +174,97 @@ def _clapper_two_stripes(d, n, box, col, hole):
 
 
 def _comic_splat(d, n, box, col, hole):
-    """COMIC in-app: the splat alone, sampled coarsely enough to paste.
-
-    72 samples rather than the 360 the .ico uses - at 14px, and as path data in
-    a JSX file, the extra 288 points cost bytes and buy nothing.
-    """
-    _splat(d, n, 8.0, 8.0, 7.4, 3.9, 8, col, p=3.2, steps=72)
-    _splat(d, n, 8.0, 8.0, 3.6, 1.7, 7, hole, p=3.2, phase=0.4, steps=72)
-
-
-def _record(fn, *, ko=True):
-    body_ink, ko_ink = object(), object()
-    r = Recorder(body_ink, ko_ink)
-    fn(r, N, FULL, body_ink, ko_ink if ko else body_ink)
-    return _emit(r.ops)
+    """COMIC in-app: the splat, which is the only part that survives one colour."""
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    r = min(x1 - x0, y1 - y0) / 2
+    _splat(d, n, cx, cy, r, r * 0.53, 8, col, p=3.2, steps=72)
+    _splat(d, n, cx, cy, r * 0.48, r * 0.23, 7, hole, p=3.2, phase=0.4, steps=72)
 
 
-def _record_archive():
-    body_ink, ko_ink = object(), object()
-    r = Recorder(body_ink, ko_ink)
-    folder_zip(r, N, body_ink)
-    folder_zip_ink(r, N, ko_ink, None)
-    return _emit(r.ops)
+PAGE_GLYPHS = {
+    "audio": quarter,
+    "code": dict((k, f) for k, _l, f in R14["code"][2])["bars"],
+    "comic": _comic_splat,
+    "document": doc_lines,
+    "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
+    "video": _clapper_two_stripes,
+}
+EXT = {"archive": "ZIP", "audio": "MP3", "code": "PY", "comic": "CBZ",
+       "document": "DOCX", "image": "JPG", "video": "MP4"}
 
 
-def glyphs():
-    """kind -> {"body": d, "ko": d}. An empty ko means the mark has no detail."""
-    code_bars = dict((k, f) for k, _l, f in R14["code"][2])["bars"]
-    hills = dict((k, f) for k, _l, f in R14["image"][2])["hills"]
-    return {
-        "archive": _record_archive(),
-        "audio": _record(quarter),
-        "code": _record(code_bars),
-        "comic": _record(_comic_splat),
-        "document": _record(doc_lines),
-        "image": _record(hills),
-        "video": _record(_clapper_two_stripes),
-    }
+def _page_kind(fn):
+    ko_ink, hi_ink = object(), object()
+    r = Recorder(ko_ink, hi_ink)
+    fn(r, 16, BOX, ko_ink, hi_ink)
+    layers = {BODY: [page_path()], KO: [fold_path(), chip_path()], HI: []}
+    for lay, op, p in r.ops:
+        layers[lay].append(op_path(op, p))
+    return layers
+
+
+def _archive():
+    """A container rather than a page, and its chip sits low."""
+    body_ink, ko_ink, hi_ink = object(), object(), object()
+    r = Recorder(ko_ink, hi_ink, body_ink)
+    folder_zip(r, 16, body_ink)
+    folder_zip_ink(r, 16, ko_ink, hi_ink)
+    layers = {BODY: [], KO: [chip_path(CHIP_A)], HI: []}
+    for lay, op, p in r.ops:
+        layers[lay].append(op_path(op, p))
+    return layers
+
+
+def icons():
+    """kind -> {body, ko, hi, label}. An empty layer means: skip the element."""
+    out = {}
+    for kind in sorted(EXT):
+        layers = _archive() if kind == "archive" else _page_kind(PAGE_GLYPHS[kind])
+        out[kind] = {k: " ".join(v) for k, v in layers.items()}
+        out[kind]["label"] = label(CHIP_A if kind == "archive" else CHIP)
+        out[kind]["ext"] = EXT[kind]
+    return out
+
+
+def svg_for(kind, d, px=96, fg="#e9edf7", panel="#1b1d22", with_label=True):
+    lab = ""
+    if with_label:
+        L = d["label"]
+        lab = (f'<text x="{L["x"]}" y="{L["y"]}" font-size="{L["size"]}" fill="{fg}" '
+               f'text-anchor="{L["anchor"]}" dominant-baseline="{L["baseline"]}" '
+               f'font-family="Segoe UI,system-ui,sans-serif" font-weight="700">{d["ext"]}</text>')
+    parts = [f'<path d="{d["body"]}" fill="currentColor"/>']
+    if d["ko"]:
+        parts.append(f'<path d="{d["ko"]}" fill="{panel}"/>')
+    if d["hi"]:
+        parts.append(f'<path d="{d["hi"]}" fill="currentColor"/>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="{px}" '
+            f'height="{px}" style="color:{fg}">{"".join(parts)}{lab}</svg>')
 
 
 def main():
-    gs = glyphs()
+    ic = icons()
     if "--check" in sys.argv:
-        import pathlib
-
-        from PIL import Image
-        out = pathlib.Path(sys.argv[sys.argv.index("--check") + 1]
-                           if len(sys.argv) > sys.argv.index("--check") + 1 else ".")
-        svgs = []
-        for kind, d in gs.items():
-            ko = (f'<path d="{d["ko"]}" fill="#1b1d22"/>' if d["ko"] else "")
-            svgs.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
-                        f'width="96" height="96"><path d="{d["body"]}" fill="#e9edf7"/>{ko}</svg>')
-            (out / f"glyph-{kind}.svg").write_text(svgs[-1], encoding="utf-8")
-        print(f"wrote {len(svgs)} svg files to {out}")
-        _ = Image
+        i = sys.argv.index("--check")
+        out = pathlib.Path(sys.argv[i + 1] if len(sys.argv) > i + 1 else ".")
+        out.mkdir(parents=True, exist_ok=True)
+        for kind, d in ic.items():
+            (out / f"{kind}.svg").write_text(svg_for(kind, d), encoding="utf-8")
+        print(f"wrote {len(ic)} svg files to {out}")
         return
 
-    print("// Prism in-app glyphs, 24x24 viewBox. Generated by tools/icons/svg.py")
-    print("// body: paint with currentColor.  ko: paint with the panel colour.")
-    print("export const GLYPH_PATHS = {")
-    for kind, d in gs.items():
+    print("// Prism in-app icons, monochrome, 24x24 viewBox.")
+    print("// Generated by tools/icons/svg.py - do not hand-edit.")
+    print("//   body -> currentColor,  ko -> panel colour,  hi -> currentColor over ko.")
+    print("//   An empty layer means skip that element.")
+    print("export const ICON_PATHS = {")
+    for kind, d in ic.items():
         print(f"  {kind}: {{")
-        print(f'    body: "{d["body"]}",')
-        print(f'    ko: "{d["ko"]}",' if d["ko"] else '    ko: "",')
+        for k in (BODY, KO, HI):
+            print(f'    {k}: "{d[k]}",')
+        L = d["label"]
+        print(f'    label: {{ x: {L["x"]}, y: {L["y"]}, size: {L["size"]} }},')
         print("  },")
     print("} as const")
 
