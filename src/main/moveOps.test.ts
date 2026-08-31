@@ -71,7 +71,12 @@ describe('moveEntries', () => {
     // The gesture asks for nothing; a dialog about it would be noise.
     const onto = await moveEntries([join(root, 'stuff')], join(root, 'stuff'), 'ask', trash)
     expect(onto).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
-    const into = await moveEntries([join(root, 'stuff')], join(root, 'stuff', 'inner'), 'ask', trash)
+    const into = await moveEntries(
+      [join(root, 'stuff')],
+      join(root, 'stuff', 'inner'),
+      'ask',
+      trash
+    )
     expect(into).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
     expect(existsSync(join(root, 'stuff', 'inner'))).toBe(true)
     // Dropping something where it already lives is a no-op, not a failure.
@@ -131,5 +136,66 @@ describe('moveEntries', () => {
   it('fails everything when the destination is not a folder', async () => {
     const r = await moveEntries([join(root, 'a.txt')], join(root, 'nope'), 'ask', trash)
     expect(r.failed).toEqual([join(root, 'a.txt')])
+  })
+})
+
+describe('two folders of the same name merge', () => {
+  it('is not a clash at all when nothing inside collides', async () => {
+    // The bug: dragging "photos" onto a folder that already holds "photos"
+    // asked "keep both or replace", which offered a second copy of a tree or
+    // the destruction of one. It is one folder with more in it.
+    mkdirSync(join(root, 'dest', 'stuff'))
+    writeFileSync(join(root, 'dest', 'stuff', 'theirs.txt'), 'theirs')
+    const r = await moveEntries([join(root, 'stuff')], join(root, 'dest'), 'ask', trash)
+    expect(r.clashes).toEqual([])
+    expect(existsSync(join(root, 'dest', 'stuff', 'theirs.txt'))).toBe(true)
+    expect(existsSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'))).toBe(true)
+    // The emptied source is gone, and nothing landed as "stuff (2)".
+    expect(existsSync(join(root, 'stuff'))).toBe(false)
+    expect(existsSync(join(root, 'dest', 'stuff (2)'))).toBe(false)
+  })
+
+  it('merges the whole way down, not just the top level', async () => {
+    mkdirSync(join(root, 'dest', 'stuff', 'inner'), { recursive: true })
+    writeFileSync(join(root, 'dest', 'stuff', 'inner', 'theirs.txt'), 'theirs')
+    await moveEntries([join(root, 'stuff')], join(root, 'dest'), 'ask', trash)
+    expect(existsSync(join(root, 'dest', 'stuff', 'inner', 'theirs.txt'))).toBe(true)
+    expect(existsSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'))).toBe(true)
+  })
+
+  it('still asks about a FILE inside the merge, and moves nothing until told', async () => {
+    mkdirSync(join(root, 'dest', 'stuff', 'inner'), { recursive: true })
+    writeFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'theirs')
+    const r = await moveEntries([join(root, 'stuff')], join(root, 'dest'), 'ask', trash)
+    expect(r.clashes.map((c) => c.name)).toEqual(['deep.txt'])
+    expect(r.moved).toEqual([])
+    expect(readFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'utf8')).toBe('theirs')
+    expect(existsSync(join(root, 'stuff', 'inner', 'deep.txt'))).toBe(true)
+  })
+
+  it('keeps both files inside a merge when asked to', async () => {
+    mkdirSync(join(root, 'dest', 'stuff', 'inner'), { recursive: true })
+    writeFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'theirs')
+    await moveEntries([join(root, 'stuff')], join(root, 'dest'), 'keep-both', trash)
+    expect(readFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'utf8')).toBe('theirs')
+    expect(readFileSync(join(root, 'dest', 'stuff', 'inner', 'deep (2).txt'), 'utf8')).toBe('deep')
+  })
+
+  it('bins only the colliding file on replace, never the folder', async () => {
+    mkdirSync(join(root, 'dest', 'stuff', 'inner'), { recursive: true })
+    writeFileSync(join(root, 'dest', 'stuff', 'inner', 'deep.txt'), 'theirs')
+    writeFileSync(join(root, 'dest', 'stuff', 'keepme.txt'), 'keep')
+    const r = await moveEntries([join(root, 'stuff')], join(root, 'dest'), 'replace', trash)
+    expect(r.replaced).toEqual([join(root, 'dest', 'stuff', 'inner', 'deep.txt')])
+    // The folder it was in survived, and so did its other contents.
+    expect(readFileSync(join(root, 'dest', 'stuff', 'keepme.txt'), 'utf8')).toBe('keep')
+  })
+
+  it('a file landing on a same-named FOLDER is still a clash', async () => {
+    // Only folder-onto-folder merges. A file meeting a folder is a genuine
+    // collision and has to be asked about.
+    mkdirSync(join(root, 'dest', 'a.txt'))
+    const r = await moveEntries([join(root, 'a.txt')], join(root, 'dest'), 'ask', trash)
+    expect(r.clashes.map((c) => c.name)).toEqual(['a.txt'])
   })
 })

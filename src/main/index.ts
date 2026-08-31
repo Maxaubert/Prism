@@ -88,7 +88,7 @@ import {
   setSevenExe,
   type ArchiveStat
 } from './archive'
-import { moveEntries } from './moveOps'
+import { insideSelf, moveEntries } from './moveOps'
 import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
 import { fileKind } from '@shared/fileKind'
 import type {
@@ -2044,17 +2044,33 @@ if (!app.requestSingleInstanceLock()) {
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
         // Both ends: a move empties one folder and fills another.
         ownWrite(destDir + sep + 'x', ...(Array.isArray(paths) ? paths : []))
-        if (!Array.isArray(paths) || !paths.every(movable) || !insideAnyRoot(destDir))
+        /**
+         * A drop that asks for nothing does nothing, SILENTLY (2026-08-31).
+         *
+         * Picking a folder up and putting it back down where it was is how
+         * anybody changes their mind mid-drag, and it was answering with "a
+         * tab's own folder cannot be moved" - the wall talking about a move
+         * nobody requested. Filtered out BEFORE the wall check, so the
+         * gesture is a no-op rather than a refusal.
+         */
+        const wanted = (Array.isArray(paths) ? paths : []).filter(
+          (p) =>
+            typeof p === 'string' &&
+            !insideSelf(p, destDir) &&
+            resolve(dirname(p)).toLowerCase() !== resolve(destDir).toLowerCase()
+        )
+        if (!wanted.length) return { moved: [], clashes: [], failed: [], replaced: [] }
+        if (!wanted.every(movable) || !insideAnyRoot(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.
           return {
             moved: [],
             clashes: [],
-            failed: Array.isArray(paths) ? paths : [],
+            failed: wanted,
             replaced: [],
             refused: true
           }
-        return moveEntries(paths, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
+        return moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
         )
       }

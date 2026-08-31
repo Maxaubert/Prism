@@ -310,7 +310,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
   natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
   ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
-  taken names asking cancel / keep both / replace. The same drag crosses surfaces: sidebar
+  taken names asking cancel / keep both / replace - EXCEPT that TWO FOLDERS OF THE SAME NAME
+  MERGE (2026-08-31). They are one folder with more in it, which is what every file manager
+  does; asking there offered either a second copy of a whole tree or the destruction of one.
+  The merge is recursive, so a same-named folder one level down merges too, and the question
+  survives only for the FILES inside - scanned depth-first BEFORE anything moves, so 'ask'
+  still reports the lot and leaves the disk untouched. `moveOne` creates the parent it is
+  moving into, which is what makes UNDOING a merge work: the folder those files came out of
+  no longer exists. The emptied source goes with `rmdir`, not `rm` - `rm` refuses a directory
+  without `recursive`, and `recursive` would delete exactly the leftovers a partial merge is
+  trying to preserve. And a drop that asks for nothing DOES nothing, silently: putting a
+  folder back where it already was is how anybody changes their mind mid-drag, and it was
+  answering with the wall's "a tab's own folder cannot be moved" about a move nobody
+  requested. Filtered in main before the wall check. The same drag crosses surfaces: sidebar
   rows dropped INTO an open archive are added to the zip at that folder, archive members
   dropped on a sidebar folder are extracted there (sharing the archive's remembered
   password via `lib/archivePass`), members dropped on an archive folder move inside the
