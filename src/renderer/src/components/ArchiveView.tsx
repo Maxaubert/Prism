@@ -895,7 +895,7 @@ function ArchiveInner({
           {sysIcon ? (
             <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
           ) : (
-            <KindIcon kind="archive" color="var(--p-tree-archive)" />
+            <KindIcon kind="archive" color={iconColour('archive')} />
           )}
         </span>
         <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">

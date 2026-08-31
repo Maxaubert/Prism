@@ -3,26 +3,22 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { useSysIcon } from '../lib/sysIcon'
+import { ICON_PATHS } from '../lib/iconPaths'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
 
-/** What sits behind a glyph, so its knocked-out detail matches. */
-const panelColour = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue('--p-side-flat').trim() || '#0e1016'
-
-const accentColour = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
-
 /** Folders wear the folder token, files the file token - both pickers in
- *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
- *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
+ *  Settings, both derived per style by theme.ts against its own ground, with a
+ *  4.5:1 floor. That derivation is why the icons need no light/dark switch of
+ *  their own: a light style resolves the same token to dark ink. */
 export function iconColour(kind: FileKind | 'folder'): string {
+  // FOLDERS keep their own colour: they are not one of the file kinds and the
+  // tint is what lets you scan containers from contents at a glance.
   if (kind === 'folder') return 'var(--p-tree-folder)'
-  // Archives get a colour of their own (#68, like the folder's): a container
-  // among files, worth telling apart at a glance.
-  if (kind === 'archive') return 'var(--p-tree-archive)'
+  // Every FILE kind is the same ink. The per-kind tints retired 2026-08-21 and
+  // the archive's own colour went with the drawn icons (2026-08-31): the kind
+  // lives in the SHAPE, and tinting it as well read as a colour chart.
   return 'var(--p-tree-file)'
 }
 
@@ -49,109 +45,48 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
   )
 }
 
-function Glyph({ children, color }: { children: JSX.Element; color: string }): JSX.Element {
+/**
+ * Prism's own icon for a file kind, monochrome (2026-08-31).
+ *
+ * The nine FileKinds map onto the SEVEN icons the .ico set ships, and the map
+ * is Explorer's own: `assoc.nsh` points Prism.Text at the code icon and
+ * Prism.Document at the document one, so a .ts in the sidebar and the same .ts
+ * on the desktop are the same picture. 'other' is not registered with Windows
+ * at all and takes the plain page.
+ *
+ * ONE PATH, evenodd, so the fold and the chip are holes rather than shapes
+ * painted in the panel colour - which is what lets the same icon sit on a
+ * plain row and on the accent fill of a selected one without carrying a
+ * rectangle of the wrong background across it.
+ *
+ * Exported for the search results and the archive panel, which draw the same
+ * rows outside the tree.
+ */
+const KIND_ICON: Record<FileKind, keyof typeof ICON_PATHS> = {
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+  comic: 'comic',
+  archive: 'archive',
+  pdf: 'document',
+  doc: 'document',
+  text: 'code',
+  other: 'document'
+}
+
+export function KindIcon({ kind, color }: { kind: FileKind; color: string }): JSX.Element {
   return (
-    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
-      {children}
+    <svg viewBox="0 0 24 24" width={14} height={14} className="shrink-0" aria-hidden>
+      <path d={ICON_PATHS[KIND_ICON[kind] ?? 'document'].solid} fill={color} fillRule="evenodd" />
     </svg>
-  )
-}
-
-/** Filled glyph per kind. Detail is knocked out in the panel colour rather than
- *  drawn as strokes, so the shape still reads as a photo or a page at 14px.
- *  Exported for the search results, which draw the same rows outside the tree. */
-export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; color: string; ko?: string; path?: string }): JSX.Element {
-  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
-  switch (kind) {
-    case 'image':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" {...ko} />
-            <circle cx="8.4" cy="9.2" r="1.7" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'video':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M10 9.2l5.6 2.8L10 14.8z" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'audio':
-      return (
-        <Glyph color={color}>
-          <path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z" />
-        </Glyph>
-      )
-    case 'pdf':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 15.5h6.8v3.2H8.6z" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'comic':
-      // A stack of pages with a picture on the front: an archive of pictures,
-      // which is exactly what a comic is, and readable at 16px.
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M4 3.5h11.5L20 7.6v13H4z" />
-            <path d="M15.5 3.5v4.1H20z" fillOpacity={0.55} />
-            <path d="M6.4 15.6l2.7-3.2 2 2.3 1.8-1.9 2.7 2.8z" {...ko} />
-            <circle cx="8.6" cy="10.4" r="1.3" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'archive':
-      return <ArchiveIcon color={color} koColour={koColour} path={path} />
-    default:
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z" {...ko} />
-          </>
-        </Glyph>
-      )
-  }
-}
-
-/** The archive row's icon (#68, revised 2026-08-22: the owner tried the
- *  parcel and picked the real thing): the SYSTEM icon of the user's own
- *  association (WinRAR, 7-Zip, Explorer's zipped folder...), one fetch per
- *  extension. The amber parcel stands in while it loads and on machines
- *  where Windows has none to give. */
-function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: string; path?: string }): JSX.Element {
-  const url = useSysIcon(path ?? null)
-  if (url)
-    return <img src={url} width={14} height={14} className="shrink-0" alt="" aria-hidden />
-  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
-  return (
-    <Glyph color={color}>
-      <>
-        <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
-        <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
-        <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
-      </>
-    </Glyph>
   )
 }
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
-    <Glyph color={color}>
+    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
       <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-    </Glyph>
+    </svg>
   )
 }
 
@@ -179,7 +114,10 @@ function Label({ name }: { name: string }): JSX.Element {
 /** A muted, unclickable row: "empty", "can't read", "loading". */
 function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
   return (
-    <div className="py-[5px] text-[11.5px] italic text-[var(--p-dim2)]" style={{ paddingLeft: pad + 20 }}>
+    <div
+      className="py-[5px] text-[11.5px] italic text-[var(--p-dim2)]"
+      style={{ paddingLeft: pad + 20 }}
+    >
       {text}
     </div>
   )
@@ -189,7 +127,13 @@ function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
 
 /** The row turns into this while you rename. The stem is preselected, the way
  *  Explorer does it, so typing replaces the name but keeps the extension. */
-function RenameRow({ name, pad, size, onSubmit, onCancel }: {
+function RenameRow({
+  name,
+  pad,
+  size,
+  onSubmit,
+  onCancel
+}: {
   name: string
   pad: number
   size: Size
@@ -341,7 +285,9 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           >
             <Chevron open={open} />
           </span>
-          <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+          <FolderIcon
+            color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'}
+          />
           <Label name={name} />
         </button>
       )}
@@ -392,7 +338,13 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const guide = depth > 0 ? 4 + (depth - 1) * t.size.indent + 6 : -1
   return (
     <ul role="group" className="relative list-none">
-      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-[var(--p-divider)]" style={{ left: guide }} aria-hidden />}
+      {guide >= 0 && (
+        <span
+          className="absolute inset-y-0 w-px bg-[var(--p-divider)]"
+          style={{ left: guide }}
+          aria-hidden
+        />
+      )}
       {folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} />
       ))}
@@ -484,9 +436,9 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 kind={f.kind}
                 // The knockout only applies on the filled row, which is now the
                 // selection's rather than the open file's.
+                // On a selected row the ink flips and the holes simply show
+                // the accent through - no knockout colour to keep in step.
                 color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
-                ko={onSel ? accentColour() : undefined}
-                path={f.path}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>
