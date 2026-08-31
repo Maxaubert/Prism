@@ -395,9 +395,7 @@ function underDir(dir: string, p: string): boolean {
 }
 
 function mediaAllowed(p: string): boolean {
-  return (
-    insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p) || underDir(RENDERER_DIR, p)
-  )
+  return insideAnyRoot(p) || extractedPaths.has(p) || servable.has(p) || underDir(RENDERER_DIR, p)
 }
 
 // Filesmith's serveMedia; becomes part of prism-core in Phase 1.
@@ -1019,9 +1017,29 @@ function createWindow(): void {
     mainWindow?.webContents.send('window:fullscreen', false)
     applyMaterial(false)
   })
+  /**
+   * A window the page tried to open. Denied, and handed to the OS only when
+   * it is a web address (2026-08-31).
+   *
+   * There was no scheme check here at all, which made any `<a target=_blank>`
+   * or `window.open` in the renderer a one-click launch of an arbitrary URI
+   * scheme on the user's machine. The renderer shows documents from anywhere
+   * - a PDF, a markdown file, a zip member - so "the page asked for it" is
+   * not a reason to trust it. Same test as the `shell:external` handler, and
+   * for the same reason.
+   */
   mainWindow.webContents.setWindowOpenHandler((d) => {
-    void shell.openExternal(d.url)
+    if (/^https?:\/\//i.test(d.url)) void shell.openExternal(d.url)
     return { action: 'deny' }
+  })
+  // A page cannot navigate the window away from the app either: the renderer
+  // is Prism's own UI and nothing in it is a browser.
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const dev = process.env['ELECTRON_RENDERER_URL']
+    if (dev && url.startsWith(dev)) return
+    if (url.startsWith('file://')) return
+    e.preventDefault()
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
@@ -1162,7 +1180,9 @@ if (!app.requestSingleInstanceLock()) {
     // The Settings "new tabs open in" folder: stored renderer-side, opened
     // here. folderPayload refuses a path that no longer exists, and the
     // renderer falls back to home when it does.
-    ipcMain.handle('open:root', (_e, dir: string): Promise<OpenPayload | null> => folderPayload(dir))
+    ipcMain.handle('open:root', (_e, dir: string): Promise<OpenPayload | null> =>
+      folderPayload(dir)
+    )
     // Choose a folder WITHOUT opening it - the Settings picker.
     ipcMain.handle('dialog:pick-folder', async (): Promise<string | null> => {
       const r = await openDialog({ properties: ['openDirectory'] })
@@ -1186,7 +1206,12 @@ if (!app.requestSingleInstanceLock()) {
      */
     ipcMain.handle(
       'image:save-copy',
-      async (_e, bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg'): Promise<string | null> => {
+      async (
+        _e,
+        bytes: ArrayBuffer,
+        suggested: string,
+        format: 'png' | 'jpeg'
+      ): Promise<string | null> => {
         if (!(bytes instanceof ArrayBuffer) || !bytes.byteLength) return null
         const ext = format === 'png' ? 'png' : 'jpg'
         const r = await saveDialog({
@@ -1344,8 +1369,10 @@ if (!app.requestSingleInstanceLock()) {
     //
     // A click in the sidebar tree. It leaves the root alone: the tree you
     // clicked from stays the tree you're in.
-    ipcMain.handle('open:within', async (_e, root: string, p: string): Promise<OpenPayload | null> =>
-      validRoot(root, p) ? await buildPayload(p, root) : null
+    ipcMain.handle(
+      'open:within',
+      async (_e, root: string, p: string): Promise<OpenPayload | null> =>
+        validRoot(root, p) ? await buildPayload(p, root) : null
     )
     ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> =>
       validRoot(root, p) ? await listDir(p) : null
@@ -1366,7 +1393,8 @@ if (!app.requestSingleInstanceLock()) {
         ownWrite(p),
         editable(p)
           ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
-          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' })
+          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+      )
     )
     ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
       ownWrite(p)
@@ -1438,13 +1466,20 @@ if (!app.requestSingleInstanceLock()) {
         // Back in the shape it came in. CodeMirror rejoins its document with
         // a bare newline whatever it read, so without this one fixed typo in
         // a .bat was 400 changed lines, and a UTF-16 file came back as UTF-8.
-        const shape = textShape.get(p.toLowerCase()) ?? { encoding: 'utf8' as const, eol: 'lf' as const }
+        const shape = textShape.get(p.toLowerCase()) ?? {
+          encoding: 'utf8' as const,
+          eol: 'lf' as const
+        }
         await writeFile(p, encodeText(text, shape))
         return { ok: true }
       } catch (e) {
         // EACCES, EROFS, ENOSPC: the cases worth naming rather than leaving
         // the user to guess why their work would not save.
-        return { ok: false, reason: 'failed', message: String((e as NodeJS.ErrnoException)?.code ?? '') }
+        return {
+          ok: false,
+          reason: 'failed',
+          message: String((e as NodeJS.ErrnoException)?.code ?? '')
+        }
       }
     })
 
@@ -1496,7 +1531,9 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('subs:pick', async (_e, near?: string): Promise<SubTrack | null> => {
       const r = await openDialog({
         properties: ['openFile'],
-        ...(typeof near === 'string' && existsSync(dirname(near)) ? { defaultPath: dirname(near) } : {}),
+        ...(typeof near === 'string' && existsSync(dirname(near))
+          ? { defaultPath: dirname(near) }
+          : {}),
         filters: [{ name: 'Subtitles', extensions: ['srt', 'vtt', 'ass', 'ssa'] }]
       })
       if (r.canceled || !r.filePaths.length) return null
@@ -1956,7 +1993,8 @@ if (!app.requestSingleInstanceLock()) {
             const entries = listArchive(p)
             return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
           }
-          const pw = typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+          const pw =
+            typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
           const listed = await listSeven(exe, p, pw)
           if (listed.ok && pw) archivePasswords.set(p, pw)
           return listed
@@ -1986,7 +2024,11 @@ if (!app.requestSingleInstanceLock()) {
             extractedPaths.add(s7.path)
             return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
           }
-          const r = await extractMember(p, entry, typeof password === 'string' ? password : undefined)
+          const r = await extractMember(
+            p,
+            entry,
+            typeof password === 'string' ? password : undefined
+          )
           if (!r.ok) return r
           extractedPaths.add(r.path)
           return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
@@ -2054,7 +2096,12 @@ if (!app.requestSingleInstanceLock()) {
         if (seven(p)) return 'failed' // read-only format; the panel offers no verbs
         try {
           if (archiveTooLarge(statSync(p).size)) return 'failed'
-          return await renameMember(p, entry, name, typeof password === 'string' ? password : undefined)
+          return await renameMember(
+            p,
+            entry,
+            name,
+            typeof password === 'string' ? password : undefined
+          )
         } catch {
           return 'failed'
         }

@@ -1,18 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { IconFull } from '../icons'
 import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
 import { PdfPage } from './PdfPage'
+import { type PdfLink } from '../../lib/pdfLinks'
 import { PdfFindBar } from './PdfFindBar'
 import '../../assets/pdf.css'
 
@@ -296,11 +289,20 @@ export function PdfView({
     }
   }, [key])
 
-  const goToPage = useCallback((n: number) => {
+  /**
+   * Scroll to a page, and optionally to a place ON it.
+   *
+   * `offset` is viewport pixels down from the page's top edge, at the
+   * CURRENT scale. It exists for /XYZ destinations: a table of contents or a
+   * footnote back-link carries a real y-coordinate, and landing at the top of
+   * page 312 of a dense document reads as broken rather than as approximate.
+   * Everything else passes nothing and lands at the top, as before.
+   */
+  const goToPage = useCallback((n: number, offset = 0) => {
     const el = wrappers.current.get(n)
     const box = scroller.current
     if (!el || !box) return
-    box.scrollTo({ top: el.offsetTop - PAGE_GAP })
+    box.scrollTo({ top: el.offsetTop - PAGE_GAP + Math.max(0, offset) })
     setPage(n)
   }, [])
 
@@ -326,23 +328,19 @@ export function PdfView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, doc, url, near, dims])
 
-
   /* ---------- find ---------- */
 
-  const pageText = useCallback(
-    (d: PDFDocumentProxy, n: number): Promise<PageText> => {
-      let p = textCache.current.get(n)
-      if (!p) {
-        p = d
-          .getPage(n)
-          .then((pg) => pg.getTextContent())
-          .then((tc) => ({ items: tc.items.map((i) => ('str' in i ? i.str : '')) }))
-        textCache.current.set(n, p)
-      }
-      return p
-    },
-    []
-  )
+  const pageText = useCallback((d: PDFDocumentProxy, n: number): Promise<PageText> => {
+    let p = textCache.current.get(n)
+    if (!p) {
+      p = d
+        .getPage(n)
+        .then((pg) => pg.getTextContent())
+        .then((tc) => ({ items: tc.items.map((i) => ('str' in i ? i.str : '')) }))
+      textCache.current.set(n, p)
+    }
+    return p
+  }, [])
 
   // Re-search on query change, debounced a touch so typing doesn't extract the
   // whole document per keystroke.
@@ -369,6 +367,55 @@ export function PdfView({
       clearTimeout(t)
     }
   }, [doc, findOpen, query, pageText])
+
+  /**
+   * A link box was clicked.
+   *
+   * External goes through `window.prism.openExternal`, which is guarded
+   * `^https?:` in the preload AND again in main - never through an anchor,
+   * which would reach main's window-open handler instead.
+   *
+   * Internal resolves the destination to a page and, where the destination
+   * says so, to a y-coordinate on it. A named destination is one more lookup;
+   * an explicit one already carries the page reference.
+   */
+  const onLink = useCallback(
+    (link: PdfLink) => {
+      if (link.target.kind === 'url') {
+        window.prism.openExternal(link.target.url)
+        return
+      }
+      if (!doc) return
+      void (async () => {
+        try {
+          const raw = link.target.kind === 'dest' ? link.target.dest : null
+          const explicit = typeof raw === 'string' ? await doc.getDestination(raw) : raw
+          if (!Array.isArray(explicit) || !explicit.length) return
+          const ref = explicit[0] as number | { num: number; gen: number }
+          const n =
+            typeof ref === 'number'
+              ? ref + 1
+              : (doc.cachedPageNumber(ref) ?? (await doc.getPageIndex(ref)) + 1)
+          const target = clamp(Math.round(n), 1, doc.numPages)
+          // /XYZ carries [ref, {name:'XYZ'}, left, top, zoom]: `top` is in PDF
+          // user space, measured from the BOTTOM of the page, so it has to go
+          // through the page's own viewport to become pixels from the top.
+          let offset = 0
+          const named = explicit[1] as { name?: string } | undefined
+          const top = explicit[3]
+          if (named?.name === 'XYZ' && typeof top === 'number' && Number.isFinite(top)) {
+            const page = await doc.getPage(target)
+            const y = page.getViewport({ scale }).convertToViewportPoint(0, top)[1] as number
+            if (Number.isFinite(y)) offset = y
+          }
+          goToPage(target, offset)
+        } catch {
+          /* a destination this document cannot resolve: do nothing visible */
+        }
+      })()
+    },
+    [doc, goToPage, scale]
+  )
 
   const onTextLayer = useCallback((n: number, divs: HTMLElement[] | null) => {
     if (divs) layers.current.set(n, divs)
@@ -479,21 +526,44 @@ export function PdfView({
       if (typing) return
       switch (e.key) {
         case '+':
-        case '=': zoomBy(STEP); break
+        case '=':
+          zoomBy(STEP)
+          break
         case '-':
-        case '_': zoomBy(1 / STEP); break
-        case '0': rescale(DEFAULT_ZOOM); break
+        case '_':
+          zoomBy(1 / STEP)
+          break
+        case '0':
+          rescale(DEFAULT_ZOOM)
+          break
         case 'w':
-        case 'W': fitTo('fit-width'); break
+        case 'W':
+          fitTo('fit-width')
+          break
         case 'p':
-        case 'P': fitTo('fit-page'); break
+        case 'P':
+          fitTo('fit-page')
+          break
         case 'f':
-        case 'F': onToggleFullscreen(); break
+        case 'F':
+          onToggleFullscreen()
+          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [findOpen, stepFind, closeFind, goToPage, page, pageCount, zoomBy, fitTo, rescale, onToggleFullscreen])
+  }, [
+    findOpen,
+    stepFind,
+    closeFind,
+    goToPage,
+    page,
+    pageCount,
+    zoomBy,
+    fitTo,
+    rescale,
+    onToggleFullscreen
+  ])
 
   // Ctrl+wheel zooms. Native listener: React's synthetic wheel is passive, and
   // a passive handler cannot stop the browser's own pinch-zoom default.
@@ -574,7 +644,14 @@ export function PdfView({
                   className="relative shrink-0 bg-white shadow-[0_2px_16px_rgba(0,0,0,.5)]"
                 >
                   {near.has(n) && (
-                    <PdfPage doc={doc} pageNumber={n} scale={scale} onDims={onDims} onTextLayer={onTextLayer} />
+                    <PdfPage
+                      doc={doc}
+                      pageNumber={n}
+                      scale={scale}
+                      onDims={onDims}
+                      onTextLayer={onTextLayer}
+                      onLink={onLink}
+                    />
                   )}
                 </div>
               )
@@ -623,7 +700,13 @@ export function PdfView({
           />
           <span className="text-[12px] text-[var(--p-dim)]">/ {pageCount}</span>
           <div className="mx-1 h-5 w-px bg-white/15" />
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(1 / STEP)} title="Zoom out (-)">−</button>
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15"
+            onClick={() => zoomBy(1 / STEP)}
+            title="Zoom out (-)"
+          >
+            −
+          </button>
           <button
             className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15"
             onClick={() => rescale(DEFAULT_ZOOM)}
@@ -631,18 +714,38 @@ export function PdfView({
           >
             {Math.round((scale / DEFAULT_ZOOM) * 100)}%
           </button>
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(STEP)} title="Zoom in (+)">+</button>
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15"
+            onClick={() => zoomBy(STEP)}
+            title="Zoom in (+)"
+          >
+            +
+          </button>
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button
             className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15 ${mode === 'fit-width' ? 'text-[var(--p-accent-hi)]' : ''}`}
             onClick={() => fitTo(mode === 'fit-width' ? 'fit-page' : 'fit-width')}
             title={mode === 'fit-width' ? 'Fit page (P)' : 'Fit width (W)'}
           >
-            <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={16}
+              height={16}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M3 12h18M6 8l-3 4 3 4M18 8l3 4-3 4" />
             </svg>
           </button>
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={onToggleFullscreen} title="Fullscreen (F)">
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15"
+            onClick={onToggleFullscreen}
+            title="Fullscreen (F)"
+          >
             {IconFull}
           </button>
         </div>

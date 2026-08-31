@@ -100,6 +100,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges).
+  **LINKS GO SOMEWHERE** (2026-08-31, `lib/pdfLinks.ts`, pure and tested), and the
+  allowlist is the feature. pdf.js has already thrown the ACTION NAME away by the time the
+  display side sees an annotation: a /URI, a /Launch at an executable, a /GoToR and a
+  recognised /JavaScript window.open all arrive as the same `data.url` string. So the rule
+  is by SHAPE - a Link subtype carrying none of action / attachment / attachmentId /
+  setOCGState / resetForm / actions, and then either an http(s) url or a dest. `unsafeUrl`,
+  the raw string out of the file, is never read by anything. ftp:, mailto: and tel: pass
+  pdf.js's own filter and are refused here too, because openExternal drops them and a
+  clickable box that does nothing is worse than no box. They render as `<button>` boxes,
+  never `<a href>` - an anchor is what routes into main's window-open handler, which had NO
+  scheme check at all until this change (it does now, and `will-navigate` is guarded too).
+  The boxes are PERCENTAGES of the page, so the annotations are fetched once per page and
+  never again on a zoom step, and the layer is z-index 2: above the text layer's 1, below
+  the pill's 10 and the find bar's 20. An internal /XYZ destination lands at its own
+  y-coordinate rather than at the top of the page - a footnote link that jumps to the top
+  of page 312 reads as broken, not as approximate.
 - **Code / text** viewer (2026-08-17): CodeMirror 6, always editable (see below). ~20 Lezer
   grammars give highlighting, folding and real syntax-error squiggles; `@codemirror/legacy-modes`
   adds ~100 stream lexers for highlighting only, so those languages never claim an error.

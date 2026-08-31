@@ -415,6 +415,75 @@ async function pdfScenario(fixtures) {
     ok(!win.isClosed(), 'and does not close the window')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
 
+    // Links. Page 1 carries three annotations in the fixture and Prism must
+    // render exactly two: the /Launch at calc.exe is refused, and that
+    // refusal is the point of the whole layer.
+    await win.click('input[aria-label="Page number"]', { clickCount: 3 })
+    await win.keyboard.type('1')
+    await win.keyboard.press('Enter')
+    await sleep(700)
+    await win.waitForSelector('[data-page="1"] .p-pdf-annots button', { timeout: 10000 })
+    ok(
+      (await win.locator('[data-page="1"] .p-pdf-annots button').count()) === 2,
+      'two link boxes on page 1: the Launch at an executable is not one of them'
+    )
+
+    // The boxes are percentages of the page, so a zoom must not move them off
+    // their text. Measure the box against its page both ways.
+    const boxFrac = async () =>
+      win.evaluate(() => {
+        const page = document.querySelector('[data-page="1"]')
+        const b = page.querySelector('.p-pdf-annots button')
+        const pr = page.getBoundingClientRect()
+        const br = b.getBoundingClientRect()
+        return { x: (br.left - pr.left) / pr.width, y: (br.top - pr.top) / pr.height }
+      })
+    const before = await boxFrac()
+    await win.hover('[data-page="1"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    await sleep(700)
+    const after = await boxFrac()
+    ok(
+      Math.abs(before.x - after.x) < 0.002 && Math.abs(before.y - after.y) < 0.002,
+      `the boxes stay on their text through a zoom (dx=${Math.abs(before.x - after.x).toFixed(4)})`
+    )
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(500)
+
+    // The external one opens through the OS shell and NOT in the app. Stubbed,
+    // or thirty e2e runs would each open a browser tab.
+    await app.evaluate(({ shell }) => {
+      globalThis.__opened = []
+      shell.openExternal = (u) => {
+        globalThis.__opened.push(u)
+        return Promise.resolve()
+      }
+    })
+    await win.locator('[data-page="1"] .p-pdf-annots button').first().click()
+    await sleep(500)
+    const opened = await app.evaluate(() => globalThis.__opened)
+    ok(
+      opened.length === 1 && opened[0] === 'https://example.com/docs',
+      `the external link goes to the shell, once, with its own url (${JSON.stringify(opened)})`
+    )
+    ok((await win.inputValue('input[aria-label="Page number"]')) === '1', 'and did not move the document')
+
+    // The internal one jumps to page 3, and to the /XYZ y on it rather than
+    // to the top of it.
+    await win.locator('[data-page="1"] .p-pdf-annots button').nth(1).click()
+    await sleep(800)
+    ok((await win.inputValue('input[aria-label="Page number"]')) === '3', 'the internal link jumps to page 3')
+    const landed = await win.evaluate(() => {
+      const box = document.querySelector('[data-doc-scroller]')
+      const page = document.querySelector('[data-page="3"]')
+      return page.getBoundingClientRect().top - box.getBoundingClientRect().top
+    })
+    // /XYZ top 500 on a 792pt page is 292pt down, times the 1.9 default scale
+    // = ~555px, so page 3's top edge sits that far ABOVE the scroller's, less
+    // the gap goToPage leaves. Landing at the top of the page would put this
+    // at about +24 instead.
+    ok(landed < -450 && landed > -640, `and lands at the destination y, not the top (${landed.toFixed(0)}px)`)
+
     // The pill's buttons take real CLICKS (they once sat under the text
     // layer's z-index and swallowed nothing but hover).
     await win.hover('[data-page="2"]', { position: { x: 40, y: 40 } })

@@ -57,10 +57,22 @@ function findFfmpeg() {
 
 const FFMPEG = findFfmpeg()
 
-/** Serif-free single-font PDF: `pages` is an array of line arrays. */
-function makePdf(pages) {
+/**
+ * Serif-free single-font PDF: `pages` is an array of line arrays.
+ *
+ * With `links`, page 1 also carries three Link annotations over its first
+ * three lines: an external https one, an internal /XYZ destination into page
+ * 3, and a /Launch at an executable that Prism must REFUSE to render at all.
+ * The third is the point of the other two: the allowlist is only proven by
+ * the thing it turns away.
+ */
+function makePdf(pages, links = false) {
   const objects = []
   const pageRefs = pages.map((_, i) => `${4 + i * 2} 0 R`)
+  // Annotations get the numbers after the last page's content stream, which
+  // keeps the sequential numbering the xref below is built from.
+  const annot0 = 4 + pages.length * 2
+  const annotRefs = links ? [0, 1, 2].map((i) => `${annot0 + i} 0 R`) : []
   objects.push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`)
   objects.push(
     `2 0 obj\n<< /Type /Pages /Kids [${pageRefs.join(' ')}] /Count ${pages.length} >>\nendobj\n`
@@ -75,14 +87,33 @@ function makePdf(pages) {
       ...lines.map((l) => `(${l.replace(/[\\()]/g, (c) => '\\' + c)}) Tj T*`),
       'ET'
     ].join('\n')
+    const annots = links && i === 0 ? `/Annots [${annotRefs.join(' ')}] ` : ''
     objects.push(
       `${4 + i * 2} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
-        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>\nendobj\n`
+        `${annots}/Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>\nendobj\n`
     )
     objects.push(
       `${5 + i * 2} 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`
     )
   })
+
+  if (links) {
+    // Line baselines are 720, 698, 676 (18pt type on 22pt leading), so these
+    // rects sit over the first three lines of page 1.
+    const box = (y) => `[70 ${y - 6} 320 ${y + 20}]`
+    objects.push(
+      `${annot0} 0 obj\n<< /Type /Annot /Subtype /Link /Rect ${box(720)} /Border [0 0 0] ` +
+        `/A << /S /URI /URI (https://example.com/docs) >> >>\nendobj\n`
+    )
+    objects.push(
+      `${annot0 + 1} 0 obj\n<< /Type /Annot /Subtype /Link /Rect ${box(698)} /Border [0 0 0] ` +
+        `/Dest [${pageRefs[2] ?? pageRefs[0]} /XYZ 0 500 null] >>\nendobj\n`
+    )
+    objects.push(
+      `${annot0 + 2} 0 obj\n<< /Type /Annot /Subtype /Link /Rect ${box(676)} /Border [0 0 0] ` +
+        `/A << /S /Launch /F (C:\\\\Windows\\\\System32\\\\calc.exe) >> >>\nendobj\n`
+    )
+  }
 
   let pdf = '%PDF-1.4\n'
   const offsets = [0]
@@ -125,7 +156,7 @@ export function buildFixtures() {
       ['Prism sample document', 'A grape and another GRAPE sit on page one.'],
       ['The second page mentions grape once.'],
       ['The last page ends with grape and Grape.']
-    ])
+    ], true)
   )
 
   // Mixed kinds for the filter scenarios: 2 images + 1 audio (media) and
