@@ -359,16 +359,6 @@ export function VideoView({
         ]
       },
       {
-        label: 'Show in File Explorer',
-        icon: tickIf(false),
-        onPick: () => window.prism.showInExplorer(path)
-      },
-      {
-        label: 'Copy path',
-        icon: tickIf(false),
-        onPick: () => void navigator.clipboard.writeText(path)
-      },
-      {
         // VLC's Shift+S, as a visible verb rather than a keystroke: the
         // fullscreen read-only rule allows a click on something you can see.
         // Greyed when there is no picture to take - an enabled row that does
@@ -383,6 +373,16 @@ export function VideoView({
           void pngFromVideo(el).then((png) => {
             if (png) window.prism.copyImageToClipboard(png)
           })
+      },
+      {
+        label: 'Show in File Explorer',
+        icon: tickIf(false),
+        onPick: () => window.prism.showInExplorer(path)
+      },
+      {
+        label: 'Copy path',
+        icon: tickIf(false),
+        onPick: () => void navigator.clipboard.writeText(path)
       }
     ]
     return items

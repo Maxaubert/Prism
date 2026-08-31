@@ -46,12 +46,20 @@ export const tickIf = (on: boolean): JSX.Element =>
     <span className="w-[13px] shrink-0" aria-hidden />
   )
 
-/** Show in File Explorer, Copy path, Copy file: true wherever a file is. */
+/**
+ * Where the file is: the two rows that mean the same thing wherever it is.
+ *
+ * NOT "Copy file" (2026-08-31). Over the picture it sat next to "Copy image"
+ * and the pair read as the same verb twice - and they are not the same at
+ * all: one puts a FILE on the clipboard for Explorer, the other puts PIXELS
+ * on it for whatever you are pasting into. Copying a file as a file is what
+ * the sidebar is for, where it stands among the other file operations and
+ * nothing is competing with it.
+ */
 export function fileVerbs(path: string): MenuItem[] {
   return [
     { label: 'Show in File Explorer', onPick: () => window.prism.showInExplorer(path) },
-    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(path) },
-    { label: 'Copy file', onPick: () => void window.prism.copyFileToClipboard(path) }
+    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(path) }
   ]
 }
 
