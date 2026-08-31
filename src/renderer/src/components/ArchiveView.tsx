@@ -470,15 +470,22 @@ function ArchiveInner({
    */
   const copyFolder = useCallback(
     (entry: string): void => {
+      setPct(null)
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry).then((r) => {
         setBusy(null)
+        setPct(null)
         if (r.ok) void window.prism.copyFilesToClipboard([r.path])
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops(
             'That folder is password protected. Open a member first to unlock the archive, then copy again.'
           )
-        else setOops("That folder couldn't be copied.")
+        else
+          setOops(
+            r.message
+              ? `That folder couldn't be copied. ${r.message}`
+              : "That folder couldn't be copied."
+          )
       })
     },
     [file.path]
@@ -486,13 +493,20 @@ function ArchiveInner({
   /** One folder from inside the archive, out beside the archive itself. */
   const extractFolderHere = useCallback(
     (entry: string): void => {
+      setPct(null)
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
         setBusy(null)
+        setPct(null)
         if (r.ok) setJustDone(true)
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops('That folder is password protected. Open a member first to unlock the archive.')
-        else setOops("That folder couldn't be extracted.")
+        else
+          setOops(
+            r.message
+              ? `That folder couldn't be extracted. ${r.message}`
+              : "That folder couldn't be extracted."
+          )
       })
     },
     [file.path]

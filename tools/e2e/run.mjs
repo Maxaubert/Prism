@@ -1265,9 +1265,69 @@ async function extractScenario(fixtures) {
       !existsSync(join(fixtures, 'zips', 'wrapped')),
       'and no folder named after the archive was left behind'
     )
+    // Every OTHER extract route, driven through the same preload API the menu
+    // rows call. The menus themselves are asserted above; this proves the
+    // handlers behind them actually put files on disk.
+    const zipPath = zip.split(String.fromCharCode(92)).join('/')
+
+    // A folder member, to a temp copy - what "Copy folder" puts on the
+    // clipboard. It used to extract the members one at a time and copy the
+    // loose FILES, so the shape is the thing to check.
+    const toTemp = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection'),
+      zipPath
+    )
+    ok(toTemp.ok === true, `a folder member extracts to a temp copy (${JSON.stringify(toTemp)})`)
+    if (toTemp.ok) {
+      ok(statSync(toTemp.path).isDirectory(), 'and it really is a FOLDER, not a pile of files')
+      ok(
+        existsSync(join(toTemp.path, 'one.txt')) &&
+          existsSync(join(toTemp.path, 'sub', 'two.txt')),
+        'with the whole shape under it'
+      )
+      rmSync(dirname(toTemp.path), { recursive: true, force: true })
+    }
+
+    // The same folder, beside the archive - "Extract folder here".
+    const here1 = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection', true),
+      zipPath
+    )
+    ok(here1.ok === true, 'a folder member extracts beside the archive')
+    if (here1.ok) {
+      ok(
+        dirname(here1.path) === join(fixtures, 'zips'),
+        `landing beside the archive, not in temp (${here1.path})`
+      )
+      ok(existsSync(join(here1.path, 'sub', 'two.txt')), 'shape intact there too')
+    }
+    // A second time: beside the first, never over it. The name is whatever is
+    // free - Extract here has already taken "Collection" earlier in this
+    // scenario - so what matters is that it is a DIFFERENT folder and the
+    // first still has its contents.
+    const here2 = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection', true),
+      zipPath
+    )
+    ok(
+      here2.ok === true && here1.ok === true && here2.path !== here1.path,
+      `a second extract lands beside the first (${here2.ok ? here2.path : 'failed'})`
+    )
+    ok(
+      here2.ok === true && existsSync(join(here2.path, 'one.txt')),
+      'and carries the same contents'
+    )
+    ok(
+      here1.ok === true && existsSync(join(here1.path, 'one.txt')),
+      'while the first is untouched'
+    )
+    if (here1.ok) rmSync(here1.path, { recursive: true, force: true })
+    if (here2.ok) rmSync(here2.path, { recursive: true, force: true })
   } finally {
     await app.close()
     rmSync(landed, { recursive: true, force: true })
+    for (const n of ['Collection', 'Collection (2)', 'Collection (3)'])
+      rmSync(join(fixtures, 'zips', n), { recursive: true, force: true })
   }
 }
 
@@ -1812,6 +1872,25 @@ async function sevenZipScenario(fixtures) {
       timeout: 15000
     })
     ok(true, 'and a member opens, extracted by the bundled 7-Zip')
+
+    // A whole FOLDER out of a 7z, in one 7-Zip call rather than one per
+    // member: the per-member route re-opened the container each time, which
+    // is what "Extract folder here" was failing on for a big archive.
+    const sevenPath = join(fixtures, 'zips', 'read-only.7z')
+      .split(String.fromCharCode(92))
+      .join('/')
+    const sub = await win.evaluate(
+      // The folder is called "sub"; the row's TEXT reads "subFolder1"
+      // because it concatenates the name, the type and the item count.
+      (z) => window.prism.archiveExtractDir(z, 'sub'),
+      sevenPath
+    )
+    ok(sub.ok === true, `a folder extracts out of a 7z (${JSON.stringify(sub)})`)
+    if (sub.ok) {
+      ok(statSync(sub.path).isDirectory(), 'and it is a folder')
+      ok(readdirSync(sub.path).length > 0, 'with its contents under it')
+      rmSync(dirname(sub.path), { recursive: true, force: true })
+    }
   } finally {
     await app.close()
   }

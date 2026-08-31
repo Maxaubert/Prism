@@ -59,6 +59,7 @@ import {
   bundledSeven,
   extractAllSeven,
   extractSeven,
+  extractSevenSubtree,
   extractSevenTo,
   isSevenArchive,
   listSeven
@@ -2385,7 +2386,8 @@ if (!app.requestSingleInstanceLock()) {
         entry: string,
         here?: boolean
       ): Promise<
-        { ok: true; path: string } | { ok: false; reason: 'password' | 'aes' | 'failed' }
+        | { ok: true; path: string }
+        | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
       > => {
         if (!archiveOk(p) || typeof entry !== 'string' || !entry) {
           return { ok: false, reason: 'failed' }
@@ -2396,11 +2398,27 @@ if (!app.requestSingleInstanceLock()) {
           const dir = mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
           const pw = archivePasswords.get(p) ?? ''
           const exe = seven(p)
-          const out = exe
-            ? await extractSevenTo(exe, p, [clean], dir, pw)
-            : await extractTo(p, [clean], dir, pw || undefined)
-          if (!out.ok) return { ok: false, reason: out.reason }
-          const made = join(dir, name)
+          let made = join(dir, name)
+          if (exe) {
+            // ONE 7-Zip call for the whole subtree. The member-at-a-time
+            // route spawns a process per file, each re-opening the container:
+            // measured on a 2GB zip, a 25-file folder came out in 0.41s as
+            // one call, and the folder next to it holds 561 files. That is
+            // what "Extract folder here" was failing on.
+            let last = -1
+            const s7 = await extractSevenSubtree(exe, p, clean, dir, pw, (pct) => {
+              if (pct === last) return
+              last = pct
+              mainWindow?.webContents.send('archive:progress', { path: p, pct })
+            })
+            if (!s7.ok) return { ok: false, reason: s7.reason, message: s7.message }
+            // 7-Zip keeps the full path under -o, so the folder is as deep as
+            // its name was.
+            made = join(dir, ...clean.split('/'))
+          } else {
+            const out = await extractTo(p, [clean], dir, pw || undefined)
+            if (!out.ok) return { ok: false, reason: out.reason }
+          }
           if (!existsSync(made)) return { ok: false, reason: 'failed' }
           if (!here) {
             extractedPaths.add(made)

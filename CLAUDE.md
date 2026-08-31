@@ -205,6 +205,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Both sit on the verb row and on the panel's own menu, and a FOLDER row offers Copy folder
   and Extract folder here - its Copy used to extract the members one at a time and put the
   loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
+  A FOLDER comes out in ONE 7-Zip call, never one per member (2026-08-31): the member-at-a-time
+  route spawns a process each, and each one RE-OPENS the container, so "Extract folder here" on
+  a 2GB archive was hundreds of full re-reads and simply failed. MEASURED on that archive: the
+  25-file folder came out in 279ms and the 561-file one in 1.2s, against hundreds of spawns.
+  Dragging a folder OUT works the same way now - one call into a staging folder, then each
+  wanted entry moved into place - which is where the landing rule lives (the shape BELOW the
+  dragged folder is kept, the parents above it dropped). The member filters come from the
+  archive's own listing and are still refused for `..` or a drive letter before 7-Zip is
+  spawned, because `-o` is the only thing keeping the write inside a folder Prism made.
   7-Zip path reports its own percentage, and getting it to say ANYTHING was measured rather
   than assumed: with `-bsp1` alone and stdout redirected 7-Zip prints nothing at all between
   "Extracting archive" and "Everything is Ok", because it suppresses the progress indicator

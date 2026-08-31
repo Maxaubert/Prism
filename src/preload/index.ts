@@ -295,8 +295,10 @@ const api = {
     path: string,
     entry: string,
     here = false
-  ): Promise<{ ok: true; path: string } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
-    ipcRenderer.invoke('archive:extract-dir', path, entry, here),
+  ): Promise<
+    | { ok: true; path: string }
+    | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+  > => ipcRenderer.invoke('archive:extract-dir', path, entry, here),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (

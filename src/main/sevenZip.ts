@@ -22,8 +22,8 @@ function run(
     )
   })
 }
-import { existsSync, mkdirSync, mkdtempSync } from 'fs'
-import { copyFile, rm } from 'fs/promises'
+import { existsSync, mkdtempSync } from 'fs'
+import { cp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
@@ -361,6 +361,60 @@ export async function extractSeven(
  * dropped rather than sanitised, and an existing file is never overwritten -
  * it lands as "name (2)", the answer every other Prism verb gives.
  */
+/**
+ * Extract a whole SUBTREE in ONE 7-Zip call.
+ *
+ * The member-at-a-time route below was fine for the one file an archive
+ * preview extracts and catastrophic for a folder: it spawns a process per
+ * member, and each one re-opens the container. MEASURED on a 2GB zip - the
+ * 25-file "Comic Books" folder came out in 0.41s as a single call against 25
+ * spawns each re-reading 2GB, and "Artbooks" holds 561 files. That is what
+ * "Extract folder here" was failing on.
+ *
+ * 7-Zip keeps the member's FULL path under `-o`, so the result lands at
+ * `dir/<prefix>` and the caller moves it from there. Both the folder entry
+ * and its contents are named, so a folder recorded in the container is
+ * created even when it is empty.
+ */
+export async function extractSevenSubtree(
+  exe: string,
+  file: string,
+  prefix: string,
+  dir: string,
+  password = '',
+  onPercent?: (pct: number) => void
+): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
+  const clean = prefix
+    .replace(/[\\/]+$/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+  // The name comes out of the archive's own listing, but a container is
+  // untrusted input and `-o` is the only thing keeping this inside a folder
+  // Prism made. Refused before 7-Zip is spawned, never after.
+  if (!clean || clean.split('/').some((s) => s === '..') || /^[a-z]:/i.test(clean)) {
+    return { ok: false, reason: 'failed' }
+  }
+  const args = [
+    'x',
+    `-o${dir}`,
+    '-y',
+    ...(password ? [`-p${password}`] : []),
+    '--',
+    file,
+    clean,
+    `${clean}/*`
+  ]
+  const r = onPercent
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent)
+    : await run(exe, args, 3600000)
+  if (r.ok) return { ok: true }
+  return {
+    ok: false,
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    message: sevenMessage(r.stderr)
+  }
+}
+
 export async function extractSevenTo(
   exe: string,
   file: string,
@@ -369,42 +423,67 @@ export async function extractSevenTo(
   password = ''
 ): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
   if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+  // The listing is only consulted to fail EARLY on a container that cannot be
+  // read at all (a wrong password, encrypted names): 7-Zip's own filters do
+  // the member matching below.
   const listed = await listSeven(exe, file, password)
   if (!listed.ok) return { ok: false, reason: listed.reason }
-  const listing = listed.entries
   const clean = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const wanted = entryPaths.map(clean)
   const base = resolve(destDir)
   let written = 0
-  for (const entry of listing) {
-    if (entry.dir) continue
-    const p = clean(entry.path)
-    const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
-    if (hit === undefined) continue
-    const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
-    const rel = parent ? p.slice(parent.length + 1) : p
-    if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
-    let target = resolve(base, ...rel.split('/'))
-    const inside = relative(base, target)
-    if (
-      !inside ||
-      inside.startsWith('..') ||
-      inside.split(sep).includes('..') ||
-      isAbsolute(inside)
-    )
-      continue
-    const got = await extractSeven(exe, file, p, password)
-    if (!got.ok) return { ok: false, reason: got.reason }
-    const dir = dirname(target)
-    mkdirSync(dir, { recursive: true })
-    if (existsSync(target)) target = join(dir, uniqueName(dir, basename(target)))
-    // AWAITED, and the temp copy goes with it: main is one thread, and a 2GB
-    // member copied with copyFileSync freezes every window and the Range
-    // handler a playing film depends on. extractSeven makes a fresh temp dir
-    // per member and nothing else ever removes them (2026-08-28).
-    await copyFile(got.path, target)
-    await rm(dirname(got.path), { recursive: true, force: true }).catch(() => {})
-    written += 1
+  // ONE call into a staging folder, not one per member (2026-08-31). The
+  // old loop spawned a 7-Zip per file and each re-opened the container:
+  // dragging a 561-file folder out of a 2GB archive was hundreds of full
+  // re-reads, which is the same defect "Extract folder here" had. Everything
+  // wanted is named in a single command line instead.
+  const stage = mkdtempSync(join(tmpdir(), 'prism-arcout-'))
+  try {
+    const filters: string[] = []
+    for (const w of wanted) {
+      if (!w || w.split('/').some((s) => s === '..') || /^[a-z]:/i.test(w)) continue
+      filters.push(w, `${w}/*`)
+    }
+    if (!filters.length) return { ok: true, written: 0 }
+    const args = [
+      'x',
+      `-o${stage}`,
+      '-y',
+      ...(password ? [`-p${password}`] : []),
+      '--',
+      file,
+      ...filters
+    ]
+    const r = await run(exe, args, 3600000)
+    if (!r.ok) {
+      return {
+        ok: false,
+        reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+      }
+    }
+    // Each wanted entry now sits at `stage/<entry>`. Landing keeps the shape
+    // BELOW it and drops the parents above it, which is the rule the panel
+    // has always followed for a drag.
+    for (const w of wanted) {
+      const from = resolve(stage, ...w.split('/'))
+      if (!existsSync(from)) continue
+      let target = resolve(base, basename(w))
+      const inside = relative(base, target)
+      if (
+        !inside ||
+        inside.startsWith('..') ||
+        inside.split(sep).includes('..') ||
+        isAbsolute(inside)
+      )
+        continue
+      if (existsSync(target)) target = join(base, uniqueName(base, basename(w)))
+      // AWAITED: main is one thread, and a 2GB folder copied synchronously
+      // freezes every window and the Range handler a playing film depends on.
+      await cp(from, target, { recursive: true })
+      written += 1
+    }
+    return { ok: true, written }
+  } finally {
+    await rm(stage, { recursive: true, force: true }).catch(() => {})
   }
-  return { ok: true, written }
 }
