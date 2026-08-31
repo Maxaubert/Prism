@@ -15,9 +15,19 @@ to the icon's proportions moves both outputs together.
 THREE LAYERS, because a monochrome version of a two-colour icon needs one more
 than the icon does:
 
-    body  the page silhouette          -> paint with currentColor
-    ko    fold, chip, and the mark     -> paint with the panel colour
-    hi    knockouts inside the mark    -> paint with currentColor again, over ko
+    body  the page silhouette          -> the ink
+    ko    fold, chip, and the mark     -> THE BACKGROUND BEHIND THE ICON
+    hi    knockouts inside the mark    -> the ink again, painted over ko
+
+`ko` TAKES THE BACKGROUND, NOT A PANEL TOKEN, and that distinction is the whole
+correctness of this approach. Paint it from a fixed --p-panel and the icon is
+right on a flat panel and wrong everywhere else: on a SELECTED row, whose fill
+is the accent, the chip and fold come out as a rectangle of panel colour that
+does not belong to the icon. Paint it with the same colour `ink_for` was handed
+and the knockouts always match what is actually behind them - flat panel,
+accent fill, tinted theme, anything built later. One value feeds both: measure
+the row's resolved background once, derive the ink from it, and paint ko with
+it.
 
 `hi` exists because some marks have detail punched back out to the page colour -
 the clapperboard's stripes, the comic splat's core. In the colour icon those
@@ -306,9 +316,30 @@ const ratio = (a: string, b: string): number => {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
 }
 
-/** The icon colour for a given background. Feed it the panel's resolved bg. */
+/** The icon colour for a given background. Feed it the row's resolved bg. */
 export const inkFor = (bg: string): string =>
   ratio(INK_LIGHT, bg) >= ratio(INK_DARK, bg) ? INK_LIGHT : INK_DARK
+
+// ONE value feeds both halves. `bg` is the background actually behind the icon
+// - the row's fill, which on a selected row is the accent and not the panel.
+// Painting `ko` from a fixed panel token instead is the one way to get this
+// wrong: the icon would then carry a rectangle of panel colour across an accent
+// row. Measure once, derive the ink, and paint the knockouts with the same bg.
+export const FileIcon = ({ kind, bg, size = 14 }: {
+  kind: keyof typeof ICON_PATHS
+  bg: string
+  size?: number
+}): JSX.Element => {
+  const p = ICON_PATHS[kind]
+  const ink = inkFor(bg)
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden>
+      <path d={p.body} fill={ink} />
+      {p.ko && <path d={p.ko} fill={bg} />}
+      {p.hi && <path d={p.hi} fill={ink} />}
+    </svg>
+  )
+}
 """
 
 
