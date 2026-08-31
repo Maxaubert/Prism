@@ -38,12 +38,13 @@ Everything is on a 24x24 viewBox with NO refitting: the icon's own 16-unit grid
 is scaled by 1.5, so the composition keeps the margins and the chip overhang it
 was designed with rather than being stretched to the edges.
 
-THE EXTENSION LABEL is not a path - it is text, and turning a font into
-outlines here would freeze it. `LABEL` gives the placement and size so the
-caller can render <text> with the app's own font if it wants it. At 14px it is
-an unreadable smudge and the tree row already carries the file's name, so
-leaving it out is reasonable; at 20px and up in the archive panel it starts to
-earn its place. The chip is drawn either way.
+THE EXTENSION LABEL IS REQUIRED, and it is the FILE'S OWN extension - a .rar
+says RAR, a .7z says 7Z - not a fixed word per kind. It is not a path: turning a
+font into outlines here would freeze it while the app's own type moved on, so
+`label` gives placement plus a size PER CHARACTER COUNT and the caller renders
+<text> in the app's font. The sizes are measured against the chip with the same
+bold face the .ico uses, so ZIP, WEBM and a five-character extension all fit
+without spilling; pick by `len(ext)`.
 
 COMIC IS REDUCED, deliberately. Its shipped icon is a keylined pop-art sunburst
 with a warm halftone under a splat, and every one of those elements exists to
@@ -171,11 +172,33 @@ def chip_path_clipped(chip=CHIP):
     return rect_path(max(x0, PX0), y0, x1, y1, 0.7)
 
 
-def label(chip=CHIP):
-    """Placement for an optional <text>, since a font must not become outlines."""
+def _fits(chip, chars, size_u):
+    """Does a string of `chars` characters fit the chip at this size?
+
+    Measured with the same Segoe UI Bold the .ico label uses, at a large
+    multiple so rounding does not dominate. The app renders with its own face,
+    so this is a close proxy rather than a promise - hence the 0.88 of the chip
+    it is allowed to occupy rather than all of it.
+    """
+    from round12 import font
+    f = font(size_u * 12)
+    return f.getlength("W" * chars) / 12.0 <= (chip[2] - chip[0]) * 0.88
+
+
+def label_size(chip, chars):
+    """The largest size at which `chars` characters still fit, in viewBox units."""
+    size = (chip[3] - chip[1]) * 0.62
+    while size > 0.6 and not _fits(chip, chars, size):
+        size *= 0.94
+    return round(u(size), 2)
+
+
+def label(chip=CHIP, chars=3):
+    """Placement for the <text>, since a font must not become outlines."""
     return {"x": u((chip[0] + chip[2]) / 2), "y": u((chip[1] + chip[3]) / 2),
-            "size": u((chip[3] - chip[1]) * 0.62), "anchor": "middle",
-            "baseline": "central"}
+            "size": label_size(chip, chars), "anchor": "middle",
+            "baseline": "central",
+            "sizes": {n: label_size(chip, n) for n in range(1, 7)}}
 
 
 # ------------------------------------------------------------------- glyphs
@@ -346,13 +369,14 @@ export const FileIcon = ({ kind, bg, size = 14 }: {
 """
 
 
-def svg_for(kind, d, px=96, fg="#e9edf7", panel="#1b1d22", with_label=True):
+def svg_for(kind, d, px=96, fg="#e9edf7", panel="#1b1d22", with_label=True, ext=None):
     lab = ""
+    text = (ext or d["ext"]).upper()
     if with_label:
-        L = d["label"]
+        L = dict(d["label"], size=d["label"]["sizes"][min(len(text), 6)])
         lab = (f'<text x="{L["x"]}" y="{L["y"]}" font-size="{L["size"]}" fill="{fg}" '
                f'text-anchor="{L["anchor"]}" dominant-baseline="{L["baseline"]}" '
-               f'font-family="Segoe UI,system-ui,sans-serif" font-weight="700">{d["ext"]}</text>')
+               f'font-family="Segoe UI,system-ui,sans-serif" font-weight="700">{text}</text>')
     parts = [f'<path d="{d["body"]}" fill="currentColor"/>']
     if d["ko"]:
         parts.append(f'<path d="{d["ko"]}" fill="{panel}"/>')
@@ -383,7 +407,8 @@ def main():
         for k in (BODY, KO, HI, "solid"):
             print(f'    {k}: "{d[k]}",')
         L = d["label"]
-        print(f'    label: {{ x: {L["x"]}, y: {L["y"]}, size: {L["size"]} }},')
+        sizes = ", ".join(f"{n}: {v}" for n, v in L["sizes"].items())
+        print(f'    label: {{ x: {L["x"]}, y: {L["y"]}, sizes: {{ {sizes} }} }},')
         print("  },")
     print("} as const")
     print()
