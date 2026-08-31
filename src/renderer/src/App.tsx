@@ -1921,7 +1921,7 @@ export default function App(): JSX.Element {
       else reopen(cur)
       return r.path
     },
-    [file, noteUndo, reopen]
+    [file, noteUndo, reopen, rekeyBuffer]
   )
 
   const runDelete = useCallback(
@@ -1947,7 +1947,7 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else closeActiveTab()
     },
-    [closeActiveTab, file, noteUndo, reopen, view]
+    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
@@ -1979,7 +1979,7 @@ export default function App(): JSX.Element {
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
-    [closeActiveTab, file, noteUndo, reopen, view]
+    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
