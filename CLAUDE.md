@@ -398,7 +398,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
   arriving from outside reuses a tab whose root already holds it (five photos from one
   folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
-  in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
+  in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
+  (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
+  collapses everything - a file six folders down came back in the viewer with NOTHING marked
+  in the sidebar, because none of the rows leading to it existed. That is view state rather
+  than a per-tab setting, so "a tab is a root and a current file" stands; capped at 400
+  folders, because it is a suggestion and not a record. Separately and always, ANY tab opens
+  the folders between its root and the file it is showing (`ancestorsWithin`, pure and
+  tested): a file handed over by Explorer has no saved tree at all and still has to be
+  markable. The strip is present from the
   FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
   opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
   strip's `+` (and `Ctrl+T`) ADDS a tab instantly (its RIGHT click offers the last five folders

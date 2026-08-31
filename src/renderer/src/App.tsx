@@ -64,7 +64,9 @@ const MarkdownView = lazy(() =>
   import('./components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
 )
 const DocView = lazy(() => import('./components/DocView').then((m) => ({ default: m.DocView })))
-const ComicView = lazy(() => import('./components/ComicView').then((m) => ({ default: m.ComicView })))
+const ComicView = lazy(() =>
+  import('./components/ComicView').then((m) => ({ default: m.ComicView }))
+)
 import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
@@ -1465,6 +1467,11 @@ export default function App(): JSX.Element {
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
         term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        // Where you had got to in the tree. Not a per-tab setting - the tab is
+        // still a root and a file - but closing Prism used to collapse
+        // everything, so a file six folders down came back unmarked in a
+        // sidebar that showed none of the rows leading to it.
+        open: [...t.tree.expanded],
         // ...and one hosting claude or codex resumes its conversation on
         // restore, each by its own flag. 'other' agents have nothing to
         // come back to, so they are not recorded.

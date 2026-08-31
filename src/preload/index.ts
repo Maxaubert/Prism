@@ -48,6 +48,7 @@ const api = {
       file?: string
       term?: 'full' | 'split'
       agent?: 'claude' | 'codex'
+      open?: string[]
     }>,
     active: number
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),

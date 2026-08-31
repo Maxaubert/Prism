@@ -50,6 +50,46 @@ export function emptyTree(root: string): TreeState {
   return { expanded: new Set([root]), children: {} }
 }
 
+/** How many remembered folders a restored tab will re-open. Past this it is
+ *  not a place you were, it is a tree somebody unfolded. */
+const MAX_OPEN = 400
+
+/**
+ * The tree a RESTORED tab starts with: the folders that were open when Prism
+ * closed, plus every ancestor of the file it is showing.
+ *
+ * The ancestors matter on their own. A file can arrive from outside (argv,
+ * "Open in Prism") with no saved tree at all, and the sidebar has to be able
+ * to mark it - which it cannot do if the rows leading to it were never
+ * expanded. Both halves land in one set, and duplicates are free.
+ */
+export function restoredTree(root: string, open: readonly string[] = [], file?: string): TreeState {
+  const expanded = new Set<string>([root])
+  for (const p of open.slice(0, MAX_OPEN)) if (p) expanded.add(p)
+  if (file) for (const a of ancestorsWithin(root, file)) expanded.add(a)
+  return { expanded, children: {} }
+}
+
+/** Every folder between `root` and `file`, inclusive of root, exclusive of
+ *  the file itself. Case-insensitive, because Windows paths are. */
+export function ancestorsWithin(root: string, file: string): string[] {
+  const out: string[] = []
+  const norm = (s: string): string => s.replace(/[\\/]+$/, '')
+  const r = norm(root)
+  let at = norm(file)
+  // Walk up from the file, stopping at the root: a path outside it yields
+  // nothing rather than climbing to the drive.
+  for (let guard = 0; guard < 64; guard += 1) {
+    const cut = Math.max(at.lastIndexOf('\\'), at.lastIndexOf('/'))
+    if (cut < 0) break
+    at = at.slice(0, cut)
+    if (!at || at.length < r.length) break
+    out.push(at)
+    if (at.toLowerCase() === r.toLowerCase()) break
+  }
+  return out
+}
+
 /** Windows does not distinguish roots by case, so neither does a tab. */
 export const sameRoot = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
@@ -60,7 +100,9 @@ export function newTab(p: OpenPayload, id: string): Tab {
     root: p.root,
     files: p.files,
     index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
-    tree: emptyTree(p.root),
+    // A restored tab comes back with its folders open, and ANY tab opens the
+    // folders leading to the file it is showing, so the sidebar can mark it.
+    tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
     term: null,
     panes: []
   }
@@ -81,22 +123,24 @@ export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPa
  * `wantTerm` returns what the tab's term should become; the caller supplies
  * the id for a shell that does not exist yet.
  */
-export function toggleTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+export function toggleTermView(
+  term: { id: string; view: TermView } | null,
+  newId: string
+): { id: string; view: TermView } {
   if (!term) return { id: newId, view: 'full' }
   return { ...term, view: term.view === 'hidden' ? 'full' : 'hidden' }
 }
 
-export function splitTermView(term: { id: string; view: TermView } | null, newId: string): { id: string; view: TermView } {
+export function splitTermView(
+  term: { id: string; view: TermView } | null,
+  newId: string
+): { id: string; view: TermView } {
   if (!term) return { id: newId, view: 'split' }
   return { ...term, view: term.view === 'split' ? 'hidden' : 'split' }
 }
 
 /** Write one tab's terminal slot; every other tab is untouched. */
-export function setTabTerm(
-  tabs: readonly Tab[],
-  tabId: string,
-  term: Tab['term']
-): Tab[] {
+export function setTabTerm(tabs: readonly Tab[], tabId: string, term: Tab['term']): Tab[] {
   return tabs.map((t) => (t.id === tabId ? { ...t, term } : t))
 }
 
@@ -104,7 +148,16 @@ export function setTabTerm(
 export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
   const existing = tabs.find((t) => t.kind === 'settings')
   if (existing) return { tabs: tabs.slice(), activeId: existing.id }
-  const tab: Tab = { id, kind: 'settings', root: '', files: [], index: -1, tree: emptyTree(''), term: null, panes: [] }
+  const tab: Tab = {
+    id,
+    kind: 'settings',
+    root: '',
+    files: [],
+    index: -1,
+    tree: emptyTree(''),
+    term: null,
+    panes: []
+  }
   return { tabs: [...tabs, tab], activeId: id }
 }
 

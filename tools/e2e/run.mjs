@@ -2270,6 +2270,63 @@ async function tabsScenario(fixtures) {
     )
     const note = ((await win.locator('aside').textContent()) ?? '').includes("can't read")
     ok(!note, 'and the sidebar does not claim the folder is unreadable')
+    // A file two folders down is MARKED, not merely present: the tree opens
+    // the folders leading to it, so the row exists to be marked at all.
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
+        'buried.py'
+      ),
+      'and the file it is showing is selected in the sidebar'
+    )
+  } finally {
+    await app.close()
+  }
+
+  /**
+   * The tree does not collapse when Prism closes (2026-08-31).
+   *
+   * A tab rooted ABOVE the file is the only shape that can show this: the
+   * previous round opens a file directly, so its tab is rooted at the file's
+   * own folder and there are no ancestors to keep open. Here the root is the
+   * fixtures folder and the file is three deep.
+   */
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md')))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(500)
+    // Folders select on the first click and expand on the second.
+    for (const name of ['code', 'nested', 'level-two']) {
+      const row = win.locator(`[role="treeitem"]:has-text("${name}")`).first()
+      await row.click()
+      await sleep(250)
+      await row.click()
+      await sleep(450)
+    }
+    await win.locator('[role="treeitem"]:has-text("buried.py")').first().click()
+    await sleep(900) // the strip save is on a 400ms debounce
+    ok(
+      (await win.locator('[role="treeitem"]:has-text("level-two")').count()) >= 1,
+      'the tree is open three folders deep before the restart'
+    )
+  } finally {
+    await app.close()
+  }
+
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md'), true))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(1200)
+    const rows = await win.locator('[role="treeitem"]').allTextContents()
+    ok(
+      rows.some((r) => r.includes('level-two')),
+      `the folders that were open came back open (${rows.length} rows)`
+    )
+    ok(
+      rows.some((r) => r.includes('buried.py')),
+      'so the file deep inside them has a row again'
+    )
   } finally {
     await app.close()
   }
