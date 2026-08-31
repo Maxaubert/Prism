@@ -464,6 +464,14 @@ export function buildFixtures() {
   cbz2.addFile('001.png', PNG)
   cbz2.writeZip(join(FIXTURES, 'comics', 'sequel.cbz'))
 
+  // A zip whose whole content is ONE top-level folder, which is what every
+  // "download as zip" produces: extract-all must hand that folder up rather
+  // than burying it under another named after the archive.
+  const wrapped = new AdmZip()
+  wrapped.addFile('Collection/one.txt', Buffer.from('first'))
+  wrapped.addFile('Collection/sub/two.txt', Buffer.from('second'))
+  wrapped.writeZip(join(FIXTURES, 'zips', 'wrapped.zip'))
+
   // Somewhere for a member dragged OUT of the archive to land (#70), and a
   // little tree of its own for the sidebar's move.
   mkdirSync(join(FIXTURES, 'zips', 'out'), { recursive: true })

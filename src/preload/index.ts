@@ -93,7 +93,9 @@ const api = {
   /** What the camera wrote into a photo: camera, lens, exposure, when, GPS.
    *  Read in main from the file itself, so it works for HEIC and camera RAW,
    *  whose decoded copies carry no metadata at all. */
-  photoInfo: (path: string): Promise<{
+  photoInfo: (
+    path: string
+  ): Promise<{
     camera?: string
     lens?: string
     exposure?: string
@@ -186,8 +188,11 @@ const api = {
    * dialog is the consent that lets it land outside every root. Resolves with
    * where it went, or null if the dialog was cancelled or the write failed.
    */
-  saveImageCopy: (bytes: ArrayBuffer, suggested: string, format: 'png' | 'jpeg'): Promise<string | null> =>
-    ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
+  saveImageCopy: (
+    bytes: ArrayBuffer,
+    suggested: string,
+    format: 'png' | 'jpeg'
+  ): Promise<string | null> => ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),
@@ -265,13 +270,25 @@ const api = {
    *  bare null read as "corrupt archive" with nowhere to type one. */
   archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
     ipcRenderer.invoke('archive:list', path, password),
-  /** Extract the whole archive somewhere the user picks (main asks), into a
-   *  folder named after it. Resolves with where it landed. */
+  /** Extract the whole archive into a folder named after it. `here` skips the
+   *  dialog and lands beside the archive; otherwise main asks where. An
+   *  archive whose whole content is one folder hands that folder up rather
+   *  than burying it a level deeper. Resolves with where it landed. */
   archiveExtractAll: (
-    path: string
+    path: string,
+    here = false
   ): Promise<
     { ok: true; dest: string } | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
-  > => ipcRenderer.invoke('archive:extract-all', path),
+  > => ipcRenderer.invoke('archive:extract-all', path, here),
+  /** A FOLDER inside the archive, extracted whole to a temp copy, shape
+   *  intact - so copying a folder gives you the folder and not a flat pile
+   *  of the files that were in it. */
+  archiveExtractDir: (
+    path: string,
+    entry: string,
+    here = false
+  ): Promise<{ ok: true; path: string } | { ok: false; reason: 'password' | 'aes' | 'failed' }> =>
+    ipcRenderer.invoke('archive:extract-dir', path, entry, here),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (
@@ -319,6 +336,14 @@ const api = {
     const listener = (_: unknown, m: DirChange): void => cb(m)
     ipcRenderer.on('dir:changed', listener)
     return () => ipcRenderer.removeListener('dir:changed', listener)
+  },
+  /** How far an archive extraction has got, 0-100. Only the 7-Zip path
+   *  reports: the adm-zip one is capped at 600MB and finishes too fast to
+   *  be worth a bar. */
+  onArchiveProgress: (cb: (m: { path: string; pct: number }) => void): (() => void) => {
+    const listener = (_: unknown, m: { path: string; pct: number }): void => cb(m)
+    ipcRenderer.on('archive:progress', listener)
+    return () => ipcRenderer.removeListener('archive:progress', listener)
   },
   /** A followed file grew (or was truncated, which is `reset`). */
   onFileAppended: (cb: (e: TailEvent) => void): (() => void) => {

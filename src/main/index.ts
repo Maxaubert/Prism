@@ -16,12 +16,14 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   statSync,
   writeFileSync
 } from 'fs'
 import { copyFile, readFile, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
@@ -1481,7 +1483,9 @@ if (!app.requestSingleInstanceLock()) {
      *  `file:appended` until `tail:stop`. One watch per path. */
     ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return false
-      return startTail(p, Number(from) || 0, (e) => mainWindow?.webContents.send('file:appended', e))
+      return startTail(p, Number(from) || 0, (e) =>
+        mainWindow?.webContents.send('file:appended', e)
+      )
     })
     ipcMain.handle('tail:stop', (_e, p: string) => {
       if (typeof p === 'string') stopTail(p)
@@ -2045,7 +2049,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
       if (!comicOk(p)) return { error: 'failed' as const }
       comicsDir = join(app.getPath('userData'), 'comics')
-      const pw = typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+      const pw =
+        typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
       const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!exe) return { error: 'failed' as const }
       const got = await openComic(exe, p, comicsDir, pw)
@@ -2055,13 +2060,98 @@ if (!app.requestSingleInstanceLock()) {
       // wall allows as a directory.
       return { pages: got.pages }
     })
-    // 7z, rar, tar, gz and friends are READ-ONLY: they are read through the
-    // bundled 7-Zip, which can list and extract them all but which Prism does
-    // not write with. zip keeps its own in-process path, and its verbs.
-    const seven = (p: string): string | null =>
-      isSevenArchive(extname(p))
-        ? bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
-        : null
+    /**
+     * Which archives go through the bundled 7-Zip rather than adm-zip.
+     *
+     * 7z, rar, tar, gz and friends always do: they are READ-ONLY, since 7-Zip
+     * lists and extracts them all and Prism never writes with it. zip keeps
+     * its own in-process path, and its verbs.
+     *
+     * A .zip that is TOO BIG for adm-zip goes through 7-Zip as well
+     * (2026-08-31). adm-zip reads the whole container into memory, which is
+     * why anything over the cap was refused - but the cap is adm-zip's limit,
+     * not zip's, and 7-Zip streams. A 1.9GB zip used to list (by reading 1.9GB
+     * into main) and then answer "failed" to every extract, which is the worst
+     * of both. Now it lists cheaply and extracts fine, and simply has no write
+     * verbs, exactly like a .7z.
+     */
+    const seven = (p: string): string | null => {
+      const exe = (): string | null =>
+        bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (isSevenArchive(extname(p))) return exe()
+      try {
+        return archiveTooLarge(statSync(p).size) ? exe() : null
+      } catch {
+        return null // gone between the listing and now
+      }
+    }
+
+    /**
+     * Extract-all's landing folder, and the ONE-FOLDER RULE (2026-08-31).
+     *
+     * An archive whose whole content is a single top-level folder - which is
+     * what every "download as zip" produces - used to land as
+     * `chosen/archive-name/TheFolder`, one level deeper than anybody wanted.
+     * So after a successful extract, a wrapper holding exactly one directory
+     * hands that directory up to its parent and removes itself.
+     *
+     * Done by MOVING rather than by extracting straight into the destination,
+     * because the rule that Prism never writes over an existing folder is
+     * worth more than the one rmdir it costs: the move picks "name (2)" the
+     * same way the wrapper itself does, and a same-volume rename is instant
+     * whatever the folder weighs.
+     */
+    async function unwrapSingleFolder(wrapper: string, parent: string): Promise<string> {
+      try {
+        const fs = await import('fs/promises')
+        const kids = await fs.readdir(wrapper, { withFileTypes: true })
+        if (kids.length !== 1 || !kids[0].isDirectory()) return wrapper
+        let out = join(parent, kids[0].name)
+        for (let n = 2; existsSync(out) && n < 100; n += 1)
+          out = join(parent, `${kids[0].name} (${n})`)
+        await fs.rename(join(wrapper, kids[0].name), out)
+        await fs.rmdir(wrapper).catch(() => {})
+        return out
+      } catch {
+        return wrapper
+      }
+    }
+
+    /** Extract the whole archive into `into`, which must already exist. */
+    async function extractWhole(
+      p: string,
+      into: string
+    ): Promise<{ ok: true } | { ok: false; reason: 'password' | 'aes' | 'failed' }> {
+      const pw = archivePasswords.get(p) ?? ''
+      const exe = seven(p)
+      if (exe) {
+        // 7-Zip's own percentage, forwarded to the panel: a 2GB archive takes
+        // minutes, and a button reading "Extracting..." for minutes is
+        // indistinguishable from one that has hung.
+        let last = -1
+        const s7 = await extractAllSeven(exe, p, into, pw, (pct) => {
+          if (pct === last) return
+          last = pct
+          mainWindow?.webContents.send('archive:progress', { path: p, pct })
+        })
+        return s7.ok ? { ok: true } : { ok: false, reason: s7.reason }
+      }
+      // Every top-level entry: extractTo matches members by prefix, and the
+      // roots of the tree are what covers all of them.
+      const tops = listArchive(p)
+        .filter((e) => !e.path.includes('/'))
+        .map((e) => e.path)
+      const out = await extractTo(p, tops, into, pw || undefined)
+      return out.ok ? { ok: true } : { ok: false, reason: out.reason }
+    }
+
+    /** A folder to extract into, named after the archive, never overwriting. */
+    function landingDir(p: string, parent: string): string {
+      const stem = basename(p).replace(/\.[^.]+$/, '') || 'extracted'
+      let dest = join(parent, stem)
+      for (let n = 2; existsSync(dest) && n < 100; n += 1) dest = join(parent, `${stem} (${n})`)
+      return dest
+    }
 
     ipcMain.handle('archive:stat', async (_e, p: string): Promise<ArchiveStat | null> => {
       if (!archiveOk(p)) return null
@@ -2151,40 +2241,86 @@ if (!app.requestSingleInstanceLock()) {
       'archive:extract-all',
       async (
         _e,
-        p: string
+        p: string,
+        here?: boolean
       ): Promise<
         | { ok: true; dest: string }
         | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
       > => {
         if (!archiveOk(p)) return { ok: false, reason: 'failed' }
-        const r = await openDialog({
-          properties: ['openDirectory', 'createDirectory'],
-          defaultPath: dirname(p),
-          buttonLabel: 'Extract here'
-        })
-        if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
-        const stem = basename(p).replace(/\.[^.]+$/, '') || 'extracted'
-        let dest = join(r.filePaths[0], stem)
-        // Never write over a folder that is already there: "name (2)", the
-        // same shape Duplicate uses.
-        for (let n = 2; existsSync(dest) && n < 100; n += 1)
-          dest = join(r.filePaths[0], `${stem} (${n})`)
+        let parent = dirname(p)
+        if (!here) {
+          // The dialog IS the consent: it is why the destination does not have
+          // to be inside a root. "Extract here" needs none, because the
+          // archive's own folder already is one.
+          const r = await openDialog({
+            properties: ['openDirectory', 'createDirectory'],
+            defaultPath: dirname(p),
+            buttonLabel: 'Extract here'
+          })
+          if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
+          parent = r.filePaths[0]
+        }
+        const dest = landingDir(p, parent)
         try {
           mkdirSync(dest, { recursive: true })
+          const out = await extractWhole(p, dest)
+          if (!out.ok) return out
+          return { ok: true, dest: await unwrapSingleFolder(dest, parent) }
+        } catch {
+          return { ok: false, reason: 'failed' }
+        }
+      }
+    )
+
+    /**
+     * A FOLDER inside the archive, extracted whole to a temp copy.
+     *
+     * The panel's "Copy" on a folder used to extract its members one at a
+     * time and put the loose FILES on the clipboard, so pasting gave you a
+     * flat pile and never the folder you right-clicked. This hands back one
+     * real directory with the shape intact, which is what gets copied.
+     */
+    ipcMain.handle(
+      'archive:extract-dir',
+      async (
+        _e,
+        p: string,
+        entry: string,
+        here?: boolean
+      ): Promise<
+        { ok: true; path: string } | { ok: false; reason: 'password' | 'aes' | 'failed' }
+      > => {
+        if (!archiveOk(p) || typeof entry !== 'string' || !entry) {
+          return { ok: false, reason: 'failed' }
+        }
+        try {
+          const clean = entry.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+          const name = clean.split('/').pop() || 'folder'
+          const dir = mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
           const pw = archivePasswords.get(p) ?? ''
           const exe = seven(p)
-          if (exe) {
-            const s7 = await extractAllSeven(exe, p, dest, pw)
-            return s7.ok ? { ok: true, dest } : { ok: false, reason: s7.reason }
+          const out = exe
+            ? await extractSevenTo(exe, p, [clean], dir, pw)
+            : await extractTo(p, [clean], dir, pw || undefined)
+          if (!out.ok) return { ok: false, reason: out.reason }
+          const made = join(dir, name)
+          if (!existsSync(made)) return { ok: false, reason: 'failed' }
+          if (!here) {
+            extractedPaths.add(made)
+            return { ok: true, path: made }
           }
-          if (archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
-          // Every top-level entry: extractTo matches members by prefix, and
-          // the roots of the tree are what covers all of them.
-          const tops = listArchive(p)
-            .filter((e) => !e.path.includes('/'))
-            .map((e) => e.path)
-          const out = await extractTo(p, tops, dest, pw || undefined)
-          return out.ok ? { ok: true, dest } : { ok: false, reason: out.reason }
+          // `here` lands it beside the archive, which is inside a root, so it
+          // needs no dialog to consent to. Extracted to staging first and
+          // renamed across, so a taken name never merges into somebody
+          // else's folder - the same rule extract-all follows.
+          const parent = dirname(p)
+          let out2 = join(parent, name)
+          for (let n = 2; existsSync(out2) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
+          const fs = await import('fs/promises')
+          await fs.rename(made, out2)
+          await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+          return { ok: true, path: out2 }
         } catch {
           return { ok: false, reason: 'failed' }
         }

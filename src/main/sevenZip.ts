@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 
 /**
  * Every 7-Zip call is ASYNC (2026-08-26), and that is not a style preference.
@@ -155,6 +155,47 @@ export function extractAllArgs(file: string, dir: string, password: string): str
   return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file]
 }
 
+/** The percentage out of a 7-Zip progress line, or null. `-bsp1` writes them
+ *  to stdout as " 42% 17 - some/file.jpg", carriage-returned over each other. */
+export function readPercent(chunk: string): number | null {
+  let last: number | null = null
+  for (const m of chunk.matchAll(/(\d{1,3})%/g)) {
+    const n = Number(m[1])
+    if (n >= 0 && n <= 100) last = n
+  }
+  return last
+}
+
+/**
+ * The same extraction, reporting how far along it is.
+ *
+ * A 2GB archive takes minutes, and a button that says "Extracting..." for
+ * minutes is indistinguishable from one that has hung. `-bsp1` puts 7-Zip's
+ * own percentage on stdout, so this spawns rather than execFile's buffer-it-
+ * all, and streams.
+ */
+function runWithProgress(
+  exe: string,
+  args: string[],
+  onPercent: (pct: number) => void
+): Promise<{ ok: true } | { ok: false; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(exe, args, { windowsHide: true })
+    let err = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (d: string) => {
+      const pct = readPercent(d)
+      if (pct !== null) onPercent(pct)
+    })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (d: string) => {
+      err = (err + d).slice(-2000)
+    })
+    child.on('error', () => resolve({ ok: false, stderr: 'could not start 7-Zip' }))
+    child.on('close', (code) => resolve(code === 0 ? { ok: true } : { ok: false, stderr: err }))
+  })
+}
+
 /** argv for extracting one member, keeping its folders, into `dir`. */
 export function extractArgs(file: string, entry: string, dir: string, password: string): string[] {
   return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file, entry]
@@ -218,9 +259,13 @@ export async function extractAllSeven(
   exe: string,
   file: string,
   dir: string,
-  password = ''
+  password = '',
+  onPercent?: (pct: number) => void
 ): Promise<{ ok: true } | { ok: false; reason: MemberFail }> {
-  const r = await run(exe, extractAllArgs(file, dir, password), 600000)
+  const args = extractAllArgs(file, dir, password)
+  const r = onPercent
+    ? await runWithProgress(exe, ['-bsp1', ...args], onPercent)
+    : await run(exe, args, 600000)
   if (r.ok) return { ok: true }
   return {
     ok: false,
@@ -286,7 +331,12 @@ export async function extractSevenTo(
     if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
     let target = resolve(base, ...rel.split('/'))
     const inside = relative(base, target)
-    if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
+    if (
+      !inside ||
+      inside.startsWith('..') ||
+      inside.split(sep).includes('..') ||
+      isAbsolute(inside)
+    )
       continue
     const got = await extractSeven(exe, file, p, password)
     if (!got.ok) return { ok: false, reason: got.reason }

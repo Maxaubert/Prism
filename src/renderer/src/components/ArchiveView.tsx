@@ -20,9 +20,7 @@ import type { UndoEntry } from '../lib/undo'
 // pdf.js and the markdown pipeline into the launch bundle. A member preview
 // waits a frame for its viewer; that is what MemberView's Suspense is for.
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
-const MarkdownView = lazy(() =>
-  import('./MarkdownView').then((m) => ({ default: m.MarkdownView }))
-)
+const MarkdownView = lazy(() => import('./MarkdownView').then((m) => ({ default: m.MarkdownView })))
 const PdfView = lazy(() => import('./pdf/PdfView').then((m) => ({ default: m.PdfView })))
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
@@ -205,6 +203,8 @@ function ArchiveInner({
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
   // panel offers no verbs that would fail. zip keeps all of its.
   const [readOnly, setReadOnly] = useState(false)
+  /** How far an extraction has got, or null when none is running. */
+  const [pct, setPct] = useState<number | null>(null)
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
   /** The panel's dead-space menu, kept apart from the row menu's state. */
@@ -408,6 +408,13 @@ function ArchiveInner({
     },
     [order]
   )
+  useEffect(
+    () =>
+      window.prism.onArchiveProgress((m) => {
+        if (m.path.toLowerCase() === file.path.toLowerCase()) setPct(m.pct)
+      }),
+    [file.path]
+  )
   /** Copy every selected FILE out at once; folders don't extract. */
   const copyMany = useCallback(
     (paths: string[]): void => {
@@ -428,6 +435,44 @@ function ArchiveInner({
       })()
     },
     [file.path, rows]
+  )
+  /**
+   * Copy a FOLDER out as a folder.
+   *
+   * `copyMany` extracts each member on its own and puts the loose files on
+   * the clipboard, which is right for a multi-selection of files and wrong
+   * for a folder: you right-clicked one thing and got a flat pile of what was
+   * inside it. Main extracts the whole subtree to one temp directory with its
+   * shape intact, and that directory is what goes on the clipboard.
+   */
+  const copyFolder = useCallback(
+    (entry: string): void => {
+      setBusy('extract')
+      void window.prism.archiveExtractDir(file.path, entry).then((r) => {
+        setBusy(null)
+        if (r.ok) void window.prism.copyFilesToClipboard([r.path])
+        else if (r.reason === 'password' || r.reason === 'aes')
+          setOops(
+            'That folder is password protected. Open a member first to unlock the archive, then copy again.'
+          )
+        else setOops("That folder couldn't be copied.")
+      })
+    },
+    [file.path]
+  )
+  /** One folder from inside the archive, out beside the archive itself. */
+  const extractFolderHere = useCallback(
+    (entry: string): void => {
+      setBusy('extract')
+      void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
+        setBusy(null)
+        if (r.ok) setExtracted(r.path)
+        else if (r.reason === 'password' || r.reason === 'aes')
+          setOops('That folder is password protected. Open a member first to unlock the archive.')
+        else setOops("That folder couldn't be extracted.")
+      })
+    },
+    [file.path]
   )
   const deleteMany = useCallback(
     (paths: string[]): void => {
@@ -459,19 +504,24 @@ function ArchiveInner({
   /** Extract the whole thing. Main asks where (its dialog IS the consent, and
    *  is why the destination need not be inside a Prism root), and puts the
    *  contents in a folder named after the archive. */
-  const extractAll = useCallback((): void => {
-    setBusy('extract')
-    void window.prism.archiveExtractAll(file.path).then((r) => {
-      setBusy(null)
-      if (r.ok) setExtracted(r.dest)
-      else if (r.reason === 'cancelled') return
-      else if (r.reason === 'password')
-        setOops(
-          'This archive is password protected. Open a member first to unlock it, then extract.'
-        )
-      else setOops("That archive couldn't be extracted.")
-    })
-  }, [file.path])
+  const extractAll = useCallback(
+    (here = false): void => {
+      setPct(null)
+      setBusy('extract')
+      void window.prism.archiveExtractAll(file.path, here).then((r) => {
+        setBusy(null)
+        setPct(null)
+        if (r.ok) setExtracted(r.dest)
+        else if (r.reason === 'cancelled') return
+        else if (r.reason === 'password')
+          setOops(
+            'This archive is password protected. Open a member first to unlock it, then extract.'
+          )
+        else setOops("That archive couldn't be extracted.")
+      })
+    },
+    [file.path]
+  )
 
   /**
    * Drag-select, the archive's alone (2026-08-25).
@@ -701,8 +751,15 @@ function ArchiveInner({
     const n = members.length
     const items: MenuItem[] = [
       { label: 'Open', onPick: () => setCwd(entry.path) },
+      // The folder itself, not the files that happen to be in it.
+      { label: 'Copy folder', disabled: n === 0, onPick: () => copyFolder(entry.path) },
       {
-        label: `Copy ${n} file${n === 1 ? '' : 's'}`,
+        label: 'Extract folder here',
+        disabled: n === 0,
+        onPick: () => extractFolderHere(entry.path)
+      },
+      {
+        label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
         disabled: n === 0,
         onPick: () => copyMany(members)
       }
@@ -807,10 +864,22 @@ function ArchiveInner({
             archive to do, and hunting a menu for "extract" was the gap. */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
           <ArcVerb
-            label={busy === 'extract' ? 'Extracting…' : 'Extract all…'}
+            label={
+              busy === 'extract'
+                ? pct === null
+                  ? 'Extracting…'
+                  : `Extracting… ${pct}%`
+                : 'Extract here'
+            }
             disabled={busy !== null}
-            onClick={extractAll}
+            onClick={() => extractAll(true)}
             path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
+          />
+          <ArcVerb
+            label="Extract to…"
+            disabled={busy !== null}
+            onClick={() => extractAll(false)}
+            path="M12 4v10m0 0l-4-4m4 4l4-4M4 19h6m4 0h6"
           />
           {!readOnly && (
             <ArcVerb
@@ -838,6 +907,24 @@ function ArchiveInner({
             path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
           />
         </div>
+        {/* Only while something is actually running, and only once 7-Zip has
+            said a number: a bar that appears at 0 and sits there is worse
+            than the word on the button. */}
+        {busy === 'extract' && pct !== null && (
+          <div
+            className="mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)]"
+            role="progressbar"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Extracting"
+          >
+            <div
+              className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        )}
 
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
@@ -1106,7 +1193,12 @@ function ArchiveInner({
               onPick: () =>
                 setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
             },
-            { label: 'Copy archive', onPick: () => void window.prism.copyFileToClipboard(file.path) },
+            { label: 'Extract here', disabled: busy !== null, onPick: () => extractAll(true) },
+            { label: 'Extract to…', disabled: busy !== null, onPick: () => extractAll(false) },
+            {
+              label: 'Copy archive',
+              onPick: () => void window.prism.copyFileToClipboard(file.path)
+            },
             {
               label: 'Show in File Explorer',
               onPick: () => window.prism.showInExplorer(file.path)

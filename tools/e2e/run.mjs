@@ -1177,6 +1177,53 @@ async function comicScenario(fixtures) {
   }
 }
 
+/**
+ * Extract-all, and the ONE-FOLDER RULE (2026-08-31).
+ *
+ * A zip whose whole content is a single top-level folder is what every
+ * "download as zip" produces, and it used to land as
+ * `chosen/archive-name/TheFolder` - one level deeper than anybody wanted.
+ * Uses "Extract here", which needs no dialog: the archive's own folder is
+ * already inside a root, so there is nothing to consent to.
+ */
+async function extractScenario(fixtures) {
+  console.log('extracting')
+  const zip = join(fixtures, 'zips', 'wrapped.zip')
+  const landed = join(fixtures, 'zips', 'Collection')
+  rmSync(landed, { recursive: true, force: true })
+  const { app, win } = await launch(zip)
+  try {
+    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    ok(
+      (await win.locator('button:has-text("Extract here")').count()) === 1,
+      'the verb row offers a one-click Extract here'
+    )
+    ok(
+      (await win.locator('button:has-text("Extract to")').count()) === 1,
+      'and Extract to... beside it'
+    )
+    await win.click('button:has-text("Extract here")')
+    await win.waitForFunction(
+      () => !document.body.textContent.includes('Extracting'),
+      null,
+      { timeout: 30000 }
+    )
+    await sleep(600)
+    ok(existsSync(landed), 'the single top-level folder landed directly, not wrapped')
+    ok(
+      existsSync(join(landed, 'one.txt')) && existsSync(join(landed, 'sub', 'two.txt')),
+      'with its shape intact'
+    )
+    ok(
+      !existsSync(join(fixtures, 'zips', 'wrapped')),
+      'and no folder named after the archive was left behind'
+    )
+  } finally {
+    await app.close()
+    rmSync(landed, { recursive: true, force: true })
+  }
+}
+
 async function codeScenario(fixtures) {
   console.log('code viewer')
   const dir = join(fixtures, 'code')
@@ -3187,6 +3234,7 @@ await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
 await run(archiveScenario)
+await run(extractScenario)
 await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)

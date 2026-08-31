@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { extractArgs, isSevenArchive, listArgs, parseListing, safeMemberPath, sevenDirs } from './sevenZip'
+import {
+  extractArgs,
+  isSevenArchive,
+  listArgs,
+  parseListing,
+  readPercent,
+  safeMemberPath,
+  sevenDirs
+} from './sevenZip'
 
 // Real `7z l -slt` output, kept verbatim: the parser's whole job is to survive
 // what 7-Zip actually prints.
@@ -162,5 +170,30 @@ describe('refusing a hostile member name', () => {
   it('refuses nothing at all, and absurd lengths', () => {
     expect(safeMemberPath('', dir)).toBeNull()
     expect(safeMemberPath('a'.repeat(5000), dir)).toBeNull()
+  })
+})
+
+describe('the progress percentage 7-Zip prints', () => {
+  it('reads the number off a -bsp1 line', () => {
+    expect(readPercent(' 42% 17 - Comics/issue 01.cbz')).toBe(42)
+  })
+
+  it('takes the LAST one in a chunk, since they arrive carriage-returned together', () => {
+    expect(readPercent(' 11% 3 - a\r 12% 4 - b\r 13% 5 - c')).toBe(13)
+  })
+
+  it('reads 0 and 100', () => {
+    expect(readPercent('  0% ')).toBe(0)
+    expect(readPercent(' 100% 812')).toBe(100)
+  })
+
+  it('answers null when there is no percentage in it', () => {
+    expect(readPercent('Everything is Ok')).toBeNull()
+    expect(readPercent('')).toBeNull()
+  })
+
+  it('ignores a number that is not a percentage', () => {
+    // A member whose NAME has a percent in it must not move the bar.
+    expect(readPercent('Extracting  discount 200% off.jpg')).toBeNull()
   })
 })

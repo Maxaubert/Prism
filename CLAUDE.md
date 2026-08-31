@@ -189,7 +189,25 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
-  archives (>600MB) list but refuse member operations. Properties on a zip reports what it
+  archives (>600MB) list but refuse WRITE operations.
+  **A BIG ZIP IS READ THROUGH 7-ZIP** (2026-08-31): the 600MB ceiling is ADM-ZIP's, not
+  zip's - it reads the whole container into memory - so a 1.9GB zip used to list (by reading
+  1.9GB into main) and then answer "failed" to every extract, drag and copy, which is the
+  worst of both. A zip past the cap now takes the same read-only 7-Zip path a .7z does: it
+  lists in 88ms (MEASURED on a 1.9GB, 796-file zip) and extracts fine, and simply has no
+  write verbs. Writes keep the cap, because they are still adm-zip's. Extract-all follows
+  the ONE-FOLDER RULE: an archive whose whole content is a single top-level folder - what
+  every "download as zip" produces - hands that folder up rather than burying it under
+  another named after the archive, done by MOVING after extraction so the
+  never-write-over-a-folder rule survives. **Extract here** is a one-click verb needing no
+  dialog (the archive's own folder is already inside a root, so there is nothing to consent
+  to); **Extract to...** keeps the dialog, which IS the consent that lets it write anywhere.
+  Both sit on the verb row and on the panel's own menu, and a FOLDER row offers Copy folder
+  and Extract folder here - its Copy used to extract the members one at a time and put the
+  loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
+  7-Zip path reports its own percentage (`-bsp1`, streamed rather than buffered), because a
+  button reading "Extracting..." for the minutes a 2GB archive takes is indistinguishable
+  from one that has hung. Properties on a zip reports what it
   holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
