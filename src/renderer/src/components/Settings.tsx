@@ -43,8 +43,8 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
-  fileIconOf,
   folderIconOf,
+  iconSchemeOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -58,6 +58,7 @@ import {
   useStyles,
   type FontId,
   type Mode,
+  type IconScheme,
   type Style
 } from '../lib/theme'
 
@@ -643,6 +644,16 @@ const CORNER_OPTIONS: Array<{ id: Style['corners']; name: string }> = [
   { id: '14', name: 'Round' }
 ]
 
+// The file icons are a SET, not a colour (2026-09-01). What sat here was a
+// colour well, and an arbitrary tint over every kind is a narrower thing than
+// choosing which icons you get: monochrome derives its one ink from the style's
+// own ground, coloured is a fixed preset per kind and looks the same on every
+// ground, which is what makes it the icon Explorer shows.
+const ICON_SCHEME_OPTIONS: Array<{ id: IconScheme; name: string }> = [
+  { id: 'mono', name: 'Monochrome' },
+  { id: 'colour', name: 'Coloured' }
+]
+
 const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'none', name: 'None' },
   { id: 'faint', name: 'Faint' },
@@ -828,14 +839,12 @@ function StyleTab(): JSX.Element {
           <Pref
             id="c-file-icon"
             label="File icons"
-            hint="One colour for every file icon; the kind shows in the shape."
+            hint="Monochrome takes one ink from your background; coloured is a set per kind."
           >
-            <ColourWell
-              id="c-file-icon"
-              value={fileIconOf(style)}
-              custom={!!edits.fileIcon}
-              onChange={(v) => setOverride('fileIcon', v)}
-              onReset={() => setOverride('fileIcon', null)}
+            <Segmented
+              value={iconSchemeOf(style)}
+              onChange={(v) => setOverride('iconScheme', v)}
+              options={ICON_SCHEME_OPTIONS}
             />
           </Pref>
         </div>

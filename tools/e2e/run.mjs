@@ -1173,6 +1173,102 @@ async function hexScenario(fixtures) {
  * page the folder, and Ctrl+arrow still does, which is how you get to the
  * next book.
  */
+/**
+ * The Settings "File icons" control, which is a SWITCH OF ICON SETS rather than
+ * a colour (2026-09-01), and the one bug that switch can reintroduce.
+ *
+ * Monochrome paints the whole icon in one ink and knocks the fold, the band and
+ * the mark back out in THE ROW'S OWN BACKGROUND. Coloured paints every layer a
+ * colour of its own, and that is where the overhang lives: `ko`'s band
+ * overshoots the page by 0.6 units so its antialiasing lands clear of the
+ * page's rounded bottom corners, which is invisible while it is painted in the
+ * background and reads as A LABEL WIDER THAN THE ICON the moment it is not. The
+ * bbox comparison below is that regression, measured rather than eyeballed.
+ */
+async function iconSchemeScenario(fixtures) {
+  console.log('file icon scheme')
+  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  // Every fill on the first tree row's icon, plus the boxes the overhang shows
+  // up in. Walking the rows rather than using a selector: a Windows path inside
+  // a CSS attribute selector needs escaping that is easy to get quietly wrong.
+  const icon = (suffix) =>
+    win.evaluate((sfx) => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(sfx)
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      if (!svg) return null
+      const paths = [...svg.querySelectorAll('path')]
+      const box = (el) => {
+        const b = el.getBBox()
+        return { x: +b.x.toFixed(2), r: +(b.x + b.width).toFixed(2) }
+      }
+      const t = svg.querySelector('text')
+      return {
+        fills: paths.map((el) => el.getAttribute('fill')),
+        body: box(paths[0]),
+        second: paths[1] ? box(paths[1]) : null,
+        label: t?.textContent ?? '',
+        labelFill: t?.getAttribute('fill') ?? ''
+      }
+    }, suffix)
+
+  const setScheme = async (label) => {
+    await win.click('[aria-label="Settings"]')
+    await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
+    // Settings opens on whichever page was last used; the colours are on Style.
+    await win.locator('button:has-text("Style")').first().click()
+    await sleep(300)
+    // The Pref row itself: div > div > label, so this is the row and not the
+    // label inside it, which is what `.last()` on a text filter would give.
+    const pref = win.locator('div:has(> div > label:text-is("File icons"))')
+    await pref.locator(`button:has-text("${label}")`).first().click()
+    await sleep(500)
+    // Back to the file tab, which is the one with a tree in it.
+    await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(500)
+  }
+
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    const mono = await icon('bad.json')
+    ok(mono !== null, 'the tree draws an icon for bad.json')
+    ok(mono.label === 'JSON', `and the band carries the extension (${mono.label})`)
+    // One ink: body, hi and the label are the same colour, and the knockout is
+    // whatever is behind the row. Two distinct values across the whole icon.
+    const monoInks = new Set([...mono.fills, mono.labelFill])
+    ok(monoInks.size === 2, `monochrome draws the icon in two values (${monoInks.size})`)
+
+    await setScheme('Coloured')
+    const col = await icon('bad.json')
+    ok(col !== null, 'the icon survives the switch')
+    ok(col.fills[0] === '#464646', `coloured paints the page its own colour (${col.fills[0]})`)
+    ok(col.fills[1] === '#000000', `and the band its own (${col.fills[1]})`)
+    ok(
+      col.labelFill === '#ffffff',
+      `THE LABEL FLIPS WITH THE BAND, or it is ink on ink (${col.labelFill})`
+    )
+
+    // THE REGRESSION. The band must not reach past the page it sits in.
+    ok(
+      col.second.x >= col.body.x && col.second.r <= col.body.r,
+      `the label band stays inside the page (band ${col.second.x}..${col.second.r}, ` +
+        `page ${col.body.x}..${col.body.r})`
+    )
+    // And monochrome keeps the overshooting one, which is the point of having
+    // both: painted in the row's background it is what stops the corner fringe.
+    ok(mono.second.x < mono.body.x, 'while monochrome keeps the overshoot it needs')
+
+    await setScheme('Monochrome')
+    const back = await icon('bad.json')
+    ok(back.fills[0] === mono.fills[0], 'and the switch goes back')
+  } finally {
+    await app.close()
+  }
+}
+
 async function comicScenario(fixtures) {
   console.log('comic books')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
@@ -3608,6 +3704,7 @@ await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
+await run(iconSchemeScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

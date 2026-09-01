@@ -810,6 +810,36 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   and the tree stopped showing WINDOWS' association icon for them - that was the colourful
   thing - while the archive VIEW's header keeps it (#68), because there the box is
   introducing itself.
+  **THE SETTINGS CONTROL IS A SWITCH OF ICON SETS, NOT A COLOUR** (2026-09-01, #80).
+  "File icons" used to be a colour well, and one arbitrary tint over every kind is a
+  narrower thing than choosing which icons you get. It offers MONOCHROME - the measured
+  white-or-near-black above, unchanged - and COLOURED, a preset per kind (archive
+  `#8b8be2`, audio `#69b485`, code `#464646`, document `#6060ff`, image `#ff8080`, video
+  `#5384df`, all on a `#1b1d22` label band bar code's `#000000`). TWO COLOURS ARE PICKED
+  PER KIND and everything else is DERIVED: the mark and the label text are white or black
+  by the same better-of-two rule, so no pick can make an illegible icon, and `hi` is
+  always the page, being the knockout inside the mark. Resolved in the EMITTER rather than
+  the app, because the picks are presets and the app would recompute the same seven
+  answers on every tree row. Two values deliberately escape the rule: CODE's mark is dark
+  by owner instruction (the rule says white at 9.44:1; dark measures 2.22:1) because a
+  code file is a dark editor, and COMIC keeps its Explorer scheme - whose own pink splat
+  measures 1.00:1 against its own page, working there only because the sunburst sits
+  between them, so in-app it is cream at 3.42:1. The arbitrary `fileIcon` went with the
+  picker that set it: a colour nothing can reach and no control can clear is worse than
+  the rule it would override.
+  THE BAND IS THE THING THAT BREAKS. `ko`'s band OVERSHOOTS the page by 0.6 units so its
+  antialiasing lands clear of the page's rounded bottom corners - two identical curved
+  edges painted one over the other leave a pale fringe, the page's edge pixel being part
+  ink and the band's part background. That is invisible only while the band is painted in
+  the ROW's background, which is exactly what monochrome does; give it a colour of its own
+  and the same overshoot reads as a LABEL WIDER THAN THE ICON. So the emitter ships both,
+  `ko` overshooting and `band` clipped, and the e2e measures the boxes rather than trusting
+  it. THE LABEL FLIPS WITH THE BAND for the same reason: monochrome sets it in the ink
+  inside a background-coloured band, coloured sets it in `text` inside a coloured one, and
+  leaving it on the ink is ink on ink.
+  And `iconPaths.ts` is WRITTEN BY `svg.py` now (`python tools/icons/svg.py`). It was a
+  hand-run slice of that script's stdout kept in a scratchpad, which is how a generated
+  file ends up hand-edited.
   A LAYER IS ONE PATH OF SEVERAL SUBPATHS, and under the default nonzero fill rule two
   subpaths wound OPPOSITE ways cancel where they overlap. The quarter note is exactly that
   overlap - a stem rectangle sitting on a head ellipse - and the emitter drew rectangles

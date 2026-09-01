@@ -3,7 +3,8 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from '../lib/iconPaths'
+import { ICON_COLOURS, ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from '../lib/iconPaths'
+import { useIconScheme } from '../lib/theme'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -128,21 +129,43 @@ export function KindIcon({
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
   // stripes, the splat's core and a mark's own holes from filling in solid.
-  const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
+  const key = KIND_ICON[kind] ?? 'document'
+  const g = ICON_PATHS[key]
+  // COLOURED ignores `color` and `bg` entirely. Nothing is knocked out to the
+  // row's background there - every layer is a colour of its own - which is also
+  // why a coloured icon is unmoved by landing on a selected row, where the
+  // monochrome one has to repaint its fold and band in the accent fill.
+  const c = ICON_COLOURS[key]
+  const colour = useIconScheme() === 'colour'
+  const body = colour ? c.page : color
   const lang = langFor(kind, name, ext)
   const mark = lang ? LANG_PATHS[lang] : null
   const label = (ext ?? '').replace(/^\./, '').toUpperCase()
   const L = g.label
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0" aria-hidden>
-      <path d={g.body} fill={color} />
-      {/* A language mark REPLACES the kind's own, so `ko` is the kind's fold
-          and band with the mark swapped in - not both marks on one page. */}
-      <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
+      <path d={g.body} fill={body} />
+      {/* A language mark REPLACES the kind's own, so the fold and band come
+          from the KIND with the mark swapped in - not both marks on one page.
+          Monochrome draws the two as ONE path, which is `ko` and whose band
+          overshoots the page; coloured needs them apart, and takes the clipped
+          band, or the label comes out wider than the icon. */}
+      {colour ? (
+        <>
+          <path d={g.band} fill={c.band} />
+          {(mark ? mark.ko : g.mark) ? (
+            <path d={mark ? mark.ko : g.mark} fill={c.mark} />
+          ) : null}
+        </>
+      ) : (
+        <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
+      )}
+      {/* `hi` is the knockout INSIDE the mark, so it is always the body colour:
+          the ink in monochrome, the page showing through in coloured. */}
       {mark ? (
-        mark.hi ? <path d={mark.hi} fill={color} /> : null
+        mark.hi ? <path d={mark.hi} fill={body} /> : null
       ) : g.hi ? (
-        <path d={g.hi} fill={color} />
+        <path d={g.hi} fill={body} />
       ) : null}
       {label ? (
         <text
@@ -152,7 +175,11 @@ export function KindIcon({
           // the full size and only WEBM-length ones step down, which is what
           // stops a long extension running out of the band.
           fontSize={L.sizes[Math.min(label.length, 6) as keyof typeof L.sizes]}
-          fill={color}
+          // THE LABEL FLIPS WITH THE BAND. Monochrome sets it in the ink inside
+          // a band painted in the row's background; coloured sets it in `text`
+          // inside a coloured band. Leave it on the ink for both and the
+          // coloured icons get ink on ink.
+          fill={colour ? c.text : color}
           fontWeight={700}
           textAnchor="middle"
           dominantBaseline="central"
