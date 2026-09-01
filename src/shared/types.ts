@@ -1,4 +1,5 @@
-export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'other'
+export type FileKind =
+  'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'comic' | 'other'
 
 /** One openable file, as the renderer sees it. */
 export interface ViewerFile {
@@ -50,16 +51,14 @@ export interface ArchiveEntry {
  *  listed without the password, and null reached the panel as "this archive
  *  looks corrupt" with nowhere to type one. */
 export type ArchiveListing =
-  | { ok: true; entries: ArchiveEntry[] }
-  | { ok: false; reason: 'password' | 'aes' | 'failed' }
+  { ok: true; entries: ArchiveEntry[] } | { ok: false; reason: 'password' | 'aes' | 'failed' }
 
 /** What saving the editor's text answered. A REASON rather than a bare false
  *  (2026-08-30): the close-time "Save all changes" could fail with nothing to
  *  show but a silence, and a file moved out from under a dirty buffer was
  *  unsaveable for a reason nobody could see. */
 export type WriteResult =
-  | { ok: true }
-  | { ok: false; reason: 'refused' | 'gone' | 'failed'; message?: string }
+  { ok: true } | { ok: false; reason: 'refused' | 'gone' | 'failed'; message?: string }
 
 export interface SearchResult {
   hits: SearchHit[]
@@ -140,6 +139,9 @@ export interface OpenPayload {
    *  SHOWS is the "New tabs show" setting's business - first file, a terminal,
    *  or nothing - exactly as the + would do it. */
   folder?: boolean
+  /** Restore only: the folders that were open in this tab's tree, so the
+   *  sidebar comes back as it was left rather than collapsed to the root. */
+  open?: string[]
   /** Restore only: this saved tab was the ACTIVE one - it takes the front.
    *  The rest restore behind whatever is already showing. */
   restoreActive?: boolean
@@ -209,3 +211,21 @@ export interface MediaProbe {
  * save its own placeholder over the file it failed to open.
  */
 export type TextRead = { text: string } | { error: 'too-large' | 'unreadable' }
+
+/** The last slice of a file that is too big to open whole, plus where it
+ *  starts and how big the file really is. Never a substitute for the file:
+ *  the editor keeps its "what was on disk" ref null for one of these, which
+ *  is what makes saving structurally impossible. */
+export interface TailRead {
+  text: string
+  from: number
+  size: number
+}
+
+/** A followed file grew. `reset` means it got SHORTER - rotated, truncated,
+ *  replaced - so the new bytes must not be spliced onto the old tail. */
+export interface TailEvent {
+  path: string
+  text: string
+  reset: boolean
+}

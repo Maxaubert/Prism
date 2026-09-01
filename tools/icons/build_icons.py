@@ -1,4 +1,4 @@
-"""Write the six per-kind .ico files the installer points each ProgID at.
+"""Write the per-kind .ico files the installer points each ProgID at.
 
 Every size is DRAWN at that size rather than downsampled from one big render:
 the glyphs are laid out in sixteenths of the tile, so a 16px frame drawn as
@@ -6,9 +6,14 @@ the glyphs are laid out in sixteenths of the tile, so a 16px frame drawn as
 lands wherever LANCZOS puts it. Explorer's details view is the 16px frame, so
 that is the one worth getting right.
 
-The glyphs sit on the near-black rounded tile, which is the look every mockup
-round was judged on and which carries its own contrast, so the icons read the
-same on Explorer light and dark without depending on either.
+The set is defined in final_icons.py and nowhere else. Every kind is a coloured
+PAGE silhouette with a folded corner, a black chip carrying the file's
+EXTENSION, and one flat glyph - no tile behind it and no outline around it,
+because a mid-tone page carries its own contrast on both Explorer grounds.
+ARCHIVE is a landscape container rather than a page (a zip is not one file) and
+COMIC carries pop-art artwork rather than a flat fill; both exceptions are
+recorded in final_icons.py with their reasons. round7.py is left in the tree as
+the record of the tiled set this replaced.
 
 The frames are stored as PNG inside the .ico, which Windows has read since
 Vista and which keeps a 256px frame from costing 256KB.
@@ -19,7 +24,8 @@ import sys
 from io import BytesIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from round7 import KIND_GLYPHS, TILED  # noqa: E402
+from final_icons import (ALL_EXTS, COLOURS, KINDS, icon_for_ext,  # noqa: E402
+                         legacy)
 
 # What Windows asks for: details/list (16), small (20/24), medium (32/40/48),
 # large (64/96), extra large (128) and the jumbo/preview frame (256).
@@ -49,11 +55,27 @@ def write_ico(path, frames):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for kind, fn in KIND_GLYPHS:
-        frames = [(s, fn(s, TILED)) for s in SIZES]
+    for kind in KINDS:
+        # The seven are the LEGACY classes' icons now, and carry no label:
+        # one of them can be the default for any of a hundred extensions.
+        frames = [(s, legacy(kind, s)) for s in SIZES]
         path = OUT / f"prism-{kind}.ico"
         write_ico(path, frames)
-        print(f"{path.name:24} {len(SIZES)} frames  {path.stat().st_size:>7} bytes")
+        ext, col = COLOURS[kind]
+        hexcol = f"#{col[0]:02x}{col[1]:02x}{col[2]:02x}"
+        print(f"{path.name:22} {ext:5} {hexcol}  {len(SIZES)} frames"
+              f"  {path.stat().st_size:>7} bytes")
+
+    # ONE PER EXTENSION, which is the set the installer actually points at.
+    # An .ico carries one baked label, so a class shared by many extensions
+    # prints one of their names on all of them - prism-code.ico said PY on 130
+    # of them. The seven above are kept as the canonical kind renders; nothing
+    # in assoc.nsh references them any more.
+    for ext in ALL_EXTS:
+        path = OUT / f"prism-{ext}.ico"
+        write_ico(path, [(s, icon_for_ext(ext, s)) for s in SIZES])
+    total = sum((OUT / f"prism-{e}.ico").stat().st_size for e in ALL_EXTS)
+    print(f"{len(ALL_EXTS)} per-extension icons, {total / 1024 / 1024:.1f} MB")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 
 /**
  * Every 7-Zip call is ASYNC (2026-08-26), and that is not a style preference.
@@ -22,8 +22,8 @@ function run(
     )
   })
 }
-import { existsSync, mkdirSync, mkdtempSync } from 'fs'
-import { copyFile, rm } from 'fs/promises'
+import { existsSync, mkdtempSync } from 'fs'
+import { cp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
@@ -152,7 +152,87 @@ export function listArgs(file: string, password: string): string[] {
 
 /** argv for extracting the WHOLE archive into `dir`, folders and all. */
 export function extractAllArgs(file: string, dir: string, password: string): string[] {
-  return ['x', `-o${dir}`, '-y', `-p${password}`, '--', file]
+  // `-p` with nothing after it is not "no password", it is an EMPTY one, and
+  // on an archive with encrypted members that is a wrong answer rather than
+  // no answer. Omitted entirely when there is none.
+  return ['x', `-o${dir}`, '-y', ...(password ? [`-p${password}`] : []), '--', file]
+}
+
+/**
+ * The switches that make 7-Zip report progress at all.
+ *
+ * MEASURED, because the obvious one is not enough: with `-bsp1` alone and
+ * stdout redirected, 7-Zip prints NOTHING between "Extracting archive" and
+ * "Everything is Ok" - the progress indicator is suppressed when the output
+ * is not a console. Adding `-bb1` (log the name of each file) brings both the
+ * names AND the percentages back, so it is the pair that works, not either.
+ */
+export const PROGRESS_ARGS = ['-bb1', '-bsp1']
+
+/** How many "- name" lines are in this chunk: with `-bb1` 7-Zip logs one per
+ *  file, so counting them is a percentage even when no % ever appears. */
+export function countFiles(chunk: string): number {
+  return (chunk.match(/(^|[\r\n])\s*(\d{1,3}%\s+)?- /g) ?? []).length
+}
+
+/** The percentage out of a 7-Zip progress line, or null. `-bsp1` writes them
+ *  to stdout as " 42% 17 - some/file.jpg", carriage-returned over each other. */
+export function readPercent(chunk: string): number | null {
+  let last: number | null = null
+  for (const m of chunk.matchAll(/(\d{1,3})%/g)) {
+    const n = Number(m[1])
+    if (n >= 0 && n <= 100) last = n
+  }
+  return last
+}
+
+/**
+ * The same extraction, reporting how far along it is.
+ *
+ * A 2GB archive takes minutes, and a button that says "Extracting..." for
+ * minutes is indistinguishable from one that has hung. `-bsp1` puts 7-Zip's
+ * own percentage on stdout, so this spawns rather than execFile's buffer-it-
+ * all, and streams.
+ */
+function runWithProgress(
+  exe: string,
+  args: string[],
+  onPercent: (pct: number) => void,
+  total = 0
+): Promise<{ ok: true } | { ok: false; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(exe, args, { windowsHide: true })
+    let err = ''
+    let out = ''
+    let done = 0
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (d: string) => {
+      // 7-Zip writes its errors to STDOUT as often as to stderr, so the tail
+      // of both is kept: a failure that says only "failed" is a failure
+      // nobody can act on.
+      out = (out + d).slice(-4000)
+      const pct = readPercent(d)
+      if (pct !== null) {
+        onPercent(pct)
+        return
+      }
+      // No percentage in this chunk: fall back to counting files done, which
+      // is the only signal on an archive whose members are few and huge.
+      done += countFiles(d)
+      if (total > 0 && done > 0) onPercent(Math.min(99, Math.floor((done / total) * 100)))
+    })
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (d: string) => {
+      err = (err + d).slice(-4000)
+    })
+    child.on('error', () => resolve({ ok: false, stderr: 'could not start 7-Zip' }))
+    child.on('close', (code) => {
+      // 1 is 7-Zip's WARNING code: some files were skipped, the rest came out.
+      // Treating it as failure threw away a working extraction.
+      if (code === 0 || code === 1) resolve({ ok: true })
+      else resolve({ ok: false, stderr: (err + '\n' + out).trim() })
+    })
+  })
 }
 
 /** argv for extracting one member, keeping its folders, into `dir`. */
@@ -218,14 +298,34 @@ export async function extractAllSeven(
   exe: string,
   file: string,
   dir: string,
-  password = ''
-): Promise<{ ok: true } | { ok: false; reason: MemberFail }> {
-  const r = await run(exe, extractAllArgs(file, dir, password), 600000)
+  password = '',
+  onPercent?: (pct: number) => void,
+  total = 0
+): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
+  const args = extractAllArgs(file, dir, password)
+  const r = onPercent
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent, total)
+    : await run(exe, args, 3600000)
   if (r.ok) return { ok: true }
   return {
     ok: false,
-    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    // The line 7-Zip actually printed, so a failure can be acted on rather
+    // than only noticed.
+    message: sevenMessage(r.stderr)
   }
+}
+
+/** The most useful line out of 7-Zip's noise, for showing to a person. */
+export function sevenMessage(raw: string): string {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const named =
+    lines.find((l) => /^ERROR/i.test(l)) ??
+    lines.find((l) => /(cannot|denied|space|corrupt|unsupported|unavailable)/i.test(l))
+  return (named ?? lines[lines.length - 1] ?? '').slice(0, 300)
 }
 
 export async function extractSeven(
@@ -261,6 +361,60 @@ export async function extractSeven(
  * dropped rather than sanitised, and an existing file is never overwritten -
  * it lands as "name (2)", the answer every other Prism verb gives.
  */
+/**
+ * Extract a whole SUBTREE in ONE 7-Zip call.
+ *
+ * The member-at-a-time route below was fine for the one file an archive
+ * preview extracts and catastrophic for a folder: it spawns a process per
+ * member, and each one re-opens the container. MEASURED on a 2GB zip - the
+ * 25-file "Comic Books" folder came out in 0.41s as a single call against 25
+ * spawns each re-reading 2GB, and "Artbooks" holds 561 files. That is what
+ * "Extract folder here" was failing on.
+ *
+ * 7-Zip keeps the member's FULL path under `-o`, so the result lands at
+ * `dir/<prefix>` and the caller moves it from there. Both the folder entry
+ * and its contents are named, so a folder recorded in the container is
+ * created even when it is empty.
+ */
+export async function extractSevenSubtree(
+  exe: string,
+  file: string,
+  prefix: string,
+  dir: string,
+  password = '',
+  onPercent?: (pct: number) => void
+): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
+  const clean = prefix
+    .replace(/[\\/]+$/, '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+  // The name comes out of the archive's own listing, but a container is
+  // untrusted input and `-o` is the only thing keeping this inside a folder
+  // Prism made. Refused before 7-Zip is spawned, never after.
+  if (!clean || clean.split('/').some((s) => s === '..') || /^[a-z]:/i.test(clean)) {
+    return { ok: false, reason: 'failed' }
+  }
+  const args = [
+    'x',
+    `-o${dir}`,
+    '-y',
+    ...(password ? [`-p${password}`] : []),
+    '--',
+    file,
+    clean,
+    `${clean}/*`
+  ]
+  const r = onPercent
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent)
+    : await run(exe, args, 3600000)
+  if (r.ok) return { ok: true }
+  return {
+    ok: false,
+    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    message: sevenMessage(r.stderr)
+  }
+}
+
 export async function extractSevenTo(
   exe: string,
   file: string,
@@ -269,37 +423,67 @@ export async function extractSevenTo(
   password = ''
 ): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
   if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
+  // The listing is only consulted to fail EARLY on a container that cannot be
+  // read at all (a wrong password, encrypted names): 7-Zip's own filters do
+  // the member matching below.
   const listed = await listSeven(exe, file, password)
   if (!listed.ok) return { ok: false, reason: listed.reason }
-  const listing = listed.entries
   const clean = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const wanted = entryPaths.map(clean)
   const base = resolve(destDir)
   let written = 0
-  for (const entry of listing) {
-    if (entry.dir) continue
-    const p = clean(entry.path)
-    const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
-    if (hit === undefined) continue
-    const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
-    const rel = parent ? p.slice(parent.length + 1) : p
-    if (!rel || isAbsolute(rel) || /^[a-z]:/i.test(rel)) continue
-    let target = resolve(base, ...rel.split('/'))
-    const inside = relative(base, target)
-    if (!inside || inside.startsWith('..') || inside.split(sep).includes('..') || isAbsolute(inside))
-      continue
-    const got = await extractSeven(exe, file, p, password)
-    if (!got.ok) return { ok: false, reason: got.reason }
-    const dir = dirname(target)
-    mkdirSync(dir, { recursive: true })
-    if (existsSync(target)) target = join(dir, uniqueName(dir, basename(target)))
-    // AWAITED, and the temp copy goes with it: main is one thread, and a 2GB
-    // member copied with copyFileSync freezes every window and the Range
-    // handler a playing film depends on. extractSeven makes a fresh temp dir
-    // per member and nothing else ever removes them (2026-08-28).
-    await copyFile(got.path, target)
-    await rm(dirname(got.path), { recursive: true, force: true }).catch(() => {})
-    written += 1
+  // ONE call into a staging folder, not one per member (2026-08-31). The
+  // old loop spawned a 7-Zip per file and each re-opened the container:
+  // dragging a 561-file folder out of a 2GB archive was hundreds of full
+  // re-reads, which is the same defect "Extract folder here" had. Everything
+  // wanted is named in a single command line instead.
+  const stage = mkdtempSync(join(tmpdir(), 'prism-arcout-'))
+  try {
+    const filters: string[] = []
+    for (const w of wanted) {
+      if (!w || w.split('/').some((s) => s === '..') || /^[a-z]:/i.test(w)) continue
+      filters.push(w, `${w}/*`)
+    }
+    if (!filters.length) return { ok: true, written: 0 }
+    const args = [
+      'x',
+      `-o${stage}`,
+      '-y',
+      ...(password ? [`-p${password}`] : []),
+      '--',
+      file,
+      ...filters
+    ]
+    const r = await run(exe, args, 3600000)
+    if (!r.ok) {
+      return {
+        ok: false,
+        reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+      }
+    }
+    // Each wanted entry now sits at `stage/<entry>`. Landing keeps the shape
+    // BELOW it and drops the parents above it, which is the rule the panel
+    // has always followed for a drag.
+    for (const w of wanted) {
+      const from = resolve(stage, ...w.split('/'))
+      if (!existsSync(from)) continue
+      let target = resolve(base, basename(w))
+      const inside = relative(base, target)
+      if (
+        !inside ||
+        inside.startsWith('..') ||
+        inside.split(sep).includes('..') ||
+        isAbsolute(inside)
+      )
+        continue
+      if (existsSync(target)) target = join(base, uniqueName(base, basename(w)))
+      // AWAITED: main is one thread, and a 2GB folder copied synchronously
+      // freezes every window and the Range handler a playing film depends on.
+      await cp(from, target, { recursive: true })
+      written += 1
+    }
+    return { ok: true, written }
+  } finally {
+    await rm(stage, { recursive: true, force: true }).catch(() => {})
   }
-  return { ok: true, written }
 }

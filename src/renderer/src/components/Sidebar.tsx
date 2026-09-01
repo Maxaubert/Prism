@@ -16,6 +16,7 @@ import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
+import { Dialog } from './Dialog'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -35,6 +36,9 @@ const WIDTH_KEY = 'prism.sidebar.width'
 const MIN_W = 170
 const MAX_W = 520
 const DEFAULT_W = 260
+
+/** How many folders the gap-filler asks for at once. */
+const LOAD_AT_ONCE = 6
 
 const clampWidth = (n: number): number => Math.round(Math.min(MAX_W, Math.max(MIN_W, n)))
 
@@ -126,6 +130,7 @@ const SEARCH_HELP = [
 export function Sidebar({
   open,
   root,
+  tabId,
   currentPath,
   dirtyPaths,
   refreshKey,
@@ -145,6 +150,7 @@ export function Sidebar({
   pinnedPaths,
   onOpenNewTab,
   onTermNewTab,
+  onTermHere,
   onTermSplit,
   onClearTerm,
   state,
@@ -152,6 +158,8 @@ export function Sidebar({
 }: {
   open: boolean
   root: string
+  /** Which tab this sidebar is serving; the search query is kept per tab. */
+  tabId: string
   currentPath: string | null
   /** Every file holding unsaved text, keyed lowercase. Any of them can be
    *  marked, not just the open one: leaving a file no longer discards it. */
@@ -190,6 +198,8 @@ export function Sidebar({
   onOpenNewTab: (path: string) => void
   /** The terminal button menu's "Open in new tab". */
   onTermNewTab: () => void
+  /** A folder row's "Open terminal here": a shell spawned in that folder. */
+  onTermHere: (folder: string) => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
   /** Null while no shell exists: there is nothing to clear yet. */
@@ -213,10 +223,28 @@ export function Sidebar({
   const [menu, setMenu] = useState<Menu | null>(null)
   // The search box. A query swaps the tree for a flat result list; clearing it
   // brings the tree back exactly as it was (its state never unmounts).
-  const [query, setQuery] = useState('')
+  /**
+   * PER TAB (2026-09-01). One Sidebar instance serves every tab, so a single
+   * `query` state meant that typing a search in one tab and switching to
+   * another left the second one showing results for a search nobody had made
+   * there - and clearing it in one tab cleared it in all of them. A search is
+   * about the tree you are looking at, so it belongs to the tab.
+   *
+   * Kept as a map in state rather than a ref swapped while rendering: `query`
+   * is then simply derived, and this file's own rule that a ref may not be
+   * written during a render still holds.
+   */
+  const [queries, setQueries] = useState<Record<string, string>>({})
+  const query = queries[tabId] ?? ''
+  const setQuery = useCallback(
+    (v: string) => setQueries((m) => ({ ...m, [tabId]: v })),
+    [tabId]
+  )
   /** The hits the search panel is showing, lent upward so the arrows can walk
    *  them. Empty while the tree is showing. */
-  const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>([])
+  const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>(
+    []
+  )
   const [props, setProps] = useState<Omit<Menu, 'x' | 'y' | 'apps'> | null>(null)
   // The terminal button's right-click menu: its own tiny state, since the file
   // menu carries a path and this one is about the tab's shell.
@@ -240,13 +268,27 @@ export function Sidebar({
   /* The selection (2026-08-22): a click opens as it always did; shift ranges
      and ctrl toggles build a selection without opening. */
   const [sel, setSel] = useState<Selection>(emptySelection)
+  /** The tree's DEAD SPACE menu: verbs on the PLACE rather than on a row
+   *  (2026-08-31). The archive panel has had one since 2026-08-30, and a
+   *  right-click that missed every row here simply read as a miss. */
+  const [placeMenu, setPlaceMenu] = useState<{ x: number; y: number } | null>(null)
+  const [pasteNote, setPasteNote] = useState<string | null>(null)
+  /** A folder something was just dropped INTO. State and not a ref, because
+   *  the reset below reads it while RENDERING, which a ref may not be. */
+  const [droppedOn, setDroppedOn] = useState<string | null>(null)
   // A new place - or anything that rewrote the folder (a delete, a rename, a
   // move) - starts clean: the old paths may not exist any more, and acting on
   // them later took files the user could no longer see.
   const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
   if (selFor !== `${root}\u0000${refreshKey}`) {
     setSelFor(`${root}\u0000${refreshKey}`)
-    setSel(emptySelection)
+    // The one exception is the folder a drop just landed in: it still
+    // exists, it is what you are now looking at, and the refresh being
+    // cleared up after is the move's own.
+    setSel(droppedOn ? { anchor: droppedOn, items: new Set([droppedOn]) } : emptySelection)
+    // Consumed once: left set it would restore that folder's mark on the NEXT
+    // refresh too, after a rename or a delete with nothing to do with it.
+    if (droppedOn) setDroppedOn(null)
   }
   // What a drag carries when the dragged row is part of a selection.
   // Mirrored via effect (refs must not be written during render).
@@ -283,9 +325,28 @@ export function Sidebar({
     return () => window.removeEventListener('pointerdown', away, true)
   }, [])
 
+  /** Fetches in flight, so the same folder is never asked for twice at once.
+   *  Without it the gap-filling effect below re-issues every outstanding load
+   *  each time one of them lands, which is O(n^2) requests on a big tree. */
+  const loading = useRef(new Set<string>())
+
   /** Load a folder's children once, then keep them. A refusal (outside the root)
    *  is cached as unreadable so the row says so instead of spinning forever. */
   const load = useCallback(
+    async (p: string, force = false): Promise<void> => {
+      if (!force && loading.current.has(p)) return
+      loading.current.add(p)
+      try {
+        await loadNow(p, force)
+      } finally {
+        loading.current.delete(p)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [root, setState]
+  )
+
+  const loadNow = useCallback(
     async (p: string, force = false): Promise<void> => {
       const listing = (await window.prism.listDir(root, p)) ?? {
         folders: [],
@@ -365,6 +426,30 @@ export function Sidebar({
     const chain = currentPath ? ancestorChain(root, currentPath) : []
     ;[root, ...chain].forEach((p) => void load(p))
   }, [root, currentPath, load])
+
+  /**
+   * Fill in anything EXPANDED but not loaded (2026-08-31).
+   *
+   * Only a toggle ever fetched a folder's children, which was fine while the
+   * only open folders were ones you had just clicked. A RESTORED tree arrives
+   * with its folders already open and nothing in them, so every one of those
+   * rows sat on "loading..." forever and had to be collapsed and reopened by
+   * hand.
+   *
+   * Bounded, and that is not a nicety: a tree restored 400 folders deep would
+   * otherwise fire 400 listDir calls at once into the same libuv pool the
+   * fsmedia:// Range handler reads a playing film through, which is the
+   * failure the performance rules already name.
+   */
+  useEffect(() => {
+    const missing = [...state.expanded].filter((p) => !state.children[p] && !loading.current.has(p))
+    if (!missing.length) return
+    void (async () => {
+      for (let i = 0; i < missing.length; i += LOAD_AT_ONCE) {
+        await Promise.all(missing.slice(i, i + LOAD_AT_ONCE).map((p) => load(p)))
+      }
+    })()
+  }, [state.expanded, state.children, load])
 
   // Follow the open file. While the panel is shut nothing moves, so the scroll
   // it wakes up with is the one it went to sleep with; the reveal then happens
@@ -450,13 +535,23 @@ export function Sidebar({
       fromSearch = false
     ) => {
       e.preventDefault()
-      // Right-clicking INSIDE a multi-selection acts on all of it; outside,
-      // the clicked row becomes the selection first, the way Explorer does.
+      // Right-clicking INSIDE a multi-selection acts on all of it. OUTSIDE it,
+      // the row is only the menu's TARGET and is marked in grey by `menuPath`
+      // (TreeRows' `onMenuHl`) - it does not become the accent selection.
+      // The accent means "these are what I am about to act on", and the menu
+      // already acts on the row it was opened over, so selecting it as well
+      // says the same thing twice in the louder of the two ways.
+      //
+      // Existing marks are DROPPED for that same reason: right-clicking row A
+      // while B and C are marked leaves the verb going to A, and marks that
+      // claim otherwise are lying about what is about to happen. Same rule as
+      // a press on dead space.
+      //
       // A SEARCH hit never inherits the tree's selection: those are different
       // lists, and the menu would have acted on rows the user could not see.
       const multi =
         !fromSearch && sel.items.has(path) && sel.items.size > 1 ? [...sel.items] : undefined
-      if (!multi && !fromSearch) setSel({ anchor: path, items: new Set([path]) })
+      if (!multi && !fromSearch && sel.items.size) setSel(emptySelection)
       setMenu({
         x: e.clientX,
         y: e.clientY,
@@ -542,17 +637,27 @@ export function Sidebar({
   }, [order])
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
+      // Was this row ALREADY the whole selection before this click? Read
+      // before the click changes it, since that is what a second click means.
+      const wasOnlySelection = sel.items.size === 1 && sel.items.has(path)
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
       setCursor(path)
-      // A plain click keeps the tree's quick-look reflex: it opens (or
-      // expands) as it always did. Shift and ctrl select WITHOUT opening -
-      // that is what makes select-then-right-click and multi-select work.
+      // A FILE keeps the tree's quick-look reflex: one click opens it, which
+      // is what the sidebar is for. A FOLDER selects first and expands on the
+      // second click (owner decision, 2026-08-31) - it is a destination for
+      // drops, a rename target and the thing "Open terminal here" acts on, so
+      // being able to point at one without walking into it is worth a click.
+      // This narrows the 2026-08-22 rule rather than reversing it: single
+      // click still opens FILES, and double-click still opens nothing.
+      //
+      // Shift and ctrl select WITHOUT opening or expanding either way - that
+      // is what makes select-then-right-click and multi-select work.
       if (!e.shiftKey && !e.ctrlKey) {
-        if (isFolder) toggle(path)
-        else onOpenFile(path)
+        if (!isFolder) onOpenFile(path)
+        else if (wasOnlySelection) toggle(path)
       }
     },
-    [order, toggle, onOpenFile]
+    [order, toggle, onOpenFile, sel]
   )
   const selJoin = useCallback(
     (path: string): { top: boolean; bottom: boolean } => {
@@ -580,6 +685,14 @@ export function Sidebar({
       setDropTarget(null)
       const payload = dragPayload(e.dataTransfer)
       setDrag(null)
+      // The folder you dropped ONTO becomes the marked row (2026-08-31). What
+      // you dragged has left - its row is about to disappear from where it was
+      // - so leaving the mark on it points at nothing, and clearing it points
+      // at nothing either. The destination is the thing you are now looking
+      // at, and it is where the arrows should carry on from.
+      setDroppedOn(folderPath)
+      setSel({ anchor: folderPath, items: new Set([folderPath]) })
+      setCursor(folderPath)
       if (payload) onDropInto(folderPath, payload)
       else {
         // Nothing of ours: Explorer, then. Its files are outside the root, so
@@ -793,6 +906,32 @@ export function Sidebar({
         <div
           ref={scroller}
           className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          // A right-click that lands on no row is about the PLACE, not about a
+          // file. Rows stop it themselves, exactly as the archive panel's do.
+          onContextMenu={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            setPlaceMenu({ x: e.clientX, y: e.clientY })
+          }}
+          // And a DROP that lands on no row is about the place too: it means
+          // the ROOT. Without this the drop fell through to the window, which
+          // opens whatever it is handed - so dropping a FOLDER on the tree's
+          // empty space re-rooted the tab onto that folder instead of moving
+          // it anywhere. Rows stop their own drops, so this only ever sees the
+          // dead space.
+          onDragOver={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setDropTarget(root)
+          }}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.stopPropagation()
+            onDropOn(e, root)
+          }}
         >
           {query.trim() ? (
             <SearchResults
@@ -805,7 +944,9 @@ export function Sidebar({
               onOpen={(path, isFolder) => (isFolder ? revealFolder(path) : onOpenFile(path))}
               onRows={setHitRows}
               cursorPath={at}
-              onMenu={(e, path, name, isFolder) => onMenu(e, path, name, !!isFolder, undefined, true)}
+              onMenu={(e, path, name, isFolder) =>
+                onMenu(e, path, name, !!isFolder, undefined, true)
+              }
               onMultiMenu={(e, paths) =>
                 setMenu({
                   x: e.clientX,
@@ -962,6 +1103,57 @@ export function Sidebar({
         />
       )}
 
+      {placeMenu && (
+        <ContextMenu
+          x={placeMenu.x}
+          y={placeMenu.y}
+          onClose={() => setPlaceMenu(null)}
+          items={[
+            {
+              label: 'Paste',
+              icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
+              onPick: () => {
+                void window.prism.pasteInto(root).then((r) => {
+                  // Said out loud rather than silently: a paste that finds an
+                  // empty clipboard looks exactly like one that failed.
+                  if (r.empty) setPasteNote('There are no files on the clipboard.')
+                  else if (r.refused) setPasteNote('That folder is outside this tab.')
+                  else if (!r.pasted) setPasteNote('Nothing could be pasted here.')
+                  else if (r.failed)
+                    setPasteNote(`Pasted ${r.pasted}, but ${r.failed} could not be copied.`)
+                })
+              }
+            },
+            {
+              label: 'Open terminal here',
+              icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+              onPick: () => onTermHere(root)
+            },
+            {
+              label: 'Show in File Explorer',
+              icon: <MenuIcon d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />,
+              onPick: () => window.prism.showInExplorer(root)
+            },
+            {
+              label: 'Copy path',
+              icon: (
+                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+              ),
+              onPick: () => void navigator.clipboard.writeText(root)
+            }
+          ]}
+        />
+      )}
+
+      {pasteNote && (
+        <Dialog
+          title="Paste"
+          body={pasteNote}
+          onCancel={() => setPasteNote(null)}
+          choices={[{ label: 'Close', primary: true, onPick: () => setPasteNote(null) }]}
+        />
+      )}
+
       {menu && menu.multi && (
         // A multi-selection's menu: the verbs that make sense N at a time.
         <ContextMenu
@@ -1066,6 +1258,15 @@ export function Sidebar({
                         onPick: () => window.prism.openWithChooser(menu.path)
                       }
                     ]
+                  }
+                ]
+              : []),
+            ...(menu.isFolder
+              ? [
+                  {
+                    label: 'Open terminal here',
+                    icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+                    onPick: () => onTermHere(menu.path)
                   }
                 ]
               : []),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, Transaction, type Extension } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
@@ -9,14 +9,28 @@ import {
   lineNumbers
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { bracketMatching, codeFolding, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language'
-import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
+import {
+  bracketMatching,
+  codeFolding,
+  foldGutter,
+  foldKeymap,
+  indentOnInput
+} from '@codemirror/language'
+import {
+  gotoLine,
+  openSearchPanel,
+  search,
+  searchKeymap,
+  searchPanelOpen
+} from '@codemirror/search'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
+import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { lintKeymap } from '@codemirror/lint'
 import { isProse, langFor } from '../lib/codeLang'
 import { jsonLinter, syntaxLinter } from '../lib/codeLint'
 import { prismCodeTheme } from '../lib/codeTheme'
+import { setWrapPref, useWrapPref, wrapPref, wrapsFor, type WrapPref } from '../lib/codePrefs'
+import { reloadAction, stampChanged, touchesFile, type Stamp } from '../lib/fileReload'
 
 // Text and code, shown and edited in the same surface. There is no "edit mode"
 // here: a .py or a .txt has no rendered form to toggle away from, so the buffer
@@ -33,11 +47,40 @@ import { prismCodeTheme } from '../lib/codeTheme'
 const langComp = new Compartment()
 const lintComp = new Compartment()
 const chromeComp = new Compartment()
+const wrapComp = new Compartment()
+// Read-only while FOLLOWING a file: a log that is still being written is a
+// view, not a buffer, and typing into one would be lost by the next chunk.
+const roComp = new Compartment()
 
-/** Line numbers, folding and wrapping, decided per file. Prose gets none. */
+/** A byte count as the banner says it. */
+function mb(bytes: number): string {
+  const mbs = bytes / (1024 * 1024)
+  return mbs >= 1024 ? `${(mbs / 1024).toFixed(1)} GB` : `${Math.round(mbs)} MB`
+}
+
+/** How much of a file too big for the editor is worth showing. 2MB of tail
+ *  is thousands of lines, which is what anybody opening a 900MB log wants. */
+const TAIL_BYTES = 2 * 1024 * 1024
+
+/** Line numbers and folding, decided per file. Prose gets none.
+ *
+ *  Wrapping used to live here and does NOT any more (2026-08-31): it is a
+ *  preference now, so it has a compartment of its own. Two extensions setting
+ *  lineWrapping from two compartments would fight on every path change. */
 function chromeFor(name: string): Extension {
-  if (isProse(name)) return EditorView.lineWrapping
-  return [lineNumbers(), highlightActiveLineGutter(), foldGutter(), codeFolding(), highlightActiveLine()]
+  if (isProse(name)) return []
+  return [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    foldGutter(),
+    codeFolding(),
+    highlightActiveLine()
+  ]
+}
+
+/** The wrapping extension for this file, under the current preference. */
+function wrapFor(name: string, pref: WrapPref): Extension {
+  return wrapsFor(pref, isProse(name)) ? EditorView.lineWrapping : []
 }
 
 export function CodeView({
@@ -46,7 +89,10 @@ export function CodeView({
   onClose,
   onSaved,
   onBuffer,
-  getPending
+  getPending,
+  onExternalChange,
+  answer,
+  fullscreen = false
 }: {
   path: string
   name: string
@@ -62,6 +108,16 @@ export function CodeView({
    *  before wandering off to another one. Asked for rather than passed, so a
    *  keystroke does not have to travel back down through a re-render. */
   getPending: (path: string) => string | undefined
+  /** Something outside Prism rewrote this file while it holds unsaved edits.
+   *  App raises the question; the editor only reports that there is one. */
+  onExternalChange?: (path: string) => void
+  /** The user's answer to that question, once they have given one. A fresh
+   *  object each time, so the effect that acts on it fires again for a file
+   *  that changes twice. */
+  answer?: { path: string; reload: boolean } | null
+  /** A dialog in fullscreen is composited outside the fullscreen element and
+   *  nobody sees it, so the question waits. A clean swap does not. */
+  fullscreen?: boolean
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -75,11 +131,30 @@ export function CodeView({
   useEffect(() => {
     pathRef.current = path
   }, [path])
+  /** The file as the filesystem last described it: what a watcher event is
+   *  compared against. Prism's own save produces an event too (a muted
+   *  directory is deferred, not dropped), so this is the only thing that
+   *  tells someone else's write from our own. */
+  const stamp = useRef<{ path: string; at: Stamp } | null>(null)
+  /** True while App is holding the "this file changed" question for us, so a
+   *  file rewritten every second raises exactly one. */
+  const asking = useRef(false)
+  /** Following a file that is still being written: appended bytes arrive from
+   *  main and are pushed onto the end of the document. */
+  const [following, setFollowing] = useState(false)
+  /** Set when the file was too big to open whole and we are showing its tail
+   *  instead. The editor is read-only for one of these BY CONSTRUCTION:
+   *  `saved.current` stays null, so `save()` refuses and the update listener
+   *  never reports a buffer that could be written back over the file. */
+  const [tailed, setTailed] = useState<{ from: number; size: number } | null>(null)
   const [dirty, setDirty] = useState(false)
   /** Why the last save failed, or null. Carried rather than a bare flag:
    *  a read-only file and a folder that has gone are different problems. */
   const [failed, setFailed] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; hasSel: boolean } | null>(null)
+  const wrap = useWrapPref()
+  /** Where the caret is, for the status pill. Only read while focused. */
+  const [caret, setCaret] = useState({ line: 1, col: 1, sel: 0 })
   /** Why this file is not in the editor: too big to hand over as one string,
    *  or unreadable. Null when it opened normally. */
   const [unreadable, setUnreadable] = useState<'too-large' | 'unreadable' | null>(null)
@@ -109,6 +184,8 @@ export function CodeView({
         extensions: [
           prismCodeTheme,
           chromeComp.of([]),
+          roComp.of([]),
+          wrapComp.of([]),
           langComp.of([]),
           lintComp.of([]),
           history(),
@@ -129,9 +206,24 @@ export function CodeView({
           indentOnInput(),
           bracketMatching(),
           search({ top: false }),
-          keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, ...lintKeymap, indentWithTab]),
+          keymap.of([
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...searchKeymap,
+            ...foldKeymap,
+            ...lintKeymap,
+            indentWithTab
+          ]),
           EditorView.updateListener.of((u) => {
             if (u.focusChanged) setEditing(u.view.hasFocus)
+            // The caret readout, BEFORE the docChanged early-return: moving
+            // the caret changes neither the document nor the focus.
+            if (u.selectionSet || u.docChanged || u.focusChanged) {
+              const head = u.state.selection.main.head
+              const line = u.state.doc.lineAt(head)
+              const sel = u.state.selection.ranges.reduce((n, r) => n + (r.to - r.from), 0)
+              setCaret({ line: line.number, col: head - line.from + 1, sel })
+            }
             if (!u.docChanged) return
             const disk = saved.current
             const now = u.state.doc.toString()
@@ -159,43 +251,73 @@ export function CodeView({
   useEffect(() => {
     let alive = true
     const lang = langFor(name)
-    void Promise.all([window.prism.readText(path), lang ? lang.load() : Promise.resolve<Extension>([])]).then(
-      ([read, langExt]) => {
-        const v = view.current
-        if (!alive || !v) return
-        // A file that could not be read is NOT an empty file: seeding the
-        // editor with a placeholder and calling it the disk contents meant one
-        // Ctrl+S wrote that placeholder over a 200MB log (2026-08-28). A
-        // reason comes back now, and a file we never read cannot be saved.
-        const failedRead = 'error' in read ? read.error : null
-        const disk = 'text' in read ? read.text : ''
-        setUnreadable(failedRead)
-        saved.current = failedRead ? null : { path, text: disk }
-        // Unsaved text App kept for this file wins over what is on disk: coming
-        // back to a file you edited must show your edits, not undo them.
-        const body = getPending(path) ?? disk
-        v.dispatch({
-          changes: { from: 0, to: v.state.doc.length, insert: body },
-          selection: { anchor: 0 },
-          scrollIntoView: true,
-          effects: [
-            chromeComp.reconfigure(chromeFor(name)),
-            langComp.reconfigure(langExt),
-            // Squiggles need a grammar to be wrong against. A stream lexer has
-            // none, so those languages get colour and no claims about errors.
-            lintComp.reconfigure(
-              /\.jsonc?$|\.json5$/i.test(name) ? [syntaxLinter, jsonLinter] : lang?.parsed ? syntaxLinter : []
-            )
-          ]
+    void Promise.all([
+      window.prism.readText(path),
+      lang ? lang.load() : Promise.resolve<Extension>([]),
+      window.prism.statFile(path)
+    ]).then(([read, langExt, at]) => {
+      const v = view.current
+      if (!alive || !v) return
+      // A file that could not be read is NOT an empty file: seeding the
+      // editor with a placeholder and calling it the disk contents meant one
+      // Ctrl+S wrote that placeholder over a 200MB log (2026-08-28). A
+      // reason comes back now, and a file we never read cannot be saved.
+      stamp.current =
+        at && !at.isFolder ? { path, at: { mtimeMs: at.mtimeMs, size: at.size } } : null
+      asking.current = false
+      const failedRead = 'error' in read ? read.error : null
+      const disk = 'text' in read ? read.text : ''
+      setUnreadable(failedRead)
+      setTailed(null)
+      setFollowing(false)
+      saved.current = failedRead ? null : { path, text: disk }
+      // Unsaved text App kept for this file wins over what is on disk: coming
+      // back to a file you edited must show your edits, not undo them.
+      const body = getPending(path) ?? disk
+      v.dispatch({
+        changes: { from: 0, to: v.state.doc.length, insert: body },
+        selection: { anchor: 0 },
+        scrollIntoView: true,
+        effects: [
+          chromeComp.reconfigure(chromeFor(name)),
+          wrapComp.reconfigure(wrapFor(name, wrapPref())),
+          langComp.reconfigure(langExt),
+          // Squiggles need a grammar to be wrong against. A stream lexer has
+          // none, so those languages get colour and no claims about errors.
+          lintComp.reconfigure(
+            /\.jsonc?$|\.json5$/i.test(name)
+              ? [syntaxLinter, jsonLinter]
+              : lang?.parsed
+                ? syntaxLinter
+                : []
+          )
+        ]
+      })
+      report(body === disk ? null : body)
+      setFailed(null)
+      setLoadedPath(path)
+      // A fresh file is a document, not a cursor, and it takes no focus at
+      // all: the arrows stay the folder's until the user clicks in.
+      v.contentDOM.blur()
+
+      // Too big to hand over as one string, which used to be an overlay
+      // saying so and nothing else. The TAIL is the useful half of a 900MB
+      // log, and it arrives read-only: `saved.current` stays null, so save()
+      // refuses by its own guard and no buffer is ever reported.
+      if (failedRead === 'too-large') {
+        void window.prism.tailBytes(path, TAIL_BYTES).then((tail) => {
+          if (!alive || !tail || pathRef.current !== path) return
+          v.dispatch({
+            changes: { from: 0, to: v.state.doc.length, insert: tail.text },
+            annotations: [Transaction.addToHistory.of(false)]
+          })
+          setUnreadable(null)
+          setTailed({ from: tail.from, size: tail.size })
+          // A file this size is one being written to. Follow it.
+          setFollowing(true)
         })
-        report(body === disk ? null : body)
-        setFailed(null)
-        setLoadedPath(path)
-        // A fresh file is a document, not a cursor, and it takes no focus at
-        // all: the arrows stay the folder's until the user clicks in.
-        v.contentDOM.blur()
       }
-    )
+    })
     return () => {
       alive = false
     }
@@ -204,6 +326,171 @@ export function CodeView({
     // buffer it is feeding.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, name, report])
+
+  /**
+   * Take what is on disk now, keeping everything about the view that is not
+   * the text: no caret reset, no scroll, no reconfigure.
+   *
+   * Two details are the whole correctness of it. `saved.current` is set
+   * BEFORE the dispatch, so the updateListener - which fires on it and
+   * compares against `saved.current` - reports the file clean rather than
+   * marking it dirty against text nobody typed. And the transaction is kept
+   * OUT of the history: without that, Ctrl+Z walks back to the stale version
+   * and the next Ctrl+S writes it over the other program's work, which is
+   * exactly the corruption this feature exists to prevent.
+   */
+  const swapTo = useCallback(
+    (p: string, fresh: string, at: Stamp | null) => {
+      const v = view.current
+      if (!v || pathRef.current !== p) return
+      saved.current = { path: p, text: fresh }
+      if (at) stamp.current = { path: p, at }
+      asking.current = false
+      v.dispatch({
+        changes: { from: 0, to: v.state.doc.length, insert: fresh },
+        annotations: [Transaction.addToHistory.of(false)]
+      })
+      report(null)
+    },
+    [report]
+  )
+
+  /**
+   * Something happened in this file's folder. Did it happen to this file?
+   *
+   * The stat is the answer, not the event: Prism's own save produces a
+   * `dir:changed` about a second later too (a muted directory is deferred,
+   * not dropped), and reacting to the event alone would raise "the file
+   * changed on disk" after every Ctrl+S.
+   */
+  const checkDisk = useCallback(
+    async (force: boolean): Promise<void> => {
+      const p = pathRef.current
+      const v = view.current
+      const disk = saved.current
+      // `force` is also how a file comes BACK from following: there is no
+      // `saved.current` then, and re-reading is exactly what restores it.
+      if (!p || !v || (!force && disk?.path !== p)) return
+      const at = await window.prism.statFile(p)
+      const now = at && !at.isFolder ? { mtimeMs: at.mtimeMs, size: at.size } : null
+      const before = stamp.current?.path === p ? stamp.current.at : null
+      if (!force && !stampChanged(before, now)) return
+      const act = force
+        ? 'swap'
+        : reloadAction({
+            changed: true,
+            dirty: !disk || v.state.doc.toString() !== disk.text,
+            asking: asking.current,
+            fullscreen
+          })
+      if (act === 'ignore') return
+      if (act === 'ask') {
+        // Stamped now, so a file being rewritten in a loop asks once.
+        if (now) stamp.current = { path: p, at: now }
+        asking.current = true
+        onExternalChange?.(p)
+        return
+      }
+      const read = await window.prism.readText(p)
+      // Unreadable mid-write (a rename-into-place, a git checkout): leave
+      // everything alone. Nulling `saved.current` here would disarm Ctrl+S on
+      // the user's own unsaved work, which is the worse failure by far.
+      if (!('text' in read)) return
+      swapTo(p, read.text, now)
+    },
+    [fullscreen, onExternalChange, swapTo]
+  )
+
+  useEffect(
+    () =>
+      window.prism.onDirChanged((c) => {
+        if (touchesFile(pathRef.current, c)) void checkDisk(false)
+      }),
+    [checkDisk]
+  )
+
+  // The user answered the question. Reload takes theirs; keeping mine just
+  // lifts the guard, so the NEXT external write asks again.
+  useEffect(() => {
+    if (!answer || answer.path !== pathRef.current) return
+    asking.current = false
+    if (answer.reload) void checkDisk(true)
+  }, [answer, checkDisk])
+
+  /**
+   * Follow the file: new bytes are pushed onto the end of the document.
+   *
+   * Three things keep this from becoming a way to corrupt a file, and all
+   * three are why following is READ-ONLY rather than a live buffer. The
+   * update listener treats any document change as the user typing, and would
+   * star the file and arm "Save all changes" on the way out; history() would
+   * put every chunk on the undo stack, so Ctrl+Z would un-grow the log; and
+   * the linter would re-parse the whole document per chunk. So a followed
+   * file keeps no `saved.current` at all, which disarms save() by its
+   * existing guard, and every appended transaction is kept out of history.
+   */
+  useEffect(() => {
+    if (!following) return
+    const p = pathRef.current
+    // From the size we stamped at read time, so anything written between the
+    // read and this call arrives rather than being silently skipped.
+    const from = stamp.current?.path === p ? stamp.current.at.size : 0
+    // No "what was on disk" while following: that ref is what save() checks,
+    // so its absence is the read-only guarantee rather than a flag anyone has
+    // to remember to test.
+    saved.current = null
+    void window.prism.startTail(p, from)
+    const off = window.prism.onFileAppended((e) => {
+      const v = view.current
+      if (!v || e.path.toLowerCase() !== pathRef.current.toLowerCase()) return
+      if (e.reset) {
+        // The file got shorter: rotated, truncated, started again. Splicing
+        // the new bytes on would show a document that never existed.
+        v.dispatch({
+          changes: { from: 0, to: v.state.doc.length, insert: '' },
+          annotations: [Transaction.addToHistory.of(false)]
+        })
+        return
+      }
+      if (!e.text) return
+      // Was the view at the bottom BEFORE the insert? Only then does it
+      // follow: someone reading further up is not asking to be dragged along.
+      const box = v.scrollDOM
+      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 4
+      v.dispatch({
+        changes: { from: v.state.doc.length, insert: e.text },
+        annotations: [Transaction.addToHistory.of(false)]
+      })
+      if (atBottom) v.dispatch({ effects: EditorView.scrollIntoView(v.state.doc.length) })
+    })
+    return () => {
+      off()
+      void window.prism.stopTail(p)
+    }
+  }, [following, path])
+
+  /** Stopping puts the file back as a file: re-read, `saved.current` restored,
+   *  editable again. Starting only sets the flag; the effect does the rest. */
+  const toggleFollow = useCallback(() => {
+    if (!following) {
+      // The buffer goes with it: a followed file reports nothing, so a stale
+      // entry would leave the tree starred with no way to clear it.
+      report(null)
+      setFollowing(true)
+      return
+    }
+    setFollowing(false)
+    void checkDisk(true)
+  }, [following, checkDisk, report])
+
+  // Read-only while following, and while showing a tail. Reconfigured rather
+  // than rebuilt, like every other per-file thing here.
+  useEffect(() => {
+    const v = view.current
+    if (!v) return
+    const ro = following || !!tailed
+    v.dispatch({ effects: roComp.reconfigure(ro ? [EditorState.readOnly.of(true)] : []) })
+  }, [following, tailed])
 
   const save = useCallback(async (): Promise<boolean> => {
     const v = view.current
@@ -219,11 +506,23 @@ export function CodeView({
       return false
     }
     saved.current = { path, text }
+    // Re-stamp: our own write emits a `dir:changed` about a second later
+    // (the mute defers it, it does not drop it), and without a fresh stamp
+    // that event would read as somebody else having rewritten the file.
+    const at = await window.prism.statFile(path)
+    if (at && !at.isFolder) stamp.current = { path, at: { mtimeMs: at.mtimeMs, size: at.size } }
     report(null)
     setFailed(null)
     onSaved()
     return true
   }, [path, report, onSaved])
+
+  // The wrap preference is live: changing it in Settings or the menu must
+  // reach the editor that is already open, not just the next file.
+  useEffect(() => {
+    const v = view.current
+    if (v) v.dispatch({ effects: wrapComp.reconfigure(wrapFor(name, wrap)) })
+  }, [wrap, name])
 
   // Ctrl+S and Ctrl+F belong to the open file whether or not it has focus -
   // and since nothing focuses it on arrival, that has to be a window listener
@@ -247,6 +546,16 @@ export function CodeView({
         e.stopPropagation()
         v.focus()
         openSearchPanel(v)
+      } else if (e.ctrlKey && (e.key === 'g' || e.key === 'G') && !searchPanelOpen(v.state)) {
+        // "Which line is the stack trace pointing at" had no answer but
+        // counting. Only while the find panel is SHUT: searchKeymap binds
+        // Ctrl+G to find-next, and claiming it at the window would quietly
+        // take that away from someone in the middle of a search. F3 is
+        // find-next either way.
+        e.preventDefault()
+        e.stopPropagation()
+        v.focus()
+        gotoLine(v)
       } else if (e.key === 'Escape' && v.hasFocus) {
         // Back out to the folder's keys. The buffer keeps whatever was typed;
         // App asks about it if and when the user actually leaves the file.
@@ -279,6 +588,12 @@ export function CodeView({
     const ed = view.current
     if (ed) openSearchPanel(ed)
   }, [])
+  const gotoHere = useCallback((): void => {
+    const ed = view.current
+    if (!ed) return
+    ed.focus()
+    gotoLine(ed)
+  }, [])
 
   /**
    * The editor's own menu (2026-08-30).
@@ -300,7 +615,24 @@ export function CodeView({
       { label: 'Paste', onPick: pasteHere },
       { label: 'Select all', onPick: selectAll },
       { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
-      { label: 'Save', hint: 'Ctrl+S', onPick: () => void save() },
+      { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
+      {
+        label: 'Word wrap',
+        icon: tickIf(wrapsFor(wrap, isProse(name))),
+        // Sets the OVERRIDE, so ticking it off a .txt stops that file
+        // wrapping rather than putting the auto rule back.
+        onPick: () => setWrapPref(wrapsFor(wrap, isProse(name)) ? 'off' : 'on')
+      },
+      {
+        // A log, a build's output, an agent's transcript: files whose whole
+        // point is that they grow. Following is read-only, and refused while
+        // there are unsaved edits, which the first chunk would throw away.
+        label: 'Follow the file',
+        icon: tickIf(following),
+        disabled: !ready || dirty || !!tailed,
+        onPick: toggleFollow
+      },
+      { label: 'Save', hint: 'Ctrl+S', disabled: following || !!tailed, onPick: () => void save() },
       ...fileVerbs(path)
     ]
   }
@@ -341,6 +673,16 @@ export function CodeView({
 
       {/* Quiet until there is something to say: the pill appears when the buffer
           differs from disk, or when the pencil put us in a mode to leave. */}
+      {tailed && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
+          Showing the end of this file ({mb(tailed.size)} in all), and following it. Read-only.
+        </div>
+      )}
+      {!tailed && following && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/95 px-3 py-1 text-[11.5px] text-[var(--p-dim)]">
+          Following this file. Read-only.
+        </div>
+      )}
       {unreadable && (
         <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-[var(--p-bg)]/92 p-8 text-center">
           <div className="max-w-[26rem] text-sm text-[var(--p-text-soft)]">
@@ -348,6 +690,17 @@ export function CodeView({
               ? 'This file is too large to open in the editor (over 64MB). Nothing has been changed on disk.'
               : 'This file could not be read. Nothing has been changed on disk.'}
           </div>
+        </div>
+      )}
+      {/* Where the caret is. Only while the editor has FOCUS, so a file you
+          are reading from the sidebar stays chrome-free - the same rule that
+          decides who owns the vertical keys. Bottom RIGHT, because the dirty
+          and Done pill already owns the centre and two pills at one anchor
+          would sit on top of each other. */}
+      {editing && (
+        <div className="pointer-events-none absolute bottom-4 right-4 z-10 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-2.5 py-1 text-[11px] tabular-nums text-[var(--p-dim)]">
+          Ln {caret.line}, Col {caret.col}
+          {caret.sel > 0 && ` (${caret.sel} selected)`}
         </div>
       )}
       {(dirty || onClose) && (

@@ -12,11 +12,20 @@
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { buildFixtures } from './fixtures.mjs'
+import { buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -335,16 +344,33 @@ async function pdfScenario(fixtures) {
     await win.waitForSelector('canvas', { timeout: 15000 })
     ok((await win.locator('canvas').count()) >= 1, 'a page canvas renders')
     ok((await win.locator('[data-page]').count()) === 3, 'three page frames')
+
+    await sleep(800) // the fit settles once every page has been measured
+    const over = await win.evaluate(() => {
+      const box = document.querySelector('[data-doc-scroller]')
+      return box ? box.scrollWidth - box.clientWidth : -1
+    })
+    ok(over <= 0, `a pdf opens with no horizontal overflow (over by ${over}px)`)
+
     ok(await win.locator('text=/\\/ 3/').first().isVisible().catch(() => false), 'pill shows / 3')
-    // The rebased zoom: 1.9 pdf.js units is the default and reads as 100%.
-    ok((await win.locator('button[title="Default zoom (0)"]').textContent()) === '100%', 'default zoom reads 100%')
+    // A document OPENS FITTED now, so the pill need not read 100% - a page
+    // wider than the window would otherwise open already overflowing, which is
+    // being zoomed in on the reader's behalf. What 100% MEANS is unchanged and
+    // is still the thing worth asserting, so press it and then measure.
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
+    ok((await win.locator('button[title="Default zoom (0)"]').textContent()) === '100%', 'the 100% button reads 100%')
     ok(
       await win.evaluate(() => {
         const page = document.querySelector('[data-page="1"]')
         return Math.abs(page.getBoundingClientRect().width - 612 * 1.9) < 2
       }),
-      'default zoom really is 1.9 pdf units'
+      '100% really is 1.9 pdf units'
     )
+    // NO HORIZONTAL SCROLLBAR ON OPEN, which is the property rather than any
+    // particular zoom. A document that opens overflowing has been zoomed in on
+    // the reader's behalf, and a bar for ONE pixel of rounding looks exactly
+    // the same as a bar for a page that is genuinely too wide.
     await win.waitForSelector('.p-pdf-textlayer span', { timeout: 10000 })
     ok((await win.locator('.p-pdf-textlayer span').count()) > 0, 'text layer present')
 
@@ -414,6 +440,85 @@ async function pdfScenario(fixtures) {
     )
     ok(!win.isClosed(), 'and does not close the window')
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
+
+    // 100% IS A WIDTH ON SCREEN, not 1.9x whatever the page measures. A
+    // 1822pt-wide page used to render 3462 CSS px across at "100%". The
+    // document opens FITTED now, so press 100% before measuring what it means.
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
+    const letterW = await win.evaluate(
+      () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
+    )
+    ok(Math.abs(letterW - 612 * 1.9) < 2, `a letter page is unchanged at 100% (${letterW.toFixed(0)}px)`)
+
+    // Links. Page 1 carries three annotations in the fixture and Prism must
+    // render exactly two: the /Launch at calc.exe is refused, and that
+    // refusal is the point of the whole layer.
+    await win.click('input[aria-label="Page number"]', { clickCount: 3 })
+    await win.keyboard.type('1')
+    await win.keyboard.press('Enter')
+    await sleep(700)
+    await win.waitForSelector('[data-page="1"] .p-pdf-annots button', { timeout: 10000 })
+    ok(
+      (await win.locator('[data-page="1"] .p-pdf-annots button').count()) === 2,
+      'two link boxes on page 1: the Launch at an executable is not one of them'
+    )
+
+    // The boxes are percentages of the page, so a zoom must not move them off
+    // their text. Measure the box against its page both ways.
+    const boxFrac = async () =>
+      win.evaluate(() => {
+        const page = document.querySelector('[data-page="1"]')
+        const b = page.querySelector('.p-pdf-annots button')
+        const pr = page.getBoundingClientRect()
+        const br = b.getBoundingClientRect()
+        return { x: (br.left - pr.left) / pr.width, y: (br.top - pr.top) / pr.height }
+      })
+    const before = await boxFrac()
+    await win.hover('[data-page="1"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    await sleep(700)
+    const after = await boxFrac()
+    ok(
+      Math.abs(before.x - after.x) < 0.002 && Math.abs(before.y - after.y) < 0.002,
+      `the boxes stay on their text through a zoom (dx=${Math.abs(before.x - after.x).toFixed(4)})`
+    )
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(500)
+
+    // The external one opens through the OS shell and NOT in the app. Stubbed,
+    // or thirty e2e runs would each open a browser tab.
+    await app.evaluate(({ shell }) => {
+      globalThis.__opened = []
+      shell.openExternal = (u) => {
+        globalThis.__opened.push(u)
+        return Promise.resolve()
+      }
+    })
+    await win.locator('[data-page="1"] .p-pdf-annots button').first().click()
+    await sleep(500)
+    const opened = await app.evaluate(() => globalThis.__opened)
+    ok(
+      opened.length === 1 && opened[0] === 'https://example.com/docs',
+      `the external link goes to the shell, once, with its own url (${JSON.stringify(opened)})`
+    )
+    ok((await win.inputValue('input[aria-label="Page number"]')) === '1', 'and did not move the document')
+
+    // The internal one jumps to page 3, and to the /XYZ y on it rather than
+    // to the top of it.
+    await win.locator('[data-page="1"] .p-pdf-annots button').nth(1).click()
+    await sleep(800)
+    ok((await win.inputValue('input[aria-label="Page number"]')) === '3', 'the internal link jumps to page 3')
+    const landed = await win.evaluate(() => {
+      const box = document.querySelector('[data-doc-scroller]')
+      const page = document.querySelector('[data-page="3"]')
+      return page.getBoundingClientRect().top - box.getBoundingClientRect().top
+    })
+    // /XYZ top 500 on a 792pt page is 292pt down, times the 1.9 default scale
+    // = ~555px, so page 3's top edge sits that far ABOVE the scroller's, less
+    // the gap goToPage leaves. Landing at the top of the page would put this
+    // at about +24 instead.
+    ok(landed < -450 && landed > -640, `and lands at the destination y, not the top (${landed.toFixed(0)}px)`)
 
     // The pill's buttons take real CLICKS (they once sat under the text
     // layer's z-index and swallowed nothing but hover).
@@ -615,7 +720,43 @@ async function contextMenuScenario(fixtures) {
         .catch(() => false),
       'files offer Open in split view'
     )
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 0,
+      'a FILE is offered no "Open terminal here": you open a terminal in a folder'
+    )
     await win.screenshot({ path: join(SHOTS, 'context-menu.png') })
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The folder half of the same menu.
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Open terminal here")').count()) === 1,
+      'a folder is'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // The tree's DEAD SPACE answers a right-click too: verbs on the PLACE
+    // rather than on a row. Clicking below the last row is the reliable way
+    // to miss every one of them.
+    const box = await win.locator('[role="tree"]').first().boundingBox()
+    // Below the last row, inside the scroller: the one place that is reliably
+    // dead space whatever the fixture holds.
+    await win.mouse.click(box.x + box.width / 2, box.y + box.height + 24, { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    for (const label of ['Paste', 'Show in File Explorer', 'Copy path', 'Open terminal here']) {
+      ok(
+        (await win.locator(`[role="menuitem"]:has-text("${label}")`).count()) >= 1,
+        `the tree's dead space offers ${label}`
+      )
+    }
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Rename")').count()) === 0,
+      'and none of the row verbs, which have no row to act on'
+    )
     await win.keyboard.press('Escape')
     await sleep(300)
 
@@ -789,6 +930,501 @@ async function editScenario(fixtures) {
     await win.waitForSelector('.p-md h1', { timeout: 5000 })
     ok(true, 'Done leaves a clean editor without asking')
     ok(!win.isClosed(), 'window survives the round trip')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * A file rewritten underneath the open editor (2026-08-31).
+ *
+ * The folder watcher landed before this and only refreshed the tree, so an
+ * agent in Prism's own terminal could rewrite the open file and the editor
+ * went on showing a frozen copy - which one Ctrl+S then wrote back over the
+ * agent's work. The negative case matters as much as the positive: Prism's
+ * OWN save emits a dir:changed about a second later (a muted directory is
+ * deferred, not dropped), and that must never raise the question.
+ */
+async function reloadScenario(fixtures) {
+  console.log('the file changed on disk')
+  const notes = join(fixtures, 'reload.txt')
+  writeFileSync(notes, 'first version\n')
+  const { app, win } = await launch(notes)
+  try {
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('first version'),
+      null,
+      { timeout: 10000 }
+    )
+
+    // Clean: swap silently, no question.
+    writeFileSync(notes, 'rewritten by something else\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('rewritten by'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a clean editor takes the new version silently')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'and asks nothing about it')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'the swap does not mark the file dirty against text nobody typed'
+    )
+
+    // Undo must not walk back to the version that is no longer on disk: that
+    // is how a Ctrl+Z followed by a Ctrl+S overwrites the other program.
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+z')
+    await sleep(300)
+    ok(
+      (await win.textContent('.cm-content')).includes('rewritten by'),
+      'and Ctrl+Z cannot walk back to the stale text'
+    )
+
+    // Our OWN save must not look like somebody else's write.
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('mine')
+    await sleep(200)
+    await win.keyboard.press('Control+s')
+    await sleep(2500) // past the 1.2s mute and the watcher's quiet window
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      "Prism's own save does not raise the question, late event and all"
+    )
+    ok(readFileSync(notes, 'utf-8').includes('mine'), 'and it really wrote')
+
+    // Dirty: ask, and Keep mine keeps the typing.
+    await win.keyboard.type('-typed')
+    await sleep(300)
+    writeFileSync(notes, 'a third version from outside\n')
+    await win.waitForSelector('[role="dialog"]', { timeout: 10000 })
+    ok(true, 'unsaved edits raise the question instead')
+    await win.click('[role="dialog"] button:has-text("Keep mine")')
+    await sleep(400)
+    ok(
+      (await win.textContent('.cm-content')).includes('-typed'),
+      'Keep mine leaves the buffer exactly as it was'
+    )
+
+    // And the other answer takes the disk version.
+    writeFileSync(notes, 'the version that wins\n')
+    await win.waitForSelector('[role="dialog"]', { timeout: 10000 })
+    await win.click('[role="dialog"] button:has-text("Reload from disk")')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('version that wins'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'Reload from disk takes theirs')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'and the file is clean again afterwards'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * Files that grow, files too big to open, and files Prism cannot read at all
+ * (2026-08-31).
+ *
+ * The safety property is the one worth asserting: none of these three may
+ * ever be saveable. A followed log that reported a buffer would be starred in
+ * the tree and offered under "Save all changes" on the way out, which is how
+ * a partial tail ends up written over a 900MB file.
+ */
+async function tailScenario(fixtures) {
+  console.log('following, tailing and bytes')
+  const grow = join(fixtures, 'grow.log')
+  const huge = join(fixtures, 'huge.log')
+  writeFileSync(grow, 'line one\n')
+  // Just over the editor's 64MB ceiling, with a marker at the very end so the
+  // assertion proves it is the TAIL and not the head.
+  const block = 'x'.repeat(1023) + '\n'
+  const chunks = []
+  for (let i = 0; i < 66 * 1024; i += 1) chunks.push(block)
+  chunks.push('THE-VERY-LAST-LINE\n')
+  writeFileSync(huge, chunks.join(''))
+
+  const { app, win } = await launch(grow)
+  try {
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('line one'),
+      null,
+      { timeout: 10000 }
+    )
+
+    // Follow it, from the context menu.
+    await win.click('.cm-content', { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.click('[role="menuitem"]:has-text("Follow the file")')
+    await sleep(400)
+    ok((await win.locator('text=Following this file').count()) === 1, 'following says so')
+
+    appendFileSync(grow, 'line two\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('line two'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a followed file grows in the editor')
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'and the appended text is NOT an unsaved change'
+    )
+
+    // Stop, and it is an ordinary editable file again.
+    await win.click('.cm-content', { button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.click('[role="menuitem"]:has-text("Follow the file")')
+    await sleep(600)
+    ok((await win.locator('text=Following this file').count()) === 0, 'stopping puts the banner away')
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('typed')
+    await sleep(300)
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 1,
+      'and the file is editable again afterwards'
+    )
+    await win.keyboard.press('Control+s')
+    await sleep(500)
+    ok(readFileSync(grow, 'utf-8').includes('typed'), 'which really saves')
+
+    // A file past the 64MB ceiling shows its END instead of an apology.
+    await win.click('[role="treeitem"]:has-text("huge.log")')
+    await win.waitForSelector('text=Showing the end of this file', { timeout: 20000 })
+    // CodeMirror only renders the lines in view, so the marker at the very
+    // end of a 2MB tail is not in the DOM until we go there.
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('THE-VERY-LAST-LINE'),
+      null,
+      { timeout: 20000 }
+    )
+    ok(true, 'a file too big for the editor shows its tail')
+    ok(
+      (await win.locator('text=Showing the end of this file').count()) === 1,
+      'and says so, with the real size'
+    )
+    ok(
+      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
+      'a tail is never an unsaved change'
+    )
+    appendFileSync(huge, 'AND-THEN-MORE\n')
+    await win.waitForFunction(
+      () => (document.querySelector('.cm-content')?.textContent ?? '').includes('AND-THEN-MORE'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'and it keeps following')
+
+  } finally {
+    await app.close()
+    for (const f of [huge, grow]) rmSync(f, { force: true })
+  }
+}
+
+/**
+ * A file Prism cannot read at all can still show its bytes (2026-08-31).
+ *
+ * Launched on directly, because the tree hides unviewable files: the only
+ * route to this screen is Windows handing the file over, which is exactly
+ * why the screen exists.
+ */
+async function hexScenario(fixtures) {
+  console.log('showing the bytes')
+  const bin = join(fixtures, 'mystery.qqq')
+  writeFileSync(bin, Buffer.from([0x50, 0x52, 0x49, 0x53, 0x4d, 0x00, 0x01, 0xff]))
+  const { app, win } = await launch(bin)
+  try {
+    await win.waitForSelector('button:has-text("Show the bytes")', { timeout: 15000 })
+    ok(true, 'an unreadable file offers its bytes')
+    await win.click('button:has-text("Show the bytes")')
+    await win.waitForSelector('text=Page 1 of 1', { timeout: 10000 })
+    // The page arrives over a Range request a frame or two later; the header
+    // above it is there from the first render, so waiting on that is a race.
+    await win.waitForFunction(
+      () => !(document.querySelector('.font-mono')?.textContent ?? '').includes('Reading'),
+      null,
+      { timeout: 10000 }
+    )
+    const dump = await win.textContent('.font-mono')
+    ok(dump.includes('50 52 49 53 4d 00 01 ff'), `the row reads the file's bytes (${JSON.stringify(dump.trim())})`)
+    ok(dump.includes('PRISM'), 'and the ascii gutter shows the printable ones')
+    ok(dump.includes('00000000'), 'with an offset column')
+    await win.click('button:has-text("Close")')
+    await sleep(300)
+    ok((await win.locator('button:has-text("Show the bytes")').count()) === 1, 'and Close goes back')
+  } finally {
+    await app.close()
+    rmSync(bin, { force: true })
+  }
+}
+
+/**
+ * A comic book (2026-08-31).
+ *
+ * Two things worth proving beyond "it opens". The page order is NUMERIC, so
+ * page10 is last and not second - the fixture is unpadded on purpose. And the
+ * arrow keys turn pages here and only here: everywhere else in Prism they
+ * page the folder, and Ctrl+arrow still does, which is how you get to the
+ * next book.
+ */
+async function comicScenario(fixtures) {
+  console.log('comic books')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  try {
+    await win.waitForSelector('text=Page 1 of 3', { timeout: 20000 })
+    ok(true, 'a .cbz opens on its first page')
+    const shown = async () => (await win.getAttribute('img[alt]', 'alt')) ?? ''
+    ok((await shown()) === 'page1.png', `and page one is page1.png (${await shown()})`)
+    ok(
+      (await win.locator('text=Page 1 of 3').count()) === 1,
+      'ComicInfo.xml and the macOS resource fork are not pages'
+    )
+
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Right turns the page')
+    ok((await shown()) === 'page2.png', `to page2, not page10 (${await shown()})`)
+
+    await win.keyboard.press('ArrowRight')
+    await sleep(400)
+    ok((await shown()) === 'page10.png', `and page10 sorts last, numerically (${await shown()})`)
+
+    // The end is the end: Right again stays put rather than wrapping.
+    await win.keyboard.press('ArrowRight')
+    await sleep(300)
+    ok((await win.locator('text=Page 3 of 3').count()) === 1, 'the last page is the last page')
+
+    await win.keyboard.press('ArrowLeft')
+    await sleep(400)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Left goes back')
+
+    // Ctrl+arrow is still the FOLDER. sequel.cbz sorts BEFORE story.cbz, so
+    // the way to it is Left.
+    await win.keyboard.press('Control+ArrowLeft')
+    await sleep(1200)
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
+        'sequel'
+      ),
+      'Ctrl+arrow pages the FOLDER, to the next comic'
+    )
+
+    // And coming back opens where the book was put down.
+    await win.keyboard.press('Control+ArrowRight')
+    await sleep(1500)
+    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'a comic reopens where you left it')
+    ok(!win.isClosed(), 'window survives the comic')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * Extract-all, and the ONE-FOLDER RULE (2026-08-31).
+ *
+ * A zip whose whole content is a single top-level folder is what every
+ * "download as zip" produces, and it used to land as
+ * `chosen/archive-name/TheFolder` - one level deeper than anybody wanted.
+ * Uses "Extract here", which needs no dialog: the archive's own folder is
+ * already inside a root, so there is nothing to consent to.
+ */
+async function extractScenario(fixtures) {
+  console.log('extracting')
+  const zip = join(fixtures, 'zips', 'wrapped.zip')
+  const landed = join(fixtures, 'zips', 'Collection')
+  rmSync(landed, { recursive: true, force: true })
+  const { app, win } = await launch(zip)
+  try {
+    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    ok(
+      (await win.locator('button:has-text("Extract here")').count()) === 1,
+      'the verb row offers a one-click Extract here'
+    )
+    ok(
+      (await win.locator('button:has-text("Extract to")').count()) === 1,
+      'and Extract to... beside it'
+    )
+    // The progress track is ALWAYS in the layout, so nothing moves when an
+    // extraction starts or ends. Measured, because "it looks fine" is exactly
+    // how the jump got shipped.
+    const listTop = async () =>
+      win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
+    const beforeTop = await listTop()
+    ok(
+      (await win.locator('[role="progressbar"]').count()) === 1,
+      'the progress track is present before anything runs'
+    )
+    // The first row starts ON the header's hairline: no gutter above it.
+    const gap = await win.evaluate(() => {
+      const list = document.querySelector('[data-arc-list]')
+      const row = document.querySelector('[data-arc-row]')
+      return row.getBoundingClientRect().top - list.getBoundingClientRect().top
+    })
+    ok(Math.abs(gap) < 0.6, `the first row sits on the header hairline (${gap.toFixed(2)}px)`)
+    await win.click('button:has-text("Extract here")')
+    await win.waitForFunction(
+      () => !document.body.textContent.includes('Extracting'),
+      null,
+      { timeout: 30000 }
+    )
+    await sleep(600)
+    const afterTop = await listTop()
+    ok(
+      Math.abs(afterTop - beforeTop) < 0.5,
+      `the member list never moved (${beforeTop.toFixed(1)} -> ${afterTop.toFixed(1)})`
+    )
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      'and finishing raises no popup'
+    )
+    ok(existsSync(landed), 'the single top-level folder landed directly, not wrapped')
+    ok(
+      existsSync(join(landed, 'one.txt')) && existsSync(join(landed, 'sub', 'two.txt')),
+      'with its shape intact'
+    )
+    ok(
+      !existsSync(join(fixtures, 'zips', 'wrapped')),
+      'and no folder named after the archive was left behind'
+    )
+    // Every OTHER extract route, driven through the same preload API the menu
+    // rows call. The menus themselves are asserted above; this proves the
+    // handlers behind them actually put files on disk.
+    const zipPath = zip.split(String.fromCharCode(92)).join('/')
+
+    // A folder member, to a temp copy - what "Copy folder" puts on the
+    // clipboard. It used to extract the members one at a time and copy the
+    // loose FILES, so the shape is the thing to check.
+    const toTemp = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection'),
+      zipPath
+    )
+    ok(toTemp.ok === true, `a folder member extracts to a temp copy (${JSON.stringify(toTemp)})`)
+    if (toTemp.ok) {
+      ok(statSync(toTemp.path).isDirectory(), 'and it really is a FOLDER, not a pile of files')
+      ok(
+        existsSync(join(toTemp.path, 'one.txt')) &&
+          existsSync(join(toTemp.path, 'sub', 'two.txt')),
+        'with the whole shape under it'
+      )
+      rmSync(dirname(toTemp.path), { recursive: true, force: true })
+    }
+
+    // The same folder, beside the archive - "Extract folder here".
+    const here1 = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection', true),
+      zipPath
+    )
+    ok(here1.ok === true, 'a folder member extracts beside the archive')
+    if (here1.ok) {
+      ok(
+        dirname(here1.path) === join(fixtures, 'zips'),
+        `landing beside the archive, not in temp (${here1.path})`
+      )
+      ok(existsSync(join(here1.path, 'sub', 'two.txt')), 'shape intact there too')
+    }
+    // A second time: beside the first, never over it. The name is whatever is
+    // free - Extract here has already taken "Collection" earlier in this
+    // scenario - so what matters is that it is a DIFFERENT folder and the
+    // first still has its contents.
+    const here2 = await win.evaluate(
+      (z) => window.prism.archiveExtractDir(z, 'Collection', true),
+      zipPath
+    )
+    ok(
+      here2.ok === true && here1.ok === true && here2.path !== here1.path,
+      `a second extract lands beside the first (${here2.ok ? here2.path : 'failed'})`
+    )
+    ok(
+      here2.ok === true && existsSync(join(here2.path, 'one.txt')),
+      'and carries the same contents'
+    )
+    ok(
+      here1.ok === true && existsSync(join(here1.path, 'one.txt')),
+      'while the first is untouched'
+    )
+    if (here1.ok) rmSync(here1.path, { recursive: true, force: true })
+    if (here2.ok) rmSync(here2.path, { recursive: true, force: true })
+  } finally {
+    await app.close()
+    rmSync(landed, { recursive: true, force: true })
+    for (const n of ['Collection', 'Collection (2)', 'Collection (3)'])
+      rmSync(join(fixtures, 'zips', n), { recursive: true, force: true })
+  }
+}
+
+/**
+ * A zip with NO directory records (2026-08-31).
+ *
+ * Directory entries are optional in a zip and plenty of writers leave them
+ * out - Google Takeout is the one that found this. The panel lists one level
+ * at a time by matching each member's parent, so such an archive showed
+ * NOTHING at its root: every member's parent was two levels down and the
+ * folders those names imply did not exist to be listed.
+ */
+async function flatZipScenario(fixtures) {
+  console.log('a zip that records no folders')
+  const { app, win } = await launch(join(fixtures, 'zips', 'nodirs.zip'))
+  try {
+    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    const names = async () =>
+      (await win.locator('[data-arc-row]').allTextContents()).join(' | ')
+    ok((await win.locator('[data-arc-row]').count()) > 0, 'the archive does not read as empty')
+    ok((await names()).includes('Deep'), 'the folder its member names imply is listed')
+    await win.locator('[data-arc-row]:has-text("Deep")').first().dblclick()
+    await sleep(500)
+    ok((await names()).includes('Inner'), 'and so is the one below that')
+    ok((await names()).includes('other.txt'), 'beside the real member at that level')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * 100% is a WIDTH ON SCREEN, not a multiple of the page's own size
+ * (2026-08-31).
+ *
+ * pdf.js scales are relative to the page, so a flat "100% = 1.9 units" meant
+ * an artbook with 1822pt pages opened three times the width of a letter
+ * document and read as the viewer being broken.
+ */
+async function pdfZoomScenario(fixtures) {
+  console.log('pdf zoom baseline')
+  const { app, win } = await launch(join(fixtures, 'bigpdf', 'big.pdf'))
+  try {
+    await win.waitForSelector('[data-page="1"] canvas', { timeout: 15000 })
+    await sleep(600)
+    // Opening FITTED is the point for a page this size - 1822pt at 100% is
+    // 1163px, wider than the window this runs in - so the assertion is that it
+    // does not overflow, and then that 100% still means what it means.
+    ok(
+      await win.evaluate(() => {
+        const box = document.querySelector('[data-doc-scroller]')
+        return !!box && box.scrollWidth <= box.clientWidth
+      }),
+      'a big-page document opens with no horizontal overflow'
+    )
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
+    const w = await win.evaluate(
+      () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
+    )
+    ok(
+      Math.abs(w - 612 * 1.9) < 3,
+      `and lands the same width as a letter page (${w.toFixed(0)}px, letter is ${(612 * 1.9).toFixed(0)})`
+    )
+    await win.hover('[data-page="1"]', { position: { x: 40, y: 40 } })
+    await win.click('button[title="Zoom in (+)"]')
+    await sleep(400)
+    ok(
+      (await win.textContent('button[title="Default zoom (0)"]')) === '118%',
+      'and the zoom ladder still reads in percent from there'
+    )
   } finally {
     await app.close()
   }
@@ -1271,6 +1907,25 @@ async function sevenZipScenario(fixtures) {
       timeout: 15000
     })
     ok(true, 'and a member opens, extracted by the bundled 7-Zip')
+
+    // A whole FOLDER out of a 7z, in one 7-Zip call rather than one per
+    // member: the per-member route re-opened the container each time, which
+    // is what "Extract folder here" was failing on for a big archive.
+    const sevenPath = join(fixtures, 'zips', 'read-only.7z')
+      .split(String.fromCharCode(92))
+      .join('/')
+    const sub = await win.evaluate(
+      // The folder is called "sub"; the row's TEXT reads "subFolder1"
+      // because it concatenates the name, the type and the item count.
+      (z) => window.prism.archiveExtractDir(z, 'sub'),
+      sevenPath
+    )
+    ok(sub.ok === true, `a folder extracts out of a 7z (${JSON.stringify(sub)})`)
+    if (sub.ok) {
+      ok(statSync(sub.path).isDirectory(), 'and it is a folder')
+      ok(readdirSync(sub.path).length > 0, 'with its contents under it')
+      rmSync(dirname(sub.path), { recursive: true, force: true })
+    }
   } finally {
     await app.close()
   }
@@ -1461,6 +2116,7 @@ async function handoff(file) {
 
 async function tabsScenario(fixtures) {
   console.log('project tabs')
+  const otherRoot = OTHER_ROOT
   let { app, win } = await launch(join(fixtures, 'README.md'))
   const strip = '[role="tablist"]'
   const tabRows = () => win.locator(`${strip} [role="tab"]`)
@@ -1479,13 +2135,26 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A second root, opened deliberately. The dialog is native and cannot be
-    // driven, so the scenario asks for the same payload the button asks for.
+    // A file from a SUBFOLDER of an open root lands in THAT root's tab, rather
+    // than spawning one rooted at the subfolder (2026-09-01). Most files are
+    // not sitting directly in their project's root, so the old rule - fold
+    // only when the root IS the file's folder - accumulated a tab per folder
+    // every time anything was opened from Explorer.
     await handoff(join(fixtures, 'code', 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 1, 'a file from a subfolder stays in the tab that holds it')
+    ok(
+      /fixtures/i.test((await tabRows().first().getAttribute('title')) ?? ''),
+      'and that tab keeps ITS root, not the subfolder'
+    )
+
+    // A second root, opened deliberately - a genuine sibling, since a
+    // subfolder is no longer a second root at all.
+    await handoff(join(otherRoot, 'bad.json'))
+    await sleep(500)
     ok((await tabRows().count()) === 2, 'a second root opens a second tab')
     const labels = await tabRows().allTextContents()
-    ok(labels.some((l) => /code/.test(l)), 'the new tab is named for its folder')
+    ok(labels.some((l) => /other/.test(l)), 'the new tab is named for its folder')
 
     // Reordering is a POINTER drag inside the strip (2026-08-23), not an HTML5
     // one: press the second tab, travel left past the first tab's middle,
@@ -1518,7 +2187,15 @@ async function tabsScenario(fixtures) {
       )
     }
 
-    // Switching: the tree and the viewer both follow.
+    // Switching: the tree and the viewer both follow. Point the first tab back
+    // at its README first - the subfolder handoff above legitimately moved it
+    // to bad.json, which is the fold working - then switch AWAY and back, so
+    // this tests the switch rather than what the last handoff happened to
+    // leave on screen.
+    await handoff(join(fixtures, 'README.md'))
+    await sleep(400)
+    await tabRows().last().click()
+    await sleep(300)
     await tabRows().first().click()
     await sleep(400)
     ok(
@@ -1579,8 +2256,10 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'confirming closes it')
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
-    // recreate the code tab, restoring the order the flow below expects
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // recreate the second tab, restoring the order the flow below expects.
+    // The SIBLING root, not a subfolder: a subfolder folds into the tab that
+    // holds it now and would leave the strip with one tab, not two.
+    await handoff(join(otherRoot, 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(400)
 
@@ -1610,7 +2289,9 @@ async function tabsScenario(fixtures) {
   await sleep(900)
   ;({ app, win } = await launch(join(fixtures, 'README.md')))
   try {
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // Two roots means two ROOTS: the sibling, since a subfolder now folds into
+    // the tab that already holds it.
+    await handoff(join(otherRoot, 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(700) // the save is on a 400ms debounce
   } finally {
@@ -1643,6 +2324,69 @@ async function tabsScenario(fixtures) {
     )
     const note = ((await win.locator('aside').textContent()) ?? '').includes("can't read")
     ok(!note, 'and the sidebar does not claim the folder is unreadable')
+    // A file two folders down is MARKED, not merely present: the tree opens
+    // the folders leading to it, so the row exists to be marked at all.
+    ok(
+      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
+        'buried.py'
+      ),
+      'and the file it is showing is selected in the sidebar'
+    )
+  } finally {
+    await app.close()
+  }
+
+  /**
+   * The tree does not collapse when Prism closes (2026-08-31).
+   *
+   * A tab rooted ABOVE the file is the only shape that can show this: the
+   * previous round opens a file directly, so its tab is rooted at the file's
+   * own folder and there are no ancestors to keep open. Here the root is the
+   * fixtures folder and the file is three deep.
+   */
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md')))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(500)
+    // Folders select on the first click and expand on the second.
+    for (const name of ['code', 'nested', 'level-two']) {
+      const row = win.locator(`[role="treeitem"]:has-text("${name}")`).first()
+      await row.click()
+      await sleep(250)
+      await row.click()
+      await sleep(450)
+    }
+    await win.locator('[role="treeitem"]:has-text("buried.py")').first().click()
+    await sleep(900) // the strip save is on a 400ms debounce
+    ok(
+      (await win.locator('[role="treeitem"]:has-text("level-two")').count()) >= 1,
+      'the tree is open three folders deep before the restart'
+    )
+  } finally {
+    await app.close()
+  }
+
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'README.md'), true))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await sleep(1200)
+    const rows = await win.locator('[role="treeitem"]').allTextContents()
+    ok(
+      rows.some((r) => r.includes('level-two')),
+      `the folders that were open came back open (${rows.length} rows)`
+    )
+    ok(
+      rows.some((r) => r.includes('buried.py')),
+      'so the file deep inside them has a row again'
+    )
+    // ...and they are FILLED IN, not left spinning. Only a toggle ever
+    // fetched a folder's children, so a restored tree came back open with
+    // nothing in it and every row sat on "loading..." until it was collapsed
+    // and reopened by hand.
+    const stuck = ((await win.locator('aside').textContent()) ?? '').includes('loading')
+    ok(!stuck, 'and none of them is still saying "loading"')
   } finally {
     await app.close()
   }
@@ -1692,10 +2436,26 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'the shell echoes back through the pty')
 
-    // Hide, then show: same session, scrollback intact, shell still alive.
+    // Ctrl+` is three-way (2026-08-31): a SHOWING terminal that does not have
+    // the keyboard gets it, and only a press from inside hides. So click
+    // away first and prove the panel survives.
+    await win.locator('[data-row]').first().click()
+    await sleep(200)
     await win.keyboard.press('Control+`')
     await sleep(300)
-    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` hides the panel')
+    ok(
+      (await win.locator('.xterm').count()) === 1,
+      'Ctrl+` from outside focuses the terminal rather than hiding it'
+    )
+    ok(
+      await win.evaluate(() => !!document.activeElement?.closest('.xterm')),
+      'and the keyboard is in the terminal afterwards'
+    )
+
+    // Now from inside: same key, and this time it hides.
+    await win.keyboard.press('Control+`')
+    await sleep(300)
+    ok((await win.locator('.xterm').count()) === 0, 'Ctrl+` from inside hides the panel')
     await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 10000 })
     await sleep(300)
@@ -1703,6 +2463,17 @@ async function terminalScenario(fixtures) {
       ((await win.locator('.xterm').textContent()) ?? '').includes('prism-e2e-marker'),
       'reopening shows the same shell, scrollback intact'
     )
+
+    // Find in the scrollback: the marker is up there, and the bar counts it.
+    await win.keyboard.press('Control+Shift+F')
+    await win.waitForSelector('[data-term-find]', { timeout: 5000 })
+    await win.locator('[data-term-find] input').fill('prism-e2e-marker')
+    await sleep(400)
+    const findCount = (await win.locator('[data-term-find] span').first().textContent()) ?? ''
+    ok(/of|\+/.test(findCount), `the find bar counts matches in the scrollback (${findCount})`)
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ok((await win.locator('[data-term-find]').count()) === 0, 'Escape closes the terminal find bar')
 
     const countMarker = async () =>
       (((await win.locator('.xterm').textContent()) ?? '').match(/prism-e2e-marker/g) ?? []).length
@@ -2569,6 +3340,23 @@ async function selectionScenario(fixtures) {
       'and still opens nothing'
     )
 
+    // A FOLDER selects on the first click and expands on the second
+    // (2026-08-31). Files keep their quick-look single click, above.
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click()
+    await sleep(400)
+    ok(
+      (await codeRow.getAttribute('aria-expanded')) === 'false',
+      'the first click on a folder does not expand it'
+    )
+    ok((await codeRow.getAttribute('data-selected')) !== null, 'it selects it instead')
+    await codeRow.click()
+    await sleep(400)
+    ok(
+      (await codeRow.getAttribute('aria-expanded')) === 'true',
+      'and the second click expands it'
+    )
+
     // Ctrl+A takes every row the tree is SHOWING (2026-08-25)...
     const visible = await win.locator('aside [data-row]').count()
     await win.keyboard.press('Control+a')
@@ -2612,6 +3400,12 @@ async function dragScenario(fixtures) {
         { timeout: 8000 }
       )
       ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
+      // The folder you dropped ONTO is what is marked afterwards: what you
+      // dragged has left, so a mark on it would point at nothing.
+      const marked = await win.evaluate(
+        () => document.querySelector('aside [data-selected]')?.textContent ?? ''
+      )
+      ok(marked.includes('into'), `the destination folder is marked after the drop (${marked})`)
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.
@@ -2624,6 +3418,30 @@ async function dragScenario(fixtures) {
       await win.keyboard.press('Control+y')
       await sleep(1200)
       ok(existsSync(join(box, 'into', 'movable.txt')), 'Ctrl+Y sent it back in')
+
+      // DROPPING ON A FILE means dropping beside it (2026-09-01). Only FOLDER
+      // rows took a drop, so this fell through to the window - which opens
+      // whatever it is handed, so dropping a FOLDER on a file re-rooted the
+      // tab onto it instead of moving anything. The file rows target their
+      // own folder now, and the tree's dead space targets the root.
+      // The file is inside `into` at this point, so open it and drag back OUT -
+      // which is the owner's own case: a thing from a subfolder, dropped on a
+      // file sitting in the root.
+      const intoRow = win.locator('[role="treeitem"]:has-text("into")').first()
+      await intoRow.click()
+      await sleep(250)
+      await intoRow.click() // first click selects a folder, the second opens it
+      await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 8000 })
+      await sleep(400)
+      await win
+        .locator('[role="treeitem"]:has-text("movable.txt")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("anchor.txt")').first())
+      await sleep(1400)
+      ok(existsSync(join(box, 'movable.txt')), 'dropping on a FILE moves into that folder')
+      ok(
+        !/dragbox.into/i.test((await win.locator('[role="tab"]').first().getAttribute('title')) ?? ''),
+        'and the tab did not re-root onto what was dragged'
+      )
     } finally {
       await app.close()
     }
@@ -2757,9 +3575,13 @@ async function run(fn, gap = 900) {
 await seedProfile()
 await run(mdScenario)
 await run(pdfScenario)
+await run(pdfZoomScenario)
 await run(sortScenario)
 await run(contextMenuScenario)
 await run(editScenario)
+await run(reloadScenario)
+await run(tailScenario)
+await run(hexScenario)
 await run(codeScenario)
 await run(treeNavScenario)
 await run(unsavedScenario)
@@ -2774,6 +3596,9 @@ await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
 await run(archiveScenario)
+await run(extractScenario)
+await run(flatZipScenario)
+await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
 await run(pauseScenario)

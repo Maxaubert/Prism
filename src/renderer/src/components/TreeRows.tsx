@@ -3,26 +3,22 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { useSysIcon } from '../lib/sysIcon'
+import { ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from '../lib/iconPaths'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
 
-/** What sits behind a glyph, so its knocked-out detail matches. */
-const panelColour = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue('--p-side-flat').trim() || '#0e1016'
-
-const accentColour = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue('--p-accent').trim() || '#5b5bd6'
-
 /** Folders wear the folder token, files the file token - both pickers in
- *  Settings, both defaulted per mode by theme.ts. The per-kind tints retired
- *  2026-08-21: one file colour for every theme, the kind lives in the SHAPE. */
+ *  Settings, both derived per style by theme.ts against its own ground, with a
+ *  4.5:1 floor. That derivation is why the icons need no light/dark switch of
+ *  their own: a light style resolves the same token to dark ink. */
 export function iconColour(kind: FileKind | 'folder'): string {
+  // FOLDERS keep their own colour: they are not one of the file kinds and the
+  // tint is what lets you scan containers from contents at a glance.
   if (kind === 'folder') return 'var(--p-tree-folder)'
-  // Archives get a colour of their own (#68, like the folder's): a container
-  // among files, worth telling apart at a glance.
-  if (kind === 'archive') return 'var(--p-tree-archive)'
+  // Every FILE kind is the same ink. The per-kind tints retired 2026-08-21 and
+  // the archive's own colour went with the drawn icons (2026-08-31): the kind
+  // lives in the SHAPE, and tinting it as well read as a colour chart.
   return 'var(--p-tree-file)'
 }
 
@@ -49,96 +45,142 @@ function Chevron({ open }: { open: boolean }): JSX.Element {
   )
 }
 
-function Glyph({ children, color }: { children: JSX.Element; color: string }): JSX.Element {
+/**
+ * Prism's own icon for a file kind, monochrome (2026-08-31).
+ *
+ * The nine FileKinds map onto the SEVEN icons the .ico set ships, and the map
+ * is Explorer's own: `assoc.nsh` points Prism.Text at the code icon and
+ * Prism.Document at the document one, so a .ts in the sidebar and the same .ts
+ * on the desktop are the same picture. 'other' is not registered with Windows
+ * at all and takes the plain page.
+ *
+ * `bg` IS THE BACKGROUND ACTUALLY BEHIND THE ROW, and the fold and the chip
+ * are painted in it. Passing the panel token instead looks perfect in every
+ * screenshot of an unselected tree and is wrong the moment somebody clicks a
+ * row: the icon then carries a rectangle of panel colour across the accent
+ * fill. Both surfaces that draw these rows sit on --p-side-flat, which is why
+ * that is the default.
+ *
+ * Exported for the search results and the archive panel, which draw the same
+ * rows outside the tree.
+ */
+const KIND_ICON: Record<FileKind, keyof typeof ICON_PATHS> = {
+  image: 'image',
+  video: 'video',
+  audio: 'audio',
+  comic: 'comic',
+  archive: 'archive',
+  pdf: 'document',
+  doc: 'document',
+  text: 'code',
+  other: 'document'
+}
+
+/**
+ * Which language mark a file gets, if any.
+ *
+ * By EXTENSION first, then by whole NAME - and the name half is the app doing
+ * something Explorer cannot. Windows associates on extension, so `Dockerfile`
+ * and `.gitignore` can never carry a mark on the desktop however well drawn;
+ * here they can, and do. Expect that asymmetry rather than reading it as a bug.
+ */
+function langFor(kind: FileKind, name?: string, ext?: string): keyof typeof LANG_PATHS | null {
+  if (kind !== 'text' || !name) return null
+  const e = (ext ?? '').replace(/^\./, '').toLowerCase()
+  if (e && e in LANG_BY_EXT) return LANG_BY_EXT[e]
+  const n = name.toLowerCase()
+  return n in LANG_BY_NAME ? LANG_BY_NAME[n] : null
+}
+
+/**
+ * THE LABEL IS DRAWN AT EVERY SIZE (owner instruction, 2026-09-01: "they should
+ * be the same icons everywhere").
+ *
+ * It was briefly dropped below 30px on the arithmetic: the label is 4.08 units
+ * in a 24-unit viewBox, so at the tree's 14px its cap height is 2.4px, and no
+ * typeface is legible at 2.4px. That measurement still stands and the band is
+ * still a smudge in a tree row - but the icon being ONE icon everywhere is
+ * worth more than the two pixels, and it is the owner's call to make.
+ *
+ * What actually caused the complaint was not the label at all. `.log` was
+ * getting the CODE mark, an indent guide, and a vertical spine with rungs
+ * hanging off it is not a picture of structure at 14px - it is two letterforms,
+ * read as "PT". Prose has no indentation to draw, so it draws lines now.
+ */
+export function KindIcon({
+  kind,
+  color,
+  ext,
+  name,
+  size = 14,
+  bg = 'var(--p-side-flat)'
+}: {
+  kind: FileKind
+  color: string
+  /** The file's own extension, with or without the dot. Drawn on the band. */
+  ext?: string
+  /** The file's whole name, for the marks Windows cannot register. */
+  name?: string
+  /** How big it is drawn. Everything scales with it, the label included. */
+  size?: number
+  bg?: string
+}): JSX.Element {
+  // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
+  // punched back OVER ko in the ink, which is what keeps the clapperboard's
+  // stripes, the splat's core and a mark's own holes from filling in solid.
+  const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
+  const lang = langFor(kind, name, ext)
+  const mark = lang ? LANG_PATHS[lang] : null
+  const label = (ext ?? '').replace(/^\./, '').toUpperCase()
+  const L = g.label
   return (
-    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
-      {children}
+    <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0" aria-hidden>
+      <path d={g.body} fill={color} />
+      {/* A language mark REPLACES the kind's own, so `ko` is the kind's fold
+          and band with the mark swapped in - not both marks on one page. */}
+      <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
+      {mark ? (
+        mark.hi ? <path d={mark.hi} fill={color} /> : null
+      ) : g.hi ? (
+        <path d={g.hi} fill={color} />
+      ) : null}
+      {label ? (
+        <text
+          x={L.x}
+          y={L.y}
+          // Keyed by CHARACTER COUNT, not scaled: two and three characters keep
+          // the full size and only WEBM-length ones step down, which is what
+          // stops a long extension running out of the band.
+          fontSize={L.sizes[Math.min(label.length, 6) as keyof typeof L.sizes]}
+          fill={color}
+          fontWeight={700}
+          textAnchor="middle"
+          dominantBaseline="central"
+        >
+          {label}
+        </text>
+      ) : null}
     </svg>
   )
 }
 
-/** Filled glyph per kind. Detail is knocked out in the panel colour rather than
- *  drawn as strokes, so the shape still reads as a photo or a page at 14px.
- *  Exported for the search results, which draw the same rows outside the tree. */
-export function KindIcon({ kind, color, ko: koColour, path }: { kind: FileKind; color: string; ko?: string; path?: string }): JSX.Element {
-  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
-  switch (kind) {
-    case 'image':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M6 16.2l3.6-4.2 2.6 3 2.3-2.4 3.5 3.6z" {...ko} />
-            <circle cx="8.4" cy="9.2" r="1.7" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'video':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M3.5 5h17v14h-17z" />
-            <path d="M10 9.2l5.6 2.8L10 14.8z" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'audio':
-      return (
-        <Glyph color={color}>
-          <path d="M9 16.4V6l10-2v10.4a2.6 2.6 0 1 1-1.6-2.4V6.6L10.6 8.2v8.2A2.6 2.6 0 1 1 9 14z" />
-        </Glyph>
-      )
-    case 'pdf':
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 15.5h6.8v3.2H8.6z" {...ko} />
-          </>
-        </Glyph>
-      )
-    case 'archive':
-      return <ArchiveIcon color={color} koColour={koColour} path={path} />
-    default:
-      return (
-        <Glyph color={color}>
-          <>
-            <path d="M6 2.5h7.5L19 8v13.5H6z" />
-            <path d="M13 2.5V8h5.4z" fillOpacity={0.55} />
-            <path d="M8.6 12h7.8v1.3H8.6zM8.6 15.2h7.8v1.3H8.6zM8.6 18.4h5v1.3h-5z" {...ko} />
-          </>
-        </Glyph>
-      )
-  }
-}
-
-/** The archive row's icon (#68, revised 2026-08-22: the owner tried the
- *  parcel and picked the real thing): the SYSTEM icon of the user's own
- *  association (WinRAR, 7-Zip, Explorer's zipped folder...), one fetch per
- *  extension. The amber parcel stands in while it loads and on machines
- *  where Windows has none to give. */
-function ArchiveIcon({ color, koColour, path }: { color: string; koColour?: string; path?: string }): JSX.Element {
-  const url = useSysIcon(path ?? null)
-  if (url)
-    return <img src={url} width={14} height={14} className="shrink-0" alt="" aria-hidden />
-  const ko = { fill: koColour ?? panelColour(), fillOpacity: 0.85 }
-  return (
-    <Glyph color={color}>
-      <>
-        <path d="M4 8.2l1.8-3.7h12.4L20 8.2v11a1.3 1.3 0 0 1-1.3 1.3H5.3A1.3 1.3 0 0 1 4 19.2z" />
-        <path d="M4.4 8.2h15.2v1.2H4.4z" {...ko} />
-        <path d="M9.4 12.3h5.2v1.6H9.4z" {...ko} />
-      </>
-    </Glyph>
-  )
+/**
+ * The fold and the band out of a kind's `ko`, without its mark.
+ *
+ * The emitter writes them FIRST and in that order, so the first two subpaths
+ * are always exactly those two. Splitting on 'M' rather than re-deriving them
+ * keeps one definition of the page's geometry in the generator, which is the
+ * whole reason the paths are generated at all.
+ */
+function foldAndBand(ko: string): string {
+  return ko.split(/(?=M)/).slice(0, 2).join('')
 }
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
   return (
-    <Glyph color={color}>
+    <svg viewBox="0 0 24 24" width={14} height={14} fill={color} className="shrink-0" aria-hidden>
       <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-    </Glyph>
+    </svg>
   )
 }
 
@@ -166,7 +208,10 @@ function Label({ name }: { name: string }): JSX.Element {
 /** A muted, unclickable row: "empty", "can't read", "loading". */
 function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
   return (
-    <div className="py-[5px] text-[11.5px] italic text-[var(--p-dim2)]" style={{ paddingLeft: pad + 20 }}>
+    <div
+      className="py-[5px] text-[11.5px] italic text-[var(--p-dim2)]"
+      style={{ paddingLeft: pad + 20 }}
+    >
       {text}
     </div>
   )
@@ -176,7 +221,13 @@ function Note({ text, pad }: { text: string; pad: number }): JSX.Element {
 
 /** The row turns into this while you rename. The stem is preselected, the way
  *  Explorer does it, so typing replaces the name but keeps the extension. */
-function RenameRow({ name, pad, size, onSubmit, onCancel }: {
+function RenameRow({
+  name,
+  pad,
+  size,
+  onSubmit,
+  onCancel
+}: {
   name: string
   pad: number
   size: Size
@@ -271,8 +322,10 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             e.stopPropagation()
             t.onDropOn(e, path)
           }}
-          // A plain click still expands, quick-look style; shift and ctrl
-          // build a selection without touching the chevron state.
+          // A plain click SELECTS a folder; a second one expands it. Shift and
+          // ctrl build a selection without touching the chevron state either
+          // way. The chevron itself still expands on the first click, since
+          // that is the one control whose whole job is the folder's state.
           onClick={(e) => t.onRowClick(e, path, true)}
           onContextMenu={(e) => t.onMenu(e, path, name, true)}
           onKeyDown={(e) => {
@@ -326,7 +379,9 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           >
             <Chevron open={open} />
           </span>
-          <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+          <FolderIcon
+            color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'}
+          />
           <Label name={name} />
         </button>
       )}
@@ -347,6 +402,14 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
     </li>
   )
 }
+
+/** The folder a path sits in. A FILE row is a drop target for its own
+ *  folder: dropping onto a file means dropping beside it, which is what
+ *  every file manager does and what the tree did not do - the drop fell
+ *  through to the window, which opens whatever it is handed, so dropping a
+ *  FOLDER there re-rooted the tab instead of moving anything. */
+const dirOf = (p: string): string =>
+  p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
 
 export function Rows({ listing, depth }: { listing: DirListing; depth: number }): JSX.Element {
   const t = useTree()
@@ -377,7 +440,13 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
   const guide = depth > 0 ? 4 + (depth - 1) * t.size.indent + 6 : -1
   return (
     <ul role="group" className="relative list-none">
-      {guide >= 0 && <span className="absolute inset-y-0 w-px bg-[var(--p-divider)]" style={{ left: guide }} aria-hidden />}
+      {guide >= 0 && (
+        <span
+          className="absolute inset-y-0 w-px bg-[var(--p-divider)]"
+          style={{ left: guide }}
+          aria-hidden
+        />
+      )}
       {folders.map((f) => (
         <Folder key={f.path} path={f.path} name={f.name} depth={depth} />
       ))}
@@ -419,6 +488,20 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               draggable
               onDragStart={(e) => t.onRowDragStart(e, f.path)}
               onDragEnd={() => t.onDragDone()}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                e.dataTransfer.dropEffect = 'move'
+                // The FOLDER lights up, not the file: the file is where the
+                // pointer is, its folder is where the thing will land.
+                t.onDropHover(dirOf(f.path))
+              }}
+              onDragLeave={() => t.onDropHover(null)}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                t.onDropOn(e, dirOf(f.path))
+              }}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               // A plain click still OPENS, quick-look style (only archives
@@ -470,8 +553,11 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 // The knockout only applies on the filled row, which is now the
                 // selection's rather than the open file's.
                 color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
-                ko={onSel ? accentColour() : undefined}
-                path={f.path}
+                // The knockouts take what is BEHIND the row, which on a
+                // selected one is the accent fill and not the panel.
+                bg={onSel ? 'var(--p-accent)' : undefined}
+                ext={f.ext}
+                name={f.name}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>

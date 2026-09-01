@@ -98,6 +98,17 @@ const DOC = new Set([
 // Archives Prism can open in place (2026-08-22): zip only. Reading, renaming
 // and deleting members means rewriting the container, which adm-zip does for
 // zip; 7z and rar would need external binaries and stay unsupported.
+/**
+ * Comic books, which are archives and deliberately NOT the ARCHIVE kind
+ * (2026-08-31).
+ *
+ * A .cbz is a zip and a .cbr is a rar, but nobody opens one to look at a
+ * member list: they are a book, and the archive panel's verbs - Extract all,
+ * Add files, and the one permanent Delete in Prism - are the wrong menu
+ * entirely to put on one. Its own kind, its own read-only viewer.
+ */
+const COMIC = new Set(['.cbz', '.cbr'])
+
 const ARCHIVE = new Set([
   '.zip',
   // Read-only, through the bundled 7-Zip (2026-08-24, sevenZip.ts): it lists
@@ -130,6 +141,8 @@ export function fileKind(ext: string, name?: string): FileKind {
   if (AUDIO.has(e)) return 'audio'
   if (e === '.pdf') return 'pdf'
   if (DOC.has(e)) return 'doc'
+  // Before ARCHIVE, which they otherwise are.
+  if (COMIC.has(e)) return 'comic'
   if (ARCHIVE.has(e)) return 'archive'
   if (TEXT.has(e)) return 'text'
   if (name !== undefined && isTextName(name)) return 'text'

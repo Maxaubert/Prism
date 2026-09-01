@@ -9,6 +9,9 @@ import { tickIf } from '../lib/fileVerbs'
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
 const TerminalPanel = lazy(() => import('./TerminalPanel'))
+// Same chunk as the panel, so the find bar's import of the session store
+// costs the launch bundle nothing.
+const TermFind = lazy(() => import('./TermFind'))
 
 const EDGE_NAMES: Array<{ edge: DockEdge; label: string }> = [
   { edge: 'bottom', label: 'Dock bottom' },
@@ -26,7 +29,9 @@ export function TermDock({
   onDockPick,
   sessionId,
   root,
-  shellId
+  shellId,
+  find,
+  onFind
 }: {
   /** `full` takes the whole viewer area: no handle, no size, and the dock menu
    *  waits for split (where an edge means something). */
@@ -40,6 +45,9 @@ export function TermDock({
   sessionId: string
   root: string
   shellId: string | undefined
+  /** Whether the scrollback find bar is up (Ctrl+Shift+F). */
+  find: boolean
+  onFind: (open: boolean) => void
 }): JSX.Element {
   const panel = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -128,7 +136,9 @@ export function TermDock({
       }}
       onDrop={onDrop}
     >
-      {!full && inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
+      {!full && inner && (
+        <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />
+      )}
       {!full && (
         <button
           className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover:opacity-100"
@@ -136,17 +146,39 @@ export function TermDock({
           title="Remove from split view"
           aria-label="Remove the terminal from the split"
         >
-          <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+          <svg
+            viewBox="0 0 24 24"
+            width={11}
+            height={11}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       )}
       <div className="min-h-0 min-w-0 flex-1">
-        <Suspense fallback={<div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">Starting shell…</div>}>
+        <Suspense
+          fallback={
+            <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">
+              Starting shell…
+            </div>
+          }
+        >
           <TerminalPanel sessionId={sessionId} root={root} shellId={shellId} />
         </Suspense>
       </div>
-      {!full && !inner && <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />}
+      {find && (
+        <Suspense fallback={null}>
+          <TermFind sessionId={sessionId} onClose={() => onFind(false)} />
+        </Suspense>
+      )}
+      {!full && !inner && (
+        <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />
+      )}
 
       {menu && (
         <ContextMenu
@@ -164,6 +196,7 @@ export function TermDock({
               // typed in after it.
               onPick: () => void pasteInto(sessionId)
             },
+            { label: 'Find', hint: 'Ctrl+Shift+F', onPick: () => onFind(true) },
             ...(full
               ? []
               : ([

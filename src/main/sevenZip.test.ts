@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { extractArgs, isSevenArchive, listArgs, parseListing, safeMemberPath, sevenDirs } from './sevenZip'
+import {
+  countFiles,
+  extractArgs,
+  isSevenArchive,
+  listArgs,
+  parseListing,
+  readPercent,
+  safeMemberPath,
+  sevenMessage,
+  sevenDirs
+} from './sevenZip'
 
 // Real `7z l -slt` output, kept verbatim: the parser's whole job is to survive
 // what 7-Zip actually prints.
@@ -162,5 +172,65 @@ describe('refusing a hostile member name', () => {
   it('refuses nothing at all, and absurd lengths', () => {
     expect(safeMemberPath('', dir)).toBeNull()
     expect(safeMemberPath('a'.repeat(5000), dir)).toBeNull()
+  })
+})
+
+describe('the progress percentage 7-Zip prints', () => {
+  it('reads the number off a -bsp1 line', () => {
+    expect(readPercent(' 42% 17 - Comics/issue 01.cbz')).toBe(42)
+  })
+
+  it('takes the LAST one in a chunk, since they arrive carriage-returned together', () => {
+    expect(readPercent(' 11% 3 - a\r 12% 4 - b\r 13% 5 - c')).toBe(13)
+  })
+
+  it('reads 0 and 100', () => {
+    expect(readPercent('  0% ')).toBe(0)
+    expect(readPercent(' 100% 812')).toBe(100)
+  })
+
+  it('answers null when there is no percentage in it', () => {
+    expect(readPercent('Everything is Ok')).toBeNull()
+    expect(readPercent('')).toBeNull()
+  })
+
+  it('ignores a number that is not a percentage', () => {
+    // A member whose NAME has a percent in it must not move the bar.
+    expect(readPercent('Extracting  discount 200% off.jpg')).toBeNull()
+  })
+})
+
+describe('counting files out of 7-Zip -bb1 output', () => {
+  it('counts one per logged member', () => {
+    expect(countFiles('  0%    - a/one.jpg\r\n  0%    - a/two.jpg\r\n')).toBe(2)
+  })
+
+  it('counts a line with no percentage on it', () => {
+    expect(countFiles('- plain.txt')).toBe(1)
+  })
+
+  it('counts nothing in a line that merely contains a dash', () => {
+    expect(countFiles('Everything is Ok\r\nSize: 12-34')).toBe(0)
+  })
+})
+
+describe('the message worth showing a person', () => {
+  it('prefers the ERROR line', () => {
+    const raw = 'Scanning\r\nERROR: Data Error in encrypted file\r\nSub items Errors: 1'
+    expect(sevenMessage(raw)).toBe('ERROR: Data Error in encrypted file')
+  })
+
+  it('falls back to a line that names a cause', () => {
+    expect(sevenMessage('blah\r\nThere is not enough space on the disk\r\nblah2')).toContain(
+      'space'
+    )
+  })
+
+  it('falls back to the last line rather than nothing', () => {
+    expect(sevenMessage('one\r\ntwo')).toBe('two')
+  })
+
+  it('answers empty for empty', () => {
+    expect(sevenMessage('')).toBe('')
   })
 })

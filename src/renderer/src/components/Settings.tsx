@@ -1593,7 +1593,7 @@ function GeneralTab(): JSX.Element {
         hint={
           verbBusy
             ? 'Asking Windows…'
-            : 'Adds "Open in Prism" to the right-click menu. On Windows 11 it sits under "Show more options" (Shift+F10).'
+            : 'On by default. Adds "Open in Prism" to the right-click menu; on Windows 11 it sits under "Show more options" (Shift+F10).'
         }
       >
         <Switch on={verb} onChange={setVerb} label="Open in Prism in the Explorer menu" />

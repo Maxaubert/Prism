@@ -1,18 +1,12 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type JSX
-} from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { openDocAt, rememberDocPos, saveDocPos } from '../../lib/docPosition'
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { IconFull } from '../icons'
 import { findMatches, stepMatch, type Match, type PageText } from '../../lib/pdfSearch'
 import { PdfPage } from './PdfPage'
+import { type PdfLink } from '../../lib/pdfLinks'
+import { baseZoom, zoomPercent } from '../../lib/pdfZoom'
 import { PdfFindBar } from './PdfFindBar'
 import '../../assets/pdf.css'
 
@@ -40,11 +34,13 @@ const sideData = (dir: string): string => {
 const MIN_SCALE = 0.25
 const MAX_SCALE = 5
 const STEP = 1.18
-// The default zoom, and what the pill calls 100%: pdf.js's own 1.0 (one PDF
-// point per CSS px) reads small on a modern screen, so the baseline sits at
-// 1.9 (owner decision, 2026-08-12: "190% is the new 100%"). Fit modes and the
-// absolute clamps still work in pdf.js units; only the label is rebased.
-const DEFAULT_ZOOM = 1.9
+// What the pill calls 100% is now DERIVED PER DOCUMENT, in lib/pdfZoom.ts:
+// pdf.js units are relative to the page's own size, so a flat 1.9 meant "1.9x
+// whatever this document happens to measure" and an artbook with 1800pt pages
+// opened three times the width of a letter one (2026-08-31). 100% is a fixed
+// width on screen now, and a letter page still lands at exactly 1.9, so the
+// documents that were already right are unchanged. Fit modes and the absolute
+// clamps still work in pdf.js units.
 const PAGE_GAP = 16
 const PAD_X = 48
 const PAD_Y = 24
@@ -75,13 +71,18 @@ export function PdfView({
 }): JSX.Element {
   const [docState, setDocState] = useState<DocState | null>(null)
   const [mode, setMode] = useState<FitMode>('manual')
-  const [manualScale, setManualScale] = useState(DEFAULT_ZOOM)
+  /** The manual zoom as a MULTIPLE of this document's base, so 1 is 100%
+   *  whatever the pages measure. Stored relative rather than absolute
+   *  because the base is not known until page one has loaded. */
+  const [manualZoom, setManualZoom] = useState(1)
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 })
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState<string | null>(null)
   // Page sizes at scale 1, as the pages announce themselves (mixed-size
   // documents correct their placeholders on approach).
   const [dims, setDims] = useState<Map<number, { w: number; h: number }>>(new Map())
+  /** The widest and tallest page in the document; see `docBox` below. */
+  const [pageBox, setPageBox] = useState<{ w: number; h: number } | null>(null)
   const [near, setNear] = useState<Set<number>>(new Set([1, 2]))
 
   // Find state.
@@ -111,10 +112,11 @@ export function PdfView({
   if (forUrl !== url) {
     setForUrl(url)
     setMode('manual')
-    setManualScale(DEFAULT_ZOOM)
+    setManualZoom(1)
     setPage(1)
     setPageEdit(null)
     setDims(new Map())
+    setPageBox(null)
     setNear(new Set([1, 2]))
     setFindOpen(false)
     setQuery('')
@@ -175,6 +177,20 @@ export function PdfView({
   }, [doc])
   const error = loaded?.error ?? null
   const baseDims = loaded?.base ?? FALLBACK_DIMS
+  /**
+   * The WIDEST and TALLEST page in the document, settled once every page has
+   * been measured (2026-09-01).
+   *
+   * Every size decision used to come from PAGE ONE, and an artbook is what
+   * shows why that is wrong: its cover is 391pt across and its spreads are
+   * 842pt. Sizing 100% so the COVER fills the intended width put the spreads
+   * at 2502 CSS px, so the document opened with a horizontal scrollbar and the
+   * reader had to zoom out of a view they never asked to be zoomed into.
+   *
+   * Settled ONCE rather than tracked incrementally: a value that grew as pages
+   * were measured would rescale the document under the reader mid-page.
+   */
+  const docBox = pageBox ?? baseDims
   const pageCount = doc?.numPages ?? 0
 
   /* ---------- fit + zoom ---------- */
@@ -191,16 +207,71 @@ export function PdfView({
   const fitFor = useCallback(
     (m: FitMode): number => {
       if (boxSize.w <= 0 || boxSize.h <= 0) return 1
-      const availW = boxSize.w - PAD_X * 2
+      // A pixel of slack, deliberately. Fitting EXACTLY means any rounding
+      // anywhere - the page box, the gutter, a fractional device ratio - lands
+      // on the wrong side and shows a scrollbar for one pixel of overflow.
+      const availW = boxSize.w - PAD_X * 2 - 1
       const availH = boxSize.h - PAD_Y * 2
       const fit =
-        m === 'fit-width' ? availW / baseDims.w : Math.min(availW / baseDims.w, availH / baseDims.h)
+        m === 'fit-width' ? availW / docBox.w : Math.min(availW / docBox.w, availH / docBox.h)
       return clamp(fit, MIN_SCALE, MAX_SCALE)
     },
-    [boxSize, baseDims]
+    [boxSize, docBox]
   )
 
-  const scale = mode === 'manual' ? manualScale : fitFor(mode)
+  /** The pdf.js scale this document calls 100%. */
+  const base = baseZoom(docBox.w)
+  const scale = mode === 'manual' ? clamp(manualZoom * base, MIN_SCALE, MAX_SCALE) : fitFor(mode)
+
+  /**
+   * How a document OPENS (2026-09-01), which is two separate faults that
+   * looked like one.
+   *
+   * 100% is a fixed width on screen - a letter page's 1163 CSS px - so it does
+   * not shrink for the window. An A4 document opened in a viewer narrower than
+   * that, which is every window with the sidebar out, was therefore already
+   * wider than the space it had. So the rule is 100% BUT NEVER WIDER THAN THE
+   * VIEW: fit the width when it would overflow, and leave it at 100% when
+   * there is room. Fitting unconditionally would be the opposite fault - an A4
+   * page blown up to 172% on a wide screen.
+   *
+   * And whatever is still wider than the view is CENTRED. scrollLeft was only
+   * ever written by the zoom anchor, so a document that overflowed opened
+   * flush against its left edge, showing the gutter and cutting the right-hand
+   * side off. Every pdf viewer centres the page; the flex row already does it
+   * for layout and nothing did it for the scroll position.
+   *
+   * One shot per document, keyed on the url, so it never fights a zoom or a
+   * scroll the reader has since made themselves.
+   */
+  const [openedFor, setOpenedFor] = useState<string | null>(null)
+  if (doc && boxSize.w > 0 && openedFor !== url) {
+    // Adjusted while RENDERING, the way this file already resets per-document
+    // state above: deciding it in an effect means a first paint at the wrong
+    // scale and a second render to correct it, which is the cascade the lint
+    // rule is about.
+    setOpenedFor(url)
+    if (docBox.w * base > boxSize.w - PAD_X * 2) setMode('fit-width')
+  }
+  useEffect(() => {
+    if (!openedFor) return
+    // After the layout the opening scale produces, not before it - and the
+    // laid-out width is the honest test. Predicting it from the page size and
+    // the padding is right up to whatever the prediction did not know about;
+    // asking the box whether it actually overflows costs one frame and cannot
+    // be wrong. A document that does still fits itself to the width here.
+    const id = requestAnimationFrame(() => {
+      const box = scroller.current
+      if (!box) return
+      if (box.scrollWidth > box.clientWidth + 1) {
+        setMode('fit-width')
+        return
+      }
+      if (box.scrollWidth <= box.clientWidth) return
+      box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2
+    })
+    return () => cancelAnimationFrame(id)
+  }, [openedFor])
 
   // Zoom keeps the point of the document you were looking at where it was:
   // remember the scroll centre as a fraction, restore it after the resize.
@@ -223,13 +294,14 @@ export function PdfView({
     box.scrollTop = a.y * box.scrollHeight - box.clientHeight / 2
   }, [scale])
 
+  /** Takes a pdf.js scale, stores it relative to the document's base. */
   const rescale = useCallback(
     (next: number) => {
       holdCentre()
       setMode('manual')
-      setManualScale(clamp(next, MIN_SCALE, MAX_SCALE))
+      setManualZoom(clamp(next, MIN_SCALE, MAX_SCALE) / base)
     },
-    [holdCentre]
+    [holdCentre, base]
   )
 
   const zoomBy = useCallback((f: number) => rescale(scale * f), [rescale, scale])
@@ -296,11 +368,20 @@ export function PdfView({
     }
   }, [key])
 
-  const goToPage = useCallback((n: number) => {
+  /**
+   * Scroll to a page, and optionally to a place ON it.
+   *
+   * `offset` is viewport pixels down from the page's top edge, at the
+   * CURRENT scale. It exists for /XYZ destinations: a table of contents or a
+   * footnote back-link carries a real y-coordinate, and landing at the top of
+   * page 312 of a dense document reads as broken rather than as approximate.
+   * Everything else passes nothing and lands at the top, as before.
+   */
+  const goToPage = useCallback((n: number, offset = 0) => {
     const el = wrappers.current.get(n)
     const box = scroller.current
     if (!el || !box) return
-    box.scrollTo({ top: el.offsetTop - PAGE_GAP })
+    box.scrollTo({ top: el.offsetTop - PAGE_GAP + Math.max(0, offset) })
     setPage(n)
   }, [])
 
@@ -326,23 +407,19 @@ export function PdfView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, doc, url, near, dims])
 
-
   /* ---------- find ---------- */
 
-  const pageText = useCallback(
-    (d: PDFDocumentProxy, n: number): Promise<PageText> => {
-      let p = textCache.current.get(n)
-      if (!p) {
-        p = d
-          .getPage(n)
-          .then((pg) => pg.getTextContent())
-          .then((tc) => ({ items: tc.items.map((i) => ('str' in i ? i.str : '')) }))
-        textCache.current.set(n, p)
-      }
-      return p
-    },
-    []
-  )
+  const pageText = useCallback((d: PDFDocumentProxy, n: number): Promise<PageText> => {
+    let p = textCache.current.get(n)
+    if (!p) {
+      p = d
+        .getPage(n)
+        .then((pg) => pg.getTextContent())
+        .then((tc) => ({ items: tc.items.map((i) => ('str' in i ? i.str : '')) }))
+      textCache.current.set(n, p)
+    }
+    return p
+  }, [])
 
   // Re-search on query change, debounced a touch so typing doesn't extract the
   // whole document per keystroke.
@@ -369,6 +446,55 @@ export function PdfView({
       clearTimeout(t)
     }
   }, [doc, findOpen, query, pageText])
+
+  /**
+   * A link box was clicked.
+   *
+   * External goes through `window.prism.openExternal`, which is guarded
+   * `^https?:` in the preload AND again in main - never through an anchor,
+   * which would reach main's window-open handler instead.
+   *
+   * Internal resolves the destination to a page and, where the destination
+   * says so, to a y-coordinate on it. A named destination is one more lookup;
+   * an explicit one already carries the page reference.
+   */
+  const onLink = useCallback(
+    (link: PdfLink) => {
+      if (link.target.kind === 'url') {
+        window.prism.openExternal(link.target.url)
+        return
+      }
+      if (!doc) return
+      void (async () => {
+        try {
+          const raw = link.target.kind === 'dest' ? link.target.dest : null
+          const explicit = typeof raw === 'string' ? await doc.getDestination(raw) : raw
+          if (!Array.isArray(explicit) || !explicit.length) return
+          const ref = explicit[0] as number | { num: number; gen: number }
+          const n =
+            typeof ref === 'number'
+              ? ref + 1
+              : (doc.cachedPageNumber(ref) ?? (await doc.getPageIndex(ref)) + 1)
+          const target = clamp(Math.round(n), 1, doc.numPages)
+          // /XYZ carries [ref, {name:'XYZ'}, left, top, zoom]: `top` is in PDF
+          // user space, measured from the BOTTOM of the page, so it has to go
+          // through the page's own viewport to become pixels from the top.
+          let offset = 0
+          const named = explicit[1] as { name?: string } | undefined
+          const top = explicit[3]
+          if (named?.name === 'XYZ' && typeof top === 'number' && Number.isFinite(top)) {
+            const page = await doc.getPage(target)
+            const y = page.getViewport({ scale }).convertToViewportPoint(0, top)[1] as number
+            if (Number.isFinite(y)) offset = y
+          }
+          goToPage(target, offset)
+        } catch {
+          /* a destination this document cannot resolve: do nothing visible */
+        }
+      })()
+    },
+    [doc, goToPage, scale]
+  )
 
   const onTextLayer = useCallback((n: number, divs: HTMLElement[] | null) => {
     if (divs) layers.current.set(n, divs)
@@ -479,21 +605,45 @@ export function PdfView({
       if (typing) return
       switch (e.key) {
         case '+':
-        case '=': zoomBy(STEP); break
+        case '=':
+          zoomBy(STEP)
+          break
         case '-':
-        case '_': zoomBy(1 / STEP); break
-        case '0': rescale(DEFAULT_ZOOM); break
+        case '_':
+          zoomBy(1 / STEP)
+          break
+        case '0':
+          rescale(base)
+          break
         case 'w':
-        case 'W': fitTo('fit-width'); break
+        case 'W':
+          fitTo('fit-width')
+          break
         case 'p':
-        case 'P': fitTo('fit-page'); break
+        case 'P':
+          fitTo('fit-page')
+          break
         case 'f':
-        case 'F': onToggleFullscreen(); break
+        case 'F':
+          onToggleFullscreen()
+          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [findOpen, stepFind, closeFind, goToPage, page, pageCount, zoomBy, fitTo, rescale, onToggleFullscreen])
+  }, [
+    base,
+    findOpen,
+    stepFind,
+    closeFind,
+    goToPage,
+    page,
+    pageCount,
+    zoomBy,
+    fitTo,
+    rescale,
+    onToggleFullscreen
+  ])
 
   // Ctrl+wheel zooms. Native listener: React's synthetic wheel is passive, and
   // a passive handler cannot stop the browser's own pinch-zoom default.
@@ -527,6 +677,71 @@ export function PdfView({
     })
   }, [])
 
+  /**
+   * Every page's real size, read up front (2026-09-01).
+   *
+   * A page that has not rendered yet was laid out at PAGE ONE's size, which is
+   * right for the overwhelming majority of documents and wrong for exactly the
+   * ones that need it most: a pdf's MediaBox is PER PAGE, so a scanned document
+   * with a landscape insert, or a comic whose pages are not all the same plate,
+   * laid every page out as page one and then resized each as it came into view.
+   * That moves everything below it, so the scroll position slides under the
+   * reader while they are reading.
+   *
+   * `getPage` parses the page dictionary, not its content stream, so this is
+   * cheap - but it is still one call per page and this is the renderer, so it
+   * runs BOUNDED, eight at a time, the same shape the tree's gap-filler uses.
+   * Results are flushed in batches rather than per page: every setDims is a
+   * re-render and a 400-page comic would otherwise be 400 of them.
+   */
+  useEffect(() => {
+    if (!doc) return
+    let alive = true
+    const total = doc.numPages
+    let next = 2 // page one is already measured, and is `base`
+    let batch = new Map<number, { w: number; h: number }>()
+    // SEEDED WITH PAGE ONE, which the worker loop starts after. A
+    // single-page document runs no workers at all, so these stayed at zero and
+    // `docBox` became 0 wide - and a fit of availW/0 is Infinity, clamped to
+    // the maximum scale. A 1822pt page came out 9110px across. Seeding is also
+    // simply correct for every other document: page one is a page, and the
+    // widest page cannot be found by ignoring it.
+    let maxW = baseDims.w
+    let maxH = baseDims.h
+    const flush = (): void => {
+      if (!alive || batch.size === 0) return
+      const got = batch
+      batch = new Map()
+      setDims((prev) => {
+        const merged = new Map(prev)
+        for (const [n, d] of got) merged.set(n, d)
+        return merged
+      })
+    }
+    const worker = async (): Promise<void> => {
+      while (alive) {
+        const n = next++
+        if (n > total) return
+        const page = await doc.getPage(n)
+        if (!alive) return
+        const vp = page.getViewport({ scale: 1 })
+        batch.set(n, { w: vp.width, h: vp.height })
+        if (vp.width > maxW) maxW = vp.width
+        if (vp.height > maxH) maxH = vp.height
+        if (batch.size >= 32) flush()
+      }
+    }
+    void Promise.all(
+      Array.from({ length: Math.min(8, Math.max(0, total - 1)) }, () => worker())
+    ).then(() => {
+      flush()
+      if (alive && maxW > 0 && maxH > 0) setPageBox({ w: maxW, h: maxH })
+    })
+    return () => {
+      alive = false
+    }
+  }, [doc, baseDims.w, baseDims.h])
+
   const commitPageEdit = (): void => {
     const n = Number(pageEdit)
     setPageEdit(null)
@@ -553,6 +768,15 @@ export function PdfView({
         data-doc-scroller
         onScroll={onScroll}
         className="h-full w-full overflow-auto outline-none"
+        /*
+         * The vertical scrollbar's space is RESERVED. A multi-page document
+         * always grows one, but not until its pages have rendered - so the
+         * width measured when deciding how to open was about 15px too
+         * generous, and a page sized to it overflowed by exactly that once
+         * the bar appeared. A stable gutter makes clientWidth the same
+         * number before and after, which is what the fit derives from.
+         */
+        style={{ scrollbarGutter: 'stable' }}
       >
         {!doc ? (
           <div className="delayed-loader grid h-full place-items-center">
@@ -570,11 +794,26 @@ export function PdfView({
                   key={n}
                   data-page={n}
                   ref={(el) => setWrapper(n, el)}
-                  style={{ width: d.w * scale, height: d.h * scale }}
+                  /*
+                   * FLOORED to whole pixels. A page laid out at a fractional
+                   * width rounds up in the scroll box, and one rounded-up
+                   * pixel against a fit that lands exactly on the available
+                   * width is a horizontal scrollbar that never goes away -
+                   * which is the bar itself, rather than anything about the
+                   * document being too big.
+                   */
+                  style={{ width: Math.floor(d.w * scale), height: Math.floor(d.h * scale) }}
                   className="relative shrink-0 bg-white shadow-[0_2px_16px_rgba(0,0,0,.5)]"
                 >
                   {near.has(n) && (
-                    <PdfPage doc={doc} pageNumber={n} scale={scale} onDims={onDims} onTextLayer={onTextLayer} />
+                    <PdfPage
+                      doc={doc}
+                      pageNumber={n}
+                      scale={scale}
+                      onDims={onDims}
+                      onTextLayer={onTextLayer}
+                      onLink={onLink}
+                    />
                   )}
                 </div>
               )
@@ -623,26 +862,52 @@ export function PdfView({
           />
           <span className="text-[12px] text-[var(--p-dim)]">/ {pageCount}</span>
           <div className="mx-1 h-5 w-px bg-white/15" />
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(1 / STEP)} title="Zoom out (-)">−</button>
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15"
+            onClick={() => zoomBy(1 / STEP)}
+            title="Zoom out (-)"
+          >
+            −
+          </button>
           <button
             className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15"
-            onClick={() => rescale(DEFAULT_ZOOM)}
+            onClick={() => rescale(base)}
             title="Default zoom (0)"
           >
-            {Math.round((scale / DEFAULT_ZOOM) * 100)}%
+            {zoomPercent(scale, base)}%
           </button>
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomBy(STEP)} title="Zoom in (+)">+</button>
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15"
+            onClick={() => zoomBy(STEP)}
+            title="Zoom in (+)"
+          >
+            +
+          </button>
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button
             className={`pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15 ${mode === 'fit-width' ? 'text-[var(--p-accent-hi)]' : ''}`}
             onClick={() => fitTo(mode === 'fit-width' ? 'fit-page' : 'fit-width')}
             title={mode === 'fit-width' ? 'Fit page (P)' : 'Fit width (W)'}
           >
-            <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={16}
+              height={16}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M3 12h18M6 8l-3 4 3 4M18 8l3 4-3 4" />
             </svg>
           </button>
-          <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={onToggleFullscreen} title="Fullscreen (F)">
+          <button
+            className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15"
+            onClick={onToggleFullscreen}
+            title="Fullscreen (F)"
+          >
             {IconFull}
           </button>
         </div>
