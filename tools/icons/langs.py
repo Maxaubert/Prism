@@ -29,6 +29,7 @@ import math
 
 from PIL import Image, ImageDraw
 
+from round12 import lines as doc_lines
 from round5 import g
 
 
@@ -245,6 +246,19 @@ def containers(d, n, box, col, _hole=None):
                         radius=g(n, s * 0.09), fill=col)
 
 
+def prose(d, n, box, col, hole=None):
+    """Full-width lines: a page of TEXT, not a page of source.
+
+    This is the document kind's own glyph, borrowed on purpose. `.log` and
+    `.txt` were getting the code mark - an indent guide, a vertical spine with
+    rungs hanging off it - and at 14px a spine with rungs is not a picture of
+    structure, it is two letterforms: the owner read it as "PT" and asked what
+    the abbreviation meant. Prose has no indentation to draw, so drawing some
+    was wrong twice over.
+    """
+    doc_lines(d, n, box, col, hole)
+
+
 def swoosh(d, n, box, col, _hole=None):
     """A bird's sweep - Swift."""
     cx, cy, s = _c(box)
@@ -268,6 +282,7 @@ MARKS = {
     "sql": cylinder,
     "java": cup,
     "swift": swoosh,
+    "prose": prose,
     # Registered nowhere: their files have no extension. In-app only.
     "git": branch,
     "docker": containers,
@@ -304,6 +319,12 @@ EXTS = {
     "sql": "sql",
     "java": "java",
     "swift": "swift",
+    # PROSE, and the list is not a new one: it is `codeLang.isProse`'s, which
+    # the editor already uses to decide there is no gutter and no language to
+    # show. `iconPaths.test.ts` asserts the two agree, because two lists of the
+    # same thing in two languages is how the installer fell 96 extensions
+    # behind once already.
+    "txt": "prose", "log": "prose", "csv": "prose", "srt": "prose", "vtt": "prose",
 }
 
 # The marks that can never reach Explorer, and why. Kept out of EXTS on purpose

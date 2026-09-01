@@ -884,6 +884,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   where it reads properly - so the band is full in Explorer's medium and large views and a
   smudge in its 16px details view, for the same reason and with the same answer available
   if it ever annoys anyone.
+  Except that the label came BACK in-app the same day (owner: "they should be the same
+  icons everywhere"), because one icon everywhere is worth more than two pixels of cap
+  height. The arithmetic stays in a comment where the floor was, so the next person to
+  notice the smudge finds the reasoning rather than filing it. What had actually caused the
+  complaint was not the label at all: `.log` was getting the CODE mark, and an indent guide
+  - a vertical spine with rungs hanging off it - is a picture of structure at 48px and a
+  pair of LETTERFORMS at 14. The owner read it as "PT" and asked what the abbreviation
+  meant. PROSE draws lines now (`.txt .log .csv .srt .vtt`), which is right anyway since
+  prose has no indentation to draw, and the list is `codeLang.isProse`'s own rather than a
+  second one - `iconPaths.test.ts` asserts the two agree, along with every generated table
+  naming a mark that exists.
   CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
   `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
   replaces the single indigo bar that had been telling code from document - an accent bar

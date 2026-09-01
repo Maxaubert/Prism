@@ -93,23 +93,20 @@ function langFor(kind: FileKind, name?: string, ext?: string): keyof typeof LANG
 }
 
 /**
- * The size at which the extension on the band becomes letters rather than a
- * smudge, MEASURED rather than chosen.
+ * THE LABEL IS DRAWN AT EVERY SIZE (owner instruction, 2026-09-01: "they should
+ * be the same icons everywhere").
  *
- * The label is 4.08 units tall in a 24-unit viewBox, so at N pixels its cap
- * height is 4.08 * N / 24. At the tree's 14px that is 2.4px, and no typeface is
- * legible at 2.4px - LOG, MD and TXT all come out as the same three grey dots,
- * which is exactly what they looked like. Five pixels is the floor for reading
- * three characters, and 5 * 24 / 4.08 is 29.4.
+ * It was briefly dropped below 30px on the arithmetic: the label is 4.08 units
+ * in a 24-unit viewBox, so at the tree's 14px its cap height is 2.4px, and no
+ * typeface is legible at 2.4px. That measurement still stands and the band is
+ * still a smudge in a tree row - but the icon being ONE icon everywhere is
+ * worth more than the two pixels, and it is the owner's call to make.
  *
- * So below this the band is drawn EMPTY and the mark carries the kind. Nothing
- * is lost: a tree row has the filename beside it, in a face chosen to be read,
- * and `cleanup.log` already ends in the three characters the band was
- * whispering. The .ico keeps its label at every size because its frames go up
- * to 256, where it reads properly.
+ * What actually caused the complaint was not the label at all. `.log` was
+ * getting the CODE mark, an indent guide, and a vertical spine with rungs
+ * hanging off it is not a picture of structure at 14px - it is two letterforms,
+ * read as "PT". Prose has no indentation to draw, so it draws lines now.
  */
-const LABEL_FLOOR = 30
-
 export function KindIcon({
   kind,
   color,
@@ -124,7 +121,7 @@ export function KindIcon({
   ext?: string
   /** The file's whole name, for the marks Windows cannot register. */
   name?: string
-  /** How big it is drawn. Only the label cares, and only at LABEL_FLOOR. */
+  /** How big it is drawn. Everything scales with it, the label included. */
   size?: number
   bg?: string
 }): JSX.Element {
@@ -134,7 +131,7 @@ export function KindIcon({
   const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
   const lang = langFor(kind, name, ext)
   const mark = lang ? LANG_PATHS[lang] : null
-  const label = size >= LABEL_FLOOR ? (ext ?? '').replace(/^\./, '').toUpperCase() : ''
+  const label = (ext ?? '').replace(/^\./, '').toUpperCase()
   const L = g.label
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0" aria-hidden>
