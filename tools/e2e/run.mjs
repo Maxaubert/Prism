@@ -3418,6 +3418,30 @@ async function dragScenario(fixtures) {
       await win.keyboard.press('Control+y')
       await sleep(1200)
       ok(existsSync(join(box, 'into', 'movable.txt')), 'Ctrl+Y sent it back in')
+
+      // DROPPING ON A FILE means dropping beside it (2026-09-01). Only FOLDER
+      // rows took a drop, so this fell through to the window - which opens
+      // whatever it is handed, so dropping a FOLDER on a file re-rooted the
+      // tab onto it instead of moving anything. The file rows target their
+      // own folder now, and the tree's dead space targets the root.
+      // The file is inside `into` at this point, so open it and drag back OUT -
+      // which is the owner's own case: a thing from a subfolder, dropped on a
+      // file sitting in the root.
+      const intoRow = win.locator('[role="treeitem"]:has-text("into")').first()
+      await intoRow.click()
+      await sleep(250)
+      await intoRow.click() // first click selects a folder, the second opens it
+      await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 8000 })
+      await sleep(400)
+      await win
+        .locator('[role="treeitem"]:has-text("movable.txt")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("anchor.txt")').first())
+      await sleep(1400)
+      ok(existsSync(join(box, 'movable.txt')), 'dropping on a FILE moves into that folder')
+      ok(
+        !/dragbox.into/i.test((await win.locator('[role="tab"]').first().getAttribute('title')) ?? ''),
+        'and the tab did not re-root onto what was dragged'
+      )
     } finally {
       await app.close()
     }

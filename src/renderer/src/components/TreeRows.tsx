@@ -403,6 +403,14 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
   )
 }
 
+/** The folder a path sits in. A FILE row is a drop target for its own
+ *  folder: dropping onto a file means dropping beside it, which is what
+ *  every file manager does and what the tree did not do - the drop fell
+ *  through to the window, which opens whatever it is handed, so dropping a
+ *  FOLDER there re-rooted the tab instead of moving anything. */
+const dirOf = (p: string): string =>
+  p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')))
+
 export function Rows({ listing, depth }: { listing: DirListing; depth: number }): JSX.Element {
   const t = useTree()
   const sort = useSort()
@@ -480,6 +488,20 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               draggable
               onDragStart={(e) => t.onRowDragStart(e, f.path)}
               onDragEnd={() => t.onDragDone()}
+              onDragOver={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                e.dataTransfer.dropEffect = 'move'
+                // The FOLDER lights up, not the file: the file is where the
+                // pointer is, its folder is where the thing will land.
+                t.onDropHover(dirOf(f.path))
+              }}
+              onDragLeave={() => t.onDropHover(null)}
+              onDrop={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                t.onDropOn(e, dirOf(f.path))
+              }}
               // Roving tabindex: the cursor's row is the tree's single tab stop.
               tabIndex={!!t.cursor && t.cursor.toLowerCase() === f.path.toLowerCase() ? 0 : -1}
               // A plain click still OPENS, quick-look style (only archives

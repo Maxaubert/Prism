@@ -913,6 +913,25 @@ export function Sidebar({
             e.preventDefault()
             setPlaceMenu({ x: e.clientX, y: e.clientY })
           }}
+          // And a DROP that lands on no row is about the place too: it means
+          // the ROOT. Without this the drop fell through to the window, which
+          // opens whatever it is handed - so dropping a FOLDER on the tree's
+          // empty space re-rooted the tab onto that folder instead of moving
+          // it anywhere. Rows stop their own drops, so this only ever sees the
+          // dead space.
+          onDragOver={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setDropTarget(root)
+          }}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={(e) => {
+            if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
+            e.preventDefault()
+            e.stopPropagation()
+            onDropOn(e, root)
+          }}
         >
           {query.trim() ? (
             <SearchResults
