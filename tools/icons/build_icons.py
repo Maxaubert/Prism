@@ -24,7 +24,8 @@ import sys
 from io import BytesIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from final_icons import ALL_EXTS, COLOURS, KINDS, icon_for_ext, render  # noqa: E402
+from final_icons import (ALL_EXTS, COLOURS, KINDS, icon_for_ext,  # noqa: E402
+                         legacy)
 
 # What Windows asks for: details/list (16), small (20/24), medium (32/40/48),
 # large (64/96), extra large (128) and the jumbo/preview frame (256).
@@ -55,7 +56,9 @@ def write_ico(path, frames):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for kind in KINDS:
-        frames = [(s, render(kind, s)) for s in SIZES]
+        # The seven are the LEGACY classes' icons now, and carry no label:
+        # one of them can be the default for any of a hundred extensions.
+        frames = [(s, legacy(kind, s)) for s in SIZES]
         path = OUT / f"prism-{kind}.ico"
         write_ico(path, frames)
         ext, col = COLOURS[kind]

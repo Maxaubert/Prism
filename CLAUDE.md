@@ -892,7 +892,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   stay defined, pointing at the kind icons they always did; NOTHING is registered against
   them any more, so they matter only to somebody whose existing default names one, and for
   them the icon stays what it was until they choose Prism again - at which point Windows
-  writes the new per-extension class and the label becomes true.
+  writes the new per-extension class and the label becomes true. Until they do, those
+  seven icons carry NO LABEL AT ALL: one of them can be the default for any of a hundred
+  extensions, so an empty band on a .log is honest where PY on a .log is not. A blank is a
+  real answer; a wrong word is not.
   **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
   type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
   cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the

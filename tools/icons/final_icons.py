@@ -204,7 +204,7 @@ def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK,
     CODE, whose dark page would swallow all four.
     """
     ext, colour = COLOURS[kind]
-    ext = (text or ext).upper()
+    ext = ext.upper() if text is None else text.upper()
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
     spec = _spec(page=colour, fold=fold, band=band, band_at="bottom", glyph_col=mark,
                  glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
@@ -230,7 +230,8 @@ def _page_kind(kind, size, text=None):
 def _archive(kind, size, text=None):
     """A container, not a page, with the chip low so the folder tab shows."""
     ext, colour = COLOURS[kind]
-    body, ink = archive_layers(size, folder_zip, folder_zip_ink, (text or ext).upper())
+    body, ink = archive_layers(size, folder_zip, folder_zip_ink,
+                               ext.upper() if text is None else text.upper())
     out = Image.new("RGBA", body.size, (0, 0, 0, 0))
     out.paste(Image.new("RGBA", body.size, tuple(colour) + (255,)), (0, 0), body)
     out.alpha_composite(ink)
@@ -245,7 +246,7 @@ def _comic(kind, size, text=None):
     non-premultiplied alpha produces, and this file is the one that ships.
     """
     ext, colour = COLOURS[kind]
-    ext = (text or ext).upper()
+    ext = ext.upper() if text is None else text.upper()
     n = size * S
     m = page_mask(n)
     out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
@@ -291,8 +292,23 @@ KINDS = sorted(COLOURS)
 
 
 
-def render(kind, size):
-    return RENDER[kind](kind, size)
+def render(kind, size, text=None):
+    return RENDER[kind](kind, size, text=text)
+
+
+def legacy(kind, size):
+    """A kind icon with an EMPTY band, for the seven old ProgIDs.
+
+    Those classes still exist so that an existing "always open with Prism"
+    choice is not orphaned (see gen_assoc.LEGACY), and one of them can be the
+    default for any of a hundred extensions - which is the whole reason the
+    per-extension set exists. So they carry NO label rather than a wrong one:
+    an empty band on a .log is honest, and PY on a .log is not.
+
+    Anybody who re-picks Prism as the default gets the per-extension class and
+    its true label; until then the shape is right and nothing lies.
+    """
+    return RENDER[kind](kind, size, text="")
 
 
 # extension -> kind, read from fileKind.ts rather than restated. See extmap.
