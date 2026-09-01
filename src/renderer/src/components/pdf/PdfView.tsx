@@ -203,6 +203,47 @@ export function PdfView({
   const base = baseZoom(baseDims.w)
   const scale = mode === 'manual' ? clamp(manualZoom * base, MIN_SCALE, MAX_SCALE) : fitFor(mode)
 
+  /**
+   * How a document OPENS (2026-09-01), which is two separate faults that
+   * looked like one.
+   *
+   * 100% is a fixed width on screen - a letter page's 1163 CSS px - so it does
+   * not shrink for the window. An A4 document opened in a viewer narrower than
+   * that, which is every window with the sidebar out, was therefore already
+   * wider than the space it had. So the rule is 100% BUT NEVER WIDER THAN THE
+   * VIEW: fit the width when it would overflow, and leave it at 100% when
+   * there is room. Fitting unconditionally would be the opposite fault - an A4
+   * page blown up to 172% on a wide screen.
+   *
+   * And whatever is still wider than the view is CENTRED. scrollLeft was only
+   * ever written by the zoom anchor, so a document that overflowed opened
+   * flush against its left edge, showing the gutter and cutting the right-hand
+   * side off. Every pdf viewer centres the page; the flex row already does it
+   * for layout and nothing did it for the scroll position.
+   *
+   * One shot per document, keyed on the url, so it never fights a zoom or a
+   * scroll the reader has since made themselves.
+   */
+  const [openedFor, setOpenedFor] = useState<string | null>(null)
+  if (doc && boxSize.w > 0 && openedFor !== url) {
+    // Adjusted while RENDERING, the way this file already resets per-document
+    // state above: deciding it in an effect means a first paint at the wrong
+    // scale and a second render to correct it, which is the cascade the lint
+    // rule is about.
+    setOpenedFor(url)
+    if (baseDims.w * base > boxSize.w - PAD_X * 2) setMode('fit-width')
+  }
+  useEffect(() => {
+    if (!openedFor) return
+    // After the layout the opening scale produces, not before it.
+    const id = requestAnimationFrame(() => {
+      const box = scroller.current
+      if (!box || box.scrollWidth <= box.clientWidth) return
+      box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2
+    })
+    return () => cancelAnimationFrame(id)
+  }, [openedFor])
+
   // Zoom keeps the point of the document you were looking at where it was:
   // remember the scroll centre as a fraction, restore it after the resize.
   const anchor = useRef<{ x: number; y: number } | null>(null)
