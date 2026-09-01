@@ -100,8 +100,15 @@ CODE_PAGE = (43, 48, 59)     # slate, light enough that the chip can sit on it
 CODE_BARS = (233, 237, 247)  # brighter than the shared grey: these must carry at 16px
 CODE_EDGE = (122, 132, 152)  # see _hairline - a dark page vanishes on a dark ground
 
+#: The archive's own page. It is the ONE kind Prism draws in colour in the
+#: sidebar whatever the icon scheme says, and a zip that is periwinkle in the
+#: app and grey on the desktop is two icons for one thing (owner, 2026-09-01:
+#: "use that colored zip icon in file explorer"). The value is the in-app
+#: pick, so the two cannot drift by being typed twice.
+ARCHIVE_PAGE = (139, 139, 226)
+
 COLOURS = {
-    "archive": ("ZIP", PAGE),
+    "archive": ("ZIP", ARCHIVE_PAGE),
     "audio": ("MP3", PAGE),
     # A DARK PAGE, because a code file is a dark editor and nothing else in the
     # set is one. It is also what finally separates code from document without
@@ -253,7 +260,8 @@ def _archive(kind, size, text=None):
     """A container, not a page, with the chip low so the folder tab shows."""
     ext, colour = COLOURS[kind]
     body, ink = archive_layers(size, folder_zip, folder_zip_ink,
-                               ext.upper() if text is None else text.upper())
+                               ext.upper() if text is None else text.upper(),
+                               label_col=(255, 255, 255, 255))
     out = Image.new("RGBA", body.size, (0, 0, 0, 0))
     out.paste(Image.new("RGBA", body.size, tuple(colour) + (255,)), (0, 0), body)
     out.alpha_composite(ink)
