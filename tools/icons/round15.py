@@ -267,14 +267,14 @@ ARCHIVES = [
 ]
 
 
-def _band_and_label(ink, body, n, ext, mask, band, label_col=None):
+def _band_and_label(ink, body, n, ext, mask, band, label_col=None, ink_col=None):
     """A full-width band across the container's foot, and the extension in it.
 
     CLIPPED TO THE SILHOUETTE, so it takes the folder's own rounded corners the
     way the page kinds' band takes the page's - a band that squares them off
     stops being part of the shape and becomes a bar lying across it.
     """
-    K = tuple(INK) + (255,)
+    K = ink_col or tuple(INK) + (255,)
     layer = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     ImageDraw.Draw(layer).rectangle(
         [g(n, band[0]), g(n, band[1]), g(n, band[2]), g(n, band[3])], fill=K)
@@ -301,18 +301,18 @@ def _band_and_label(ink, body, n, ext, mask, band, label_col=None):
 BAND_A = (AX0, AY1 - (CHIP_A[3] - CHIP_A[1]), AX1, AY1)
 
 
-def archive_layers(size, sil, inkfn, ext="ZIP", label_col=None):
+def archive_layers(size, sil, inkfn, ext="ZIP", label_col=None, ink_col=None):
     n = size * S
     m = Image.new("L", (n, n), 0)
     sil(ImageDraw.Draw(m), n, 255)
     body = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     body.paste(Image.new("RGBA", (n, n), (255, 255, 255, 255)), (0, 0), m)
 
-    K, T = tuple(INK) + (255,), (0, 0, 0, 0)
+    K, T = ink_col or tuple(INK) + (255,), (0, 0, 0, 0)
     ink = Image.new("RGBA", (n, n), T)
     inkfn(ImageDraw.Draw(ink), n, K, T)
     ink = Image.composite(ink, Image.new("RGBA", (n, n), T), m)
-    _band_and_label(ink, body, n, ext, m, BAND_A, label_col)
+    _band_and_label(ink, body, n, ext, m, BAND_A, label_col, ink_col)
     return (body.resize((size, size), Image.LANCZOS),
             ink.resize((size, size), Image.LANCZOS))
 
