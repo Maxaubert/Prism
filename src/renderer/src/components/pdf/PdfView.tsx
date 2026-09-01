@@ -207,7 +207,10 @@ export function PdfView({
   const fitFor = useCallback(
     (m: FitMode): number => {
       if (boxSize.w <= 0 || boxSize.h <= 0) return 1
-      const availW = boxSize.w - PAD_X * 2
+      // A pixel of slack, deliberately. Fitting EXACTLY means any rounding
+      // anywhere - the page box, the gutter, a fractional device ratio - lands
+      // on the wrong side and shows a scrollbar for one pixel of overflow.
+      const availW = boxSize.w - PAD_X * 2 - 1
       const availH = boxSize.h - PAD_Y * 2
       const fit =
         m === 'fit-width' ? availW / docBox.w : Math.min(availW / docBox.w, availH / docBox.h)
@@ -785,7 +788,15 @@ export function PdfView({
                   key={n}
                   data-page={n}
                   ref={(el) => setWrapper(n, el)}
-                  style={{ width: d.w * scale, height: d.h * scale }}
+                  /*
+                   * FLOORED to whole pixels. A page laid out at a fractional
+                   * width rounds up in the scroll box, and one rounded-up
+                   * pixel against a fit that lands exactly on the available
+                   * width is a horizontal scrollbar that never goes away -
+                   * which is the bar itself, rather than anything about the
+                   * document being too big.
+                   */
+                  style={{ width: Math.floor(d.w * scale), height: Math.floor(d.h * scale) }}
                   className="relative shrink-0 bg-white shadow-[0_2px_16px_rgba(0,0,0,.5)]"
                 >
                   {near.has(n) && (

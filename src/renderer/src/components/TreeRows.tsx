@@ -92,11 +92,30 @@ function langFor(kind: FileKind, name?: string, ext?: string): keyof typeof LANG
   return n in LANG_BY_NAME ? LANG_BY_NAME[n] : null
 }
 
+/**
+ * The size at which the extension on the band becomes letters rather than a
+ * smudge, MEASURED rather than chosen.
+ *
+ * The label is 4.08 units tall in a 24-unit viewBox, so at N pixels its cap
+ * height is 4.08 * N / 24. At the tree's 14px that is 2.4px, and no typeface is
+ * legible at 2.4px - LOG, MD and TXT all come out as the same three grey dots,
+ * which is exactly what they looked like. Five pixels is the floor for reading
+ * three characters, and 5 * 24 / 4.08 is 29.4.
+ *
+ * So below this the band is drawn EMPTY and the mark carries the kind. Nothing
+ * is lost: a tree row has the filename beside it, in a face chosen to be read,
+ * and `cleanup.log` already ends in the three characters the band was
+ * whispering. The .ico keeps its label at every size because its frames go up
+ * to 256, where it reads properly.
+ */
+const LABEL_FLOOR = 30
+
 export function KindIcon({
   kind,
   color,
   ext,
   name,
+  size = 14,
   bg = 'var(--p-side-flat)'
 }: {
   kind: FileKind
@@ -105,6 +124,8 @@ export function KindIcon({
   ext?: string
   /** The file's whole name, for the marks Windows cannot register. */
   name?: string
+  /** How big it is drawn. Only the label cares, and only at LABEL_FLOOR. */
+  size?: number
   bg?: string
 }): JSX.Element {
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
@@ -113,10 +134,10 @@ export function KindIcon({
   const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
   const lang = langFor(kind, name, ext)
   const mark = lang ? LANG_PATHS[lang] : null
-  const label = (ext ?? '').replace(/^\./, '').toUpperCase()
+  const label = size >= LABEL_FLOOR ? (ext ?? '').replace(/^\./, '').toUpperCase() : ''
   const L = g.label
   return (
-    <svg viewBox="0 0 24 24" width={14} height={14} className="shrink-0" aria-hidden>
+    <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0" aria-hidden>
       <path d={g.body} fill={color} />
       {/* A language mark REPLACES the kind's own, so `ko` is the kind's fold
           and band with the mark swapped in - not both marks on one page. */}

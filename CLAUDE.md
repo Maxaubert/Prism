@@ -873,6 +873,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   kind is named after. Fixing it for the rest means an .ico and a ProgID for all 143
   extensions, which is the Open With cost above at six times the size; it is a decision,
   not an oversight.
+  **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
+  type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
+  cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the
+  same three grey dots. Five pixels is the floor for reading three characters, which puts
+  the icon at 30px (`LABEL_FLOOR` in TreeRows), and nothing in the app draws one that big.
+  Nothing is lost by dropping it: a tree row carries the filename beside the icon, in a
+  face chosen to be read, and `cleanup.log` already ends in the three characters the band
+  was whispering. The .ico keeps its label at every frame because its frames go to 256,
+  where it reads properly - so the band is full in Explorer's medium and large views and a
+  smudge in its 16px details view, for the same reason and with the same answer available
+  if it ever annoys anyone.
   CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
   `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
   replaces the single indigo bar that had been telling code from document - an accent bar
