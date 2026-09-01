@@ -607,6 +607,58 @@ export function PdfView({
     })
   }, [])
 
+  /**
+   * Every page's real size, read up front (2026-09-01).
+   *
+   * A page that has not rendered yet was laid out at PAGE ONE's size, which is
+   * right for the overwhelming majority of documents and wrong for exactly the
+   * ones that need it most: a pdf's MediaBox is PER PAGE, so a scanned document
+   * with a landscape insert, or a comic whose pages are not all the same plate,
+   * laid every page out as page one and then resized each as it came into view.
+   * That moves everything below it, so the scroll position slides under the
+   * reader while they are reading.
+   *
+   * `getPage` parses the page dictionary, not its content stream, so this is
+   * cheap - but it is still one call per page and this is the renderer, so it
+   * runs BOUNDED, eight at a time, the same shape the tree's gap-filler uses.
+   * Results are flushed in batches rather than per page: every setDims is a
+   * re-render and a 400-page comic would otherwise be 400 of them.
+   */
+  useEffect(() => {
+    if (!doc) return
+    let alive = true
+    const total = doc.numPages
+    let next = 2 // page one is already measured, and is `base`
+    let batch = new Map<number, { w: number; h: number }>()
+    const flush = (): void => {
+      if (!alive || batch.size === 0) return
+      const got = batch
+      batch = new Map()
+      setDims((prev) => {
+        const merged = new Map(prev)
+        for (const [n, d] of got) merged.set(n, d)
+        return merged
+      })
+    }
+    const worker = async (): Promise<void> => {
+      while (alive) {
+        const n = next++
+        if (n > total) return
+        const page = await doc.getPage(n)
+        if (!alive) return
+        const vp = page.getViewport({ scale: 1 })
+        batch.set(n, { w: vp.width, h: vp.height })
+        if (batch.size >= 32) flush()
+      }
+    }
+    void Promise.all(
+      Array.from({ length: Math.min(8, Math.max(0, total - 1)) }, () => worker())
+    ).then(flush)
+    return () => {
+      alive = false
+    }
+  }, [doc])
+
   const commitPageEdit = (): void => {
     const n = Number(pageEdit)
     setPageEdit(null)
