@@ -56,9 +56,12 @@ reduction of its icon.
     python svg.py            # the paths, ready to paste
     python svg.py --check <dir>   # write them as .svg files to look at
 """
+import math
 import pathlib
 import sys
 
+from final_icons import BOX as FINAL_BOX
+from langs import BARE_ONLY, EXTS, MARKS
 from round12 import CHIP, CUT, PX0, PX1, PY0, PY1, on_page
 from round12 import lines as doc_lines
 from round13 import clapper
@@ -68,9 +71,10 @@ from round17 import quarter
 from round18 import _splat
 
 SCALE = 1.5          # 16 grid units -> a 24x24 viewBox
-# Where a page kind's mark sits. Derived from the page, or the mark keeps its
-# old size inside a bigger page and the icon reads emptier rather than bigger.
-BOX = on_page((3.8, 7.0, 12.2, 14.0))
+# Where a page kind's mark sits - IMPORTED, not restated. This file used to
+# hold its own copy of the numbers, which is exactly how round15/16/17/18 each
+# ended up with a stale page rectangle: a second copy does not fail, it drifts.
+BOX = FINAL_BOX
 BODY, KO, HI = "body", "ko", "hi"
 
 
@@ -116,6 +120,10 @@ class Recorder:
 
     def arc(self, *a, **k):
         raise NotImplementedError("arc has no path emitter; add one before using it")
+
+    def bitmap(self, *a, **k):
+        raise NotImplementedError(
+            "a rotated bitmap cannot be recorded as a path - see _react_layers")
 
     def text(self, *a, **k):
         raise NotImplementedError("the label is emitted as <text>, not as a path")
@@ -175,6 +183,40 @@ def fold_path():
     return poly_path([(PX1 - CUT, PY0), (PX1, PY0 + CUT), (PX1 - CUT, PY0 + CUT)])
 
 
+BAND_H = CHIP[3] - CHIP[1]
+BAND = (PX0, PY1 - BAND_H, PX1, PY1)
+
+
+def band_path():
+    """The footer band, with SQUARE top corners and the page's round ones below.
+
+    In the .ico the band is a plain rectangle clipped by the page mask, which
+    gives it the page's bottom radius for free. There is no mask here, so the
+    path has to carry that radius itself - and only on the two corners that
+    touch the page's edge, or the band detaches into a floating pill.
+    """
+    a, b, c, d = u(BAND[0]), u(BAND[1]), u(BAND[2]), u(BAND[3])
+    r = round(1.0 * SCALE, 2)
+    return (f"M{a} {b}H{c}V{round(d - r, 2)}A{r} {r} 0 0 1 {round(c - r, 2)} {d}"
+            f"H{round(a + r, 2)}A{r} {r} 0 0 1 {a} {round(d - r, 2)}Z")
+
+
+def rot_ellipse_path(cx, cy, rx, ry, deg):
+    """An ellipse turned by `deg`, as two arcs.
+
+    SVG's arc carries an x-axis-rotation, so a turned ellipse is expressible as
+    a path where the Recorder's own `ellipse` op is not - the Recorder writes
+    axis-aligned boxes, and a rotation cannot be recovered from one.
+    """
+    a = math.radians(deg)
+    dx, dy = math.cos(a) * rx, math.sin(a) * rx
+    x0, y0 = u(cx - dx), u(cy - dy)
+    x1, y1 = u(cx + dx), u(cy + dy)
+    rxu, ryu = u(rx), u(ry)
+    return (f"M{x0} {y0}A{rxu} {ryu} {deg} 1 1 {x1} {y1}"
+            f"A{rxu} {ryu} {deg} 1 1 {x0} {y0}Z")
+
+
 def chip_path(chip=CHIP):
     return rect_path(*chip, 0.7)
 
@@ -212,7 +254,7 @@ def label_size(chip, chars):
     return round(u(size), 2)
 
 
-def label(chip=CHIP, chars=3):
+def label(chip=BAND, chars=3):
     """Placement for the <text>, since a font must not become outlines."""
     return {"x": u((chip[0] + chip[2]) / 2), "y": u((chip[1] + chip[3]) / 2),
             "size": label_size(chip, chars), "anchor": "middle",
@@ -283,7 +325,7 @@ def _page_kind(fn):
     ko_ink, hi_ink = object(), object()
     r = Recorder(ko_ink, hi_ink)
     fn(r, 16, BOX, ko_ink, hi_ink)
-    layers = {BODY: [page_path()], KO: [fold_path(), chip_path()], HI: []}
+    layers = {BODY: [page_path()], KO: [fold_path(), band_path()], HI: []}
     for lay, op, p in r.ops:
         layers[lay].append(op_path(op, p))
     return layers
@@ -301,6 +343,53 @@ def _archive():
     return layers
 
 
+def _lang_layers(name):
+    """One language mark, recorded into the same three layers a kind uses.
+
+    The mark is drawn ON the page, so it belongs in KO - a hole in the paper -
+    and the knockouts INSIDE it (the cog's bore, the cylinder's rim, the cup's
+    handle) go to HI, painted back in the ink. That is the same contract the
+    clapperboard's stripes already use, and it is why those three marks were
+    drawn with a knockout rather than as outlines in the first place.
+    """
+    if name == "react":
+        return _react_layers()
+    ko_ink, hi_ink = object(), object()
+    r = Recorder(ko_ink, hi_ink)
+    MARKS[name](r, 16, BOX, ko_ink, hi_ink)
+    layers = {BODY: [], KO: [], HI: []}
+    for lay, op, pts in r.ops:
+        layers[lay].append(op_path(op, pts))
+    return layers
+
+
+def _react_layers():
+    """REACT in-app: three TURNED ellipses and a nucleus, drawn here by hand.
+
+    The .ico builds its orbits by rotating a bitmap, which the Recorder cannot
+    follow - it writes axis-aligned boxes, and a rotation cannot be recovered
+    from one. SVG's arc carries an x-axis-rotation, so the same shape is one
+    path each; and the orbits are FILLED here rather than stroked rings,
+    because a ring at 14px is two hairlines with a gap that closes.
+    """
+    x0, y0, x1, y1 = BOX
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    s = min(x1 - x0, y1 - y0)
+    ko = [rot_ellipse_path(cx, cy, s * 0.46, s * 0.14, deg) for deg in (0, 60, 120)]
+    ko.append(rect_path(cx - s * 0.13, cy - s * 0.13, cx + s * 0.13, cy + s * 0.13,
+                        s * 0.13))
+    return {BODY: [], KO: ko, HI: []}
+
+
+def langs_paths():
+    """mark -> {ko, hi}. The page, the fold and the band come from the KIND."""
+    out = {}
+    for name in sorted(MARKS):
+        layers = _lang_layers(name)
+        out[name] = {"ko": " ".join(layers[KO]), "hi": " ".join(layers[HI])}
+    return out
+
+
 def icons():
     """kind -> {body, ko, hi, solid, label}. An empty layer means skip it.
 
@@ -313,14 +402,21 @@ def icons():
     """
     out = {}
     for kind in sorted(EXT):
-        chip = CHIP_A if kind == "archive" else CHIP
-        layers = _archive() if kind == "archive" else _page_kind(PAGE_GLYPHS[kind])
+        arch = kind == "archive"
+        layers = _archive() if arch else _page_kind(PAGE_GLYPHS[kind])
         out[kind] = {k: " ".join(v) for k, v in layers.items()}
         solid = list(layers[BODY])
-        solid += [p for p in layers[KO] if p != chip_path(chip)]
-        solid += [chip_path_clipped(chip)] + list(layers[HI])
+        # The archive's low CHIP still overhangs and still has to be clipped for
+        # the evenodd variant; the page kinds' BAND is inside the page already,
+        # so it is a hole exactly as drawn.
+        if arch:
+            solid += [p for p in layers[KO] if p != chip_path(CHIP_A)]
+            solid += [chip_path_clipped(CHIP_A)]
+        else:
+            solid += list(layers[KO])
+        solid += list(layers[HI])
         out[kind]["solid"] = " ".join(solid)
-        out[kind]["label"] = label(chip)
+        out[kind]["label"] = label(CHIP_A if arch else BAND)
         out[kind]["ext"] = EXT[kind]
     return out
 
@@ -451,6 +547,31 @@ def main():
         print(f'    label: {{ x: {L["x"]}, y: {L["y"]}, sizes: {{ {sizes} }} }},')
         print("  },")
     print("} as const")
+    print()
+
+    print("// A mark per LANGUAGE, laid on the code kind's page in place of its")
+    print("// stepped bars. Two layers only: the page, the fold and the band all")
+    print("// come from the KIND, so a language changes the mark and nothing else.")
+    print("export const LANG_PATHS = {")
+    for name, d in langs_paths().items():
+        print(f'  {name}: {{ ko: "{d["ko"]}", hi: "{d["hi"]}" }},')
+    print("} as const")
+    print()
+
+    print("// Which mark a file gets. BY_EXT is what Explorer registers too;")
+    print("// BY_NAME is the app being able to do what Explorer cannot, since")
+    print("// Windows associates on extension and `Dockerfile` has none.")
+    print("export const LANG_BY_EXT: Record<string, keyof typeof LANG_PATHS> = {")
+    for ext in sorted(EXTS):
+        print(f"  '{ext}': '{EXTS[ext]}',")
+    print("}")
+    print()
+    print("export const LANG_BY_NAME: Record<string, keyof typeof LANG_PATHS> = {")
+    for mark, names in sorted(BARE_ONLY.items()):
+        for nm in names:
+            print(f"  '{nm}': '{mark}',")
+            print(f"  '.{nm}': '{mark}',")
+    print("}")
     print()
     print(TS_HELPER)
 

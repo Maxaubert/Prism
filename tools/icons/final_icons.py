@@ -41,10 +41,18 @@ from round18 import CREAM, art_splat_bam
 from round21 import framed
 from round23 import bg_warm
 
+import langs
+
 # Where a page kind's mark sits, inset from the page. Derived, or every glyph
 # would keep its old size inside a bigger page and the set would read emptier
 # rather than bigger.
-BOX = on_page((3.8, 7.0, 12.2, 14.0))
+#
+# IT SITS HIGHER SINCE THE BAND (2026-09-01): the label used to be a tab in the
+# top-left corner and the mark had the rest of the page; now the label is a band
+# across the FOOT, so the mark is raised out of its way. That is the whole point
+# of the change rather than a consequence of it - a label that takes room has to
+# be given room, and the alternative is the collision round 28 was full of.
+BOX = on_page((3.8, 3.8, 12.2, 10.2))
 INK_A = tuple(INK) + (255,)
 
 # kind -> (extension shown on the chip, page colour)
@@ -104,13 +112,19 @@ COLOURS = {
 
 
 def _code_bars_at(d, n, box, col, hole=None):
-    """Stepped indent bars, all three the same, drawn light on the dark page."""
+    """Stepped indent bars, all three the same, in whatever colour is given.
+
+    It takes `col` rather than reaching for CODE_BARS itself: a glyph that
+    ignores its colour argument works right up until something else is drawn in
+    the same slot, and then that other thing comes out in the wrong colour with
+    nothing to explain why.
+    """
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
     for i, (a, b) in enumerate(((0.00, 0.74), (0.22, 1.00), (0.00, 0.56))):
         y = y0 + i * h * 0.37
         d.rounded_rectangle([g(n, x0 + w * a), g(n, y), g(n, x0 + w * b), g(n, y + h * 0.26)],
-                            radius=g(n, h * 0.07), fill=CODE_BARS)
+                            radius=g(n, h * 0.07), fill=tuple(col))
 
 
 PAGE_GLYPHS = {
@@ -160,21 +174,29 @@ def _document(kind, size):
     return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind]), size)
 
 
-def _page_kind_with(kind, size, glyph, fold=INK, chip=INK, label=None):
+def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK):
     """A page kind rendered with an arbitrary glyph.
 
     Exists so a mockup round can try alternative marks through the REAL
-    construction - this page, this chip, this label, this colour - rather than
+    construction - this page, this band, this label, this colour - rather than
     through a copy of it that can drift. `_page_kind` is this with the kind's
     own settled glyph.
 
-    `fold`, `chip` and `label` default to the set's rule - both marks in ink,
-    the letters knocked out to the page - and exist for CODE, whose dark page
-    would swallow all three.
+    THE LABEL IS A FOOTER BAND (owner pick, round 30, 2026-09-01), not the
+    overhanging corner tab it was. `band_at="bottom"` is round12's own path and
+    reference one's own treatment, so this is the composition coming back to
+    where it started rather than a new one: the band is clipped to the page, so
+    it takes the rounded bottom corners, and the extension is drawn across it.
+    ARCHIVE keeps its low chip and is not a page kind; COMIC keeps its own,
+    having artwork rather than paper under the label.
+
+    `fold`, `band`, `label` and `mark` default to the set's rule - everything
+    that is not the page in ink, the letters in the page colour - and exist for
+    CODE, whose dark page would swallow all four.
     """
     ext, colour = COLOURS[kind]
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
-    spec = _spec(page=colour, fold=fold, band=chip, band_at="chip", glyph_col=INK,
+    spec = _spec(page=colour, fold=fold, band=band, band_at="bottom", glyph_col=mark,
                  glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
     return build(size, obj, spec)
 
@@ -186,7 +208,7 @@ def _code(kind, size):
     which is the inversion in one line.
     """
     base = _page_kind_with(kind, size, PAGE_GLYPHS[kind],
-                           fold=PAGE, chip=PAGE, label=CODE_PAGE)
+                           fold=PAGE, band=PAGE, label=CODE_PAGE, mark=CODE_BARS)
     return _hairline(base, size, CODE_EDGE)
 
 
@@ -235,6 +257,23 @@ def _comic(kind, size):
 
 
 RENDER = {k: _page_kind for k in PAGE_GLYPHS}
+def code_ext(ext, size):
+    """The code icon for ONE extension: its language's mark, its own label.
+
+    Everything else is code's own - the dark page, the light band, the light
+    fold, the hairline - so a .py and a .rs are one icon with a different thing
+    on it rather than two designs. The knockouts in the marks that have them
+    (the cog's bore, the cylinder's rim, the cup's handle) take the page
+    colour, which the sprocket argument carries.
+    """
+    mark = langs.MARKS[langs.EXTS[ext]]
+    obj = Kind("code", ext.upper(), CODE_PAGE, CODE_PAGE, "", mark, mark)
+    spec = _spec(page=CODE_PAGE, fold=PAGE, band=PAGE, band_at="bottom",
+                 glyph_col=CODE_BARS, glyph_box=BOX, text=ext.upper(),
+                 text_col=CODE_PAGE, sprocket=CODE_PAGE)
+    return _hairline(build(size, obj, spec), size, CODE_EDGE)
+
+
 RENDER["code"] = _code
 RENDER["document"] = _document
 RENDER["archive"] = _archive
@@ -245,6 +284,11 @@ RENDER["comic"] = _comic
 # without src/shared/fileKind.ts and both macros in build/installer/assoc.nsh
 # moving with them.
 KINDS = sorted(COLOURS)
+
+# The per-extension code icons ship as `prism-code-<ext>.ico` beside the seven,
+# and assoc.nsh gives each its own ProgID. They are NOT kinds: an extension is
+# not a FileKind, and fileKind.ts still calls every one of these files `text`.
+LANG_EXTS = langs.SHIPPED
 
 
 def render(kind, size):

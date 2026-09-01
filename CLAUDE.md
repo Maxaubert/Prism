@@ -839,6 +839,40 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   own mask - the boundary a page has against its canvas, not the heavy dark outline the
   set rejected. Eroded rather than drawn as a second shape, so it follows the rounded
   corners and the fold's diagonal and cannot drift out of step.
+  **THE LABEL IS A FOOTER BAND** (owner pick, round 30, 2026-09-01), not the overhanging
+  corner tab it was. `band_at="bottom"` is round12's own path and reference one's own
+  treatment, so this is the composition returning to where it started: the band is clipped
+  to the page and takes its rounded bottom corners, and the mark is RAISED out of its way -
+  a label that takes room has to be given room, which is what round 28's scaling round
+  failed at. Archive keeps its low chip (it is a container, not a page) and comic keeps its
+  top-left one, standing in for the reference's masthead.
+  **AND CODE HAS A MARK PER LANGUAGE** (same pick, `tools/icons/langs.py`): a React
+  component and a shell script were the same picture, and now they are an atom and a `>_`.
+  Two rules shaped the set and both are load-bearing. THE LETTERS ARE ALREADY TAKEN - the
+  band carries the extension, so a mark made of letterforms (JS in a square, TS in a
+  square) prints the same thing twice and spends the only part of the icon that can say
+  something else; every mark is pictorial and the letterform languages keep the stepped
+  bars, which is not a demotion because their band already says JS. And the .ico is PER
+  EXTENSION, not per language: a ProgID has exactly ONE DefaultIcon, .jsx and .tsx share
+  the React mark, and one icon for both would have to print JSX on a .tsx. That costs a
+  ProgID each, against `assoc.nsh`'s own warning that one-class-per-KIND is why Open With
+  says "Prism" once instead of listing thirty near-identical rows - so the list is kept
+  SHORT deliberately (25 extensions) and everything else keeps the bars. Marks are FILLED,
+  never stroked, and three carry a knockout that is not decoration: without it a cog is a
+  flower, a cylinder is a rounded rectangle and a cup is a blob.
+  **DOCKERFILE HAS A MARK IN THE TREE AND NOT IN EXPLORER**, and that is not a bug.
+  Windows associates on EXTENSION, so a bare name (`Dockerfile`, `Makefile`) and a dotfile
+  (`.gitignore`) have nothing to hang a ProgID on however well the mark is drawn. The app
+  resolves a file by NAME as well, and costs nothing per mark, so it is simply more
+  generous than the desktop can be: `LANG_BY_EXT` is the table Explorer registers and
+  `LANG_BY_NAME` is the app's own.
+  **THE LABEL ONLY TELLS THE TRUTH WHERE THE ICON IS PER EXTENSION.** A ProgID carries one
+  .ico and one baked label, so `prism-audio.ico` prints MP3 on every `.flac` and `.wav`
+  too, and always has - the corner tab made it small and the band makes it loud. It is
+  right for the 25 code extensions, which have an icon each, and for whichever extension a
+  kind is named after. Fixing it for the rest means an .ico and a ProgID for all 143
+  extensions, which is the Open With cost above at six times the size; it is a decision,
+  not an oversight.
   CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
   `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
   replaces the single indigo bar that had been telling code from document - an accent bar

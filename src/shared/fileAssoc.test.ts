@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { isViewable } from './fileKind'
 
@@ -34,6 +34,12 @@ const registeredIds = new Map(
     m[1].toLowerCase(),
     m[2]
   ])
+)
+
+/** Every ProgID the installer defines, and every one an extension points at. */
+const definedIds = new Set([...nsh.matchAll(/PRISM_PROGID\s+"([^"]+)"/g)].map((m) => m[1]))
+const usedIds = new Set(
+  [...nsh.matchAll(/PRISM_EXT\s+"[a-z0-9]+"\s+"([^"]+)"/gi)].map((m) => m[1])
 )
 
 /** Every extension fileKind calls viewable, read from the source it lives in. */
@@ -92,9 +98,31 @@ describe('file associations', () => {
   })
 
   it('points every extension at a ProgID the installer defines', () => {
-    const defined = new Set([...nsh.matchAll(/PRISM_PROGID\s+"([^"]+)"/g)].map((m) => m[1]))
-    const used = new Set([...nsh.matchAll(/PRISM_EXT\s+"[a-z0-9]+"\s+"([^"]+)"/gi)].map((m) => m[1]))
-    const undefinedIds = [...used].filter((id) => !defined.has(id))
+    const undefinedIds = [...usedIds].filter((id) => !definedIds.has(id))
     expect(undefinedIds, `ProgIDs used but never defined: ${undefinedIds.join(' ')}`).toEqual([])
+  })
+
+  it('deletes every ProgID it defines', () => {
+    // The uninstall half is the half that rots: it fell 96 extensions behind
+    // once and left dead "Open with" entries pointing at classes that no longer
+    // existed. The EXTENSION list has been checked since; the CLASS list never
+    // was, and it grew by 25 the day the per-extension code icons landed.
+    const left = [...definedIds]
+      .filter((id) => !nsh.includes(`DeleteRegKey SHELL_CONTEXT "Software\\Classes\\${id}"`))
+      .sort()
+    expect(left, `add DeleteRegKey lines for: ${left.join(' ')}`).toEqual([])
+  })
+
+  it('points every ProgID at an icon that exists', () => {
+    // DefaultIcon is a path Windows resolves at PAINT time, so a typo here is
+    // not an install error - it is a blank page in Explorer weeks later.
+    const icons = [...nsh.matchAll(/PRISM_PROGID\s+"[^"]+"\s+"[^"]*"\s+"([^"]+)"/g)].map(
+      (m) => m[1]
+    )
+    expect(icons.length).toBe(definedIds.size)
+    const missing = icons
+      .filter((i) => !existsSync(`build/icons/prism-${i}.ico`))
+      .sort()
+    expect(missing, `run tools/icons/build_icons.py for: ${missing.join(' ')}`).toEqual([])
   })
 })

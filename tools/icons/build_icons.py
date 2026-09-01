@@ -24,7 +24,8 @@ import sys
 from io import BytesIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from final_icons import COLOURS, KINDS, render  # noqa: E402
+from final_icons import (COLOURS, KINDS, LANG_EXTS, code_ext,  # noqa: E402
+                         render)
 
 # What Windows asks for: details/list (16), small (20/24), medium (32/40/48),
 # large (64/96), extra large (128) and the jumbo/preview frame (256).
@@ -61,6 +62,16 @@ def main():
         ext, col = COLOURS[kind]
         hexcol = f"#{col[0]:02x}{col[1]:02x}{col[2]:02x}"
         print(f"{path.name:22} {ext:5} {hexcol}  {len(SIZES)} frames"
+              f"  {path.stat().st_size:>7} bytes")
+
+    # One more per EXTENSION that has a mark, each the code icon with a
+    # different thing on it. These names are load-bearing the same way the
+    # seven are: assoc.nsh points a ProgID per extension at
+    # resources/icons/prism-code-<ext>.ico.
+    for ext in LANG_EXTS:
+        path = OUT / f"prism-code-{ext}.ico"
+        write_ico(path, [(s, code_ext(ext, s)) for s in SIZES])
+        print(f"{path.name:26} {ext:7}     {len(SIZES)} frames"
               f"  {path.stat().st_size:>7} bytes")
 
 

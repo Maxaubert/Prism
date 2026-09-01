@@ -144,6 +144,7 @@ export function SearchResults({
                   color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)}
                   bg={picked ? 'var(--p-accent)' : undefined}
                   ext={extOf(h.name)}
+                  name={h.name}
                 />
               )}
               <span className="min-w-0">

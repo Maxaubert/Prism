@@ -3,7 +3,7 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { ICON_PATHS } from '../lib/iconPaths'
+import { ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from '../lib/iconPaths'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -76,36 +76,63 @@ const KIND_ICON: Record<FileKind, keyof typeof ICON_PATHS> = {
   other: 'document'
 }
 
+/**
+ * Which language mark a file gets, if any.
+ *
+ * By EXTENSION first, then by whole NAME - and the name half is the app doing
+ * something Explorer cannot. Windows associates on extension, so `Dockerfile`
+ * and `.gitignore` can never carry a mark on the desktop however well drawn;
+ * here they can, and do. Expect that asymmetry rather than reading it as a bug.
+ */
+function langFor(kind: FileKind, name?: string, ext?: string): keyof typeof LANG_PATHS | null {
+  if (kind !== 'text' || !name) return null
+  const e = (ext ?? '').replace(/^\./, '').toLowerCase()
+  if (e && e in LANG_BY_EXT) return LANG_BY_EXT[e]
+  const n = name.toLowerCase()
+  return n in LANG_BY_NAME ? LANG_BY_NAME[n] : null
+}
+
 export function KindIcon({
   kind,
   color,
   ext,
+  name,
   bg = 'var(--p-side-flat)'
 }: {
   kind: FileKind
   color: string
-  /** The file's own extension, with or without the dot. Drawn on the chip. */
+  /** The file's own extension, with or without the dot. Drawn on the band. */
   ext?: string
+  /** The file's whole name, for the marks Windows cannot register. */
+  name?: string
   bg?: string
 }): JSX.Element {
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
-  // stripes and the splat's core from filling in solid.
+  // stripes, the splat's core and a mark's own holes from filling in solid.
   const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
+  const lang = langFor(kind, name, ext)
+  const mark = lang ? LANG_PATHS[lang] : null
   const label = (ext ?? '').replace(/^\./, '').toUpperCase()
   const L = g.label
   return (
     <svg viewBox="0 0 24 24" width={14} height={14} className="shrink-0" aria-hidden>
       <path d={g.body} fill={color} />
-      {g.ko ? <path d={g.ko} fill={bg} /> : null}
-      {g.hi ? <path d={g.hi} fill={color} /> : null}
+      {/* A language mark REPLACES the kind's own, so `ko` is the kind's fold
+          and band with the mark swapped in - not both marks on one page. */}
+      <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
+      {mark ? (
+        mark.hi ? <path d={mark.hi} fill={color} /> : null
+      ) : g.hi ? (
+        <path d={g.hi} fill={color} />
+      ) : null}
       {label ? (
         <text
           x={L.x}
           y={L.y}
           // Keyed by CHARACTER COUNT, not scaled: two and three characters keep
           // the full size and only WEBM-length ones step down, which is what
-          // stops a long extension running out of the chip.
+          // stops a long extension running out of the band.
           fontSize={L.sizes[Math.min(label.length, 6) as keyof typeof L.sizes]}
           fill={color}
           fontWeight={700}
@@ -117,6 +144,18 @@ export function KindIcon({
       ) : null}
     </svg>
   )
+}
+
+/**
+ * The fold and the band out of a kind's `ko`, without its mark.
+ *
+ * The emitter writes them FIRST and in that order, so the first two subpaths
+ * are always exactly those two. Splitting on 'M' rather than re-deriving them
+ * keeps one definition of the page's geometry in the generator, which is the
+ * whole reason the paths are generated at all.
+ */
+function foldAndBand(ko: string): string {
+  return ko.split(/(?=M)/).slice(0, 2).join('')
 }
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
@@ -478,6 +517,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 // selected one is the accent fill and not the panel.
                 bg={onSel ? 'var(--p-accent)' : undefined}
                 ext={f.ext}
+                name={f.name}
               />
               <Label name={unsaved ? `${f.name}*` : f.name} />
             </button>
