@@ -81,6 +81,8 @@ export function PdfView({
   // Page sizes at scale 1, as the pages announce themselves (mixed-size
   // documents correct their placeholders on approach).
   const [dims, setDims] = useState<Map<number, { w: number; h: number }>>(new Map())
+  /** The widest and tallest page in the document; see `docBox` below. */
+  const [pageBox, setPageBox] = useState<{ w: number; h: number } | null>(null)
   const [near, setNear] = useState<Set<number>>(new Set([1, 2]))
 
   // Find state.
@@ -114,6 +116,7 @@ export function PdfView({
     setPage(1)
     setPageEdit(null)
     setDims(new Map())
+    setPageBox(null)
     setNear(new Set([1, 2]))
     setFindOpen(false)
     setQuery('')
@@ -174,6 +177,20 @@ export function PdfView({
   }, [doc])
   const error = loaded?.error ?? null
   const baseDims = loaded?.base ?? FALLBACK_DIMS
+  /**
+   * The WIDEST and TALLEST page in the document, settled once every page has
+   * been measured (2026-09-01).
+   *
+   * Every size decision used to come from PAGE ONE, and an artbook is what
+   * shows why that is wrong: its cover is 391pt across and its spreads are
+   * 842pt. Sizing 100% so the COVER fills the intended width put the spreads
+   * at 2502 CSS px, so the document opened with a horizontal scrollbar and the
+   * reader had to zoom out of a view they never asked to be zoomed into.
+   *
+   * Settled ONCE rather than tracked incrementally: a value that grew as pages
+   * were measured would rescale the document under the reader mid-page.
+   */
+  const docBox = pageBox ?? baseDims
   const pageCount = doc?.numPages ?? 0
 
   /* ---------- fit + zoom ---------- */
@@ -193,14 +210,14 @@ export function PdfView({
       const availW = boxSize.w - PAD_X * 2
       const availH = boxSize.h - PAD_Y * 2
       const fit =
-        m === 'fit-width' ? availW / baseDims.w : Math.min(availW / baseDims.w, availH / baseDims.h)
+        m === 'fit-width' ? availW / docBox.w : Math.min(availW / docBox.w, availH / docBox.h)
       return clamp(fit, MIN_SCALE, MAX_SCALE)
     },
-    [boxSize, baseDims]
+    [boxSize, docBox]
   )
 
   /** The pdf.js scale this document calls 100%. */
-  const base = baseZoom(baseDims.w)
+  const base = baseZoom(docBox.w)
   const scale = mode === 'manual' ? clamp(manualZoom * base, MIN_SCALE, MAX_SCALE) : fitFor(mode)
 
   /**
@@ -231,7 +248,7 @@ export function PdfView({
     // scale and a second render to correct it, which is the cascade the lint
     // rule is about.
     setOpenedFor(url)
-    if (baseDims.w * base > boxSize.w - PAD_X * 2) setMode('fit-width')
+    if (docBox.w * base > boxSize.w - PAD_X * 2) setMode('fit-width')
   }
   useEffect(() => {
     if (!openedFor) return
@@ -671,6 +688,8 @@ export function PdfView({
     const total = doc.numPages
     let next = 2 // page one is already measured, and is `base`
     let batch = new Map<number, { w: number; h: number }>()
+    let maxW = 0
+    let maxH = 0
     const flush = (): void => {
       if (!alive || batch.size === 0) return
       const got = batch
@@ -689,12 +708,17 @@ export function PdfView({
         if (!alive) return
         const vp = page.getViewport({ scale: 1 })
         batch.set(n, { w: vp.width, h: vp.height })
+        if (vp.width > maxW) maxW = vp.width
+        if (vp.height > maxH) maxH = vp.height
         if (batch.size >= 32) flush()
       }
     }
     void Promise.all(
       Array.from({ length: Math.min(8, Math.max(0, total - 1)) }, () => worker())
-    ).then(flush)
+    ).then(() => {
+      flush()
+      if (alive) setPageBox({ w: maxW, h: maxH })
+    })
     return () => {
       alive = false
     }
