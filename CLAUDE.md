@@ -866,13 +866,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   resolves a file by NAME as well, and costs nothing per mark, so it is simply more
   generous than the desktop can be: `LANG_BY_EXT` is the table Explorer registers and
   `LANG_BY_NAME` is the app's own.
-  **THE LABEL ONLY TELLS THE TRUTH WHERE THE ICON IS PER EXTENSION.** A ProgID carries one
-  .ico and one baked label, so `prism-audio.ico` prints MP3 on every `.flac` and `.wav`
-  too, and always has - the corner tab made it small and the band makes it loud. It is
-  right for the 25 code extensions, which have an icon each, and for whichever extension a
-  kind is named after. Fixing it for the rest means an .ico and a ProgID for all 143
-  extensions, which is the Open With cost above at six times the size; it is a decision,
-  not an oversight.
+  **SO THERE IS AN ICON PER EXTENSION - ALL 298** (owner pick, 2026-09-01). A ProgID
+  carries one .ico and an .ico carries one baked label, so a class shared by many
+  extensions prints one of their names on ALL of them: `prism-code.ico` said PY on 130
+  extensions, `prism-image.ico` said JPG on 52, `prism-audio.ico` said MP3 on 32. The
+  owner met it as "what is PT on my .log files" - it was PY, on files that are not
+  Python, and the band being loud is what made a lie nobody had noticed unmissable. One
+  class each is the only arrangement in which the label tells the truth. It costs 8.6MB
+  of .ico and ~300 registry classes; it does NOT cost the Open With menu, which was the
+  worry `assoc.nsh` records - measured after installing, each extension points at exactly
+  one Prism class, so a given file still offers Prism once. `tools/icons/extmap.py` reads
+  the extension table out of `fileKind.ts` rather than restating it (and refuses a parse
+  that comes back implausibly small, since a regex matching nothing would hand every file
+  the wrong icon silently); `gen_assoc.py` writes both halves of the installer macro from
+  it. That generator SPLICES between the first and last per-extension line rather than
+  running to `!macroend`: the first version ran to the end and silently ate the Explorer
+  verb's own uninstall keys, which `shellVerb.test.ts` caught. A code extension picks up
+  its LANGUAGE mark where one exists - 81 of 160 do - and the rest keep the stepped bars.
   **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
   type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
   cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the

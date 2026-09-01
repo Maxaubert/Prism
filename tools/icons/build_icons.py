@@ -24,8 +24,7 @@ import sys
 from io import BytesIO
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from final_icons import (COLOURS, KINDS, LANG_EXTS, code_ext,  # noqa: E402
-                         render)
+from final_icons import ALL_EXTS, COLOURS, KINDS, icon_for_ext, render  # noqa: E402
 
 # What Windows asks for: details/list (16), small (20/24), medium (32/40/48),
 # large (64/96), extra large (128) and the jumbo/preview frame (256).
@@ -64,15 +63,16 @@ def main():
         print(f"{path.name:22} {ext:5} {hexcol}  {len(SIZES)} frames"
               f"  {path.stat().st_size:>7} bytes")
 
-    # One more per EXTENSION that has a mark, each the code icon with a
-    # different thing on it. These names are load-bearing the same way the
-    # seven are: assoc.nsh points a ProgID per extension at
-    # resources/icons/prism-code-<ext>.ico.
-    for ext in LANG_EXTS:
-        path = OUT / f"prism-code-{ext}.ico"
-        write_ico(path, [(s, code_ext(ext, s)) for s in SIZES])
-        print(f"{path.name:26} {ext:7}     {len(SIZES)} frames"
-              f"  {path.stat().st_size:>7} bytes")
+    # ONE PER EXTENSION, which is the set the installer actually points at.
+    # An .ico carries one baked label, so a class shared by many extensions
+    # prints one of their names on all of them - prism-code.ico said PY on 130
+    # of them. The seven above are kept as the canonical kind renders; nothing
+    # in assoc.nsh references them any more.
+    for ext in ALL_EXTS:
+        path = OUT / f"prism-{ext}.ico"
+        write_ico(path, [(s, icon_for_ext(ext, s)) for s in SIZES])
+    total = sum((OUT / f"prism-{e}.ico").stat().st_size for e in ALL_EXTS)
+    print(f"{len(ALL_EXTS)} per-extension icons, {total / 1024 / 1024:.1f} MB")
 
 
 if __name__ == "__main__":

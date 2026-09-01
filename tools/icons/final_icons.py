@@ -42,6 +42,7 @@ from round18 import CREAM, art_splat_bam
 from round21 import framed
 from round23 import bg_warm
 
+import extmap
 import langs
 
 # Where a page kind's mark sits, inset from the page. Derived, or every glyph
@@ -176,12 +177,13 @@ def _hairline(base, size, colour=PAPER_EDGE):
     return out
 
 
-def _document(kind, size):
+def _document(kind, size, text=None):
     """A page kind, plus the hairline that keeps white paper visible on white."""
-    return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind]), size)
+    return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind], text=text), size)
 
 
-def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK):
+def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK,
+                    text=None):
     """A page kind rendered with an arbitrary glyph.
 
     Exists so a mockup round can try alternative marks through the REAL
@@ -202,39 +204,40 @@ def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK)
     CODE, whose dark page would swallow all four.
     """
     ext, colour = COLOURS[kind]
+    ext = (text or ext).upper()
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
     spec = _spec(page=colour, fold=fold, band=band, band_at="bottom", glyph_col=mark,
                  glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
     return build(size, obj, spec)
 
 
-def _code(kind, size):
+def _code(kind, size, text=None):
     """The dark page: light fold, light chip, the label drawn rather than cut.
 
     PAGE is the shared grey the other kinds wear, used here for the MARKS -
     which is the inversion in one line.
     """
-    base = _page_kind_with(kind, size, PAGE_GLYPHS[kind],
-                           fold=PAGE, band=PAGE, label=CODE_PAGE, mark=CODE_BARS)
+    base = _page_kind_with(kind, size, PAGE_GLYPHS[kind], fold=PAGE, band=PAGE,
+                           label=CODE_PAGE, mark=CODE_BARS, text=text)
     return _hairline(base, size, CODE_EDGE)
 
 
-def _page_kind(kind, size):
-    """The five that are a page, a chip and one knocked-out glyph."""
-    return _page_kind_with(kind, size, PAGE_GLYPHS[kind])
+def _page_kind(kind, size, text=None):
+    """The five that are a page, a band and one knocked-out glyph."""
+    return _page_kind_with(kind, size, PAGE_GLYPHS[kind], text=text)
 
 
-def _archive(kind, size):
+def _archive(kind, size, text=None):
     """A container, not a page, with the chip low so the folder tab shows."""
     ext, colour = COLOURS[kind]
-    body, ink = archive_layers(size, folder_zip, folder_zip_ink, ext)
+    body, ink = archive_layers(size, folder_zip, folder_zip_ink, (text or ext).upper())
     out = Image.new("RGBA", body.size, (0, 0, 0, 0))
     out.paste(Image.new("RGBA", body.size, tuple(colour) + (255,)), (0, 0), body)
     out.alpha_composite(ink)
     return out
 
 
-def _comic(kind, size):
+def _comic(kind, size, text=None):
     """Pop-art sunburst ground, BAM lettered into a splat, baked at 4x.
 
     Deliberately not the layered path the picker uses: compositing before the
@@ -242,6 +245,7 @@ def _comic(kind, size):
     non-premultiplied alpha produces, and this file is the one that ships.
     """
     ext, colour = COLOURS[kind]
+    ext = (text or ext).upper()
     n = size * S
     m = page_mask(n)
     out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
@@ -273,23 +277,6 @@ def _comic(kind, size):
 
 
 RENDER = {k: _page_kind for k in PAGE_GLYPHS}
-def code_ext(ext, size):
-    """The code icon for ONE extension: its language's mark, its own label.
-
-    Everything else is code's own - the dark page, the light band, the light
-    fold, the hairline - so a .py and a .rs are one icon with a different thing
-    on it rather than two designs. The knockouts in the marks that have them
-    (the cog's bore, the cylinder's rim, the cup's handle) take the page
-    colour, which the sprocket argument carries.
-    """
-    mark = langs.MARKS[langs.EXTS[ext]]
-    obj = Kind("code", ext.upper(), CODE_PAGE, CODE_PAGE, "", mark, mark)
-    spec = _spec(page=CODE_PAGE, fold=PAGE, band=PAGE, band_at="bottom",
-                 glyph_col=CODE_BARS, glyph_box=BOX, text=ext.upper(),
-                 text_col=CODE_PAGE, sprocket=CODE_PAGE)
-    return _hairline(build(size, obj, spec), size, CODE_EDGE)
-
-
 RENDER["code"] = _code
 RENDER["document"] = _document
 RENDER["archive"] = _archive
@@ -301,14 +288,44 @@ RENDER["comic"] = _comic
 # moving with them.
 KINDS = sorted(COLOURS)
 
-# The per-extension code icons ship as `prism-code-<ext>.ico` beside the seven,
-# and assoc.nsh gives each its own ProgID. They are NOT kinds: an extension is
-# not a FileKind, and fileKind.ts still calls every one of these files `text`.
-LANG_EXTS = langs.SHIPPED
+
 
 
 def render(kind, size):
     return RENDER[kind](kind, size)
+
+
+# extension -> kind, read from fileKind.ts rather than restated. See extmap.
+EXT_KIND = extmap.kinds()
+
+
+def icon_for_ext(ext, size):
+    """The icon for ONE extension: its kind's composition, its own label.
+
+    AN .ico CARRIES ONE LABEL, so an icon shared by many extensions prints one
+    of their names on all of them - `prism-code.ico` said PY on 130 extensions
+    and `prism-image.ico` said JPG on 52, which is what the owner met when he
+    asked why his .log files were labelled PY. One icon per extension is the
+    only arrangement in which the band tells the truth, and this is it.
+
+    CODE additionally picks up its language's mark where there is one, so a .py
+    is snakes and a .rs is a cog; the rest keep the stepped bars, which is most
+    of the 160 extensions the code kind covers.
+    """
+    kind = EXT_KIND[ext]
+    if kind == "code":
+        mark = langs.MARKS.get(langs.EXTS.get(ext))
+        if mark is None:
+            return _code(kind, size, text=ext)
+        return _hairline(
+            _page_kind_with(kind, size, mark, fold=PAGE, band=PAGE,
+                            label=CODE_PAGE, mark=CODE_BARS, text=ext),
+            size, CODE_EDGE)
+    return RENDER[kind](kind, size, text=ext)
+
+
+#: Every extension that gets its own .ico and its own ProgID.
+ALL_EXTS = sorted(EXT_KIND)
 
 
 if __name__ == "__main__":

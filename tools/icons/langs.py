@@ -259,6 +259,28 @@ def prose(d, n, box, col, hole=None):
     doc_lines(d, n, box, col, hole)
 
 
+def gem(d, n, box, col, hole=None):
+    """A faceted stone - Ruby.
+
+    The crown facets are knocked out rather than drawn as lines: at 16px a
+    hairline between two facets closes up and the stone becomes a hexagon, while
+    a hole stays a hole.
+    """
+    cx, cy, s = _c(box)
+    w, top, bot = s * 0.40, cy - s * 0.26, cy + s * 0.40
+    d.polygon([(g(n, cx - w), g(n, top)), (g(n, cx + w), g(n, top)),
+               (g(n, cx), g(n, bot))], fill=col)
+    d.polygon([(g(n, cx - w), g(n, top)), (g(n, cx - w * 0.55), g(n, cy - s * 0.42)),
+               (g(n, cx + w * 0.55), g(n, cy - s * 0.42)), (g(n, cx + w), g(n, top))],
+              fill=col)
+    k = _hole_colour(hole)
+    if k:
+        d.polygon([(g(n, cx - w * 0.30), g(n, top - s * 0.012)),
+                   (g(n, cx + w * 0.30), g(n, top - s * 0.012)),
+                   (g(n, cx + w * 0.16), g(n, cy - s * 0.40)),
+                   (g(n, cx - w * 0.16), g(n, cy - s * 0.40))], fill=k)
+
+
 def swoosh(d, n, box, col, _hole=None):
     """A bird's sweep - Swift."""
     cx, cy, s = _c(box)
@@ -282,6 +304,7 @@ MARKS = {
     "sql": cylinder,
     "java": cup,
     "swift": swoosh,
+    "ruby": gem,
     "prose": prose,
     # Registered nowhere: their files have no extension. In-app only.
     "git": branch,
@@ -311,14 +334,33 @@ EXTS = {
     "jsx": "react", "tsx": "react",
     "vue": "vue",
     "py": "python", "pyw": "python",
-    "rs": "config", "toml": "config", "ini": "config",
-    "html": "html", "xhtml": "html", "svelte": "html",
-    "css": "css", "scss": "css", "less": "css",
-    "sh": "shell", "bash": "shell", "ps1": "shell", "bat": "shell", "cmd": "shell",
-    "json": "data", "yaml": "data", "yml": "data",
+    # CONFIGURATION is the cog's real subject and Rust only borrows it: a
+    # project file, a lock file and a .conf are all "settings", and they are a
+    # large family that would otherwise all show the generic bars.
+    "rs": "config", "toml": "config", "ini": "config", "cfg": "config",
+    "conf": "config", "env": "config", "editorconfig": "config",
+    "properties": "config", "props": "config", "targets": "config",
+    "lock": "config", "plist": "config", "inf": "config", "reg": "config",
+    "nix": "config", "tf": "config", "tfvars": "config", "cmake": "config",
+    "mk": "config", "sln": "config", "csproj": "config", "vbproj": "config",
+    "service": "config", "desktop": "config", "resx": "config",
+    "html": "html", "xhtml": "html", "svelte": "html", "astro": "html",
+    "jinja": "html", "j2": "html",
+    "css": "css", "scss": "css", "less": "css", "sass": "css", "styl": "css",
+    "sh": "shell", "bash": "shell", "zsh": "shell", "fish": "shell",
+    "ps1": "shell", "psm1": "shell", "bat": "shell", "cmd": "shell", "vbs": "shell",
+    "ahk": "shell", "awk": "shell",
+    "json": "data", "yaml": "data", "yml": "data", "json5": "data",
+    "jsonc": "data", "xml": "data", "xsd": "data", "xsl": "data", "xslt": "data",
+    "wsdl": "data", "proto": "data", "gql": "data", "graphql": "data",
+    "po": "data", "pot": "data",
     "sql": "sql",
-    "java": "java",
+    # The cup is the JVM, not Java alone - Kotlin, Scala and Groovy are the
+    # same platform and nobody mistakes a coffee cup for a language name.
+    "java": "java", "kt": "java", "kts": "java", "scala": "java",
+    "groovy": "java", "gradle": "java",
     "swift": "swift",
+    "rb": "ruby",
     # PROSE, and the list is not a new one: it is `codeLang.isProse`'s, which
     # the editor already uses to decide there is no gutter and no language to
     # show. `iconPaths.test.ts` asserts the two agree, because two lists of the
