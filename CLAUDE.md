@@ -892,10 +892,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   stay defined, pointing at the kind icons they always did; NOTHING is registered against
   them any more, so they matter only to somebody whose existing default names one, and for
   them the icon stays what it was until they choose Prism again - at which point Windows
-  writes the new per-extension class and the label becomes true. Until they do, those
-  seven icons carry NO LABEL AT ALL: one of them can be the default for any of a hundred
-  extensions, so an empty band on a .log is honest where PY on a .log is not. A blank is a
-  real answer; a wrong word is not.
+  writes the new per-extension class and the label becomes true. Until they do, those seven
+  icons name their CATEGORY rather than an extension - TEXT, IMAGE, VIDEO, AUDIO,
+  DOCUMENT, ARCHIVE, COMIC. One of them can be the default for any of a hundred
+  extensions, so no extension is a true answer for it (which is how it came to say PY on
+  130 kinds of file), but the class does know one true thing about every file that reaches
+  it: what KIND it is. Spelled out rather than abbreviated on purpose - "TXT" in the slot
+  where every other icon prints an extension reads as a claim that the file IS a .txt,
+  which on a .csv is the same small lie again, while "TEXT" reads as the category it is.
   **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
   type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
   cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the

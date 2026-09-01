@@ -296,19 +296,38 @@ def render(kind, size, text=None):
     return RENDER[kind](kind, size, text=text)
 
 
+# What the seven old classes print on their band. A CATEGORY, not an extension.
+#
+# They are shared: `Prism.Text` is the saved default for .csv, .log and .md at
+# once on this machine, so no extension is the right answer for it - which is
+# how it came to say PY on 130 kinds of file. But blank is not the only
+# alternative, because the class DOES know one true thing about every file that
+# reaches it: what kind it is.
+#
+# Spelled out rather than abbreviated on purpose. "TXT" in the slot where every
+# other icon prints an extension reads as a CLAIM that the file is a .txt, which
+# on a .csv is the same small lie again; "TEXT" reads as a category, which is
+# what it is. Same for DOCUMENT over DOC.
+LEGACY_LABEL = {
+    "image": "IMAGE", "video": "VIDEO", "audio": "AUDIO", "document": "DOCUMENT",
+    "code": "TEXT", "archive": "ARCHIVE", "comic": "COMIC",
+}
+
+
 def legacy(kind, size):
-    """A kind icon with an EMPTY band, for the seven old ProgIDs.
+    """A kind icon labelled with its CATEGORY, for the seven old ProgIDs.
 
     Those classes still exist so that an existing "always open with Prism"
     choice is not orphaned (see gen_assoc.LEGACY), and one of them can be the
     default for any of a hundred extensions - which is the whole reason the
-    per-extension set exists. So they carry NO label rather than a wrong one:
-    an empty band on a .log is honest, and PY on a .log is not.
+    per-extension set exists. So they name the kind rather than one of its
+    extensions: true for every file that reaches them, and the band stops being
+    either a lie or a blank.
 
     Anybody who re-picks Prism as the default gets the per-extension class and
-    its true label; until then the shape is right and nothing lies.
+    its exact extension; until then this is the most that can honestly be said.
     """
-    return RENDER[kind](kind, size, text="")
+    return RENDER[kind](kind, size, text=LEGACY_LABEL[kind])
 
 
 # extension -> kind, read from fileKind.ts rather than restated. See extmap.
