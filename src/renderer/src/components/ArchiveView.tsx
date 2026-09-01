@@ -62,11 +62,13 @@ const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastInde
 function MemberView({
   name,
   path,
-  kind
+  kind,
+  trail
 }: {
   name: string
   path: string
   kind: FileKind
+  trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
   const url = window.prism.mediaUrl(path)
   const noop = useCallback(() => {}, [])
@@ -129,6 +131,7 @@ function MemberView({
       // each level is one more preview, and Escape closes them in turn.
       return (
         <ArchiveView
+          trail={trail}
           file={
             {
               path,
@@ -180,7 +183,8 @@ export function ArchiveView({
   onUndoable,
   onRenameSelf,
   refreshKey = 0,
-  fullscreen = false
+  fullscreen = false,
+  trail
 }: {
   file: ViewerFile
   /** Something undoable happened in here (a move IN); App keeps the stack. */
@@ -191,6 +195,13 @@ export function ArchiveView({
   onRenameSelf?: (name: string) => void
   /** Bumped by App after an undo, so the listing re-reads the container. */
   refreshKey?: number
+  /** The archives this one is nested INSIDE, outermost first.
+   *
+   *  A nested archive continues the crumb row it was opened from rather than
+   *  starting a second one: an iso inside a zip reads
+   *  `outer.zip > inner.iso > folder >`, one path, every segment clickable.
+   *  Each entry knows how to return to its own level. */
+  trail?: { label: string; onBack: () => void }[]
   /** Fullscreen makes the row KEYS inert (2026-08-28). A rename or a delete
    *  that a keystroke starts while the tree, the crumbs and the dialogs are
    *  off screen is a change nobody saw coming; a click on a verb, which is
@@ -205,6 +216,7 @@ export function ArchiveView({
       onUndoable={onUndoable}
       onRenameSelf={onRenameSelf}
       refreshKey={refreshKey}
+      trail={trail}
     />
   )
 }
@@ -214,13 +226,16 @@ function ArchiveInner({
   onUndoable,
   onRenameSelf,
   refreshKey,
-  fullscreen
+  fullscreen,
+  trail
 }: {
   file: ViewerFile
   onUndoable?: (entry: UndoEntry) => void
   onRenameSelf?: (name: string) => void
   refreshKey: number
   fullscreen: boolean
+  /** The archives this one is nested inside, outermost first; see ArchiveView. */
+  trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
   // 'locked' is its own state (2026-08-30): a 7z or rar written with encrypted
   // file NAMES cannot be listed at all without the password, which is not the
@@ -1023,6 +1038,20 @@ function ArchiveInner({
                 reads the same coming back as it did going in (and the panel
                 never jumps a line). */}
           <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+            {trail?.map((a, i) => (
+              <span key={i} className="flex min-w-0 items-center gap-1">
+                <button
+                  className="no-drag min-w-0 truncate rounded px-1 py-0.5 text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                  onClick={a.onBack}
+                  title={`Back to ${a.label}`}
+                >
+                  {a.label}
+                </button>
+                <span aria-hidden className="text-[var(--p-dim2)]">
+                  ›
+                </span>
+              </span>
+            ))}
             <button
               className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
               onClick={() => setCwd('')}
@@ -1251,52 +1280,65 @@ function ArchiveInner({
           data-owns-escape
           className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]"
         >
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">
-            <button
-              className="no-drag grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-              onClick={() => setMember(null)}
-              title="Back to the archive (Esc)"
-              aria-label="Back to the archive"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width={13}
-                height={13}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+          {/*
+            A header for a member that is NOT an archive - an image, a text
+            file - because those viewers have no path of their own. An archive
+            member gets NONE: it continues this crumb row instead, so a zip
+            holding an iso reads as one path rather than as a bar above a bar.
+          */}
+          {member.kind !== 'archive' && (
+            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">
+              <button
+                className="no-drag grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                onClick={() => setMember(null)}
+                title="Back to the archive (Esc)"
+                aria-label="Back to the archive"
               >
-                <path d="M15 6l-6 6 6 6" />
+                <svg
+                  viewBox="0 0 24 24"
+                  width={13}
+                  height={13}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M15 6l-6 6 6 6" />
+                </svg>
+              </button>
+              {/*
+                A CRUMB, not a caption. Opening an iso inside a zip works, and
+                used to leave nothing but a chevron to get back by - and with a
+                second archive inside that one, no way to see where you were at
+                all. Each level renders its own crumb, so they stack into the
+                path: the container is a button that returns to it, the member is
+                the segment you are on, and the chevron between them reads as a
+                path the way the archive's own crumb row does.
+              */}
+              <button
+                className="no-drag min-w-0 shrink-0 truncate rounded px-1 text-[var(--p-dim)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                onClick={() => setMember(null)}
+                title={`Back to ${file.name}`}
+              >
+                {file.name}
+              </button>
+              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+                <path d="M9 6l6 6-6 6" />
               </svg>
-            </button>
-            {/*
-              A CRUMB, not a caption. Opening an iso inside a zip works, and
-              used to leave nothing but a chevron to get back by - and with a
-              second archive inside that one, no way to see where you were at
-              all. Each level renders its own crumb, so they stack into the
-              path: the container is a button that returns to it, the member is
-              the segment you are on, and the chevron between them reads as a
-              path the way the archive's own crumb row does.
-            */}
-            <button
-              className="no-drag min-w-0 shrink-0 truncate rounded px-1 text-[var(--p-dim)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-              onClick={() => setMember(null)}
-              title={`Back to ${file.name}`}
-            >
-              {file.name}
-            </button>
-            <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-            <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
-              {member.name}
-            </span>
-          </div>
+              <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
+                {member.name}
+              </span>
+            </div>
+          )}
           <div className="relative min-h-0 flex-1">
-            <MemberView name={member.name} path={member.path} kind={member.kind} />
+            <MemberView
+              name={member.name}
+              path={member.path}
+              kind={member.kind}
+              trail={[...(trail ?? []), { label: file.name, onBack: () => setMember(null) }]}
+            />
           </div>
         </div>
       )}
