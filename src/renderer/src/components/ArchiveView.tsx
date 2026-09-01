@@ -120,6 +120,27 @@ function MemberView({
           />
         </Suspense>
       )
+    case 'archive':
+      // A ZIP INSIDE A ZIP navigates like any other archive rather than
+      // dead-ending on "no viewer" (2026-09-01). It is an ordinary thing to
+      // meet - a game rip, a backup of a backup - and the member is a real
+      // file on disk by the time it gets here, so the panel that reads an
+      // archive can simply read this one. Recursion is bounded by the reader:
+      // each level is one more preview, and Escape closes them in turn.
+      return (
+        <ArchiveView
+          file={
+            {
+              path,
+              name,
+              ext: name.slice(name.lastIndexOf('.')),
+              kind: 'archive',
+              size: 0,
+              mtimeMs: 0
+            } as ViewerFile
+          }
+        />
+      )
     default:
       return (
         <div className="grid h-full place-items-center text-[13px] text-[var(--p-dim)]">
@@ -219,6 +240,14 @@ function ArchiveInner({
   }, [file.path])
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
+  /** The member currently being extracted for viewing, if any.
+   *
+   *  A member is copied out of the container before it can be shown, and on a
+   *  big one - the inner zip of a 3GB game rip, say - that is seconds to
+   *  minutes with nothing on screen. Silence there reads as the app having
+   *  hung rather than as it working, which is the same reason the extract-all
+   *  button says "Extracting..." rather than nothing. */
+  const [opening, setOpening] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(
     null
   )
@@ -351,16 +380,19 @@ function ArchiveInner({
   )
 
   const view = useCallback(
-    (entry: Entry): void =>
+    (entry: Entry): void => {
+      setOpening(entry.name)
       withPassword(entry, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
+          setOpening(null)
           if (r.ok) {
             setMember({ name: entry.name, path: r.path, kind: r.kind })
             return 'ok'
           }
           return r.reason
         })
-      ),
+      )
+    },
     [file.path, withPassword]
   )
   const copyOut = useCallback(
@@ -1196,6 +1228,14 @@ function ArchiveInner({
         </div>
       </div>
 
+      {opening && !member && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-[var(--p-bg)]/70">
+          <div className="flex items-center gap-3 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-4 py-3 text-[13px] text-[var(--p-text)]">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+            <span className="min-w-0 truncate">Opening {opening}...</span>
+          </div>
+        </div>
+      )}
       {member && (
         <div data-owns-escape className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]">
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">

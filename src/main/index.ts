@@ -2121,6 +2121,26 @@ if (!app.requestSingleInstanceLock()) {
     const archiveOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
     /**
+     * READING an archive, which a WRITE guard cannot answer (2026-09-01).
+     *
+     * A zip inside a zip is an ordinary thing - a game rip, a backup of a
+     * backup - and opening the inner one dead-ended: `archiveOk` demands
+     * `insideAnyRoot`, and a member Prism has just extracted for viewing lives
+     * in temp under `extractedPaths` instead. So the listing was refused and
+     * the member preview had nothing to show.
+     *
+     * This is the same softening the media wall already makes and for the same
+     * reason: the path is one MAIN ITSELF created and granted a moment ago, so
+     * it is not user input at all. Deliberately NOT a widening of `archiveOk`,
+     * which also gates add, move and member delete - the rule that writes stay
+     * inside a root is worth keeping, and a nested archive is read-only by
+     * construction anyway.
+     */
+    const archiveReadOk = (p: unknown): p is string =>
+      typeof p === 'string' &&
+      (insideAnyRoot(p) || extractedPaths.has(p)) &&
+      fileKind(extname(p)) === 'archive'
+    /**
      * A comic book has its OWN guard, not `archiveOk` widened (2026-08-31).
      *
      * Widening that one would put Extract all, Add files and member Delete -
@@ -2275,7 +2295,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'archive:list',
       async (_e, p: string, password?: string): Promise<ArchiveListing> => {
-        if (!archiveOk(p)) return { ok: false, reason: 'failed' }
+        if (!archiveReadOk(p)) return { ok: false, reason: 'failed' }
         try {
           const exe = seven(p)
           if (!exe) {
@@ -2298,7 +2318,9 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'archive:extract',
       async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
-        if (!archiveOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
+        // The READ gate: extracting a member to view it is a read, and the
+        // container may itself be a member Prism extracted a moment ago.
+        if (!archiveReadOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
         try {
           const exe = seven(p)
           // The cap is ADM-ZIP's - it reads the whole container into memory.
