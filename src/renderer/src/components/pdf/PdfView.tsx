@@ -252,10 +252,19 @@ export function PdfView({
   }
   useEffect(() => {
     if (!openedFor) return
-    // After the layout the opening scale produces, not before it.
+    // After the layout the opening scale produces, not before it - and the
+    // laid-out width is the honest test. Predicting it from the page size and
+    // the padding is right up to whatever the prediction did not know about;
+    // asking the box whether it actually overflows costs one frame and cannot
+    // be wrong. A document that does still fits itself to the width here.
     const id = requestAnimationFrame(() => {
       const box = scroller.current
-      if (!box || box.scrollWidth <= box.clientWidth) return
+      if (!box) return
+      if (box.scrollWidth > box.clientWidth + 1) {
+        setMode('fit-width')
+        return
+      }
+      if (box.scrollWidth <= box.clientWidth) return
       box.scrollLeft = (box.scrollWidth - box.clientWidth) / 2
     })
     return () => cancelAnimationFrame(id)
@@ -750,6 +759,15 @@ export function PdfView({
         data-doc-scroller
         onScroll={onScroll}
         className="h-full w-full overflow-auto outline-none"
+        /*
+         * The vertical scrollbar's space is RESERVED. A multi-page document
+         * always grows one, but not until its pages have rendered - so the
+         * width measured when deciding how to open was about 15px too
+         * generous, and a page sized to it overflowed by exactly that once
+         * the bar appeared. A stable gutter makes clientWidth the same
+         * number before and after, which is what the fit derives from.
+         */
+        style={{ scrollbarGutter: 'stable' }}
       >
         {!doc ? (
           <div className="delayed-loader grid h-full place-items-center">
