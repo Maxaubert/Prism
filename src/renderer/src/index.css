@@ -362,6 +362,39 @@ input[type='color']::-webkit-color-swatch {
   max-width: 44rem;
   margin-inline: auto;
 }
+/*
+ * A PAGE IS A PAGE EVEN WHEN THE DOCUMENT IS SHORT. A two-line letter was
+ * coming out as a two-line strip of paper, where Word - and a pdf exported from
+ * it - shows a full sheet with the rest of it blank. So the sheet has a floor of
+ * one A4 page.
+ *
+ * Done with a zero-width float rather than `aspect-ratio` or a fixed
+ * min-height, and both alternatives were rejected for a reason. A fixed value
+ * cannot work: the sheet is `max-width: 52rem` but narrows with the window, and
+ * a floor measured for 52rem makes a page half again too long once the sidebar
+ * is open. `aspect-ratio` sets the height FROM the width, which is right for a
+ * short document and wrong for a long one - content taller than the ratio
+ * overflows the box rather than growing it, because the automatic minimum size
+ * that would prevent that applies to flex and grid items, not to blocks.
+ *
+ * A percentage padding resolves against the containing block's WIDTH, so a
+ * float of zero width and 141.4% padding is exactly one A4 page tall whatever
+ * the sheet's width turns out to be. Being zero-width it displaces no text, and
+ * being a float it sets a floor the container grows past when the document is
+ * longer than a page.
+ */
+.p-sheet::before {
+  content: '';
+  display: block;
+  float: left;
+  width: 0;
+  padding-top: 141.4%;
+}
+.p-sheet::after {
+  content: '';
+  display: block;
+  clear: both;
+}
 .p-doc h1, .p-doc h2, .p-doc h3, .p-doc h4 {
   margin: 1.9em 0 0.6em;
   font-weight: 650;
