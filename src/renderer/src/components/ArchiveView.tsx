@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
 import { formatBytes, formatWhen, savedPercent } from '../lib/format'
 import { typeLabel } from '../lib/typeLabel'
@@ -20,9 +21,7 @@ import type { UndoEntry } from '../lib/undo'
 // pdf.js and the markdown pipeline into the launch bundle. A member preview
 // waits a frame for its viewer; that is what MemberView's Suspense is for.
 const CodeView = lazy(() => import('./CodeView').then((m) => ({ default: m.CodeView })))
-const MarkdownView = lazy(() =>
-  import('./MarkdownView').then((m) => ({ default: m.MarkdownView }))
-)
+const MarkdownView = lazy(() => import('./MarkdownView').then((m) => ({ default: m.MarkdownView })))
 const PdfView = lazy(() => import('./pdf/PdfView').then((m) => ({ default: m.PdfView })))
 
 // The inside of a zip (#68): Explorer-shaped, not a tree. You are always IN
@@ -63,11 +62,13 @@ const parentOf = (p: string): string => (p.includes('/') ? p.slice(0, p.lastInde
 function MemberView({
   name,
   path,
-  kind
+  kind,
+  trail
 }: {
   name: string
   path: string
   kind: FileKind
+  trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
   const url = window.prism.mediaUrl(path)
   const noop = useCallback(() => {}, [])
@@ -121,6 +122,28 @@ function MemberView({
           />
         </Suspense>
       )
+    case 'archive':
+      // A ZIP INSIDE A ZIP navigates like any other archive rather than
+      // dead-ending on "no viewer" (2026-09-01). It is an ordinary thing to
+      // meet - a game rip, a backup of a backup - and the member is a real
+      // file on disk by the time it gets here, so the panel that reads an
+      // archive can simply read this one. Recursion is bounded by the reader:
+      // each level is one more preview, and Escape closes them in turn.
+      return (
+        <ArchiveView
+          trail={trail}
+          file={
+            {
+              path,
+              name,
+              ext: name.slice(name.lastIndexOf('.')),
+              kind: 'archive',
+              size: 0,
+              mtimeMs: 0
+            } as ViewerFile
+          }
+        />
+      )
     default:
       return (
         <div className="grid h-full place-items-center text-[13px] text-[var(--p-dim)]">
@@ -151,12 +174,17 @@ function LockBadge(): JSX.Element {
 }
 
 /** Keyed by path, so switching zip to zip starts the inner state fresh. */
+/** One collator, hoisted: a fresh one per comparison is the 23ms-vs-0.5ms
+ *  lesson dirList.ts already paid for. */
+const collator = new Intl.Collator(undefined, { numeric: true })
+
 export function ArchiveView({
   file,
   onUndoable,
   onRenameSelf,
   refreshKey = 0,
-  fullscreen = false
+  fullscreen = false,
+  trail
 }: {
   file: ViewerFile
   /** Something undoable happened in here (a move IN); App keeps the stack. */
@@ -167,6 +195,13 @@ export function ArchiveView({
   onRenameSelf?: (name: string) => void
   /** Bumped by App after an undo, so the listing re-reads the container. */
   refreshKey?: number
+  /** The archives this one is nested INSIDE, outermost first.
+   *
+   *  A nested archive continues the crumb row it was opened from rather than
+   *  starting a second one: an iso inside a zip reads
+   *  `outer.zip > inner.iso > folder >`, one path, every segment clickable.
+   *  Each entry knows how to return to its own level. */
+  trail?: { label: string; onBack: () => void }[]
   /** Fullscreen makes the row KEYS inert (2026-08-28). A rename or a delete
    *  that a keystroke starts while the tree, the crumbs and the dialogs are
    *  off screen is a change nobody saw coming; a click on a verb, which is
@@ -181,6 +216,7 @@ export function ArchiveView({
       onUndoable={onUndoable}
       onRenameSelf={onRenameSelf}
       refreshKey={refreshKey}
+      trail={trail}
     />
   )
 }
@@ -190,13 +226,16 @@ function ArchiveInner({
   onUndoable,
   onRenameSelf,
   refreshKey,
-  fullscreen
+  fullscreen,
+  trail
 }: {
   file: ViewerFile
   onUndoable?: (entry: UndoEntry) => void
   onRenameSelf?: (name: string) => void
   refreshKey: number
   fullscreen: boolean
+  /** The archives this one is nested inside, outermost first; see ArchiveView. */
+  trail?: { label: string; onBack: () => void }[]
 }): JSX.Element {
   // 'locked' is its own state (2026-08-30): a 7z or rar written with encrypted
   // file NAMES cannot be listed at all without the password, which is not the
@@ -205,6 +244,8 @@ function ArchiveInner({
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
   // panel offers no verbs that would fail. zip keeps all of its.
   const [readOnly, setReadOnly] = useState(false)
+  /** How far an extraction has got, or null when none is running. */
+  const [pct, setPct] = useState<number | null>(null)
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
   /** The panel's dead-space menu, kept apart from the row menu's state. */
@@ -214,6 +255,16 @@ function ArchiveInner({
   }, [file.path])
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
+  /** The member currently being extracted for viewing, if any.
+   *
+   *  A member is copied out of the container before it can be shown, and on a
+   *  big one - the inner zip of a 3GB game rip, say - that is seconds to
+   *  minutes with nothing on screen. Silence there reads as the app having
+   *  hung rather than as it working, which is the same reason the extract-all
+   *  button says "Extracting..." rather than nothing. */
+  const [opening, setOpening] = useState<string | null>(null)
+  /** The member overlay, so Escape can tell whether a DEEPER one is inside it. */
+  const memberBox = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(
     null
   )
@@ -245,7 +296,21 @@ function ArchiveInner({
   }, [])
   const [oops, setOops] = useState<string | null>(null)
   /** Where "Extract all" put things, so the note can offer to show you. */
-  const [extracted, setExtracted] = useState<string | null>(null)
+  /**
+   * Just finished, for about two seconds.
+   *
+   * The completion POPUP is gone (owner decision, 2026-08-31): a modal is a
+   * lot of ceremony for "the thing you asked for happened". But a multi-minute
+   * extraction that ends in silence is not much better, so the button you
+   * pressed says so and then goes back to what it was. No new element, so
+   * nothing moves.
+   */
+  const [justDone, setJustDone] = useState(false)
+  useEffect(() => {
+    if (!justDone) return
+    const t = window.setTimeout(() => setJustDone(false), 2200)
+    return () => window.clearTimeout(t)
+  }, [justDone])
   const [busy, setBusy] = useState<'extract' | 'add' | null>(null)
   /** Renaming the archive itself, from the verb row. */
   const [renamingSelf, setRenamingSelf] = useState(false)
@@ -267,7 +332,11 @@ function ArchiveInner({
           // A password that got us in belongs to the renderer's own store too,
           // so dragging a member out to a folder does not ask again.
           if (password) rememberArchivePassword(file.path, password)
-          setEntries(r.entries)
+          // A zip's directory records are OPTIONAL and plenty of writers
+          // leave them out, which used to make such an archive read as
+          // EMPTY: every member's parent was two levels down and the
+          // folders those names imply did not exist to be listed.
+          setEntries(withImpliedFolders(r.entries))
           return
         }
         setEntries(r.reason === 'password' ? 'locked' : 'error')
@@ -282,7 +351,7 @@ function ArchiveInner({
     if (!entries || entries === 'error' || entries === 'locked') return []
     return entries
       .filter((e) => parentOf(e.path) === cwd)
-      .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
+      .sort((a, b) => (a.dir === b.dir ? collator.compare(a.name, b.name) : a.dir ? -1 : 1))
   }, [entries, cwd])
   // The label on the box: what the WHOLE archive holds, plus its size on disk.
   const totals = useMemo(() => {
@@ -328,16 +397,19 @@ function ArchiveInner({
   )
 
   const view = useCallback(
-    (entry: Entry): void =>
+    (entry: Entry): void => {
+      setOpening(entry.name)
       withPassword(entry, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
+          setOpening(null)
           if (r.ok) {
             setMember({ name: entry.name, path: r.path, kind: r.kind })
             return 'ok'
           }
           return r.reason
         })
-      ),
+      )
+    },
     [file.path, withPassword]
   )
   const copyOut = useCallback(
@@ -388,6 +460,13 @@ function ArchiveInner({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (member && e.key === 'Escape') {
+        // A nested archive puts a second overlay INSIDE this one, and both
+        // handlers sit on the window, so an unguarded Escape closed this level
+        // and its parent at once - out of a file, out of the archive holding
+        // it, in one press. Whichever overlay has no deeper one inside it is
+        // the one that answers, which is the same `data-owns-escape` contract
+        // App already yields on.
+        if (memberBox.current?.querySelector('[data-owns-escape]')) return
         e.stopPropagation()
         setMember(null)
       } else if (!member && e.key === 'Backspace' && cwd && !editing && !askPass && !confirmDel) {
@@ -407,6 +486,13 @@ function ArchiveInner({
       setSel((s) => clickSelect(order, s, path, { shift: e.shiftKey, ctrl: e.ctrlKey }))
     },
     [order]
+  )
+  useEffect(
+    () =>
+      window.prism.onArchiveProgress((m) => {
+        if (m.path.toLowerCase() === file.path.toLowerCase()) setPct(m.pct)
+      }),
+    [file.path]
   )
   /** Copy every selected FILE out at once; folders don't extract. */
   const copyMany = useCallback(
@@ -428,6 +514,58 @@ function ArchiveInner({
       })()
     },
     [file.path, rows]
+  )
+  /**
+   * Copy a FOLDER out as a folder.
+   *
+   * `copyMany` extracts each member on its own and puts the loose files on
+   * the clipboard, which is right for a multi-selection of files and wrong
+   * for a folder: you right-clicked one thing and got a flat pile of what was
+   * inside it. Main extracts the whole subtree to one temp directory with its
+   * shape intact, and that directory is what goes on the clipboard.
+   */
+  const copyFolder = useCallback(
+    (entry: string): void => {
+      setPct(null)
+      setBusy('extract')
+      void window.prism.archiveExtractDir(file.path, entry).then((r) => {
+        setBusy(null)
+        setPct(null)
+        if (r.ok) void window.prism.copyFilesToClipboard([r.path])
+        else if (r.reason === 'password' || r.reason === 'aes')
+          setOops(
+            'That folder is password protected. Open a member first to unlock the archive, then copy again.'
+          )
+        else
+          setOops(
+            r.message
+              ? `That folder couldn't be copied. ${r.message}`
+              : "That folder couldn't be copied."
+          )
+      })
+    },
+    [file.path]
+  )
+  /** One folder from inside the archive, out beside the archive itself. */
+  const extractFolderHere = useCallback(
+    (entry: string): void => {
+      setPct(null)
+      setBusy('extract')
+      void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
+        setBusy(null)
+        setPct(null)
+        if (r.ok) setJustDone(true)
+        else if (r.reason === 'password' || r.reason === 'aes')
+          setOops('That folder is password protected. Open a member first to unlock the archive.')
+        else
+          setOops(
+            r.message
+              ? `That folder couldn't be extracted. ${r.message}`
+              : "That folder couldn't be extracted."
+          )
+      })
+    },
+    [file.path]
   )
   const deleteMany = useCallback(
     (paths: string[]): void => {
@@ -459,19 +597,31 @@ function ArchiveInner({
   /** Extract the whole thing. Main asks where (its dialog IS the consent, and
    *  is why the destination need not be inside a Prism root), and puts the
    *  contents in a folder named after the archive. */
-  const extractAll = useCallback((): void => {
-    setBusy('extract')
-    void window.prism.archiveExtractAll(file.path).then((r) => {
-      setBusy(null)
-      if (r.ok) setExtracted(r.dest)
-      else if (r.reason === 'cancelled') return
-      else if (r.reason === 'password')
-        setOops(
-          'This archive is password protected. Open a member first to unlock it, then extract.'
-        )
-      else setOops("That archive couldn't be extracted.")
-    })
-  }, [file.path])
+  const extractAll = useCallback(
+    (here = false): void => {
+      setPct(null)
+      setBusy('extract')
+      void window.prism.archiveExtractAll(file.path, here).then((r) => {
+        setBusy(null)
+        setPct(null)
+        if (r.ok) setJustDone(true)
+        else if (r.reason === 'cancelled') return
+        else if (r.reason === 'password')
+          setOops(
+            'This archive is password protected. Open a member first to unlock it, then extract.'
+          )
+        // The line 7-Zip actually printed, when there is one: "couldn't be
+        // extracted" on its own is a failure nobody can act on.
+        else
+          setOops(
+            r.message
+              ? `That archive couldn't be extracted. ${r.message}`
+              : "That archive couldn't be extracted."
+          )
+      })
+    },
+    [file.path]
+  )
 
   /**
    * Drag-select, the archive's alone (2026-08-25).
@@ -701,8 +851,15 @@ function ArchiveInner({
     const n = members.length
     const items: MenuItem[] = [
       { label: 'Open', onPick: () => setCwd(entry.path) },
+      // The folder itself, not the files that happen to be in it.
+      { label: 'Copy folder', disabled: n === 0, onPick: () => copyFolder(entry.path) },
       {
-        label: `Copy ${n} file${n === 1 ? '' : 's'}`,
+        label: 'Extract folder here',
+        disabled: n === 0,
+        onPick: () => extractFolderHere(entry.path)
+      },
+      {
+        label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
         disabled: n === 0,
         onPick: () => copyMany(members)
       }
@@ -794,7 +951,7 @@ function ArchiveInner({
           {sysIcon ? (
             <img src={sysIcon} width={48} height={48} alt="" aria-hidden />
           ) : (
-            <KindIcon kind="archive" color="var(--p-tree-archive)" />
+            <KindIcon kind="archive" color={iconColour('archive')} />
           )}
         </span>
         <div className="max-w-[36rem] truncate text-[14px] font-semibold text-[var(--p-text)]">
@@ -807,10 +964,24 @@ function ArchiveInner({
             archive to do, and hunting a menu for "extract" was the gap. */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
           <ArcVerb
-            label={busy === 'extract' ? 'Extracting…' : 'Extract all…'}
+            label={
+              busy === 'extract'
+                ? pct === null
+                  ? 'Extracting…'
+                  : `Extracting… ${pct}%`
+                : justDone
+                  ? 'Extracted'
+                  : 'Extract here'
+            }
             disabled={busy !== null}
-            onClick={extractAll}
+            onClick={() => extractAll(true)}
             path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
+          />
+          <ArcVerb
+            label="Extract to…"
+            disabled={busy !== null}
+            onClick={() => extractAll(false)}
+            path="M12 4v10m0 0l-4-4m4 4l4-4M4 19h6m4 0h6"
           />
           {!readOnly && (
             <ArcVerb
@@ -838,6 +1009,28 @@ function ArchiveInner({
             path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
           />
         </div>
+        {/* The track is ALWAYS in the layout and only fades in, so starting
+            and finishing an extraction moves nothing: the first cut of this
+            inserted the bar when the work began, which pushed the member list
+            down and pulled it back up again. Only painted once 7-Zip has said
+            a number - a bar that appears at 0 and sits there is worse than the
+            word on the button. */}
+        <div
+          className={`mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)] transition-opacity duration-200 ${
+            busy === 'extract' && pct !== null ? 'opacity-100' : 'opacity-0'
+          }`}
+          role="progressbar"
+          aria-valuenow={pct ?? 0}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Extracting"
+          aria-hidden={busy === 'extract' && pct !== null ? undefined : true}
+        >
+          <div
+            className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
+            style={{ width: `${pct ?? 0}%` }}
+          />
+        </div>
 
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
@@ -845,19 +1038,39 @@ function ArchiveInner({
                 reads the same coming back as it did going in (and the panel
                 never jumps a line). */}
           <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+            {trail?.map((a, i) => (
+              <span key={i} className="flex min-w-0 items-center gap-1">
+                <button
+                  className="no-drag min-w-0 truncate rounded px-1 py-0.5 text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                  onClick={a.onBack}
+                  title={`Back to ${a.label}`}
+                >
+                  {a.label}
+                </button>
+                <span aria-hidden className="text-[var(--p-dim2)]">
+                  ›
+                </span>
+              </span>
+            ))}
             <button
-              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+              className={`no-drag rounded px-1 py-0.5 ${crumbs.length ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
               onClick={() => setCwd('')}
             >
               {file.name}
             </button>
             {crumbs.length > 0 && (
               <>
+                {/* Chevrons rather than slashes, and the folder you are IN in
+                    full contrast and semibold (2026-08-31). It was all one
+                    grey with `/` between, which read as a sentence rather than
+                    as a path you can click your way back along. */}
                 {crumbs.map((seg, i) => (
                   <span key={i} className="flex items-center gap-1">
-                    <span className="text-[var(--p-dim2)]">/</span>
+                    <span aria-hidden className="text-[var(--p-dim2)]">
+                      ›
+                    </span>
                     <button
-                      className={`no-drag rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'text-[var(--p-text)]'}`}
+                      className={`no-drag rounded px-1 py-0.5 ${i < crumbs.length - 1 ? 'text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]' : 'font-semibold text-[var(--p-text)]'}`}
                       onClick={() => setCwd(crumbs.slice(0, i + 1).join('/'))}
                     >
                       {seg}
@@ -866,6 +1079,12 @@ function ArchiveInner({
                 ))}
               </>
             )}
+            {/* And one AFTER the folder you are in (2026-08-31). Chevrons only
+                BETWEEN segments read as a separator between two names; a
+                trailing one is what makes the row read as a path. */}
+            <span aria-hidden className="text-[var(--p-dim2)]">
+              ›
+            </span>
           </div>
           <div
             ref={panelBox}
@@ -896,7 +1115,13 @@ function ArchiveInner({
               <span className={COL_PACKED}>Packed</span>
               <span className={COL_WHEN}>Modified</span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+            {/* No horizontal padding: the rows run EDGE TO EDGE, so the zebra
+                stripes and the selection fill reach both borders instead of
+                floating as rounded tiles inside a gutter (owner pick,
+                2026-08-31). The rows carry the text inset themselves, at the
+                same px-4 the column header uses, so the columns still line
+                up. */}
+            <div data-arc-list className="min-h-0 flex-1 overflow-y-auto pb-1.5">
               {entries === null ? (
                 <div className="px-3 py-2 text-[12px] italic text-[var(--p-dim2)]">loading…</div>
               ) : rows.length === 0 ? (
@@ -909,9 +1134,9 @@ function ArchiveInner({
                   aria-label={`Contents of ${cwd || file.name}`}
                   className="list-none"
                 >
-                  {rows.map((r) =>
+                  {rows.map((r, rowIndex) =>
                     editing === r.path ? (
-                      <li key={r.path} className="px-2">
+                      <li key={r.path} className="px-3.5">
                         <RenameInput
                           name={r.name}
                           onSubmit={(v) => submitRename(r, v)}
@@ -930,30 +1155,13 @@ function ArchiveInner({
                           data-arc-row={r.path}
                           aria-selected={sel.items.has(r.path)}
                           data-selected={sel.items.has(r.path) || undefined}
-                          className={`flex h-[28px] w-full cursor-pointer items-center gap-2 rounded-[var(--p-radius-sm)] px-2.5 text-left text-[12.5px] outline-none ${
+                          className={`flex h-[28px] w-full cursor-pointer items-center gap-2 px-4 text-left text-[12.5px] outline-none ${
                             dropTarget === r.path
                               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
                               : sel.items.has(r.path)
                                 ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
-                                : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]'
+                                : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
-                          style={
-                            // Contiguous selected rows fuse into one block.
-                            sel.items.has(r.path)
-                              ? (() => {
-                                  const i = order.indexOf(r.path)
-                                  const top = i > 0 && sel.items.has(order[i - 1])
-                                  const bottom =
-                                    i >= 0 && i < order.length - 1 && sel.items.has(order[i + 1])
-                                  return {
-                                    borderTopLeftRadius: top ? 0 : undefined,
-                                    borderTopRightRadius: top ? 0 : undefined,
-                                    borderBottomLeftRadius: bottom ? 0 : undefined,
-                                    borderBottomRightRadius: bottom ? 0 : undefined
-                                  }
-                                })()
-                              : undefined
-                          }
                           draggable
                           onDragStart={(e) => onRowDragStart(e, r.path)}
                           onDragEnd={() => {
@@ -1003,6 +1211,8 @@ function ArchiveInner({
                             <KindIcon
                               kind={fileKind(extOf(r.name), r.name)}
                               color={iconColour(fileKind(extOf(r.name), r.name))}
+                              ext={extOf(r.name)}
+                              name={r.name}
                             />
                           )}
                           <span className="min-w-0 flex-1 truncate">{r.name}</span>
@@ -1057,34 +1267,79 @@ function ArchiveInner({
         </div>
       </div>
 
-      {member && (
-        <div data-owns-escape className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]">
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">
-            <button
-              className="no-drag grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-              onClick={() => setMember(null)}
-              title="Back to the archive (Esc)"
-              aria-label="Back to the archive"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width={13}
-                height={13}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M15 6l-6 6 6 6" />
-              </svg>
-            </button>
-            <span className="min-w-0 truncate text-[var(--p-text)]">{member.name}</span>
-            <span className="min-w-0 truncate text-[var(--p-dim2)]">from {file.name}</span>
+      {opening && !member && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-[var(--p-bg)]/70">
+          <div className="flex items-center gap-3 rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-4 py-3 text-[13px] text-[var(--p-text)]">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+            <span className="min-w-0 truncate">Opening {opening}...</span>
           </div>
+        </div>
+      )}
+      {member && (
+        <div
+          ref={memberBox}
+          data-owns-escape
+          className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]"
+        >
+          {/*
+            A header for a member that is NOT an archive - an image, a text
+            file - because those viewers have no path of their own. An archive
+            member gets NONE: it continues this crumb row instead, so a zip
+            holding an iso reads as one path rather than as a bar above a bar.
+          */}
+          {member.kind !== 'archive' && (
+            <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">
+              <button
+                className="no-drag grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                onClick={() => setMember(null)}
+                title="Back to the archive (Esc)"
+                aria-label="Back to the archive"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={13}
+                  height={13}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M15 6l-6 6 6 6" />
+                </svg>
+              </button>
+              {/*
+                A CRUMB, not a caption. Opening an iso inside a zip works, and
+                used to leave nothing but a chevron to get back by - and with a
+                second archive inside that one, no way to see where you were at
+                all. Each level renders its own crumb, so they stack into the
+                path: the container is a button that returns to it, the member is
+                the segment you are on, and the chevron between them reads as a
+                path the way the archive's own crumb row does.
+              */}
+              <button
+                className="no-drag min-w-0 shrink-0 truncate rounded px-1 text-[var(--p-dim)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+                onClick={() => setMember(null)}
+                title={`Back to ${file.name}`}
+              >
+                {file.name}
+              </button>
+              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+              <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
+                {member.name}
+              </span>
+            </div>
+          )}
           <div className="relative min-h-0 flex-1">
-            <MemberView name={member.name} path={member.path} kind={member.kind} />
+            <MemberView
+              name={member.name}
+              path={member.path}
+              kind={member.kind}
+              trail={[...(trail ?? []), { label: file.name, onBack: () => setMember(null) }]}
+            />
           </div>
         </div>
       )}
@@ -1106,7 +1361,12 @@ function ArchiveInner({
               onPick: () =>
                 setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
             },
-            { label: 'Copy archive', onPick: () => void window.prism.copyFileToClipboard(file.path) },
+            { label: 'Extract here', disabled: busy !== null, onPick: () => extractAll(true) },
+            { label: 'Extract to…', disabled: busy !== null, onPick: () => extractAll(false) },
+            {
+              label: 'Copy archive',
+              onPick: () => void window.prism.copyFileToClipboard(file.path)
+            },
             {
               label: 'Show in File Explorer',
               onPick: () => window.prism.showInExplorer(file.path)
@@ -1172,28 +1432,6 @@ function ArchiveInner({
           ]}
         />
       )}
-      {extracted && (
-        <Dialog
-          title="Extracted"
-          body={
-            <>
-              Everything in this archive is now in <b>{extracted}</b>.
-            </>
-          }
-          onCancel={() => setExtracted(null)}
-          choices={[
-            { label: 'Close', onPick: () => setExtracted(null) },
-            {
-              label: 'Show me',
-              primary: true,
-              onPick: () => {
-                window.prism.showInExplorer(extracted)
-                setExtracted(null)
-              }
-            }
-          ]}
-        />
-      )}
       {renamingSelf && (
         <RenameArchiveDialog
           name={file.name}
@@ -1204,6 +1442,7 @@ function ArchiveInner({
           }}
         />
       )}
+
       {oops && (
         <Dialog
           title="Archive"

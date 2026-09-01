@@ -11,6 +11,8 @@ import type {
   SearchResult,
   ShellDef,
   MediaProbe,
+  TailEvent,
+  TailRead,
   TextRead,
   WriteResult
 } from '@shared/types'
@@ -46,6 +48,7 @@ const api = {
       file?: string
       term?: 'full' | 'split'
       agent?: 'claude' | 'codex'
+      open?: string[]
     }>,
     active: number
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
@@ -72,12 +75,43 @@ const api = {
   trashFile: (path: string): Promise<boolean> => ipcRenderer.invoke('file:trash', path),
   /** Read a small text file (for the text/code/markdown viewer). */
   readText: (path: string): Promise<TextRead> => ipcRenderer.invoke('file:text', path),
+  /** The LAST `max` bytes of a file, for one too big for readText. Read-only
+   *  by construction: it answers where it starts and how big the file really
+   *  is, and never claims to be the file. */
+  tailBytes: (path: string, max: number): Promise<TailRead | null> =>
+    ipcRenderer.invoke('file:tailBytes', path, max),
+  /** Follow a file that is still being written, from `from` bytes in. New
+   *  text arrives through onFileAppended until stopTail. */
+  startTail: (path: string, from: number): Promise<boolean> =>
+    ipcRenderer.invoke('tail:start', path, from),
+  stopTail: (path: string): Promise<void> => ipcRenderer.invoke('tail:stop', path),
   /** Save the editor's text over the file. Text kinds only, inside the root.
    *  Answers with a reason, so a failed save can say why rather than only
    *  that it failed. */
   writeText: (path: string, text: string): Promise<WriteResult> =>
     ipcRenderer.invoke('file:write', path, text),
 
+  /** What the camera wrote into a photo: camera, lens, exposure, when, GPS.
+   *  Read in main from the file itself, so it works for HEIC and camera RAW,
+   *  whose decoded copies carry no metadata at all. */
+  photoInfo: (
+    path: string
+  ): Promise<{
+    camera?: string
+    lens?: string
+    exposure?: string
+    taken?: string
+    colour?: string
+    gps?: { lat: number; lon: number }
+    dimensions?: string
+  }> => ipcRenderer.invoke('image:photo-info', path),
+  /** Paste whatever files are on the clipboard into a folder. The sources may
+   *  be anywhere (you copied them in Explorer); the destination must be inside
+   *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
+  pasteInto: (
+    dir: string
+  ): Promise<{ pasted: number; failed: number; refused?: boolean; empty?: boolean }> =>
+    ipcRenderer.invoke('file:paste-into', dir),
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
@@ -157,6 +191,16 @@ const api = {
     clipboard.writeImage(img)
     return true
   },
+  /**
+   * Save the picture as an ordinary PNG or JPEG. Main asks where, and that
+   * dialog is the consent that lets it land outside every root. Resolves with
+   * where it went, or null if the dialog was cancelled or the write failed.
+   */
+  saveImageCopy: (
+    bytes: ArrayBuffer,
+    suggested: string,
+    format: 'png' | 'jpeg'
+  ): Promise<string | null> => ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),
@@ -234,13 +278,28 @@ const api = {
    *  bare null read as "corrupt archive" with nowhere to type one. */
   archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
     ipcRenderer.invoke('archive:list', path, password),
-  /** Extract the whole archive somewhere the user picks (main asks), into a
-   *  folder named after it. Resolves with where it landed. */
+  /** Extract the whole archive into a folder named after it. `here` skips the
+   *  dialog and lands beside the archive; otherwise main asks where. An
+   *  archive whose whole content is one folder hands that folder up rather
+   *  than burying it a level deeper. Resolves with where it landed. */
   archiveExtractAll: (
-    path: string
+    path: string,
+    here = false
   ): Promise<
-    { ok: true; dest: string } | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
-  > => ipcRenderer.invoke('archive:extract-all', path),
+    | { ok: true; dest: string }
+    | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed'; message?: string }
+  > => ipcRenderer.invoke('archive:extract-all', path, here),
+  /** A FOLDER inside the archive, extracted whole to a temp copy, shape
+   *  intact - so copying a folder gives you the folder and not a flat pile
+   *  of the files that were in it. */
+  archiveExtractDir: (
+    path: string,
+    entry: string,
+    here = false
+  ): Promise<
+    | { ok: true; path: string }
+    | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+  > => ipcRenderer.invoke('archive:extract-dir', path, entry, here),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
   archiveExtract: (
@@ -289,6 +348,31 @@ const api = {
     ipcRenderer.on('dir:changed', listener)
     return () => ipcRenderer.removeListener('dir:changed', listener)
   },
+  /** How far an archive extraction has got, 0-100. Only the 7-Zip path
+   *  reports: the adm-zip one is capped at 600MB and finishes too fast to
+   *  be worth a bar. */
+  onArchiveProgress: (cb: (m: { path: string; pct: number }) => void): (() => void) => {
+    const listener = (_: unknown, m: { path: string; pct: number }): void => cb(m)
+    ipcRenderer.on('archive:progress', listener)
+    return () => ipcRenderer.removeListener('archive:progress', listener)
+  },
+  /** A followed file grew (or was truncated, which is `reset`). */
+  onFileAppended: (cb: (e: TailEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: TailEvent): void => cb(e)
+    ipcRenderer.on('file:appended', listener)
+    return () => ipcRenderer.removeListener('file:appended', listener)
+  },
+
+  /**
+   * Open a comic book: unpack it once (cached) and answer its pages in
+   * reading order, as absolute paths for mediaUrl. Read-only - a comic has
+   * none of the archive panel's verbs, deliberately.
+   */
+  comicOpen: (
+    path: string,
+    password?: string
+  ): Promise<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }> =>
+    ipcRenderer.invoke('comic:open', path, password),
 
   /* ----- the terminal ----- */
 

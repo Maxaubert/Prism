@@ -107,6 +107,31 @@ const chrome = EditorView.theme(
     '.cm-panel.cm-search input[type=checkbox]': { accentColor: 'var(--p-accent)' },
     // Both selectors on purpose: CodeMirror's base theme styles these by class
     // (.cm-textfield / .cm-button), and only a class beats a class.
+    // Ctrl+G's panel is a `cm-dialog`, not a `cm-search`, and without these it
+    // renders a stock browser input in the middle of a styled app (2026-08-31).
+    '.cm-panel.cm-dialog': { padding: '6px 8px' },
+    '.cm-panel.cm-dialog input[type=text], .cm-panel.cm-dialog .cm-textfield': {
+      background: 'var(--p-bg)',
+      border: '1px solid var(--p-line)',
+      borderRadius: '999px',
+      color: 'var(--p-text)',
+      outline: 'none',
+      padding: '4px 10px',
+      minWidth: '120px'
+    },
+    '.cm-panel.cm-dialog input[type=text]:focus, .cm-panel.cm-dialog .cm-textfield:focus': {
+      borderColor: 'var(--p-accent-hi)',
+      outline: 'none',
+      boxShadow: 'none'
+    },
+    '.cm-panel.cm-dialog button:not([name=close]), .cm-panel.cm-dialog .cm-button': {
+      background: 'transparent',
+      backgroundImage: 'none',
+      border: '1px solid var(--p-line)',
+      borderRadius: '999px',
+      color: 'var(--p-text-soft)',
+      padding: '3px 10px'
+    },
     '.cm-panel.cm-search input[type=text], .cm-panel.cm-search .cm-textfield': {
       background: 'var(--p-bg)',
       border: '1px solid var(--p-line)',

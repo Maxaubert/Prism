@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
-import { addTab, closeTab, emptyTree, newTab, openSettingsTab, receiveFile, toggleSettingsTab, rerootTab, setTabPanes, setTabTerm, splitTermView, reorderTabs, tabLabels, toggleTermView, type Tab } from './tabs'
+import {
+  addTab,
+  ancestorsWithin,
+  closeTab,
+  emptyTree,
+  newTab,
+  openSettingsTab,
+  restoredTree,
+  receiveFile,
+  toggleSettingsTab,
+  rerootTab,
+  setTabPanes,
+  setTabTerm,
+  splitTermView,
+  reorderTabs,
+  tabLabels,
+  toggleTermView,
+  type Tab
+} from './tabs'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -17,6 +35,7 @@ const payload = (root: string, files: string[], index = 0): OpenPayload => ({
   index
 })
 
+const BS = '\\\\'
 const SHOOT = 'C:\\shoot'
 const DOCS = 'D:\\docs'
 
@@ -34,10 +53,52 @@ describe('receiveFile', () => {
   it('reuses a tab whose root already holds the file, and points it at it', () => {
     const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'])
     const docs = tabOf(DOCS, ['D:\\docs\\r.md'])
-    const r = receiveFile([shoot, docs], payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'], 1), 'unused')
+    const r = receiveFile(
+      [shoot, docs],
+      payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'], 1),
+      'unused'
+    )
     expect(r.tabs).toHaveLength(2) // no duplicate of the same project
     expect(r.activeId).toBe(shoot.id)
     expect(r.tabs[0].index).toBe(1) // and it moved to the file that arrived
+  })
+
+  it('lands a file from a SUBFOLDER in the tab that already holds that tree', () => {
+    // The bug this covers: a tab rooted at X:\ with a file two folders down
+    // spawned a SECOND tab rooted at the subfolder, because the fold only
+    // matched when the root WAS the file's own folder. Opening anything from
+    // Explorer while a project tab was open therefore accumulated tabs.
+    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
+    const r = receiveFile(
+      [drive],
+      payload('X:' + BS + 'Comics' + BS + 'Artbooks', ['X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(1)
+    expect(r.activeId).toBe(drive.id)
+    expect(r.tabs[0].root).toBe('X:' + BS) // the tab keeps ITS root, not the subfolder
+  })
+
+  it('prefers the DEEPEST tab that holds the file', () => {
+    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
+    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
+    const r = receiveFile(
+      [drive, comics],
+      payload('X:' + BS + 'Comics' + BS + 'Art', ['X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(2)
+    expect(r.activeId).toBe(comics.id)
+  })
+
+  it('does not treat a sibling with a shared prefix as containing the file', () => {
+    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
+    const r = receiveFile(
+      [comics],
+      payload('X:' + BS + 'ComicsOld', ['X:' + BS + 'ComicsOld' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(2) // a new tab, correctly
   })
 
   it('matches a root case-insensitively, the way Windows does', () => {
@@ -56,7 +117,11 @@ describe('receiveFile', () => {
 
   it('refreshes the reused tab file list, so a renamed sibling is not stale', () => {
     const shoot = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
-    const r = receiveFile([shoot], payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\new.jpg'], 1), 'x')
+    const r = receiveFile(
+      [shoot],
+      payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\new.jpg'], 1),
+      'x'
+    )
     expect(r.tabs[0].files.map((v) => v.name)).toEqual(['a.jpg', 'new.jpg'])
   })
 
@@ -115,7 +180,6 @@ describe('tabLabels', () => {
     ]
     expect(tabLabels(tabs)).toEqual(['assets — shoot', 'assets — docs', 'music'])
   })
-
 
   it('two tabs on the SAME folder stay plainly named: there is nothing to tell apart', () => {
     const home = 'C:@Users@Admin'.split('@').join(String.fromCharCode(92))
@@ -337,5 +401,60 @@ describe('the gear', () => {
     const tabs = [settings('s'), tabOf('C:\\a', ['C:\\a\\one.jpg'])]
     const st = toggleSettingsTab(tabs, tabs[1].id, 'settings-2')
     expect(st.tabs.filter((t) => t.kind === 'settings')).toHaveLength(1)
+  })
+})
+
+describe('the tree a restored tab comes back with', () => {
+  it('re-opens the folders that were open', () => {
+    const t = restoredTree('C:\\r', ['C:\\r\\a', 'C:\\r\\a\\b'])
+    expect([...t.expanded].sort()).toEqual(['C:\\r', 'C:\\r\\a', 'C:\\r\\a\\b'])
+  })
+
+  it('opens the folders leading to the file it is showing', () => {
+    // The half that matters when there is no saved tree at all: a file handed
+    // over by Explorer has to be markable in the sidebar, and it cannot be if
+    // the rows leading to it were never expanded.
+    const t = restoredTree('C:\\r', [], 'C:\\r\\a\\b\\photo.jpg')
+    expect(t.expanded.has('C:\\r\\a')).toBe(true)
+    expect(t.expanded.has('C:\\r\\a\\b')).toBe(true)
+    expect(t.expanded.has('C:\\r\\a\\b\\photo.jpg')).toBe(false)
+  })
+
+  it('always has the root open', () => {
+    expect(restoredTree('C:\\r').expanded.has('C:\\r')).toBe(true)
+  })
+
+  it('caps what it will re-open, since a suggestion is not a record', () => {
+    const many = Array.from({ length: 900 }, (_, i) => `C:\\r\\f${i}`)
+    expect(restoredTree('C:\\r', many).expanded.size).toBe(401)
+  })
+})
+
+describe('the folders between a root and a file', () => {
+  it('lists them from the file upwards, ending at the root', () => {
+    expect(ancestorsWithin('C:\\r', 'C:\\r\\a\\b\\x.txt')).toEqual([
+      'C:\\r\\a\\b',
+      'C:\\r\\a',
+      'C:\\r'
+    ])
+  })
+
+  it('gives just the root for a file sitting in it', () => {
+    expect(ancestorsWithin('C:\\r', 'C:\\r\\x.txt')).toEqual(['C:\\r'])
+  })
+
+  it('never climbs above the root', () => {
+    // A path outside the tab yields nothing rather than walking to the drive.
+    expect(ancestorsWithin('C:\\r\\deep', 'C:\\other\\x.txt')).toEqual([])
+  })
+
+  it('ignores a trailing separator on the root', () => {
+    // The owner's own case: a tab rooted at X:\\ showing a file in X:\\Comics.
+    // Comics is a real ancestor and has to be opened for the row to exist.
+    expect(ancestorsWithin('X:\\', 'X:\\Comics\\a.cbz')).toEqual(['X:\\Comics', 'X:'])
+  })
+
+  it('handles forward slashes too', () => {
+    expect(ancestorsWithin('C:/r', 'C:/r/a/x.txt')).toEqual(['C:/r/a', 'C:/r'])
   })
 })

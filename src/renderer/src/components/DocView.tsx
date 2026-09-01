@@ -174,10 +174,21 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
         saveDocPos(path, el.scrollTop, el.scrollHeight - el.clientHeight)
       }}
       className="p-doc h-full w-full overflow-auto outline-none"
-      // Sanitised in main against a strict allowlist: no script, no links, and
-      // images only as the data: URIs the converter itself made.
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    >
+      {/*
+        The document is a SHEET on a canvas, not text poured onto the theme.
+        A docx opened on the void style was white text on pure black, which is
+        not what the file looks like anywhere else - Word, Explorer's preview
+        or the app that made it. The sheet is always paper and always dark ink;
+        the canvas around it stays the theme's.
+      */}
+      <div
+        className="p-sheet"
+        // Sanitised in main against a strict allowlist: no script, no links,
+        // and images only as the data: URIs the converter itself made.
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
     </div>
   )
 }

@@ -16,6 +16,7 @@ const NOUN: Record<string, string> = {
   pdf: 'document',
   doc: 'document',
   archive: 'archive',
+  comic: 'comic',
   text: 'text',
   other: 'file'
 }

@@ -100,12 +100,66 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zoom/fit, text selection, own Ctrl+F (no Chromium PDF UI). The zoom baseline is rebased
   (2026-08-12): 1.9 pdf.js units is the default and the pill calls it 100%. Markdown renders formatted
   (react-markdown, sanitized inline HTML, remote badges).
+  **LINKS GO SOMEWHERE** (2026-08-31, `lib/pdfLinks.ts`, pure and tested), and the
+  allowlist is the feature. pdf.js has already thrown the ACTION NAME away by the time the
+  display side sees an annotation: a /URI, a /Launch at an executable, a /GoToR and a
+  recognised /JavaScript window.open all arrive as the same `data.url` string. So the rule
+  is by SHAPE - a Link subtype carrying none of action / attachment / attachmentId /
+  setOCGState / resetForm / actions, and then either an http(s) url or a dest. `unsafeUrl`,
+  the raw string out of the file, is never read by anything. ftp:, mailto: and tel: pass
+  pdf.js's own filter and are refused here too, because openExternal drops them and a
+  clickable box that does nothing is worse than no box. They render as `<button>` boxes,
+  never `<a href>` - an anchor is what routes into main's window-open handler, which had NO
+  scheme check at all until this change (it does now, and `will-navigate` is guarded too).
+  The boxes are PERCENTAGES of the page, so the annotations are fetched once per page and
+  never again on a zoom step, and the layer is z-index 2: above the text layer's 1, below
+  the pill's 10 and the find bar's 20. An internal /XYZ destination lands at its own
+  y-coordinate rather than at the top of the page - a footnote link that jumps to the top
+  of page 312 reads as broken, not as approximate.
 - **Code / text** viewer (2026-08-17): CodeMirror 6, always editable (see below). ~20 Lezer
   grammars give highlighting, folding and real syntax-error squiggles; `@codemirror/legacy-modes`
   adds ~100 stream lexers for highlighting only, so those languages never claim an error.
   Deliberately no semantic diagnostics: without a tsconfig or node_modules they would be noise.
   Every language loads on demand (one Vite chunk each). Prose (`.txt`, `.log`, `.csv`, subtitles)
   gets no gutter and no language. Token colours are fixed in `index.css`, NOT part of a style.
+  **A FILE THAT GROWS** (2026-08-31): "Follow the file" appends new bytes as they are
+  written - a build log, an agent's transcript - and a file PAST THE 64MB CEILING now shows
+  its TAIL (2MB) instead of an apology. Both are READ-ONLY, and structurally so: a followed
+  file keeps no `saved.current` at all, which is the ref `save()` checks, so nothing has to
+  remember to test a flag. That matters because the editor's one update listener treats any
+  document change as the user typing - an appended chunk would star the file in the tree and
+  arm "Save all changes" on the way out, which is how a partial tail gets written over a
+  900MB file. Appends are kept out of the undo history too (Ctrl+Z would otherwise un-grow
+  the log). The watching is `src/main/fileTail.ts`: an offset, a 500ms poll and a read of
+  exactly the new bytes, never sync, with a STREAMING decoder because a chunk boundary can
+  fall mid-character, and a RESET when the file gets SHORTER - a rotated log is not new
+  bytes to splice on. `TEXT_MAX_BYTES` is untouched; the tail is a separate read-only path.
+  **HEX** (`lib/hexRows.ts` + `HexView`): a file Prism cannot interpret is still one it can
+  read, so `UnsupportedView` grew its one button. A page at a time over a Range request
+  against `fsmedia://`, so it costs 4KB whether the file is a header or a 4GB ISO - the
+  renderer never holds it. Paged rather than scrolled on purpose: a continuous hex view of a
+  big file is a 268-million-row virtualized list, which is a viewer, not a panel. The tree
+  HIDES unviewable files, so the only route to that screen is Windows handing the file over.
+- **Comic books** (2026-08-31, `.cbz`/`.cbr`, kind `comic`): a page list wrapped around the
+  IMAGE viewer, so zoom, pan, rotate, fullscreen and the picture menu all come for free. Its
+  own kind and deliberately NOT `archive`: widening `archiveOk` would put Extract all, Add
+  files and member Delete - the one permanent delete in Prism - onto a book. Read-only, both
+  formats. **LEFT AND RIGHT TURN PAGES** (owner decision), the one place in Prism where they
+  do not page the folder; Ctrl+arrow still does, which is how you reach the next book, and App
+  yields by finding `data-owns-arrows` in the DOM the way Escape does rather than by listener
+  order (both listeners are on the window in the capture phase and App's was registered
+  first). The container is unpacked ONCE into `userData/comics`, LRU-evicted at 2GB: a page
+  turn then costs what showing a jpeg costs. Per-page extraction was the obvious design and is
+  the one the performance rules forbid - adm-zip reads the whole container synchronously per
+  call, and the 7-Zip route spawns a process into a fresh temp directory per member (~278ms),
+  neither of which is a page turn, and both of which leave temp directories nothing removes.
+  Because every page lives under ONE directory, the media wall grants that directory rather
+  than growing `extractedPaths`, which is a Set that never shrinks. Page ORDER is numeric
+  (`shared/comicPages.ts`, pure and tested): real comics are numbered 1, 2, 10 as often as
+  001, 002, 010, and a plain sort puts page 10 second - which is the archive panel's own bug,
+  not to be copied. `ComicInfo.xml`, `__MACOSX/` forks and `Thumbs.db` are not pages, so the
+  filter is positive: it is a page if Prism calls it an image. Position is remembered like a
+  PDF's.
 - **Archives beyond zip** (2026-08-24): `.7z .rar .tar .gz .tgz .bz2 .xz .iso .cab` open
   READ-ONLY through a bundled 7-Zip (`sevenZip.ts`; `tools/fetch-7zip.mjs` expands the official
   MSI with `msiexec /a`, 7z.exe + 7z.dll because rar lives in the DLL). The panel offers view
@@ -135,7 +189,76 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   adm-zip, AES members go through a DETECTED 7-Zip (7z.exe at its standard install paths,
   args-only execFile - the same enumerated-exe rule as "Open in"), and without 7-Zip they
   say so honestly. zip only; 7z/rar containers are out until a fresh decision. Oversized
-  archives (>600MB) list but refuse member operations. Properties on a zip reports what it
+  archives (>600MB) list but refuse WRITE operations.
+  **A BIG ZIP IS READ THROUGH 7-ZIP** (2026-08-31): the 600MB ceiling is ADM-ZIP's, not
+  zip's - it reads the whole container into memory - so a 1.9GB zip used to list (by reading
+  1.9GB into main) and then answer "failed" to every extract, drag and copy, which is the
+  worst of both. A zip past the cap now takes the same read-only 7-Zip path a .7z does: it
+  lists in 88ms (MEASURED on a 1.9GB, 796-file zip) and extracts fine, and simply has no
+  write verbs. Writes keep the cap, because they are still adm-zip's. Extract-all follows
+  the ONE-FOLDER RULE: an archive whose whole content is a single top-level folder - what
+  every "download as zip" produces - hands that folder up rather than burying it under
+  another named after the archive, done by MOVING after extraction so the
+  never-write-over-a-folder rule survives. **Extract here** is a one-click verb needing no
+  dialog (the archive's own folder is already inside a root, so there is nothing to consent
+  to); **Extract to...** keeps the dialog, which IS the consent that lets it write anywhere.
+  Both sit on the verb row and on the panel's own menu, and a FOLDER row offers Copy folder
+  and Extract folder here - its Copy used to extract the members one at a time and put the
+  loose FILES on the clipboard, so you right-clicked one thing and pasted a flat pile. The
+  "Extract folder here" stages BESIDE THE ARCHIVE, not in temp: it finishes with a rename, and
+  `fs.rename` CANNOT CROSS VOLUMES - it throws EXDEV. Temp is on C: and the archive very often
+  is not (an X: drive of comics is what found it), so every extract onto another disk failed
+  AFTER 7-Zip had done the work, and said nothing useful because the failure was the move
+  rather than the extraction. Staging on the destination's own volume makes the rename
+  same-volume and instant whatever the folder weighs; a copy fallback catches EXDEV anyway.
+  The clipboard copy still stages in temp, because nothing renames it anywhere.
+  A FOLDER comes out in ONE 7-Zip call, never one per member (2026-08-31): the member-at-a-time
+  route spawns a process each, and each one RE-OPENS the container, so "Extract folder here" on
+  a 2GB archive was hundreds of full re-reads and simply failed. MEASURED on that archive: the
+  25-file folder came out in 279ms and the 561-file one in 1.2s, against hundreds of spawns.
+  Dragging a folder OUT works the same way now - one call into a staging folder, then each
+  wanted entry moved into place - which is where the landing rule lives (the shape BELOW the
+  dragged folder is kept, the parents above it dropped). The member filters come from the
+  archive's own listing and are still refused for `..` or a drive letter before 7-Zip is
+  spawned, because `-o` is the only thing keeping the write inside a folder Prism made.
+  7-Zip path reports its own percentage, and getting it to say ANYTHING was measured rather
+  than assumed: with `-bsp1` alone and stdout redirected 7-Zip prints nothing at all between
+  "Extracting archive" and "Everything is Ok", because it suppresses the progress indicator
+  when its output is not a console. `-bb1` (log each file) is what brings both the names and
+  the percentages back, so it is the PAIR that works and neither alone; a file COUNT out of
+  the listing's total is the fallback for an archive of a few huge members. Exit code 1 is
+  7-Zip's WARNING, not a failure - treating it as one threw away a working extraction - and
+  a real failure now carries 7-Zip's own line up to the panel, because "couldn't be
+  extracted" on its own is a failure nobody can act on. `-p` is omitted entirely when there
+  is no password, since `-p` with nothing after it is an EMPTY password rather than none.
+  All of it matters because a button reading "Extracting..." for the minutes a 2GB archive
+  takes is indistinguishable from one that has hung. **A ZIP RECORDS ITS FOLDERS OPTIONALLY** and plenty of writers
+  leave them out (Google Takeout, `zip -D`, most Java tooling), which made such an archive
+  read as EMPTY: the panel lists one level at a time by matching each member's parent, and
+  every member's parent was two levels down with nothing naming those folders.
+  `shared/archiveTree.ts` fills them in from the member names, pure and tested, applied to
+  BOTH readers' output because what the container says is the problem. Member order is
+  NUMERIC now too, the same hoisted collator `dirList.ts` uses: a plain localeCompare put
+  "issue 10" before "issue 2", which for an archive full of comics was the whole listing in
+  the wrong order. The crumb row is CHEVRONS with the folder you are in in full contrast and
+  semibold (2026-08-31): it was all one grey with `/` between, which read as a sentence
+  rather than as a path you can click back along. Rows are ZEBRA-striped, and the stripe is
+  `color-mix(in srgb, var(--p-text) 3.5%, transparent)` rather than a fixed grey - Prism has
+  custom styles, so it has to hold on void, on an accent-tinted ground and on anything built
+  later, and mixing against the TEXT colour gets the direction right by construction. The
+  FIRST row is the plain ground and the second is the stripe (owner pick, 2026-08-31, after
+  seeing it the other way round). The
+  crumb row ends in a chevron at EVERY level, the current folder included: chevrons only
+  BETWEEN segments read as a separator between two names, and the trailing one is what makes
+  the row read as a path. Rows run EDGE TO EDGE with no radius, so the stripe and the
+  selection fill reach both borders rather than floating as tiles in a gutter - the scroller
+  gives up its horizontal padding and the rows carry the inset themselves, at the same px-4
+  the column header uses, so the columns still line up. The
+  extraction progress track is ALWAYS in the layout and only fades in, because inserting it
+  when the work began pushed the member list down and pulled it back up; the e2e measures
+  that the list does not move. And finishing raises NO popup (owner decision) - the button
+  you pressed says "Extracted" for two seconds and goes back, which is closure without
+  ceremony. A FAILURE still speaks, and carries 7-Zip's own line. Properties on a zip reports what it
   holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED
@@ -205,7 +328,24 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   zip, 2026-08-22). Anything further (move, new folder) is a fresh decision, not a
   natural next step - except MOVE, which was decided (2026-08-22, #70) and is reachable
   ONLY by dragging: a row (or a whole multi-selection) dropped on a folder row moves there,
-  taken names asking cancel / keep both / replace. The same drag crosses surfaces: sidebar
+  taken names asking cancel / keep both / replace. THE FOLDER DROPPED INTO becomes the marked
+  row (2026-08-31): what you dragged has left, so a mark on it points at nothing, and clearing
+  it points at nothing either - the destination is what you are now looking at, and where the
+  arrows carry on from. It has to survive the refresh the move itself triggers, which
+  otherwise clears every mark; that is one piece of STATE and not a ref, because the reset
+  reads it while rendering. EXCEPT that TWO FOLDERS OF THE SAME NAME
+  MERGE (2026-08-31). They are one folder with more in it, which is what every file manager
+  does; asking there offered either a second copy of a whole tree or the destruction of one.
+  The merge is recursive, so a same-named folder one level down merges too, and the question
+  survives only for the FILES inside - scanned depth-first BEFORE anything moves, so 'ask'
+  still reports the lot and leaves the disk untouched. `moveOne` creates the parent it is
+  moving into, which is what makes UNDOING a merge work: the folder those files came out of
+  no longer exists. The emptied source goes with `rmdir`, not `rm` - `rm` refuses a directory
+  without `recursive`, and `recursive` would delete exactly the leftovers a partial merge is
+  trying to preserve. And a drop that asks for nothing DOES nothing, silently: putting a
+  folder back where it already was is how anybody changes their mind mid-drag, and it was
+  answering with the wall's "a tab's own folder cannot be moved" about a move nobody
+  requested. Filtered in main before the wall check. The same drag crosses surfaces: sidebar
   rows dropped INTO an open archive are added to the zip at that folder, archive members
   dropped on a sidebar folder are extracted there (sharing the archive's remembered
   password via `lib/archivePass`), members dropped on an archive folder move inside the
@@ -217,9 +357,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   was tried and REMOVED the same day: dragging is for moving, and the sweep's pointer
   state outlived real drags); right-click inside a multi-selection acts on all of it (copy
   files, copy paths, delete N with one question). The tree KEEPS its quick-look single
-  click - a plain click still opens a file or expands a folder (double-click-to-open was
-  tried and rolled back the same day; only the ARCHIVE is double-click, where single
-  click selects). Contiguous selected rows fuse (shared edges drop their rounding).
+  click for FILES - one click opens one. A FOLDER selects on the first click and expands on
+  the SECOND (owner decision, 2026-08-31): it is a drop destination, a rename target and what
+  "Open terminal here" acts on, so pointing at one without walking into it is worth a click.
+  That NARROWS the 2026-08-22 rule rather than reversing it - what was tried and rolled back
+  then was double-click-to-OPEN, which still does not exist. The chevron still expands on the
+  first click, being the one control whose whole job is the folder's state. The ARCHIVE stays
+  double-click, where single click selects. Contiguous selected rows fuse in the TREE (shared
+  edges drop their rounding); the archive's rows are square and edge to edge, so there is
+  nothing there to fuse.
   Search results speak the same selection language, multi right-click included.
   DRAG-SELECT came back for the ARCHIVE alone (2026-08-25): it starts only on the
   panel's DEAD SPACE, so a row drag (which moves members) can never leave a phantom
@@ -228,6 +374,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
+  menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
+  "these are what I am about to act on", and the menu already acts on the row you opened it
+  over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
+  are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
+  clicking INSIDE a multi-selection still acts on all of it.
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.
@@ -251,7 +403,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
   arriving from outside reuses a tab whose root already holds it (five photos from one
   folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
-  in `tabs.json`; a root that is gone is dropped without a word. The strip is present from the
+  in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
+  (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
+  collapses everything - a file six folders down came back in the viewer with NOTHING marked
+  in the sidebar, because none of the rows leading to it existed. That is view state rather
+  than a per-tab setting, so "a tab is a root and a current file" stands; capped at 400
+  folders, because it is a suggestion and not a record. Separately and always, ANY tab opens
+  the folders between its root and the file it is showing (`ancestorsWithin`, pure and
+  tested): a file handed over by Explorer has no saved tree at all and still has to be
+  markable. The tree also FILLS IN anything expanded but not loaded, which a restored one
+  entirely is: only a toggle ever fetched a folder's children, so the folders came back open
+  with nothing in them and every row sat on "loading..." until it was collapsed and reopened
+  by hand. Bounded six at a time, and that is not a nicety - a tree restored 400 folders deep
+  would otherwise fire 400 `listDir` calls at once into the same libuv pool the `fsmedia://`
+  Range handler reads a playing film through. In-flight fetches are tracked too, or the
+  gap-filler re-issues every outstanding load each time one lands, which is O(n^2) requests. The strip is present from the
   FIRST tab, so the `+` is always reachable and the chrome never shifts when a second folder
   opens; it goes only when nothing is open at all. **Two folder buttons, two verbs**: the
   strip's `+` (and `Ctrl+T`) ADDS a tab instantly (its RIGHT click offers the last five folders
@@ -312,6 +478,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
   F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+- **Reaching the terminal, and leaving it alone** (2026-08-31). Ctrl+` is THREE-WAY,
+  VS Code's rule: a terminal that is showing but does not have the keyboard gets the
+  keyboard, and only a press from INSIDE it hides. The old two-way toggle meant that
+  reaching for the shell you could already see put it away. `toggleTermView` itself is
+  unchanged and still tested; the branch lives in App, where `inTerm` already exists.
+  **Ctrl+Shift+F finds in the SCROLLBACK** (xterm's own `addon-search`, so it knows about
+  wrapped lines and the alternate screen), a DocFind-shaped bar over the panel; xterm's
+  key handler must return false for it or the pty gets the bytes too, and it is added
+  EXPLICITLY rather than by widening the `/^[twb]$/i` tab-key regex, which ignores shift
+  and would cost the shell plain Ctrl+F. **"Open terminal here"** on a folder row follows
+  the reroot policy verbatim: an UNTOUCHED shell is replaced by one spawned in that
+  folder, a TOUCHED one is somebody's work and is never taken away - that folder gets a
+  terminal in a NEW TAB instead. The tab's own root does not move; the sidebar's folder
+  button is the verb for that. And the close question now NAMES what it interrupts:
+  `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
+  cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
+  'Off' still means off: a confirmation that appears anyway is a setting that lies.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range
@@ -328,7 +511,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   keeping: `readdirSync(withFileTypes)` and ONE stat per file rather than two
   took `dir:list` on System32 from 159ms to 11ms, and lazy-loading pdf.js,
   react-markdown and DocView alongside CodeMirror halved the launch bundle
-  (3037KB to 1503KB). MORE OF THE SAME (2026-08-28): the agent dot used to
+  (3037KB to 1503KB). MORE OF THE SAME (2026-08-31): `dir:list` and
+  `search:files` were `readdirSync` plus a stat per file, on main's one
+  thread, up to 20000 entries per debounced keystroke - the exact thing this
+  block rules out, left in place because it was fast enough not to notice on
+  a warm local disk. They are async now, and the important part is that the
+  OBVIOUS translation is a REGRESSION: measured on System32 (about 5000
+  entries, median of five), sync 140ms, naive await 269ms, bounded-16 44ms.
+  One await per entry is a round trip per entry; the win is the CONCURRENCY,
+  and the bound is what keeps 8400 stats out of the same libuv pool the
+  `fsmedia://` Range handler reads a playing film through. The search also had
+  to learn to be SUPERSEDED: while it was synchronous it finished inside one
+  keystroke and there was never a second walk in flight, so each call takes a
+  ticket now and a stale walk stops where it is. And the biggest single win in
+  that file was not the fs at all - `localeCompare` builds a fresh collator on
+  EVERY comparison, so sorting 5000 names built 5000 of them: 23.3ms against
+  0.5ms with one hoisted collator.
+  MORE OF THE SAME (2026-08-28): the agent dot used to
   spawn a PowerShell and dump EVERY process on the machine, command lines and
   all, every 2.5s for as long as a terminal existed - 110KB of JSON a few
   times a minute to answer a question that changes twice an hour. It now asks
@@ -500,8 +699,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   MINUTE counts as watched: the position is neither saved nor restored there, so a film never
   reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
   resume and songs do not.
-- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), off by default, switched
-  in Settings > General. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
+- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), ON by default since
+  2026-08-31 (owner decision), switched in Settings > General. Applied ONCE, and the marker
+  file in userData is the whole design: a default that reapplied itself every launch would be
+  a setting that lies - turn the verb off and it would be back tomorrow. Never in dev and
+  never under `--e2e`, where `app.getPath('exe')` is a throwaway build and writing those keys
+  would repoint the real installed Prism's verb at it. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
   `Directory\Background`, where it reads "Open Prism here" and takes `%V` rather than `%1`
   (which is empty on a background click) - per user, no
   elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way
@@ -523,7 +726,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Update chip** (title bar, right of the file name): one shape for every state, and it never
   changes width - the chip IS the progress bar, filling with accent from the left as the
   download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
-- **One icon per kind** (2026-08-30, #74): the six ProgIDs used to point `DefaultIcon` at
+- **One icon per kind** (2026-08-30, #74): the ProgIDs used to point `DefaultIcon` at
   `Prism.exe,0`, so a .zip and a .mkv opened with Prism were the same picture in Explorer.
   Each now has its own .ico in `resources/icons`, generated by `tools/icons/build_icons.py`.
   They keep the NEAR-BLACK TILE (owner pick over a bare glyph, 2026-08-30): the tile carries
@@ -533,7 +736,243 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   as well. Every size is DRAWN at that size, never downsampled from one big render, and the
   glyphs are laid out in sixteenths of the tile so a 16px frame lands on whole pixels rather
   than wherever LANCZOS puts it. 16px is the size that decides it: details view is what most
-  people look at all day, and it is the frame every mockup round was judged on.
+  people look at all day, and it is the frame every mockup round was judged on. ROUND EIGHT
+  (2026-08-31) settled the three that had not been: code is stepped indent bars now (the
+  chevrons were legible but every editor on the machine draws them), document is a
+  folded-corner page (what shipped before was marked `provisional` in the source and had
+  never been chosen), and comic is an open book - drawn for the document column and picked
+  for this one, which is why nothing collides. The code glyph carries THREE bars and not
+  four, measured not assumed: at 16px four leave a 1.1px gap and a light bar on a near-black
+  tile blooms across it, so the top two merged into one smudge. `tools/icons/round8.py` keeps
+  every candidate and `mockups.py <round>` renders the comparison page they were picked
+  from. ROUND TEN (2026-08-31) re-cut ARCHIVE: three thick layers now, belted. The belt is
+  the lesson - round nine laid a strap OVER the layers and it read as a vertical line on top
+  of the icon, because it had no relationship to the shape underneath. At icon scale the only
+  depth cue that survives is SILHOUETTE, so the channel is CARVED: the glyph is drawn on its
+  own layer and the channel sets that layer's alpha to zero, which makes the near-black tile
+  show through as a real hole. A shadow, a gradient or a highlight edge would have been a
+  grey smudge at 16px. The belt carries the one indigo now that the top layer has given it up.
+  **AND THEN IT GREW** (2026-08-31). MEASURED against Explorer rather than adjusted by
+  eye: in one column of the owner's own screenshot Adobe's .pdf glyph is 36px tall and our
+  .cbz is 30px, which with our page at 13/16 of its frame puts that frame at 36.9px - so
+  Adobe filled 97.5% of the same box and we filled 81%. A page icon beside a page icon is
+  exactly where a sixth of a difference reads. The page is 11 by 15 now (96% of the
+  frame's height, 73% of its width, against 85% and 67%), and it is WHOLE UNITS rather
+  than the 12 by 15.6 that would have held the approved 0.769 ratio exactly: a fractional
+  edge lands on a half-covered pixel row at 16px, which is the frame that has to be crisp.
+  11:15 is 0.733, which is CLOSER to the owner's own reference pair (0.761 and 0.715) than
+  the 0.769 it replaces. `PX0` stays at 3.0 on purpose - the chip overhangs to its left,
+  and a page centred at 12 wide would have forced that overhang to halve to stay on the
+  frame; growing rightward and downward keeps it whole, and the composition's own centre
+  moves from 6.9 to 7.4 against a frame centre of 8. Everything written against the old
+  page is carried onto the new one by `round12.on_page`, so the chip, the glyph boxes and
+  the band all scaled with it and nothing had to be re-eyeballed. The lesson is the FIVE
+  COPIES: `P = (3.0, 2.0, 13.0, 15.0)` was written out in round15, 16, 17 and 18 and the
+  comic's fold in five files, so changing round12 alone would have left the comic's
+  artwork filling the old rectangle while the page grew underneath it - silently, since
+  nothing errors. They read round12 now. The archive is a landscape container with its own
+  box and grew separately, by less: it was already 88% of the frame's width where the page
+  was 67%, so what it lacked was height (75% -> 81%).
+  **AND THE SAME ICONS ARE IN PRISM** (2026-08-31, owner ask: the sidebar was "so
+  colorful"). `tools/icons/svg.py` replays the very functions that draw the .ico frames
+  into a path recorder, so the sidebar and Explorer cannot drift. Three layers: the page
+  in the ink, the fold and chip and mark in the BACKGROUND BEHIND THE ROW, then the
+  detail inside the mark punched back in the ink (the clapperboard's stripes, the splat's
+  core; only those two have that layer). The middle one is the whole contract - wiring it
+  to a panel token looks perfect in every screenshot of an unselected tree and is wrong
+  the moment somebody clicks a row, where the icon then carries a rectangle of panel
+  colour across the accent fill. A one-path `fill-rule="evenodd"` variant that makes those
+  real HOLES was built and NOT taken (owner pick): under evenodd a hole straying outside
+  the body is one crossing rather than two, so the chip loses its overhang. The nine
+  FileKinds map onto the seven icons by Explorer's own table (`Prism.Text` -> the code
+  icon), so a .ts in the tree and the same .ts on the desktop are one picture. The colour
+  is `--p-tree-file`, and it resolves to WHITE or to a NEAR-BLACK, whichever the style's
+  own ground takes (owner instruction, 2026-08-31). It is measured, never read off the
+  mode flag - a custom ground is whatever somebody made it - and it takes the BETTER of
+  the two ratios rather than testing a midpoint, since two colours either side of a
+  midpoint can both be poor. What it replaced was a 0.38 dimming of the theme's text,
+  which is a mid-tone by construction and so could never be either end. The dark end is
+  NOT #000000 (owner: "a bit less black"): it is the ground's own colour carried 86% of
+  the way down, which softens it and picks up the paper's temperature in the same move -
+  Linen resolves to a warm #232221, Frost to a cool #222323 - and still measures
+  14.3-15.2:1 where pure black measured 18.9-20.3:1, so nothing was bought with
+  legibility. White stays white on dark grounds, which is not what was complained about.
+  The Settings picker still WINS - the rule is the default, not an override, or the
+  control would be one that does nothing - and the icons need no light/dark switch of
+  their own, because a light style resolves the token to the dark end by itself. And
+  the chip carries THE FILE'S OWN EXTENSION (owner instruction, same day): seven icons
+  cover a hundred-odd extensions between them, so ZIP against RAR is what the chip is FOR
+  and an empty one is just a black bar. It is TEXT rather than outlines, set in the app's
+  own face, and its size comes from a table keyed by CHARACTER COUNT - two and three keep
+  the full size, and only a WEBM-length one steps down, measured against the widest glyph
+  rather than a typical one. A file with no extension (`Dockerfile`) draws no label; the
+  chip is drawn either way. Archives lost their amber with the rest,
+  and the tree stopped showing WINDOWS' association icon for them - that was the colourful
+  thing - while the archive VIEW's header keeps it (#68), because there the box is
+  introducing itself.
+  A LAYER IS ONE PATH OF SEVERAL SUBPATHS, and under the default nonzero fill rule two
+  subpaths wound OPPOSITE ways cancel where they overlap. The quarter note is exactly that
+  overlap - a stem rectangle sitting on a head ellipse - and the emitter drew rectangles
+  clockwise and ellipses anticlockwise, so the note came out with a quadrant punched out of
+  its head, on a shape that is solid in the .ico the very same functions draw. Every shape
+  the emitter writes winds clockwise now. `tools/icons/repick.py` is where the page COLOURS
+  are chosen: it splits the shipped renderer into a tintable page and an ink overlay, so a
+  live recolour is what the .ico would hold rather than a mock-up of it, and it reads the
+  contrast against BOTH Explorer grounds while you choose - a colour can look right on the
+  one you happen to be picking on and vanish on the other, which is what the white image
+  page does at 1.07:1 on light.
+  ONE COLOUR, AND THREE EXCEPTIONS (owner picks, 2026-08-31). archive, audio, image and
+  video wear `#aab2c0`, so the KIND lives in the silhouette, the mark and the extension on
+  the chip. Measured while choosing: 7.63:1 on Explorer's dark ground and 1.99:1 on its
+  light one. The chip is near-black with the extension knocked out of it, so the label
+  carries on both grounds whatever the page does. The exceptions each earn their keep:
+  COMIC is artwork rather than a flat colour; CODE carries ONE BAR in Prism's indigo,
+  because it and document are both three rounded bars in the same box and the shared
+  colour left the silhouette as the only thing telling them apart - which at 16px is
+  nothing. Colour is the right axis there and it was MEASURED, not assumed: breaking the
+  silhouette instead was tried first (`round24.py`) and its zigzag, nested and
+  bars-plus-caret candidates all still read as document at 16px, because geometry is the
+  first thing downsampling spends and hue is not. DOCUMENT is PAPER, `#ffffff` - a docx,
+  pdf, xlsx or pptx is a sheet of paper and Word shows one as white on a canvas that is
+  not white. Pure white measures 1.07:1 on Explorer light, where the silhouette vanishes
+  outright, so the page carries a HAIRLINE (`#c4c9d2`, a third of a unit) eroded from its
+  own mask - the boundary a page has against its canvas, not the heavy dark outline the
+  set rejected. Eroded rather than drawn as a second shape, so it follows the rounded
+  corners and the fold's diagonal and cannot drift out of step.
+  **THE LABEL IS A FOOTER BAND** (owner pick, round 30, 2026-09-01), not the overhanging
+  corner tab it was. `band_at="bottom"` is round12's own path and reference one's own
+  treatment, so this is the composition returning to where it started: the band is clipped
+  to the page and takes its rounded bottom corners, and the mark is RAISED out of its way -
+  a label that takes room has to be given room, which is what round 28's scaling round
+  failed at. Archive keeps its low chip (it is a container, not a page) and comic keeps its
+  top-left one, standing in for the reference's masthead.
+  **AND CODE HAS A MARK PER LANGUAGE** (same pick, `tools/icons/langs.py`): a React
+  component and a shell script were the same picture, and now they are an atom and a `>_`.
+  Two rules shaped the set and both are load-bearing. THE LETTERS ARE ALREADY TAKEN - the
+  band carries the extension, so a mark made of letterforms (JS in a square, TS in a
+  square) prints the same thing twice and spends the only part of the icon that can say
+  something else; every mark is pictorial and the letterform languages keep the stepped
+  bars, which is not a demotion because their band already says JS. And the .ico is PER
+  EXTENSION, not per language: a ProgID has exactly ONE DefaultIcon, .jsx and .tsx share
+  the React mark, and one icon for both would have to print JSX on a .tsx. That costs a
+  ProgID each, against `assoc.nsh`'s own warning that one-class-per-KIND is why Open With
+  says "Prism" once instead of listing thirty near-identical rows - so the list is kept
+  SHORT deliberately (25 extensions) and everything else keeps the bars. Marks are FILLED,
+  never stroked, and three carry a knockout that is not decoration: without it a cog is a
+  flower, a cylinder is a rounded rectangle and a cup is a blob.
+  **DOCKERFILE HAS A MARK IN THE TREE AND NOT IN EXPLORER**, and that is not a bug.
+  Windows associates on EXTENSION, so a bare name (`Dockerfile`, `Makefile`) and a dotfile
+  (`.gitignore`) have nothing to hang a ProgID on however well the mark is drawn. The app
+  resolves a file by NAME as well, and costs nothing per mark, so it is simply more
+  generous than the desktop can be: `LANG_BY_EXT` is the table Explorer registers and
+  `LANG_BY_NAME` is the app's own.
+  **SO THERE IS AN ICON PER EXTENSION - ALL 298** (owner pick, 2026-09-01). A ProgID
+  carries one .ico and an .ico carries one baked label, so a class shared by many
+  extensions prints one of their names on ALL of them: `prism-code.ico` said PY on 130
+  extensions, `prism-image.ico` said JPG on 52, `prism-audio.ico` said MP3 on 32. The
+  owner met it as "what is PT on my .log files" - it was PY, on files that are not
+  Python, and the band being loud is what made a lie nobody had noticed unmissable. One
+  class each is the only arrangement in which the label tells the truth. It costs 8.6MB
+  of .ico and ~300 registry classes; it does NOT cost the Open With menu, which was the
+  worry `assoc.nsh` records - measured after installing, each extension points at exactly
+  one Prism class, so a given file still offers Prism once. `tools/icons/extmap.py` reads
+  the extension table out of `fileKind.ts` rather than restating it (and refuses a parse
+  that comes back implausibly small, since a regex matching nothing would hand every file
+  the wrong icon silently); `gen_assoc.py` writes both halves of the installer macro from
+  it. That generator SPLICES between the first and last per-extension line rather than
+  running to `!macroend`: the first version ran to the end and silently ate the Explorer
+  verb's own uninstall keys, which `shellVerb.test.ts` caught. A code extension picks up
+  its LANGUAGE mark where one exists - 81 of 160 do - and the rest keep the stepped bars.
+  **THE SEVEN OLD CLASSES ARE KEPT ALIVE, and that is not tidiness.** A UserChoice - the
+  key that records "always open .log with Prism" - is hashed per user and signed, so an
+  app must never write it and therefore can never MOVE it. Deleting the class it names
+  does not move the choice, it ORPHANS it: Windows finds nothing at the far end and falls
+  back to some other handler, which is how the owner's .log and .md ended up wearing
+  another editor's icon the first time this shipped. `Prism.Text` and its six siblings
+  stay defined, pointing at the kind icons they always did; NOTHING is registered against
+  them any more, so they matter only to somebody whose existing default names one, and for
+  them the icon stays what it was until they choose Prism again - at which point Windows
+  writes the new per-extension class and the label becomes true. Until they do, those seven
+  icons name their CATEGORY rather than an extension - TEXT, IMAGE, VIDEO, AUDIO,
+  DOCUMENT, ARCHIVE, COMIC. One of them can be the default for any of a hundred
+  extensions, so no extension is a true answer for it (which is how it came to say PY on
+  130 kinds of file), but the class does know one true thing about every file that reaches
+  it: what KIND it is. Spelled out rather than abbreviated on purpose - "TXT" in the slot
+  where every other icon prints an extension reads as a claim that the file IS a .txt,
+  which on a .csv is the same small lie again, while "TEXT" reads as the category it is.
+  **VIDEO IS A PLAY DISC** and **ARCHIVE'S LABEL IS THE BAND** (owner picks, rounds 31 and
+  32, 2026-09-01). The clapperboard is gone: its stripes are one pixel each at 16px and
+  merge into a grey bar, which is why the in-app icon had needed a two-stripe cut of its
+  own - a disc with one hole in it has nothing to lose at any size, so that divergence
+  RETIRES and the .ico and the tree draw the same mark again. Two left, not three. And the
+  archive's label was the last one in the set that was not a band; it is a full-width band
+  across the container now, clipped to the folder's own silhouette so it takes its rounded
+  corners. The chip's REASON was always sound - a chip over the top hides the tab that says
+  which container it is - and a band at the foot honours it while matching the set. It
+  covers the zip's pull, which the round showed and which is the price.
+  **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
+  type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
+  cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the
+  same three grey dots. Five pixels is the floor for reading three characters, which puts
+  the icon at 30px (`LABEL_FLOOR` in TreeRows), and nothing in the app draws one that big.
+  Nothing is lost by dropping it: a tree row carries the filename beside the icon, in a
+  face chosen to be read, and `cleanup.log` already ends in the three characters the band
+  was whispering. The .ico keeps its label at every frame because its frames go to 256,
+  where it reads properly - so the band is full in Explorer's medium and large views and a
+  smudge in its 16px details view, for the same reason and with the same answer available
+  if it ever annoys anyone.
+  Except that the label came BACK in-app the same day (owner: "they should be the same
+  icons everywhere"), because one icon everywhere is worth more than two pixels of cap
+  height. The arithmetic stays in a comment where the floor was, so the next person to
+  notice the smudge finds the reasoning rather than filing it. What had actually caused the
+  complaint was not the label at all: `.log` was getting the CODE mark, and an indent guide
+  - a vertical spine with rungs hanging off it - is a picture of structure at 48px and a
+  pair of LETTERFORMS at 14. The owner read it as "PT" and asked what the abbreviation
+  meant. PROSE draws lines now (`.txt .log .csv .srt .vtt`), which is right anyway since
+  prose has no indentation to draw, and the list is `codeLang.isProse`'s own rather than a
+  second one - `iconPaths.test.ts` asserts the two agree, along with every generated table
+  naming a mark that exists.
+  COMIC WEARS THE BAND TOO (2026-09-01): it kept the top-left chip when the rest of the set
+  moved, and a set where six labels sit at the foot and the seventh is in the corner reads
+  as an oversight rather than as an exception. Its label is still DRAWN rather than knocked
+  out, because there is artwork behind it and a hole would show the sunburst through the
+  letters.
+  **TWO IDENTICAL CURVED EDGES DO NOT CANCEL.** The in-app band traced the page's own
+  rounded bottom corners, and left a pale arc at each of them: the page's edge pixel is
+  part ink, the band's is part background, and part of part is a fringe. On a straight
+  axis-aligned edge the coverage is exact and nothing shows, which is why the seam appeared
+  at the two corners and nowhere else. The band's KO path OVERSHOOTS the page by 0.6 units
+  now, so its antialiasing has nothing of the icon to half-cover; it is painted in the
+  row's own background, so the overshoot is background on background and invisible. The
+  `solid` evenodd variant keeps a CLIPPED copy, because a hole straying outside the body is
+  one crossing rather than two and would fill instead of cut.
+  CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
+  `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
+  replaces the single indigo bar that had been telling code from document - an accent bar
+  did that by adding a hue to one stripe, which is a detail, and the page is most of the
+  icon. A DARK PAGE IS AN INVERSION, NOT A RECOLOUR, and that is the whole construction:
+  the fold, the chip and the extension knocked out of the chip are ALL drawn in ink
+  everywhere else in the set, so on a dark page all three vanish at once and the naive
+  recolour is an icon with no fold, no chip and no label. So code's fold and chip take
+  `#aab2c0` - the grey that is the PAGE on the other kinds becomes the MARKS on this one -
+  its label is DRAWN in the page colour rather than knocked out, and its three bars are
+  `#e9edf7` with no accent among them, since once the ground carries the difference an
+  indigo stripe on top of it is one difference too many. The page measures 1.23:1 on
+  Explorer's dark ground, which is pure white's 1.07:1 problem pointed the other way, so
+  it carries the SAME hairline document does in a light colour (`#7a8498`, 4.33:1 on dark
+  and 3.51:1 on light) - `_hairline` grew a colour argument rather than a second
+  implementation, because two MinFilter erosions of the same mask would drift. `repick.py`
+  no longer offers code, for the same reason it never offered comic: its live recolour
+  assumes one flat page under ink, and neither of those two is that, so tinting them there
+  would show a colour the .ico cannot hold.
+  THE IN-APP ICONS CANNOT CARRY ANY OF THAT, being painted in one ink, so `svg.py` has
+  THREE deliberate divergences from the .ico and they are divergences rather than drift:
+  the clapperboard has two stripes instead of three (three are a pixel each at 14px and
+  merge into a grey bar), the comic is a bare splat (its sunburst and halftone exist to be
+  different COLOURS from each other and flatten to a grey rectangle), and CODE is an
+  indent guide with rungs rather than the stepped bars - a spine reads as structure where
+  three full-width bars read as prose, which is the only way code and document stay apart
+  when both are one colour.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
@@ -542,6 +981,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   has NO "close others" (each close can raise the unsaved-changes question, and firing several
   would overwrite it and lose the work it protects), and the terminal's menu carries paste but
   not copy (xterm owns its selection; Ctrl+C over one already copies).
+  The SIDEBAR's dead space answers one too (2026-08-31): Paste, Open terminal here, Show in
+  File Explorer and Copy path, all on the PLACE rather than on a row, since a right-click
+  that missed every row simply read as a miss. Paste reads the clipboard through PowerShell
+  (`Get-Clipboard -Format FileDropList`) because Windows puts a multi-file copy on as
+  CF_HDROP and Electron's own clipboard API exposes only one path; the copy side was already
+  a PowerShell call for the same reason. The SOURCES may be anywhere - you copied them in
+  Explorer - and only the DESTINATION is walled. Nothing is ever written over: a taken name
+  becomes "name (2)", the way Duplicate does. Deliberately NOT `ownWrite`'d, because the
+  tree has no other way to hear about a paste and muting only DEFERS the watcher's event by
+  a second and a half anyway.
   **NO ICONS on a viewer's menu, and almost no shortcut hints** (owner pick, 2026-08-31). The
   first cut read like a toolbar - the picture's menu offered next, previous, zoom in, zoom out,
   fit, actual size, rotate, fullscreen and copy, most with a key against the row - and every one
@@ -591,6 +1040,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `roots.ts` announces every open and close and that is the only thing that starts a watch. The
   renderer re-lists only folders a tab has already loaded and does NOT bump `refreshKey`, which
   is what would clear the selection.
+- **And so does the open file** (2026-08-31, `lib/fileReload.ts`). The watcher above
+  refreshed the TREE and left the EDITOR showing a frozen copy, whose `saved.current.text`
+  was now a lie - so one Ctrl+S wrote the stale version back over the agent's work. The
+  signal cannot be trusted on its own: `DirChange` carries directories and never a file
+  name, and Prism's OWN save emits one about 1.2s late, because a muted directory is
+  DEFERRED rather than dropped. So the correctness condition is the file's own stamp
+  (mtime + size), taken after every read and after every write. A CLEAN editor swaps
+  silently: `saved.current` is set BEFORE the dispatch (or the update listener marks the
+  file dirty against text nobody typed) and the transaction is kept OUT of the history
+  (or Ctrl+Z walks back to the stale text and the next Ctrl+S commits the very corruption
+  this fixes). A DIRTY one asks, once per file however many times it is rewritten, and
+  never in fullscreen, where a dialog composites outside the fullscreen element and nobody
+  sees it: Prism has no diff and no merge, so it is Keep mine or Reload from disk and
+  nothing in between. A file that has momentarily VANISHED (a rename-into-place write, a
+  git checkout) is left entirely alone - nulling `saved.current` there would disarm Ctrl+S
+  on the user's own unsaved work. Markdown re-reads the same way with no question, having
+  nothing unsaved to lose. Deliberately NOT extended to the pdf viewer or to office and
+  ebook documents: those cost a conversion in main per event, and nobody rewrites a .docx
+  underneath a reader. The paging list is still frozen (it comes from the open payload), so
+  a file an agent CREATES appears in the tree and is not arrow-pageable until the tab
+  re-roots - said rather than half-fixed.
 - **The uninstaller had never run** (2026-08-30). `customUnInstall` was defined in `pages.nsh`,
   which `installer.nsh` excludes when `BUILD_UNINSTALLER` is set, so electron-builder's
   `!ifmacrodef` found nothing: every ProgID, every OpenWithProgids entry and the Explorer verb
@@ -723,7 +1193,10 @@ works, that the associations still register, and that the resident app actually 
   `heic-convert` (HEIC decode), `adm-zip` (the archive viewer: reading and rewriting zip
   containers is not a thing to hand-roll; pure JS, no native code), `node-pty` + `@xterm/*` (the terminal: a real ConPTY and
   its renderer, not a thing to hand-roll; node-pty is the app's ONE native module, ships
-  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it). Shells spawn
+  N-API prebuilds, and must stay asarUnpacked or Windows cannot load it; `@xterm/*` now
+  includes `addon-search`, because searching a terminal means the SCROLLBACK buffer,
+  wrapped lines and the alternate screen, none of which a DOM search over the rendered
+  rows can see), `exifr` (main-only, the photo's own EXIF). Shells spawn
   with node-pty's bundled conpty.dll (`useConptyDll: true`): the OS conhost FAST-FAILS
   the whole app (0xc0000409, no dialog) when a pty is killed mid-read (crashed 2026-08-21).
 

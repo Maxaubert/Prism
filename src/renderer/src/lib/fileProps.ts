@@ -19,6 +19,7 @@ const KIND_NAMES: Record<FileKind, string> = {
   doc: 'Document',
   text: 'Text document',
   archive: 'Archive',
+  comic: 'Comic book',
   other: 'File'
 }
 
@@ -31,6 +32,29 @@ function probeImage(url: string): Promise<PropRow[]> {
     img.onerror = () => resolve([])
     img.src = url
   })
+}
+
+/**
+ * What the camera wrote, when it wrote anything (2026-08-31).
+ *
+ * Rows only for the fields that are actually there: a screenshot has no
+ * camera and no lens, and eight empty rows saying so is worse than nothing.
+ * Main reads it from the file, so a HEIC and a camera RAW answer as well as
+ * a JPEG - their decoded copies carry no metadata at all.
+ */
+async function probePhoto(path: string): Promise<PropRow[]> {
+  type Info = Awaited<ReturnType<typeof window.prism.photoInfo>>
+  const info: Info = await window.prism.photoInfo(path).catch((): Info => ({}))
+  const rows: PropRow[] = []
+  if (info.camera) rows.push({ label: 'Camera', value: info.camera })
+  if (info.lens) rows.push({ label: 'Lens', value: info.lens })
+  if (info.exposure) rows.push({ label: 'Exposure', value: info.exposure })
+  if (info.taken) rows.push({ label: 'Taken', value: info.taken })
+  if (info.colour) rows.push({ label: 'Colour', value: info.colour })
+  if (info.gps) {
+    rows.push({ label: 'Location', value: `${info.gps.lat.toFixed(5)}, ${info.gps.lon.toFixed(5)}` })
+  }
+  return rows
 }
 
 function probeMedia(url: string, video: boolean): Promise<PropRow[]> {
@@ -126,7 +150,7 @@ export async function propsFor(root: string, path: string, name: string, kind: F
             : []
         )
       : kind === 'image'
-        ? probeImage(url)
+        ? Promise.all([probeImage(url), probePhoto(path)]).then(([a, b]) => [...a, ...b])
         : kind === 'video'
           ? probeMedia(url, true)
           : kind === 'audio'

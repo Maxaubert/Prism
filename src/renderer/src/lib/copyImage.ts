@@ -28,8 +28,8 @@ export function videoHasFrame(el: {
   return !!el && el.readyState >= 2 && el.videoWidth > 0 && el.videoHeight > 0
 }
 
-async function toPng(canvas: HTMLCanvasElement): Promise<ArrayBuffer | null> {
-  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+async function encode(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<ArrayBuffer | null> {
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, type, quality))
   return blob ? await blob.arrayBuffer() : null
 }
 
@@ -44,7 +44,7 @@ export async function pngFromBlob(blob: Blob | null): Promise<ArrayBuffer | null
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
     ctx.drawImage(bmp, 0, 0)
-    return await toPng(canvas)
+    return await encode(canvas, 'image/png')
   } finally {
     bmp.close()
   }
@@ -62,5 +62,43 @@ export async function pngFromVideo(el: HTMLVideoElement | null): Promise<ArrayBu
   // that for Web Audio), so the canvas is not tainted and toBlob works. Were
   // it not, this would throw a SecurityError rather than return silence.
   ctx.drawImage(el, 0, 0)
-  return await toPng(canvas)
+  return await encode(canvas, 'image/png')
+}
+
+/**
+ * The picture as ordinary PNG or JPEG bytes, for saving a copy.
+ *
+ * This is the answer to "400 iPhone HEICs and this site will not take them",
+ * and to every camera RAW and Photoshop file Prism can show and Windows
+ * cannot hand to anything else. Same source rule as the clipboard: the
+ * DECODED blob, never the on-screen element (which carries the zoom and
+ * rotation) and never the big-image canvas (which is downscaled).
+ *
+ * JPEG gets an opaque ground first. A canvas starts transparent and JPEG has
+ * no alpha, so a transparent PNG saved as JPEG comes out with black where the
+ * transparency was unless something is painted under it - white is what every
+ * other tool does.
+ */
+export async function encodeCopy(
+  blob: Blob | null,
+  format: 'png' | 'jpeg',
+  quality = 0.92
+): Promise<ArrayBuffer | null> {
+  if (!blob) return null
+  const bmp = await createImageBitmap(blob)
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = bmp.width
+    canvas.height = bmp.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    if (format === 'jpeg') {
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+    ctx.drawImage(bmp, 0, 0)
+    return await encode(canvas, format === 'png' ? 'image/png' : 'image/jpeg', quality)
+  } finally {
+    bmp.close()
+  }
 }

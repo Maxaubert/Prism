@@ -3,8 +3,15 @@ import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { fileVerbs } from '../lib/fileVerbs'
-import { pngFromBlob } from '../lib/copyImage'
+import { fileVerbs, tickIf } from '../lib/fileVerbs'
+import { encodeCopy, pngFromBlob } from '../lib/copyImage'
+import {
+  loadSlideSeconds,
+  saveSlideSeconds,
+  SLIDE_SECONDS,
+  stopsSlideshow,
+  type SlideSeconds
+} from '../lib/slideshow'
 
 // Above this resolution Chromium rasterizes a visible <img> on the MAIN thread —
 // measured at 2.3s of hard freeze for a 384 MP PNG, during which nothing paints
@@ -28,16 +35,41 @@ export function ImageView({
   url,
   path,
   name,
-  onToggleFullscreen
+  onToggleFullscreen,
+  onStep,
+  canStep,
+  fullscreen = false
 }: {
   url: string
   /** The file on disk. The menu's verbs act on this, not on the fsmedia url. */
   path?: string
   name: string
   onToggleFullscreen: () => void
+  /** The slideshow's step: the same route the arrows take, so it moves through
+   *  the folder in whatever order the sort menu decided. */
+  onStep?: (dir: 1 | -1) => void
+  /** Whether there IS one that way, which is how the slideshow knows to wrap
+   *  by walking back to the start rather than stopping at the end. */
+  canStep?: (dir: 1 | -1) => boolean
+  /** Fullscreen paints the stage black and shows no checkerboard: the same
+   *  rule the film follows, for the same reason. */
+  fullscreen?: boolean
 }): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * What the ELEMENT says it is, when the header parser could not say.
+   *
+   * `probeDimensions` reads PNG, GIF, JPEG and WebP headers and answers 0x0
+   * for everything else - which is SVG, AVIF, BMP and ICO, precisely the
+   * formats most likely to carry transparency. With 0 for a width, `fitScale`
+   * is 0, so anything sized from it collapses: the checkerboard behind the
+   * picture, the pan bounds, and the zoom readout (which was falling back to
+   * a bare `zoom`). The element knows, once it has loaded.
+   */
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [copyNote, setCopyNote] = useState<string | null>(null)
+  const [slideshow, setSlideshow] = useState(false)
+  const [slideSecs, setSlideSecs] = useState<SlideSeconds>(() => loadSlideSeconds())
   const stageRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [tx, setTx] = useState(0)
@@ -71,15 +103,20 @@ export function ImageView({
 
   /** What object-contain is already doing: the picture's on-screen scale at
    *  zoom 1. Zero while the size of either is unknown. */
+  /** The source size: the header when it could be parsed, else the element. */
+  const src =
+    img?.width && img?.height
+      ? { width: img.width, height: img.height }
+      : natural
+        ? { width: natural.w, height: natural.h }
+        : null
   const fitScale =
-    img?.width && img?.height && stage.w && stage.h
-      ? Math.min(stage.w / img.width, stage.h / img.height)
-      : 0
+    src && stage.w && stage.h ? Math.min(stage.w / src.width, stage.h / src.height) : 0
   /** Turned on its side, the fitted picture is as wide as it was tall. This is
    *  what makes it fit again rather than run off the top and bottom. */
   const rotFit =
-    rot % 180 === 90 && fitScale
-      ? Math.min(stage.w / (img!.height * fitScale), stage.h / (img!.width * fitScale))
+    rot % 180 === 90 && fitScale && src
+      ? Math.min(stage.w / (src.height * fitScale), stage.h / (src.width * fitScale))
       : 1
   const shownScale = fitScale * rotFit * zoom
   /** The zoom that would show this picture at its true size. */
@@ -199,8 +236,7 @@ export function ImageView({
       const [cx, cy] = cursorFromCentre(e)
       // Clamped against the NEW scale: zooming out towards a corner used to
       // leave the picture parked off stage.
-      const b =
-        img && fitScale ? panBounds(img, stage, fitScale * rotFit * ns, rot) : null
+      const b = src && fitScale ? panBounds(src, stage, fitScale * rotFit * ns, rot) : null
       setZoom((z) => {
         const k = ns / z
         setTx((x) => {
@@ -237,7 +273,7 @@ export function ImageView({
     setPanning(true)
     // Read once: the zoom cannot change mid-drag, and the picture may only
     // travel until its edge reaches the middle of the stage.
-    const b = img && fitScale ? panBounds(img, stage, shownScale, rot) : null
+    const b = src && fitScale ? panBounds(src, stage, shownScale, rot) : null
     const move = (ev: globalThis.MouseEvent): void => {
       const nx = orig.tx + (ev.clientX - orig.x)
       const ny = orig.ty + (ev.clientY - orig.y)
@@ -259,6 +295,57 @@ export function ImageView({
    *  has a backing-store limit, so a big enough panorama gives back no bytes
    *  at all - and a verb that silently does nothing is worse than one that
    *  says so. */
+  /**
+   * The slideshow's clock.
+   *
+   * It steps forward and, at the end of the folder, walks back to the start.
+   * The WRAP lives here rather than in `go` on purpose: a slideshow that
+   * stops after the last picture has ended rather than looped, while the
+   * arrow keys must still stop at the edge, because someone arrowing is
+   * looking for a file.
+   */
+  useEffect(() => {
+    if (!slideshow || !onStep || !canStep) return
+    const id = window.setInterval(() => {
+      if (canStep(1)) onStep(1)
+      else while (canStep(-1)) onStep(-1)
+    }, slideSecs * 1000)
+    return () => window.clearInterval(id)
+  }, [slideshow, slideSecs, onStep, canStep])
+
+  // Anything deliberate ends it. A picture that keeps changing itself under
+  // someone who has started browsing is the whole failure mode.
+  useEffect(() => {
+    if (!slideshow) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (stopsSlideshow(e.key)) setSlideshow(false)
+    }
+    const onPointer = (): void => setSlideshow(false)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
+  }, [slideshow])
+
+  const saveCopy = useCallback(
+    async (format: 'png' | 'jpeg'): Promise<void> => {
+      const bytes = await encodeCopy(img?.blob ?? null, format)
+      if (!bytes) {
+        setCopyNote('That image is too large to save a copy of')
+        window.setTimeout(() => setCopyNote(null), 2200)
+        return
+      }
+      const where = await window.prism.saveImageCopy(bytes, name, format)
+      if (where) {
+        setCopyNote('Saved a copy')
+        window.setTimeout(() => setCopyNote(null), 1800)
+      }
+    },
+    [img, name]
+  )
+
   const copyImage = useCallback(async (): Promise<void> => {
     const png = await pngFromBlob(img?.blob ?? null)
     const ok = !!png && window.prism.copyImageToClipboard(png)
@@ -322,6 +409,33 @@ export function ImageView({
   const menuItems = (): MenuItem[] => [
     { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
     { label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() },
+    {
+      label: 'Save a copy',
+      disabled: !img,
+      children: [
+        { label: 'PNG', onPick: () => void saveCopy('png') },
+        { label: 'JPEG', onPick: () => void saveCopy('jpeg') }
+      ]
+    },
+    ...(onStep && canStep
+      ? [
+          {
+            label: slideshow ? 'Stop slideshow' : 'Slideshow',
+            // The interval hangs off the same row, so starting one and saying
+            // how fast it goes are one gesture rather than two.
+            onPick: () => setSlideshow((on) => !on),
+            children: SLIDE_SECONDS.map((n) => ({
+              label: `${n} seconds`,
+              icon: tickIf(n === slideSecs),
+              onPick: () => {
+                setSlideSecs(n)
+                saveSlideSeconds(n)
+                setSlideshow(true)
+              }
+            }))
+          } as MenuItem
+        ]
+      : []),
     ...(path ? fileVerbs(path) : [])
   ]
 
@@ -369,6 +483,28 @@ export function ImageView({
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
               cap at intrinsic size, which left images smaller than the window sitting
               tiny in the middle of the screen. Zoom still scales up from this fit. */}
+          {/* The ground behind a transparent picture, and ONLY behind it.
+              The element is `object-contain`, so its box is the whole stage
+              while the painted picture is a letterboxed sub-rect the DOM
+              never names - a background on either paints the entire window.
+              This is a sibling sized to the picture (fitScale times the
+              source) carrying the identical transform, so it moves, zooms
+              and turns with it. Not in fullscreen: the 2026-08-28 rule is
+              that a fullscreen stage is black whatever the theme says, and a
+              checkerboard is exactly the app leaking into the picture. */}
+          {img && src && fitScale > 0 && !fullscreen && (
+            <div
+              aria-hidden
+              className="p-checker pointer-events-none absolute left-1/2 top-1/2"
+              style={{
+                width: src.width * fitScale,
+                height: src.height * fitScale,
+                transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
+                opacity: loaded ? 1 : 0,
+                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
+              }}
+            />
+          )}
           {img && huge && (
             <canvas
               ref={canvasRef}
@@ -389,7 +525,13 @@ export function ImageView({
               alt={name}
               draggable={false}
               decoding="async"
-              onLoad={() => setLoaded(true)}
+              onLoad={(e) => {
+                setLoaded(true)
+                const el = e.currentTarget
+                if (el.naturalWidth && el.naturalHeight) {
+                  setNatural({ w: el.naturalWidth, h: el.naturalHeight })
+                }
+              }}
               onError={() => setFailed(true)}
               onMouseDown={onImgDown}
               onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}

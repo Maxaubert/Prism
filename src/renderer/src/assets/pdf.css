@@ -66,6 +66,38 @@
   color: transparent;
 }
 
+/* The link layer: one transparent box per clickable annotation, positioned in
+   PERCENTAGES so it needs no re-fetch when the zoom changes. z-index 2 is
+   deliberate and is the whole stacking story on a page: above the text layer's
+   1 (so a link over text is clickable), below the control pill's 10 and the
+   find bar's 20 (both of which once ended up under the text spans). The
+   container takes no pointer events and the boxes do - pdf.js's own
+   arrangement - so a click on bare page still reaches the text layer. */
+.p-pdf-annots {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.p-pdf-annots > button {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  transition: background-color 120ms ease;
+}
+
+.p-pdf-annots > button:hover,
+.p-pdf-annots > button:focus-visible {
+  background: rgba(91, 91, 214, 0.22);
+  outline: none;
+}
+
 /* Find matches, painted by the CSS Custom Highlight API: every match in a quiet
    accent, the one you are on in the full accent. */
 ::highlight(p-find) {

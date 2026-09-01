@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { fileVerbs } from '../lib/fileVerbs'
+import { touchesFile } from '../lib/fileReload'
 import { DocFind } from './DocFind'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 
@@ -24,11 +25,25 @@ const SCHEMA = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames ?? []),
-    'picture', 'source', 'video', 'audio', 'details', 'summary', 'kbd'
+    'picture',
+    'source',
+    'video',
+    'audio',
+    'details',
+    'summary',
+    'kbd'
   ],
   attributes: {
     ...defaultSchema.attributes,
-    img: [...(defaultSchema.attributes?.img ?? []), 'src', 'srcSet', 'width', 'height', 'align', 'title'],
+    img: [
+      ...(defaultSchema.attributes?.img ?? []),
+      'src',
+      'srcSet',
+      'width',
+      'height',
+      'align',
+      'title'
+    ],
     source: ['src', 'srcSet', 'type', 'media'],
     video: ['src', 'poster', 'controls', 'loop', 'muted', 'playsInline', 'width', 'height'],
     audio: ['src', 'controls', 'loop'],
@@ -38,7 +53,12 @@ const SCHEMA = {
     input: [...(defaultSchema.attributes?.input ?? []), 'checked'],
     div: [...(defaultSchema.attributes?.div ?? []), 'align'],
     p: [...(defaultSchema.attributes?.p ?? []), 'align'],
-    h1: ['align'], h2: ['align'], h3: ['align'], h4: ['align'], h5: ['align'], h6: ['align'],
+    h1: ['align'],
+    h2: ['align'],
+    h3: ['align'],
+    h4: ['align'],
+    h5: ['align'],
+    h6: ['align'],
     td: [...(defaultSchema.attributes?.td ?? []), 'align'],
     th: [...(defaultSchema.attributes?.th ?? []), 'align']
   },
@@ -50,7 +70,11 @@ const SCHEMA = {
 
 /** GitHub's heading anchor, near enough: lowercase, spaces to dashes. */
 const slug = (text: string): string =>
-  text.toLowerCase().trim().replace(/[^\w\- ]+/g, '').replace(/\s+/g, '-')
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\- ]+/g, '')
+    .replace(/\s+/g, '-')
 
 const textOf = (node: unknown): string => {
   if (typeof node === 'string') return node
@@ -107,27 +131,38 @@ export function MarkdownView({
   const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
   const text = loaded?.path === path ? loaded.text : null
 
-  useEffect(() => {
-    let alive = true
-    void window.prism
-      .readText(path)
-      .then(
-        (r) =>
-          alive &&
-          setLoaded({
-            path,
-            text:
-              'text' in r
-                ? r.text
-                : r.error === 'too-large'
-                  ? '_This document is too large to render (over 64MB)._'
-                  : '_This document could not be read._'
-          })
-      )
-    return () => {
-      alive = false
-    }
+  /** Reads in flight, so a slow one landing late never overwrites a newer
+   *  document with an older one. */
+  const readGen = useRef(0)
+  const read = useCallback((): void => {
+    const mine = ++readGen.current
+    void window.prism.readText(path).then((r) => {
+      if (readGen.current !== mine) return
+      setLoaded({
+        path,
+        text:
+          'text' in r
+            ? r.text
+            : r.error === 'too-large'
+              ? '_This document is too large to render (over 64MB)._'
+              : '_This document could not be read._'
+      })
+    })
   }, [path])
+
+  useEffect(() => read(), [read])
+
+  // A rendered document has no unsaved state, so a rewrite from outside Prism
+  // is simply the document changing: re-read it (2026-08-31). No stamp check
+  // and no dialog - the worst case is one extra read of a file that did not
+  // move, which for the folder the user is looking at is nothing.
+  useEffect(
+    () =>
+      window.prism.onDirChanged((c) => {
+        if (touchesFile(path, c)) read()
+      }),
+    [path, read]
+  )
 
   // Deliberately NOT focused on open. A document earns the vertical keys by
   // being clicked into (or tabbed to), never by merely being on screen: taking
@@ -183,8 +218,12 @@ export function MarkdownView({
         </Tag>
       )
     return {
-      h1: heading('h1'), h2: heading('h2'), h3: heading('h3'),
-      h4: heading('h4'), h5: heading('h5'), h6: heading('h6'),
+      h1: heading('h1'),
+      h2: heading('h2'),
+      h3: heading('h3'),
+      h4: heading('h4'),
+      h5: heading('h5'),
+      h6: heading('h6'),
       img: ({ srcSet, ...rest }) => <img {...rest} srcSet={fixSrcSet(srcSet, baseDir)} />,
       source: ({ srcSet, ...rest }) => <source {...rest} srcSet={fixSrcSet(srcSet, baseDir)} />
     }
@@ -251,7 +290,6 @@ export function MarkdownView({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
-
   return (
     <div
       className="relative h-full w-full"
@@ -260,52 +298,52 @@ export function MarkdownView({
         setMenu({ x: e.clientX, y: e.clientY })
       }}
     >
-    {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
-    {menu && (
-      <ContextMenu
-        x={menu.x}
-        y={menu.y}
-        onClose={() => setMenu(null)}
-        items={[
-          { label: 'Find', hint: 'Ctrl+F', onPick: () => setFinding(true) },
-          ...fileVerbs(path)
-        ]}
-      />
-    )}
-    <div
-      ref={box}
-      // 0, not -1: Tab is the keyboard's way into the document, and clicking
-      // anywhere inside lands focus here too.
-      tabIndex={0}
-      data-doc-scroller
-      onClick={onClick}
-      onAuxClick={onAuxClick}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        rememberDocPos(path, el.scrollTop)
-        if (Math.abs(el.scrollTop - lastSaved.current) < SAVE_STEP) return
-        lastSaved.current = el.scrollTop
-        saveDocPos(path, el.scrollTop, el.scrollHeight - el.clientHeight)
-      }}
-      className="h-full w-full overflow-y-auto outline-none select-text"
-    >
-      {text === null ? (
-        <div className="delayed-loader grid h-full place-items-center">
-          <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
-        </div>
-      ) : (
-        <div className="p-md mx-auto max-w-[780px] px-6 py-10">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw, [rehypeSanitize, SCHEMA]]}
-            urlTransform={(url) => resolveMdUrl(url, baseDir)}
-            components={components}
-          >
-            {text}
-          </ReactMarkdown>
-        </div>
+      {finding && <DocFind scroller={box} onClose={() => setFinding(false)} />}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { label: 'Find', hint: 'Ctrl+F', onPick: () => setFinding(true) },
+            ...fileVerbs(path)
+          ]}
+        />
       )}
-    </div>
+      <div
+        ref={box}
+        // 0, not -1: Tab is the keyboard's way into the document, and clicking
+        // anywhere inside lands focus here too.
+        tabIndex={0}
+        data-doc-scroller
+        onClick={onClick}
+        onAuxClick={onAuxClick}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          rememberDocPos(path, el.scrollTop)
+          if (Math.abs(el.scrollTop - lastSaved.current) < SAVE_STEP) return
+          lastSaved.current = el.scrollTop
+          saveDocPos(path, el.scrollTop, el.scrollHeight - el.clientHeight)
+        }}
+        className="h-full w-full overflow-y-auto outline-none select-text"
+      >
+        {text === null ? (
+          <div className="delayed-loader grid h-full place-items-center">
+            <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+          </div>
+        ) : (
+          <div className="p-md mx-auto max-w-[780px] px-6 py-10">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, SCHEMA]]}
+              urlTransform={(url) => resolveMdUrl(url, baseDir)}
+              components={components}
+            >
+              {text}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

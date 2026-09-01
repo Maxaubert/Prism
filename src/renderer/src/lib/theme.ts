@@ -635,12 +635,43 @@ export const folderIconOf = (s: Style): string => {
   return c
 }
 
-/** The tree's file colour: the chosen one, or ONE per-mode grey for every
- *  style (owner decision, 2026-08-21) - the same dim ink derivation the
- *  chrome icons use, which is what Void always looked like. The file's KIND
- *  still shows in the glyph's shape; colour no longer carries it. */
-export const fileIconOf = (s: Style): string =>
-  s.fileIcon ?? dimmed(s.text, s.bg, 0.38, 4.5)
+/**
+ * The tree's file ink: the chosen one, else WHITE OR BLACK, whichever reads
+ * better on the style's own ground (owner instruction, 2026-08-31 - "they
+ * should either be white or black depending on the background").
+ *
+ * It replaces a 0.38 dimming of the theme's text, which was a mid-tone BY
+ * CONSTRUCTION and so could never be either. The file's KIND lives in the
+ * glyph's shape (2026-08-21); the ink only has to be legible.
+ *
+ * MEASURED, not read off the mode flag: Prism has custom styles, so "is this
+ * theme dark" has no reliable answer while "what does this ground measure"
+ * always does. And it takes the BETTER OF THE TWO ratios rather than testing a
+ * midpoint - two colours either side of a midpoint can both be poor, while
+ * better-of-two is right by construction. Mid-grey #808080 is the case that
+ * shows it: black at 5.32:1 against white's 5.28:1, which a midpoint test
+ * would have called a coin toss.
+ *
+ * The dark half is not pure black (owner, 2026-08-31: "a bit less black"). It
+ * is the ground's own colour taken almost all the way down, which softens it
+ * and picks up the paper's temperature at the same time - a warm off-white
+ * style gets a warm ink rather than a cold one sitting on it. Still 13.6:1 at
+ * worst across the shipped light styles, against pure black's 18.9:1, so
+ * nothing is bought at the cost of legibility. The light half stays #ffffff:
+ * white on a dark ground is what it always was and is not what was complained
+ * about.
+ *
+ * The PICKER still wins. A style that names its own fileIcon keeps it, so the
+ * rule is the default rather than an override of a choice made in Settings.
+ * `s.bg` is the ground rather than the resolved panel because a tinted
+ * material only washes 7% of the accent over it, which cannot move a
+ * background from one side of this to the other.
+ */
+export const fileIconOf = (s: Style): string => {
+  if (s.fileIcon) return s.fileIcon
+  const dark = mix('#000000', s.bg, 0.14)
+  return contrast('#ffffff', s.bg) >= contrast(dark, s.bg) ? '#ffffff' : dark
+}
 
 /** The parcel FALLBACK colour (#68): archives normally wear the system's own
  *  association icon, and this amber - stepped toward readability like the

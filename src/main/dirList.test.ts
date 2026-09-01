@@ -23,30 +23,30 @@ function fixture(): string {
 describe('isInsideRoot', () => {
   const root = fixture()
 
-  it('accepts the root itself and its children', () => {
+  it('accepts the root itself and its children', async () => {
     expect(isInsideRoot(root, root)).toBe(true)
     expect(isInsideRoot(root, join(root, 'b.jpg'))).toBe(true)
     expect(isInsideRoot(root, join(root, 'sub'))).toBe(true)
     expect(isInsideRoot(root, join(root, 'sub', 'deep.mp4'))).toBe(true)
   })
 
-  it('rejects an escape through ..', () => {
+  it('rejects an escape through ..', async () => {
     expect(isInsideRoot(root, join(root, '..'))).toBe(false)
     expect(isInsideRoot(root, join(root, 'sub', '..', '..', 'elsewhere'))).toBe(false)
   })
 
-  it('rejects a sibling that merely shares the name prefix', () => {
+  it('rejects a sibling that merely shares the name prefix', async () => {
     expect(isInsideRoot(root, `${root}-other`)).toBe(false)
     expect(isInsideRoot(root, `${root}-other/x.jpg`)).toBe(false)
   })
 
-  it('ignores case and trailing separators on Windows', () => {
+  it('ignores case and trailing separators on Windows', async () => {
     if (process.platform !== 'win32') return
     expect(isInsideRoot(root, join(root.toUpperCase(), 'b.jpg'))).toBe(true)
     expect(isInsideRoot(`${root}\\`, join(root, 'sub'))).toBe(true)
   })
 
-  it('rejects anything when the root is missing', () => {
+  it('rejects anything when the root is missing', async () => {
     expect(isInsideRoot('', join(root, 'b.jpg'))).toBe(false)
   })
 })
@@ -54,43 +54,43 @@ describe('isInsideRoot', () => {
 describe('listDir', () => {
   const root = fixture()
 
-  it('lists folders and viewable files, hiding the rest', () => {
-    const l = listDir(root)
+  it('lists folders and viewable files, hiding the rest', async () => {
+    const l = await listDir(root)
     expect(l.folders.map((f) => f.name)).toEqual(['sub'])
     expect(l.files.map((f) => f.name)).toEqual(['a9.png', 'a10.png', 'b.jpg', 'notes.md'])
   })
 
-  it('sorts numbers naturally, not lexically', () => {
-    const names = listDir(root).files.map((f) => f.name)
+  it('sorts numbers naturally, not lexically', async () => {
+    const names = (await listDir(root)).files.map((f) => f.name)
     expect(names.indexOf('a9.png')).toBeLessThan(names.indexOf('a10.png'))
   })
 
-  it('carries the kind of each file', () => {
-    const byName = Object.fromEntries(listDir(root).files.map((f) => [f.name, f.kind]))
+  it('carries the kind of each file', async () => {
+    const byName = Object.fromEntries((await listDir(root)).files.map((f) => [f.name, f.kind]))
     expect(byName['b.jpg']).toBe('image')
     expect(byName['notes.md']).toBe('text')
   })
 
-  it('flags an unreadable path instead of throwing', () => {
-    const l = listDir(join(root, 'does-not-exist'))
+  it('flags an unreadable path instead of throwing', async () => {
+    const l = await listDir(join(root, 'does-not-exist'))
     expect(l).toEqual({ folders: [], files: [], unreadable: true })
   })
 
-  it('does not flag a readable folder', () => {
-    expect(listDir(root).unreadable).toBeUndefined()
+  it('does not flag a readable folder', async () => {
+    expect((await listDir(root)).unreadable).toBeUndefined()
   })
 })
 
 describe('isRoot', () => {
   const root = fixture()
 
-  it('is true for the root, however it is spelled', () => {
+  it('is true for the root, however it is spelled', async () => {
     expect(isRoot(root, root)).toBe(true)
     expect(isRoot(root, root + sep)).toBe(true)
     if (process.platform === 'win32') expect(isRoot(root, root.toUpperCase())).toBe(true)
   })
 
-  it('is false for anything inside it', () => {
+  it('is false for anything inside it', async () => {
     expect(isRoot(root, join(root, 'sub'))).toBe(false)
     expect(isRoot(root, join(root, 'b.jpg'))).toBe(false)
   })
@@ -113,56 +113,56 @@ describe('searchFiles', () => {
     return r
   })()
 
-  it('finds a file whose words are in the other order', () => {
+  it('finds a file whose words are in the other order', async () => {
       // The tree the other tests build holds ep1.mp4, ep1-bts.mp4 and friends.
-      const names = searchFiles(root, 'bts ep1').hits.map((h) => h.name)
+      const names = (await searchFiles(root, 'bts ep1')).hits.map((h) => h.name)
       expect(names).toContain('ep1-bts.mp4')
     })
 
-    it('takes a glob over the whole name', () => {
-      const names = searchFiles(root, '*.mp4').hits.map((h) => h.name)
+    it('takes a glob over the whole name', async () => {
+      const names = (await searchFiles(root, '*.mp4')).hits.map((h) => h.name)
       expect(names.length).toBeGreaterThan(0)
       expect(names.every((n) => n.endsWith('.mp4'))).toBe(true)
     })
 
-    it('takes ext:, and drops what a minus names', () => {
-      const all = searchFiles(root, 'ext:mp4').hits.map((h) => h.name)
-      const some = searchFiles(root, 'ext:mp4 -bts').hits.map((h) => h.name)
+    it('takes ext:, and drops what a minus names', async () => {
+      const all = (await searchFiles(root, 'ext:mp4')).hits.map((h) => h.name)
+      const some = (await searchFiles(root, 'ext:mp4 -bts')).hits.map((h) => h.name)
       expect(all).toContain('ep1-bts.mp4')
       expect(some).not.toContain('ep1-bts.mp4')
       expect(some.length).toBeLessThan(all.length)
     })
 
-    it('still finds nothing for an empty query', () => {
-      expect(searchFiles(root, '   ').hits).toEqual([])
+    it('still finds nothing for an empty query', async () => {
+      expect((await searchFiles(root, '   ')).hits).toEqual([])
     })
 
-  it('finds matches in folders the tree never expanded', () => {
-    const { hits, truncated } = searchFiles(root, 'ep1')
+  it('finds matches in folders the tree never expanded', async () => {
+    const { hits, truncated } = await searchFiles(root, 'ep1')
     expect(truncated).toBe(false)
     expect(hits.map((h) => h.name).sort()).toEqual(['ep1-bts.mp4', 'ep1.mp4'])
   })
 
-  it('reports where a hit lives, relative to the root', () => {
-    const { hits } = searchFiles(root, 'ep1-bts')
+  it('reports where a hit lives, relative to the root', async () => {
+    const { hits } = await searchFiles(root, 'ep1-bts')
     expect(hits[0].dir).toBe(join('season1', 'extras'))
   })
 
-  it('is case-insensitive and skips noise, junk and non-viewables', () => {
-    const names = searchFiles(root, 'EP').hits.map((h) => h.name)
+  it('is case-insensitive and skips noise, junk and non-viewables', async () => {
+    const names = (await searchFiles(root, 'EP')).hits.map((h) => h.name)
     expect(names).toContain('ep1.mp4')
     expect(names).not.toContain('ep-old.mp4') // recycle bin
     expect(names).not.toContain('.hidden-ep.mp4') // dotfile
-    expect(searchFiles(root, 'setup').hits).toEqual([])
+    expect((await searchFiles(root, 'setup')).hits).toEqual([])
   })
 
-  it('caps the hits and says so', () => {
-    const { hits, truncated } = searchFiles(root, 'ep', 1)
+  it('caps the hits and says so', async () => {
+    const { hits, truncated } = await searchFiles(root, 'ep', 1)
     expect(hits).toHaveLength(1)
     expect(truncated).toBe(true)
   })
 
-  it('returns nothing for a blank query', () => {
-    expect(searchFiles(root, '   ')).toEqual({ hits: [], truncated: false })
+  it('returns nothing for a blank query', async () => {
+    expect(await searchFiles(root, '   ')).toEqual({ hits: [], truncated: false })
   })
 })

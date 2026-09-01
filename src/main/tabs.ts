@@ -25,6 +25,20 @@ export interface SavedTab {
   /** Which agent the shell hosted at quit, so the right resume runs. The
    *  legacy `true` from before codex could resume means claude. */
   agent?: 'claude' | 'codex'
+  /**
+   * The folders that were OPEN in this tab's tree.
+   *
+   * A tab is a root and a current file (2026-08-20), and this is deliberately
+   * not a per-tab SETTING - it is where you had got to. Closing Prism used to
+   * collapse the whole tree, so reopening on a file six folders down showed it
+   * in the viewer with nothing marked in the sidebar, because none of the rows
+   * leading to it existed yet.
+   *
+   * Capped, because it is a suggestion and not a record: a tree somebody has
+   * opened a thousand folders in is not worth carrying, and the ancestors of
+   * the current file are re-derived on restore regardless.
+   */
+  open?: string[]
 }
 
 export interface SavedTabs {
@@ -75,7 +89,12 @@ export function parseTabs(raw: string): SavedTabs {
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    const { root, file, term, agent } = entry as { root?: unknown; file?: unknown; term?: unknown; agent?: unknown }
+    const { root, file, term, agent } = entry as {
+      root?: unknown
+      file?: unknown
+      term?: unknown
+      agent?: unknown
+    }
     if (typeof root !== 'string' || !isFolder(root)) return
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
     if (term === 'full' || term === 'split') {
@@ -89,7 +108,11 @@ export function parseTabs(raw: string): SavedTabs {
   })
   // The tab that was in front is gone (or the index named nowhere): follow its
   // root to a surviving twin, else fall back to the first tab.
-  if (active < 0) active = Math.max(0, tabs.findIndex((t) => t.root === activeRoot))
+  if (active < 0)
+    active = Math.max(
+      0,
+      tabs.findIndex((t) => t.root === activeRoot)
+    )
   return { tabs, active }
 }
 
