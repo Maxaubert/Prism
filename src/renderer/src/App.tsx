@@ -89,6 +89,12 @@ import {
 } from './lib/transport'
 import { archivePassword } from './lib/archivePass'
 import { deckOf } from './lib/mediaDeck'
+import { warmOf } from './lib/viewerCache'
+
+/** How long a viewer stays in memory after the window stops being the one in
+ *  front. Coming back is the common case, so releasing on the very first blur
+ *  would throw the cache away every time somebody glanced at another window. */
+const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
@@ -1917,6 +1923,43 @@ export default function App(): JSX.Element {
     return next.entries
   }, [tabs, activeId])
 
+  /* ------------------------------------------------------------------
+   * The warm viewers: the same idea for the kinds that do not play.
+   *
+   * Switching tabs used to unmount the viewer and throw away everything it
+   * had built - a parsed pdf and its rendered pages, a decoded image, an
+   * editor's document - so coming back paid for all of it again. Every warm
+   * tab is mounted; the strip only decides which one is on screen.
+   *
+   * HELD WHILE THE WINDOW HAS THE FOCUS, and for a minute after it loses it,
+   * because coming back to the app is the common case and a viewer nobody is
+   * looking at should not hold a decoded document for the rest of the
+   * session. The timer only ever RELEASES, so the worst a missed signal can
+   * do is keep memory that the next switch will bound anyway.
+   * ------------------------------------------------------------------ */
+  const [keepWarm, setKeepWarm] = useState(true)
+  useEffect(() => {
+    let cool: ReturnType<typeof setTimeout> | null = null
+    const off = window.prism.onWindowState((st) => {
+      if (cool) {
+        clearTimeout(cool)
+        cool = null
+      }
+      if (st.focused && !st.minimised) setKeepWarm(true)
+      else cool = setTimeout(() => setKeepWarm(false), WARM_COOLDOWN_MS)
+    })
+    return () => {
+      if (cool) clearTimeout(cool)
+      off()
+    }
+  }, [])
+  const warmOrder = useRef<string[]>([])
+  const warm = useMemo(() => {
+    const next = warmOf(tabs, warmOrder.current, activeId, keepWarm)
+    warmOrder.current = next.order
+    return next.entries
+  }, [tabs, activeId, keepWarm])
+
   // Whether the open document currently holds focus. Documents mark their own
   // scroller with data-doc-scroller; nothing auto-focuses one, so this is true
   // only after the user has actually clicked into (or tabbed to) the document.
@@ -2731,7 +2774,8 @@ export default function App(): JSX.Element {
               // The tabs' own players, all of them mounted, only one on screen.
               // Absolutely placed so the hidden ones take no room and the
               // visible one fills the pane exactly as a viewer always did.
-              const activeDeck = deck.find((e) => e.tabId === activeId) ?? null
+              // A background tab answers nothing: no paging, no stepping.
+              const noop = (): void => {}
               const players = deck.map((e) => (
                 <div
                   key={e.tabId}
@@ -2784,26 +2828,50 @@ export default function App(): JSX.Element {
                       fullscreen={fullscreen}
                     />
                   </Suspense>
-                ) : activeDeck ? null : file ? (
-                  <Viewer
-                    key={`${file.kind}:${docVersion}`}
-                    file={file}
-                    onUndoable={noteUndo}
-                    onRenameSelf={(name) => void runRename(file.path, name, 'ask')}
-                    refreshKey={refreshKey}
-                    onToggleFullscreen={toggleFullscreen}
-                    fullscreen={fullscreen}
-                    transportStyle={transportStyle}
-                    transportBg={transportBg}
-                    onOpenLocal={openFromTree}
-                    onAutoAdvance={advanceSameKind}
-                    onStep={stepSameKind}
-                    canStep={(dir) => sameKindIndex(dir) >= 0}
-                    onBuffer={onBuffer}
-                    getPending={getPending}
-                    onExternalChange={onExternalChange}
-                    reloadAnswer={reloadAnswer}
-                  />
+                ) : warm.length ? (
+                  <>
+                    {warm.map((w) => (
+                      <div
+                        key={w.tabId}
+                        aria-hidden={w.tabId === activeId ? undefined : true}
+                        className={
+                          w.tabId === activeId
+                            ? 'absolute inset-0'
+                            : 'pointer-events-none absolute left-0 top-0 h-px w-px overflow-hidden opacity-0'
+                        }
+                      >
+                        <Viewer
+                          // Keyed by TAB, so switching does not remount it -
+                          // which would destroy the very thing being kept. The
+                          // kind is in the key because a tab that changes kind
+                          // is a different viewer; docVersion is, because a
+                          // markdown save has to re-read from disk.
+                          key={`${w.tabId}:${w.file.kind}:${docVersion}`}
+                          file={w.file}
+                          onUndoable={noteUndo}
+                          onRenameSelf={(name) => void runRename(w.file.path, name, 'ask')}
+                          refreshKey={refreshKey}
+                          onToggleFullscreen={toggleFullscreen}
+                          fullscreen={fullscreen}
+                          transportStyle={transportStyle}
+                          transportBg={transportBg}
+                          onOpenLocal={openFromTree}
+                          // A tab you are not looking at does not page the
+                          // folder or answer the keyboard, exactly as the
+                          // media deck already has it.
+                          onAutoAdvance={w.tabId === activeId ? advanceSameKind : noop}
+                          onStep={w.tabId === activeId ? stepSameKind : noop}
+                          canStep={(dir) =>
+                            w.tabId === activeId ? sameKindIndex(dir) >= 0 : false
+                          }
+                          onBuffer={onBuffer}
+                          getPending={getPending}
+                          onExternalChange={onExternalChange}
+                          reloadAnswer={reloadAnswer}
+                        />
+                      </div>
+                    ))}
+                  </>
                 ) : active ? (
                   <NoFileState />
                 ) : (
