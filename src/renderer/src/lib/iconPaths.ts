@@ -128,34 +128,142 @@ export const ICON_PATHS = {
   },
 } as const
 
-// The COLOURED scheme (owner picks, 2026-09-01). Two colours are picked per
-// kind - the ground the glyph sits on and the ground the label sits in - and
-// `mark` and `text` are DERIVED, each white or black by whichever contrasts
-// more with what it sits on, so no pick can make an illegible icon. Resolved
-// in the emitter because the picks are presets: recomputing the same six
-// answers on every tree row would be work for nothing.
+// The COLOURED scheme (owner picks, 2026-09-01). Keyed by IDENTITY, which
+// is finer than the icon SHAPE: `.md` is not source, and a PDF, a Word file
+// and a spreadsheet are not one another even though they draw the same page.
 //
-// Two values deliberately do not follow that rule. CODE's mark is dark by
-// owner instruction (the rule would pick white at 9.44:1; dark measures
-// 2.22:1), because a code file is a dark editor and he asked for it to read
-// that way. COMIC keeps its Explorer scheme, whose splat is one piece of a
-// five-colour artwork rather than ink on a page - and the .ico's own pink
-// splat measures 1.00:1 against its own page, which only works there because
-// the sunburst sits between the two.
+// `page` and `mark` are both PICKED. The band is black on every identity and
+// the extension on it is white, by the same measured rule the monochrome ink
+// uses. `hi` is not listed: it is always `page`, in both schemes.
 //
-// `hi` is not listed: it is always `page`, in both schemes.
-export const ICON_COLOURS: Record<
-  keyof typeof ICON_PATHS,
-  { page: string; band: string; mark: string; text: string }
-> = {
-  archive: { page: '#8b8be2', band: '#1b1d22', mark: '#000000', text: '#ffffff' },
-  audio: { page: '#69b485', band: '#1b1d22', mark: '#000000', text: '#ffffff' },
-  code: { page: '#464646', band: '#000000', mark: '#000000', text: '#ffffff' },
+// The languages are a RULE rather than fifteen choices - styling follows css,
+// scripting follows python, everything not run follows html - so three colours
+// carry the set and the MARK says which language it is. Four identities are
+// not languages at all (config, prose, git, docker) and one is picked outright
+// (sql, the only glyph in the set that is neither black nor white).
+export const ICON_COLOURS = {
+  archive: { page: '#8b8be2', band: '#000000', mark: '#000000', text: '#ffffff' },
+  audio: { page: '#69b485', band: '#000000', mark: '#000000', text: '#ffffff' },
+  code: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
   comic: { page: '#d2603a', band: '#12141a', mark: '#f7f2de', text: '#f7f2de' },
-  document: { page: '#6060ff', band: '#1b1d22', mark: '#000000', text: '#ffffff' },
-  image: { page: '#ff8080', band: '#1b1d22', mark: '#000000', text: '#ffffff' },
-  video: { page: '#5384df', band: '#1b1d22', mark: '#000000', text: '#ffffff' },
+  config: { page: '#464646', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  css: { page: '#ff8080', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  data: { page: '#222244', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  docker: { page: '#5b5bd6', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  document: { page: '#464646', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  ebook: { page: '#d060ff', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  git: { page: '#24292e', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  html: { page: '#222244', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  image: { page: '#69b485', band: '#000000', mark: '#000000', text: '#ffffff' },
+  java: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  markdown: { page: '#2b2b69', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  pdf: { page: '#ff3b3b', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  prose: { page: '#464646', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  python: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  react: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  ruby: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  sheet: { page: '#529f3c', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  shell: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  slides: { page: '#e8a13c', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  sql: { page: '#252525', band: '#000000', mark: '#e8a13c', text: '#ffffff' },
+  swift: { page: '#222244', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+  video: { page: '#69b485', band: '#000000', mark: '#000000', text: '#ffffff' },
+  vue: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
+  word: { page: '#6060ff', band: '#000000', mark: '#ffffff', text: '#ffffff' },
+} as const
+
+export type IconIdentity = keyof typeof ICON_COLOURS
+
+// The identities that actually take a coloured PAGE. Everything else draws
+// monochrome even while the coloured scheme is on, so `coloured` is a quiet
+// tree with the documents picked out rather than a repaint of everything: a
+// folder of .docx, .xlsx and .pdf is where the shapes alone are nearly the
+// same picture, and a folder of source is not.
+export const ICON_FULL_COLOUR: readonly IconIdentity[] = [
+  'comic',
+  'pdf',
+  'word',
+  'sheet',
+  'slides',
+  'ebook',
+]
+
+// And the identities that are coloured NO MATTER WHICH SCHEME IS ON. The zip
+// is a flat coloured page like any other and falls back to monochrome on a
+// selected row; the comic is artwork (COMIC_ART) and never does, because five
+// colours cannot all collide with one accent.
+export const ICON_ALWAYS_COLOUR: readonly IconIdentity[] = [
+  'archive',
+  'comic',
+]
+
+// How much sheen the page carries. Drawn as a gradient over the page and
+// UNDER the band, so the extension stays crisp.
+export const ICON_GLINT = 1.0
+
+// The extensions that are their own identity rather than their kind's.
+// Checked AFTER a language mark and before the kind, so a .csv stays prose.
+export const IDENT_BY_EXT: Record<string, IconIdentity> = {
+  'docm': 'word',
+  'docx': 'word',
+  'epub': 'ebook',
+  'markdown': 'markdown',
+  'md': 'markdown',
+  'odp': 'slides',
+  'ods': 'sheet',
+  'pdf': 'pdf',
+  'ppsx': 'slides',
+  'pptx': 'slides',
+  'xls': 'sheet',
+  'xlsm': 'sheet',
+  'xlsx': 'sheet',
 }
+
+// THE COMIC ICON'S ARTWORK, which is the one Explorer shows and is COLOURED
+// even while everything else is monochrome. What the app drew before was a
+// bare splat - a reduction made on the grounds that a sunburst and a halftone
+// flatten to a grey rectangle in one ink, which was sound for a monochrome
+// icon and simply not what was wanted: the comic keeps its colours, so it
+// keeps its artwork.
+//
+// Drawn in order, inside the same mask of `body` the coloured pages use, and
+// under the band. The odd sunburst wedges are painted in the PAGE colour
+// rather than erased, which a flat SVG cannot do inside a group and which is
+// the same picture, because the ground behind them is exactly that colour.
+export const COMIC_PAGE = '#d2603a'
+
+export const COMIC_ART: ReadonlyArray<{ d: string; fill: string; opacity: number }> = [
+  { d: "M5.78 2.78H19.73V22.73H5.78Z", fill: '#12141a', opacity: 1.0 },
+  { d: "M7.05 4.05H18.45V21.45H7.05Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M7.05 4.05H18.45V21.45H7.05Z", fill: '#12141a', opacity: 1.0 },
+  { d: "M12.0 12.9L44.97 14.29L42.99 24.24Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L41.93 26.8L36.29 35.23Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L34.33 37.19L25.9 42.83Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L23.34 43.89L13.39 45.87Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L10.61 45.87L0.66 43.89Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L-1.9 42.83L-10.33 37.19Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L-12.29 35.23L-17.93 26.8Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L-18.99 24.24L-20.97 14.29Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L-20.97 11.51L-18.99 1.56Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L-17.93 -1.0L-12.29 -9.43Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L-10.33 -11.39L-1.9 -17.03Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L0.66 -18.09L10.61 -20.07Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L13.39 -20.07L23.34 -18.09Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L25.9 -17.03L34.33 -11.39Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M12.0 12.9L36.29 -9.43L41.93 -1.0Z", fill: '#f2e15c', opacity: 1.0 },
+  { d: "M12.0 12.9L42.99 1.56L44.97 11.51Z", fill: '#d2603a', opacity: 1.0 },
+  { d: "M6.51 4.05A0.54 0.54 0 1 1 7.59 4.05A0.54 0.54 0 1 1 6.51 4.05Z M8.38 4.05A0.54 0.54 0 1 1 9.46 4.05A0.54 0.54 0 1 1 8.38 4.05Z M10.26 4.05A0.54 0.54 0 1 1 11.34 4.05A0.54 0.54 0 1 1 10.26 4.05Z M12.13 4.05A0.54 0.54 0 1 1 13.21 4.05A0.54 0.54 0 1 1 12.13 4.05Z M14.01 4.05A0.54 0.54 0 1 1 15.09 4.05A0.54 0.54 0 1 1 14.01 4.05Z M15.88 4.05A0.54 0.54 0 1 1 16.96 4.05A0.54 0.54 0 1 1 15.88 4.05Z M17.76 4.05A0.54 0.54 0 1 1 18.84 4.05A0.54 0.54 0 1 1 17.76 4.05Z M7.45 5.93A0.54 0.54 0 1 1 8.53 5.93A0.54 0.54 0 1 1 7.45 5.93Z M9.32 5.93A0.54 0.54 0 1 1 10.4 5.93A0.54 0.54 0 1 1 9.32 5.93Z M11.2 5.93A0.54 0.54 0 1 1 12.28 5.93A0.54 0.54 0 1 1 11.2 5.93Z M13.07 5.93A0.54 0.54 0 1 1 14.15 5.93A0.54 0.54 0 1 1 13.07 5.93Z M14.95 5.93A0.54 0.54 0 1 1 16.03 5.93A0.54 0.54 0 1 1 14.95 5.93Z M16.82 5.93A0.54 0.54 0 1 1 17.9 5.93A0.54 0.54 0 1 1 16.82 5.93Z M6.51 7.8A0.54 0.54 0 1 1 7.59 7.8A0.54 0.54 0 1 1 6.51 7.8Z M8.38 7.8A0.54 0.54 0 1 1 9.46 7.8A0.54 0.54 0 1 1 8.38 7.8Z M10.26 7.8A0.54 0.54 0 1 1 11.34 7.8A0.54 0.54 0 1 1 10.26 7.8Z M12.13 7.8A0.54 0.54 0 1 1 13.21 7.8A0.54 0.54 0 1 1 12.13 7.8Z M14.01 7.8A0.54 0.54 0 1 1 15.09 7.8A0.54 0.54 0 1 1 14.01 7.8Z M15.88 7.8A0.54 0.54 0 1 1 16.96 7.8A0.54 0.54 0 1 1 15.88 7.8Z M17.76 7.8A0.54 0.54 0 1 1 18.84 7.8A0.54 0.54 0 1 1 17.76 7.8Z M7.45 9.67A0.54 0.54 0 1 1 8.53 9.67A0.54 0.54 0 1 1 7.45 9.67Z M9.32 9.67A0.54 0.54 0 1 1 10.4 9.67A0.54 0.54 0 1 1 9.32 9.67Z M11.2 9.67A0.54 0.54 0 1 1 12.28 9.67A0.54 0.54 0 1 1 11.2 9.67Z M13.07 9.67A0.54 0.54 0 1 1 14.15 9.67A0.54 0.54 0 1 1 13.07 9.67Z M14.95 9.67A0.54 0.54 0 1 1 16.03 9.67A0.54 0.54 0 1 1 14.95 9.67Z M16.82 9.67A0.54 0.54 0 1 1 17.9 9.67A0.54 0.54 0 1 1 16.82 9.67Z M6.51 11.55A0.54 0.54 0 1 1 7.59 11.55A0.54 0.54 0 1 1 6.51 11.55Z M8.38 11.55A0.54 0.54 0 1 1 9.46 11.55A0.54 0.54 0 1 1 8.38 11.55Z M10.26 11.55A0.54 0.54 0 1 1 11.34 11.55A0.54 0.54 0 1 1 10.26 11.55Z M12.13 11.55A0.54 0.54 0 1 1 13.21 11.55A0.54 0.54 0 1 1 12.13 11.55Z M14.01 11.55A0.54 0.54 0 1 1 15.09 11.55A0.54 0.54 0 1 1 14.01 11.55Z M15.88 11.55A0.54 0.54 0 1 1 16.96 11.55A0.54 0.54 0 1 1 15.88 11.55Z M17.76 11.55A0.54 0.54 0 1 1 18.84 11.55A0.54 0.54 0 1 1 17.76 11.55Z M7.45 13.42A0.54 0.54 0 1 1 8.53 13.42A0.54 0.54 0 1 1 7.45 13.42Z M9.32 13.42A0.54 0.54 0 1 1 10.4 13.42A0.54 0.54 0 1 1 9.32 13.42Z M11.2 13.42A0.54 0.54 0 1 1 12.28 13.42A0.54 0.54 0 1 1 11.2 13.42Z M13.07 13.42A0.54 0.54 0 1 1 14.15 13.42A0.54 0.54 0 1 1 13.07 13.42Z M14.95 13.42A0.54 0.54 0 1 1 16.03 13.42A0.54 0.54 0 1 1 14.95 13.42Z M16.82 13.42A0.54 0.54 0 1 1 17.9 13.42A0.54 0.54 0 1 1 16.82 13.42Z M6.51 15.3A0.54 0.54 0 1 1 7.59 15.3A0.54 0.54 0 1 1 6.51 15.3Z M8.38 15.3A0.54 0.54 0 1 1 9.46 15.3A0.54 0.54 0 1 1 8.38 15.3Z M10.26 15.3A0.54 0.54 0 1 1 11.34 15.3A0.54 0.54 0 1 1 10.26 15.3Z M12.13 15.3A0.54 0.54 0 1 1 13.21 15.3A0.54 0.54 0 1 1 12.13 15.3Z M14.01 15.3A0.54 0.54 0 1 1 15.09 15.3A0.54 0.54 0 1 1 14.01 15.3Z M15.88 15.3A0.54 0.54 0 1 1 16.96 15.3A0.54 0.54 0 1 1 15.88 15.3Z M17.76 15.3A0.54 0.54 0 1 1 18.84 15.3A0.54 0.54 0 1 1 17.76 15.3Z M7.45 17.17A0.54 0.54 0 1 1 8.53 17.17A0.54 0.54 0 1 1 7.45 17.17Z M9.32 17.17A0.54 0.54 0 1 1 10.4 17.17A0.54 0.54 0 1 1 9.32 17.17Z M11.2 17.17A0.54 0.54 0 1 1 12.28 17.17A0.54 0.54 0 1 1 11.2 17.17Z M13.07 17.17A0.54 0.54 0 1 1 14.15 17.17A0.54 0.54 0 1 1 13.07 17.17Z M14.95 17.17A0.54 0.54 0 1 1 16.03 17.17A0.54 0.54 0 1 1 14.95 17.17Z M16.82 17.17A0.54 0.54 0 1 1 17.9 17.17A0.54 0.54 0 1 1 16.82 17.17Z M6.51 19.05A0.54 0.54 0 1 1 7.59 19.05A0.54 0.54 0 1 1 6.51 19.05Z M8.38 19.05A0.54 0.54 0 1 1 9.46 19.05A0.54 0.54 0 1 1 8.38 19.05Z M10.26 19.05A0.54 0.54 0 1 1 11.34 19.05A0.54 0.54 0 1 1 10.26 19.05Z M12.13 19.05A0.54 0.54 0 1 1 13.21 19.05A0.54 0.54 0 1 1 12.13 19.05Z M14.01 19.05A0.54 0.54 0 1 1 15.09 19.05A0.54 0.54 0 1 1 14.01 19.05Z M15.88 19.05A0.54 0.54 0 1 1 16.96 19.05A0.54 0.54 0 1 1 15.88 19.05Z M17.76 19.05A0.54 0.54 0 1 1 18.84 19.05A0.54 0.54 0 1 1 17.76 19.05Z M7.45 20.92A0.54 0.54 0 1 1 8.53 20.92A0.54 0.54 0 1 1 7.45 20.92Z M9.32 20.92A0.54 0.54 0 1 1 10.4 20.92A0.54 0.54 0 1 1 9.32 20.92Z M11.2 20.92A0.54 0.54 0 1 1 12.28 20.92A0.54 0.54 0 1 1 11.2 20.92Z M13.07 20.92A0.54 0.54 0 1 1 14.15 20.92A0.54 0.54 0 1 1 13.07 20.92Z M14.95 20.92A0.54 0.54 0 1 1 16.03 20.92A0.54 0.54 0 1 1 14.95 20.92Z M16.82 20.92A0.54 0.54 0 1 1 17.9 20.92A0.54 0.54 0 1 1 16.82 20.92Z", fill: '#a82a0a', opacity: 0.588 },
+  { d: "M18.11 15.64L17.84 15.69L17.61 15.74L17.4 15.79L17.23 15.85L17.09 15.9L16.98 15.97L16.89 16.03L16.83 16.11L16.78 16.19L16.75 16.27L16.71 16.35L16.68 16.43L16.65 16.51L16.63 16.6L16.62 16.7L16.63 16.8L16.66 16.92L16.71 17.06L16.8 17.22L16.9 17.4L17.03 17.6L17.18 17.82L17.34 18.07L17.51 18.33L17.68 18.6L17.84 18.88L17.99 19.16L18.11 19.43L18.21 19.69L18.27 19.94L18.29 20.15L18.27 20.34L18.2 20.49L18.1 20.6L17.95 20.66L17.77 20.69L17.55 20.67L17.31 20.61L17.05 20.52L16.78 20.4L16.5 20.25L16.22 20.09L15.95 19.93L15.69 19.76L15.44 19.59L15.22 19.45L15.02 19.31L14.83 19.2L14.68 19.12L14.54 19.06L14.41 19.03L14.31 19.02L14.21 19.02L14.12 19.05L14.04 19.08L13.96 19.11L13.87 19.14L13.79 19.18L13.71 19.23L13.64 19.29L13.57 19.37L13.51 19.48L13.45 19.62L13.4 19.79L13.35 19.99L13.3 20.22L13.24 20.49L13.19 20.77L13.12 21.07L13.05 21.39L12.97 21.7L12.87 22.0L12.76 22.28L12.65 22.53L12.52 22.75L12.38 22.91L12.23 23.03L12.08 23.09L11.93 23.09L11.78 23.04L11.63 22.93L11.49 22.76L11.36 22.55L11.24 22.3L11.14 22.02L11.04 21.72L10.96 21.41L10.88 21.1L10.82 20.8L10.76 20.51L10.71 20.24L10.66 20.01L10.61 19.8L10.55 19.63L10.5 19.49L10.43 19.38L10.37 19.29L10.29 19.23L10.21 19.18L10.13 19.15L10.05 19.11L9.97 19.08L9.89 19.05L9.8 19.03L9.7 19.02L9.6 19.03L9.48 19.06L9.34 19.11L9.18 19.2L9.0 19.3L8.8 19.43L8.58 19.58L8.33 19.74L8.07 19.91L7.8 20.08L7.52 20.24L7.24 20.39L6.97 20.51L6.71 20.61L6.46 20.67L6.25 20.69L6.06 20.67L5.91 20.6L5.8 20.5L5.74 20.35L5.71 20.17L5.73 19.95L5.79 19.71L5.88 19.45L6.0 19.18L6.15 18.9L6.31 18.62L6.47 18.35L6.64 18.09L6.81 17.84L6.95 17.62L7.09 17.42L7.2 17.23L7.28 17.08L7.34 16.94L7.37 16.81L7.38 16.71L7.38 16.61L7.35 16.52L7.32 16.44L7.29 16.36L7.26 16.27L7.22 16.19L7.17 16.11L7.11 16.04L7.03 15.97L6.92 15.91L6.78 15.85L6.61 15.8L6.41 15.75L6.18 15.7L5.91 15.64L5.63 15.59L5.33 15.52L5.01 15.45L4.7 15.37L4.4 15.27L4.12 15.16L3.87 15.05L3.65 14.92L3.49 14.78L3.37 14.63L3.31 14.48L3.31 14.33L3.36 14.18L3.47 14.03L3.64 13.89L3.85 13.76L4.1 13.64L4.38 13.54L4.68 13.44L4.99 13.36L5.3 13.28L5.6 13.22L5.89 13.16L6.16 13.11L6.39 13.06L6.6 13.01L6.77 12.95L6.91 12.9L7.02 12.83L7.11 12.77L7.17 12.69L7.22 12.61L7.25 12.53L7.29 12.45L7.32 12.37L7.35 12.29L7.37 12.2L7.38 12.1L7.37 12.0L7.34 11.88L7.29 11.74L7.2 11.58L7.1 11.4L6.97 11.2L6.82 10.98L6.66 10.73L6.49 10.47L6.32 10.2L6.16 9.92L6.01 9.64L5.89 9.37L5.79 9.11L5.73 8.86L5.71 8.65L5.73 8.46L5.8 8.31L5.9 8.2L6.05 8.14L6.23 8.11L6.45 8.13L6.69 8.19L6.95 8.28L7.22 8.4L7.5 8.55L7.78 8.71L8.05 8.87L8.31 9.04L8.56 9.21L8.78 9.35L8.98 9.49L9.17 9.6L9.32 9.68L9.46 9.74L9.59 9.77L9.69 9.78L9.79 9.78L9.88 9.75L9.96 9.72L10.04 9.69L10.13 9.66L10.21 9.62L10.29 9.57L10.36 9.51L10.43 9.43L10.49 9.32L10.55 9.18L10.6 9.01L10.65 8.81L10.7 8.58L10.76 8.31L10.81 8.03L10.88 7.73L10.95 7.41L11.03 7.1L11.13 6.8L11.24 6.52L11.35 6.27L11.48 6.05L11.62 5.89L11.77 5.77L11.92 5.71L12.07 5.71L12.22 5.76L12.37 5.87L12.51 6.04L12.64 6.25L12.76 6.5L12.86 6.78L12.96 7.08L13.04 7.39L13.12 7.7L13.18 8.0L13.24 8.29L13.29 8.56L13.34 8.79L13.39 9.0L13.45 9.17L13.5 9.31L13.57 9.42L13.63 9.51L13.71 9.57L13.79 9.62L13.87 9.65L13.95 9.69L14.03 9.72L14.11 9.75L14.2 9.77L14.3 9.78L14.4 9.77L14.52 9.74L14.66 9.69L14.82 9.6L15.0 9.5L15.2 9.37L15.42 9.22L15.67 9.06L15.93 8.89L16.2 8.72L16.48 8.56L16.76 8.41L17.03 8.29L17.29 8.19L17.54 8.13L17.75 8.11L17.94 8.13L18.09 8.2L18.2 8.3L18.26 8.45L18.29 8.63L18.27 8.85L18.21 9.09L18.12 9.35L18.0 9.62L17.85 9.9L17.69 10.18L17.53 10.45L17.36 10.71L17.19 10.96L17.05 11.18L16.91 11.38L16.8 11.57L16.72 11.72L16.66 11.86L16.63 11.99L16.62 12.09L16.62 12.19L16.65 12.28L16.68 12.36L16.71 12.44L16.74 12.53L16.78 12.61L16.83 12.69L16.89 12.76L16.97 12.83L17.08 12.89L17.22 12.95L17.39 13.0L17.59 13.05L17.82 13.1L18.09 13.16L18.37 13.21L18.67 13.28L18.99 13.35L19.3 13.43L19.6 13.53L19.88 13.64L20.13 13.75L20.35 13.88L20.51 14.02L20.63 14.17L20.69 14.32L20.69 14.47L20.64 14.62L20.53 14.77L20.36 14.91L20.15 15.04L19.9 15.16L19.62 15.26L19.32 15.36L19.01 15.44L18.7 15.52L18.4 15.58Z", fill: '#12141a', opacity: 1.0 },
+  { d: "M16.93 15.4L16.67 15.43L16.44 15.46L16.24 15.49L16.07 15.53L15.94 15.56L15.83 15.61L15.76 15.65L15.7 15.71L15.66 15.77L15.63 15.83L15.6 15.89L15.58 15.95L15.56 16.02L15.54 16.09L15.54 16.16L15.56 16.25L15.6 16.35L15.67 16.47L15.76 16.61L15.88 16.77L16.02 16.96L16.18 17.16L16.35 17.39L16.53 17.63L16.72 17.88L16.89 18.15L17.05 18.41L17.19 18.67L17.29 18.91L17.37 19.14L17.4 19.34L17.4 19.51L17.35 19.65L17.26 19.74L17.13 19.79L16.96 19.8L16.76 19.77L16.53 19.7L16.29 19.6L16.03 19.46L15.77 19.3L15.51 19.13L15.25 18.95L15.01 18.77L14.78 18.59L14.57 18.43L14.39 18.29L14.23 18.17L14.08 18.08L13.96 18.01L13.86 17.96L13.77 17.94L13.69 17.94L13.62 17.95L13.56 17.98L13.5 18.0L13.43 18.03L13.37 18.06L13.31 18.1L13.26 18.15L13.21 18.23L13.17 18.33L13.13 18.46L13.1 18.63L13.07 18.82L13.03 19.05L13.0 19.31L12.97 19.59L12.92 19.89L12.87 20.2L12.81 20.51L12.73 20.81L12.65 21.08L12.55 21.33L12.44 21.55L12.32 21.72L12.2 21.83L12.07 21.89L11.94 21.89L11.81 21.84L11.69 21.73L11.57 21.56L11.46 21.35L11.36 21.11L11.27 20.83L11.2 20.53L11.13 20.22L11.08 19.92L11.04 19.62L11.0 19.33L10.97 19.07L10.94 18.84L10.91 18.64L10.87 18.47L10.84 18.34L10.79 18.23L10.75 18.16L10.69 18.1L10.63 18.06L10.57 18.03L10.51 18.0L10.45 17.98L10.38 17.96L10.31 17.94L10.24 17.94L10.15 17.96L10.05 18.0L9.93 18.07L9.79 18.16L9.63 18.28L9.44 18.42L9.24 18.58L9.01 18.75L8.77 18.93L8.52 19.12L8.25 19.29L7.99 19.45L7.73 19.59L7.49 19.69L7.26 19.77L7.06 19.8L6.89 19.8L6.75 19.75L6.66 19.66L6.61 19.53L6.6 19.36L6.63 19.16L6.7 18.93L6.8 18.69L6.94 18.43L7.1 18.17L7.27 17.91L7.45 17.65L7.63 17.41L7.81 17.18L7.97 16.97L8.11 16.79L8.23 16.63L8.32 16.48L8.39 16.36L8.44 16.26L8.46 16.17L8.46 16.09L8.45 16.02L8.42 15.96L8.4 15.9L8.37 15.83L8.34 15.77L8.3 15.71L8.25 15.66L8.17 15.61L8.07 15.57L7.94 15.53L7.77 15.5L7.58 15.47L7.35 15.43L7.09 15.4L6.81 15.37L6.51 15.32L6.2 15.27L5.89 15.21L5.59 15.13L5.32 15.05L5.07 14.95L4.85 14.84L4.68 14.72L4.57 14.6L4.51 14.47L4.51 14.34L4.56 14.21L4.67 14.09L4.84 13.97L5.05 13.86L5.29 13.76L5.57 13.67L5.87 13.6L6.18 13.53L6.48 13.48L6.78 13.44L7.07 13.4L7.33 13.37L7.56 13.34L7.76 13.31L7.93 13.27L8.06 13.24L8.17 13.19L8.24 13.15L8.3 13.09L8.34 13.03L8.37 12.97L8.4 12.91L8.42 12.85L8.44 12.78L8.46 12.71L8.46 12.64L8.44 12.55L8.4 12.45L8.33 12.33L8.24 12.19L8.12 12.03L7.98 11.84L7.82 11.64L7.65 11.41L7.47 11.17L7.28 10.92L7.11 10.65L6.95 10.39L6.81 10.13L6.71 9.89L6.63 9.66L6.6 9.46L6.6 9.29L6.65 9.15L6.74 9.06L6.87 9.01L7.04 9.0L7.24 9.03L7.47 9.1L7.71 9.2L7.97 9.34L8.23 9.5L8.49 9.67L8.75 9.85L8.99 10.03L9.22 10.21L9.43 10.37L9.61 10.51L9.77 10.63L9.92 10.72L10.04 10.79L10.14 10.84L10.23 10.86L10.31 10.86L10.38 10.85L10.44 10.82L10.5 10.8L10.57 10.77L10.63 10.74L10.69 10.7L10.74 10.65L10.79 10.57L10.83 10.47L10.87 10.34L10.9 10.17L10.93 9.98L10.97 9.75L11.0 9.49L11.03 9.21L11.08 8.91L11.13 8.6L11.19 8.29L11.27 7.99L11.35 7.72L11.45 7.47L11.56 7.25L11.68 7.08L11.8 6.97L11.93 6.91L12.06 6.91L12.19 6.96L12.31 7.07L12.43 7.24L12.54 7.45L12.64 7.69L12.73 7.97L12.8 8.27L12.87 8.58L12.92 8.88L12.96 9.18L13.0 9.47L13.03 9.73L13.06 9.96L13.09 10.16L13.13 10.33L13.16 10.46L13.21 10.57L13.25 10.64L13.31 10.7L13.37 10.74L13.43 10.77L13.49 10.8L13.55 10.82L13.62 10.84L13.69 10.86L13.76 10.86L13.85 10.84L13.95 10.8L14.07 10.73L14.21 10.64L14.37 10.52L14.56 10.38L14.76 10.22L14.99 10.05L15.23 9.87L15.48 9.68L15.75 9.51L16.01 9.35L16.27 9.21L16.51 9.11L16.74 9.03L16.94 9.0L17.11 9.0L17.25 9.05L17.34 9.14L17.39 9.27L17.4 9.44L17.37 9.64L17.3 9.87L17.2 10.11L17.06 10.37L16.9 10.63L16.73 10.89L16.55 11.15L16.37 11.39L16.19 11.62L16.03 11.83L15.89 12.01L15.77 12.17L15.68 12.32L15.61 12.44L15.56 12.54L15.54 12.63L15.54 12.71L15.55 12.78L15.58 12.84L15.6 12.9L15.63 12.97L15.66 13.03L15.7 13.09L15.75 13.14L15.83 13.19L15.93 13.23L16.06 13.27L16.23 13.3L16.42 13.33L16.65 13.37L16.91 13.4L17.19 13.43L17.49 13.48L17.8 13.53L18.11 13.59L18.41 13.67L18.68 13.75L18.93 13.85L19.15 13.96L19.32 14.08L19.43 14.2L19.49 14.33L19.49 14.46L19.44 14.59L19.33 14.71L19.16 14.83L18.95 14.94L18.71 15.04L18.43 15.13L18.13 15.2L17.82 15.27L17.52 15.32L17.22 15.36Z", fill: '#ed3b6e', opacity: 1.0 },
+]
+
+// BAM, lettered into the splat. Emitted as <text> rather than as outlines for
+// the reason the extension label is: turning a face into paths here freezes
+// it while the app's own type moves on.
+export const COMIC_WORD = {
+  text: 'BAM', x: 12.0, y: 14.4, size: 4.35,
+  fill: '#f2e15c', stroke: '#12141a', width: 0.9
+} as const
 
 // A mark per LANGUAGE, laid on the code kind's page in place of its
 // stepped bars. Two layers only: the page, the fold and the band all

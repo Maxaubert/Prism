@@ -3,6 +3,7 @@ import {
   archiveIconOf,
   derive,
   fileIconOf,
+  ICON_SCHEME_SHOWN,
   iconSchemeOf,
   mix,
   paletteOf,
@@ -228,7 +229,12 @@ describe('the icon scheme', () => {
     for (const s of STYLES) expect(iconSchemeOf(s)).toBe('mono')
   })
 
-  it('is whatever the style names', () => {
-    expect(iconSchemeOf({ ...STYLES[0], iconScheme: 'colour' })).toBe('colour')
+  it('is forced while the switch is hidden, whatever a style names', () => {
+    // The control was hidden 2026-09-01 ("we might come back to it"), so the
+    // scheme is pinned rather than merely unreachable. A style SAVED while the
+    // switch existed still carries iconScheme: 'colour', and honouring it would
+    // strand whoever set it with a set and no way to change it.
+    expect(ICON_SCHEME_SHOWN).toBe(false)
+    expect(iconSchemeOf({ ...STYLES[0], iconScheme: 'colour' })).toBe('mono')
   })
 })

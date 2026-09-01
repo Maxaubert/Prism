@@ -44,7 +44,6 @@ import {
   isEdited,
   paletteOf,
   folderIconOf,
-  iconSchemeOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -58,7 +57,6 @@ import {
   useStyles,
   type FontId,
   type Mode,
-  type IconScheme,
   type Style
 } from '../lib/theme'
 
@@ -644,16 +642,6 @@ const CORNER_OPTIONS: Array<{ id: Style['corners']; name: string }> = [
   { id: '14', name: 'Round' }
 ]
 
-// The file icons are a SET, not a colour (2026-09-01). What sat here was a
-// colour well, and an arbitrary tint over every kind is a narrower thing than
-// choosing which icons you get: monochrome derives its one ink from the style's
-// own ground, coloured is a fixed preset per kind and looks the same on every
-// ground, which is what makes it the icon Explorer shows.
-const ICON_SCHEME_OPTIONS: Array<{ id: IconScheme; name: string }> = [
-  { id: 'mono', name: 'Monochrome' },
-  { id: 'colour', name: 'Coloured' }
-]
-
 const EDGE_OPTIONS: Array<{ id: Style['borders']; name: string }> = [
   { id: 'none', name: 'None' },
   { id: 'faint', name: 'Faint' },
@@ -836,17 +824,16 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('folderIcon', null)}
             />
           </Pref>
-          <Pref
-            id="c-file-icon"
-            label="File icons"
-            hint="Monochrome takes one ink from your background; coloured is a set per kind."
-          >
-            <Segmented
-              value={iconSchemeOf(style)}
-              onChange={(v) => setOverride('iconScheme', v)}
-              options={ICON_SCHEME_OPTIONS}
-            />
-          </Pref>
+          {/* THE FILE ICONS SWITCH IS GONE FROM HERE (owner, 2026-09-01: "hide
+              that color setting for now ... we might come back to it"), and
+              theme.ts forces the scheme to monochrome so a style saved while it
+              existed cannot strand anyone on a set they can no longer change.
+              Everything behind it is intact - IconScheme, iconSchemeOf, the
+              iconScheme override, ICON_COLOURS and ICON_FULL_COLOUR - so
+              bringing it back is a Pref with a Segmented of Monochrome /
+              Coloured wired to setOverride('iconScheme'), plus flipping
+              ICON_SCHEME_SHOWN. The zip and the comic are coloured regardless
+              of any of it. */}
         </div>
         <div className="mt-4 flex items-center justify-between gap-6">
           <div>

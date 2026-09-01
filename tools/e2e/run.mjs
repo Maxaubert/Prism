@@ -1174,30 +1174,33 @@ async function hexScenario(fixtures) {
  * next book.
  */
 /**
- * The Settings "File icons" control, which is a SWITCH OF ICON SETS rather than
- * a colour (2026-09-01), and the two edge cases it keeps reintroducing.
+ * The file icons: monochrome everywhere except the zip and the comic.
  *
- * A SELECTED ROW FALLS BACK TO MONOCHROME. The selection fill is the user's
- * accent and the icon colour is the scheme's, so the two are chosen by
- * different people and will eventually collide - a blue icon on a blue fill is
- * invisible, and picking better colours cannot fix it.
+ * The Settings switch that chose a scheme is HIDDEN (owner, 2026-09-01) and the
+ * scheme is pinned to monochrome, so this asserts the pin as well as the two
+ * exceptions - a control that is merely removed while a saved style still names
+ * a scheme would leave somebody on a set they cannot change.
  *
- * AND THE COLOURED ICON IS MASKED, not painted in layers. Painting the band
- * over the page leaves a hairline of page colour around the outside; painting
- * the two as abutting regions leaves a seam. Both come from two antialiased
- * edges meeting on the icon's own outline, and a mask states that outline
- * exactly once.
+ * THE ZIP is a flat coloured page and falls back to monochrome on a selected
+ * row, because an indigo page on an indigo accent is exactly the collision that
+ * fallback exists for. THE COMIC is artwork - a keylined sunburst under a
+ * halftone under a splat - and never falls back, because five colours cannot
+ * all collide with one accent.
+ *
+ * The coloured icon is also MASKED rather than painted in layers: painting the
+ * band over the page leaves a hairline of page colour around the outside, and
+ * painting the two as abutting regions leaves a seam. Both come from two
+ * antialiased edges meeting on the icon's own outline, and a mask states that
+ * outline exactly once.
  */
 async function iconSchemeScenario(fixtures) {
-  console.log('file icon scheme')
-  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
-  // Read an icon semantically rather than by path index: the coloured icon is a
-  // masked group and the monochrome one is two flat paths, so "the second path"
-  // means different things in the two schemes.
+  console.log('file icons')
+  const { app, win } = await launch(join(fixtures, 'zips', 'bundle.zip'))
   const icon = (suffix) =>
     win.evaluate((sfx) => {
+      const want = sfx.toLowerCase()
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
-        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(sfx)
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(want)
       )
       const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
       if (!svg) return null
@@ -1207,62 +1210,85 @@ async function iconSchemeScenario(fixtures) {
         masked: !!g,
         selected: row.getAttribute('data-selected') === 'true',
         page: g?.querySelector('rect')?.getAttribute('fill') ?? null,
-        band: g?.querySelector('path')?.getAttribute('fill') ?? null,
+        // The band is composited LAST, so it is the group's final path.
+        band: g ? [...g.querySelectorAll('path')].pop()?.getAttribute('fill') ?? null : null,
+        paths: g ? g.querySelectorAll('path').length : 0,
+        words: [...svg.querySelectorAll('text')].map((e) => e.textContent),
         flat: [...svg.querySelectorAll(':scope > path')].map((el) => el.getAttribute('fill')),
-        label: t?.textContent ?? '',
-        labelFill: t?.getAttribute('fill') ?? ''
+        label: t?.textContent ?? ''
       }
     }, suffix)
-
-  const setScheme = async (label) => {
-    await win.click('[aria-label="Settings"]')
-    await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
-    // Settings opens on whichever page was last used; the colours are on Style.
-    await win.locator('button:has-text("Style")').first().click()
-    await sleep(300)
-    // The Pref row itself: div > div > label, so this is the row and not the
-    // label inside it, which is what a plain text filter would give.
-    const pref = win.locator('div:has(> div > label:text-is("File icons"))')
-    await pref.locator(`button:has-text("${label}")`).first().click()
-    await sleep(500)
-    await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
-    await sleep(500)
-  }
 
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
     await sleep(700)
 
-    const mono = await icon('broken.ts')
-    ok(mono !== null, 'the tree draws an icon for broken.ts')
-    ok(mono.label === 'TS', `and the band carries the extension (${mono.label})`)
-    ok(!mono.masked, 'monochrome draws flat paths, no mask')
-    ok(new Set([...mono.flat, mono.labelFill]).size === 2,
-      `monochrome draws the icon in two values (${new Set([...mono.flat, mono.labelFill]).size})`)
+    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all. bundle.zip is
+    // the open row, so it is selected and must be the fallback; the others are
+    // not, and must be coloured.
+    const open = await icon('bundle.zip')
+    ok(open !== null, 'the tree draws an icon for bundle.zip')
+    ok(open.selected, 'and it is the selected row')
+    ok(!open.masked, 'a SELECTED zip falls back to monochrome')
 
-    await setScheme('Coloured')
-    const col = await icon('broken.ts')
-    ok(col.masked, 'coloured draws through a mask of the silhouette')
-    ok(col.page === '#464646', `the page takes its own colour (${col.page})`)
-    ok(col.band === '#000000', `and the band its own (${col.band})`)
+    const zip = await icon('wrapped.zip')
+    ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
+    ok(zip.page === '#8b8be2', `and takes the archive colour (${zip.page})`)
+    ok(zip.band === '#000000', `on a black band (${zip.band})`)
+    ok(zip.label === 'ZIP', `carrying its own extension (${zip.label})`)
+
+    // AND NOTHING ELSE IS. A 7z is the archive KIND but not the zip identity...
+    // it is, in fact, the same identity, so the honest neighbour check is a
+    // file that is not an archive at all.
+    const other = await icon('read-only.7z')
+    ok(other !== null && other.masked, 'a .7z is an archive too, so it is coloured')
+
+    // THE SETTINGS SWITCH IS GONE.
+    await win.click('[aria-label="Settings"]')
+    await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
+    await win.locator('button:has-text("Style")').first().click()
+    await sleep(400)
     ok(
-      col.labelFill === '#ffffff',
-      `THE LABEL FLIPS WITH THE BAND, or it is ink on ink (${col.labelFill})`
+      (await win.locator('label:text-is("File icons")').count()) === 0,
+      'the File icons switch is hidden'
     )
-
-    // THE SELECTION FALLBACK. bad.json is the open row and carries the accent
-    // fill, so it must be monochrome even while the scheme is coloured.
-    const sel = await icon('bad.json')
-    ok(sel.selected, 'the open row is the selected one')
-    ok(!sel.masked, 'a SELECTED row falls back to monochrome while coloured')
     ok(
-      sel.flat[1] === 'var(--p-accent)',
-      `and knocks out to the accent behind it (${sel.flat[1]})`
+      (await win.locator('label:text-is("Folder icons")').count()) === 1,
+      'while the Folder icons picker is untouched beside it'
     )
+  } finally {
+    await app.close()
+  }
+}
 
-    await setScheme('Monochrome')
-    const back = await icon('broken.ts')
-    ok(!back.masked && back.flat[0] === mono.flat[0], 'and the switch goes back')
+/** The comic wears the artwork Explorer shows, in colour, with no scheme on. */
+async function comicIconScenario(fixtures) {
+  console.log('comic icon artwork')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    const art = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('sequel.cbz')
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      if (!svg) return null
+      const g = svg.querySelector('g[mask]')
+      return {
+        masked: !!g,
+        layers: g ? g.querySelectorAll('path').length : 0,
+        fills: g ? [...new Set([...g.querySelectorAll('path')].map((e) => e.getAttribute('fill')))] : [],
+        words: [...svg.querySelectorAll('text')].map((e) => e.textContent)
+      }
+    })
+    ok(art !== null && art.masked, 'a .cbz draws through the mask')
+    // The artwork is many colours by construction. A bare splat was what the app
+    // drew before and is what this number rules out.
+    ok(art.layers > 12, `and carries the whole artwork, not a splat (${art.layers} paths)`)
+    ok(art.fills.length >= 4, `in more than one colour (${art.fills.length} fills)`)
+    ok(art.words.includes('BAM'), `with BAM lettered into it (${art.words.join(',')})`)
+    ok(art.words.includes('CBZ'), 'and the extension still on the band')
   } finally {
     await app.close()
   }
@@ -3704,6 +3730,7 @@ await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
 await run(iconSchemeScenario)
+await run(comicIconScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

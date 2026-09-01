@@ -68,7 +68,7 @@ from round13 import clapper
 from round14 import GLYPHS as R14
 from round15 import AX0, AX1, AY0, AY1, CHIP_A, folder_zip, folder_zip_ink
 from round17 import quarter
-from round18 import _splat
+from round18 import CREAM, CX, CY, INK_A, LEMON_A, PINK_A, _frame, _ink_splat, _splat
 
 SCALE = 1.5          # 16 grid units -> a 24x24 viewBox
 # Where a page kind's mark sits - IMPORTED, not restated. This file used to
@@ -95,6 +95,44 @@ L_BLEED = "bleed"
 
 def u(v):
     return round(v * SCALE, 2)
+
+
+class ColourRecorder:
+    """Records the ImageDraw calls with their ACTUAL fill, in draw order.
+
+    `Recorder` maps a fill onto one of three LAYERS, which is all a monochrome
+    icon needs. The comic is not monochrome: it is a keylined sunburst under a
+    halftone under a splat, and every one of those exists to be a different
+    colour from the one beside it. So this one keeps the colour.
+
+    Ops are grouped into runs of the same fill afterwards. An alternating
+    sunburst therefore emits one path per wedge, which is more paths than a
+    hand-written version would use and is the price of the artwork being
+    REPLAYED rather than redrawn - the .ico and the tree cannot drift.
+    """
+
+    def __init__(self):
+        self.ops = []
+
+    def _add(self, kind, params, fill):
+        if fill is None:
+            return
+        self.ops.append((tuple(fill), kind, params))
+
+    def rectangle(self, xy, fill=None, **_):
+        self._add("rect", (*xy, 0.0), fill)
+
+    def rounded_rectangle(self, xy, radius=0.0, fill=None, **_):
+        self._add("rect", (*xy, float(radius)), fill)
+
+    def polygon(self, xy, fill=None, **_):
+        self._add("poly", tuple(xy), fill)
+
+    def ellipse(self, xy, fill=None, **_):
+        self._add("ellipse", tuple(xy), fill)
+
+    def text(self, *a, **k):
+        raise NotImplementedError("BAM is emitted as <text>, like the extension")
 
 
 class Recorder:
@@ -670,54 +708,174 @@ def identities():
     return out
 
 
+# -------------------------------------------------------------- comic artwork
+# THE COMIC ICON IS THE ONE EXPLORER SHOWS (owner, 2026-09-01: "the comic icon
+# is also wrong use the one thats used in file explorer"), and it is COLOURED
+# even while everything else is monochrome.
+#
+# What the app drew until now was a bare splat - a deliberate reduction, on the
+# grounds that a sunburst and a halftone flatten to a grey rectangle in one ink.
+# That reasoning was sound for a monochrome icon and is simply not what was
+# wanted: the comic keeps its colours, so it keeps its artwork.
+#
+# The one substitution. `sunburst` ERASES its odd wedges to transparent so the
+# tintable ground shows through, which a flat SVG cannot do inside a group -
+# they are painted in the PAGE COLOUR instead, which is the same picture,
+# because in-app the ground behind them is exactly that colour.
+COMIC_PAGE = "#d2603a"
+
+
+def _comic_ops():
+    """Replay the .ico's own artwork into the colour recorder.
+
+    Composed rather than calling `art_splat_bam` wholesale, because that ends in
+    `_word`, and a word is emitted as <text> rather than as outlines - the same
+    rule the extension label follows, so the app's own face is used and cannot
+    freeze here while the type moves on elsewhere.
+    """
+    from round23 import halftone, sunburst
+    r = ColourRecorder()
+    _frame(r, 16)
+    sunburst(r, 16)
+    halftone(r, 16)
+    _ink_splat(r, 16, CX, CY, 5.0, 2.6, 8, PINK_A, phase=0.2)
+    return r.ops
+
+
+def comic_art():
+    """The artwork as ordered {fill, opacity, d}, plus the BAM lettering."""
+    out = []
+    for fill, op, params in _comic_ops():
+        rgba = tuple(fill) + (255,) if len(fill) == 3 else tuple(fill)
+        # A wedge erased to transparent is the page showing through.
+        colour = COMIC_PAGE if rgba[3] == 0 else "#%02x%02x%02x" % rgba[:3]
+        alpha = 1.0 if rgba[3] == 0 else round(rgba[3] / 255, 3)
+        d = op_path(op, params)
+        if out and out[-1]["fill"] == colour and out[-1]["opacity"] == alpha:
+            out[-1]["d"] += " " + d
+        else:
+            out.append({"fill": colour, "opacity": alpha, "d": d})
+    word = {"x": u(CX), "y": u(CY), "size": u(2.9),
+            "fill": "#%02x%02x%02x" % LEMON_A[:3],
+            "stroke": "#%02x%02x%02x" % INK_A[:3], "width": u(0.30 * 2)}
+    return out, word
+
+
 # ------------------------------------------------------------------- colour
-# THE COLOURED SCHEME (owner picks, 2026-09-01). The Settings control stopped
-# being an arbitrary colour and became a switch of icon TYPES: monochrome, which
-# is `ink_for` above measured against the style's own ground, or this.
+# THE COLOURED SCHEME (owner picks, 2026-09-01, second round).
 #
-# TWO COLOURS ARE PICKED PER KIND and the rest is derived, which is what stops a
-# pick producing an illegible icon:
+# PICKED PER IDENTITY: the page the glyph sits on, and THE GLYPH ITSELF. The
+# first round derived the glyph from the page by contrast, which guarantees
+# legibility and takes the choice away - and a pale mark on a dark page and a
+# dark mark on a pale one are different icons, not two spellings of one. The
+# ratio is measured and printed when this file is generated instead, so a pick
+# that cannot be read says so rather than being prevented.
 #
-#     page   the ground the glyph sits on
-#     band   the ground the extension sits in
-#     mark   NOT PICKED - white or black, whichever contrasts more with `page`
-#     text   NOT PICKED - white or black, whichever contrasts more with `band`
-#     hi     always `page`: it is the knockout INSIDE the mark, so it is the
-#            page showing through, in both schemes
+# NOT PICKED: the band is BLACK on every identity, and the extension on it is
+# white or black by the same measured rule (on black, white). COMIC is not in
+# here at all - its icon is artwork rather than a mark on a page and the owner
+# asked for it to stay exactly as it is.
 #
-# Resolved HERE rather than in the app because the picks are presets: the app
-# would recompute the same six answers on every row. Change a pick and rerun.
+# THE LANGUAGE FAMILIES ARE A RULE, NOT FIFTEEN CHOICES (owner, same day: "css/
+# styling follow css color scheme, html/non-scripting languages follow html
+# color scheme, python/scripting languages follow python color scheme, so that
+# would include java, js etc"). Three colours carry the whole language set and
+# the MARK says which language it is - which is what the marks are for, and it
+# means a language added later has an obvious colour rather than a new decision.
+STYLING = ("#ff8080", "#ffffff")     # css, scss, less
+SCRIPTING = ("#e8a13c", "#000000")   # python, js, java, ruby, shell
+MARKUP = ("#222244", "#ffffff")      # html, json, xml, swift - anything not run
+
 SCHEME = {
-    "archive": ("#8b8be2", "#1b1d22"),
-    "audio": ("#69b485", "#1b1d22"),
-    "code": ("#464646", "#000000"),
-    "document": ("#6060ff", "#1b1d22"),
-    "image": ("#ff8080", "#1b1d22"),
-    "video": ("#5384df", "#1b1d22"),
+    # The kinds.
+    "archive": ("#8b8be2", "#000000"),
+    "audio": ("#69b485", "#000000"),
+    "code": SCRIPTING,
+    "document": ("#464646", "#ffffff"),
+    "image": ("#69b485", "#000000"),
+    "video": ("#69b485", "#000000"),
+    # The documents that are not each other.
+    "markdown": ("#2b2b69", "#ffffff"),
+    "pdf": ("#ff3b3b", "#ffffff"),
+    "word": ("#6060ff", "#ffffff"),
+    "sheet": ("#529f3c", "#ffffff"),
+    "slides": ("#e8a13c", "#ffffff"),
+    "ebook": ("#d060ff", "#ffffff"),
+    # The languages, by family.
+    "css": STYLING,
+    "html": MARKUP,
+    "data": MARKUP,
+    "swift": MARKUP,
+    "python": SCRIPTING,
+    "java": SCRIPTING,
+    "ruby": SCRIPTING,
+    "shell": SCRIPTING,
+    "react": SCRIPTING,
+    "vue": SCRIPTING,
+    # And the four that are not languages, each picked outright: a config file,
+    # a plain text file, a repository and a container are not written in
+    # anything, so the family rule has nothing to say about them.
+    "config": ("#464646", "#ffffff"),
+    "prose": ("#464646", "#ffffff"),
+    "git": ("#24292e", "#ffffff"),
+    "docker": ("#5b5bd6", "#ffffff"),
+    # SQL is the one identity whose glyph is not black or white: a query
+    # language, picked outright rather than by family.
+    "sql": ("#252525", "#e8a13c"),
 }
 
-# CODE IS THE ONE OVERRIDE (owner: "i want the glyph dark on code"). The rule
-# would choose white on #464646 at 9.44:1; a dark glyph measures 2.22:1. Taken
-# knowingly - the code icon is a dark editor and the owner asked for it to read
-# that way - and recorded here rather than silently, because a value that does
-# not follow the rule beside five that do is the thing a later reader will
-# assume is a bug.
-MARK_PICK = {"code": "#000000"}
+# The label ground, for every identity. Named BAND_COLOUR and not BAND: that
+# name is already the band's RECTANGLE, and shadowing it silently turned the
+# geometry into a string.
+BAND_COLOUR = "#000000"
+
+# WHICH IDENTITIES ACTUALLY TAKE A COLOURED PAGE (owner, 2026-09-01, third
+# round: "make all icons the monochrome style in colored, but exclude comic,
+# docx, pdf, pptx, xl, ebook").
+#
+# Everything else draws MONOCHROME even while the coloured scheme is on - one
+# ink measured against the row's own ground, exactly as the monochrome scheme
+# does. So "coloured" is not a repaint of the whole tree: it is a quiet tree
+# with the documents picked out, which is the set where colour is doing real
+# work. A folder of .docx, .xlsx and .pdf is the case where the shapes alone
+# are nearly the same picture; a folder of source is not.
+FULL_COLOUR = ("comic", "pdf", "word", "sheet", "slides", "ebook")
+
+# And the two that are coloured NO MATTER WHICH SCHEME IS ON (owner, same day:
+# "make the zip icon colored in even in the monochrome colro styole", and the
+# comic likewise). The zip is a flat coloured page like any other; the comic is
+# artwork, and is handled by COMIC_ART rather than by a page colour.
+ALWAYS_COLOUR = ("archive", "comic")
 
 # COMIC KEEPS ITS EXPLORER SCHEME (owner instruction) and cannot use the rule at
 # all, because its mark is not ink on a page - it is one piece of a five-colour
 # piece of artwork. The .ico's own splat is PINK on a sunburst of LEMON wedges;
 # in-app there is no sunburst (a documented reduction, see the module docstring)
-# and a pink splat straight onto the orange page measures 1.00:1 - the two
-# colours are the same luminance, so it disappears entirely. MEASURED before
-# choosing: cream on the same page is 3.42:1, and it also reads the way the
-# monochrome splat reads, as light coming through a hole. The PAGE keeps the
-# .ico's own colour, which is the half that makes it recognisable as the same
-# icon. It is the same failure the white document page has at 1.07:1 on
-# Explorer's light ground, arrived at from the opposite direction: a colour pair
-# that works only because a THIRD thing sits between the two, and in-app there is
-# no third thing.
+# and a pink splat straight onto the orange page measures 1.00:1 - the two are
+# the same luminance, so it disappears entirely. It is the same failure the
+# white document page has at 1.07:1 on Explorer's light ground, arrived at from
+# the opposite direction: a pair that works only because a THIRD thing sits
+# between them, and in-app there is no third thing. MEASURED before choosing:
+# cream on the same page is 3.42:1, and it reads the way the monochrome splat
+# reads, as light coming through a hole.
 COMIC = {"page": "#d2603a", "band": "#12141a", "mark": "#f7f2de", "text": "#f7f2de"}
+
+# How much sheen the page carries, 0 to 1 (owner pick: the whole way). Drawn as
+# a gradient over the page and UNDER the band, so the extension stays crisp.
+GLINT = 1.0
+
+# The extensions that are their own identity rather than their kind's. Checked
+# AFTER a language mark and before the kind, so a .csv stays prose. Every one is
+# a document: they all draw the same page, and under a per-KIND scheme a PDF, a
+# spreadsheet and a Word file were one colour between them.
+SPECIAL_EXT = {
+    "md": "markdown", "markdown": "markdown",
+    "pdf": "pdf",
+    "docx": "word", "docm": "word",
+    "xlsx": "sheet", "xlsm": "sheet", "xls": "sheet", "ods": "sheet",
+    "pptx": "slides", "ppsx": "slides", "odp": "slides",
+    "epub": "ebook",
+}
 
 
 def _hex(c):
@@ -729,28 +887,25 @@ def _rgb(h):
 
 
 def colours():
-    """kind -> {page, band, mark, text}, every value a literal hex string."""
+    """identity -> {page, band, mark, text}, every value a literal hex string."""
     out = {"comic": dict(COMIC)}
-    for kind, (page, band) in SCHEME.items():
-        out[kind] = {
-            "page": page,
-            "band": band,
-            "mark": MARK_PICK.get(kind, _hex(ink_for(_rgb(page))[0])),
-            "text": _hex(ink_for(_rgb(band))[0]),
-        }
+    for ident, (page, mark) in SCHEME.items():
+        out[ident] = {"page": page, "band": BAND_COLOUR, "mark": mark,
+                      "text": _hex(ink_for(_rgb(BAND_COLOUR))[0])}
     return out
 
 
 def colour_notes():
     """The measured ratios, printed when the file is generated.
 
-    Not decoration: the two values that do NOT follow the rule (code's dark mark
-    and comic's cream splat) are exactly the ones worth being able to see.
+    Not decoration: the glyph is PICKED now rather than derived, so nothing
+    guarantees it can be seen. This is what says so.
     """
-    for kind, c in sorted(colours().items()):
+    for ident, c in sorted(colours().items()):
         m = contrast(_rgb(c["mark"]), _rgb(c["page"]))
-        t = contrast(_rgb(c["text"]), _rgb(c["band"]))
-        yield f"{kind:9} mark {m:5.2f}:1 on {c['page']}   text {t:5.2f}:1 on {c['band']}"
+        flag = "  <- under 2:1" if m < 2 else ""
+        yield (f"{ident:9} mark {m:5.2f}:1 on {c['page']}"
+               f"   text {contrast(_rgb(c['text']), _rgb(c['band'])):5.2f}:1{flag}")
 
 
 def svg_for(kind, d, px=96, fg="#e9edf7", panel="#1b1d22", with_label=True, ext=None):
@@ -842,31 +997,94 @@ def ts_source():
     L += ["} as const", ""]
 
     L += [
-        "// The COLOURED scheme (owner picks, 2026-09-01). Two colours are picked per",
-        "// kind - the ground the glyph sits on and the ground the label sits in - and",
-        "// `mark` and `text` are DERIVED, each white or black by whichever contrasts",
-        "// more with what it sits on, so no pick can make an illegible icon. Resolved",
-        "// in the emitter because the picks are presets: recomputing the same six",
-        "// answers on every tree row would be work for nothing.",
+        "// The COLOURED scheme (owner picks, 2026-09-01). Keyed by IDENTITY, which",
+        "// is finer than the icon SHAPE: `.md` is not source, and a PDF, a Word file",
+        "// and a spreadsheet are not one another even though they draw the same page.",
         "//",
-        "// Two values deliberately do not follow that rule. CODE's mark is dark by",
-        "// owner instruction (the rule would pick white at 9.44:1; dark measures",
-        "// 2.22:1), because a code file is a dark editor and he asked for it to read",
-        "// that way. COMIC keeps its Explorer scheme, whose splat is one piece of a",
-        "// five-colour artwork rather than ink on a page - and the .ico's own pink",
-        "// splat measures 1.00:1 against its own page, which only works there because",
-        "// the sunburst sits between the two.",
+        "// `page` and `mark` are both PICKED. The band is black on every identity and",
+        "// the extension on it is white, by the same measured rule the monochrome ink",
+        "// uses. `hi` is not listed: it is always `page`, in both schemes.",
         "//",
-        "// `hi` is not listed: it is always `page`, in both schemes.",
-        "export const ICON_COLOURS: Record<",
-        "  keyof typeof ICON_PATHS,",
-        "  { page: string; band: string; mark: string; text: string }",
-        "> = {",
+        "// The languages are a RULE rather than fifteen choices - styling follows css,",
+        "// scripting follows python, everything not run follows html - so three colours",
+        "// carry the set and the MARK says which language it is. Four identities are",
+        "// not languages at all (config, prose, git, docker) and one is picked outright",
+        "// (sql, the only glyph in the set that is neither black nor white).",
+        "export const ICON_COLOURS = {",
     ]
-    for kind, c in sorted(colours().items()):
-        L.append(f"  {kind}: {{ page: '{c['page']}', band: '{c['band']}', "
+    for ident, c in sorted(colours().items()):
+        L.append(f"  {ident}: {{ page: '{c['page']}', band: '{c['band']}', "
                  f"mark: '{c['mark']}', text: '{c['text']}' }},")
+    L += ["} as const", "",
+          "export type IconIdentity = keyof typeof ICON_COLOURS", ""]
+
+    L += [
+        "// The identities that actually take a coloured PAGE. Everything else draws",
+        "// monochrome even while the coloured scheme is on, so `coloured` is a quiet",
+        "// tree with the documents picked out rather than a repaint of everything: a",
+        "// folder of .docx, .xlsx and .pdf is where the shapes alone are nearly the",
+        "// same picture, and a folder of source is not.",
+        "export const ICON_FULL_COLOUR: readonly IconIdentity[] = [",
+    ]
+    for ident in FULL_COLOUR:
+        L.append(f"  '{ident}',")
+    L += ["]", ""]
+
+    L += [
+        "// And the identities that are coloured NO MATTER WHICH SCHEME IS ON. The zip",
+        "// is a flat coloured page like any other and falls back to monochrome on a",
+        "// selected row; the comic is artwork (COMIC_ART) and never does, because five",
+        "// colours cannot all collide with one accent.",
+        "export const ICON_ALWAYS_COLOUR: readonly IconIdentity[] = [",
+    ]
+    for ident in ALWAYS_COLOUR:
+        L.append(f"  '{ident}',")
+    L += ["]", ""]
+
+    L += [
+        "// How much sheen the page carries. Drawn as a gradient over the page and",
+        "// UNDER the band, so the extension stays crisp.",
+        f"export const ICON_GLINT = {GLINT}",
+        "",
+        "// The extensions that are their own identity rather than their kind's.",
+        "// Checked AFTER a language mark and before the kind, so a .csv stays prose.",
+        "export const IDENT_BY_EXT: Record<string, IconIdentity> = {",
+    ]
+    for ext in sorted(SPECIAL_EXT):
+        L.append(f"  '{ext}': '{SPECIAL_EXT[ext]}',")
     L += ["}", ""]
+
+    art, word = comic_art()
+    L += [
+        "// THE COMIC ICON'S ARTWORK, which is the one Explorer shows and is COLOURED",
+        "// even while everything else is monochrome. What the app drew before was a",
+        "// bare splat - a reduction made on the grounds that a sunburst and a halftone",
+        "// flatten to a grey rectangle in one ink, which was sound for a monochrome",
+        "// icon and simply not what was wanted: the comic keeps its colours, so it",
+        "// keeps its artwork.",
+        "//",
+        "// Drawn in order, inside the same mask of `body` the coloured pages use, and",
+        "// under the band. The odd sunburst wedges are painted in the PAGE colour",
+        "// rather than erased, which a flat SVG cannot do inside a group and which is",
+        "// the same picture, because the ground behind them is exactly that colour.",
+        f"export const COMIC_PAGE = '{COMIC_PAGE}'",
+        "",
+        "export const COMIC_ART: ReadonlyArray<{ d: string; fill: string; opacity: number }> = [",
+    ]
+    for layer in art:
+        L.append("  { d: \"%s\", fill: '%s', opacity: %s },"
+                 % (layer["d"], layer["fill"], layer["opacity"]))
+    L += ["]", ""]
+    L += [
+        "// BAM, lettered into the splat. Emitted as <text> rather than as outlines for",
+        "// the reason the extension label is: turning a face into paths here freezes",
+        "// it while the app's own type moves on.",
+        "export const COMIC_WORD = {",
+        f"  text: 'BAM', x: {word['x']}, y: {word['y']}, size: {word['size']},",
+        f"  fill: '{word['fill']}', stroke: '{word['stroke']}', width: {word['width']}",
+        "} as const",
+        "",
+    ]
 
     L += ["// A mark per LANGUAGE, laid on the code kind's page in place of its",
           "// stepped bars. Two layers only: the page, the fold and the band all",

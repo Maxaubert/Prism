@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { isProse } from './codeLang'
-import { ICON_COLOURS, ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from './iconPaths'
+import {
+  ICON_COLOURS,
+  ICON_PATHS,
+  IDENT_BY_EXT,
+  LANG_BY_EXT,
+  LANG_BY_NAME,
+  LANG_PATHS
+} from './iconPaths'
 
 /**
  * The generated icon tables, checked against the app's own idea of a file.
@@ -71,11 +78,9 @@ describe('the generated icon tables', () => {
     }
   })
 
-  it('gives every kind a colour for every layer that takes one', () => {
-    const kinds = Object.keys(ICON_PATHS) as Array<keyof typeof ICON_PATHS>
-    for (const k of kinds) {
+  it('gives every identity a colour for every layer that takes one', () => {
+    for (const k of Object.keys(ICON_COLOURS) as Array<keyof typeof ICON_COLOURS>) {
       const c = ICON_COLOURS[k]
-      expect(c, k).toBeDefined()
       for (const role of ['page', 'band', 'mark', 'text'] as const) {
         expect(c[role], `${k}.${role}`).toMatch(/^#[0-9a-f]{6}$/)
       }
@@ -85,6 +90,32 @@ describe('the generated icon tables', () => {
       // sunburst sits between the two.
       expect(c.mark, k).not.toBe(c.page)
       expect(c.text, k).not.toBe(c.band)
+    }
+  })
+
+  it('can colour anything the tree can draw', () => {
+    // Every route into a colour must land on one. A language mark wins first,
+    // then a special extension, then the kind - so all three sets have to be
+    // identities. A mark added to the emitter without a colour would otherwise
+    // fall through to `undefined` and throw on the first row that used it.
+    for (const mark of Object.keys(LANG_PATHS)) {
+      expect(ICON_COLOURS[mark as keyof typeof ICON_COLOURS], mark).toBeDefined()
+    }
+    for (const [ext, ident] of Object.entries(IDENT_BY_EXT)) {
+      expect(ICON_COLOURS[ident], `${ext} -> ${ident}`).toBeDefined()
+    }
+    for (const kind of Object.keys(ICON_PATHS)) {
+      expect(ICON_COLOURS[kind as keyof typeof ICON_COLOURS], kind).toBeDefined()
+    }
+  })
+
+  it('keeps the special extensions out of the language marks', () => {
+    // The order is mark, then special extension, then kind, so an extension in
+    // both tables would silently take its mark's colour and leave the special
+    // entry dead. A `.csv` SHOULD take the prose mark, which is why this checks
+    // the special table rather than the other way round.
+    for (const ext of Object.keys(IDENT_BY_EXT)) {
+      expect(LANG_BY_EXT[ext], `${ext} is special AND marked`).toBeUndefined()
     }
   })
 
@@ -106,10 +137,12 @@ describe('the generated icon tables', () => {
     }
     for (const k of Object.keys(ICON_COLOURS) as Array<keyof typeof ICON_COLOURS>) {
       const c = ICON_COLOURS[k]
-      // Code is the one the owner took knowingly: he asked for a dark glyph on
-      // it against the rule's own answer of white at 9.44:1, because a code file
-      // is a dark editor. 2 rather than 3 is that decision, written down.
-      expect(ratio(c.mark, c.page), `${k} mark`).toBeGreaterThan(k === 'code' ? 2 : 3)
+      // The glyph is PICKED now rather than derived from the page, so nothing
+      // guarantees it can be seen and this is the floor that says so. 2 rather
+      // than 3 because the lowest pick in the set is `slides` at 2.19:1 - white
+      // on the same orange that every scripting language wears BLACK on at
+      // 9.59:1.
+      expect(ratio(c.mark, c.page), `${k} mark`).toBeGreaterThan(2)
       expect(ratio(c.text, c.band), `${k} text`).toBeGreaterThan(10)
     }
   })

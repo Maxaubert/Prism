@@ -964,8 +964,24 @@ export function deletePreset(id: string): void {
   } else emit()
 }
 
+/**
+ * THE SCHEME SWITCH IS HIDDEN (owner, 2026-09-01: "hide that color setting for
+ * now and make default monochrome we might come bakc to it").
+ *
+ * Everything that resolves a scheme goes through here, so putting the control
+ * back is this one constant plus the Pref block in Settings. Forcing the answer
+ * rather than only removing the control is deliberate: a style saved while the
+ * switch existed still carries `iconScheme: 'colour'`, and leaving that live
+ * would strand whoever set it with a scheme and no way to change it.
+ *
+ * The zip and the comic are coloured regardless - see ICON_ALWAYS_COLOUR - so
+ * this is about the SET, not about whether any icon may carry colour.
+ */
+export const ICON_SCHEME_SHOWN = false
+
 /** Which icon set a style draws its file rows with. Unset means monochrome. */
-export const iconSchemeOf = (s: Style): IconScheme => s.iconScheme ?? 'mono'
+export const iconSchemeOf = (s: Style): IconScheme =>
+  ICON_SCHEME_SHOWN ? (s.iconScheme ?? 'mono') : 'mono'
 
 /** The live icon scheme, for the components that draw a file icon. */
 export function useIconScheme(): IconScheme {
