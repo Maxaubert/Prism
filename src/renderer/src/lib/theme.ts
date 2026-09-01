@@ -16,6 +16,19 @@ export type Mode = 'dark' | 'light'
 export type Material = 'solid' | 'gradient' | 'tinted' | 'oled' | 'acrylic' | 'mica'
 export type IconMode = 'kind' | 'text' | 'dim' | 'accent' | 'custom'
 
+/**
+ * Which SET the file icons are drawn from (2026-09-01), replacing the colour
+ * picker that used to sit here.
+ *
+ * 'mono' is `fileIconOf`: one ink for every kind, white or a near-black chosen
+ * by the better of two measured ratios against the style's own ground, so the
+ * KIND lives in the shape. 'colour' is the preset per-kind scheme baked into
+ * `iconPaths.ts` (ICON_COLOURS), which is a set of picks rather than anything
+ * derived from the style - it looks the same on every ground on purpose,
+ * because that is what makes it the same icon Explorer shows.
+ */
+export type IconScheme = 'mono' | 'colour'
+
 export interface Style {
   id: string
   name: string
@@ -29,10 +42,11 @@ export interface Style {
   text: string
   iconMode: IconMode
   icon: string
-  /** Tree icon colours, when chosen: a fixed folder colour, and one colour for
-   *  every file icon (unset means the per-kind tints, iconMode permitting). */
+  /** The folder rows' colour, when chosen. */
   folderIcon?: string
-  fileIcon?: string
+  /** Which SET the file icons are drawn from. Unset means monochrome, which is
+   *  the ink measured against this style's own ground. */
+  iconScheme?: IconScheme
   /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
   accent: string
   font: FontId
@@ -661,14 +675,19 @@ export const folderIconOf = (s: Style): string => {
  * white on a dark ground is what it always was and is not what was complained
  * about.
  *
- * The PICKER still wins. A style that names its own fileIcon keeps it, so the
- * rule is the default rather than an override of a choice made in Settings.
+ * THERE IS NO LONGER A PICKER OVER IT (2026-09-01). The Settings control that
+ * set an arbitrary `fileIcon` became a switch of icon TYPES - monochrome, which
+ * is exactly this rule, or the coloured preset scheme in `iconPaths.ts`. So the
+ * derivation IS monochrome rather than its default, and a style carrying a
+ * `fileIcon` from before the switch has nothing to read it: an unreachable
+ * colour with no control left to change it is worse than the measured rule it
+ * would be overriding.
+ *
  * `s.bg` is the ground rather than the resolved panel because a tinted
  * material only washes 7% of the accent over it, which cannot move a
  * background from one side of this to the other.
  */
 export const fileIconOf = (s: Style): string => {
-  if (s.fileIcon) return s.fileIcon
   const dark = mix('#000000', s.bg, 0.14)
   return contrast('#ffffff', s.bg) >= contrast(dark, s.bg) ? '#ffffff' : dark
 }
@@ -718,7 +737,7 @@ export interface Overrides {
   borders?: Style['borders']
   corners?: Style['corners']
   folderIcon?: string
-  fileIcon?: string
+  iconScheme?: IconScheme
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -784,7 +803,7 @@ export const isEdited = (): boolean =>
     draft.borders ||
     draft.corners ||
     draft.folderIcon ||
-    draft.fileIcon ||
+    draft.iconScheme ||
     draft.acrylic !== undefined
   )
 
@@ -799,7 +818,7 @@ function edited(s: Style): Style {
     borders: draft.borders ?? s.borders,
     corners: draft.corners ?? s.corners,
     folderIcon: draft.folderIcon ?? s.folderIcon,
-    fileIcon: draft.fileIcon ?? s.fileIcon
+    iconScheme: draft.iconScheme ?? s.iconScheme
   }
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
@@ -879,11 +898,20 @@ export function setStyle(id: string): void {
 
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
-  role: 'accent' | 'bg' | 'text' | 'font' | 'borders' | 'corners' | 'folderIcon' | 'fileIcon',
+  role:
+    | 'accent'
+    | 'bg'
+    | 'text'
+    | 'font'
+    | 'borders'
+    | 'corners'
+    | 'folderIcon'
+    | 'iconScheme',
   value: string | null
 ): void {
   const next: Overrides = { ...draft }
-  if (value) next[role] = value as FontId & Style['borders'] & Style['corners'] & string
+  if (value)
+    next[role] = value as FontId & Style['borders'] & Style['corners'] & IconScheme & string
   else delete next[role]
   draft = next
   saveJson(DRAFT_KEY, draft)
@@ -934,6 +962,32 @@ export function deletePreset(id: string): void {
     const home = gone.base && byId(gone.base).id === gone.base ? gone.base : stylesFor(mode)[0]?.id
     setStyle(home ?? DEFAULT_STYLE)
   } else emit()
+}
+
+/**
+ * THE SCHEME SWITCH IS HIDDEN (owner, 2026-09-01: "hide that color setting for
+ * now and make default monochrome we might come bakc to it").
+ *
+ * Everything that resolves a scheme goes through here, so putting the control
+ * back is this one constant plus the Pref block in Settings. Forcing the answer
+ * rather than only removing the control is deliberate: a style saved while the
+ * switch existed still carries `iconScheme: 'colour'`, and leaving that live
+ * would strand whoever set it with a scheme and no way to change it.
+ *
+ * The zip and the comic are coloured regardless - see ICON_ALWAYS_COLOUR - so
+ * this is about the SET, not about whether any icon may carry colour.
+ */
+export const ICON_SCHEME_SHOWN = false
+
+/** Which icon set a style draws its file rows with. Unset means monochrome. */
+export const iconSchemeOf = (s: Style): IconScheme =>
+  ICON_SCHEME_SHOWN ? (s.iconScheme ?? 'mono') : 'mono'
+
+/** The live icon scheme, for the components that draw a file icon. */
+export function useIconScheme(): IconScheme {
+  useSyncExternalStore(subscribe, () => current)
+  useSyncExternalStore(subscribe, () => draft)
+  return iconSchemeOf(edited(byId(current)))
 }
 
 /** The edits sitting on top of the selected style. */

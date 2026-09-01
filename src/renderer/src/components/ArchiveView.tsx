@@ -1210,7 +1210,16 @@ function ArchiveInner({
                           ) : (
                             <KindIcon
                               kind={fileKind(extOf(r.name), r.name)}
-                              color={iconColour(fileKind(extOf(r.name), r.name))}
+                              // Same rule as the tree: a row filled with the
+                              // accent takes the monochrome icon, whose ink is
+                              // measured against what is behind it.
+                              selected={sel.items.has(r.path)}
+                              color={
+                                sel.items.has(r.path)
+                                  ? 'var(--p-on-accent)'
+                                  : iconColour(fileKind(extOf(r.name), r.name))
+                              }
+                              bg={sel.items.has(r.path) ? 'var(--p-accent)' : undefined}
                               ext={extOf(r.name)}
                               name={r.name}
                             />

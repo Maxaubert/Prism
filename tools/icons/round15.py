@@ -267,7 +267,7 @@ ARCHIVES = [
 ]
 
 
-def _band_and_label(ink, body, n, ext, mask, band):
+def _band_and_label(ink, body, n, ext, mask, band, label_col=None):
     """A full-width band across the container's foot, and the extension in it.
 
     CLIPPED TO THE SILHOUETTE, so it takes the folder's own rounded corners the
@@ -281,6 +281,15 @@ def _band_and_label(ink, body, n, ext, mask, band):
     ink.alpha_composite(Image.composite(layer, Image.new("RGBA", (n, n), (0, 0, 0, 0)), mask))
 
     (tx, ty), f = _label_at(n, ext, band)
+    if label_col is not None:
+        # DRAWN, not knocked out. The knockout shows the PAGE through the band,
+        # which is the set's shared construction and right while every page is a
+        # near-neutral. The archive's is not: it wears the app's own periwinkle
+        # now, and the app draws its label white - so the .ico draws it white
+        # too, because the instruction was to use THAT icon here, and an icon
+        # that differs by one colour is two icons.
+        ImageDraw.Draw(ink).text((tx, ty), ext, font=f, fill=label_col, anchor="mm")
+        return
     cut = Image.new("L", (n, n), 0)
     ImageDraw.Draw(cut).text((tx, ty), ext, font=f, fill=255, anchor="mm")
     ink.putalpha(ImageChops.subtract(ink.getchannel("A"), cut))
@@ -292,7 +301,7 @@ def _band_and_label(ink, body, n, ext, mask, band):
 BAND_A = (AX0, AY1 - (CHIP_A[3] - CHIP_A[1]), AX1, AY1)
 
 
-def archive_layers(size, sil, inkfn, ext="ZIP"):
+def archive_layers(size, sil, inkfn, ext="ZIP", label_col=None):
     n = size * S
     m = Image.new("L", (n, n), 0)
     sil(ImageDraw.Draw(m), n, 255)
@@ -303,7 +312,7 @@ def archive_layers(size, sil, inkfn, ext="ZIP"):
     ink = Image.new("RGBA", (n, n), T)
     inkfn(ImageDraw.Draw(ink), n, K, T)
     ink = Image.composite(ink, Image.new("RGBA", (n, n), T), m)
-    _band_and_label(ink, body, n, ext, m, BAND_A)
+    _band_and_label(ink, body, n, ext, m, BAND_A, label_col)
     return (body.resize((size, size), Image.LANCZOS),
             ink.resize((size, size), Image.LANCZOS))
 

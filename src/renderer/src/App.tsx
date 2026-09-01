@@ -879,7 +879,7 @@ export default function App(): JSX.Element {
   }, [])
   /** The tree's arrow keys, lent up by Sidebar. Null while there is no tree to
    *  drive (panel shut, search showing); App then pages the folder itself. */
-  const treeNav = useRef<((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null>(null)
+  const treeNav = useRef<((dir: 'up' | 'down') => boolean) | null>(null)
   const onNav = useCallback((step: typeof treeNav.current) => {
     treeNav.current = step
   }, [])
@@ -2487,8 +2487,18 @@ export default function App(): JSX.Element {
           ;(document.activeElement as HTMLElement | null)?.blur()
           return
         }
+        // ESCAPE DOES NOT CLOSE THE WINDOW (owner, 2026-09-01). It used to,
+        // which is the image-viewer habit and wrong for this one: Prism is
+        // RESIDENT and holds tabs, a terminal and unsaved text, and a reflex
+        // keystroke that puts all of that away is the same failure the close
+        // flow exists to prevent - the more so because Escape is the key you
+        // press to back out of things, not to leave.
+        //
+        // What it still does is step back out of something: fullscreen here,
+        // and a focused document just above. When there is nothing to back out
+        // of, it does nothing at all. Ctrl+W closes a tab; the X closes the
+        // window.
         if (fullscreen) setFs(false)
-        else window.prism.close()
       } else if ((e.key === 'PageDown' || e.key === 'PageUp') && !typing && termView !== 'full') {
         // Same rule as the arrows: the document has these only once it has
         // been focused. Reading a pdf from the sidebar should page the folder.
@@ -2519,28 +2529,18 @@ export default function App(): JSX.Element {
         if (!!file && PLAYABLE.has(file.kind)) return // player handles it
         e.preventDefault()
         go(e.key === 'ArrowDown' ? 1 : -1)
-      } else if (
-        (e.key === 'ArrowRight' || e.key === 'ArrowLeft') &&
-        !typing &&
-        termView !== 'full'
-      ) {
-        const playerOwnsArrows = !!file && PLAYABLE.has(file.kind) && !hasNavigated
-        // A COMIC turns its own pages (2026-08-31, owner decision), and it is
-        // the one kind that does: everywhere else Left/Right page the folder,
-        // and that stays true here too - with Ctrl held, which is how you get
-        // to the next book. Yielded by asking the DOM, the way Escape does,
-        // rather than by listener order: both listeners are on the window in
-        // the capture phase, and App's was registered first.
-        const comicOwnsArrows = !e.ctrlKey && !!document.querySelector('[data-owns-arrows]')
-        if (!playerOwnsArrows && !comicOwnsArrows) {
-          e.preventDefault() // player checks defaultPrevented and yields
-          // Left/Right keep meaning previous/next FILE, and on a folder row
-          // they are its chevron. Either way the tree answers first.
-          const dir = e.key === 'ArrowRight' ? 'right' : 'left'
-          if (!fullscreen && treeNav.current?.(dir)) return
-          go(e.key === 'ArrowRight' ? 1 : -1)
-        }
       }
+      // LEFT AND RIGHT ARE NOT NAVIGATION KEYS (owner, 2026-09-01: "we only use
+      // up and down there from now on"). They used to page the folder and drive
+      // the tree, which meant every viewer that wanted them had to be FOCUSED
+      // first, and the two kinds that did want them - a comic turning pages, a
+      // player scrubbing - had to be carved out of App by hand.
+      //
+      // So App does not handle them at all now. Nothing is preventDefaulted,
+      // and the keys reach whichever viewer is mounted: `useMediaControls`
+      // seeks a video or a track five seconds, and ComicView turns a page. Every
+      // other kind gets them and does nothing with them, which is the intent -
+      // the folder is paged with Up and Down, in the tree or out of it.
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)

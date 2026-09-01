@@ -1173,6 +1173,308 @@ async function hexScenario(fixtures) {
  * page the folder, and Ctrl+arrow still does, which is how you get to the
  * next book.
  */
+/**
+ * The file icons: monochrome everywhere except the zip and the comic.
+ *
+ * The Settings switch that chose a scheme is HIDDEN (owner, 2026-09-01) and the
+ * scheme is pinned to monochrome, so this asserts the pin as well as the two
+ * exceptions - a control that is merely removed while a saved style still names
+ * a scheme would leave somebody on a set they cannot change.
+ *
+ * THE ZIP is a flat coloured page and falls back to monochrome on a selected
+ * row, because an indigo page on an indigo accent is exactly the collision that
+ * fallback exists for. THE COMIC is artwork - a keylined sunburst under a
+ * halftone under a splat - and never falls back, because five colours cannot
+ * all collide with one accent.
+ *
+ * The coloured icon is also MASKED rather than painted in layers: painting the
+ * band over the page leaves a hairline of page colour around the outside, and
+ * painting the two as abutting regions leaves a seam. Both come from two
+ * antialiased edges meeting on the icon's own outline, and a mask states that
+ * outline exactly once.
+ */
+async function iconSchemeScenario(fixtures) {
+  console.log('file icons')
+  const { app, win } = await launch(join(fixtures, 'zips', 'bundle.zip'))
+  const icon = (suffix) =>
+    win.evaluate((sfx) => {
+      const want = sfx.toLowerCase()
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(want)
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      if (!svg) return null
+      const g = svg.querySelector('g[mask]')
+      const t = svg.querySelector('text')
+      return {
+        masked: !!g,
+        selected: row.getAttribute('data-selected') === 'true',
+        page: g?.querySelector('rect')?.getAttribute('fill') ?? null,
+        // The band is composited LAST, so it is the group's final path.
+        band: g ? [...g.querySelectorAll('path')].pop()?.getAttribute('fill') ?? null : null,
+        paths: g ? g.querySelectorAll('path').length : 0,
+        words: [...svg.querySelectorAll('text')].map((e) => e.textContent),
+        flat: [...svg.querySelectorAll(':scope > path')].map((el) => el.getAttribute('fill')),
+        label: t?.textContent ?? ''
+      }
+    }, suffix)
+
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all. bundle.zip is
+    // the open row, so it is selected and must be the fallback; the others are
+    // not, and must be coloured.
+    const open = await icon('bundle.zip')
+    ok(open !== null, 'the tree draws an icon for bundle.zip')
+    ok(open.selected, 'and it is the selected row')
+    ok(!open.masked, 'a SELECTED zip falls back to monochrome')
+
+    const zip = await icon('wrapped.zip')
+    ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
+    ok(zip.page === '#8b8be2', `and takes the archive colour (${zip.page})`)
+    ok(zip.band === '#000000', `on a black band (${zip.band})`)
+    ok(zip.label === 'ZIP', `carrying its own extension (${zip.label})`)
+
+    // AND NOTHING ELSE IS. A 7z is the archive KIND but not the zip identity...
+    // it is, in fact, the same identity, so the honest neighbour check is a
+    // file that is not an archive at all.
+    const other = await icon('read-only.7z')
+    ok(other !== null && other.masked, 'a .7z is an archive too, so it is coloured')
+
+    // THE SETTINGS SWITCH IS GONE.
+    await win.click('[aria-label="Settings"]')
+    await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
+    await win.locator('button:has-text("Style")').first().click()
+    await sleep(400)
+    ok(
+      (await win.locator('label:text-is("File icons")').count()) === 0,
+      'the File icons switch is hidden'
+    )
+    ok(
+      (await win.locator('label:text-is("Folder icons")').count()) === 1,
+      'while the Folder icons picker is untouched beside it'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
+/** The comic wears the artwork Explorer shows, in colour, with no scheme on. */
+async function comicIconScenario(fixtures) {
+  console.log('comic icon artwork')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    const art = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('sequel.cbz')
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      if (!svg) return null
+      const g = svg.querySelector('g[mask]')
+      return {
+        masked: !!g,
+        layers: g ? g.querySelectorAll('path').length : 0,
+        fills: g ? [...new Set([...g.querySelectorAll('path')].map((e) => e.getAttribute('fill')))] : [],
+        words: [...svg.querySelectorAll('text')].map((e) => e.textContent)
+      }
+    })
+    ok(art !== null && art.masked, 'a .cbz draws through the mask')
+    // The artwork is many colours by construction. A bare splat was what the app
+    // drew before and is what this number rules out.
+    ok(art.layers > 12, `and carries the whole artwork, not a splat (${art.layers} paths)`)
+    ok(art.fills.length >= 4, `in more than one colour (${art.fills.length} fills)`)
+    ok(art.words.includes('BAM'), `with BAM lettered into it (${art.words.join(',')})`)
+    ok(art.words.includes('CBZ'), 'and the extension still on the band')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * The verbs a tree row carries for an archive, and two keys that had stopped
+ * behaving.
+ *
+ * EXTRACT HERE / EXTRACT TO... / ADD FILES on the row itself (2026-09-01). The
+ * same pair of extract verbs the archive panel has and for the same reason:
+ * "here" needs no dialog because the archive's own folder is already inside a
+ * root, and "to..." keeps main's dialog, which IS the consent that lets it
+ * write anywhere. "Add files" appears only when the container can be WRITTEN
+ * to, which is asked rather than inferred from the extension - a .zip past
+ * adm-zip's ceiling takes the read-only path too.
+ *
+ * DELETE AFTER A DELETE. Delete is handled on the row BUTTON, so deleting
+ * unmounts the element that was listening and focus falls to <body>; the tree
+ * marked the next file and the key then did nothing, which reads as the key
+ * having broken.
+ *
+ * AND ESCAPE NO LONGER CLOSES THE WINDOW. Prism is resident and holds tabs, a
+ * terminal and unsaved text; a reflex keystroke that puts all of that away is
+ * the failure the close flow exists to prevent.
+ */
+async function treeVerbsScenario(fixtures) {
+  console.log('tree row verbs')
+  const { app, win } = await launch(join(fixtures, 'zips', 'bundle.zip'))
+  const rowFor = (suffix) =>
+    win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // ---- the archive verbs are on the row -------------------------------
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    for (const label of ['Extract here', 'Extract to…', 'Add files…']) {
+      ok(
+        (await win.locator(`[role="menu"] >> text="${label}"`).count()) === 1,
+        `a zip row offers ${label}`
+      )
+    }
+    // A 7z is read-only, so it extracts and cannot be added to.
+    await win.keyboard.press('Escape')
+    await sleep(250)
+    await rowFor('read-only.7z').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menu"] >> text="Extract here"').count()) === 1,
+      'a .7z row offers Extract here'
+    )
+    ok(
+      (await win.locator('[role="menu"] >> text="Add files…"').count()) === 0,
+      'but NOT Add files, because it cannot be written to'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(250)
+
+    // ---- and it actually extracts ---------------------------------------
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Extract here"').click()
+    await win.waitForSelector('[role="dialog"]', { timeout: 8000 })
+    // The job reports, then finishes. "Done" is the finished title.
+    await win.waitForSelector('[role="dialog"] >> text="Done"', { timeout: 30000 })
+    ok(true, 'Extract here runs and reports when it is done')
+    await win.locator('[role="dialog"] button:has-text("Close")').click()
+    await sleep(600)
+    // `Collection`, not `wrapped`: the ONE-FOLDER RULE hoists an archive whose
+    // whole content is a single top-level folder rather than burying it under
+    // another named after the archive.
+    ok(
+      (await win.locator('[role="treeitem"][data-row$="Collection" i]').count()) === 1,
+      'and the extracted folder appears in the tree beside the archive'
+    )
+
+    // ---- Escape does not close the window --------------------------------
+    await win.locator('[role="tree"]').click({ position: { x: 5, y: 5 } })
+    await sleep(200)
+    await win.keyboard.press('Escape')
+    await sleep(500)
+    ok(!win.isClosed(), 'Escape does not close the window')
+    ok(
+      (await win.locator('[role="treeitem"]').count()) > 0,
+      'and the tree is still there afterwards'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
+/** Delete, then Delete again: the key must still reach the tree. */
+async function deleteAgainScenario(fixtures) {
+  console.log('delete twice')
+  const { app, win } = await launch(join(fixtures, 'dragbox', 'anchor.txt'))
+  const rows = () => win.locator('[role="treeitem"]').count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    const before = await rows()
+    ok(before >= 3, `the folder has enough to delete twice (${before})`)
+
+    // Click a row so it holds focus the way a user's first Delete does.
+    await win.locator('[role="treeitem"]').nth(1).click()
+    await sleep(400)
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(true, 'Delete on a focused row asks first')
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await sleep(900)
+    ok((await rows()) === before - 1, 'and the row goes')
+
+    // THE BUG: the row that was listening has gone, so without the focus hand
+    // -over this second press reaches nothing at all.
+    await win.keyboard.press('Delete')
+    await sleep(500)
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 1,
+      'Delete again asks again, rather than doing nothing'
+    )
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * LEFT AND RIGHT BELONG TO THE VIEWER (owner, 2026-09-01).
+ *
+ * They used to page the folder and drive the tree, which meant a viewer that
+ * wanted them had to be FOCUSED first - click into the video, then scrub - and
+ * the two kinds that did want them had to be carved out of App by hand. App
+ * does not handle them at all now: nothing is preventDefaulted and the keys
+ * reach whichever viewer is mounted, with no click first.
+ *
+ * The folder is paged with Up and Down instead, which is the half of this that
+ * has to keep working.
+ */
+async function arrowKeysScenario(fixtures) {
+  console.log('arrow keys')
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  const at = () => win.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
+  const selected = () => win.locator('[role="treeitem"][aria-selected="true"]').textContent()
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1, undefined, {
+      timeout: 15000
+    })
+    // Park at the start, and PAUSED, so the clock cannot drift under the
+    // assertion. The fixture clip is about 1.5s - SHORTER than one 5-second
+    // seek step - so the test is that the clock MOVED, not by how much: a seek
+    // past the end clamps to the duration.
+    await win.evaluate(() => {
+      const v = document.querySelector('video')
+      v.pause()
+      v.currentTime = 0
+    })
+    await sleep(400)
+    const start = await at()
+    ok(start === 0, `parked at the start (${start})`)
+
+    // NO CLICK FIRST. This is the whole point: the video has never been
+    // focused, and the key still reaches it.
+    await win.keyboard.press('ArrowRight')
+    await sleep(500)
+    const fwd = await at()
+    ok(fwd > start, `Right seeks a video forward without focusing it (${start} -> ${fwd})`)
+
+    await win.keyboard.press('ArrowLeft')
+    await sleep(500)
+    const back = await at()
+    ok(back < fwd, `and Left seeks it back (${fwd} -> ${back})`)
+
+    // While Up and Down are the folder's, so the tree still walks with a video
+    // open - the player takes them only after the tree has refused.
+    const before = await selected()
+    await win.keyboard.press('ArrowDown')
+    await sleep(900)
+    ok((await selected()) !== before, `Down still pages the folder (${before} -> ${await selected()})`)
+  } finally {
+    await app.close()
+  }
+}
+
 async function comicScenario(fixtures) {
   console.log('comic books')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
@@ -1204,19 +1506,21 @@ async function comicScenario(fixtures) {
     await sleep(400)
     ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Left goes back')
 
-    // Ctrl+arrow is still the FOLDER. sequel.cbz sorts BEFORE story.cbz, so
-    // the way to it is Left.
-    await win.keyboard.press('Control+ArrowLeft')
+    // UP AND DOWN are the folder now (2026-09-01): Left and Right belong to the
+    // book, and Ctrl no longer buys the folder back because App does not handle
+    // those keys at all. sequel.cbz sorts BEFORE story.cbz, so the way to it is
+    // Up.
+    await win.keyboard.press('ArrowUp')
     await sleep(1200)
     ok(
       ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
         'sequel'
       ),
-      'Ctrl+arrow pages the FOLDER, to the next comic'
+      'Up pages the FOLDER, to the next comic'
     )
 
     // And coming back opens where the book was put down.
-    await win.keyboard.press('Control+ArrowRight')
+    await win.keyboard.press('ArrowDown')
     await sleep(1500)
     ok((await win.locator('text=Page 2 of 3').count()) === 1, 'a comic reopens where you left it')
     ok(!win.isClosed(), 'window survives the comic')
@@ -1461,9 +1765,19 @@ async function codeScenario(fixtures) {
       }),
       'a focused scroller draws no focus frame'
     )
-    await win.keyboard.press('ArrowLeft')
+    await win.keyboard.press('ArrowUp')
     await sleep(700)
-    ok(((await selected()) ?? '').includes('hello.sh'), 'Left pages the folder while nothing is focused')
+    ok(((await selected()) ?? '').includes('hello.sh'), 'Up pages the folder while nothing is focused')
+
+    // AND LEFT DOES NOT (2026-09-01). It is the viewer's key now, and a text
+    // file has no use for it, so it must do nothing at all rather than page.
+    const parked = await selected()
+    await win.keyboard.press('ArrowLeft')
+    await sleep(500)
+    ok((await selected()) === parked, 'Left does not page the folder any more')
+    await win.keyboard.press('ArrowRight')
+    await sleep(500)
+    ok((await selected()) === parked, 'and neither does Right')
 
     // Click into the text and the arrows become the caret's. Waiting for the
     // caret rather than sleeping at it: offscreen, the click takes a beat
@@ -1476,7 +1790,7 @@ async function codeScenario(fixtures) {
       .catch(() => {})
     ok(await caretInFile(), 'clicking into the text puts the caret in the file')
     const before = await selected()
-    await win.keyboard.press('ArrowLeft')
+    await win.keyboard.press('ArrowUp')
     await sleep(500)
     ok((await selected()) === before, 'the arrows stop paging once the caret is in the file')
 
@@ -1484,7 +1798,7 @@ async function codeScenario(fixtures) {
     await sleep(300)
     ok(!(await caretInFile()), 'Escape hands focus back to the folder')
     ok(!win.isClosed(), 'Escape does not close the window')
-    await win.keyboard.press('ArrowRight')
+    await win.keyboard.press('ArrowDown')
     await sleep(700)
     ok(((await selected()) ?? '').includes('main.py'), 'and the arrows page again')
 
@@ -1595,13 +1909,22 @@ async function treeNavScenario(fixtures) {
     await sleep(600)
     ok((await expanded('nested')) === 'false', 'Enter again collapses it')
 
-    // Right/Left are the chevron while the cursor is on a folder.
+    // LEFT AND RIGHT ARE NOT THE CHEVRON any more (2026-09-01): the tree is
+    // Up and Down only, and Enter is how a folder opens and closes from the
+    // keyboard - which is the row button's own activation and never went
+    // through the tree's nav at all.
     await win.keyboard.press('ArrowRight')
+    await sleep(500)
+    ok((await expanded('nested')) === 'false', 'Right does not expand the folder')
+    await win.keyboard.press('Enter')
     await sleep(600)
-    ok((await expanded('nested')) === 'true', 'Right expands the folder')
+    ok((await expanded('nested')) === 'true', 'Enter still does')
     await win.keyboard.press('ArrowLeft')
+    await sleep(500)
+    ok((await expanded('nested')) === 'true', 'and Left does not collapse it')
+    await win.keyboard.press('Enter')
     await sleep(600)
-    ok((await expanded('nested')) === 'false', 'Left collapses it')
+    ok((await expanded('nested')) === 'false', 'Enter again collapses it')
 
     // Down off a folder goes back to the files, opening as it lands.
     await win.keyboard.press('ArrowDown')
@@ -1615,7 +1938,7 @@ async function treeNavScenario(fixtures) {
     // Walking into an expanded folder: the cursor follows what is on screen.
     await win.keyboard.press('ArrowUp')
     await sleep(400)
-    await win.keyboard.press('ArrowRight') // expand `nested`
+    await win.keyboard.press('Enter') // expand `nested`
     await sleep(700)
     await win.keyboard.press('ArrowDown')
     await sleep(600)
@@ -3608,6 +3931,11 @@ await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
+await run(iconSchemeScenario)
+await run(comicIconScenario)
+await run(treeVerbsScenario)
+await run(deleteAgainScenario)
+await run(arrowKeysScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over
