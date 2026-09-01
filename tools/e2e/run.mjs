@@ -25,7 +25,7 @@ import {
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { buildFixtures } from './fixtures.mjs'
+import { buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -344,16 +344,33 @@ async function pdfScenario(fixtures) {
     await win.waitForSelector('canvas', { timeout: 15000 })
     ok((await win.locator('canvas').count()) >= 1, 'a page canvas renders')
     ok((await win.locator('[data-page]').count()) === 3, 'three page frames')
+
+    await sleep(800) // the fit settles once every page has been measured
+    const over = await win.evaluate(() => {
+      const box = document.querySelector('[data-doc-scroller]')
+      return box ? box.scrollWidth - box.clientWidth : -1
+    })
+    ok(over <= 0, `a pdf opens with no horizontal overflow (over by ${over}px)`)
+
     ok(await win.locator('text=/\\/ 3/').first().isVisible().catch(() => false), 'pill shows / 3')
-    // The rebased zoom: 1.9 pdf.js units is the default and reads as 100%.
-    ok((await win.locator('button[title="Default zoom (0)"]').textContent()) === '100%', 'default zoom reads 100%')
+    // A document OPENS FITTED now, so the pill need not read 100% - a page
+    // wider than the window would otherwise open already overflowing, which is
+    // being zoomed in on the reader's behalf. What 100% MEANS is unchanged and
+    // is still the thing worth asserting, so press it and then measure.
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
+    ok((await win.locator('button[title="Default zoom (0)"]').textContent()) === '100%', 'the 100% button reads 100%')
     ok(
       await win.evaluate(() => {
         const page = document.querySelector('[data-page="1"]')
         return Math.abs(page.getBoundingClientRect().width - 612 * 1.9) < 2
       }),
-      'default zoom really is 1.9 pdf units'
+      '100% really is 1.9 pdf units'
     )
+    // NO HORIZONTAL SCROLLBAR ON OPEN, which is the property rather than any
+    // particular zoom. A document that opens overflowing has been zoomed in on
+    // the reader's behalf, and a bar for ONE pixel of rounding looks exactly
+    // the same as a bar for a page that is genuinely too wide.
     await win.waitForSelector('.p-pdf-textlayer span', { timeout: 10000 })
     ok((await win.locator('.p-pdf-textlayer span').count()) > 0, 'text layer present')
 
@@ -425,7 +442,10 @@ async function pdfScenario(fixtures) {
     await win.screenshot({ path: join(SHOTS, 'pdf.png') })
 
     // 100% IS A WIDTH ON SCREEN, not 1.9x whatever the page measures. A
-    // 1822pt-wide page used to render 3462 CSS px across at "100%".
+    // 1822pt-wide page used to render 3462 CSS px across at "100%". The
+    // document opens FITTED now, so press 100% before measuring what it means.
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
     const letterW = await win.evaluate(
       () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
     )
@@ -1379,10 +1399,18 @@ async function pdfZoomScenario(fixtures) {
   try {
     await win.waitForSelector('[data-page="1"] canvas', { timeout: 15000 })
     await sleep(600)
+    // Opening FITTED is the point for a page this size - 1822pt at 100% is
+    // 1163px, wider than the window this runs in - so the assertion is that it
+    // does not overflow, and then that 100% still means what it means.
     ok(
-      (await win.textContent('button[title="Default zoom (0)"]')) === '100%',
-      'a big-page document still opens at 100%'
+      await win.evaluate(() => {
+        const box = document.querySelector('[data-doc-scroller]')
+        return !!box && box.scrollWidth <= box.clientWidth
+      }),
+      'a big-page document opens with no horizontal overflow'
     )
+    await win.click('button[title="Default zoom (0)"]')
+    await sleep(400)
     const w = await win.evaluate(
       () => document.querySelector('[data-page="1"]').getBoundingClientRect().width
     )
@@ -2088,6 +2116,7 @@ async function handoff(file) {
 
 async function tabsScenario(fixtures) {
   console.log('project tabs')
+  const otherRoot = OTHER_ROOT
   let { app, win } = await launch(join(fixtures, 'README.md'))
   const strip = '[role="tablist"]'
   const tabRows = () => win.locator(`${strip} [role="tab"]`)
@@ -2106,13 +2135,26 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A second root, opened deliberately. The dialog is native and cannot be
-    // driven, so the scenario asks for the same payload the button asks for.
+    // A file from a SUBFOLDER of an open root lands in THAT root's tab, rather
+    // than spawning one rooted at the subfolder (2026-09-01). Most files are
+    // not sitting directly in their project's root, so the old rule - fold
+    // only when the root IS the file's folder - accumulated a tab per folder
+    // every time anything was opened from Explorer.
     await handoff(join(fixtures, 'code', 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await tabRows().count()) === 1, 'a file from a subfolder stays in the tab that holds it')
+    ok(
+      /fixtures/i.test((await tabRows().first().getAttribute('title')) ?? ''),
+      'and that tab keeps ITS root, not the subfolder'
+    )
+
+    // A second root, opened deliberately - a genuine sibling, since a
+    // subfolder is no longer a second root at all.
+    await handoff(join(otherRoot, 'bad.json'))
+    await sleep(500)
     ok((await tabRows().count()) === 2, 'a second root opens a second tab')
     const labels = await tabRows().allTextContents()
-    ok(labels.some((l) => /code/.test(l)), 'the new tab is named for its folder')
+    ok(labels.some((l) => /other/.test(l)), 'the new tab is named for its folder')
 
     // Reordering is a POINTER drag inside the strip (2026-08-23), not an HTML5
     // one: press the second tab, travel left past the first tab's middle,
@@ -2145,7 +2187,15 @@ async function tabsScenario(fixtures) {
       )
     }
 
-    // Switching: the tree and the viewer both follow.
+    // Switching: the tree and the viewer both follow. Point the first tab back
+    // at its README first - the subfolder handoff above legitimately moved it
+    // to bad.json, which is the fold working - then switch AWAY and back, so
+    // this tests the switch rather than what the last handoff happened to
+    // leave on screen.
+    await handoff(join(fixtures, 'README.md'))
+    await sleep(400)
+    await tabRows().last().click()
+    await sleep(300)
     await tabRows().first().click()
     await sleep(400)
     ok(
@@ -2206,8 +2256,10 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'confirming closes it')
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
-    // recreate the code tab, restoring the order the flow below expects
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // recreate the second tab, restoring the order the flow below expects.
+    // The SIBLING root, not a subfolder: a subfolder folds into the tab that
+    // holds it now and would leave the strip with one tab, not two.
+    await handoff(join(otherRoot, 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(400)
 
@@ -2237,7 +2289,9 @@ async function tabsScenario(fixtures) {
   await sleep(900)
   ;({ app, win } = await launch(join(fixtures, 'README.md')))
   try {
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // Two roots means two ROOTS: the sibling, since a subfolder now folds into
+    // the tab that already holds it.
+    await handoff(join(otherRoot, 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(700) // the save is on a 400ms debounce
   } finally {

@@ -15,6 +15,12 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
 export const FIXTURES = join(ROOT, '.e2e', 'fixtures')
+/** A root that is NOT inside FIXTURES, for the tab scenarios.
+ *
+ *  A file arriving from a SUBFOLDER of an open root now lands in that root's
+ *  tab rather than spawning one of its own, so a "second root" has to be a
+ *  genuine sibling - using a subfolder tested the old rule by accident. */
+export const OTHER_ROOT = join(ROOT, '.e2e', 'other')
 
 /**
  * Where ffmpeg actually is. The PATH shim is not something to depend on: a
@@ -137,6 +143,9 @@ const PNG = Buffer.from(
 )
 
 export function buildFixtures() {
+  mkdirSync(OTHER_ROOT, { recursive: true })
+  writeFileSync(join(OTHER_ROOT, 'bad.json'), '{ "unclosed": true')
+
   rmSync(FIXTURES, { recursive: true, force: true })
   mkdirSync(FIXTURES, { recursive: true })
 

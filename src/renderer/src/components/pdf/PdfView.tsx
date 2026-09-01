@@ -700,8 +700,14 @@ export function PdfView({
     const total = doc.numPages
     let next = 2 // page one is already measured, and is `base`
     let batch = new Map<number, { w: number; h: number }>()
-    let maxW = 0
-    let maxH = 0
+    // SEEDED WITH PAGE ONE, which the worker loop starts after. A
+    // single-page document runs no workers at all, so these stayed at zero and
+    // `docBox` became 0 wide - and a fit of availW/0 is Infinity, clamped to
+    // the maximum scale. A 1822pt page came out 9110px across. Seeding is also
+    // simply correct for every other document: page one is a page, and the
+    // widest page cannot be found by ignoring it.
+    let maxW = baseDims.w
+    let maxH = baseDims.h
     const flush = (): void => {
       if (!alive || batch.size === 0) return
       const got = batch
@@ -729,12 +735,12 @@ export function PdfView({
       Array.from({ length: Math.min(8, Math.max(0, total - 1)) }, () => worker())
     ).then(() => {
       flush()
-      if (alive) setPageBox({ w: maxW, h: maxH })
+      if (alive && maxW > 0 && maxH > 0) setPageBox({ w: maxW, h: maxH })
     })
     return () => {
       alive = false
     }
-  }, [doc])
+  }, [doc, baseDims.w, baseDims.h])
 
   const commitPageEdit = (): void => {
     const n = Number(pageEdit)
