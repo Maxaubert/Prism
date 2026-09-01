@@ -93,6 +93,14 @@ export function ancestorsWithin(root: string, file: string): string[] {
 /** Windows does not distinguish roots by case, so neither does a tab. */
 export const sameRoot = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
+/** Is `p` somewhere inside `root`? Case-insensitive, and a trailing separator
+ *  on the root is not a difference. */
+export const underRoot = (root: string, p: string): boolean => {
+  const r = root.toLowerCase().replace(/[\\/]+$/, '')
+  const q = p.toLowerCase()
+  return q.startsWith(r + '\\') || q.startsWith(r + '/')
+}
+
 /** A tab from a payload main just built. */
 export function newTab(p: OpenPayload, id: string): Tab {
   return {
@@ -217,7 +225,20 @@ export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabSta
  * left, not a reload.
  */
 export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  const hit = tabs.findIndex((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
+  // A tab HOLDS the file when its root CONTAINS it, not only when the root is
+  // the file's own folder (2026-09-01). Equality alone meant that opening a
+  // photo two folders down from a tab's root - which is where most files
+  // are - spawned a second tab rooted at that subfolder, instead of landing
+  // in the tab already showing that tree. The deepest containing root wins,
+  // so a tab on X:\Comics beats one on X:\ for a file inside it.
+  const candidates = tabs
+    .map((t, i) => ({ t, i }))
+    .filter(
+      ({ t }) =>
+        t.kind !== 'settings' && (sameRoot(t.root, p.root) || underRoot(t.root, p.root))
+    )
+    .sort((a, b) => b.t.root.length - a.t.root.length)
+  const hit = candidates.length ? candidates[0].i : -1
   if (hit >= 0) {
     const next = tabs.slice()
     const was = next[hit]

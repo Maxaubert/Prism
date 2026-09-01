@@ -130,6 +130,7 @@ const SEARCH_HELP = [
 export function Sidebar({
   open,
   root,
+  tabId,
   currentPath,
   dirtyPaths,
   refreshKey,
@@ -157,6 +158,8 @@ export function Sidebar({
 }: {
   open: boolean
   root: string
+  /** Which tab this sidebar is serving; the search query is kept per tab. */
+  tabId: string
   currentPath: string | null
   /** Every file holding unsaved text, keyed lowercase. Any of them can be
    *  marked, not just the open one: leaving a file no longer discards it. */
@@ -220,7 +223,23 @@ export function Sidebar({
   const [menu, setMenu] = useState<Menu | null>(null)
   // The search box. A query swaps the tree for a flat result list; clearing it
   // brings the tree back exactly as it was (its state never unmounts).
-  const [query, setQuery] = useState('')
+  /**
+   * PER TAB (2026-09-01). One Sidebar instance serves every tab, so a single
+   * `query` state meant that typing a search in one tab and switching to
+   * another left the second one showing results for a search nobody had made
+   * there - and clearing it in one tab cleared it in all of them. A search is
+   * about the tree you are looking at, so it belongs to the tab.
+   *
+   * Kept as a map in state rather than a ref swapped while rendering: `query`
+   * is then simply derived, and this file's own rule that a ref may not be
+   * written during a render still holds.
+   */
+  const [queries, setQueries] = useState<Record<string, string>>({})
+  const query = queries[tabId] ?? ''
+  const setQuery = useCallback(
+    (v: string) => setQueries((m) => ({ ...m, [tabId]: v })),
+    [tabId]
+  )
   /** The hits the search panel is showing, lent upward so the arrows can walk
    *  them. Empty while the tree is showing. */
   const [hitRows, setHitRows] = useState<Array<{ path: string; name: string; isFolder: boolean }>>(

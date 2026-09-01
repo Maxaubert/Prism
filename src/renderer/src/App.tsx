@@ -2665,6 +2665,7 @@ export default function App(): JSX.Element {
           <Sidebar
             open={sidebar}
             root={active.root}
+            tabId={active.id}
             onOpenFolder={rerootHere}
             onToggleTerm={toggleTerm}
             termOpen={termView !== 'hidden'}

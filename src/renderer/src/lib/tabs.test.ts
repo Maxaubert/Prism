@@ -35,6 +35,7 @@ const payload = (root: string, files: string[], index = 0): OpenPayload => ({
   index
 })
 
+const BS = '\\\\'
 const SHOOT = 'C:\\shoot'
 const DOCS = 'D:\\docs'
 
@@ -60,6 +61,44 @@ describe('receiveFile', () => {
     expect(r.tabs).toHaveLength(2) // no duplicate of the same project
     expect(r.activeId).toBe(shoot.id)
     expect(r.tabs[0].index).toBe(1) // and it moved to the file that arrived
+  })
+
+  it('lands a file from a SUBFOLDER in the tab that already holds that tree', () => {
+    // The bug this covers: a tab rooted at X:\ with a file two folders down
+    // spawned a SECOND tab rooted at the subfolder, because the fold only
+    // matched when the root WAS the file's own folder. Opening anything from
+    // Explorer while a project tab was open therefore accumulated tabs.
+    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
+    const r = receiveFile(
+      [drive],
+      payload('X:' + BS + 'Comics' + BS + 'Artbooks', ['X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(1)
+    expect(r.activeId).toBe(drive.id)
+    expect(r.tabs[0].root).toBe('X:' + BS) // the tab keeps ITS root, not the subfolder
+  })
+
+  it('prefers the DEEPEST tab that holds the file', () => {
+    const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
+    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
+    const r = receiveFile(
+      [drive, comics],
+      payload('X:' + BS + 'Comics' + BS + 'Art', ['X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(2)
+    expect(r.activeId).toBe(comics.id)
+  })
+
+  it('does not treat a sibling with a shared prefix as containing the file', () => {
+    const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
+    const r = receiveFile(
+      [comics],
+      payload('X:' + BS + 'ComicsOld', ['X:' + BS + 'ComicsOld' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(r.tabs).toHaveLength(2) // a new tab, correctly
   })
 
   it('matches a root case-insensitively, the way Windows does', () => {
