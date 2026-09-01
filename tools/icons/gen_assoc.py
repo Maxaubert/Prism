@@ -57,15 +57,44 @@ def describe(ext, kind):
     return LANG_DESC.get(LANG_EXTS.get(ext), DESC[kind])
 
 
+# The seven CLASSES THE SET USED TO HAVE, kept alive on purpose.
+#
+# Somebody who ever chose "always open .log with Prism" has a UserChoice naming
+# `Prism.Text`, and that key is hashed per user and signed: an app must never
+# write it, which also means an app can never MOVE it. Deleting the class it
+# names does not move that choice, it ORPHANS it - Windows finds nothing at the
+# other end and falls back to whatever other handler it can, which is how .log
+# and .md ended up wearing another editor's icon the first time this ran.
+#
+# So the old classes stay defined, pointing at the kind icons they always did.
+# Nothing is REGISTERED against them any more, since every extension has its
+# own class now; they matter only to somebody whose existing default names one,
+# and for them the icon stays what it was until they pick Prism again.
+LEGACY = {
+    "Prism.Image": ("Image", "image"),
+    "Prism.Video": ("Video", "video"),
+    "Prism.Audio": ("Audio", "audio"),
+    "Prism.Document": ("Document", "document"),
+    "Prism.Text": ("Text file", "code"),
+    "Prism.Archive": ("Archive", "archive"),
+    "Prism.Comic": ("Comic book", "comic"),
+}
+
+
 def blocks():
     table = kinds()
     exts = sorted(table)
     reg, unreg = [], []
+    for pid, (desc, icon) in LEGACY.items():
+        reg.append(f'  !insertmacro PRISM_PROGID "{pid}" "{desc}" "{icon}"\n')
+    reg.append("\n")
     for e in exts:
         reg.append(f'  !insertmacro PRISM_PROGID "{progid(e)}" "{describe(e, table[e])}" "{e}"\n')
     reg.append("\n")
     for e in exts:
         reg.append(f'  !insertmacro PRISM_EXT "{e}" "{progid(e)}"\n')
+    for pid in LEGACY:
+        unreg.append(f'  DeleteRegKey SHELL_CONTEXT "Software\\Classes\\{pid}"\n')
     for e in exts:
         unreg.append(f'  DeleteRegKey SHELL_CONTEXT "Software\\Classes\\{progid(e)}"\n')
     unreg.append("\n")

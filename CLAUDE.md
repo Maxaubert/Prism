@@ -883,6 +883,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   running to `!macroend`: the first version ran to the end and silently ate the Explorer
   verb's own uninstall keys, which `shellVerb.test.ts` caught. A code extension picks up
   its LANGUAGE mark where one exists - 81 of 160 do - and the rest keep the stepped bars.
+  **THE SEVEN OLD CLASSES ARE KEPT ALIVE, and that is not tidiness.** A UserChoice - the
+  key that records "always open .log with Prism" - is hashed per user and signed, so an
+  app must never write it and therefore can never MOVE it. Deleting the class it names
+  does not move the choice, it ORPHANS it: Windows finds nothing at the far end and falls
+  back to some other handler, which is how the owner's .log and .md ended up wearing
+  another editor's icon the first time this shipped. `Prism.Text` and its six siblings
+  stay defined, pointing at the kind icons they always did; NOTHING is registered against
+  them any more, so they matter only to somebody whose existing default names one, and for
+  them the icon stays what it was until they choose Prism again - at which point Windows
+  writes the new per-extension class and the label becomes true.
   **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
   type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
   cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the
