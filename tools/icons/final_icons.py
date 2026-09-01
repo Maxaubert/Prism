@@ -64,10 +64,35 @@ INK_A = tuple(INK) + (255,)
 PAGE = (170, 178, 192)
 PAPER = (255, 255, 255)
 
+# CODE, INVERTED (owner pick, round 27 candidate 13, 2026-09-01). It replaces
+# the single indigo bar that had been doing this job: an accent bar told code
+# from document, but it did it by adding a hue to one stripe, which is a detail,
+# and a dark PAGE is not a detail - it is most of the icon.
+#
+# A DARK PAGE IS AN INVERSION, NOT A RECOLOUR, and that is the whole of the
+# construction below. Three marks are drawn in INK everywhere else in the set:
+# the fold, the chip, and the extension knocked out of the chip so the page
+# shows through the letters. On a dark page all three vanish at once, and the
+# naive recolour is an icon with no fold, no chip and no label. So code's fold
+# and chip take the shared grey the other kinds use for their PAGE, and its
+# label is drawn in the page colour rather than knocked out.
+#
+# The bars carry NO ACCENT (the same pick): three plain light stripes. Once the
+# page is dark, hue is not what separates code from document any more - the
+# ground is - and an indigo bar on top of that was one difference too many.
+CODE_PAGE = (43, 48, 59)     # slate, light enough that the chip can sit on it
+CODE_BARS = (233, 237, 247)  # brighter than the shared grey: these must carry at 16px
+CODE_EDGE = (122, 132, 152)  # see _hairline - a dark page vanishes on a dark ground
+
 COLOURS = {
     "archive": ("ZIP", PAGE),
     "audio": ("MP3", PAGE),
-    "code": ("PY", PAGE),
+    # A DARK PAGE, because a code file is a dark editor and nothing else in the
+    # set is one. It is also what finally separates code from document without
+    # either glyph moving: they are the same three rounded bars in the same
+    # box, and one being dark paper and the other white paper is a difference
+    # that survives being 16 pixels across, where a shape difference does not.
+    "code": ("PY", CODE_PAGE),
     "comic": ("CBZ", (210, 96, 58)),
     # PAPER, not the shared grey. A docx, a pdf, an xlsx and a pptx are all
     # sheets of paper, and Word shows one as white on a canvas that is not
@@ -77,30 +102,20 @@ COLOURS = {
     "video": ("MP4", PAGE),
 }
 
-# Prism's own accent. CODE is the second exception to the one page colour the
-# other kinds share, after comic, and it exists to solve a real collision: code
-# and document are both three rounded bars in the same box, so once the six went
-# to a single page colour the silhouette was the only thing telling them apart,
-# and at 16px that is nothing. One bar in the accent separates them without
-# either glyph moving - and colour is the right axis for it, because hue
-# survives downsampling where geometry does not.
-CODE_ACCENT = (91, 91, 214)
 
-
-def _code_bars(d, n, box, col, hole=None):
-    """Stepped indent bars, the middle one in the accent and the rest in ink."""
+def _code_bars_at(d, n, box, col, hole=None):
+    """Stepped indent bars, all three the same, drawn light on the dark page."""
     x0, y0, x1, y1 = box
     w, h = x1 - x0, y1 - y0
-    rows = ((0.00, 0.74, col), (0.22, 1.00, CODE_ACCENT), (0.00, 0.56, col))
-    for i, (a, b, fill) in enumerate(rows):
+    for i, (a, b) in enumerate(((0.00, 0.74), (0.22, 1.00), (0.00, 0.56))):
         y = y0 + i * h * 0.37
         d.rounded_rectangle([g(n, x0 + w * a), g(n, y), g(n, x0 + w * b), g(n, y + h * 0.26)],
-                            radius=g(n, h * 0.07), fill=fill)
+                            radius=g(n, h * 0.07), fill=CODE_BARS)
 
 
 PAGE_GLYPHS = {
     "audio": quarter,
-    "code": _code_bars,
+    "code": _code_bars_at,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
     "video": clapper,
@@ -117,18 +132,23 @@ PAPER_EDGE = (196, 201, 210)
 EDGE_UNITS = 0.35
 
 
-def _hairline(base, size):
-    """Lay a hairline along the page's own silhouette.
+def _hairline(base, size, colour=PAPER_EDGE):
+    """Lay a hairline along the page's own silhouette, in the given colour.
 
     Eroded from the page mask rather than drawn as a second shape, so it
     follows the rounded corners and the fold's diagonal exactly and cannot
     drift out of step with them.
+
+    It serves BOTH directions now. White paper measures 1.07:1 on Explorer's
+    light ground and needs a grey edge; the dark code page measures 1.23:1 on
+    its DARK ground, which is the same failure pointed the other way, and needs
+    a light one.
     """
     n = size * S
     m = page_mask(n)
     inner = m.filter(ImageFilter.MinFilter(2 * int(EDGE_UNITS * S) + 1))
     band = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    band.paste(Image.new("RGBA", (n, n), PAPER_EDGE + (255,)), (0, 0), m)
+    band.paste(Image.new("RGBA", (n, n), tuple(colour) + (255,)), (0, 0), m)
     band.paste(Image.new("RGBA", (n, n), (0, 0, 0, 0)), (0, 0), inner)
     out = base.copy()
     out.alpha_composite(band.resize((size, size), Image.LANCZOS))
@@ -140,19 +160,34 @@ def _document(kind, size):
     return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind]), size)
 
 
-def _page_kind_with(kind, size, glyph):
+def _page_kind_with(kind, size, glyph, fold=INK, chip=INK, label=None):
     """A page kind rendered with an arbitrary glyph.
 
     Exists so a mockup round can try alternative marks through the REAL
     construction - this page, this chip, this label, this colour - rather than
     through a copy of it that can drift. `_page_kind` is this with the kind's
     own settled glyph.
+
+    `fold`, `chip` and `label` default to the set's rule - both marks in ink,
+    the letters knocked out to the page - and exist for CODE, whose dark page
+    would swallow all three.
     """
     ext, colour = COLOURS[kind]
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
-    spec = _spec(page=colour, fold=INK, band=INK, band_at="chip", glyph_col=INK,
-                 glyph_box=BOX, text=ext, text_col=colour, sprocket=colour)
+    spec = _spec(page=colour, fold=fold, band=chip, band_at="chip", glyph_col=INK,
+                 glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
     return build(size, obj, spec)
+
+
+def _code(kind, size):
+    """The dark page: light fold, light chip, the label drawn rather than cut.
+
+    PAGE is the shared grey the other kinds wear, used here for the MARKS -
+    which is the inversion in one line.
+    """
+    base = _page_kind_with(kind, size, PAGE_GLYPHS[kind],
+                           fold=PAGE, chip=PAGE, label=CODE_PAGE)
+    return _hairline(base, size, CODE_EDGE)
 
 
 def _page_kind(kind, size):
@@ -200,6 +235,7 @@ def _comic(kind, size):
 
 
 RENDER = {k: _page_kind for k in PAGE_GLYPHS}
+RENDER["code"] = _code
 RENDER["document"] = _document
 RENDER["archive"] = _archive
 RENDER["comic"] = _comic

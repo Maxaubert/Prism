@@ -37,7 +37,7 @@ from io import BytesIO
 
 from PIL import Image, ImageFilter
 
-from final_icons import BOX, CODE_ACCENT, PAGE, render
+from final_icons import BOX, PAGE, render
 from icons import S
 from round12 import INK, Kind, _spec, build, page_mask
 from round5 import g
@@ -52,6 +52,13 @@ NIGHT = (27, 29, 34)        # Prism's own near-black, matching the chip exactly
 SLATE = (43, 48, 59)        # a step up, so the chip can still sit on it
 DEEP = (34, 38, 56)         # indigo-tinted, the accent's own family
 COAL = (24, 24, 27)         # neutral, the colour VS Code's dark+ actually is
+
+# Prism's accent, which is what the code icon carried when this round was
+# put together. Held HERE rather than imported: the round is the record of
+# how the decision was reached, and it cannot depend on the constant it
+# talked the set out of - final_icons retired the accent bar when candidate
+# 13 was picked, and an import would have broken this file with it.
+CODE_ACCENT = (91, 91, 214)
 
 LIGHT = PAGE                # the set's shared grey, as the light thing
 PAPER = (233, 237, 247)     # brighter, for bars that have to carry at 16px

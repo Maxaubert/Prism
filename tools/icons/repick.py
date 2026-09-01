@@ -14,8 +14,14 @@ The one caveat is that the browser composites AFTER downsampling and the shipped
 renderer composites BEFORE, which moves a handful of edge pixels and cannot
 change a colour decision.
 
-COMIC IS NOT ON THE SHEET, by instruction: it is the one kind whose page is
-artwork rather than one flat colour, and it is settled.
+COMIC AND CODE ARE NOT ON THE SHEET. The live recolour works because a kind
+is one flat page with INK on top of it, and neither of those two is: comic's
+page is artwork, and code is INVERTED - a dark page whose fold, chip and
+label are the light marks. Tinting either here would show a colour the .ico
+cannot hold, which is worse than leaving them out. Document IS on the sheet,
+with one caveat worth knowing: its card does not draw the hairline the
+shipped icon carries, so white reads slightly weaker here than it does on
+the desktop.
 
 THE CONTRAST READOUT IS THE POINT. It is measured against BOTH Explorer grounds
 live, because a colour can look right while it is picked on one of them and
@@ -150,7 +156,7 @@ def main(out_dir):
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    kinds = [k for k in COLOURS if k != "comic"]
+    kinds = [k for k in COLOURS if k not in ("comic", "code")]
     # The kind's own colour leads, then the wall with any duplicate of it
     # dropped - two swatches that are the same colour is one that does nothing.
     cands = {k: ["#%02x%02x%02x" % COLOURS[k][1]]

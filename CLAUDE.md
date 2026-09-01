@@ -839,6 +839,25 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   own mask - the boundary a page has against its canvas, not the heavy dark outline the
   set rejected. Eroded rather than drawn as a second shape, so it follows the rounded
   corners and the fold's diagonal and cannot drift out of step.
+  CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
+  `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
+  replaces the single indigo bar that had been telling code from document - an accent bar
+  did that by adding a hue to one stripe, which is a detail, and the page is most of the
+  icon. A DARK PAGE IS AN INVERSION, NOT A RECOLOUR, and that is the whole construction:
+  the fold, the chip and the extension knocked out of the chip are ALL drawn in ink
+  everywhere else in the set, so on a dark page all three vanish at once and the naive
+  recolour is an icon with no fold, no chip and no label. So code's fold and chip take
+  `#aab2c0` - the grey that is the PAGE on the other kinds becomes the MARKS on this one -
+  its label is DRAWN in the page colour rather than knocked out, and its three bars are
+  `#e9edf7` with no accent among them, since once the ground carries the difference an
+  indigo stripe on top of it is one difference too many. The page measures 1.23:1 on
+  Explorer's dark ground, which is pure white's 1.07:1 problem pointed the other way, so
+  it carries the SAME hairline document does in a light colour (`#7a8498`, 4.33:1 on dark
+  and 3.51:1 on light) - `_hairline` grew a colour argument rather than a second
+  implementation, because two MinFilter erosions of the same mask would drift. `repick.py`
+  no longer offers code, for the same reason it never offered comic: its live recolour
+  assumes one flat page under ink, and neither of those two is that, so tinting them there
+  would show a colour the .ico cannot hold.
   THE IN-APP ICONS CANNOT CARRY ANY OF THAT, being painted in one ink, so `svg.py` has
   THREE deliberate divergences from the .ico and they are divergences rather than drift:
   the clapperboard has two stripes instead of three (three are a pixel each at 14px and
