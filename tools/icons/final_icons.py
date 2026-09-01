@@ -31,7 +31,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from icons import S
 from round5 import g
-from round12 import CHIP, INK, Kind, _spec, build, fold_points, on_page, page_mask
+from round12 import (CHIP, INK, PX0, PX1, PY1, Kind, _spec, build, fold_points,
+                     on_page, page_mask)
 from round12 import lines as doc_lines
 from round13 import clapper
 from round14 import GLYPHS as R14
@@ -69,6 +70,12 @@ INK_A = tuple(INK) + (255,)
 # vanished outright and only the chip was left. The chip is near-black and the
 # extension is knocked out of it, so the label carries on both grounds whatever
 # the page does.
+# The footer band the label sits in, the chip's own height at the page's foot.
+# Named here because COMIC draws it by hand - it has artwork rather than a flat
+# page under the label - while every other kind gets it from round12's
+# `band_at="bottom"`.
+BAND = (PX0, PY1 - (CHIP[3] - CHIP[1]), PX1, PY1)
+
 PAGE = (170, 178, 192)
 PAPER = (255, 255, 255)
 
@@ -246,12 +253,21 @@ def _comic(kind, size):
 
     d = ImageDraw.Draw(out)
     d.polygon([(g(n, x), g(n, y)) for x, y in fold_points()], fill=INK_A)
-    d.rounded_rectangle([g(n, CHIP[0]), g(n, CHIP[1]), g(n, CHIP[2]), g(n, CHIP[3])],
-                        radius=g(n, 0.7), fill=INK_A)
-    (tx, ty), f = _label_at(n, ext, CHIP)
-    # Drawn, not knocked out: there is artwork behind the chip rather than one
-    # flat colour, and where the chip overhangs the page there is nothing at
-    # all, so a hole would read as a rip rather than as a word.
+
+    # The FOOTER BAND, like every other kind (2026-09-01). Comic kept the
+    # top-left chip when the rest of the set moved, and it was the only icon
+    # left wearing one - a set where six labels are at the foot and the seventh
+    # is in the corner reads as an oversight rather than as an exception.
+    # Clipped to the page, so it takes the rounded bottom corners the artwork
+    # already has.
+    band = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    ImageDraw.Draw(band).rectangle(
+        [g(n, BAND[0]), g(n, BAND[1]), g(n, BAND[2]), g(n, BAND[3])], fill=INK_A)
+    out.alpha_composite(Image.composite(band, Image.new("RGBA", (n, n), (0, 0, 0, 0)), m))
+
+    (tx, ty), f = _label_at(n, ext, BAND)
+    # Drawn, not knocked out: there is ARTWORK behind the band rather than one
+    # flat colour, so a hole would show the sunburst through the letters.
     d.text((tx, ty), ext, font=f, fill=CREAM + (255,), anchor="mm")
     return out.resize((size, size), Image.LANCZOS)
 

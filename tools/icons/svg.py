@@ -188,12 +188,30 @@ BAND = (PX0, PY1 - BAND_H, PX1, PY1)
 
 
 def band_path():
-    """The footer band, with SQUARE top corners and the page's round ones below.
+    """The footer band as the KO layer wants it: a rectangle that OVERSHOOTS.
 
-    In the .ico the band is a plain rectangle clipped by the page mask, which
-    gives it the page's bottom radius for free. There is no mask here, so the
-    path has to carry that radius itself - and only on the two corners that
-    touch the page's edge, or the band detaches into a floating pill.
+    The obvious version traces the page's own bottom corners, and it leaves a
+    visible white arc at each of them. Two identical CURVED edges painted one
+    over the other do not cancel: the page's edge pixel is part ink, the band's
+    is part background, and part of part is a fringe. On a straight axis-aligned
+    edge the coverage is exact and nothing shows; on a 1.5-unit radius it does,
+    which is why the seam appeared at the two bottom corners and nowhere else.
+
+    So the band's own edges are pushed OUTSIDE the page entirely, where its
+    antialiasing has nothing of the icon to half-cover. It is painted in the
+    row's own background, so the overshoot is background on background and
+    cannot be seen - and the page's rounded corners are not lost, they are
+    simply under a band that reaches past them.
+    """
+    o = 0.6
+    return rect_path(BAND[0] - o, BAND[1], BAND[2] + o, BAND[3] + o)
+
+
+def band_path_clipped():
+    """The same band, kept inside the page, for the evenodd `solid` variant.
+
+    A hole that strays outside the body is one crossing rather than two under
+    evenodd, so the overshooting version would fill solid instead of cutting.
     """
     a, b, c, d = u(BAND[0]), u(BAND[1]), u(BAND[2]), u(BAND[3])
     r = round(1.0 * SCALE, 2)
@@ -413,7 +431,8 @@ def icons():
             solid += [p for p in layers[KO] if p != chip_path(CHIP_A)]
             solid += [chip_path_clipped(CHIP_A)]
         else:
-            solid += list(layers[KO])
+            solid += [p for p in layers[KO] if p != band_path()]
+            solid += [band_path_clipped()]
         solid += list(layers[HI])
         out[kind]["solid"] = " ".join(solid)
         out[kind]["label"] = label(CHIP_A if arch else BAND)

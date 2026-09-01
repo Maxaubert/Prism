@@ -895,6 +895,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   prose has no indentation to draw, and the list is `codeLang.isProse`'s own rather than a
   second one - `iconPaths.test.ts` asserts the two agree, along with every generated table
   naming a mark that exists.
+  COMIC WEARS THE BAND TOO (2026-09-01): it kept the top-left chip when the rest of the set
+  moved, and a set where six labels sit at the foot and the seventh is in the corner reads
+  as an oversight rather than as an exception. Its label is still DRAWN rather than knocked
+  out, because there is artwork behind it and a hole would show the sunburst through the
+  letters.
+  **TWO IDENTICAL CURVED EDGES DO NOT CANCEL.** The in-app band traced the page's own
+  rounded bottom corners, and left a pale arc at each of them: the page's edge pixel is
+  part ink, the band's is part background, and part of part is a fringe. On a straight
+  axis-aligned edge the coverage is exact and nothing shows, which is why the seam appeared
+  at the two corners and nowhere else. The band's KO path OVERSHOOTS the page by 0.6 units
+  now, so its antialiasing has nothing of the icon to half-cover; it is painted in the
+  row's own background, so the overshoot is background on background and invisible. The
+  `solid` evenodd variant keeps a CLIPPED copy, because a hole straying outside the body is
+  one crossing rather than two and would fill instead of cut.
   CODE IS INVERTED (owner pick, 2026-09-01, round 27 candidate 13): a DARK page,
   `#2b303b`, because a code file is a dark editor and nothing else in the set is one. It
   replaces the single indigo bar that had been telling code from document - an accent bar
