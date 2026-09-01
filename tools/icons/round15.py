@@ -267,6 +267,31 @@ ARCHIVES = [
 ]
 
 
+def _band_and_label(ink, body, n, ext, mask, band):
+    """A full-width band across the container's foot, and the extension in it.
+
+    CLIPPED TO THE SILHOUETTE, so it takes the folder's own rounded corners the
+    way the page kinds' band takes the page's - a band that squares them off
+    stops being part of the shape and becomes a bar lying across it.
+    """
+    K = tuple(INK) + (255,)
+    layer = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rectangle(
+        [g(n, band[0]), g(n, band[1]), g(n, band[2]), g(n, band[3])], fill=K)
+    ink.alpha_composite(Image.composite(layer, Image.new("RGBA", (n, n), (0, 0, 0, 0)), mask))
+
+    (tx, ty), f = _label_at(n, ext, band)
+    cut = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(cut).text((tx, ty), ext, font=f, fill=255, anchor="mm")
+    ink.putalpha(ImageChops.subtract(ink.getchannel("A"), cut))
+    if body is not None:
+        body.putalpha(ImageChops.lighter(body.getchannel("A"), cut))
+
+
+#: The band, in the container's coordinates: the chip's height, run full width.
+BAND_A = (AX0, AY1 - (CHIP_A[3] - CHIP_A[1]), AX1, AY1)
+
+
 def archive_layers(size, sil, inkfn, ext="ZIP"):
     n = size * S
     m = Image.new("L", (n, n), 0)
@@ -278,7 +303,7 @@ def archive_layers(size, sil, inkfn, ext="ZIP"):
     ink = Image.new("RGBA", (n, n), T)
     inkfn(ImageDraw.Draw(ink), n, K, T)
     ink = Image.composite(ink, Image.new("RGBA", (n, n), T), m)
-    _chip_and_label(ink, body, n, ext, CHIP_A)
+    _band_and_label(ink, body, n, ext, m, BAND_A)
     return (body.resize((size, size), Image.LANCZOS),
             ink.resize((size, size), Image.LANCZOS))
 

@@ -66,7 +66,7 @@ from round12 import CHIP, CUT, PX0, PX1, PY0, PY1, on_page
 from round12 import lines as doc_lines
 from round13 import clapper
 from round14 import GLYPHS as R14
-from round15 import CHIP_A, folder_zip, folder_zip_ink
+from round15 import AX0, AX1, AY1, CHIP_A, folder_zip, folder_zip_ink
 from round17 import quarter
 from round18 import _splat
 
@@ -185,6 +185,8 @@ def fold_path():
 
 BAND_H = CHIP[3] - CHIP[1]
 BAND = (PX0, PY1 - BAND_H, PX1, PY1)
+#: The same band in the CONTAINER's coordinates, for the archive.
+ARCH_BAND = (AX0, AY1 - BAND_H, AX1, AY1)
 
 
 def band_path():
@@ -281,20 +283,21 @@ def label(chip=BAND, chars=3):
 
 
 # ------------------------------------------------------------------- glyphs
-def _clapper_two_stripes(d, n, box, col, hole):
-    """VIDEO in-app: TWO clapper stripes, not three.
+def _play_disc_svg(d, n, box, col, hole):
+    """VIDEO in-app: the same play disc the .ico draws.
 
-    At 14px three are about a pixel each and merge into a grey bar. Two fatter
-    ones keep the diagonal, which is the only part that says clapperboard.
+    One divergence FEWER. The clapperboard needed a two-stripe cut in-app
+    because three stripes are a pixel each at 14px and merge into a grey bar; a
+    disc with one hole in it has nothing to lose at any size, so the .ico and
+    the tree draw the same mark again.
     """
     x0, y0, x1, y1 = box
-    w, h = x1 - x0, y1 - y0
-    d.rounded_rectangle([x0, y0 + h * 0.34, x1, y1], radius=w * 0.05, fill=col)
-    d.rounded_rectangle([x0, y0, x1, y0 + h * 0.27], radius=w * 0.04, fill=col)
-    for i in range(2):
-        sx = x0 + w * (0.16 + i * 0.40)
-        d.polygon([(sx, y0), (sx + w * 0.15, y0),
-                   (sx + w * 0.05, y0 + h * 0.27), (sx - w * 0.10, y0 + h * 0.27)], fill=hole)
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    s = min(x1 - x0, y1 - y0)
+    r = s * 0.45
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
+    d.polygon([(cx - s * 0.14, cy - s * 0.23), (cx + s * 0.24, cy),
+               (cx - s * 0.14, cy + s * 0.23)], fill=hole)
 
 
 def _code_guide(d, n, box, col, hole):
@@ -333,7 +336,7 @@ PAGE_GLYPHS = {
     "comic": _comic_splat,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
-    "video": _clapper_two_stripes,
+    "video": _play_disc_svg,
 }
 EXT = {"archive": "ZIP", "audio": "MP3", "code": "PY", "comic": "CBZ",
        "document": "DOCX", "image": "JPG", "video": "MP4"}
@@ -349,13 +352,33 @@ def _page_kind(fn):
     return layers
 
 
+def arch_band_path():
+    """The archive's band. It OVERSHOOTS, for the reason band_path() does.
+
+    Two identical curved edges painted one over the other leave a fringe, and
+    the container has rounded bottom corners like the page does. Painted in the
+    row's own background, so the overshoot cannot be seen.
+    """
+    o = 0.6
+    h = CHIP_A[3] - CHIP_A[1]
+    return rect_path(AX0 - o, AY1 - h, AX1 + o, AY1 + o)
+
+
+def arch_band_path_clipped():
+    """The same band inside the container, for the evenodd `solid` variant."""
+    a, b, c, d = u(AX0), u(AY1 - (CHIP_A[3] - CHIP_A[1])), u(AX1), u(AY1)
+    r = round(0.9 * SCALE, 2)
+    return (f"M{a} {b}H{c}V{round(d - r, 2)}A{r} {r} 0 0 1 {round(c - r, 2)} {d}"
+            f"H{round(a + r, 2)}A{r} {r} 0 0 1 {a} {round(d - r, 2)}Z")
+
+
 def _archive():
-    """A container rather than a page, and its chip sits low."""
+    """A container rather than a page, and its label is a band like the rest."""
     body_ink, ko_ink, hi_ink = object(), object(), object()
     r = Recorder(ko_ink, hi_ink, body_ink)
     folder_zip(r, 16, body_ink)
     folder_zip_ink(r, 16, ko_ink, hi_ink)
-    layers = {BODY: [], KO: [chip_path(CHIP_A)], HI: []}
+    layers = {BODY: [], KO: [arch_band_path()], HI: []}
     for lay, op, p in r.ops:
         layers[lay].append(op_path(op, p))
     return layers
@@ -428,14 +451,14 @@ def icons():
         # the evenodd variant; the page kinds' BAND is inside the page already,
         # so it is a hole exactly as drawn.
         if arch:
-            solid += [p for p in layers[KO] if p != chip_path(CHIP_A)]
-            solid += [chip_path_clipped(CHIP_A)]
+            solid += [p for p in layers[KO] if p != arch_band_path()]
+            solid += [arch_band_path_clipped()]
         else:
             solid += [p for p in layers[KO] if p != band_path()]
             solid += [band_path_clipped()]
         solid += list(layers[HI])
         out[kind]["solid"] = " ".join(solid)
-        out[kind]["label"] = label(CHIP_A if arch else BAND)
+        out[kind]["label"] = label(ARCH_BAND if arch else BAND)
         out[kind]["ext"] = EXT[kind]
     return out
 

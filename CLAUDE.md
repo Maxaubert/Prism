@@ -900,6 +900,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   it: what KIND it is. Spelled out rather than abbreviated on purpose - "TXT" in the slot
   where every other icon prints an extension reads as a claim that the file IS a .txt,
   which on a .csv is the same small lie again, while "TEXT" reads as the category it is.
+  **VIDEO IS A PLAY DISC** and **ARCHIVE'S LABEL IS THE BAND** (owner picks, rounds 31 and
+  32, 2026-09-01). The clapperboard is gone: its stripes are one pixel each at 16px and
+  merge into a grey bar, which is why the in-app icon had needed a two-stripe cut of its
+  own - a disc with one hole in it has nothing to lose at any size, so that divergence
+  RETIRES and the .ico and the tree draw the same mark again. Two left, not three. And the
+  archive's label was the last one in the set that was not a band; it is a full-width band
+  across the container now, clipped to the folder's own silhouette so it takes its rounded
+  corners. The chip's REASON was always sound - a chip over the top hides the tab that says
+  which container it is - and a band at the foot honours it while matching the set. It
+  covers the zip's pull, which the round showed and which is the price.
   **AND IN-APP THE BAND IS EMPTY**, because at 14px the label is not small type, it is not
   type at all. MEASURED: the label is 4.08 units in a 24-unit viewBox, so at N pixels its
   cap height is 4.08N/24 - 2.4px in a tree row, where LOG, MD and TXT all come out as the

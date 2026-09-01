@@ -135,12 +135,34 @@ def _code_bars_at(d, n, box, col, hole=None):
                             radius=g(n, h * 0.07), fill=tuple(col))
 
 
+def _play_disc(d, n, box, col, hole=None):
+    """VIDEO: a disc with the play triangle punched out of it (owner pick,
+    round 31).
+
+    It replaces the clapperboard, whose stripes are one pixel each at 16px and
+    merge into a grey bar - the reason the in-app icon already had to carry a
+    two-stripe divergence. A disc has one edge and one hole, and both survive
+    being sixteen pixels across, so the .ico and the app can draw the same mark
+    again.
+    """
+    x0, y0, x1, y1 = box
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    s = min(x1 - x0, y1 - y0)
+    r = s * 0.45
+    d.ellipse([g(n, cx - r), g(n, cy - r), g(n, cx + r), g(n, cy + r)], fill=col)
+    if hole is not None:
+        k = tuple(hole) + (255,) if isinstance(hole, (tuple, list)) and len(hole) == 3 else hole
+        d.polygon([(g(n, cx - s * 0.14), g(n, cy - s * 0.23)),
+                   (g(n, cx + s * 0.24), g(n, cy)),
+                   (g(n, cx - s * 0.14), g(n, cy + s * 0.23))], fill=k)
+
+
 PAGE_GLYPHS = {
     "audio": quarter,
     "code": _code_bars_at,
     "document": doc_lines,
     "image": dict((k, f) for k, _l, f in R14["image"][2])["hills"],
-    "video": clapper,
+    "video": _play_disc,
 }
 
 
