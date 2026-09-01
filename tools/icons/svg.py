@@ -66,7 +66,7 @@ from round12 import CHIP, CUT, PX0, PX1, PY0, PY1, on_page
 from round12 import lines as doc_lines
 from round13 import clapper
 from round14 import GLYPHS as R14
-from round15 import AX0, AX1, AY1, CHIP_A, folder_zip, folder_zip_ink
+from round15 import AX0, AX1, AY0, AY1, CHIP_A, folder_zip, folder_zip_ink
 from round17 import quarter
 from round18 import _splat
 
@@ -88,6 +88,9 @@ L_BAND, L_MARK = "band", "mark"
 # and a third leading subpath would silently drop half a fold rather than
 # fail. The emitter knows the answer, so it says it.
 L_KOBAND = "koBand"
+# And the fold and band as rectangles that BLEED past the silhouette, to be
+# drawn inside a clip. See bleed_path().
+L_BLEED = "bleed"
 
 
 def u(v):
@@ -193,6 +196,54 @@ def page_path(r=1.0):
 
 def fold_path():
     return poly_path([(PX1 - CUT, PY0), (PX1, PY0 + CUT), (PX1 - CUT, PY0 + CUT)])
+
+
+def bleed_path():
+    """The fold and the band as RECTANGLES that overrun the page on every side.
+
+    Meant to be drawn behind a MASK of `body`, and that pairing is the whole
+    point: THE SILHOUETTE IS DEFINED EXACTLY ONCE, by the clip, and everything
+    inside it is opaque. Both artefacts the coloured scheme kept producing come
+    from breaking that.
+
+    Painting the band OVER the page leaves a hairline of page colour around the
+    outside, because the two share a curved outer edge and the page's own
+    partial coverage survives underneath the band's. Painting them as ABUTTING
+    regions instead leaves a seam, because two antialiased edges meeting at 50%
+    each composite to 75% rather than 100% - MEASURED at 239 pixels of seam per
+    icon on a 256px render, so it is not theoretical. Monochrome shows neither,
+    because there the band is painted in the row's own background and both
+    artefacts are background-coloured.
+
+    Masking removes the question. The rectangles carry no rounded corner and no
+    diagonal of their own - the fold's hypotenuse and the band's two bottom
+    corners come from the mask, so they cannot disagree with the page by
+    construction - and every edge that would otherwise have been shared now
+    falls outside the mask entirely.
+
+    A MASK RATHER THAN A CLIP PATH, measured: Chromium applies clip-path to each
+    child and composites the results, so two children that both reach the
+    outline double-composite there and the edge lands at 75% where the path
+    itself gives 50%. A mask applies to the group's finished result. Against the
+    bare silhouette: mask 0 pixels different, clip-path 79, clip-path inside an
+    opacity layer 39.
+    """
+    o = 2.0
+    fold = rect_path(PX1 - CUT, PY0 - o, PX1 + o, PY0 + CUT)
+    band = rect_path(PX0 - o, BAND[1], PX1 + o, PY1 + o)
+    return f"{fold} {band}"
+
+
+def arch_bleed_path():
+    """The same for the container, which has no fold.
+
+    The top comes from CHIP_A the way `arch_band_path` does, NOT from
+    ARCH_BAND: that constant is built from the page's chip height and lands
+    0.28 units higher, so taking it would have made the coloured band taller
+    than the monochrome one on the archive alone.
+    """
+    o = 2.0
+    return rect_path(AX0 - o, AY1 - (CHIP_A[3] - CHIP_A[1]), AX1 + o, AY1 + o)
 
 
 BAND_H = CHIP[3] - CHIP[1]
@@ -367,7 +418,8 @@ def _page_kind(fn):
     # with the page underneath it rather than with the panel, so no fringe.
     layers = {BODY: [page_path()], KO: [fold_path(), band_path()], HI: [],
               L_BAND: [fold_path(), band_path_clipped()],
-              L_KOBAND: [fold_path(), band_path()], L_MARK: []}
+              L_KOBAND: [fold_path(), band_path()],
+              L_BLEED: [bleed_path()], L_MARK: []}
     for lay, op, p in r.ops:
         d = op_path(op, p)
         layers[lay].append(d)
@@ -405,7 +457,8 @@ def _archive():
     # Clipped for L_BAND, for the reason given in _page_kind.
     layers = {BODY: [], KO: [arch_band_path()], HI: [],
               L_BAND: [arch_band_path_clipped()],
-              L_KOBAND: [arch_band_path()], L_MARK: []}
+              L_KOBAND: [arch_band_path()],
+              L_BLEED: [arch_bleed_path()], L_MARK: []}
     for lay, op, p in r.ops:
         d = op_path(op, p)
         layers[lay].append(d)
@@ -531,6 +584,92 @@ def ink_for(bg):
     return (INK_LIGHT, light) if light >= dark else (INK_DARK, dark)
 
 
+# ------------------------------------------------------------- identity
+# A COLOUR IDENTITY IS FINER THAN AN ICON SHAPE, and that gap is the whole
+# reason this table exists. `.md` draws the code kind's stepped bars because it
+# has no mark of its own, and `.docx` draws the same page as `.pdf` because both
+# are the document kind - so under a per-KIND colour scheme a README is coloured
+# as source and a Word file as a PDF. Neither is what the owner means by either
+# (2026-09-01: "md isnt code in my opinion and its not txt, docx is also a
+# special case").
+#
+# So colour is keyed HERE and drawing is keyed where it always was. Two
+# identities may share every path and still take different colours; nothing
+# about the shapes moves.
+#
+# Each row is (id, extension shown in the picker, the KIND whose page it
+# borrows, the language mark laid on it or None for that kind's own).
+IDENTITIES = [
+    # The seven kinds, each shown with a representative extension.
+    ("archive", "ZIP", "archive", None),
+    ("audio", "MP3", "audio", None),
+    ("code", "TS", "code", None),
+    ("comic", "CBZ", "comic", None),
+    ("document", "ODT", "document", None),
+    ("image", "JPG", "image", None),
+    ("video", "MP4", "video", None),
+    # The special cases: files that are not the kind they are filed under.
+    # A PDF, a Word file and a spreadsheet all draw the document page, and under
+    # a per-KIND scheme they were all coloured as one thing. They are not one
+    # thing to anybody who has them in a folder together, so `document` is the
+    # generic fallback now (an .odt, an .rtf) and the four everyone actually
+    # recognises are their own.
+    ("markdown", "MD", "code", None),
+    ("pdf", "PDF", "document", None),
+    ("word", "DOCX", "document", None),
+    ("sheet", "XLSX", "document", None),
+    ("slides", "PPTX", "document", None),
+    ("ebook", "EPUB", "document", None),
+    # And one per language mark, which are already drawn and until now were all
+    # the same colour as each other and as plain source.
+    ("config", "YML", "code", "config"),
+    ("css", "CSS", "code", "css"),
+    ("data", "JSON", "code", "data"),
+    ("docker", "DOCKER", "code", "docker"),
+    ("git", "GITIGNORE", "code", "git"),
+    ("html", "HTML", "code", "html"),
+    ("java", "JAVA", "code", "java"),
+    ("prose", "TXT", "code", "prose"),
+    ("python", "PY", "code", "python"),
+    ("react", "TSX", "code", "react"),
+    ("ruby", "RB", "code", "ruby"),
+    ("shell", "SH", "code", "shell"),
+    ("sql", "SQL", "code", "sql"),
+    ("swift", "SWIFT", "code", "swift"),
+    ("vue", "VUE", "code", "vue"),
+]
+
+
+def identities():
+    """id -> every path the picker and the app need to draw that identity.
+
+    Composed from `icons()` and `langs_paths()` rather than restated: an
+    identity is a kind's page with, optionally, a language mark in place of the
+    kind's own. `ko` and `koBand` come along because MONOCHROME still has to be
+    drawable per identity - a selected row falls back to it.
+    """
+    ic, lang = icons(), langs_paths()
+    out = {}
+    for ident, ext, kind, mark in IDENTITIES:
+        g = ic[kind]
+        m = lang[mark] if mark else None
+        out[ident] = {
+            "kind": kind,
+            "ext": ext,
+            "body": g["body"],
+            "bleed": g["bleed"],
+            "band": g["band"],
+            "koBand": g["koBand"],
+            # Monochrome's single knockout path, with the mark swapped in when
+            # the identity carries one - the same composition TreeRows makes.
+            "ko": f"{g['koBand']} {m['ko']}" if m else g["ko"],
+            "mark": m["ko"] if m else g["mark"],
+            "hi": (m["hi"] if m else g["hi"]) or "",
+            "label": g["label"],
+        }
+    return out
+
+
 # ------------------------------------------------------------------- colour
 # THE COLOURED SCHEME (owner picks, 2026-09-01). The Settings control stopped
 # being an arbitrary colour and became a switch of icon TYPES: monochrome, which
@@ -639,7 +778,8 @@ HEADER = """// Prism's own file icons on a 24x24 viewBox, monochrome or coloured
 //
 // THE LAYERS, and the order is load-bearing:
 //
-//     body        the page silhouette
+//     body        the page silhouette - and, for COLOURED, the mask
+//     bleed       fold + band as rectangles overrunning it (coloured)
 //     ko          fold + band + mark, as ONE path  (monochrome only)
 //     band, mark  the same two halves, separately  (coloured only)
 //     koBand      ko WITHOUT the mark, for when a language mark replaces it
@@ -693,7 +833,7 @@ def ts_source():
     L = [HEADER.rstrip("\n"), "export const ICON_PATHS = {"]
     for kind, d in ic.items():
         L.append(f"  {kind}: {{")
-        for k in (BODY, KO, L_BAND, L_KOBAND, L_MARK, HI, "solid"):
+        for k in (BODY, KO, L_BAND, L_KOBAND, L_BLEED, L_MARK, HI, "solid"):
             L.append(f'    {k}: "{d[k]}",')
         lab = d["label"]
         sizes = ", ".join(f"{n}: {v}" for n, v in lab["sizes"].items())

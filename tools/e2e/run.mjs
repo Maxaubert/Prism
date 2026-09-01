@@ -1175,22 +1175,25 @@ async function hexScenario(fixtures) {
  */
 /**
  * The Settings "File icons" control, which is a SWITCH OF ICON SETS rather than
- * a colour (2026-09-01), and the one bug that switch can reintroduce.
+ * a colour (2026-09-01), and the two edge cases it keeps reintroducing.
  *
- * Monochrome paints the whole icon in one ink and knocks the fold, the band and
- * the mark back out in THE ROW'S OWN BACKGROUND. Coloured paints every layer a
- * colour of its own, and that is where the overhang lives: `ko`'s band
- * overshoots the page by 0.6 units so its antialiasing lands clear of the
- * page's rounded bottom corners, which is invisible while it is painted in the
- * background and reads as A LABEL WIDER THAN THE ICON the moment it is not. The
- * bbox comparison below is that regression, measured rather than eyeballed.
+ * A SELECTED ROW FALLS BACK TO MONOCHROME. The selection fill is the user's
+ * accent and the icon colour is the scheme's, so the two are chosen by
+ * different people and will eventually collide - a blue icon on a blue fill is
+ * invisible, and picking better colours cannot fix it.
+ *
+ * AND THE COLOURED ICON IS MASKED, not painted in layers. Painting the band
+ * over the page leaves a hairline of page colour around the outside; painting
+ * the two as abutting regions leaves a seam. Both come from two antialiased
+ * edges meeting on the icon's own outline, and a mask states that outline
+ * exactly once.
  */
 async function iconSchemeScenario(fixtures) {
   console.log('file icon scheme')
   const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
-  // Every fill on the first tree row's icon, plus the boxes the overhang shows
-  // up in. Walking the rows rather than using a selector: a Windows path inside
-  // a CSS attribute selector needs escaping that is easy to get quietly wrong.
+  // Read an icon semantically rather than by path index: the coloured icon is a
+  // masked group and the monochrome one is two flat paths, so "the second path"
+  // means different things in the two schemes.
   const icon = (suffix) =>
     win.evaluate((sfx) => {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
@@ -1198,16 +1201,14 @@ async function iconSchemeScenario(fixtures) {
       )
       const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
       if (!svg) return null
-      const paths = [...svg.querySelectorAll('path')]
-      const box = (el) => {
-        const b = el.getBBox()
-        return { x: +b.x.toFixed(2), r: +(b.x + b.width).toFixed(2) }
-      }
+      const g = svg.querySelector('g[mask]')
       const t = svg.querySelector('text')
       return {
-        fills: paths.map((el) => el.getAttribute('fill')),
-        body: box(paths[0]),
-        second: paths[1] ? box(paths[1]) : null,
+        masked: !!g,
+        selected: row.getAttribute('data-selected') === 'true',
+        page: g?.querySelector('rect')?.getAttribute('fill') ?? null,
+        band: g?.querySelector('path')?.getAttribute('fill') ?? null,
+        flat: [...svg.querySelectorAll(':scope > path')].map((el) => el.getAttribute('fill')),
         label: t?.textContent ?? '',
         labelFill: t?.getAttribute('fill') ?? ''
       }
@@ -1220,11 +1221,10 @@ async function iconSchemeScenario(fixtures) {
     await win.locator('button:has-text("Style")').first().click()
     await sleep(300)
     // The Pref row itself: div > div > label, so this is the row and not the
-    // label inside it, which is what `.last()` on a text filter would give.
+    // label inside it, which is what a plain text filter would give.
     const pref = win.locator('div:has(> div > label:text-is("File icons"))')
     await pref.locator(`button:has-text("${label}")`).first().click()
     await sleep(500)
-    // Back to the file tab, which is the one with a tree in it.
     await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
     await sleep(500)
   }
@@ -1233,37 +1233,36 @@ async function iconSchemeScenario(fixtures) {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
     await sleep(700)
 
-    const mono = await icon('bad.json')
-    ok(mono !== null, 'the tree draws an icon for bad.json')
-    ok(mono.label === 'JSON', `and the band carries the extension (${mono.label})`)
-    // One ink: body, hi and the label are the same colour, and the knockout is
-    // whatever is behind the row. Two distinct values across the whole icon.
-    const monoInks = new Set([...mono.fills, mono.labelFill])
-    ok(monoInks.size === 2, `monochrome draws the icon in two values (${monoInks.size})`)
+    const mono = await icon('broken.ts')
+    ok(mono !== null, 'the tree draws an icon for broken.ts')
+    ok(mono.label === 'TS', `and the band carries the extension (${mono.label})`)
+    ok(!mono.masked, 'monochrome draws flat paths, no mask')
+    ok(new Set([...mono.flat, mono.labelFill]).size === 2,
+      `monochrome draws the icon in two values (${new Set([...mono.flat, mono.labelFill]).size})`)
 
     await setScheme('Coloured')
-    const col = await icon('bad.json')
-    ok(col !== null, 'the icon survives the switch')
-    ok(col.fills[0] === '#464646', `coloured paints the page its own colour (${col.fills[0]})`)
-    ok(col.fills[1] === '#000000', `and the band its own (${col.fills[1]})`)
+    const col = await icon('broken.ts')
+    ok(col.masked, 'coloured draws through a mask of the silhouette')
+    ok(col.page === '#464646', `the page takes its own colour (${col.page})`)
+    ok(col.band === '#000000', `and the band its own (${col.band})`)
     ok(
       col.labelFill === '#ffffff',
       `THE LABEL FLIPS WITH THE BAND, or it is ink on ink (${col.labelFill})`
     )
 
-    // THE REGRESSION. The band must not reach past the page it sits in.
+    // THE SELECTION FALLBACK. bad.json is the open row and carries the accent
+    // fill, so it must be monochrome even while the scheme is coloured.
+    const sel = await icon('bad.json')
+    ok(sel.selected, 'the open row is the selected one')
+    ok(!sel.masked, 'a SELECTED row falls back to monochrome while coloured')
     ok(
-      col.second.x >= col.body.x && col.second.r <= col.body.r,
-      `the label band stays inside the page (band ${col.second.x}..${col.second.r}, ` +
-        `page ${col.body.x}..${col.body.r})`
+      sel.flat[1] === 'var(--p-accent)',
+      `and knocks out to the accent behind it (${sel.flat[1]})`
     )
-    // And monochrome keeps the overshooting one, which is the point of having
-    // both: painted in the row's background it is what stops the corner fringe.
-    ok(mono.second.x < mono.body.x, 'while monochrome keeps the overshoot it needs')
 
     await setScheme('Monochrome')
-    const back = await icon('bad.json')
-    ok(back.fills[0] === mono.fills[0], 'and the switch goes back')
+    const back = await icon('broken.ts')
+    ok(!back.masked && back.flat[0] === mono.flat[0], 'and the switch goes back')
   } finally {
     await app.close()
   }

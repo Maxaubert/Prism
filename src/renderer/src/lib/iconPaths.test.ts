@@ -52,6 +52,11 @@ describe('the generated icon tables', () => {
       const g = ICON_PATHS[k]
       expect(g.band.length, k).toBeGreaterThan(20)
       expect(g.mark.length, k).toBeGreaterThan(20)
+      // `bleed` is what COLOURED actually draws, inside a clip of `body`. It
+      // must carry no curve and no diagonal of its own: every rounded corner
+      // and the fold's hypotenuse come from the clip, which is the whole reason
+      // the two cannot disagree about where the icon's edge is.
+      expect(g.bleed, k).toMatch(/^[MHVZ0-9 .-]+$/)
       // ko is exactly koBand then mark, which is what lets the app draw the
       // fold and band without the mark - it does that whenever a LANGUAGE mark
       // replaces the kind's own. It used to slice the first two subpaths off
