@@ -248,6 +248,8 @@ function ArchiveInner({
    *  hung rather than as it working, which is the same reason the extract-all
    *  button says "Extracting..." rather than nothing. */
   const [opening, setOpening] = useState<string | null>(null)
+  /** The member overlay, so Escape can tell whether a DEEPER one is inside it. */
+  const memberBox = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry; multi?: string[] } | null>(
     null
   )
@@ -443,6 +445,13 @@ function ArchiveInner({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (member && e.key === 'Escape') {
+        // A nested archive puts a second overlay INSIDE this one, and both
+        // handlers sit on the window, so an unguarded Escape closed this level
+        // and its parent at once - out of a file, out of the archive holding
+        // it, in one press. Whichever overlay has no deeper one inside it is
+        // the one that answers, which is the same `data-owns-escape` contract
+        // App already yields on.
+        if (memberBox.current?.querySelector('[data-owns-escape]')) return
         e.stopPropagation()
         setMember(null)
       } else if (!member && e.key === 'Backspace' && cwd && !editing && !askPass && !confirmDel) {
@@ -1237,7 +1246,11 @@ function ArchiveInner({
         </div>
       )}
       {member && (
-        <div data-owns-escape className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]">
+        <div
+          ref={memberBox}
+          data-owns-escape
+          className="absolute inset-0 z-20 flex flex-col bg-[var(--p-bg)]"
+        >
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--p-divider)] px-2 text-[12.5px]">
             <button
               className="no-drag grid h-6 w-7 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
@@ -1259,8 +1272,28 @@ function ArchiveInner({
                 <path d="M15 6l-6 6 6 6" />
               </svg>
             </button>
-            <span className="min-w-0 truncate text-[var(--p-text)]">{member.name}</span>
-            <span className="min-w-0 truncate text-[var(--p-dim2)]">from {file.name}</span>
+            {/*
+              A CRUMB, not a caption. Opening an iso inside a zip works, and
+              used to leave nothing but a chevron to get back by - and with a
+              second archive inside that one, no way to see where you were at
+              all. Each level renders its own crumb, so they stack into the
+              path: the container is a button that returns to it, the member is
+              the segment you are on, and the chevron between them reads as a
+              path the way the archive's own crumb row does.
+            */}
+            <button
+              className="no-drag min-w-0 shrink-0 truncate rounded px-1 text-[var(--p-dim)] transition-colors hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+              onClick={() => setMember(null)}
+              title={`Back to ${file.name}`}
+            >
+              {file.name}
+            </button>
+            <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
+              {member.name}
+            </span>
           </div>
           <div className="relative min-h-0 flex-1">
             <MemberView name={member.name} path={member.path} kind={member.kind} />
