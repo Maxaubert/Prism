@@ -158,7 +158,7 @@ export function KindIcon({
           ) : null}
         </>
       ) : (
-        <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
+        <path d={mark ? `${g.koBand} ${mark.ko}` : g.ko} fill={bg} />
       )}
       {/* `hi` is the knockout INSIDE the mark, so it is always the body colour:
           the ink in monochrome, the page showing through in coloured. */}
@@ -189,18 +189,6 @@ export function KindIcon({
       ) : null}
     </svg>
   )
-}
-
-/**
- * The fold and the band out of a kind's `ko`, without its mark.
- *
- * The emitter writes them FIRST and in that order, so the first two subpaths
- * are always exactly those two. Splitting on 'M' rather than re-deriving them
- * keeps one definition of the page's geometry in the generator, which is the
- * whole reason the paths are generated at all.
- */
-function foldAndBand(ko: string): string {
-  return ko.split(/(?=M)/).slice(0, 2).join('')
 }
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {

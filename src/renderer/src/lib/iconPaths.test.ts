@@ -52,9 +52,16 @@ describe('the generated icon tables', () => {
       const g = ICON_PATHS[k]
       expect(g.band.length, k).toBeGreaterThan(20)
       expect(g.mark.length, k).toBeGreaterThan(20)
-      // The mark is the tail of ko: same subpaths, same order.
-      expect(g.ko.endsWith(g.mark), k).toBe(true)
-      // And the band is not, because it is clipped rather than overshooting.
+      // ko is exactly koBand then mark, which is what lets the app draw the
+      // fold and band without the mark - it does that whenever a LANGUAGE mark
+      // replaces the kind's own. It used to slice the first two subpaths off
+      // the front of ko instead, which is right only while there are exactly
+      // two: a third leading subpath would have dropped half a fold silently
+      // rather than failing. The emitter states it now, and this is the pin.
+      expect(g.ko, k).toBe(`${g.koBand} ${g.mark}`)
+      // The coloured band is NOT ko's, because it is clipped to the page where
+      // ko's overshoots it by 0.6 units.
+      expect(g.band, k).not.toBe(g.koBand)
       expect(g.ko.startsWith(g.band), k).toBe(false)
     }
   })

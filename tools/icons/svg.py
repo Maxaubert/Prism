@@ -81,6 +81,13 @@ BODY, KO, HI = "body", "ko", "hi"
 # does not care - it paints both in one ink and goes on using KO - so these are
 # additive and nothing reading body/ko/hi has to change.
 L_BAND, L_MARK = "band", "mark"
+# And the MONOCHROME half of ko, stated rather than sliced off the front of
+# it. The app used to take `ko.split(/(?=M)/).slice(0, 2)` to get the fold and
+# band when a language mark replaced the kind's own, which is positional: it
+# is right only while the fold and band are exactly the first two subpaths,
+# and a third leading subpath would silently drop half a fold rather than
+# fail. The emitter knows the answer, so it says it.
+L_KOBAND = "koBand"
 
 
 def u(v):
@@ -359,7 +366,8 @@ def _page_kind(fn):
     # is. Clipped, the band's bottom corners ARE the page's, and its edge blends
     # with the page underneath it rather than with the panel, so no fringe.
     layers = {BODY: [page_path()], KO: [fold_path(), band_path()], HI: [],
-              L_BAND: [fold_path(), band_path_clipped()], L_MARK: []}
+              L_BAND: [fold_path(), band_path_clipped()],
+              L_KOBAND: [fold_path(), band_path()], L_MARK: []}
     for lay, op, p in r.ops:
         d = op_path(op, p)
         layers[lay].append(d)
@@ -396,7 +404,8 @@ def _archive():
     folder_zip_ink(r, 16, ko_ink, hi_ink)
     # Clipped for L_BAND, for the reason given in _page_kind.
     layers = {BODY: [], KO: [arch_band_path()], HI: [],
-              L_BAND: [arch_band_path_clipped()], L_MARK: []}
+              L_BAND: [arch_band_path_clipped()],
+              L_KOBAND: [arch_band_path()], L_MARK: []}
     for lay, op, p in r.ops:
         d = op_path(op, p)
         layers[lay].append(d)
@@ -565,7 +574,10 @@ MARK_PICK = {"code": "#000000"}
 # choosing: cream on the same page is 3.42:1, and it also reads the way the
 # monochrome splat reads, as light coming through a hole. The PAGE keeps the
 # .ico's own colour, which is the half that makes it recognisable as the same
-# icon.
+# icon. It is the same failure the white document page has at 1.07:1 on
+# Explorer's light ground, arrived at from the opposite direction: a colour pair
+# that works only because a THIRD thing sits between the two, and in-app there is
+# no third thing.
 COMIC = {"page": "#d2603a", "band": "#12141a", "mark": "#f7f2de", "text": "#f7f2de"}
 
 
@@ -630,6 +642,7 @@ HEADER = """// Prism's own file icons on a 24x24 viewBox, monochrome or coloured
 //     body        the page silhouette
 //     ko          fold + band + mark, as ONE path  (monochrome only)
 //     band, mark  the same two halves, separately  (coloured only)
+//     koBand      ko WITHOUT the mark, for when a language mark replaces it
 //     hi          knockouts inside the mark, painted back OVER the mark
 //
 // `hi` is what keeps the comic splat's core and a language mark's own holes
@@ -680,7 +693,7 @@ def ts_source():
     L = [HEADER.rstrip("\n"), "export const ICON_PATHS = {"]
     for kind, d in ic.items():
         L.append(f"  {kind}: {{")
-        for k in (BODY, KO, L_BAND, L_MARK, HI, "solid"):
+        for k in (BODY, KO, L_BAND, L_KOBAND, L_MARK, HI, "solid"):
             L.append(f'    {k}: "{d[k]}",')
         lab = d["label"]
         sizes = ", ".join(f"{n}: {v}" for n, v in lab["sizes"].items())
