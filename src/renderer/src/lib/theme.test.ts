@@ -3,12 +3,15 @@ import {
   archiveIconOf,
   derive,
   fileIconOf,
+  ICON_SCHEME_SHOWN,
+  iconSchemeOf,
   mix,
   paletteOf,
   resolveVizTheme,
   setOverride,
   setStyle,
-  STYLES
+  STYLES,
+  type Style
 } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
@@ -208,9 +211,30 @@ describe('the file icon is white or near-black, whichever the ground takes', () 
     }
   })
 
-  it('still lets the Settings picker win', () => {
-    // The rule is the DEFAULT, not an override: a style naming its own colour
-    // keeps it, or the picker in Settings would be a control that does nothing.
-    expect(fileIconOf({ ...STYLES[0], fileIcon: '#d9a53f' })).toBe('#d9a53f')
+  it('is the whole rule now, because the picker it deferred to is gone', () => {
+    // It used to be `s.fileIcon ?? <this>`, so that the Settings colour won.
+    // That control became a switch of icon TYPES (2026-09-01) and there is no
+    // arbitrary colour left to defer to. A `fileIcon` on a style saved before
+    // the switch is IGNORED rather than honoured: a colour nothing can reach
+    // and no control can clear is worse than the measured rule it overrides.
+    const stale = { ...STYLES[0], fileIcon: '#d9a53f' } as unknown as Style
+    expect(fileIconOf(stale)).toBe(fileIconOf(STYLES[0]))
+  })
+})
+
+describe('the icon scheme', () => {
+  it('is monochrome unless a style says otherwise', () => {
+    // Every shipped style leaves it unset, so the switch opens on Monochrome
+    // and the coloured set is something you go and choose.
+    for (const s of STYLES) expect(iconSchemeOf(s)).toBe('mono')
+  })
+
+  it('is forced while the switch is hidden, whatever a style names', () => {
+    // The control was hidden 2026-09-01 ("we might come back to it"), so the
+    // scheme is pinned rather than merely unreachable. A style SAVED while the
+    // switch existed still carries iconScheme: 'colour', and honouring it would
+    // strand whoever set it with a set and no way to change it.
+    expect(ICON_SCHEME_SHOWN).toBe(false)
+    expect(iconSchemeOf({ ...STYLES[0], iconScheme: 'colour' })).toBe('mono')
   })
 })

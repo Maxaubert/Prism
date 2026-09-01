@@ -83,6 +83,10 @@ function revealRow(box: HTMLElement, row: HTMLElement, smooth: boolean): void {
   box.scrollTo({ top: next, behavior: smooth && !still ? 'smooth' : 'auto' })
 }
 
+/** A file's extension, lowercased, dot included. Same one-liner the archive
+ *  panel uses; not worth a shared module for one regex. */
+const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
+
 interface Menu {
   x: number
   y: number
@@ -96,6 +100,26 @@ interface Menu {
   /** Set when the right-click landed inside a multi-selection: every selected
    *  path, and the menu acts on all of them. */
   multi?: string[]
+  /** The archive verbs, for a row that is one: undefined when the row is not an
+   *  archive, null while the stat is in flight. `write` is false for a 7z, a
+   *  rar and anything else read-only, and for a zip past adm-zip's ceiling -
+   *  which is why it is asked rather than inferred from the extension. */
+  arc?: { write: boolean } | null
+}
+
+/** An extraction started from a tree row, and what to say about it.
+ *
+ *  The archive PANEL has a progress track and a button that can say
+ *  "Extracting…"; a context menu has neither, and it closes the moment the verb
+ *  is picked. A 2GB archive takes minutes, and minutes of nothing is
+ *  indistinguishable from a hang - the same lesson the panel's own progress
+ *  reporting was written for - so the job gets a dialog of its own. */
+interface ArcJob {
+  path: string
+  name: string
+  pct: number | null
+  dest?: string
+  error?: string
 }
 
 /** Menu glyphs: outlined, so they read as actions rather than as file kinds. */
@@ -179,7 +203,7 @@ export function Sidebar({
   onDuplicated: (source: string, copyPath: string) => void
   /** Lends App the tree's arrow keys. The callback returns false when the tree
    *  has nothing to say, and App pages the folder itself instead. */
-  onNav: (step: ((dir: 'up' | 'down' | 'left' | 'right') => boolean) | null) => void
+  onNav: (step: ((dir: 'up' | 'down') => boolean) | null) => void
   /** Whether the style's light reaches the panel. Follows the window. */
   wash: boolean
   /** Point this tab at a different folder. Beside the search box rather than
@@ -221,6 +245,7 @@ export function Sidebar({
   const [dragging, setDragging] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  const [arcJob, setArcJob] = useState<ArcJob | null>(null)
   // The search box. A query swaps the tree for a flat result list; clearing it
   // brings the tree back exactly as it was (its state never unmounts).
   /**
@@ -568,6 +593,17 @@ export function Sidebar({
         void window.prism.appsFor(path).then((apps) => {
           setMenu((m) => (m && m.path === path ? { ...m, apps } : m))
         })
+        // And whether it can be WRITTEN to, which decides "Add files…". Asked
+        // rather than read off the extension: a .zip past adm-zip's 600MB
+        // ceiling takes the read-only 7-Zip path and has no write verbs either.
+        if (fileKind(extOf(name), name) === 'archive') {
+          setMenu((m) => (m && m.path === path ? { ...m, arc: null } : m))
+          void window.prism.archiveStat(path).then((st) => {
+            setMenu((m) =>
+              m && m.path === path ? { ...m, arc: { write: !!st && !st.readOnly } } : m
+            )
+          })
+        }
       }
     },
     [sel]
@@ -680,6 +716,78 @@ export function Sidebar({
     e.dataTransfer.setData(DRAG_MIME, 'files')
     e.dataTransfer.effectAllowed = 'move'
   }, [])
+  /**
+   * Extract a whole archive from its TREE ROW.
+   *
+   * `here` skips the dialog and lands beside the archive, which needs no
+   * consent because the archive's own folder is already inside a root; the
+   * other way keeps main's dialog, which IS the consent that lets it write
+   * anywhere. The same pair, and the same reasoning, as the archive panel's own
+   * verb row - this is a second way in, not a second implementation.
+   */
+  const extract = useCallback(
+    (path: string, name: string, here: boolean): void => {
+      setArcJob({ path, name, pct: null })
+      void window.prism.archiveExtractAll(path, here).then((r) => {
+        if (r.ok) {
+          setArcJob({ path, name, pct: 100, dest: r.dest })
+          // The extracted folder is a change Prism made, so the tree hears
+          // about it from here rather than from the watcher.
+          void load(parentDir(path), true)
+        } else if (r.reason === 'cancelled') setArcJob(null)
+        else
+          setArcJob({
+            path,
+            name,
+            pct: null,
+            error:
+              r.reason === 'password' || r.reason === 'aes'
+                ? 'That archive is password protected. Open it first to unlock it, then extract.'
+                : // 7-Zip's own line when there is one: "couldn't be extracted"
+                  // on its own is a failure nobody can act on.
+                  r.message
+                  ? `That archive couldn't be extracted. ${r.message}`
+                  : "That archive couldn't be extracted."
+          })
+      })
+    },
+    [load]
+  )
+
+  /** Put real files into a zip, from its tree row. Lands at the ROOT of the
+   *  archive: a context menu has no notion of which folder inside you are
+   *  looking at, which the panel does. */
+  const addToArchive = useCallback((path: string, name: string): void => {
+    void window.prism.pickFiles().then((paths) => {
+      if (!paths.length) return
+      setArcJob({ path, name, pct: null })
+      void window.prism.archiveAdd(path, paths, '', true).then((r) => {
+        if (r === 'encrypted')
+          setArcJob({ path, name, pct: null, error: "Prism can't write to a protected archive." })
+        else if (r === 'failed')
+          setArcJob({ path, name, pct: null, error: "Those couldn't be added." })
+        else
+          setArcJob({
+            path,
+            name,
+            pct: 100,
+            dest: `${r.added.length} added${r.failed.length ? `, ${r.failed.length} failed` : ''}`
+          })
+      })
+    })
+  }, [])
+
+  // The percentage while an extraction runs. Subscribed only while a job is up,
+  // and filtered by path: main reports for every archive it is working on.
+  useEffect(() => {
+    if (!arcJob || arcJob.dest || arcJob.error) return
+    const off = window.prism.onArchiveProgress((m) => {
+      if (m.path.toLowerCase() === arcJob.path.toLowerCase())
+        setArcJob((j) => (j && j.path === arcJob.path && !j.dest && !j.error ? { ...j, pct: m.pct } : j))
+    })
+    return off
+  }, [arcJob])
+
   const onDropOn = useCallback(
     (e: DragEvent, folderPath: string): void => {
       setDropTarget(null)
@@ -703,6 +811,30 @@ export function Sidebar({
     },
     [onDropInto]
   )
+
+  /**
+   * KEEP THE KEYBOARD WHEN A ROW GOES AWAY (2026-09-01).
+   *
+   * Delete is handled on the ROW BUTTON, so deleting a file unmounts the very
+   * element that was listening and focus falls back to <body>. The tree then
+   * steps the cursor onto the next file and marks it - and pressing Delete
+   * again does nothing at all, because nothing is focused any more. It reads as
+   * the key having stopped working.
+   *
+   * So when the cursor moves and NOTHING holds focus, the cursor's row takes
+   * it. Guarded on `document.body` rather than done unconditionally: the search
+   * box, a rename field and the editor are all focused elements, and stealing
+   * from them would be a far worse bug than the one being fixed.
+   */
+  useEffect(() => {
+    if (!at) return
+    const a = document.activeElement
+    if (a && a !== document.body) return
+    const el = panel.current?.querySelector<HTMLElement>(
+      `[data-row="${CSS.escape(at)}"]`
+    )
+    el?.focus()
+  }, [at])
 
   /** Put the cursor on a row: folders only highlight, files open. */
   const land = useCallback(
@@ -731,8 +863,14 @@ export function Sidebar({
   // The tree's answer to an arrow key. Returns false when it has nothing to
   // say, and App pages the folder the old way instead: while the panel is shut,
   // while search has replaced the tree, or at the ends of the tree.
+  //
+  // UP AND DOWN ONLY (owner, 2026-09-01). Left and Right used to mean previous
+  // and next FILE here, and to be the chevron while the cursor sat on a folder.
+  // They are the viewer's now - a video scrubs with them - and a folder still
+  // opens and closes from the keyboard with Enter, which is the row button's
+  // own activation and never went through here.
   const step = useCallback(
-    (dir: 'up' | 'down' | 'left' | 'right'): boolean => {
+    (dir: 'up' | 'down'): boolean => {
       if (!open) return false
       // The SAME test the render uses. Gating on the raw query let a stale hit
       // list be walked (and a file opened) while the tree was back on screen:
@@ -743,35 +881,20 @@ export function Sidebar({
       // the results scrolled past under a cursor that was not in them.
       if (searching) {
         if (!hitRows.length) return false
-        // A flat list: up/left and down/right mean the same thing in it.
-        const next = stepRow(hitRows, at, dir === 'down' || dir === 'right' ? 1 : -1, false)
+        const next = stepRow(hitRows, at, dir === 'down' ? 1 : -1, false)
         if (!next) return false
         // Keep the caret where it is when the press came from the search box:
         // an INPUT has the focus only when someone is typing a query.
         land(next, (document.activeElement as HTMLElement | null)?.tagName === 'INPUT')
         return true
       }
-      const here = rows.find((r) => r.path.toLowerCase() === (at ?? '').toLowerCase())
-      // Left and right on a folder are its chevron: collapse, or open.
-      if (here?.isFolder && (dir === 'left' || dir === 'right')) {
-        const isOpen = state.expanded.has(here.path)
-        if (dir === 'right' && !isOpen) toggle(here.path)
-        else if (dir === 'left' && isOpen) toggle(here.path)
-        else if (dir === 'right') {
-          // Already open: step into it, the way a tree does.
-          const next = stepRow(rows, here.path, 1)
-          if (next) land(next)
-        }
-        return true
-      }
-      // Up/Down walk every row; Left/Right keep meaning previous/next FILE.
-      const delta = dir === 'down' || dir === 'right' ? 1 : -1
-      const next = stepRow(rows, at, delta, dir === 'left' || dir === 'right')
+      // Every row, folders included: the cursor walks the tree as it is drawn.
+      const next = stepRow(rows, at, dir === 'down' ? 1 : -1, false)
       if (!next) return false
       land(next)
       return true
     },
-    [open, query, hitRows, rows, at, state.expanded, toggle, land]
+    [open, query, hitRows, rows, at, land]
   )
 
   // Lend the tree's keyboard to App, which owns the window's key handling and
@@ -1145,6 +1268,44 @@ export function Sidebar({
         />
       )}
 
+      {arcJob && (
+        <Dialog
+          title={arcJob.error ? 'Extract' : arcJob.dest ? 'Done' : 'Extracting'}
+          body={
+            arcJob.error ??
+            (arcJob.dest ? (
+              <span className="break-all">{arcJob.dest}</span>
+            ) : (
+              // A number, because minutes of nothing is indistinguishable from
+              // a hang - and 7-Zip only reports a percentage on the archives
+              // big enough for it to matter.
+              `${arcJob.name}${arcJob.pct === null ? '' : ` - ${Math.round(arcJob.pct)}%`}`
+            ))
+          }
+          onCancel={() => setArcJob(null)}
+          choices={[
+            ...(arcJob.dest && !arcJob.error
+              ? [
+                  {
+                    label: 'Show in File Explorer',
+                    onPick: () => {
+                      window.prism.showInExplorer(arcJob.dest as string)
+                      setArcJob(null)
+                    }
+                  }
+                ]
+              : []),
+            {
+              // Closing while it runs leaves it running: the work is main's, and
+              // nothing here can stop it half way.
+              label: arcJob.dest || arcJob.error ? 'Close' : 'Hide',
+              primary: true,
+              onPick: () => setArcJob(null)
+            }
+          ]}
+        />
+      )}
+
       {pasteNote && (
         <Dialog
           title="Paste"
@@ -1268,6 +1429,34 @@ export function Sidebar({
                     icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
                     onPick: () => onTermHere(menu.path)
                   }
+                ]
+              : []),
+            ...(menu.arc !== undefined
+              ? [
+                  {
+                    // "Extract here" needs no dialog: the archive's own folder
+                    // is already inside a root, so there is nothing to consent
+                    // to. "Extract to…" keeps main's dialog, which IS the
+                    // consent that lets it write anywhere. Same pair, and the
+                    // same reasoning, as the archive panel's verb row.
+                    label: 'Extract here',
+                    icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M4.5 16v3.5h15V16" />,
+                    onPick: () => extract(menu.path, menu.name, true)
+                  },
+                  {
+                    label: 'Extract to…',
+                    icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M2.5 15.5h6.2l2 2.6h10.8" />,
+                    onPick: () => extract(menu.path, menu.name, false)
+                  },
+                  ...(menu.arc?.write
+                    ? [
+                        {
+                          label: 'Add files…',
+                          icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
+                          onPick: () => addToArchive(menu.path, menu.name)
+                        }
+                      ]
+                    : [])
                 ]
               : []),
             {

@@ -43,7 +43,6 @@ import {
   deletePreset,
   isEdited,
   paletteOf,
-  fileIconOf,
   folderIconOf,
   resolveVizTheme,
   savePreset,
@@ -825,19 +824,16 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('folderIcon', null)}
             />
           </Pref>
-          <Pref
-            id="c-file-icon"
-            label="File icons"
-            hint="One colour for every file icon; the kind shows in the shape."
-          >
-            <ColourWell
-              id="c-file-icon"
-              value={fileIconOf(style)}
-              custom={!!edits.fileIcon}
-              onChange={(v) => setOverride('fileIcon', v)}
-              onReset={() => setOverride('fileIcon', null)}
-            />
-          </Pref>
+          {/* THE FILE ICONS SWITCH IS GONE FROM HERE (owner, 2026-09-01: "hide
+              that color setting for now ... we might come back to it"), and
+              theme.ts forces the scheme to monochrome so a style saved while it
+              existed cannot strand anyone on a set they can no longer change.
+              Everything behind it is intact - IconScheme, iconSchemeOf, the
+              iconScheme override, ICON_COLOURS and ICON_FULL_COLOUR - so
+              bringing it back is a Pref with a Segmented of Monochrome /
+              Coloured wired to setOverride('iconScheme'), plus flipping
+              ICON_SCHEME_SHOWN. The zip and the comic are coloured regardless
+              of any of it. */}
         </div>
         <div className="mt-4 flex items-center justify-between gap-6">
           <div>

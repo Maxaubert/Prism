@@ -104,7 +104,10 @@ export function ComicView({
       // Ctrl+arrow is the FOLDER's, deliberately: it is how you reach the
       // next book. App handles that one; this only claims the plain arrows,
       // and App yields them by finding data-owns-arrows in the DOM.
-      if (e.ctrlKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+      // No Ctrl guard any more: it existed to yield Ctrl+arrow to App's folder
+      // paging, and App does not handle Left/Right at all now. The folder is
+      // paged with Up and Down, which is how you reach the next book.
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
       if (!total) return
       e.preventDefault()
       e.stopPropagation()

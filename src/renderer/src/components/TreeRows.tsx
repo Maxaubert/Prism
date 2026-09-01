@@ -1,9 +1,24 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useId, useRef, useState, type JSX } from 'react'
 import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
-import { ICON_PATHS, LANG_BY_EXT, LANG_BY_NAME, LANG_PATHS } from '../lib/iconPaths'
+import {
+  ICON_COLOURS,
+  COMIC_ART,
+  COMIC_PAGE,
+  COMIC_WORD,
+  ICON_ALWAYS_COLOUR,
+  ICON_FULL_COLOUR,
+  ICON_GLINT,
+  ICON_PATHS,
+  IDENT_BY_EXT,
+  LANG_BY_EXT,
+  LANG_BY_NAME,
+  LANG_PATHS,
+  type IconIdentity
+} from '../lib/iconPaths'
+import { useIconScheme } from '../lib/theme'
 
 // The rows of the file tree: folders that expand, files that open, and the inline
 // rename editor. The panel shell (width, scrolling, loading) lives in Sidebar.
@@ -93,6 +108,28 @@ function langFor(kind: FileKind, name?: string, ext?: string): keyof typeof LANG
 }
 
 /**
+ * Which COLOUR IDENTITY a file has, which is finer than which icon it draws.
+ *
+ * `.md` draws the code kind's stepped bars because it has no mark of its own,
+ * and `.docx` draws the same page as `.pdf` because both are the document kind.
+ * Colouring by kind therefore painted a README as source and a Word file as a
+ * PDF. The shape is still the kind's; only the colour is resolved here.
+ *
+ * A language mark wins first - it is the most specific thing known about the
+ * file - then the special extensions, then the kind. That order is what keeps a
+ * `.csv` prose rather than a spreadsheet.
+ */
+function identityFor(
+  key: keyof typeof ICON_PATHS,
+  lang: keyof typeof LANG_PATHS | null,
+  ext?: string
+): IconIdentity {
+  if (lang) return lang
+  const e = (ext ?? '').replace(/^\./, '').toLowerCase()
+  return IDENT_BY_EXT[e] ?? key
+}
+
+/**
  * THE LABEL IS DRAWN AT EVERY SIZE (owner instruction, 2026-09-01: "they should
  * be the same icons everywhere").
  *
@@ -113,7 +150,8 @@ export function KindIcon({
   ext,
   name,
   size = 14,
-  bg = 'var(--p-side-flat)'
+  bg = 'var(--p-side-flat)',
+  selected = false
 }: {
   kind: FileKind
   color: string
@@ -124,26 +162,153 @@ export function KindIcon({
   /** How big it is drawn. Everything scales with it, the label included. */
   size?: number
   bg?: string
+  /** The row is filled with the accent. Forces MONOCHROME - see below. */
+  selected?: boolean
 }): JSX.Element {
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
   // stripes, the splat's core and a mark's own holes from filling in solid.
-  const g = ICON_PATHS[KIND_ICON[kind] ?? 'document']
+  const key = KIND_ICON[kind] ?? 'document'
+  const g = ICON_PATHS[key]
+  // COLOURED ignores `color` and `bg` entirely. Nothing is knocked out to the
+  // row's background there - every layer is a colour of its own - which is also
+  // why a coloured icon is unmoved by landing on a selected row, where the
+  // monochrome one has to repaint its fold and band in the accent fill.
   const lang = langFor(kind, name, ext)
+  const ident = identityFor(key, lang, ext)
+  const c = ICON_COLOURS[ident]
+  // A SELECTED ROW FALLS BACK TO MONOCHROME (owner instruction, 2026-09-01),
+  // and it is the only thing that can work. The selection fill is the user's
+  // ACCENT and the icon colour is the scheme's, so the two are picked by
+  // different people and will eventually collide - a blue video icon on a blue
+  // fill is an invisible icon, and no amount of choosing better colours fixes
+  // it. Monochrome measures its ink against whatever is actually behind it, so
+  // it is legible on every accent by construction.
+  // THE COMIC WEARS ITS EXPLORER ARTWORK, always and in colour: a keylined
+  // sunburst under a halftone under a splat. It never falls back on a selected
+  // row the way a flat page does, because five colours cannot all collide with
+  // one accent - there is nothing for it to disappear into.
+  const artwork = ident === 'comic'
+  // AND THE ZIP KEEPS ITS COLOUR even while the scheme is monochrome (owner,
+  // 2026-09-01). It does fall back when selected, because it IS a flat page and
+  // an indigo one on an indigo accent is the collision the fallback exists for.
+  // Hoisted: a hook behind a `||` is a hook that does not always run, and the
+  // order has to be identical on every render.
+  const scheme = useIconScheme()
+  const colour =
+    !artwork &&
+    !selected &&
+    (ICON_ALWAYS_COLOUR.includes(ident) ||
+      (scheme === 'colour' && ICON_FULL_COLOUR.includes(ident)))
+  const body = colour ? c.page : color
+  // One mask id per instance. A shared id works right up until the element
+  // that defines it unmounts and takes every other icon's silhouette with it.
+  const uid = useId()
+  const maskId = `pi-m${uid}`
+  const glintId = `pi-g${uid}`
   const mark = lang ? LANG_PATHS[lang] : null
+  const markPath = mark ? mark.ko : g.mark
+  const hiPath = mark ? mark.hi : g.hi
   const label = (ext ?? '').replace(/^\./, '').toUpperCase()
   const L = g.label
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} className="shrink-0" aria-hidden>
-      <path d={g.body} fill={color} />
-      {/* A language mark REPLACES the kind's own, so `ko` is the kind's fold
-          and band with the mark swapped in - not both marks on one page. */}
-      <path d={mark ? `${foldAndBand(g.ko)} ${mark.ko}` : g.ko} fill={bg} />
-      {mark ? (
-        mark.hi ? <path d={mark.hi} fill={color} /> : null
-      ) : g.hi ? (
-        <path d={g.hi} fill={color} />
-      ) : null}
+      {/* COLOURED DRAWS THROUGH A MASK OF ITS OWN SILHOUETTE, and that is not a
+          flourish - it is the only arrangement measured to have no edge
+          artefact at all. Painting the band OVER the page leaves a hairline of
+          page colour around the outside, because the two share a curved outer
+          edge and the page's own partial coverage survives underneath. Painting
+          them as ABUTTING regions leaves a seam instead, because two
+          antialiased edges meeting at 50% each composite to 75% rather than
+          100% - measured at 239 pixels of seam per icon on a 256px render.
+          `bleed` is the fold and band as plain rectangles overrunning the page
+          on every side, so the silhouette is stated exactly once and everything
+          inside it is opaque.
+          A MASK, NOT A CLIP PATH, and the difference is measurable: Chromium
+          applies clip-path to each child and then composites them, so two
+          children that both reach the outline double-composite there and the
+          edge comes out at 75% where the path itself gives 50%. A mask applies
+          to the group's finished result. MEASURED against the bare silhouette:
+          mask 0 pixels different, clip-path 79, clip-path inside an opacity
+          layer 39.
+          Monochrome needs none of this. Its knockouts are painted in the row's
+          own background, so both artefacts are background-coloured and have
+          never been visible. */}
+      {artwork ? (
+        <>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            <path d={g.body} fill="#fff" />
+          </mask>
+          <g mask={`url(#${maskId})`}>
+            <rect x="0" y="0" width="24" height="24" fill={COMIC_PAGE} />
+            {COMIC_ART.map((l) => (
+              <path key={l.d.slice(0, 24)} d={l.d} fill={l.fill} fillOpacity={l.opacity} />
+            ))}
+            <text
+              x={COMIC_WORD.x}
+              y={COMIC_WORD.y}
+              fontSize={COMIC_WORD.size}
+              fill={COMIC_WORD.fill}
+              stroke={COMIC_WORD.stroke}
+              strokeWidth={COMIC_WORD.width}
+              paintOrder="stroke"
+              fontWeight={800}
+              textAnchor="middle"
+              dominantBaseline="central"
+            >
+              {COMIC_WORD.text}
+            </text>
+            <path d={g.bleed} fill={c.band} />
+          </g>
+        </>
+      ) : colour ? (
+        <>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            <path d={g.body} fill="#fff" />
+          </mask>
+          {/* The GLINT: a highlight rolling off into a shaded corner, so the
+              page reads as something with a surface rather than a flat fill.
+              It sits over the page and UNDER the band, because a sheen across
+              the extension is the one place it costs legibility. */}
+          <defs>
+            <linearGradient id={glintId} x1="0.08" y1="0" x2="0.82" y2="1">
+              <stop offset="0" stopColor="#ffffff" stopOpacity={0.5 * ICON_GLINT} />
+              <stop offset="0.3" stopColor="#ffffff" stopOpacity={0.13 * ICON_GLINT} />
+              <stop offset="0.34" stopColor="#ffffff" stopOpacity={0.03 * ICON_GLINT} />
+              <stop offset="0.66" stopColor="#000000" stopOpacity={0} />
+              <stop offset="1" stopColor="#000000" stopOpacity={0.26 * ICON_GLINT} />
+            </linearGradient>
+          </defs>
+          <g mask={`url(#${maskId})`}>
+            <rect x="0" y="0" width="24" height="24" fill={c.page} />
+            <rect x="0" y="0" width="24" height="24" fill={`url(#${glintId})`} />
+            {/* THE BAND GOES ON LAST, which is the order the .ico composites in
+                and not a detail. The ARCHIVE's mark is the zip seam and pull,
+                and it runs the whole height of the container - straight through
+                the band and the extension set in it. A page kind's glyph box
+                stops at 10.46 where the band starts at 11.62, so nothing there
+                ever reaches it and the wrong order looks perfectly fine on six
+                of the seven. */}
+            {markPath ? <path d={markPath} fill={c.mark} /> : null}
+            {hiPath ? <path d={hiPath} fill={c.page} /> : null}
+            <path d={g.bleed} fill={c.band} />
+          </g>
+        </>
+      ) : (
+        <>
+          <path d={g.body} fill={body} />
+          {/* A language mark REPLACES the kind's own, so the fold and band come
+              from the KIND with the mark swapped in - not both marks on one
+              page. `koBand` is ko without its mark, stated by the emitter. */}
+          <path d={mark ? `${g.koBand} ${mark.ko}` : g.ko} fill={bg} />
+        </>
+      )}
+      {/* `hi` is the knockout INSIDE the mark, painted back in the ink. The
+          coloured branch draws its own inside the mask; the ARTWORK branch has
+          no mark at all - its splat is part of the picture - and drawing the
+          old comic mark's knockout over it put a white star through the middle
+          of the splat. */}
+      {!colour && !artwork && hiPath ? <path d={hiPath} fill={body} /> : null}
       {label ? (
         <text
           x={L.x}
@@ -152,7 +317,11 @@ export function KindIcon({
           // the full size and only WEBM-length ones step down, which is what
           // stops a long extension running out of the band.
           fontSize={L.sizes[Math.min(label.length, 6) as keyof typeof L.sizes]}
-          fill={color}
+          // THE LABEL FLIPS WITH THE BAND. Monochrome sets it in the ink inside
+          // a band painted in the row's background; coloured sets it in `text`
+          // inside a coloured band. Leave it on the ink for both and the
+          // coloured icons get ink on ink.
+          fill={colour || artwork ? c.text : color}
           fontWeight={700}
           textAnchor="middle"
           dominantBaseline="central"
@@ -162,18 +331,6 @@ export function KindIcon({
       ) : null}
     </svg>
   )
-}
-
-/**
- * The fold and the band out of a kind's `ko`, without its mark.
- *
- * The emitter writes them FIRST and in that order, so the first two subpaths
- * are always exactly those two. Splitting on 'M' rather than re-deriving them
- * keeps one definition of the page's geometry in the generator, which is the
- * whole reason the paths are generated at all.
- */
-function foldAndBand(ko: string): string {
-  return ko.split(/(?=M)/).slice(0, 2).join('')
 }
 
 export function FolderIcon({ color }: { color: string }): JSX.Element {
@@ -552,6 +709,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 kind={f.kind}
                 // The knockout only applies on the filled row, which is now the
                 // selection's rather than the open file's.
+                selected={onSel}
                 color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
                 // The knockouts take what is BEHIND the row, which on a
                 // selected one is the accent fill and not the panel.

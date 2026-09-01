@@ -144,11 +144,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   IMAGE viewer, so zoom, pan, rotate, fullscreen and the picture menu all come for free. Its
   own kind and deliberately NOT `archive`: widening `archiveOk` would put Extract all, Add
   files and member Delete - the one permanent delete in Prism - onto a book. Read-only, both
-  formats. **LEFT AND RIGHT TURN PAGES** (owner decision), the one place in Prism where they
-  do not page the folder; Ctrl+arrow still does, which is how you reach the next book, and App
-  yields by finding `data-owns-arrows` in the DOM the way Escape does rather than by listener
-  order (both listeners are on the window in the capture phase and App's was registered
-  first). The container is unpacked ONCE into `userData/comics`, LRU-evicted at 2GB: a page
+  formats. **LEFT AND RIGHT TURN PAGES** (owner decision) - no longer an exception, since
+  2026-09-01 those keys are nobody's navigation: Up/Down reach the next book, and the Ctrl
+  modifier that used to buy the folder back is retired with the rule it worked around. The container is unpacked ONCE into `userData/comics`, LRU-evicted at 2GB: a page
   turn then costs what showing a jpeg costs. Per-page extraction was the obvious design and is
   the one the performance rules forbid - adm-zip reads the whole container synchronously per
   call, and the 7-Zip route spawns a process into a fresh temp directory per member (~278ms),
@@ -266,8 +264,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   fresh decision. A sort menu sits in the sidebar header (2026-08-12, Playnite-shaped: one
   asc/desc pair, then name / date modified / size / type); tree rows and arrow-paging share
   the order. Documents own their
-  vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text; Left/Right
-  always page the folder. **FOCUS decides the vertical keys, for every kind, and nothing
+  vertical keys: Up/Down and PageUp/PageDown scroll or flip pages in pdf/text.
+  **LEFT AND RIGHT ARE NOT NAVIGATION** (2026-09-01, owner decision, overturning the older
+  rule that they always paged the folder). App does not handle them at all: nothing is
+  preventDefaulted and they reach whichever viewer is mounted, WITH NO CLICK FIRST, which is
+  the point - a viewer that wanted them used to have to be focused, and the kinds that did
+  want them had to be carved out of App by hand. A video or a track SEEKS five seconds
+  (`useMediaControls`, video and audio alike); a comic turns a page. Every other kind gets
+  them and does nothing, which is the intent: a PDF was offered them and refused (owner,
+  same day), because Up/Down and PageUp/PageDown already flip its pages once it is focused.
+  The folder is paged with Up and Down. **FOCUS decides the vertical keys, for every kind, and nothing
   auto-focuses a document any more** (2026-08-17): opening a pdf, a README or a code file
   takes no focus, so Up/Down and PageUp/PageDown keep paging the folder while you browse from
   the sidebar. Click into the document (or Tab to it) and it owns them: the pdf flips pages,
@@ -289,8 +295,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
   **Keyboard-navigable (2026-08-17)**: the arrows drive a cursor over the flattened visible rows
   (`fileTree.visibleRows` / `stepRow`, pure and tested), folders included. Up/Down step every
-  row and walk into expanded folders; Left/Right keep meaning previous/next FILE, and become
-  the chevron while the cursor is on a folder. Landing on a file opens it, landing on a folder
+  row and walk into expanded folders. **UP AND DOWN ONLY** (2026-09-01): Left/Right used to
+  mean previous/next FILE here and to be the chevron on a folder row, and both went with the
+  rule above. A folder still opens and closes from the keyboard with ENTER, which is the row
+  button's own activation and never went through the tree's nav. Landing on a file opens it, landing on a folder
   only moves the highlight. ONE mark, not two: the filled accent belongs to the cursor and
   follows it onto folders; the open file is deliberately left unmarked while the cursor is
   elsewhere (`aria-selected` still names it). The cursor row is the tree's single tab stop (roving `tabIndex`),
@@ -810,6 +818,36 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   and the tree stopped showing WINDOWS' association icon for them - that was the colourful
   thing - while the archive VIEW's header keeps it (#68), because there the box is
   introducing itself.
+  **THE SETTINGS CONTROL IS A SWITCH OF ICON SETS, NOT A COLOUR** (2026-09-01, #80).
+  "File icons" used to be a colour well, and one arbitrary tint over every kind is a
+  narrower thing than choosing which icons you get. It offers MONOCHROME - the measured
+  white-or-near-black above, unchanged - and COLOURED, a preset per kind (archive
+  `#8b8be2`, audio `#69b485`, code `#464646`, document `#6060ff`, image `#ff8080`, video
+  `#5384df`, all on a `#1b1d22` label band bar code's `#000000`). TWO COLOURS ARE PICKED
+  PER KIND and everything else is DERIVED: the mark and the label text are white or black
+  by the same better-of-two rule, so no pick can make an illegible icon, and `hi` is
+  always the page, being the knockout inside the mark. Resolved in the EMITTER rather than
+  the app, because the picks are presets and the app would recompute the same seven
+  answers on every tree row. Two values deliberately escape the rule: CODE's mark is dark
+  by owner instruction (the rule says white at 9.44:1; dark measures 2.22:1) because a
+  code file is a dark editor, and COMIC keeps its Explorer scheme - whose own pink splat
+  measures 1.00:1 against its own page, working there only because the sunburst sits
+  between them, so in-app it is cream at 3.42:1. The arbitrary `fileIcon` went with the
+  picker that set it: a colour nothing can reach and no control can clear is worse than
+  the rule it would override.
+  THE BAND IS THE THING THAT BREAKS. `ko`'s band OVERSHOOTS the page by 0.6 units so its
+  antialiasing lands clear of the page's rounded bottom corners - two identical curved
+  edges painted one over the other leave a pale fringe, the page's edge pixel being part
+  ink and the band's part background. That is invisible only while the band is painted in
+  the ROW's background, which is exactly what monochrome does; give it a colour of its own
+  and the same overshoot reads as a LABEL WIDER THAN THE ICON. So the emitter ships both,
+  `ko` overshooting and `band` clipped, and the e2e measures the boxes rather than trusting
+  it. THE LABEL FLIPS WITH THE BAND for the same reason: monochrome sets it in the ink
+  inside a background-coloured band, coloured sets it in `text` inside a coloured one, and
+  leaving it on the ink is ink on ink.
+  And `iconPaths.ts` is WRITTEN BY `svg.py` now (`python tools/icons/svg.py`). It was a
+  hand-run slice of that script's stdout kept in a scratchpad, which is how a generated
+  file ends up hand-edited.
   A LAYER IS ONE PATH OF SEVERAL SUBPATHS, and under the default nonzero fill rule two
   subpaths wound OPPOSITE ways cancel where they overlap. The quarter note is exactly that
   overlap - a stem rectangle sitting on a head ellipse - and the emitter drew rectangles
