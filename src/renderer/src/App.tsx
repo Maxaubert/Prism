@@ -1101,19 +1101,12 @@ export default function App(): JSX.Element {
   const setFs = useCallback(
     (on: boolean) => {
       const doSwap = (): void => {
-        if (on) {
-          const el = viewerBox.current
-          if (el)
-            el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {
-              window.prism.setFullscreen(true)
-              liftVeil()
-            })
-          else window.prism.setFullscreen(true)
-        } else if (document.fullscreenElement) {
-          void document.exitFullscreen()
-        } else {
-          window.prism.setFullscreen(false)
-        }
+        // BORDERLESS, always: main moves the window to cover the display
+        // rather than asking Windows for fullscreen, because the OS transition
+        // shows the window at its old bounds for a frame and that gap is the
+        // white flash. See the note beside `preFsBounds` in main.
+        window.prism.setFullscreen(on)
+        liftVeil()
       }
       const list = veils()
       const veil = fsVeilEl.current

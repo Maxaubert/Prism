@@ -3605,28 +3605,46 @@ async function fullscreenBlackScenario(fixtures) {
     const windowed = await stageBg()
     await win.keyboard.press('F11')
     await sleep(900)
+    // BORDERLESS (2026-09-02): the window covers the display and sits above
+    // the taskbar rather than asking Windows for fullscreen, because the OS
+    // transition shows the window at its old bounds for a frame and that gap
+    // is the white flash. So `isFullScreen()` is false by design - what is
+    // asserted is that it COVERS the screen.
+    const covers = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      return { b, d, onTop: w.isAlwaysOnTop(), osFs: w.isFullScreen() }
+    })
+    // >= rather than ==: the window keeps its frame (titleBarStyle 'hidden'
+    // rather than frameless, because DWM will not composite acrylic behind a
+    // frameless window), so it lands a pixel or two PROUD of the display. That
+    // is the right direction - it guarantees there is no edge left uncovered.
     ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
-      'F11 goes fullscreen'
+      covers.b.width >= covers.d.width && covers.b.height >= covers.d.height,
+      `F11 covers the whole display (${covers.b.width}x${covers.b.height} of ${covers.d.width}x${covers.d.height})`
     )
+    ok(covers.onTop, 'and sits above the taskbar')
+    ok(!covers.osFs, 'without asking Windows for fullscreen, which is what flashed')
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
 
-    // AND SO IS THE FULLSCREEN ELEMENT ITSELF. It had no background, so for a
-    // frame or two during the OS transition - before the veil, which is
-    // `absolute inset-0` INSIDE it, had been laid out at the new size - what
-    // painted was the UA default for `:fullscreen`, which is `canvas`: a white
-    // box. Asserted on the element's own computed colour rather than by trying
-    // to catch the frame, which is a race.
-    const fsBg = await win.evaluate(() => {
-      const el = document.fullscreenElement
-      return el ? getComputedStyle(el).backgroundColor : 'NOT FULLSCREEN'
-    })
-    ok(fsBg === 'rgb(0, 0, 0)', `the fullscreen element paints black from frame one (${fsBg})`)
+    // The `:fullscreen` rule no longer applies - there is no fullscreen element
+    // in a borderless window - and the stage's own black above is what matters.
     await win.keyboard.press('F11')
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+    const back = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      return { b, d: screen.getDisplayMatching(b).bounds, onTop: w.isAlwaysOnTop() }
+    })
+    ok(!back.onTop, 'the window stops floating above the taskbar')
+    ok(
+      back.b.width !== back.d.width || back.b.height !== back.d.height,
+      `and goes back to its own size (${back.b.width}x${back.b.height})`
+    )
   } finally {
     await app.close()
   }

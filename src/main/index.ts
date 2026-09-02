@@ -848,8 +848,32 @@ let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
  * side has lifted.
  */
 let fsTransition = false
+/**
+ * BORDERLESS FULLSCREEN (2026-09-02), and why the OS one is not used.
+ *
+ * Windows animates a real fullscreen change, and for ONE FRAME it composites
+ * the window at its OLD bounds - so the desktop and the taskbar show in the
+ * gap, which is the white frame. Read off the owner's recording: in a video
+ * where the taskbar is hidden for all 563 frames it is VISIBLE on exactly one,
+ * and that one is the flash. Nothing of ours can paint it, because the gap is
+ * outside the window.
+ *
+ * So the OS is never asked. The window is simply moved to cover the display and
+ * put above the taskbar - no `setFullScreen`, no `requestFullscreen`, no
+ * animation to have a stale frame in. Covering the display FIRST and then also
+ * going fullscreen was tried and is worse than either: it improved the flash
+ * and broke the viewer, because two resizes land on top of one another.
+ *
+ * What is given up: `document.fullscreenElement`, and with it the `:fullscreen`
+ * CSS hook and Chromium's native Escape. App owns Escape already and tracks the
+ * state from this IPC, so both are covered.
+ */
+let preFsBounds: Electron.Rectangle | null = null
+const isFs = (): boolean => !!preFsBounds
 
 function applyMaterial(fullscreen: boolean): void {
+  // Borderless counts: there is nothing behind a window covering the screen.
+  fullscreen = fullscreen || !!preFsBounds
   if (!mainWindow) return
   const { material, light } = wantedMaterial
   const solid = light ? '#f7f7f9' : '#111318'
@@ -2603,7 +2627,30 @@ if (!app.requestSingleInstanceLock()) {
       if (force) closeConfirmed = true
       mainWindow?.close()
     })
-    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => mainWindow?.setFullScreen(!!on))
+    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
+      const win = mainWindow
+      if (!win || !!on === isFs()) return
+      try {
+        if (on) {
+          preFsBounds = win.getBounds()
+          // 'screen-saver' is the level that clears the taskbar; the plain one
+          // leaves it drawn over the picture.
+          win.setAlwaysOnTop(true, 'screen-saver')
+          win.setBounds(screen.getDisplayMatching(preFsBounds).bounds)
+        } else {
+          const back = preFsBounds
+          preFsBounds = null
+          win.setAlwaysOnTop(false)
+          if (back) win.setBounds(back)
+        }
+      } catch {
+        preFsBounds = on ? preFsBounds : null
+      }
+      // The events a real fullscreen change would have raised. The renderer
+      // tracks its own state from these, and the material follows.
+      applyMaterial(isFs())
+      win.webContents.send('window:fullscreen', isFs())
+    })
     // Windows 11 composites acrylic and mica behind the window; CSS can't, since
     // backdrop-filter only sees the app's own pixels. The window background has
     // to go transparent for the material to show through.
