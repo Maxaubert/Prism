@@ -105,6 +105,11 @@ interface Menu {
    *  rar and anything else read-only, and for a zip past adm-zip's ceiling -
    *  which is why it is asked rather than inferred from the extension. */
   arc?: { write: boolean } | null
+  /** Whether the clipboard holds files, so a Paste row is worth drawing.
+   *  Undefined while the answer is in flight - the row appears when it lands
+   *  rather than being drawn disabled, because a verb that cannot work is
+   *  noise. */
+  canPaste?: boolean
 }
 
 /** An extraction started from a tree row, and what to say about it.
@@ -586,6 +591,12 @@ export function Sidebar({
         size,
         multi,
         apps: isFolder ? undefined : null
+      })
+      // Whether Paste is worth offering. Asked on every open rather than
+      // cached: the clipboard is the rest of Windows, and it changes without
+      // telling us.
+      void window.prism.clipboardHasFiles().then((can) => {
+        setMenu((m) => (m && m.path === path ? { ...m, canPaste: can } : m))
       })
       // The app list arrives while the menu is up; ignore it if the menu has
       // meanwhile moved to another row (or closed).
@@ -1419,6 +1430,38 @@ export function Sidebar({
                         onPick: () => window.prism.openWithChooser(menu.path)
                       }
                     ]
+                  }
+                ]
+              : []),
+            ...(menu.canPaste
+              ? [
+                  {
+                    /**
+                     * PASTE ON A ROW, not only on the panel's dead space
+                     * (2026-09-02). A full folder has no dead space to
+                     * right-click, and reaching for the one strip that is left
+                     * pasted into the ROOT rather than where you were looking.
+                     *
+                     * A FOLDER row takes it; a FILE row means its folder, which
+                     * is what "paste here" means when the thing under the
+                     * cursor is a file. Near the top because it is what the
+                     * menu was opened for, and drawn only when the clipboard
+                     * actually holds files.
+                     */
+                    label: 'Paste',
+                    icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
+                    onPick: () => {
+                      const dest = menu.isFolder ? menu.path : parentDir(menu.path)
+                      void window.prism.pasteInto(dest).then((r) => {
+                        if (r.empty) setPasteNote('There are no files on the clipboard.')
+                        else if (r.refused) setPasteNote('That folder is outside this tab.')
+                        else if (!r.pasted) setPasteNote('Nothing could be pasted here.')
+                        else if (r.failed)
+                          setPasteNote(`Pasted ${r.pasted}, but ${r.failed} could not be copied.`)
+                        // The tree hears about Prism's own writes from here.
+                        void load(dest, true)
+                      })
+                    }
                   }
                 ]
               : []),

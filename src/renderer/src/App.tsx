@@ -752,6 +752,25 @@ export default function App(): JSX.Element {
       return st ? closeTab(s.tabs, st.id, s.activeId) : s
     })
   }, [])
+  /**
+   * Show NOTHING in the active tab, without closing it (2026-09-02).
+   *
+   * `index: -1` is the state a tab already has when its folder holds nothing
+   * viewable, and NoFileState is what renders there. Deleting the last file
+   * used to close the tab instead, which is the same failure Ctrl+W's rule
+   * exists to prevent: Prism is resident, and a tab that vanishes takes its
+   * root, its tree and its terminal with it. Paste a file into an empty
+   * folder, open it, delete it - and the folder you were working in was gone.
+   */
+  const showNothing = useCallback(
+    () =>
+      setTabState((s) => ({
+        ...s,
+        tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, index: -1 } : t))
+      })),
+    []
+  )
+
   /** Point the active tab at another of its files. */
   const setRawIndex = useCallback(
     (i: number) =>
@@ -1034,24 +1053,44 @@ export default function App(): JSX.Element {
   const viewerBox = useRef<HTMLDivElement>(null)
   // The fade-to-black rides ON TOP of the DOM fullscreen: darken (150ms), do
   // the swap under full black, lift (280ms) once the new frame has laid out.
-  // The veil lives INSIDE the viewer element - anything outside it stops
-  // rendering the moment the element goes fullscreen. Driven by transitionend
-  // and rAF, styled directly on the node, so nothing re-renders mid-fade.
+  // Driven by transitionend and rAF, styled directly on the nodes, so nothing
+  // re-renders mid-fade.
+  //
+  // TWO VEILS, and the reason is the whole staging (2026-09-02). The inner one
+  // lives INSIDE the fullscreen element, because anything outside it stops
+  // rendering the moment the element goes fullscreen - it is what covers the
+  // swap itself. But on its own it darkened only the picture: the sidebar, the
+  // tab strip and the title bar stayed lit through the fade and then vanished
+  // when fullscreen began. That reads as three steps - the view goes black, the
+  // chrome disappears, the screen fills - instead of one.
+  //
+  // So the OUTER one covers the whole window and fades WITH it. It stops
+  // existing when fullscreen starts, which is exactly when the inner one is
+  // already fully black, so the handover is black to black. Coming back out it
+  // is there again, covering the window as it reappears.
   const fsVeilEl = useRef<HTMLDivElement>(null)
+  const fsVeilOuter = useRef<HTMLDivElement>(null)
+  const veils = useCallback(
+    (): HTMLDivElement[] =>
+      [fsVeilEl.current, fsVeilOuter.current].filter((v): v is HTMLDivElement => !!v),
+    []
+  )
   const liftVeil = useCallback(() => {
-    const veil = fsVeilEl.current
-    if (!veil) return
+    const list = veils()
+    if (!list.length) return
     // Hold the black a beat (200ms) before lifting: the swap should be felt,
     // not glimpsed. The double rAF then guarantees the new frame is laid out.
     setTimeout(() => {
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          veil.style.transition = 'opacity 280ms ease-out'
-          veil.style.opacity = '0'
+          for (const v of list) {
+            v.style.transition = 'opacity 280ms ease-out'
+            v.style.opacity = '0'
+          }
         })
       )
     }, 200)
-  }, [])
+  }, [veils])
   const setFs = useCallback(
     (on: boolean) => {
       const doSwap = (): void => {
@@ -1069,13 +1108,16 @@ export default function App(): JSX.Element {
           window.prism.setFullscreen(false)
         }
       }
+      const list = veils()
       const veil = fsVeilEl.current
       if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         doSwap()
         return
       }
-      veil.style.transition = 'opacity 150ms ease-in'
-      veil.style.opacity = '1'
+      for (const v of list) {
+        v.style.transition = 'opacity 150ms ease-in'
+        v.style.opacity = '1'
+      }
       let fired = false
       const done = (): void => {
         if (fired) return
@@ -1088,7 +1130,7 @@ export default function App(): JSX.Element {
       setTimeout(done, 240) // transitionend can be swallowed; the swap may not
       setTimeout(liftVeil, 1500) // and if the swap itself failed, never stay black
     },
-    [liftVeil]
+    [liftVeil, veils]
   )
   useEffect(() => {
     // Element fullscreen is the source of truth; Escape exits it natively and
@@ -2104,9 +2146,9 @@ export default function App(): JSX.Element {
       const survivors = view?.files.filter((f) => !within(f.path, path)) ?? []
       const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
       if (next) reopen(next.path)
-      else closeActiveTab()
+      else showNothing()
     },
-    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
@@ -2130,7 +2172,7 @@ export default function App(): JSX.Element {
         const survivors = view?.files.filter((f) => !paths.some((p) => within(f.path, p))) ?? []
         const next = survivors[Math.min(view?.index ?? 0, survivors.length - 1)]
         if (next) reopen(next.path)
-        else closeActiveTab()
+        else showNothing()
       } else if (cur) reopen(cur)
       if (failed)
         setAsk({
@@ -2138,7 +2180,7 @@ export default function App(): JSX.Element {
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
-    [closeActiveTab, dropBuffers, file, noteUndo, reopen, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
@@ -2646,6 +2688,16 @@ export default function App(): JSX.Element {
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
     <div className="flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
+      {/* The fullscreen fade, OUTSIDE the fullscreen element: it covers the
+          whole window - sidebar, tabs and title bar included - so everything
+          darkens together rather than the picture going first and the chrome
+          disappearing after. It stops rendering once fullscreen begins, by
+          which time the inner veil is already opaque. */}
+      <div
+        ref={fsVeilOuter}
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-[300] bg-black opacity-0 will-change-[opacity]"
+      />
       {!fullscreen && (
         <TopBar
           // The tree already names (and highlights) the open file; the bar only

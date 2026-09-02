@@ -1575,6 +1575,100 @@ async function chromeHideScenario(fixtures) {
   }
 }
 
+/**
+ * PASTE BELONGS ON A ROW, and deleting the last file must not close the tab.
+ *
+ * A full folder has no dead space to right-click, and the one strip that is
+ * left pasted into the ROOT rather than where you were looking. So the row menu
+ * carries Paste: a FOLDER row takes it, a FILE row means its folder. It is
+ * drawn only when the clipboard actually holds files, because a verb that
+ * cannot work is noise.
+ *
+ * And deleting the last file used to close the TAB - the same failure Ctrl+W's
+ * rule exists to prevent. Prism is resident, and a tab that vanishes takes its
+ * root, its tree and its terminal with it.
+ */
+async function rowPasteScenario(fixtures) {
+  console.log('paste on a row')
+  const dir = join(fixtures, 'dragbox')
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  const rowFor = (suffix) =>
+    win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const menuHas = (label) => win.locator(`[role="menu"] >> text="${label}"`).count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // NOTHING ON THE CLIPBOARD: no Paste row at all.
+    await win.evaluate(() => navigator.clipboard.writeText('not a file').catch(() => {}))
+    await rowFor('movable.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok((await menuHas('Paste')) === 0, 'no Paste row when the clipboard holds no files')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // Put a real file on the clipboard the way the user would: the row's own
+    // Copy file verb, which goes through the same CF_HDROP route.
+    await rowFor('movable.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Copy file"').click()
+    await sleep(1200)
+
+    // NOW it appears, on a FILE row, and near the top.
+    await rowFor('anchor.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    ok(true, 'Paste appears on a FILE row once the clipboard holds files')
+    const order = await win.evaluate(() =>
+      [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')]
+        .map((e) => (e.textContent ?? '').trim())
+        .filter(Boolean)
+    )
+    ok(
+      order.indexOf('Paste') >= 0 && order.indexOf('Paste') < 4,
+      `and near the top of the menu (position ${order.indexOf('Paste')} of ${order.length})`
+    )
+
+    const before = await win.locator('[role="treeitem"]').count()
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    await sleep(2500)
+    const after = await win.locator('[role="treeitem"]').count()
+    ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
+  } finally {
+    await app.close()
+  }
+}
+
+/** Deleting the last file leaves the tab open and empty, not closed. */
+async function deleteLastScenario(fixtures) {
+  console.log('delete the last file')
+  const dir = join(fixtures, 'lastfile')
+  const { app, win } = await launch(join(dir, 'only.txt'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    const tabs = () => win.locator('[role="tab"]').count()
+    const before = await tabs()
+    ok(before >= 1, `the tab is there to begin with (${before})`)
+
+    await win.locator('[role="treeitem"]').first().click()
+    await sleep(400)
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await sleep(1500)
+
+    ok(!win.isClosed(), 'the window survives deleting the only file')
+    ok((await tabs()) === before, `and the TAB is still open (${await tabs()})`)
+    ok(
+      (await win.locator('[role="treeitem"]').count()) === 0,
+      'with an empty tree, which is the point: the folder is still the tab root'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function comicScenario(fixtures) {
   console.log('comic books')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
@@ -4049,6 +4143,8 @@ await run(treeVerbsScenario)
 await run(deleteAgainScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
+await run(rowPasteScenario)
+await run(deleteLastScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

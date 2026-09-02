@@ -112,6 +112,8 @@ const api = {
     dir: string
   ): Promise<{ pasted: number; failed: number; refused?: boolean; empty?: boolean }> =>
     ipcRenderer.invoke('file:paste-into', dir),
+  /** Whether a Paste row is worth drawing at all. */
+  clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke('clipboard:has-files'),
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),

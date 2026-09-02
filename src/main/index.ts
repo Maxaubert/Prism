@@ -1976,6 +1976,12 @@ if (!app.requestSingleInstanceLock()) {
      * the way Duplicate does, so a paste can add to a folder but never write
      * over what is in it.
      */
+    /** Are there files on the clipboard? Asked when a menu OPENS, so a Paste
+     *  row that would do nothing is never drawn (2026-09-02). The same
+     *  PowerShell route the paste itself uses - Electron's clipboard API
+     *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
+    ipcMain.handle('clipboard:has-files', async () => (await clipboardFiles()).length > 0)
+
     ipcMain.handle('file:paste-into', async (_e, destDir: string) => {
       if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
         return { pasted: 0, failed: 0, refused: true }
