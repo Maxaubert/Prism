@@ -3518,6 +3518,18 @@ async function fullscreenBlackScenario(fixtures) {
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+
+    // AND SO IS THE FULLSCREEN ELEMENT ITSELF. It had no background, so for a
+    // frame or two during the OS transition - before the veil, which is
+    // `absolute inset-0` INSIDE it, had been laid out at the new size - what
+    // painted was the UA default for `:fullscreen`, which is `canvas`: a white
+    // box. Asserted on the element's own computed colour rather than by trying
+    // to catch the frame, which is a race.
+    const fsBg = await win.evaluate(() => {
+      const el = document.fullscreenElement
+      return el ? getComputedStyle(el).backgroundColor : 'NOT FULLSCREEN'
+    })
+    ok(fsBg === 'rgb(0, 0, 0)', `the fullscreen element paints black from frame one (${fsBg})`)
     await win.keyboard.press('F11')
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
