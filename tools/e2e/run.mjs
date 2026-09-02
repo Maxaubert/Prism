@@ -1475,6 +1475,71 @@ async function arrowKeysScenario(fixtures) {
   }
 }
 
+/**
+ * THE PICTURE'S CONTROLS GET OUT OF THE WAY (2026-09-02), windowed and in
+ * fullscreen alike.
+ *
+ * They used to be `opacity-0 group-hover:opacity-100`, a CSS hover on the
+ * stage. Fine windowed, and exactly the pattern that failed for the video
+ * transport in fullscreen, where a layer taken to zero opacity is composited
+ * once and never repainted. So the cluster MOUNTS AND UNMOUNTS on the
+ * transport's own clock, and this asserts the mounting rather than the opacity
+ * - checking a class would pass while the element sat there invisible and
+ * eating clicks.
+ *
+ * It also asserts the two do not share a row. The comic's page counter was at
+ * bottom-4, which is where the zoom cluster lives, so they were drawn on top of
+ * one another and the cluster's `+` and `1:1` showed through from behind the
+ * counter.
+ */
+async function chromeHideScenario(fixtures) {
+  console.log('viewer chrome hides')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  const bar = () => win.locator('[data-viewer-chrome]')
+  const pill = () => win.locator('text=/Page \d+ of \d+/')
+  try {
+    await win.waitForSelector('[data-viewer-chrome]', { timeout: 20000 })
+    ok(true, 'the control cluster is up when the page opens')
+
+    // THE BOXES MUST NOT OVERLAP. Measured rather than eyeballed: this is the
+    // `+` and `1:1` showing through from behind the page counter.
+    const boxes = await win.evaluate(() => {
+      const b = document.querySelector('[data-viewer-chrome]')?.getBoundingClientRect()
+      const p = [...document.querySelectorAll('div')]
+        .find((e) => /^Page \d+ of \d+$/.test(e.textContent ?? ''))
+        ?.getBoundingClientRect()
+      return b && p ? { bar: [b.top, b.bottom], pill: [p.top, p.bottom] } : null
+    })
+    ok(boxes !== null, 'both the cluster and the page counter are on screen')
+    ok(
+      boxes.pill[1] <= boxes.bar[0] + 1,
+      `the counter sits ABOVE the cluster (counter ${boxes.pill}, cluster ${boxes.bar})`
+    )
+
+    // Park the pointer clear of the cluster so its own :hover cannot pin it,
+    // then stop moving. The clock is 2.6s.
+    await win.mouse.move(40, 60)
+    await sleep(4200)
+    ok((await bar().count()) === 0, 'it UNMOUNTS after a few seconds of stillness')
+    ok((await pill().count()) === 0, 'and the page counter goes with it')
+
+    // And comes back on movement, with no click.
+    await win.mouse.move(300, 300)
+    await win.mouse.move(320, 310)
+    await sleep(500)
+    ok((await bar().count()) === 1, 'and comes back on pointer movement alone')
+
+    // Hovering it holds it up: reaching for a button and pausing your hand
+    // must not make the button disappear.
+    const box = await bar().boundingBox()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await sleep(4200)
+    ok((await bar().count()) === 1, 'and hovering it holds it up past the clock')
+  } finally {
+    await app.close()
+  }
+}
+
 async function comicScenario(fixtures) {
   console.log('comic books')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
@@ -3936,6 +4001,7 @@ await run(comicIconScenario)
 await run(treeVerbsScenario)
 await run(deleteAgainScenario)
 await run(arrowKeysScenario)
+await run(chromeHideScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

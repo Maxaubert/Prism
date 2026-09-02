@@ -66,7 +66,7 @@ import {
 } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
-import { installVerb, removeVerb, verbInstalled } from './shellVerb'
+import { installVerb, removeVerb, shouldWriteVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
 import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
@@ -912,35 +912,52 @@ setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()
 // about.
 comicsDir = join(app.getPath('userData'), 'comics')
 
+/** Written only when someone turns the verb OFF in Settings. Its ABSENCE is
+ *  what licenses a repair; see reconcileVerb. */
+const verbOffMarker = (): string => join(app.getPath('userData'), 'shell-verb-off')
+
 /**
- * "Open in Prism" is ON by default (2026-08-31, owner decision).
+ * "Open in Prism" is ON by default (2026-08-31), and STAYS on across upgrades
+ * (2026-09-02).
  *
- * Applied ONCE, and the marker file is the whole design. A default that
- * reapplied itself every launch would be a setting that lies: turn the verb
- * off in Settings and it would be back tomorrow, which is exactly the failure
- * the confirm-close setting's own rule warns about.
+ * THE BUG THIS FIXES. Every upgrade dropped the verb and it had to be switched
+ * back on by hand. electron-builder's NSIS uninstalls the old version before
+ * installing the new one, and `PRISM_UNREGISTER_TYPES` deletes the three
+ * OpenWithPrism keys - correctly, for a real uninstall. userData survives an
+ * upgrade, so the old `shell-verb-applied` marker was still there, the default
+ * counted itself as already applied, and nothing ever put the keys back.
+ *
+ * WHY THIS IS NOT THE SETTING LYING. The rule that marker existed to enforce is
+ * real: a default that reapplies itself every launch means turning the verb off
+ * brings it back tomorrow. But "applied once" was recording the wrong fact.
+ * What has to be remembered is the only thing that cannot be read back from the
+ * registry - that somebody said NO. So an explicit off writes a marker and is
+ * honoured forever, and everything else is a repair: if nobody has said no and
+ * Explorer does not have the verb, put it back. A user who never touched the
+ * switch cannot tell an upgrade from a fresh install, and should not have to.
  *
  * Not in dev and not under --e2e. `app.getPath('exe')` is the built electron
  * binary in both, and writing HKCU keys pointing at it would repoint the real
  * installed Prism's verb at a throwaway build - thirty e2e launches doing that
  * is its own kind of broken.
  *
- * One wart, said rather than hidden: someone who deliberately turned the verb
- * off before this change has no record of having done so - the switch reads
- * the registry, not a preference - so they get it back once on upgrade, and
- * have to turn it off again.
+ * One wart, said rather than hidden: someone who turned the verb off BEFORE
+ * this change has no off-marker, because nothing recorded one, so they get it
+ * back once. Their next "off" is remembered permanently. That is the same
+ * one-time cost the previous version of this comment already accepted, and it
+ * is the price of there having been no record to migrate.
  */
-async function applyVerbDefault(): Promise<void> {
+async function reconcileVerb(): Promise<void> {
   if (!app.isPackaged || E2E) return
-  const marker = join(app.getPath('userData'), 'shell-verb-applied')
   try {
     const fs = await import('fs/promises')
-    if (await fs.stat(marker).catch(() => null)) return
-    await installVerb(app.getPath('exe'))
-    // After the attempt, whatever it answered: the fact recorded is "the
-    // default has been applied", not "the write succeeded". A reg.exe that
-    // fails every launch is worse than a verb that is missing.
-    await fs.writeFile(marker, new Date().toISOString())
+    const saidNo = !!(await fs.stat(verbOffMarker()).catch(() => null))
+    const exe = app.getPath('exe')
+    // The registry rather than a marker: it is the thing that is actually wrong
+    // after an upgrade, and `verbInstalled` already checks the command points at
+    // THIS build, so a moved install repoints itself too.
+    if (!shouldWriteVerb(saidNo, saidNo ? true : await verbInstalled(exe))) return
+    await installVerb(exe)
   } catch {
     /* no userData, no registry: the switch in Settings still works */
   }
@@ -1822,6 +1839,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('shell:verb-status', () => verbInstalled(app.getPath('exe')))
     ipcMain.handle('shell:verb-set', async (_e, on: boolean): Promise<boolean> => {
       if (typeof on !== 'boolean') return false
+      // The off-marker is the record that survives an upgrade. Written when the
+      // answer is no, removed when it is yes - so the reconcile on the next
+      // launch repairs a wiped verb but never argues with a deliberate off.
+      const fs = await import('fs/promises')
+      await (on
+        ? fs.rm(verbOffMarker(), { force: true })
+        : fs.writeFile(verbOffMarker(), new Date().toISOString())
+      ).catch(() => undefined)
       return on ? installVerb(app.getPath('exe')) : removeVerb()
     })
 
@@ -2578,7 +2603,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     createWindow()
-    void applyVerbDefault()
+    void reconcileVerb()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, ty
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
+import { useAutoHideChrome } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
@@ -56,6 +57,14 @@ export function ImageView({
   fullscreen?: boolean
 }): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Pinned while the pointer is on the bar, or while the right-click menu is
+  // open - an invisible menu would keep eating clicks and the first Escape.
+  const { shown: chromeShown } = useAutoHideChrome(
+    useCallback(
+      () => !!menu || !!document.querySelector('[data-viewer-chrome]:hover'),
+      [menu]
+    )
+  )
   /**
    * What the ELEMENT says it is, when the header parser could not say.
    *
@@ -547,9 +556,22 @@ export function ImageView({
         </>
       )}
 
-      {/* control cluster, appears on hover */}
-      {!failed && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+      {/* THE CONTROL CLUSTER HIDES ITSELF (2026-09-02), windowed and in
+          fullscreen alike. It used to be `opacity-0 group-hover:opacity-100`,
+          which is a CSS hover on the stage: fine windowed, and exactly the
+          pattern that failed for the video transport in fullscreen, where a
+          layer taken to zero opacity is composited once and never repainted.
+          So it MOUNTS AND UNMOUNTS on a clock, through the transport's own
+          rule - see `useAutoHideChrome`, which carries the reasoning.
+          `data-viewer-chrome` is how the clock asks whether the pointer is on
+          it: reaching for a button and pausing your hand must not make the
+          button disappear, and asking the DOM cannot be a flag that failed to
+          clear. */}
+      {!failed && chromeShown && (
+        <div
+          data-viewer-chrome
+          className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur"
+        >
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
             {Math.round((shownScale || zoom) * 100)}%
