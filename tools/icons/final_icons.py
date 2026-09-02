@@ -77,6 +77,18 @@ INK_A = tuple(INK) + (255,)
 # `band_at="bottom"`.
 BAND = (PX0, PY1 - (CHIP[3] - CHIP[1]), PX1, PY1)
 
+#: The set's ink. PURE BLACK, not the near-black INK the rounds use (owner,
+#: 2026-09-01: "black label bg. glyph in black as well"). The two are a
+#: rounding error apart on screen; what matters is that ONE value is named
+#: here, so the .ico's band and the app's #000000 cannot drift.
+BLACK = (0, 0, 0)
+
+#: The extension, on the black band. WHITE (owner, 2026-09-01: "black label bg
+#: white text"). It used to be drawn in the PAGE colour, which is the set's
+#: light grey - so the label read grey-on-black and he read it as the band
+#: itself being grey.
+LABEL_TEXT = (255, 255, 255)
+
 PAGE = (170, 178, 192)
 PAPER = (255, 255, 255)
 
@@ -110,17 +122,21 @@ ARCHIVE_PAGE = (139, 139, 226)
 COLOURS = {
     "archive": ("ZIP", ARCHIVE_PAGE),
     "audio": ("MP3", PAGE),
-    # A DARK PAGE, because a code file is a dark editor and nothing else in the
-    # set is one. It is also what finally separates code from document without
-    # either glyph moving: they are the same three rounded bars in the same
-    # box, and one being dark paper and the other white paper is a difference
-    # that survives being 16 pixels across, where a shape difference does not.
-    "code": ("PY", CODE_PAGE),
+    # CODE AND DOCUMENT REJOINED THE SET (owner, 2026-09-01: "make the file
+    # explorer icons more uniform, all following the same color scheme except
+    # for comic book file type and archive"). Code had a DARK page and document
+    # had WHITE paper, each with a hairline to keep its silhouette, and each
+    # was a considered exception - code because a code file is a dark editor,
+    # document because a docx is a sheet of paper. Uniformity is the owner's
+    # call to make, and it costs the one thing those two exceptions bought:
+    # code and document are the same three rounded bars in the same box, so
+    # with the page colour shared they are told apart by the extension on the
+    # band and by the language marks, not by the page. The treatments are kept
+    # in `_code` and `_document` - the mockup rounds import them - but nothing
+    # ships through them any more.
+    "code": ("PY", PAGE),
     "comic": ("CBZ", (210, 96, 58)),
-    # PAPER, not the shared grey. A docx, a pdf, an xlsx and a pptx are all
-    # sheets of paper, and Word shows one as white on a canvas that is not
-    # white - so document is the third exception, after comic and code.
-    "document": ("DOCX", PAPER),
+    "document": ("DOCX", PAGE),
     "image": ("JPG", PAGE),
     "video": ("MP4", PAGE),
 }
@@ -211,8 +227,8 @@ def _document(kind, size, text=None):
     return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind], text=text), size)
 
 
-def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK,
-                    text=None):
+def _page_kind_with(kind, size, glyph, fold=BLACK, band=BLACK, label=LABEL_TEXT,
+                    mark=BLACK, text=None):
     """A page kind rendered with an arbitrary glyph.
 
     Exists so a mockup round can try alternative marks through the REAL
@@ -229,14 +245,15 @@ def _page_kind_with(kind, size, glyph, fold=INK, band=INK, label=None, mark=INK,
     having artwork rather than paper under the label.
 
     `fold`, `band`, `label` and `mark` default to the set's rule - everything
-    that is not the page in ink, the letters in the page colour - and exist for
-    CODE, whose dark page would swallow all four.
+    that is not the page in BLACK, the letters in the page colour - and remain
+    arguments for the mockup rounds, which still render the dark-page code
+    treatment through this same construction.
     """
     ext, colour = COLOURS[kind]
     ext = ext.upper() if text is None else text.upper()
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
     spec = _spec(page=colour, fold=fold, band=band, band_at="bottom", glyph_col=mark,
-                 glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
+                 glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)  # noqa: E501
     return build(size, obj, spec)
 
 
@@ -261,7 +278,8 @@ def _archive(kind, size, text=None):
     ext, colour = COLOURS[kind]
     body, ink = archive_layers(size, folder_zip, folder_zip_ink,
                                ext.upper() if text is None else text.upper(),
-                               label_col=(255, 255, 255, 255))
+                               label_col=(255, 255, 255, 255),
+                               ink_col=tuple(BLACK) + (255,))
     out = Image.new("RGBA", body.size, (0, 0, 0, 0))
     out.paste(Image.new("RGBA", body.size, tuple(colour) + (255,)), (0, 0), body)
     out.alpha_composite(ink)
@@ -308,8 +326,8 @@ def _comic(kind, size, text=None):
 
 
 RENDER = {k: _page_kind for k in PAGE_GLYPHS}
-RENDER["code"] = _code
-RENDER["document"] = _document
+# Two exceptions, and only two: a container rather than a page, and artwork
+# rather than a mark on one.
 RENDER["archive"] = _archive
 RENDER["comic"] = _comic
 
@@ -379,13 +397,17 @@ def icon_for_ext(ext, size):
     """
     kind = EXT_KIND[ext]
     if kind == "code":
+        # THE SAME CONSTRUCTION AS EVERY OTHER KIND (2026-09-01). This branch
+        # carried its own copy of the dark-page treatment - band and fold in
+        # PAGE, the label in the page's slate, a hairline round the outside -
+        # and kept rendering it after COLOURS moved code onto the shared grey.
+        # The result was a grey band on a grey page: a .ps1 and a .py came out
+        # nearly flat while prism-code.ico itself was correct, which is the
+        # failure mode of a second copy of a rule. It has no copy now.
         mark = langs.MARKS.get(langs.EXTS.get(ext))
         if mark is None:
-            return _code(kind, size, text=ext)
-        return _hairline(
-            _page_kind_with(kind, size, mark, fold=PAGE, band=PAGE,
-                            label=CODE_PAGE, mark=CODE_BARS, text=ext),
-            size, CODE_EDGE)
+            return _page_kind(kind, size, text=ext)
+        return _page_kind_with(kind, size, mark, text=ext)
     return RENDER[kind](kind, size, text=ext)
 
 
