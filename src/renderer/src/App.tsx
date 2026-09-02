@@ -1117,9 +1117,8 @@ export default function App(): JSX.Element {
       }
       const list = veils()
       const veil = fsVeilEl.current
-      // Opaque FIRST, and before anything moves: this is the whole fix for the
-      // one-frame desktop flash, and it has to happen while the black is up.
-      window.prism.setFsTransition(true)
+      // Opaque FIRST, and before anything moves, while the black is up.
+      window.prism.setFsTransition(true, on)
       if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         doSwap()
         return

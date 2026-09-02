@@ -848,6 +848,8 @@ let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
  * side has lifted.
  */
 let fsTransition = false
+/** Where the window was before it was grown to cover the screen. */
+let preFsBounds: Electron.Rectangle | null = null
 
 function applyMaterial(fullscreen: boolean): void {
   if (!mainWindow) return
@@ -1109,9 +1111,43 @@ function createWindow(): void {
   })
   // The renderer's fade brackets the whole swap: opaque on the way in, and the
   // material comes back only once the far side has been painted and lifted.
-  ipcMain.on('window:fs-transition', (_e, active: boolean) => {
+  ipcMain.on('window:fs-transition', (_e, active: boolean, entering?: boolean) => {
     fsTransition = !!active
     applyMaterial(!!mainWindow?.isFullScreen())
+    /**
+     * COVER THE SCREEN BEFORE GOING FULLSCREEN (2026-09-02).
+     *
+     * The flash is the window at its OLD bounds for one frame, and what shows
+     * in the gap is the desktop and the taskbar. Read off the owner's own
+     * recording rather than argued: in a video where the taskbar is hidden for
+     * all 563 frames, it is VISIBLE on exactly one - frame 389, which is the
+     * flash frame. The other flash, frame 141, has strips on the top and left,
+     * which is the same window at bounds smaller than the screen.
+     *
+     * So there is nothing to paint: the gap is outside the window, and no CSS
+     * of ours can reach it. What can be done is leave nothing to expose - put
+     * the window at the DISPLAY's full bounds first, taskbar area included,
+     * which `maximize()` does not do. It happens inside the renderer's 150ms
+     * fade, so it cannot be seen, and the bounds are restored on the way out.
+     *
+     * Maximizing instead was tried and measured WORSE - 7 flash frames against
+     * 2 - because a maximized window still stops short of the taskbar, so the
+     * gap is still there and the extra resize adds its own.
+     */
+    if (!mainWindow || !active) return
+    try {
+      if (entering && !mainWindow.isFullScreen()) {
+        const area = screen.getDisplayMatching(mainWindow.getBounds()).bounds
+        preFsBounds = mainWindow.getBounds()
+        mainWindow.setBounds(area)
+      } else if (!entering && preFsBounds) {
+        const b = preFsBounds
+        preFsBounds = null
+        mainWindow.setBounds(b)
+      }
+    } catch {
+      /* a display that vanished mid-transition: the swap still happens */
+    }
   })
   mainWindow.on('leave-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', false)

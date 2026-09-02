@@ -487,8 +487,8 @@ const api = {
   /** A fullscreen transition is starting or has finished. While one is in
    *  flight the window is held OPAQUE: a translucent window has nothing behind
    *  it, so the frame where it has resized but not repainted shows the desktop. */
-  setFsTransition: (active: boolean): void =>
-    ipcRenderer.send('window:fs-transition', active),
+  setFsTransition: (active: boolean, entering?: boolean): void =>
+    ipcRenderer.send('window:fs-transition', active, entering),
   onFullscreen: (cb: (on: boolean) => void): (() => void) => {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)
