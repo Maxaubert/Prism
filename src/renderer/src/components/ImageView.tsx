@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, ty
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
-import { useAutoHideChrome } from '../lib/autoHideChrome'
+import { chromeClass, useAutoHideChrome } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
@@ -59,7 +59,7 @@ export function ImageView({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // Pinned while the pointer is on the bar, or while the right-click menu is
   // open - an invisible menu would keep eating clicks and the first Escape.
-  const { shown: chromeShown } = useAutoHideChrome(
+  const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
     useCallback(
       () => !!menu || !!document.querySelector('[data-viewer-chrome]:hover'),
       [menu]
@@ -570,7 +570,7 @@ export function ImageView({
       {!failed && chromeShown && (
         <div
           data-viewer-chrome
-          className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur"
+          className={`pointer-events-none absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
         >
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">

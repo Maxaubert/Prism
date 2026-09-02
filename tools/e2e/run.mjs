@@ -1496,7 +1496,9 @@ async function chromeHideScenario(fixtures) {
   console.log('viewer chrome hides')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
   const bar = () => win.locator('[data-viewer-chrome]')
-  const pill = () => win.locator('text=/Page \d+ of \d+/')
+  // A real regex. Written as a string, `\d` collapses to `d` and the locator
+  // matches nothing, so the assertion below passed without testing anything.
+  const pill = () => win.getByText(/Page \d+ of \d+/)
   try {
     await win.waitForSelector('[data-viewer-chrome]', { timeout: 20000 })
     ok(true, 'the control cluster is up when the page opens')
@@ -1514,6 +1516,21 @@ async function chromeHideScenario(fixtures) {
     ok(
       boxes.pill[1] <= boxes.bar[0] + 1,
       `the counter sits ABOVE the cluster (counter ${boxes.pill}, cluster ${boxes.bar})`
+    )
+
+    // IT ANIMATES BOTH WAYS. Asserted from the computed style rather than by
+    // catching it mid-fade, which would race the clock and be flaky: the
+    // entrance is a keyframe (a freshly mounted element has no previous value
+    // to transition FROM) and the exit is a transition.
+    const anim = await win.evaluate(() => {
+      const el = document.querySelector('[data-viewer-chrome]')
+      const cs = el && getComputedStyle(el)
+      return cs ? { name: cs.animationName, prop: cs.transitionProperty, dur: cs.transitionDuration } : null
+    })
+    ok(anim?.name === 'p-chrome-in', `it fades IN on a keyframe (${anim?.name})`)
+    ok(
+      anim.prop.includes('opacity') && parseFloat(anim.dur) > 0,
+      `and carries an opacity transition for the way out (${anim?.prop} ${anim?.dur})`
     )
 
     // Park the pointer clear of the cluster so its own :hover cannot pin it,

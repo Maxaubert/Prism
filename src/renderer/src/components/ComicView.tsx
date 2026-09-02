@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type JSX } from 'react'
 import { ImageView } from './ImageView'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
-import { useAutoHideChrome } from '../lib/autoHideChrome'
+import { chromeClass, useAutoHideChrome } from '../lib/autoHideChrome'
 
 /**
  * A comic book (2026-08-31).
@@ -51,7 +51,7 @@ export function ComicView({
   const [shownFor, setShownFor] = useState(path)
   // The same clock the picture's own controls run on, so the counter and the
   // zoom cluster come and go together rather than one outliving the other.
-  const { shown: chromeShown } = useAutoHideChrome(
+  const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
     useCallback(() => !!document.querySelector('[data-viewer-chrome]:hover'), [])
   )
   if (shownFor !== path) {
@@ -168,7 +168,9 @@ export function ComicView({
           showed through from behind it. Different rows, not a fight over the
           same one. */}
       {total > 1 && chromeShown && (
-        <div className="pointer-events-none absolute bottom-[3.6rem] left-1/2 z-20 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-3 py-1 text-[11.5px] tabular-nums text-[var(--p-dim)]">
+        <div
+          className={`pointer-events-none absolute bottom-[3.6rem] left-1/2 z-20 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-3 py-1 text-[11.5px] tabular-nums text-[var(--p-dim)] ${chromeClass(chromeLeaving)}`}
+        >
           Page {at + 1} of {total}
         </div>
       )}
