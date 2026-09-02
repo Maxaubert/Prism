@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type MouseEvent,
+  type ReactNode,
+  type WheelEvent
+} from 'react'
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
@@ -39,6 +48,7 @@ export function ImageView({
   onToggleFullscreen,
   onStep,
   canStep,
+  status,
   fullscreen = false
 }: {
   url: string
@@ -52,6 +62,11 @@ export function ImageView({
   /** Whether there IS one that way, which is how the slideshow knows to wrap
    *  by walking back to the start rather than stopping at the end. */
   canStep?: (dir: 1 | -1) => boolean
+  /** Something to show in the control bar, between the zoom group and the
+   *  rotate/fullscreen group: the comic's page counter. ONE BAR rather than two
+   *  (owner, 2026-09-02) - a second pill stacked above this one was twice the
+   *  chrome for one line of text. */
+  status?: ReactNode
   /** Fullscreen paints the stage black and shows no checkerboard: the same
    *  rule the film follows, for the same reason. */
   fullscreen?: boolean
@@ -63,7 +78,13 @@ export function ImageView({
     useCallback(
       () => !!menu || !!document.querySelector('[data-viewer-chrome]:hover'),
       [menu]
-    )
+    ),
+    undefined,
+    // The arrows are navigation - a comic page turn, a step through the folder -
+    // and doing the thing you came to do should not summon the controls. Every
+    // other key still does, because +, -, 0, 1 and R all change what the bar is
+    // showing.
+    useCallback((e: KeyboardEvent) => !e.key.startsWith('Arrow'), [])
   )
   /**
    * What the ELEMENT says it is, when the header parser could not say.
@@ -570,7 +591,14 @@ export function ImageView({
       {!failed && chromeShown && (
         <div
           data-viewer-chrome
-          className={`pointer-events-none absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
+          // THE WHOLE PILL TAKES THE POINTER, not just its buttons. It was
+          // `pointer-events-none` with each button opting back in, which meant
+          // the gaps, the dividers and the page counter could not be hovered -
+          // so `[data-viewer-chrome]:hover`, which is what pins the bar open,
+          // did not match when the cursor sat on the counter in the middle of
+          // it. Reaching for a control and pausing your hand has to hold it up
+          // wherever on the bar the hand stopped.
+          className={`pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
         >
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
@@ -584,6 +612,12 @@ export function ImageView({
           >
             1:1
           </button>
+          {status != null && (
+            <>
+              <div className="mx-1 h-5 w-px bg-white/15" />
+              <span className="px-1 text-[11.5px] tabular-nums text-[var(--p-dim)]">{status}</span>
+            </>
+          )}
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={() => setRot((d) => (d + 90) % 360)} title="Rotate (R)">
             <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

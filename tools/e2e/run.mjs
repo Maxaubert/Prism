@@ -1503,20 +1503,25 @@ async function chromeHideScenario(fixtures) {
     await win.waitForSelector('[data-viewer-chrome]', { timeout: 20000 })
     ok(true, 'the control cluster is up when the page opens')
 
-    // THE BOXES MUST NOT OVERLAP. Measured rather than eyeballed: this is the
-    // `+` and `1:1` showing through from behind the page counter.
-    const boxes = await win.evaluate(() => {
-      const b = document.querySelector('[data-viewer-chrome]')?.getBoundingClientRect()
-      const p = [...document.querySelectorAll('div')]
-        .find((e) => /^Page \d+ of \d+$/.test(e.textContent ?? ''))
-        ?.getBoundingClientRect()
-      return b && p ? { bar: [b.top, b.bottom], pill: [p.top, p.bottom] } : null
+    // ONE BAR (owner, 2026-09-02). The counter used to be a second pill stacked
+    // above the cluster, and before that the two were drawn on top of one
+    // another - the counter won on z-index and the cluster's `+` and `1:1`
+    // showed through from behind it. It lives INSIDE the bar now, which is what
+    // this asserts: one element on screen, with the counter within it.
+    const bars = await win.evaluate(() => {
+      const all = [...document.querySelectorAll('[data-viewer-chrome]')]
+      const counter = [...document.querySelectorAll('span')].filter((e) =>
+        /^Page \d+ of \d+$/.test(e.textContent ?? '')
+      )
+      return {
+        bars: all.length,
+        counters: counter.length,
+        inside: counter.length === 1 && !!all[0]?.contains(counter[0])
+      }
     })
-    ok(boxes !== null, 'both the cluster and the page counter are on screen')
-    ok(
-      boxes.pill[1] <= boxes.bar[0] + 1,
-      `the counter sits ABOVE the cluster (counter ${boxes.pill}, cluster ${boxes.bar})`
-    )
+    ok(bars.bars === 1, `there is ONE control bar (${bars.bars})`)
+    ok(bars.counters === 1, `and one page counter (${bars.counters})`)
+    ok(bars.inside, 'and the counter is inside the bar, not a second one above it')
 
     // IT ANIMATES BOTH WAYS. Asserted from the computed style rather than by
     // catching it mid-fade, which would race the clock and be flaky: the
@@ -1545,6 +1550,19 @@ async function chromeHideScenario(fixtures) {
     await win.mouse.move(320, 310)
     await sleep(500)
     ok((await bar().count()) === 1, 'and comes back on pointer movement alone')
+
+    // BUT NOT ON AN ARROW. Turning a page is the thing you came to do, and it
+    // brought the bar back on every page of a comic read with the keyboard.
+    await win.mouse.move(40, 60)
+    await sleep(4200)
+    ok((await bar().count()) === 0, 'it is away again')
+    await win.keyboard.press('ArrowRight')
+    await sleep(700)
+    ok((await bar().count()) === 0, 'an ArrowRight page turn does NOT summon it')
+    // While a key that changes what the bar SHOWS still does.
+    await win.keyboard.press('r')
+    await sleep(400)
+    ok((await bar().count()) === 1, 'but R, which rotates, still does')
 
     // Hovering it holds it up: reaching for a button and pausing your hand
     // must not make the button disappear.

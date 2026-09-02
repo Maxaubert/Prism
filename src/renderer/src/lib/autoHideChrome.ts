@@ -7,6 +7,20 @@ export const CHROME_IDLE = 2600
 export const CHROME_FADE = 160
 
 /**
+ * When the user last did something, held at MODULE level rather than per hook.
+ *
+ * Because the chrome's owner REMOUNTS. A comic keys its ImageView by page, so
+ * every page turn builds a fresh one - and a per-instance clock starts over,
+ * which meant the bar reappeared on every page of a book read with the
+ * keyboard. Excluding the arrow keys could never have fixed that on its own:
+ * the state was not being woken, it was being born.
+ *
+ * Seeded at module load so the first file opened in a session shows its
+ * controls, and never reset on mount, which is the whole point.
+ */
+let lastActivity = Date.now()
+
+/**
  * Viewer chrome that gets out of the way, and comes back on movement.
  *
  * THIS IS THE VIDEO TRANSPORT'S RULE, extracted so there is one of it. It cost
@@ -41,12 +55,23 @@ export const CHROME_FADE = 160
  */
 export function useAutoHideChrome(
   pinned: () => boolean,
-  idle = CHROME_IDLE
+  idle = CHROME_IDLE,
+  /**
+   * Which keys count as activity. Every key does by default, which is right for
+   * the film - space, the volume keys and the seek keys all change something
+   * the transport is showing.
+   *
+   * A COMIC IS THE OTHER CASE (owner, 2026-09-02): Left and Right turn its
+   * pages, so reading a book with the keyboard brought the bar back on every
+   * single page. Turning a page is the thing you came to do, not a request to
+   * see the controls.
+   */
+  wakesOnKey: (e: KeyboardEvent) => boolean = () => true
 ): { shown: boolean; leaving: boolean; wake: () => void } {
-  const [shown, setShown] = useState(true)
+  // Inherited, not assumed: a remount picks up where the clock actually is, so
+  // a page turn does not bring the bar back.
+  const [shown, setShown] = useState(() => Date.now() - lastActivity < idle)
   const [leaving, setLeaving] = useState(false)
-  // Zero until the first effect: reading the clock during render is impure.
-  const lastWake = useRef(0)
   /** When the fade started, so the clock knows when it is over. */
   const leftAt = useRef(0)
   // Held in a ref so the interval never has to be torn down and rebuilt, which
@@ -59,7 +84,7 @@ export function useAutoHideChrome(
   }, [pinned])
 
   const wake = useCallback(() => {
-    lastWake.current = Date.now()
+    lastActivity = Date.now()
     // A wake DURING the fade reverses it: the element is still mounted, so it
     // simply transitions back to opaque rather than flickering out and in.
     setLeaving(false)
@@ -67,7 +92,6 @@ export function useAutoHideChrome(
   }, [])
 
   useEffect(() => {
-    lastWake.current = Date.now()
     // 60ms rather than 250: the fade's end has to be noticed within a frame or
     // two of it finishing, or the element lingers invisible for longer than it
     // took to fade.
@@ -81,7 +105,7 @@ export function useAutoHideChrome(
         }
         return
       }
-      if (now - lastWake.current < idle) return
+      if (now - lastActivity < idle) return
       if (isPinned.current()) return
       leftAt.current = now
       setLeaving(true)
@@ -95,16 +119,28 @@ export function useAutoHideChrome(
     if (!leaving) leftAt.current = 0
   }, [leaving])
 
+  // Held in a ref for the same reason `pinned` is: re-registering the window
+  // listeners on every render is how one gets missed.
+  const keyWakes = useRef(wakesOnKey)
+  useEffect(() => {
+    keyWakes.current = wakesOnKey
+  }, [wakesOnKey])
+
   useEffect(() => {
     const on = (): void => wake()
+    const onKey = (e: KeyboardEvent): void => {
+      if (keyWakes.current(e)) wake()
+    }
+    // pointermove rather than mousemove: Chromium fires `mousemove` on a layout
+    // change under a STATIONARY cursor, which a page turn is.
     window.addEventListener('pointermove', on, { capture: true, passive: true })
-    window.addEventListener('keydown', on, true)
+    window.addEventListener('keydown', onKey, true)
     // Entering or leaving fullscreen relays out the whole stage, and the chrome
     // has to be visible on the other side of it.
     document.addEventListener('fullscreenchange', on)
     return () => {
       window.removeEventListener('pointermove', on, true)
-      window.removeEventListener('keydown', on, true)
+      window.removeEventListener('keydown', onKey, true)
       document.removeEventListener('fullscreenchange', on)
     }
   }, [wake])

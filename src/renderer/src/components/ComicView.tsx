@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type JSX } from 'react'
 import { ImageView } from './ImageView'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
-import { chromeClass, useAutoHideChrome } from '../lib/autoHideChrome'
 
 /**
  * A comic book (2026-08-31).
@@ -49,11 +48,6 @@ export function ComicView({
   // everything else per file: an effect runs a frame too late, so the new
   // comic gets one frame wearing the old one's page number.
   const [shownFor, setShownFor] = useState(path)
-  // The same clock the picture's own controls run on, so the counter and the
-  // zoom cluster come and go together rather than one outliving the other.
-  const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
-    useCallback(() => !!document.querySelector('[data-viewer-chrome]:hover'), [])
-  )
   if (shownFor !== path) {
     setShownFor(path)
     setPage(0)
@@ -156,24 +150,8 @@ export function ComicView({
         name={pageName}
         onToggleFullscreen={onToggleFullscreen}
         fullscreen={fullscreen}
+        status={total > 1 ? `Page ${at + 1} of ${total}` : undefined}
       />
-      {/* The page counter. MOUNTS and UNMOUNTS rather than fading, the rule
-          the transport learned the hard way: a layer taken to opacity 0
-          inside a fullscreen element is composited once and never repainted.
-          It hides with the picture's own controls now, on the same clock.
-
-          AND IT SITS ABOVE THEM. It was at bottom-4, which is where the image
-          viewer puts its zoom cluster, so the two were drawn on top of one
-          another: the counter won on z-index and the cluster's `+` and `1:1`
-          showed through from behind it. Different rows, not a fight over the
-          same one. */}
-      {total > 1 && chromeShown && (
-        <div
-          className={`pointer-events-none absolute bottom-[3.6rem] left-1/2 z-20 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-3 py-1 text-[11.5px] tabular-nums text-[var(--p-dim)] ${chromeClass(chromeLeaving)}`}
-        >
-          Page {at + 1} of {total}
-        </div>
-      )}
     </div>
   )
 }
