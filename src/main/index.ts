@@ -829,12 +829,32 @@ function watchWindowState(win: BrowserWindow): void {
  */
 let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
 
+/**
+ * A fullscreen transition is in flight, so hold the window OPAQUE (2026-09-02).
+ *
+ * THE ONE-FRAME FLASH. A translucent style sets the window background to
+ * `#00000000` - genuinely transparent, because DWM composites the material
+ * behind it - and `applyMaterial(true)` only made it opaque on
+ * `enter-full-screen`, which fires once the resize is already under way. For a
+ * single frame the window has grown but the page has not painted the new area,
+ * and with nothing behind it that gap is the DESKTOP. Caught on video and
+ * measured: one frame in sixteen of black, a 15px border of flat #ababab going
+ * in and a blue-grey strip coming out - two different colours because it was
+ * two different bits of wallpaper.
+ *
+ * The renderer already fades to black for 150ms before it calls
+ * requestFullscreen, so it says so first and main goes opaque inside that fade,
+ * where nothing can be seen changing. It stays opaque until the fade on the far
+ * side has lifted.
+ */
+let fsTransition = false
+
 function applyMaterial(fullscreen: boolean): void {
   if (!mainWindow) return
   const { material, light } = wantedMaterial
   const solid = light ? '#f7f7f9' : '#111318'
   try {
-    if (fullscreen || material === 'none') {
+    if (fullscreen || fsTransition || material === 'none') {
       mainWindow.setBackgroundColor(solid)
       mainWindow.setBackgroundMaterial('none')
     } else {
@@ -1086,6 +1106,12 @@ function createWindow(): void {
   mainWindow.on('enter-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', true)
     applyMaterial(true)
+  })
+  // The renderer's fade brackets the whole swap: opaque on the way in, and the
+  // material comes back only once the far side has been painted and lifted.
+  ipcMain.on('window:fs-transition', (_e, active: boolean) => {
+    fsTransition = !!active
+    applyMaterial(!!mainWindow?.isFullScreen())
   })
   mainWindow.on('leave-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', false)

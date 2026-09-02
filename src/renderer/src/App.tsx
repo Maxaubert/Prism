@@ -1077,7 +1077,10 @@ export default function App(): JSX.Element {
   )
   const liftVeil = useCallback(() => {
     const list = veils()
-    if (!list.length) return
+    if (!list.length) {
+      window.prism.setFsTransition(false)
+      return
+    }
     // Hold the black a beat (200ms) before lifting: the swap should be felt,
     // not glimpsed. The double rAF then guarantees the new frame is laid out.
     setTimeout(() => {
@@ -1087,6 +1090,10 @@ export default function App(): JSX.Element {
             v.style.transition = 'opacity 280ms ease-out'
             v.style.opacity = '0'
           }
+          // The far side is painted and the black is lifting: the window may
+          // have its material back. Held until now rather than released on
+          // `enter-full-screen`, which fires while the resize is still running.
+          setTimeout(() => window.prism.setFsTransition(false), 300)
         })
       )
     }, 200)
@@ -1110,6 +1117,9 @@ export default function App(): JSX.Element {
       }
       const list = veils()
       const veil = fsVeilEl.current
+      // Opaque FIRST, and before anything moves: this is the whole fix for the
+      // one-frame desktop flash, and it has to happen while the black is up.
+      window.prism.setFsTransition(true)
       if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         doSwap()
         return
