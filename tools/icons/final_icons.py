@@ -83,6 +83,12 @@ BAND = (PX0, PY1 - (CHIP[3] - CHIP[1]), PX1, PY1)
 #: here, so the .ico's band and the app's #000000 cannot drift.
 BLACK = (0, 0, 0)
 
+#: The extension, on the black band. WHITE (owner, 2026-09-01: "black label bg
+#: white text"). It used to be drawn in the PAGE colour, which is the set's
+#: light grey - so the label read grey-on-black and he read it as the band
+#: itself being grey.
+LABEL_TEXT = (255, 255, 255)
+
 PAGE = (170, 178, 192)
 PAPER = (255, 255, 255)
 
@@ -221,8 +227,8 @@ def _document(kind, size, text=None):
     return _hairline(_page_kind_with(kind, size, PAGE_GLYPHS[kind], text=text), size)
 
 
-def _page_kind_with(kind, size, glyph, fold=BLACK, band=BLACK, label=None, mark=BLACK,
-                    text=None):
+def _page_kind_with(kind, size, glyph, fold=BLACK, band=BLACK, label=LABEL_TEXT,
+                    mark=BLACK, text=None):
     """A page kind rendered with an arbitrary glyph.
 
     Exists so a mockup round can try alternative marks through the REAL
@@ -247,7 +253,7 @@ def _page_kind_with(kind, size, glyph, fold=BLACK, band=BLACK, label=None, mark=
     ext = ext.upper() if text is None else text.upper()
     obj = Kind(kind, ext, colour, colour, "", glyph, glyph)
     spec = _spec(page=colour, fold=fold, band=band, band_at="bottom", glyph_col=mark,
-                 glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)
+                 glyph_box=BOX, text=ext, text_col=label or colour, sprocket=colour)  # noqa: E501
     return build(size, obj, spec)
 
 
@@ -391,13 +397,17 @@ def icon_for_ext(ext, size):
     """
     kind = EXT_KIND[ext]
     if kind == "code":
+        # THE SAME CONSTRUCTION AS EVERY OTHER KIND (2026-09-01). This branch
+        # carried its own copy of the dark-page treatment - band and fold in
+        # PAGE, the label in the page's slate, a hairline round the outside -
+        # and kept rendering it after COLOURS moved code onto the shared grey.
+        # The result was a grey band on a grey page: a .ps1 and a .py came out
+        # nearly flat while prism-code.ico itself was correct, which is the
+        # failure mode of a second copy of a rule. It has no copy now.
         mark = langs.MARKS.get(langs.EXTS.get(ext))
         if mark is None:
-            return _code(kind, size, text=ext)
-        return _hairline(
-            _page_kind_with(kind, size, mark, fold=PAGE, band=PAGE,
-                            label=CODE_PAGE, mark=CODE_BARS, text=ext),
-            size, CODE_EDGE)
+            return _page_kind(kind, size, text=ext)
+        return _page_kind_with(kind, size, mark, text=ext)
     return RENDER[kind](kind, size, text=ext)
 
 
