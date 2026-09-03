@@ -20,7 +20,10 @@ import {
 describe('the generated icon tables', () => {
   it('gives every kind a body and a label', () => {
     const kinds = Object.keys(ICON_PATHS)
-    expect(kinds.length).toBe(7)
+    // Seven kinds, plus the DISC: the one extension whose shape is not its
+    // kind's (.iso, an archive that draws a disc in the tree - round 33).
+    expect(kinds.length).toBe(8)
+    expect(kinds).toContain('iso')
     for (const k of kinds) {
       const g = ICON_PATHS[k as keyof typeof ICON_PATHS]
       expect(g.body.length, k).toBeGreaterThan(20)

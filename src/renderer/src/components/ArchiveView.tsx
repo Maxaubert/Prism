@@ -8,6 +8,7 @@ import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { Dialog } from './Dialog'
+import { endJob, startJob, updateJob } from '../lib/jobs'
 import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
@@ -244,8 +245,6 @@ function ArchiveInner({
   // 7z, rar, tar and the rest are read through 7-Zip and never written, so the
   // panel offers no verbs that would fail. zip keeps all of its.
   const [readOnly, setReadOnly] = useState(false)
-  /** How far an extraction has got, or null when none is running. */
-  const [pct, setPct] = useState<number | null>(null)
   /** A password has already been tried and refused, so the dialog says so. */
   const [triedPass, setTriedPass] = useState(false)
   /** The panel's dead-space menu, kept apart from the row menu's state. */
@@ -412,6 +411,31 @@ function ArchiveInner({
     },
     [file.path, withPassword]
   )
+  /** The archive's own folder: where "Extract here" lands a member. */
+  const besideArchive = file.path.replace(/[\\/][^\\/]*$/, '')
+  /** Members OUT to a real folder (2026-09-03, owner: "Extract here" and
+   *  "Extract to..." on a member row, file or folder alike). `here` lands
+   *  beside the archive, inside the root; otherwise main's dialog picks,
+   *  which is the consent that lets it write anywhere. Both run as a job on
+   *  the chip. `label` names what is going, for the chip. */
+  const extractMembers = useCallback(
+    (entry: Entry, entries: string[], here: boolean): void => {
+      const label = entry.path.split('/').filter(Boolean).pop() ?? entry.path
+      const job = startJob('extract', 'Extracting ' + label)
+      withPassword(entry, (pw) =>
+        (here
+          ? window.prism.archiveExtractTo(file.path, entries, besideArchive, pw)
+          : window.prism.archiveExtractMembersTo(file.path, entries, pw)
+        ).then((r) => {
+          endJob(job)
+          if (r.ok) return 'ok'
+          return r.reason === 'cancelled' ? 'ok' : r.reason
+        })
+      )
+    },
+    [file.path, besideArchive, withPassword]
+  )
+
   const copyOut = useCallback(
     (entry: Entry): void =>
       withPassword(entry, (pw) =>
@@ -487,13 +511,6 @@ function ArchiveInner({
     },
     [order]
   )
-  useEffect(
-    () =>
-      window.prism.onArchiveProgress((m) => {
-        if (m.path.toLowerCase() === file.path.toLowerCase()) setPct(m.pct)
-      }),
-    [file.path]
-  )
   /** Copy every selected FILE out at once; folders don't extract. */
   const copyMany = useCallback(
     (paths: string[]): void => {
@@ -526,11 +543,9 @@ function ArchiveInner({
    */
   const copyFolder = useCallback(
     (entry: string): void => {
-      setPct(null)
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry).then((r) => {
         setBusy(null)
-        setPct(null)
         if (r.ok) void window.prism.copyFilesToClipboard([r.path])
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops(
@@ -549,11 +564,11 @@ function ArchiveInner({
   /** One folder from inside the archive, out beside the archive itself. */
   const extractFolderHere = useCallback(
     (entry: string): void => {
-      setPct(null)
       setBusy('extract')
+      const job = startJob('extract', 'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry))
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
+        endJob(job)
         setBusy(null)
-        setPct(null)
         if (r.ok) setJustDone(true)
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops('That folder is password protected. Open a member first to unlock the archive.')
@@ -599,11 +614,18 @@ function ArchiveInner({
    *  contents in a folder named after the archive. */
   const extractAll = useCallback(
     (here = false): void => {
-      setPct(null)
       setBusy('extract')
+      // A job on the CHIP (2026-09-03, owner), not a popup and not a bar under
+      // the verbs: the same readout the sidebar's verb uses, and a second
+      // archive queues behind this one instead of waiting for it.
+      const job = startJob('extract', 'Extracting ' + file.name)
+      const off = window.prism.onArchiveProgress((m) => {
+        if (m.path.toLowerCase() === file.path.toLowerCase()) updateJob(job, m.pct)
+      })
       void window.prism.archiveExtractAll(file.path, here).then((r) => {
+        off()
+        endJob(job)
         setBusy(null)
-        setPct(null)
         if (r.ok) setJustDone(true)
         else if (r.reason === 'cancelled') return
         else if (r.reason === 'password')
@@ -859,6 +881,11 @@ function ArchiveInner({
         onPick: () => extractFolderHere(entry.path)
       },
       {
+        label: 'Extract folder to…',
+        disabled: n === 0,
+        onPick: () => extractMembers(entry, members, false)
+      },
+      {
         label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
         disabled: n === 0,
         onPick: () => copyMany(members)
@@ -880,11 +907,15 @@ function ArchiveInner({
       : readOnly
         ? [
             { label: 'View', onPick: () => view(entry) },
-            { label: 'Copy file', onPick: () => copyOut(entry) }
+            { label: 'Copy file', onPick: () => copyOut(entry) },
+            { label: 'Extract here', onPick: () => extractMembers(entry, [entry.path], true) },
+            { label: 'Extract to…', onPick: () => extractMembers(entry, [entry.path], false) }
           ]
         : [
             { label: 'View', onPick: () => view(entry) },
             { label: 'Copy file', onPick: () => copyOut(entry) },
+            { label: 'Extract here', onPick: () => extractMembers(entry, [entry.path], true) },
+            { label: 'Extract to…', onPick: () => extractMembers(entry, [entry.path], false) },
             { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
             { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
           ]
@@ -964,15 +995,7 @@ function ArchiveInner({
             archive to do, and hunting a menu for "extract" was the gap. */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
           <ArcVerb
-            label={
-              busy === 'extract'
-                ? pct === null
-                  ? 'Extracting…'
-                  : `Extracting… ${pct}%`
-                : justDone
-                  ? 'Extracted'
-                  : 'Extract here'
-            }
+            label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
             disabled={busy !== null}
             onClick={() => extractAll(true)}
             path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
@@ -1009,29 +1032,11 @@ function ArchiveInner({
             path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
           />
         </div>
-        {/* The track is ALWAYS in the layout and only fades in, so starting
-            and finishing an extraction moves nothing: the first cut of this
-            inserted the bar when the work began, which pushed the member list
-            down and pulled it back up again. Only painted once 7-Zip has said
-            a number - a bar that appears at 0 and sits there is worse than the
-            word on the button. */}
-        <div
-          className={`mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)] transition-opacity duration-200 ${
-            busy === 'extract' && pct !== null ? 'opacity-100' : 'opacity-0'
-          }`}
-          role="progressbar"
-          aria-valuenow={pct ?? 0}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Extracting"
-          aria-hidden={busy === 'extract' && pct !== null ? undefined : true}
-        >
-          <div
-            className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
-            style={{ width: `${pct ?? 0}%` }}
-          />
-        </div>
-
+        {/* The inline track is GONE (2026-09-03, owner): the sidebar's
+            extract verb showed a popup while this panel drew a bar under the
+            verbs, and two looks for the same wait read as two apps. The
+            popup below is the one look - bar plus percentage, leaving by
+            itself when the work lands. */}
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
                 itself is the first crumb wherever you stand, so the path

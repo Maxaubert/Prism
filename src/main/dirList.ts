@@ -4,17 +4,19 @@ import { basename, extname, join, resolve, sep } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import type { DirListing, SearchHit, SearchResult, ViewerFile } from '@shared/types'
+import { searchEverything } from './everything'
 
 // Reading directories for the sidebar tree, and the guard that keeps it inside
 // the folder Prism was opened in. Main owns this: the renderer never gets to name
 // a path we haven't checked.
 
-// Windows clutter nobody wants in a viewer's tree. Dotfiles are dropped too.
-const SKIP = new Set(['desktop.ini', 'thumbs.db', '$recycle.bin', 'system volume information'])
-
-/** The same rule, for the folder watcher: waking the renderer for a change
- *  to something it would never draw a row for is all cost and no answer. */
-export const isSkipped = (name: string): boolean => SKIP.has(name.toLowerCase())
+// Windows clutter nobody wants in a viewer's tree lives in shared/listRules,
+// because the Everything bridge applies the same rule. Dotfiles are dropped
+// too. Re-exported for the folder watcher, which asks the same question:
+// waking the renderer for a change to something it would never draw a row
+// for is all cost and no answer.
+import { isSkipped } from '@shared/listRules'
+export { isSkipped }
 
 const isWin = process.platform === 'win32'
 
@@ -131,6 +133,13 @@ export async function searchFiles(
   if (!terms.length) return { hits, truncated: false }
 
   const mine = ++searchGeneration
+  // EVERYTHING FIRST (2026-09-03, owner): its index covers the whole drive
+  // where this walk covers 20000 entries. The walk is the fallback - for a
+  // machine without it, a service that is down, and an index that has not
+  // yet seen a file made a second ago, which is why an EMPTY answer walks.
+  const indexed = await searchEverything(root, terms, maxHits)
+  if (mine !== searchGeneration) return { hits: [], truncated: false }
+  if (indexed && indexed.hits.length) return indexed
   let scanned = 0
   const queue: string[] = [root]
   while (queue.length) {
@@ -151,7 +160,7 @@ export async function searchFiles(
       for (const e of entries) {
         if (++scanned > maxEntries) return { hits, truncated: true }
         const name = e.name
-        if (name.startsWith('.') || SKIP.has(name.toLowerCase())) continue
+        if (name.startsWith('.') || isSkipped(name)) continue
         if (e.isDirectory()) {
           queue.push(join(dir, name))
           // A folder is a search hit too (2026-08-30). This enqueued and moved
@@ -213,7 +222,7 @@ export async function listDir(dir: string): Promise<DirListing> {
   } catch {
     return { folders: [], files: [], unreadable: true }
   }
-  const wanted = entries.filter((e) => !e.name.startsWith('.') && !SKIP.has(e.name.toLowerCase()))
+  const wanted = entries.filter((e) => !e.name.startsWith('.') && !isSkipped(e.name))
 
   const rows = await mapLimit(wanted, STAT_LIMIT, async (e) => {
     const p = join(dir, e.name)

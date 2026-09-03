@@ -13,7 +13,11 @@ import {
   setTabTerm,
   toggleTermView,
   type TabState,
-  type TreeState
+  type TreeState,
+  addTerm,
+  pickTerm,
+  removeTerm,
+  termLabel
 } from './lib/tabs'
 import {
   lastSplitDir,
@@ -21,7 +25,8 @@ import {
   pinPane,
   saveSplitDir,
   unpinPane,
-  type SplitDir
+  type SplitDir,
+  pinTermPane
 } from './lib/panes'
 import { fileKind } from '@shared/fileKind'
 import {
@@ -46,6 +51,11 @@ import {
 } from './lib/termActivity'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
+// A shell pinned as a PANE renders the same panel the dock does, behind the
+// same lazy boundary, so xterm stays out of the launch bundle.
+const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
+import { ContextMenu } from './components/ContextMenu'
+import { tickIf } from './lib/fileVerbs'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -98,6 +108,7 @@ const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
+import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
   emptyUndo,
@@ -604,31 +615,99 @@ function Viewer({
   }
 }
 
+/** The four places a split pane can sit, as a submenu (owner, 2026-09-03:
+ *  "a tree structure ... so we don't bloat the options"). Shared by the
+ *  pinned panes and the terminal dock. */
+export const SPLIT_DIRS: ReadonlyArray<{ dir: SplitDir; label: string }> = [
+  { dir: 'left', label: 'Left' },
+  { dir: 'right', label: 'Right' },
+  { dir: 'top', label: 'Top' },
+  { dir: 'bottom', label: 'Bottom' }
+]
+
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
 function PinnedPaneView({
   paneId,
   path,
   area,
+  dir,
+  term,
+  termRoot,
+  shellId,
+  onMove,
   onClose,
   viewerProps
 }: {
   paneId: string
   path: string
   area: string
+  dir: SplitDir
+  /** A TERMINAL pane (2026-09-03): the shell's id, its root and the shell
+   *  to spawn, instead of a file. */
+  term?: string
+  termRoot?: string
+  shellId?: string
+  onMove: (dir: SplitDir) => void
   onClose: () => void
-  viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
+  /** What a FILE pane's viewer needs; a terminal pane has no viewer. */
+  viewerProps?: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
-  const name = path.split(/[\\/]/).pop() ?? path
+  const name = term ? 'terminal' : (path.split(/[\\/]/).pop() ?? path)
   const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
   const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   return (
     <div
       data-pane="pinned"
       data-pane-id={paneId}
       className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
       style={{ gridArea: area }}
+      // A right-click along the pane's TOP BAND (owner, 2026-09-03) is about
+      // the pane - where it sits, and taking it out of the split. Lower down
+      // the file's own menu answers, so this is decided by height in the
+      // capture phase rather than by a strip that would eat the picture's
+      // clicks.
+      onContextMenuCapture={(e) => {
+        const top = e.currentTarget.getBoundingClientRect().top
+        if (e.clientY - top > 28) return
+        e.preventDefault()
+        e.stopPropagation()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
-      <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: 'Split view position',
+              children: SPLIT_DIRS.map((d) => ({
+                label: d.label,
+                icon: tickIf(d.dir === dir),
+                onPick: () => onMove(d.dir)
+              }))
+            },
+            { label: 'Remove from split view', onPick: onClose }
+          ]}
+        />
+      )}
+      {term ? (
+        <div className="h-full w-full" data-term-region>
+          <Suspense
+            fallback={
+              <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">
+                Starting shell…
+              </div>
+            }
+          >
+            <TerminalPanelLazy sessionId={term} root={termRoot ?? ''} shellId={shellId} />
+          </Suspense>
+        </div>
+      ) : viewerProps ? (
+        <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      ) : null}
       <button
         className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
         onClick={onClose}
@@ -1014,6 +1093,14 @@ export default function App(): JSX.Element {
             m.ensureTermSession(termId, root, savedShellId())
           )
           tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
+          // The other shells the tab held get their SLOTS now and spawn when
+          // picked (2026-09-03): a hidden terminal never mounts a panel, and
+          // the panel is what spawns.
+          for (let k = 1; k < (p.terms ?? 1); k += 1) {
+            const extra = nextTermId()
+            termRoots.current.set(extra, target.root)
+            tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
+          }
         }
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
@@ -1255,10 +1342,11 @@ export default function App(): JSX.Element {
       // The tab's shell dies with it, both halves: main's pty and the
       // renderer's xterm instance.
       const tab = s.tabs.find((t) => t.id === id)
-      if (tab?.term) {
-        window.prism.termKill(tab.term.id)
-        disposeSession(tab.term.id)
-        termRoots.current.delete(tab.term.id)
+      // EVERY shell the tab held (2026-09-03), not only the current one.
+      for (const termId of tab?.terms ?? []) {
+        window.prism.termKill(termId)
+        disposeSession(termId)
+        termRoots.current.delete(termId)
       }
       // ...and so does the level it was playing at: the id never comes back.
       forgetTabVolume(id)
@@ -1339,16 +1427,19 @@ export default function App(): JSX.Element {
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else {
         const mode = confirmCloseMode()
-        const agentLive = !!tab.term && agentIds.has(tab.term.id)
+        // ANY of the tab's shells (2026-09-03): a working agent in a hidden
+        // second terminal is exactly what the question exists to protect.
+        const agentLive = tab.terms.some((id) => agentIds.has(id))
         // What is actually at stake, so the question can say it: an agent
         // that is WORKING (not merely present) and how long it has been at
         // it. 'never' still means never - it is an explicit choice, and a
         // confirmation that appears anyway is a setting that lies.
-        const busy = tab.term && workingIds.has(tab.term.id) ? workingFor(tab.term.id) : null
+        const workingId = tab.terms.find((id) => workingIds.has(id))
+        const busy = workingId ? workingFor(workingId) : null
         const agent: AgentBusy | null =
-          busy === null || !tab.term
+          busy === null || !workingId
             ? null
-            : { kind: agentKinds.current.get(tab.term.id) ?? 'other', forMs: busy }
+            : { kind: agentKinds.current.get(workingId) ?? 'other', forMs: busy }
         if (mode === 'always' || (mode === 'agent' && agentLive))
           setAsk({
             kind: 'close-tab-confirm',
@@ -1451,7 +1542,14 @@ export default function App(): JSX.Element {
         if (!tab || tab.kind === 'settings') return s
         const next = fn(tab.term, nextTermId())
         if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, next) }
+        let tabs = setTabTerm(s.tabs, tab.id, next)
+        // A FULL terminal is a single-item view, and a split you have left
+        // falls apart rather than lying in wait (owner, 2026-09-03): the file
+        // pins go. Terminal panes stay, so two shells side by side survive a
+        // hide and show.
+        if (next.view === 'full' && tab.panes.some((pn) => !pn.term))
+          tabs = setTabPanes(tabs, tab.id, tab.panes.filter((pn) => !!pn.term))
+        return { ...s, tabs }
       }),
     []
   )
@@ -1546,6 +1644,8 @@ export default function App(): JSX.Element {
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
         term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        // How many shells, so a tab with three comes back with three slots.
+        terms: t.terms.length > 1 ? t.terms.length : undefined,
         // Where you had got to in the tree. Not a per-tab setting - the tab is
         // still a root and a file - but closing Prism used to collapse
         // everything, so a file six folders down came back unmarked in a
@@ -1626,8 +1726,15 @@ export default function App(): JSX.Element {
           return next
         })
         setTabState((s) => {
-          const tab = s.tabs.find((t) => t.term?.id === id)
-          return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
+          // Out of the LIST, not only out of the current slot (2026-09-03):
+          // a dead id left in `terms` was handed the dock back the moment
+          // its replacement closed. A pane holding it goes with it, and the
+          // most recent survivor - if any - takes over.
+          const tab = s.tabs.find((t) => t.terms.includes(id))
+          if (!tab) return s
+          const pane = tab.panes.find((pn) => pn.term === id)
+          const tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
+          return { ...s, tabs: removeTerm(tabs, tab.id, id) }
         })
       }),
     []
@@ -1734,26 +1841,113 @@ export default function App(): JSX.Element {
     () => applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' })),
     [applyTermView]
   )
-  const clearTerm = useCallback(() => {
-    const term = active?.term
-    if (!term || !active) return
-    const spawnedAt = termRoots.current.get(term.id)
-    if (spawnedAt && !sameRoot(spawnedAt, active.root)) {
-      // The tab moved folders while this shell was busy being kept; Clear is
-      // the user resetting things, so it re-syncs: fresh shell, tab's folder.
-      window.prism.termKill(term.id)
-      disposeSession(term.id)
-      termRoots.current.delete(term.id)
-      const termId = nextTermId()
-      termRoots.current.set(termId, active.root)
-      setTabState((s) => ({
-        ...s,
-        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view })
-      }))
-    } else {
-      void import('./components/TerminalPanel').then((m) => m.clearTermSession(term.id))
-    }
+  /**
+   * CLOSE THE TERMINAL means close it (owner, 2026-09-03): the shell is
+   * killed and the tab forgets it, so the next open spawns a FRESH shell in
+   * the tab's CURRENT root - which is how a tab that re-rooted since gets a
+   * terminal in the right folder. Hiding (Ctrl+`, the X) still keeps the
+   * shell running; this is the verb for when you are done with it.
+   */
+  const closeTermId = useCallback(
+    (termId: string) => {
+      if (!active) return
+      window.prism.termKill(termId)
+      disposeSession(termId)
+      termRoots.current.delete(termId)
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === active.id)
+        if (!tab) return s
+        // A pane holding this shell goes with it; the survivors keep their
+        // places, and the most recent survivor becomes current.
+        const pane = tab.panes.find((pn) => pn.term === termId)
+        let tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
+        tabs = removeTerm(tabs, tab.id, termId)
+        return { ...s, tabs }
+      })
+      setPaneFocus('live')
+    },
+    [active]
+  )
+  const closeTerm = useCallback(() => {
+    if (active?.term) closeTermId(active.term.id)
+  }, [active, closeTermId])
+
+  /**
+   * SEVERAL TERMINALS PER TAB (2026-09-03, owner). "Open new terminal" mints
+   * a shell and makes it current; picking one from the button's menu makes
+   * THAT one current (the button's left click always opens the most recent);
+   * and a shell can be pinned as a PANE beside the live file or another
+   * shell, through the same grid the file pins use.
+   */
+  const openNewTerm = useCallback(() => {
+    if (!active || active.kind === 'settings') return
+    const termId = nextTermId()
+    termRoots.current.set(termId, active.root)
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === active.id)
+      // Full view: the file pins fall apart, as in applyTermView.
+      const tabs = tab ? setTabPanes(s.tabs, tab.id, tab.panes.filter((pn) => !!pn.term)) : s.tabs
+      return { ...s, tabs: addTerm(tabs, active.id, termId, 'full') }
+    })
+    setPaneFocus('term')
   }, [active])
+  const pickTermId = useCallback(
+    (termId: string) => {
+      if (!active) return
+      setTabState((s) => ({ ...s, tabs: pickTerm(s.tabs, active.id, termId) }))
+      setPaneFocus('term')
+    },
+    [active]
+  )
+  const pinTermAsPane = useCallback(
+    (termId: string, dir?: SplitDir) => {
+      if (!active || active.kind === 'settings') return
+      const d = dir ?? lastSplitDir()
+      saveSplitDir(d)
+      const already = active.panes.find((pn) => pn.term === termId)
+      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === active.id)
+        if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
+        // From a FULL terminal the split is TERMINALS ONLY (owner, 2026-09-03:
+        // "I just wanted the two terminals"): the file pins are already gone
+        // (applyTermView) and the current shell stays full, with the pinned
+        // shells drawn inside the terminal area beside it. From fullscreen a
+        // pin starts fresh; otherwise it adds to the grid you can see.
+        const cur = tab.term
+        const base =
+          cur?.view === 'full' ? tab.panes.filter((pn) => !!pn.term) : fullscreen ? [] : tab.panes
+        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(base, paneId, termId, d))
+        // A shell that just became a pane leaves the dock, or it would be
+        // drawn twice.
+        if (cur?.id === termId) tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'hidden' })
+        return { ...s, tabs }
+      })
+      setPaneFocus(paneId)
+    },
+    [active, fullscreen]
+  )
+  /** "Open in split view" for one of several is a TOGGLE (owner, 2026-09-03):
+   *  a shell on screen comes out of the split, one that is not goes in - the
+   *  current shell through the dock, any other as a pane. */
+  const splitTermId = useCallback(
+    (termId: string) => {
+      if (!active) return
+      const pane = active.panes.find((pn) => pn.term === termId)
+      if (pane) return unpinSplitId(pane.id)
+      if (active.term?.id === termId) {
+        // openTermSplit is declared further down and resolved at call time;
+        // it is not a dep on purpose (its own deps are stable). It folds a
+        // showing dock back and opens a hidden one, which is the toggle.
+        openTermSplit()
+        return
+      }
+      pinTermAsPane(termId)
+    },
+    // unpinSplitId is declared further down too, and resolved at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+    [active, pinTermAsPane]
+  )
 
   /** The split's X buttons and the context menu's "Remove from split view".
    *  Closing ONE window of a split leaves the others standing: with pinned
@@ -1860,11 +2054,16 @@ export default function App(): JSX.Element {
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
-        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, paneId, path, d)) }
+        // A SPLIT STARTS FRESH from a single-item view (owner, 2026-09-03):
+        // fullscreen and a full-view terminal both hide the grid, and a pin
+        // made from there used to bring every old pane back with it. What
+        // you could not see is not what you meant to add to.
+        const base = fullscreen || tab.term?.view === 'full' ? [] : tab.panes
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(base, paneId, path, d)) }
       })
       setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
-    [active, applyTermView, open, pickDock]
+    [active, applyTermView, open, pickDock, fullscreen]
   )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {
@@ -1909,9 +2108,6 @@ export default function App(): JSX.Element {
       })
     })
   }, [])
-  const openTermInNewTab = useCallback(() => {
-    if (active?.root) termTabAt(active.root)
-  }, [active, termTabAt])
   /**
    * "Open terminal here", on a folder in the tree (2026-08-31).
    *
@@ -2156,10 +2352,43 @@ export default function App(): JSX.Element {
     [file, noteUndo, reopen, rekeyBuffer]
   )
 
+  /**
+   * LET GO OF A FILE BEFORE IT GOES (2026-09-03, owner: "still getting the
+   * block when trying to delete a movie I'm watching"). A film that is
+   * playing - in this tab or any other, since the deck keeps their players
+   * mounted - holds an open handle through the media stream, and the
+   * Recycle Bin refuses a file with a handle open. So every tab showing the
+   * file steps off it FIRST, which unmounts its element, and the bin is
+   * asked after a beat and with retries, because Chromium closes the stream
+   * on its own clock rather than on ours. Returns whether anything had it.
+   */
+  const releaseFiles = useCallback((paths: string[]): boolean => {
+    let held = false
+    setTabState((s) => {
+      const tabs = s.tabs.map((t) => {
+        const cur = t.index >= 0 ? t.files[t.index]?.path : undefined
+        if (!cur || !paths.some((p) => within(cur, p))) return t
+        held = true
+        return { ...t, index: -1 }
+      })
+      return held ? { ...s, tabs } : s
+    })
+    return held
+  }, [])
+  const trashWithRetry = useCallback(async (path: string, held: boolean): Promise<boolean> => {
+    if (held) await new Promise((r) => setTimeout(r, 350))
+    for (let i = 0; i < 4; i += 1) {
+      if (await window.prism.trashFile(path)) return true
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    return false
+  }, [])
+
   const runDelete = useCallback(
     async (path: string): Promise<void> => {
       setAsk(null)
-      const ok = await window.prism.trashFile(path)
+      const held = releaseFiles([path])
+      const ok = await trashWithRetry(path, held)
       if (!ok) {
         setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
         return
@@ -2179,16 +2408,17 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else showNothing()
     },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
   const runDeleteMany = useCallback(
     async (paths: string[]): Promise<void> => {
       setAsk(null)
+      const held = releaseFiles(paths)
       const binned: string[] = []
       for (const p of paths) {
-        if (await window.prism.trashFile(p)) binned.push(p)
+        if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
       }
       const failed = paths.length - binned.length
       setRefreshKey((n) => n + 1)
@@ -2211,7 +2441,7 @@ export default function App(): JSX.Element {
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
@@ -2696,13 +2926,24 @@ export default function App(): JSX.Element {
       const f = e.dataTransfer?.files?.[0]
       if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
     }
+    // The ring clears in the CAPTURE phase (2026-09-03): a drop on a sidebar
+    // row stops propagation - rightly, or the window handler would also OPEN
+    // what was dropped - and the bubble-phase clear then never ran, leaving
+    // the accent ring around the viewer until restart. Capture fires before
+    // any child can swallow the event, and dragend covers a drag that ends
+    // with no drop at all.
+    const end = (): void => setDragging(false)
     window.addEventListener('dragover', over)
     window.addEventListener('dragleave', leave)
     window.addEventListener('drop', drop)
+    window.addEventListener('drop', end, true)
+    window.addEventListener('dragend', end, true)
     return () => {
       window.removeEventListener('dragover', over)
       window.removeEventListener('dragleave', leave)
       window.removeEventListener('drop', drop)
+      window.removeEventListener('drop', end, true)
+      window.removeEventListener('dragend', end, true)
     }
   }, [applyReroot, open, setup])
 
@@ -2787,6 +3028,9 @@ export default function App(): JSX.Element {
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
+        {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
+            footer is its home, and a paste must stay visible either way. */}
+        {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar}
@@ -2799,10 +3043,27 @@ export default function App(): JSX.Element {
             onUnpinSplit={unpinSplitPath}
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
-            onTermNewTab={openTermInNewTab}
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
-            onClearTerm={active.term ? clearTerm : null}
+            terms={active.terms.map((id) => ({
+              id,
+              label:
+                termLabel(active, id) +
+                (agentIds.has(id) && agentKinds.current.get(id)
+                  ? ` · ${agentKinds.current.get(id)}`
+                  : ''),
+              current: active.term?.id === id,
+              // On screen now: the current shell while it is showing, or one
+              // pinned as a pane. What the split checklist ticks.
+              shown:
+                (active.term?.id === id && active.term.view !== 'hidden') ||
+                active.panes.some((pn) => pn.term === id)
+            }))}
+            onPickTerm={pickTermId}
+            onNewTerm={openNewTerm}
+            onCloseTermId={closeTermId}
+            onSplitTermId={splitTermId}
+            onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
             // The selected row follows what is ON SCREEN: a pinned pane marks
@@ -2960,7 +3221,10 @@ export default function App(): JSX.Element {
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
-              const pins = active?.panes ?? []
+              // While the terminal is FULL its panes are drawn in the terminal
+              // area, not here: this grid sits hidden behind it, and mounting a
+              // shell's panel twice would attach one xterm to one session twice.
+              const pins = (active?.panes ?? []).filter((pn) => termView !== 'full' || !pn.term)
               const withPlayers = (
                 <>
                   {players}
@@ -3010,6 +3274,11 @@ export default function App(): JSX.Element {
                       paneId={pn.id}
                       path={pn.path}
                       area={areas.pinned[i]}
+                      dir={pn.dir}
+                      term={pn.term}
+                      termRoot={pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined}
+                      shellId={pn.term ? savedShellId() : undefined}
+                      onMove={(d) => (pn.term ? pinTermAsPane(pn.term, d) : pinSplit(pn.path, d))}
                       onClose={() => unpinSplitId(pn.id)}
                       viewerProps={{
                         onUndoable: noteUndo,
@@ -3067,21 +3336,57 @@ export default function App(): JSX.Element {
             coming back reattaches them with scrollback intact. Full view is
             the terminal's home; split is the dock. Fullscreen is for watching:
             no terminal, like the rest of the chrome. */}
-          {active?.term && termView !== 'hidden' && !fullscreen && (
-            <TermDock
-              mode={termView}
-              onClose={closeTermPane}
-              edge={dockEdge}
-              size={termSizes[dockAxis(dockEdge)]}
-              onResize={resizeTermPanel}
-              onDockPick={pickDock}
-              sessionId={active.term.id}
-              root={termRoots.current.get(active.term.id) ?? active.root}
-              shellId={savedShellId()}
-              find={termFind}
-              onFind={setTermFind}
-            />
-          )}
+          {active?.term &&
+            termView !== 'hidden' &&
+            !fullscreen &&
+            (() => {
+              const dock = (
+                <TermDock
+                  mode={termView}
+                  onClose={closeTermPane}
+                  onKill={closeTerm}
+                  edge={dockEdge}
+                  size={termSizes[dockAxis(dockEdge)]}
+                  onResize={resizeTermPanel}
+                  onDockPick={pickDock}
+                  sessionId={active.term.id}
+                  root={termRoots.current.get(active.term.id) ?? active.root}
+                  shellId={savedShellId()}
+                  find={termFind}
+                  onFind={setTermFind}
+                />
+              )
+              // TERMINALS ONLY, in full view (owner, 2026-09-03): the shells
+              // pinned as panes share the terminal's own area with it - the
+              // current one in the live slot - and no file pane is drawn.
+              const termPanes = active.panes.filter((pn) => !!pn.term)
+              if (termView !== 'full' || !termPanes.length) return dock
+              const ta = paneAreas(termPanes)
+              return (
+                <div
+                  className="grid min-h-0 min-w-0 flex-1 gap-px bg-[var(--p-divider)]"
+                  style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
+                >
+                  <div className="flex min-h-0 min-w-0" style={{ gridArea: ta.live }}>
+                    {dock}
+                  </div>
+                  {termPanes.map((pn, i) => (
+                    <PinnedPaneView
+                      key={pn.id}
+                      paneId={pn.id}
+                      path={pn.path}
+                      area={ta.pinned[i]}
+                      dir={pn.dir}
+                      term={pn.term}
+                      termRoot={termRoots.current.get(pn.term ?? '') ?? active.root}
+                      shellId={savedShellId()}
+                      onMove={(d) => pinTermAsPane(pn.term ?? '', d)}
+                      onClose={() => unpinSplitId(pn.id)}
+                    />
+                  ))}
+                </div>
+              )
+            })()}
         </div>
       </div>
       <Settings

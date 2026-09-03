@@ -37,11 +37,16 @@ export interface Tab {
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
   index: number
   tree: TreeState
-  /** The tab's shell, if one was ever opened. `view` is only visibility - a
-   *  hidden terminal keeps running. `full` replaces the viewer; `split` shares
-   *  with it (the dock). Null until the first open. */
+  /** The tab's CURRENT shell - the most recently used one - if any was ever
+   *  opened. `view` is only visibility - a hidden terminal keeps running.
+   *  `full` replaces the viewer; `split` shares with it (the dock). Null
+   *  until the first open. */
   term: { id: string; view: TermView } | null
-  /** Split-view pins: up to three fixed files beside the live pane. */
+  /** EVERY shell the tab holds, in the order opened (2026-09-03, owner: a tab
+   *  can have several terminals). `term.id` is always one of these; the
+   *  others run on, hidden, until picked or pinned as a pane. */
+  terms: string[]
+  /** Split-view pins: up to three fixed files (or terminals) beside the live pane. */
   panes: PinnedPane[]
 }
 
@@ -112,6 +117,7 @@ export function newTab(p: OpenPayload, id: string): Tab {
     // folders leading to the file it is showing, so the sidebar can mark it.
     tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
     term: null,
+    terms: [],
     panes: []
   }
 }
@@ -147,9 +153,54 @@ export function splitTermView(
   return { ...term, view: term.view === 'split' ? 'hidden' : 'split' }
 }
 
-/** Write one tab's terminal slot; every other tab is untouched. */
+/** Write one tab's CURRENT terminal; every other tab is untouched. A shell
+ *  id the tab has not seen joins its list, so every path that mints a fresh
+ *  id (toggle, split, restore, reroot) keeps the list honest by construction. */
 export function setTabTerm(tabs: readonly Tab[], tabId: string, term: Tab['term']): Tab[] {
-  return tabs.map((t) => (t.id === tabId ? { ...t, term } : t))
+  return tabs.map((t) => {
+    if (t.id !== tabId) return t
+    const terms = term && !t.terms.includes(term.id) ? [...t.terms, term.id] : t.terms
+    return { ...t, term, terms }
+  })
+}
+
+/**
+ * The tab's terminals as a LIST (2026-09-03, owner). `term` stays the current
+ * one - the most recently used, which is what the button's left click opens -
+ * so everything written against "the tab's terminal" keeps meaning that.
+ */
+
+/** A fresh shell joins the list and becomes current, shown `view`. */
+export function addTerm(tabs: readonly Tab[], tabId: string, id: string, view: TermView): Tab[] {
+  return setTabTerm(tabs, tabId, { id, view })
+}
+
+/** Pick an existing shell: it becomes current, wearing the view the current
+ *  one had (or full when nothing was showing). Unknown ids are ignored. */
+export function pickTerm(tabs: readonly Tab[], tabId: string, id: string): Tab[] {
+  return tabs.map((t) => {
+    if (t.id !== tabId || !t.terms.includes(id)) return t
+    const view = t.term && t.term.view !== 'hidden' ? t.term.view : 'full'
+    return { ...t, term: { id, view } }
+  })
+}
+
+/** A shell is gone. If it was current, the most recently opened survivor
+ *  takes over with the same view; the last one out leaves null. */
+export function removeTerm(tabs: readonly Tab[], tabId: string, id: string): Tab[] {
+  return tabs.map((t) => {
+    if (t.id !== tabId) return t
+    const terms = t.terms.filter((x) => x !== id)
+    if (t.term?.id !== id) return { ...t, terms }
+    const heir = terms[terms.length - 1]
+    return { ...t, terms, term: heir ? { id: heir, view: t.term.view } : null }
+  })
+}
+
+/** "Terminal 1", "Terminal 2"... by the order opened; the label the menus use. */
+export function termLabel(tab: Pick<Tab, 'terms'>, id: string): string {
+  const i = tab.terms.indexOf(id)
+  return `Terminal ${i < 0 ? '?' : i + 1}`
 }
 
 /** Open the Settings tab: activate the existing one, or add it at the end. */
@@ -164,6 +215,7 @@ export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
     index: -1,
     tree: emptyTree(''),
     term: null,
+    terms: [],
     panes: []
   }
   return { tabs: [...tabs, tab], activeId: id }
@@ -279,7 +331,7 @@ export function rerootTab(
   // The shell survives the move: killing a dev server because the tree changed
   // folders would be worse. Its cwd is visibly the old one; exit + reopen gets
   // the new root. Everything else (files, index, tree) starts fresh.
-  next[i] = { ...newTab(p, tabs[i].id), term: tabs[i].term }
+  next[i] = { ...newTab(p, tabs[i].id), term: tabs[i].term, terms: tabs[i].terms }
   return { tabs: next, activeId: tabs[i].id }
 }
 

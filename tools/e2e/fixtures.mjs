@@ -467,6 +467,9 @@ export function buildFixtures() {
   bundle.addFile('notes/todo.md', Buffer.from('# todo\n- try prism\n'))
   bundle.addFile('notes/deep/extra.txt', Buffer.from('deep'))
   bundle.writeZip(join(FIXTURES, 'zips', 'bundle.zip'))
+  // A disc image, for the tree's disc icon (round 33): listed by extension,
+  // never opened, so an empty file is enough.
+  writeFileSync(join(FIXTURES, 'zips', 'disc.iso'), '')
   // A comic book. Deliberately UNPADDED numbering with a page 10 in it: a
   // plain string sort puts page10 second, which is the bug comicPages exists
   // to avoid, and a fixture that cannot catch it is not worth having. The

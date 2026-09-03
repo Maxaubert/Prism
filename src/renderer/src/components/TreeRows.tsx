@@ -168,7 +168,11 @@ export function KindIcon({
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
   // stripes, the splat's core and a mark's own holes from filling in solid.
-  const key = KIND_ICON[kind] ?? 'document'
+  // THE DISC (owner, 2026-09-03, round 33): a .iso is an archive by kind and
+  // wears the container in Explorer, but in the tree it is a disc - the one
+  // extension whose SHAPE is not its kind's.
+  const isDisc = (ext ?? '').replace(/^\./, '').toLowerCase() === 'iso'
+  const key: keyof typeof ICON_PATHS = isDisc ? 'iso' : (KIND_ICON[kind] ?? 'document')
   const g = ICON_PATHS[key]
   // COLOURED ignores `color` and `bg` entirely. Nothing is knocked out to the
   // row's background there - every layer is a colour of its own - which is also
@@ -459,6 +463,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // Tab reaches the tree once and Enter/Space then work natively on the
           // row the arrows are on - no key handling of our own for either.
           data-row={path}
+          data-dropdir={path}
           data-selected={t.selected.has(path) || undefined}
           data-drop={t.dropTarget === path || undefined}
           tabIndex={onCursor ? 0 : -1}
@@ -510,6 +515,8 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             height: t.size.row,
             paddingLeft: pad,
             fontSize: t.size.font,
+            // A cut row is half gone already, and looks it (Explorer's cue).
+            opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
             // Contiguous selected rows fuse: shared edges drop their rounding.
             ...(t.selected.has(path)
               ? (() => {
@@ -641,6 +648,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               data-row={f.path}
+              data-dropdir={dirOf(f.path)}
               data-selected={onSel || undefined}
               draggable
               onDragStart={(e) => t.onRowDragStart(e, f.path)}
@@ -691,6 +699,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 height: t.size.row,
                 paddingLeft: pad + 19,
                 fontSize: t.size.font,
+                // A cut row is half gone already, and looks it (Explorer's cue).
+                opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
                 // Contiguous selected rows fuse: shared edges drop rounding.
                 ...(onSel
                   ? (() => {

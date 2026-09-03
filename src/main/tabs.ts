@@ -20,6 +20,10 @@ export interface SavedTab {
   /** The terminal was showing, in this view. The shell itself dies with the
    *  app; this remembers only that the tab should come back AS a terminal. */
   term?: 'full' | 'split'
+  /** How many shells the tab held (2026-09-03): a tab with three comes back
+   *  with three slots, the current one spawned and the rest spawned when
+   *  picked. Absent or 1 means the one `term` describes. */
+  terms?: number
   /** The shell hosted a CLAUDE session when the strip was saved: restore may
    *  resume it (`claude --continue` rebuilds the conversation per folder). */
   /** Which agent the shell hosted at quit, so the right resume runs. The

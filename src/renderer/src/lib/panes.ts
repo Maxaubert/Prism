@@ -7,12 +7,34 @@ export type SplitDir = 'left' | 'right' | 'top' | 'bottom'
 
 export interface PinnedPane {
   id: string
+  /** The file, or for a TERMINAL pane a `term:<id>` sentinel that no real
+   *  path can collide with, so every path-keyed rule keeps working. */
   path: string
   /** Where this pane asked to sit, relative to the live pane. */
   dir: SplitDir
+  /** A shell pinned as a pane (2026-09-03, owner): two terminals side by
+   *  side, or a terminal beside a file, through the same grid. */
+  term?: string
 }
 
 export const MAX_PINNED = 3
+
+/** The sentinel path a terminal pane wears. */
+export const termPanePath = (termId: string): string => `term:${termId}`
+
+/** Pin a shell as a pane. Re-pinning a pinned shell just moves it to `dir`. */
+export function pinTermPane(
+  panes: readonly PinnedPane[],
+  id: string,
+  termId: string,
+  dir: SplitDir
+): PinnedPane[] {
+  const path = termPanePath(termId)
+  const existing = panes.find((p) => p.term === termId)
+  if (existing) return panes.map((p) => (p === existing ? { ...p, dir } : p))
+  const next = [...panes, { id, path, dir, term: termId }]
+  return next.length > MAX_PINNED ? next.slice(next.length - MAX_PINNED) : next
+}
 
 /** Pin a file. Re-pinning a pinned path just moves it to `dir`. */
 export function pinPane(panes: readonly PinnedPane[], id: string, path: string, dir: SplitDir): PinnedPane[] {
