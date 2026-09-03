@@ -44,6 +44,7 @@ import {
   isEdited,
   paletteOf,
   folderIconOf,
+  sideOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -796,6 +797,19 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('bg', null)}
             />
           </Pref>
+          {/* The sidebar broke out of the one-surface rule (owner, 2026-09-03).
+              Background still paints the window; this narrows it - unset, the
+              panel keeps deriving from Background exactly as before, and only
+              an explicit pick gives it a colour of its own (`sideOwn`). */}
+          <Pref id="c-side" label="Sidebar" hint="The panel behind the file tree.">
+            <ColourWell
+              id="c-side"
+              value={sideOf(style)}
+              custom={!!edits.side}
+              onChange={(v) => setOverride('side', v)}
+              onReset={() => setOverride('side', null)}
+            />
+          </Pref>
           <Pref id="c-text" label="Text" hint="File names, labels and readouts.">
             <ColourWell
               id="c-text"
@@ -805,9 +819,6 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('text', null)}
             />
           </Pref>
-          {/* No Panel picker: the window is deliberately ONE surface - the
-              sidebar and title bar derive from Background (variablesFor), so a
-              separate panel colour would be a control that does nothing. */}
           <Pref id="c-corners" label="Corners" hint="How round the window's larger surfaces are.">
             <Segmented
               value={style.corners}
