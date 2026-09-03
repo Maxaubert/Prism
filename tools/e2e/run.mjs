@@ -3655,27 +3655,26 @@ async function fullscreenBlackScenario(fixtures) {
     const windowed = await stageBg()
     await win.keyboard.press('F11')
     await sleep(900)
-    // THE SANDWICH (2026-09-03): the window covers the display first (so the
-    // OS transition's stale frame has nothing behind it to show) and THEN
-    // goes genuinely fullscreen 90ms later, because Windows strips the
-    // topmost bit from a pure borderless cover and redraws the taskbar over
-    // it. Steady state is real OS fullscreen with NO always-on-top.
+    // BORDERLESS, EXACT (2026-09-03): no OS fullscreen (its DWM animation is
+    // what flashed), no topmost (Windows strips it). The window drops its
+    // resize borders and covers the monitor exactly, which is what makes the
+    // shell's own borderless-game detection put the taskbar beneath it.
     const covers = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = BrowserWindow.getAllWindows()[0]
       const b = w.getBounds()
       const d = screen.getDisplayMatching(b).bounds
-      return { b, d, onTop: w.isAlwaysOnTop(), osFs: w.isFullScreen() }
+      return { b, d, onTop: w.isAlwaysOnTop(), osFs: w.isFullScreen(), rs: w.isResizable() }
     })
-    // >= rather than ==: the window keeps its frame (titleBarStyle 'hidden'
-    // rather than frameless, because DWM will not composite acrylic behind a
-    // frameless window), so it lands a pixel or two PROUD of the display. That
-    // is the right direction - it guarantees there is no edge left uncovered.
+    // >= rather than ==: the frame overhang survives setResizable(false)
+    // (measured), and proud of the display is the right direction - no edge
+    // left uncovered. The shell's fullscreen detection engages regardless.
     ok(
       covers.b.width >= covers.d.width && covers.b.height >= covers.d.height,
       `F11 covers the whole display (${covers.b.width}x${covers.b.height} of ${covers.d.width}x${covers.d.height})`
     )
-    ok(covers.osFs, 'and is genuinely fullscreen, which is what owns the taskbar')
-    ok(!covers.onTop, 'with no always-on-top left for the shell to strip')
+    ok(!covers.rs, 'the screen edges are not live resize handles while the picture is up')
+    ok(!covers.osFs, 'no OS fullscreen - its animation is what flashed')
+    ok(!covers.onTop, 'and no always-on-top for the shell to strip')
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
@@ -3694,6 +3693,10 @@ async function fullscreenBlackScenario(fixtures) {
     ok(
       back.b.width !== back.d.width || back.b.height !== back.d.height,
       `and goes back to its own size (${back.b.width}x${back.b.height})`
+    )
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isResizable()),
+      'and is resizable again'
     )
 
     // FROM A MAXIMIZED WINDOW (2026-09-03): `setBounds` on a maximized window
