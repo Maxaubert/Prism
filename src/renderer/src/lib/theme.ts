@@ -38,6 +38,11 @@ export interface Style {
   /** Surfaces: the viewer canvas, the tree panel, the title bar. */
   bg: string
   side: string
+  /** The sidebar wears its OWN colour (owner, 2026-09-03). Unset, `side` is a
+   *  legacy value the schematics draw and the window ignores - the one-surface
+   *  rule below derives the panel from bg. Set, the user chose the panel's
+   *  colour and variablesFor honours it. */
+  sideOwn?: boolean
   title: string
   text: string
   iconMode: IconMode
@@ -522,8 +527,13 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   //
   // `side` and `title` are kept on Style for the styles you have saved and for
   // the schematics, which still draw a panel so a card reads as a window.
+  // `sideOwn` narrows the one-surface rule rather than reversing it (owner,
+  // 2026-09-03): the panel takes the user's chosen colour, carried at the
+  // material's own alpha so glass stays one sheet; everything else still
+  // derives from bg.
+  const ownSide = style.sideOwn ? style.side : null
   let bg = style.bg
-  let side = style.bg
+  let side = ownSide ?? style.bg
   let title = style.bg
   const translucent = style.material === 'acrylic' || style.material === 'mica'
   if (translucent && !opaque) {
@@ -532,15 +542,15 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // they read as panes butted together rather than one sheet.
     const glass = paintedAlpha(style)
     bg = rgba(style.bg, glass)
-    side = bg
+    side = ownSide ? rgba(ownSide, glass) : bg
     title = bg
   } else if (style.material === 'gradient') {
     const grad = `linear-gradient(180deg, ${lighten(style.bg, 0.06)}, ${style.bg})`
-    side = grad
+    side = ownSide ?? grad
     title = grad
   } else if (style.material === 'tinted') {
     bg = mix(style.bg, accent, 0.07)
-    side = bg
+    side = ownSide ?? bg
     title = bg
   }
 
@@ -569,7 +579,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
         : style.borders === 'faint'
           ? style.mode === 'light' ? 0.035 : 0.022
           : style.mode === 'light' ? 0.1 : 0.07
-  const flatSide = style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg
+  const flatSide =
+    ownSide ?? (style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg)
   const edge = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
 
   // A hairline that exists whatever the style says about edges. Settings lists
@@ -598,7 +609,7 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-side': side,
     // The flat colour of that one surface: the tree and the contrast maths read
     // it, and neither wants an rgba.
-    '--p-side-flat': style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg,
+    '--p-side-flat': flatSide,
     '--p-title': title,
     '--p-icon': icon,
     // The tree's icon colours, both user-pickable. The folder default is the
@@ -640,10 +651,23 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
  *  (owner decision, 2026-08-21) - stepped toward readability against the
  *  panel the same way --p-accent-hi is, so a dark accent on a dark style
  *  still reads. Changing the accent recolours the folders with it. */
+/** The sidebar's effective flat colour: the user's own pick, else the derived
+ *  one-surface answer. What the Settings well shows. */
+export const sideOf = (s: Style): string =>
+  s.sideOwn
+    ? s.side
+    : s.material === 'tinted'
+      ? mix(s.bg, paletteOf(s.accent)[0], 0.07)
+      : s.bg
+
+// The tree's inks measure against the SIDEBAR's own ground, not bg: they live
+// on the panel, and the panel can wear its own colour now (sideOwn). For every
+// style without one, sideOf is bg and nothing changes.
 export const folderIconOf = (s: Style): string => {
   if (s.folderIcon) return s.folderIcon
+  const ground = sideOf(s)
   let c = paletteOf(s.accent)[0]
-  for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
+  for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
   }
   return c
@@ -688,8 +712,9 @@ export const folderIconOf = (s: Style): string => {
  * background from one side of this to the other.
  */
 export const fileIconOf = (s: Style): string => {
-  const dark = mix('#000000', s.bg, 0.14)
-  return contrast('#ffffff', s.bg) >= contrast(dark, s.bg) ? '#ffffff' : dark
+  const ground = sideOf(s)
+  const dark = mix('#000000', ground, 0.14)
+  return contrast('#ffffff', ground) >= contrast(dark, ground) ? '#ffffff' : dark
 }
 
 /** The parcel FALLBACK colour (#68): archives normally wear the system's own
@@ -698,8 +723,9 @@ export const fileIconOf = (s: Style): string => {
  *  Windows has none to give. Not user-facing; the picker was removed
  *  (owner decision 2026-08-22) once the system icon became the icon. */
 export const archiveIconOf = (s: Style): string => {
+  const ground = sideOf(s)
   let c = '#d9a53f'
-  for (let i = 0; i < 14 && contrast(c, s.bg) < 3; i += 1) {
+  for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
     c = s.mode === 'light' ? mix(c, '#000000', 0.1) : mix(c, '#ffffff', 0.1)
   }
   return c
@@ -728,6 +754,8 @@ export interface Overrides {
   /** Id of a scheme in viz THEMES. */
   accent?: string
   bg?: string
+  /** The sidebar's own colour; unset, the panel derives from bg. */
+  side?: string
   text?: string
   /** How much frost, 0 (opaque) to 100 (glassiest). */
   acrylic?: number
@@ -798,6 +826,7 @@ export const isEdited = (): boolean =>
   !!(
     draft.accent ||
     draft.bg ||
+    draft.side ||
     draft.text ||
     draft.font ||
     draft.borders ||
@@ -813,6 +842,8 @@ function edited(s: Style): Style {
     ...s,
     accent: draft.accent ?? s.accent,
     bg: draft.bg ?? s.bg,
+    side: draft.side ?? s.side,
+    sideOwn: draft.side ? true : s.sideOwn,
     text: draft.text ?? s.text,
     font: draft.font ?? s.font,
     borders: draft.borders ?? s.borders,
@@ -901,6 +932,7 @@ export function setOverride(
   role:
     | 'accent'
     | 'bg'
+    | 'side'
     | 'text'
     | 'font'
     | 'borders'
