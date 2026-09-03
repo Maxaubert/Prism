@@ -16,7 +16,7 @@ import {
   type Style,
   tabsOf,
   titleOf,
-  withChrome } from './theme'
+  withChrome, isStylesOwn } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
@@ -324,5 +324,24 @@ describe('the tree inks measure against the sidebar the icons actually sit on', 
     expect(fileIconOf(dark)).toBe('#ffffff')
     const lightPanel = { ...dark, side: '#f2f2f4', sideOwn: true }
     expect(fileIconOf(lightPanel)).not.toBe('#ffffff')
+  })
+})
+
+describe('a colour put back is not an edit (owner, 2026-09-03)', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it("knows the style's own colour for every well, case-insensitively", () => {
+    expect(isStylesOwn(base, 'bg', base.bg)).toBe(true)
+    expect(isStylesOwn(base, 'bg', base.bg.toUpperCase())).toBe(true)
+    expect(isStylesOwn(base, 'accent', base.accent)).toBe(true)
+    expect(isStylesOwn(base, 'text', '#123456')).toBe(false)
+    expect(isStylesOwn(base, 'chrome', sideOf(base))).toBe(true)
+  })
+
+  it('the chrome pick is back only when all three panels agree with the style', () => {
+    const split = { ...base, side: '#111111', sideOwn: true, title: '#222222', titleOwn: true }
+    expect(isStylesOwn(split, 'chrome', '#111111')).toBe(false)
+    expect(isStylesOwn(split, 'side', '#111111')).toBe(true)
+    expect(isStylesOwn(split, 'title', '#222222')).toBe(true)
   })
 })

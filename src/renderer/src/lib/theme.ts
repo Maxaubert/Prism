@@ -993,6 +993,30 @@ export function withChrome(o: Overrides, value: string | null): Overrides {
   return next
 }
 
+/**
+ * A COLOUR PUT BACK IS NOT AN EDIT (owner, 2026-09-03): picking your way back
+ * to the very colour the style had left an override equal to the base and
+ * a reset button offering to change nothing. The well only knows it was
+ * written, so the test lives where the write happens. The chrome pick is
+ * "back" only when all three panels agree with the style, since a saved
+ * style may keep them apart. Pure, so it is testable.
+ */
+export function isStylesOwn(base: Style, role: string, value: string): boolean {
+  const same = (a: string | undefined): boolean => !!a && a.toLowerCase() === value.toLowerCase()
+  switch (role) {
+    case 'chrome':
+      return same(sideOf(base)) && same(titleOf(base)) && same(tabsOf(base))
+    case 'side':
+      return same(sideOf(base))
+    case 'title':
+      return same(titleOf(base))
+    case 'tabs':
+      return same(tabsOf(base))
+    default:
+      return same((base as unknown as Record<string, string | undefined>)[role])
+  }
+}
+
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
   role:
@@ -1011,6 +1035,7 @@ export function setOverride(
   value: string | null
 ): void {
   let next: Overrides = { ...draft }
+  if (value && isStylesOwn(byId(current), role, value)) value = null
   if (role === 'chrome') next = withChrome(next, value)
   else if (value)
     next[role] = value as FontId & Style['borders'] & Style['corners'] & IconScheme & string
