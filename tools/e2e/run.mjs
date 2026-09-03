@@ -3618,6 +3618,26 @@ async function pauseScenario(fixtures) {
       'the video is fetched CORS-clean, so a boost over 100% is loud and not silent'
     )
     ok((await win.locator('video').count()) === 1, 'and one player, never two')
+
+    // A CLICK on a film PLAYS it (owner, 2026-09-03), which narrows the
+    // 2026-08-28 rule rather than reversing it: a launch, a restore and a
+    // file Windows hands over still arrive paused. The click is the intent.
+    await win.evaluate(() => document.querySelector('video')?.pause())
+    await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        return !!v && /ep2/i.test(v.currentSrc || v.src)
+      },
+      null,
+      { timeout: 8000 }
+    )
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(900)
+    ok(
+      (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
+      'a film you CLICKED in the tree starts playing'
+    )
   } finally {
     await app.close()
   }

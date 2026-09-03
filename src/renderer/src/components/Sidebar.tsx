@@ -19,6 +19,7 @@ import { ContextMenu } from './ContextMenu'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
+import { intendToPlay } from '../lib/playState'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -712,8 +713,18 @@ export function Sidebar({
       // Shift and ctrl select WITHOUT opening or expanding either way - that
       // is what makes select-then-right-click and multi-select work.
       if (!e.shiftKey && !e.ctrlKey) {
-        if (!isFolder) onOpenFile(path)
-        else if (wasOnlySelection) toggle(path)
+        if (!isFolder) {
+          // A CLICK on a film or a track PLAYS it (owner, 2026-09-03). This
+          // narrows the 2026-08-28 rule rather than reversing it: nothing
+          // autoplays on launch, on a restore, or on a file Windows hands
+          // over - those arrive without a click. The click is the intent, and
+          // it is recorded the way the playlist records its own, so the
+          // player that mounts for it starts rather than waits.
+          const kind = fileKind(extOf(path))
+          // Keyed by the media URL, which is what the players ask wasPlaying for.
+          if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(path))
+          onOpenFile(path)
+        } else if (wasOnlySelection) toggle(path)
       }
     },
     [order, toggle, onOpenFile, sel]
