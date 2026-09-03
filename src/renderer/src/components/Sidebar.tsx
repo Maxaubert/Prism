@@ -17,7 +17,8 @@ import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { Dialog } from './Dialog'
-import { JobBar } from './JobBar'
+import { JobChip } from './JobChip'
+import { endJob, startJob, updateJob } from '../lib/jobs'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -752,22 +753,16 @@ export function Sidebar({
     setCutSet(cut ? new Set(paths.map((q) => q.toLowerCase())) : new Set())
   }, [])
 
-  /** A running paste, with the byte progress main reports for the big ones. */
-  const [pasteJob, setPasteJob] = useState<{ moved: boolean; pct: number | null } | null>(null)
-  const pasteRunning = !!pasteJob
-  useEffect(() => {
-    if (!pasteRunning) return
-    return window.prism.onPasteProgress((m) =>
-      setPasteJob((j) => (j ? { ...j, pct: m.pct } : j))
-    )
-  }, [pasteRunning])
+  // Byte progress lands on the job it was tagged with: several pastes can
+  // run at once, and the chip shows the oldest with a count of the rest.
+  useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
 
   const runPaste = useCallback(
     (dest: string): void => {
       const cutPaths = cutRef.current
-      setPasteJob({ moved: !!cutPaths.length, pct: null })
-      void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined).then((r) => {
-        setPasteJob(null)
+      const job = startJob('paste', cutPaths.length ? 'Moving' : 'Copying')
+      void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined, job).then((r) => {
+        endJob(job)
         if (r.empty) return setPasteNote('There are no files on the clipboard.')
         if (r.refused) return setPasteNote('That folder is outside this tab.')
         if (!r.pasted) return setPasteNote('Nothing could be pasted here.')
@@ -840,16 +835,21 @@ export function Sidebar({
    */
   const extract = useCallback(
     (path: string, name: string, here: boolean): void => {
-      setArcJob({ path, name, pct: null })
+      // A job on the CHIP (2026-09-03, owner), not a popup: you can keep
+      // working, and a second archive queues behind the first. Progress
+      // arrives keyed by the archive's path and is routed to its job.
+      const job = startJob('extract', 'Extracting ' + name)
+      const off = window.prism.onArchiveProgress((m) => {
+        if (m.path.toLowerCase() === path.toLowerCase()) updateJob(job, m.pct)
+      })
       void window.prism.archiveExtractAll(path, here).then((r) => {
+        off()
+        endJob(job)
         if (r.ok) {
-          // Done means GONE (2026-09-03, owner): the dialog just leaves, no
-          // ceremony to click away. A failure still speaks below.
-          setArcJob(null)
           // The extracted folder is a change Prism made, so the tree hears
           // about it from here rather than from the watcher.
           void load(parentDir(path), true)
-        } else if (r.reason === 'cancelled') setArcJob(null)
+        } else if (r.reason === 'cancelled') return
         else
           setArcJob({
             path,
@@ -875,8 +875,9 @@ export function Sidebar({
   const addToArchive = useCallback((path: string, name: string): void => {
     void window.prism.pickFiles().then((paths) => {
       if (!paths.length) return
-      setArcJob({ path, name, pct: null })
+      const job = startJob('add', 'Adding to ' + name)
       void window.prism.archiveAdd(path, paths, '', true).then((r) => {
+        endJob(job)
         if (r === 'encrypted')
           setArcJob({ path, name, pct: null, error: "Prism can't write to a protected archive." })
         else if (r === 'failed')
@@ -888,21 +889,9 @@ export function Sidebar({
             pct: null,
             error: `${r.added.length} added, but ${r.failed.length} could not be.`
           })
-        else setArcJob(null)
       })
     })
   }, [])
-
-  // The percentage while an extraction runs. Subscribed only while a job is up,
-  // and filtered by path: main reports for every archive it is working on.
-  useEffect(() => {
-    if (!arcJob || arcJob.error) return
-    const off = window.prism.onArchiveProgress((m) => {
-      if (m.path.toLowerCase() === arcJob.path.toLowerCase())
-        setArcJob((j) => (j && j.path === arcJob.path && !j.error ? { ...j, pct: m.pct } : j))
-    })
-    return off
-  }, [arcJob])
 
   /** The landing dir for a point in the panel: the row whose strip spans
    *  that height (rows annotate their own with data-dropdir), else the root. */
@@ -1274,6 +1263,9 @@ export function Sidebar({
             state reads through the GLYPH, not a border: outlined shut, filled
             open, the way the tab-strip accent belongs to the state it marks. */}
         <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
+          {/* The job chip (2026-09-03): a paste or an extraction in flight,
+              beside the terminal button rather than over the window. */}
+          <JobChip />
           {/* Bare prompt, frameless (picked from the button lab, 2026-08-21):
               just the glyph. Hover brings the tree rows' grey tile; open tints
               the glyph accent and nothing else. */}
@@ -1400,30 +1392,13 @@ export function Sidebar({
       )}
 
       {arcJob && (
+        // Failures only (2026-09-03): the running job is on the chip, and a
+        // job that finishes simply leaves. A failure still has to speak.
         <Dialog
-          title={arcJob.error ? 'Extract' : 'Extracting'}
-          body={
-            arcJob.error ?? (
-              // The bar AND the number (2026-09-03, owner): minutes of nothing
-              // is indistinguishable from a hang, and 7-Zip only reports a
-              // percentage on the archives big enough for it to matter - the
-              // bar pulses indeterminate until it does.
-              <span className="block">
-                <span className="break-all">{arcJob.name}</span>
-                <JobBar pct={arcJob.pct} />
-              </span>
-            )
-          }
+          title="Extract"
+          body={arcJob.error ?? 'Something went wrong.'}
           onCancel={() => setArcJob(null)}
-          choices={[
-            {
-              // Closing while it runs leaves it running: the work is main's, and
-              // nothing here can stop it half way.
-              label: arcJob.error ? 'Close' : 'Hide',
-              primary: true,
-              onPick: () => setArcJob(null)
-            }
-          ]}
+          choices={[{ label: 'Close', primary: true, onPick: () => setArcJob(null) }]}
         />
       )}
 
@@ -1436,17 +1411,7 @@ export function Sidebar({
         />
       )}
 
-      {pasteJob && (
-        // A big copy is minutes of work; silence there reads as a hang
-        // (2026-09-03, owner). Byte progress from main, and it leaves by
-        // itself the moment the paste lands - the same manner as extraction.
-        <Dialog
-          title={pasteJob.moved ? 'Moving' : 'Copying'}
-          body={<JobBar pct={pasteJob.pct} />}
-          onCancel={() => setPasteJob(null)}
-          choices={[{ label: 'Hide', primary: true, onPick: () => setPasteJob(null) }]}
-        />
-      )}
+
 
       {menu && menu.multi && (
         // A multi-selection's menu: the verbs that make sense N at a time.

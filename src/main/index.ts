@@ -2137,13 +2137,13 @@ if (!app.requestSingleInstanceLock()) {
      * counted copy plus delete across volumes - and a stale mark (the user
      * copied something else since) quietly falls back to an ordinary copy.
      */
-    ipcMain.handle('file:paste-into', async (_e, destDir: string, cut?: string[]) => {
+    ipcMain.handle('file:paste-into', async (_e, destDir: string, cut?: string[], jobId?: string) => {
       if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
         return { pasted: 0, failed: 0, refused: true, paths: [] }
       }
       const src = await clipboardFiles()
       if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
-      const norm = (p: string): string => p.replace(/[\/]+$/, '').toLowerCase()
+      const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
       const moving =
         Array.isArray(cut) &&
         cut.length === src.length &&
@@ -2163,6 +2163,7 @@ if (!app.requestSingleInstanceLock()) {
         if (of > 0 && now - lastSent > 120) {
           lastSent = now
           mainWindow?.webContents.send('paste:progress', {
+            jobId: typeof jobId === 'string' ? jobId : '',
             pct: Math.min(100, (done / of) * 100)
           })
         }
@@ -2333,6 +2334,28 @@ if (!app.requestSingleInstanceLock()) {
         const exe = seven(zip)
         if (exe) return extractSevenTo(exe, zip, entries, destDir, pw)
         return extractTo(zip, entries, destDir, pw || undefined)
+      }
+    )
+
+    /**
+     * Members OUT to a folder the user PICKS (2026-09-03, owner: "Extract
+     * to..." on a member row). Main's dialog is the consent, exactly as
+     * extract-all's is, which is why the destination is not bound by the
+     * root wall; everything else is the extract-to above.
+     */
+    ipcMain.handle(
+      'archive:extract-members-picked',
+      async (_e, zip: string, entries: string[], password?: string) => {
+        if (!archiveOk(zip) || !Array.isArray(entries)) return { ok: false, reason: 'failed' }
+        const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
+        if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
+        const destDir = r.filePaths[0]
+        const pw = typeof password === 'string' ? password : ''
+        const exe = seven(zip)
+        const out = exe
+          ? await extractSevenTo(exe, zip, entries, destDir, pw)
+          : await extractTo(zip, entries, destDir, pw || undefined)
+        return out.ok ? { ok: true, dest: destDir, written: out.written } : out
       }
     )
 

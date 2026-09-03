@@ -98,6 +98,7 @@ const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
+import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
   emptyUndo,
@@ -2798,6 +2799,9 @@ export default function App(): JSX.Element {
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
+        {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
+            footer is its home, and a paste must stay visible either way. */}
+        {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar}

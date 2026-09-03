@@ -110,7 +110,8 @@ const api = {
    *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
   pasteInto: (
     dir: string,
-    cut?: string[]
+    cut?: string[],
+    jobId?: string
   ): Promise<{
     pasted: number
     failed: number
@@ -120,11 +121,12 @@ const api = {
     paths: string[]
     /** The paste was a MOVE: `cut` still matched the clipboard. */
     moved?: boolean
-  }> => ipcRenderer.invoke('file:paste-into', dir, cut),
-  /** Byte progress of a running paste, 0-100. Only pastes big enough to
-   *  measure ever report. */
-  onPasteProgress: (cb: (m: { pct: number }) => void): (() => void) => {
-    const listener = (_e: unknown, m: { pct: number }): void => cb(m)
+  }> => ipcRenderer.invoke('file:paste-into', dir, cut, jobId),
+  /** Byte progress of a running paste, 0-100, tagged with the job it belongs
+   *  to since several can run at once. Only pastes big enough to measure
+   *  ever report. */
+  onPasteProgress: (cb: (m: { jobId: string; pct: number }) => void): (() => void) => {
+    const listener = (_e: unknown, m: { jobId: string; pct: number }): void => cb(m)
     ipcRenderer.on('paste:progress', listener)
     return () => ipcRenderer.removeListener('paste:progress', listener)
   },
@@ -272,6 +274,17 @@ const api = {
   ): Promise<
     { ok: true; written: number } | { ok: false; reason: 'password' | 'aes' | 'failed' }
   > => ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password),
+
+  /** Members out to a folder the user picks in main's dialog (the consent
+   *  that lets it write outside every root). 'cancelled' is the dialog. */
+  archiveExtractMembersTo: (
+    zip: string,
+    entries: string[],
+    password?: string
+  ): Promise<
+    | { ok: true; dest: string; written: number }
+    | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+  > => ipcRenderer.invoke('archive:extract-members-picked', zip, entries, password),
 
   /** The system's own icon for this file's type (the user's association),
    *  as a data URL; null when Windows has none to give. */
