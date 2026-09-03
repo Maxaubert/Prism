@@ -369,19 +369,6 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-/** The tab strip's ground for an active tab of `flat`: 30% towards black,
- *  which is the natural well for a strip, unless that step is too small to
- *  see - a black tab bar has nowhere darker to go - in which case it lifts
- *  8% towards white instead. The floor is a contrast RATIO, not a colour
- *  test, because ratios near black are compressed: #1a1d21's dark step
- *  measures 1.09:1 and is plainly visible, while a better-of-two rule would
- *  have picked the lift there and put a light strip under a dark tab. Pure,
- *  exported for the test. */
-export function tabStripOf(flat: string): string {
-  const dark = mix(flat, '#000000', 0.3)
-  const light = mix(flat, '#ffffff', 0.08)
-  return contrast(dark, flat) >= 1.05 ? dark : light
-}
 
 /**
  * Ink or paper on `bg`. White is the default and only loses when black is
@@ -577,20 +564,16 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     side = ownSide ?? bg
     title = ownTitle ?? bg
   }
-  // THE ACTIVE TAB WEARS THE SECONDARY COLOUR (owner, 2026-09-03): it is
-  // one surface with the sidebar and the title bar it sits between, so the
-  // three read as one frame around the viewer. THE STRIP's ground is what
-  // steps off it now - the inverse of the first cut, where the strip was the
-  // panel and the tab stepped up. The step is the better of two, measured
-  // rather than fixed: 30% towards black is the natural well for a strip,
-  // but on a black tab bar that is nothing, so a small lift towards white
-  // is the fallback when it separates better. A tab-bar colour of its own
-  // still moves both, and both carry the material's alpha.
-  const flatTitle = ownTitle ?? (style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg)
-  const flatTabs = ownTabs ?? flatTitle
-  const stripFlat = tabStripOf(flatTabs)
-  const tabs = glass < 1 ? rgba(stripFlat, glass) : stripFlat
-  const tabActive = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
+  // THE TAB BAR IS THE SECONDARY COLOUR, ALL OF IT (owner, 2026-09-03): the
+  // strip, the tabs at rest and the tab you are on are one surface with the
+  // sidebar and the title bar, so a black secondary is a black bar from end
+  // to end. Two earlier cuts stepped something off something - the active
+  // tab off the strip, then the strip off the active tab - and both were
+  // sent back. The active tab is told by its ink (text against dim), not by
+  // a fill. A tab-bar colour of its own still moves the bar; both tokens
+  // carry the material's alpha.
+  const tabs = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
+  const tabActive = tabs
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
   const divider =

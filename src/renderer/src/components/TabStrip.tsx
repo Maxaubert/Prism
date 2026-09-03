@@ -265,12 +265,11 @@ export function TabStrip({
               loud
                 ? ''
                 : on
-                  ? // THE SECONDARY COLOUR (owner, 2026-09-03): the active tab
-                    // is one surface with the sidebar and the title bar, and
-                    // the STRIP's ground is what steps off it (--p-tabs, see
-                    // theme.ts tabStripOf). It carries the material's alpha
-                    // (2026-08-27: an opaque slab in a translucent strip stood
-                    // out more the more glass you asked for).
+                  ? // THE SECONDARY COLOUR (owner, 2026-09-03): the strip, the
+                    // tabs at rest and this one are all --p-tabs, one surface
+                    // with the sidebar and the title bar. --p-tab-active is
+                    // kept as a token (it equals --p-tabs today) and the
+                    // active tab is told by its ink, not a fill.
                     'bg-[var(--p-tab-active)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
