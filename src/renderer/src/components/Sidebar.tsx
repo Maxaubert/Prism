@@ -180,10 +180,8 @@ export function Sidebar({
   onUnpinSplit,
   pinnedPaths,
   onOpenNewTab,
-  onTermNewTab,
   onTermHere,
   onTermSplit,
-  onClearTerm,
   onCloseTerm,
   state,
   onTree
@@ -229,13 +227,11 @@ export function Sidebar({
   /** A fresh tab rooted at the file's folder. */
   onOpenNewTab: (path: string) => void
   /** The terminal button menu's "Open in new tab". */
-  onTermNewTab: () => void
   /** A folder row's "Open terminal here": a shell spawned in that folder. */
   onTermHere: (folder: string) => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
   /** Null while no shell exists: there is nothing to clear yet. */
-  onClearTerm: (() => void) | null
   /** Kill the shell for good; null when there is none. */
   onCloseTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
@@ -1384,29 +1380,16 @@ export function Sidebar({
               icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
               onPick: onTermSplit
             },
-            {
-              label: 'Open in new tab',
-              icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
-              onPick: onTermNewTab
-            },
-            // Only once a shell exists: there is nothing to clear before that.
-            ...(onClearTerm
-              ? [
-                  {
-                    label: 'Clear terminal',
-                    icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
-                    onPick: onClearTerm
-                  }
-                ]
-              : []),
             // CLOSE means close (owner, 2026-09-03): the shell dies, and the
-            // next open is a fresh one in the tab's current folder.
+            // next open is a fresh one in the tab's current folder. It took
+            // Clear's place and Clear's bin glyph (owner, same day) - a fresh
+            // shell IS a cleared one - and it is not red: closing a shell is
+            // routine, not destructive. "Open in new tab" went with it.
             ...(onCloseTerm
               ? [
                   {
                     label: 'Close terminal',
-                    danger: true,
-                    icon: <MenuIcon d="M6 6l12 12M18 6L6 18" />,
+                    icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
                     onPick: onCloseTerm
                   }
                 ]

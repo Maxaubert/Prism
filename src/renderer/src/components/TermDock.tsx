@@ -218,7 +218,7 @@ export function TermDock({
                 ] as MenuItem[])),
             // CLOSE means close (owner, 2026-09-03): the shell dies here, and
             // the next open is a fresh one in the tab's current folder.
-            { label: 'Close terminal', danger: true, onPick: onKill }
+            { label: 'Close terminal', onPick: onKill }
           ]}
         />
       )}

@@ -3212,21 +3212,29 @@ async function terminalScenario(fixtures) {
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
     await win.locator('.xterm').click()
 
-    // The terminal button's own menu: split, and clear.
+    // The terminal button's own menu: split, and CLOSE (owner, 2026-09-03 -
+    // Close took Clear's place and its glyph; a fresh shell is a cleared one;
+    // "Open in new tab" went with it).
     await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
       (await win.locator('[role="menuitem"]:has-text("Open in split view")').count()) === 1 &&
-        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 1,
-      'right-clicking the terminal button offers split and clear'
+        (await win.locator('[role="menuitem"]:has-text("Close terminal")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 0 &&
+        (await win.locator('[role="menuitem"]:has-text("Open in new tab")').count()) === 0,
+      'right-clicking the terminal button offers split and close, and nothing retired'
     )
-    await win.locator('[role="menuitem"]:has-text("Clear terminal")').click()
-    await sleep(500)
-    ok((await countMarker()) === 0, 'Clear terminal wipes screen and scrollback')
-    ok(
-      ((await win.locator('.xterm').textContent()) ?? '').includes('PS '),
-      'but the prompt (same shell, same cwd) is still there'
+    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
+    for (let i = 0; i < 30 && (await win.locator('.xterm').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('.xterm').count()) === 0, 'Close terminal from the button takes the shell away')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('PS '),
+      null,
+      { timeout: 15000 }
     )
+    ok((await countMarker()) === 0, 'and the next open is a fresh shell: no old scrollback')
     await win.locator('.xterm').click()
 
     // The activity indicator: streaming output lights the tab's dot, quiet

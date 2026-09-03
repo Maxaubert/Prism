@@ -1799,27 +1799,6 @@ export default function App(): JSX.Element {
     setPaneFocus('live')
   }, [active])
 
-  const clearTerm = useCallback(() => {
-    const term = active?.term
-    if (!term || !active) return
-    const spawnedAt = termRoots.current.get(term.id)
-    if (spawnedAt && !sameRoot(spawnedAt, active.root)) {
-      // The tab moved folders while this shell was busy being kept; Clear is
-      // the user resetting things, so it re-syncs: fresh shell, tab's folder.
-      window.prism.termKill(term.id)
-      disposeSession(term.id)
-      termRoots.current.delete(term.id)
-      const termId = nextTermId()
-      termRoots.current.set(termId, active.root)
-      setTabState((s) => ({
-        ...s,
-        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: term.view })
-      }))
-    } else {
-      void import('./components/TerminalPanel').then((m) => m.clearTermSession(term.id))
-    }
-  }, [active])
-
   /** The split's X buttons and the context menu's "Remove from split view".
    *  Closing ONE window of a split leaves the others standing: with pinned
    *  panes up, closing the live file promotes the OLDEST pin into the live
@@ -1974,9 +1953,6 @@ export default function App(): JSX.Element {
       })
     })
   }, [])
-  const openTermInNewTab = useCallback(() => {
-    if (active?.root) termTabAt(active.root)
-  }, [active, termTabAt])
   /**
    * "Open terminal here", on a folder in the tree (2026-08-31).
    *
@@ -2912,10 +2888,8 @@ export default function App(): JSX.Element {
             onUnpinSplit={unpinSplitPath}
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
-            onTermNewTab={openTermInNewTab}
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
-            onClearTerm={active.term ? clearTerm : null}
             onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
