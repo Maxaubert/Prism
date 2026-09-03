@@ -788,7 +788,10 @@ function StyleTab(): JSX.Element {
               />
             </div>
           </Pref>
-          <Pref id="c-bg" label="Background" hint="The viewer behind your file.">
+          {/* PRIMARY and SECONDARY (owner, 2026-09-03): the viewer's ground,
+              and the panels around it. Accent, Text and the rest stay their
+              own things. */}
+          <Pref id="c-bg" label="Primary colour" hint="The viewer behind your file.">
             <ColourWell
               id="c-bg"
               value={style.bg}
@@ -806,7 +809,7 @@ function StyleTab(): JSX.Element {
               they moved as three wells for an afternoon and are one again.
               The model still keeps them apart; the well writes all three.
               Unset, each keeps deriving from Background exactly as before. */}
-          <Pref id="c-chrome" label="Panels" hint="The sidebar, the title bar and the tab bar, together.">
+          <Pref id="c-chrome" label="Secondary colour" hint="The sidebar, the title bar and the tab bar, together.">
             <ColourWell
               id="c-chrome"
               value={sideOf(style)}
