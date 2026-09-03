@@ -45,6 +45,8 @@ import {
   paletteOf,
   folderIconOf,
   sideOf,
+  tabsOf,
+  titleOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -808,6 +810,27 @@ function StyleTab(): JSX.Element {
               custom={!!edits.side}
               onChange={(v) => setOverride('side', v)}
               onReset={() => setOverride('side', null)}
+            />
+          </Pref>
+          {/* Title bar and tab bar, each their own (owner, 2026-09-03): a
+              sidebar colour on its own looked odd against a title bar and a
+              tab strip that stayed put, so the three are separately yours. */}
+          <Pref id="c-title" label="Title bar" hint="The strip with the logo, the sidebar toggle and the gear.">
+            <ColourWell
+              id="c-title"
+              value={titleOf(style)}
+              custom={!!edits.title}
+              onChange={(v) => setOverride('title', v)}
+              onReset={() => setOverride('title', null)}
+            />
+          </Pref>
+          <Pref id="c-tabs" label="Tab bar" hint="The strip of tabs. The active tab is always a step off it.">
+            <ColourWell
+              id="c-tabs"
+              value={tabsOf(style)}
+              custom={!!edits.tabs}
+              onChange={(v) => setOverride('tabs', v)}
+              onReset={() => setOverride('tabs', null)}
             />
           </Pref>
           <Pref id="c-text" label="Text" hint="File names, labels and readouts.">

@@ -13,7 +13,9 @@ import {
   setOverride,
   setStyle,
   STYLES,
-  type Style
+  type Style,
+  tabsOf,
+  titleOf
 } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
@@ -273,6 +275,35 @@ describe('the sidebar can wear its own colour (owner, 2026-09-03)', () => {
   it('sideOf reports the pick when there is one, the derived surface otherwise', () => {
     expect(sideOf({ ...base, side: '#123456', sideOwn: true })).toBe('#123456')
     expect(sideOf({ ...base, side: '#123456' })).toBe(base.bg)
+  })
+})
+
+describe('the title bar and the tab bar are their own (owner, 2026-09-03)', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it('the active tab is a step off the TAB BAR and ignores the sidebar', () => {
+    const plain = variablesFor(base)
+    const sided = variablesFor({ ...base, side: '#ff0000', sideOwn: true })
+    expect(sided['--p-tab-active']).toBe(plain['--p-tab-active'])
+    expect(sided['--p-side']).toBe('#ff0000')
+  })
+
+  it('a tab bar colour moves the strip AND the active tab with it', () => {
+    const v = variablesFor({ ...base, tabs: '#000000', tabsOwn: true })
+    expect(v['--p-tabs']).toBe('#000000')
+    // a step towards the ink, not the sidebar's colour and not black itself
+    expect(v['--p-tab-active']).not.toBe('#000000')
+    expect(v['--p-tab-active']).not.toBe(v['--p-side'])
+    expect(v['--p-tab-active']).toBe(mix('#000000', base.text, base.mode === 'light' ? 0.06 : 0.08))
+  })
+
+  it('the tab bar follows the title bar until it has a colour of its own', () => {
+    const titled = variablesFor({ ...base, title: '#123456', titleOwn: true })
+    expect(titled['--p-title']).toBe('#123456')
+    expect(titled['--p-tabs']).toBe('#123456')
+    expect(titleOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
+    expect(tabsOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
+    expect(tabsOf({ ...base, tabs: '#654321', tabsOwn: true })).toBe('#654321')
   })
 })
 

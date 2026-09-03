@@ -234,7 +234,7 @@ export function TabStrip({
       // closed hand, children included: a tab is made of a label button, an
       // icon slot and an X, each with a cursor of its own, and letting them
       // answer for themselves made it flicker under the moving pointer.
-      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-title)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
         carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
       } ${wash ? 'p-wash' : ''}`}
     >
@@ -265,12 +265,14 @@ export function TabStrip({
               loud
                 ? ''
                 : on
-                  ? // --p-side, not --p-side-flat: the flat token is the OPAQUE
-                    // one, so under acrylic the active tab was a solid slab in a
-                    // translucent strip, and the more glass you asked for the
-                    // more it stood out (2026-08-27). This is the same surface
-                    // the sidebar wears.
-                    'bg-[var(--p-side)] text-[var(--p-text)]'
+                  ? // A STEP OFF THE TAB BAR (owner, 2026-09-03), never the
+                    // sidebar's colour: the active tab used to wear --p-side so
+                    // the two read as one surface, which meant a sidebar colour
+                    // repainted the tab. --p-tab-active is derived from
+                    // --p-tabs, and it carries the material's alpha (2026-08-27:
+                    // an opaque slab in a translucent strip stood out more the
+                    // more glass you asked for).
+                    'bg-[var(--p-tab-active)] text-[var(--p-text)]'
                   : 'text-[var(--p-dim)] hover:bg-white/5 hover:text-[var(--p-text)]'
             }`}
             style={{
