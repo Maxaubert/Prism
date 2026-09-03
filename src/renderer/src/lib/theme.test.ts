@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   archiveIconOf,
   derive,
+  variablesFor,
+  sideOf,
   fileIconOf,
   ICON_SCHEME_SHOWN,
   iconSchemeOf,
@@ -196,8 +198,10 @@ describe('the file icon is white or near-black, whichever the ground takes', () 
   it.each(STYLES.map((s) => [s.name, s] as const))('%s picks the readable end', (_n, s) => {
     const ink = fileIconOf(s)
     // A dark style takes white; a light one takes its own ground carried almost
-    // all the way down, which is dark but deliberately not #000000.
-    expect(ink).toBe(s.mode === 'light' ? mix('#000000', s.bg, 0.14) : '#ffffff')
+    // all the way down, which is dark but deliberately not #000000. The ground
+    // is the SIDEBAR's (sideOf): for a tinted style that is the accent-tinted
+    // panel the icons actually sit on, not the raw bg behind the viewer.
+    expect(ink).toBe(s.mode === 'light' ? mix('#000000', sideOf(s), 0.14) : '#ffffff')
     expect(contrast(ink, derive(s)['--p-side-flat'])).toBeGreaterThan(10)
   })
 
@@ -236,5 +240,49 @@ describe('the icon scheme', () => {
     // strand whoever set it with a set and no way to change it.
     expect(ICON_SCHEME_SHOWN).toBe(false)
     expect(iconSchemeOf({ ...STYLES[0], iconScheme: 'colour' })).toBe('mono')
+  })
+})
+
+describe('the sidebar can wear its own colour (owner, 2026-09-03)', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it('without sideOwn the one-surface rule stands: side follows bg, not the legacy field', () => {
+    const vars = variablesFor({ ...base, side: '#123456' })
+    expect(vars['--p-side']).toBe(vars['--p-bg'])
+    expect(vars['--p-side-flat']).toBe(base.bg)
+  })
+
+  it('sideOwn puts the chosen colour on the panel and its flat token', () => {
+    const vars = variablesFor({ ...base, side: '#123456', sideOwn: true })
+    expect(vars['--p-side']).toBe('#123456')
+    expect(vars['--p-side-flat']).toBe('#123456')
+    // the viewer canvas is untouched
+    expect(vars['--p-bg']).toBe(base.bg)
+  })
+
+  it('on glass the chosen colour carries the material alpha, staying one sheet', () => {
+    const frosted = STYLES.find((st) => st.material === 'acrylic' || st.material === 'mica')
+    if (!frosted) return
+    const vars = variablesFor({ ...frosted, side: '#123456', sideOwn: true })
+    expect(vars['--p-side'].startsWith('rgba(')).toBe(true)
+    expect(vars['--p-side']).toContain('18,52,86') // #123456
+    // but the FLAT token is the flat colour, for the contrast maths
+    expect(vars['--p-side-flat']).toBe('#123456')
+  })
+
+  it('sideOf reports the pick when there is one, the derived surface otherwise', () => {
+    expect(sideOf({ ...base, side: '#123456', sideOwn: true })).toBe('#123456')
+    expect(sideOf({ ...base, side: '#123456' })).toBe(base.bg)
+  })
+})
+
+describe('the tree inks measure against the sidebar the icons actually sit on', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it('a light sidebar over a dark background flips the file ink to dark', () => {
+    const dark = { ...base, bg: '#101215' }
+    expect(fileIconOf(dark)).toBe('#ffffff')
+    const lightPanel = { ...dark, side: '#f2f2f4', sideOwn: true }
+    expect(fileIconOf(lightPanel)).not.toBe('#ffffff')
   })
 })
