@@ -1091,8 +1091,10 @@ export default function App(): JSX.Element {
         window.prism.setFsTransition(false)
         return
       }
-      // Hold the black a beat (200ms) before lifting: the swap should be felt,
-      // not glimpsed. The double rAF then guarantees the new frame is laid out.
+      // Hold the black (320ms) before lifting: long enough for main's shroud
+      // to have covered the resize and gone (it leaves at 300ms), so the far
+      // side is revealed under black. The double rAF then guarantees the new
+      // frame is laid out.
       setTimeout(() => {
         if (!fresh()) return
         requestAnimationFrame(() =>
@@ -1110,7 +1112,7 @@ export default function App(): JSX.Element {
             }, 300)
           })
         )
-      }, 200)
+      }, 320)
     },
     [veils]
   )

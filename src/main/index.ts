@@ -2658,6 +2658,55 @@ if (!app.requestSingleInstanceLock()) {
      * flash. Setting the work-area bounds first makes that animation
      * degenerate: same rect to same rect, nothing to draw.
      */
+    /**
+     * THE SHROUD (2026-09-03). The one artifact left was a white bar on the
+     * right during the resize itself, both ways: pixels the window claims
+     * before its renderer has painted them, which an IN-WINDOW veil cannot
+     * cover by definition - the veil is part of the very surface that has
+     * not painted yet. So a plain black window covers the whole display for
+     * the ~300ms of the swap: it appears over a screen the veil has already
+     * taken to black (black over black, invisible), the resize happens
+     * beneath it, and it leaves while the veil is still black. Its brief
+     * always-on-top is safe - the strip Windows applies to topmost
+     * fullscreen-sized windows took 300ms-3s to land, measured.
+     */
+    let fsShroud: BrowserWindow | null = null
+    let shroudTimer: NodeJS.Timeout | null = null
+    const shroudShow = (bounds: Electron.Rectangle): void => {
+      if (E2E) return // it would cover the REAL display while the suite runs parked
+      try {
+        if (!fsShroud || fsShroud.isDestroyed()) {
+          fsShroud = new BrowserWindow({
+            show: false,
+            frame: false,
+            backgroundColor: '#000000',
+            skipTaskbar: true,
+            focusable: false,
+            resizable: false,
+            movable: false,
+            minimizable: false,
+            maximizable: false,
+            hasShadow: false
+          })
+          fsShroud.setIgnoreMouseEvents(true)
+          fsShroud.setMenu(null)
+        }
+        fsShroud.setBounds(bounds)
+        fsShroud.setAlwaysOnTop(true, 'screen-saver')
+        fsShroud.showInactive()
+      } catch {
+        /* a failed shroud only costs the cover, not the swap */
+      }
+      if (shroudTimer) clearTimeout(shroudTimer)
+      shroudTimer = setTimeout(() => {
+        shroudTimer = null
+        try {
+          fsShroud?.hide()
+        } catch {
+          /* gone is gone */
+        }
+      }, 300)
+    }
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
       const win = mainWindow
       if (!win || !!on === isFs()) return
@@ -2665,15 +2714,19 @@ if (!app.requestSingleInstanceLock()) {
         if (on) {
           preFsBounds = win.getBounds()
           preFsMaximized = win.isMaximized()
+          const disp = screen.getDisplayMatching(preFsBounds)
+          shroudShow(disp.bounds)
           if (preFsMaximized) win.unmaximize()
           win.setResizable(false)
-          win.setBounds(screen.getDisplayMatching(preFsBounds).bounds)
+          win.setBounds(disp.bounds)
         } else {
           const back = preFsBounds
           preFsBounds = null
+          const disp = screen.getDisplayMatching(back ?? win.getBounds())
+          shroudShow(disp.bounds)
           win.setResizable(true)
           if (preFsMaximized) {
-            win.setBounds(screen.getDisplayMatching(back ?? win.getBounds()).workArea)
+            win.setBounds(disp.workArea)
             win.maximize()
           } else if (back) {
             win.setBounds(back)
