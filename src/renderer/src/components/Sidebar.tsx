@@ -239,7 +239,7 @@ export function Sidebar({
   onTermSplit: () => void
   /** The tab's shells (2026-09-03): the button's menu lists them when there
    *  are several - pick one, split one, close one. */
-  terms: Array<{ id: string; label: string; current: boolean }>
+  terms: Array<{ id: string; label: string; current: boolean; shown: boolean }>
   onPickTerm: (id: string) => void
   onNewTerm: () => void
   onCloseTermId: (id: string) => void
@@ -1402,14 +1402,22 @@ export function Sidebar({
               : []),
             {
               label: 'Open new terminal',
-              icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13 12h6M16 9v6" />,
+              // A window with a prompt in it (owner, 2026-09-03: not the plus).
+              icon: <MenuIcon d="M4 5.5h16v13H4zM4 9h16M7.5 12l2.5 2-2.5 2M12 16h4" />,
               onPick: onNewTerm
             },
             terms.length > 1
               ? {
                   label: 'Open in split view',
                   icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
-                  children: terms.map((t) => ({ label: t.label, onPick: () => onSplitTermId(t.id) }))
+                  // A CHECKLIST (owner, 2026-09-03): a shell already on screen
+                  // is ticked, so it is plain which others to add; picking a
+                  // ticked one takes it out of the split again.
+                  children: terms.map((t) => ({
+                    label: t.label,
+                    icon: tickIf(t.shown),
+                    onPick: () => onSplitTermId(t.id)
+                  }))
                 }
               : {
                   label: 'Open in split view',

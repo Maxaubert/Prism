@@ -1910,15 +1910,24 @@ export default function App(): JSX.Element {
     },
     [active]
   )
-  /** "Open in split view" for one of several: the current shell takes the
-   *  dock, any other becomes a pane. */
+  /** "Open in split view" for one of several is a TOGGLE (owner, 2026-09-03):
+   *  a shell on screen comes out of the split, one that is not goes in - the
+   *  current shell through the dock, any other as a pane. */
   const splitTermId = useCallback(
     (termId: string) => {
-      // openTermSplit is declared further down and resolved at call time;
-      // it is not a dep on purpose (its own deps are stable).
-      if (active?.term?.id === termId) openTermSplit()
-      else pinTermAsPane(termId)
+      if (!active) return
+      const pane = active.panes.find((pn) => pn.term === termId)
+      if (pane) return unpinSplitId(pane.id)
+      if (active.term?.id === termId) {
+        // openTermSplit is declared further down and resolved at call time;
+        // it is not a dep on purpose (its own deps are stable). It folds a
+        // showing dock back and opens a hidden one, which is the toggle.
+        openTermSplit()
+        return
+      }
+      pinTermAsPane(termId)
     },
+    // unpinSplitId is declared further down too, and resolved at call time.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
     [active, pinTermAsPane]
   )
@@ -3021,7 +3030,12 @@ export default function App(): JSX.Element {
                 (agentIds.has(id) && agentKinds.current.get(id)
                   ? ` · ${agentKinds.current.get(id)}`
                   : ''),
-              current: active.term?.id === id
+              current: active.term?.id === id,
+              // On screen now: the current shell while it is showing, or one
+              // pinned as a pane. What the split checklist ticks.
+              shown:
+                (active.term?.id === id && active.term.view !== 'hidden') ||
+                active.panes.some((pn) => pn.term === id)
             }))}
             onPickTerm={pickTermId}
             onNewTerm={openNewTerm}
