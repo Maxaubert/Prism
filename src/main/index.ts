@@ -25,6 +25,7 @@ import {
 import { copyFile, readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
+import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
 import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
@@ -1075,34 +1076,29 @@ function raise(win: BrowserWindow): void {
  * draws a 1px border on every framed window; with the title bar hidden it
  * lies as a hairline across the top. RESTORED, the owner wants it - a floating
  * window reads better with an edge. MAXIMIZED or FULLSCREEN it is a hairline
- * across the top of the screen and goes: dwmapi attribute 34 (border color),
- * -2 DWMWA_COLOR_NONE to strip, -1 DWMWA_COLOR_DEFAULT to give back. Spawned
- * async through PowerShell - one dwmapi call is not worth a native module -
- * and purely cosmetic, so a failure costs nothing but the hairline.
- * Chromium rewrites DWM attributes when the backdrop changes, so
- * applyDwmBorder also rides behind every material application.
+ * across the top of the screen and goes (dwmapi attribute 34, COLOR_NONE).
+ * Purely cosmetic, so a failure costs nothing but the hairline. Chromium
+ * rewrites DWM attributes when the backdrop changes, so applyDwmBorder also
+ * rides behind every material application.
+ *
+ * QUIETER THAN DWM'S OWN (owner, same day: "a bit too thick"). The border is
+ * always one physical pixel; what reads as thickness is contrast, so it is
+ * drawn in a colour a step off the window's own ground rather than in DWM's
+ * default grey. And it lands the moment the state changes, through the
+ * persistent helper in dwmHelper.ts - a fresh PowerShell per change paid a
+ * two-second compile, which is why the edge used to arrive two seconds after
+ * the window did.
  */
-function setDwmBorder(win: BrowserWindow, visible: boolean): void {
-  try {
-    const buf = win.getNativeWindowHandle()
-    const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
-    const script =
-      `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
-      `$b=${visible ? -1 : -2};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},34,[ref]$b,4)|Out-Null`
-    execFile(
-      'powershell.exe',
-      ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-      () => {}
-    )
-  } catch {
-    /* cosmetic */
-  }
-}
-
 function applyDwmBorder(): void {
   const win = mainWindow
   if (!win) return
-  setDwmBorder(win, !win.isMaximized() && !isFs())
+  try {
+    const hwnd = hwndOf(win.getNativeWindowHandle())
+    const visible = !win.isMaximized() && !isFs()
+    setBorder(hwnd, visible ? (wantedMaterial.light ? '#c9ccd3' : '#34373d') : 'none')
+  } catch {
+    /* cosmetic */
+  }
 }
 
 function createWindow(): void {
@@ -1154,10 +1150,13 @@ function createWindow(): void {
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
+    // The helper compiles its one P/Invoke now, so the first border change
+    // is a pipe write and not a two-second wait.
+    warmDwmHelper()
     applyDwmBorder()
   })
-  // The border follows maximize state; fullscreen changes reach applyDwmBorder
-  // through applyMaterial's debounce.
+  // The border follows maximize state; fullscreen changes call applyDwmBorder
+  // themselves on the way out, and applyMaterial's debounce covers the rest.
   mainWindow.on('maximize', applyDwmBorder)
   mainWindow.on('unmaximize', applyDwmBorder)
   watchWindowState(mainWindow)
@@ -1276,6 +1275,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => {
+    stopDwmHelper()
     killAll()
     killSidecars()
     cancelAllConversions()
@@ -2908,28 +2908,16 @@ if (!app.requestSingleInstanceLock()) {
      * corner cut-outs showed the desktop as grey arcs (the owner's own
      * screenshot). Electron 43 exposes rounding only as a constructor option
      * and only for frameless windows, so the DWM attribute is set directly:
-     * corner preference (33), DONOTROUND going in, DEFAULT coming back.
-     * Spawned async through PowerShell (no native module for one dwmapi
-     * call); the few hundred ms land under the shroud. The 1px DWM BORDER is
-     * not handled here: the owner wants it gone in every state, so it is
-     * stripped once at window creation - see stripDwmBorder.
+     * corner preference (33), DONOTROUND going in, DEFAULT coming back,
+     * through the persistent helper in dwmHelper.ts so it lands in
+     * milliseconds under the shroud. The 1px DWM BORDER is not handled here:
+     * it follows the window's state - see applyDwmBorder.
      */
-    const setCornersRounded = (rounded: boolean): void => {
+    const setCorners = (rounded: boolean): void => {
       const win = mainWindow
       if (!win) return
       try {
-        const buf = win.getNativeWindowHandle()
-        const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
-        // 33 corner preference: 0 DEFAULT / 1 DONOTROUND.
-        const script =
-          `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
-          `$v=${rounded ? 0 : 1};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},33,[ref]$v,4)|Out-Null`
-        // -EncodedCommand: no quoting rules between three languages.
-        execFile(
-          'powershell.exe',
-          ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-          () => {}
-        )
+        setCornersRounded(hwndOf(win.getNativeWindowHandle()), rounded)
       } catch {
         /* rounded corners are cosmetic; the swap must not fail over them */
       }
@@ -2945,13 +2933,13 @@ if (!app.requestSingleInstanceLock()) {
           if (preFsMaximized) win.unmaximize()
           win.setResizable(false)
           win.setBounds(disp.bounds)
-          setCornersRounded(false)
+          setCorners(false)
         } else {
           const back = preFsBounds
           preFsBounds = null
           const disp = screen.getDisplayMatching(back ?? win.getBounds())
           win.setResizable(true)
-          setCornersRounded(true)
+          setCorners(true)
           if (preFsMaximized) {
             win.setBounds(disp.workArea)
             win.maximize()
@@ -2959,6 +2947,9 @@ if (!app.requestSingleInstanceLock()) {
             win.setBounds(back)
           }
           preFsMaximized = false
+          // The edge comes back WITH the window, not on the material
+          // debounce behind it (owner: it used to arrive seconds late).
+          applyDwmBorder()
         }
       } catch {
         preFsBounds = on ? preFsBounds : null
