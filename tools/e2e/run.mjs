@@ -3500,6 +3500,39 @@ async function terminalScenario(fixtures) {
     await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 15000 })
     ok(true, 'and the next Ctrl+` opens a fresh one')
+
+    // SEVERAL TERMINALS (owner, 2026-09-03): a second shell, the list to pick
+    // from, one pinned as a pane beside the other, and a close submenu.
+    const termBtn = () => win.locator('aside [aria-label="Terminal"]')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open new terminal")').click()
+    await sleep(1500)
+    ok((await win.locator('.xterm').count()) === 1, 'a new terminal takes the full view alone')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Terminal 1")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 1,
+      'the menu lists both terminals'
+    )
+    await win.hover('[role="menuitem"]:has-text("Open in split view")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    await sleep(1800)
+    ok(
+      (await win.locator('[data-pane="pinned"] .xterm').count()) === 1 &&
+        (await win.locator('.xterm').count()) === 2,
+      'the other terminal is pinned as a pane beside the current one'
+    )
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.hover('[role="menuitem"]:has-text("Close terminal")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    for (let i = 0; i < 30 && (await win.locator('[data-pane="pinned"]').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'closing the pinned shell removes its pane')
+    ok((await win.locator('.xterm').count()) === 1, 'and the other one carries on')
   } finally {
     await app.close()
   }

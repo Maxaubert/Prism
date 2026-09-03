@@ -47,6 +47,7 @@ const api = {
       root: string
       file?: string
       term?: 'full' | 'split'
+      terms?: number
       agent?: 'claude' | 'codex'
       open?: string[]
     }>,

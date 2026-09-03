@@ -18,7 +18,8 @@ import {
   tabLabels,
   toggleTermView,
   type Tab
-} from './tabs'
+, addTerm, pickTerm, removeTerm, termLabel} from './tabs'
+import { pinTermPane } from './panes'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -371,6 +372,7 @@ describe('the gear', () => {
     index: -1,
     tree: { expanded: new Set<string>(), children: {} },
     term: null,
+    terms: [],
     panes: []
   })
 
@@ -456,5 +458,65 @@ describe('the folders between a root and a file', () => {
 
   it('handles forward slashes too', () => {
     expect(ancestorsWithin('C:/r', 'C:/r/a/x.txt')).toEqual(['C:/r/a', 'C:/r'])
+  })
+})
+
+describe('a tab holds several terminals (2026-09-03)', () => {
+  const tab = (): Tab => ({
+    id: 't1',
+    root: 'C:\\x',
+    files: [],
+    index: -1,
+    tree: { expanded: new Set(['C:\\x']), children: {} },
+    term: null,
+    terms: [],
+    panes: []
+  })
+
+  it('setTabTerm keeps the list honest: a new id joins it, a known one does not repeat', () => {
+    let tabs = setTabTerm([tab()], 't1', { id: 'a', view: 'full' })
+    expect(tabs[0].terms).toEqual(['a'])
+    tabs = setTabTerm(tabs, 't1', { id: 'a', view: 'hidden' })
+    expect(tabs[0].terms).toEqual(['a'])
+    tabs = addTerm(tabs, 't1', 'b', 'full')
+    expect(tabs[0].terms).toEqual(['a', 'b'])
+    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
+  })
+
+  it('picking a shell makes it current with the showing view, and ignores strangers', () => {
+    let tabs = addTerm(addTerm([tab()], 't1', 'a', 'split'), 't1', 'b', 'split')
+    tabs = pickTerm(tabs, 't1', 'a')
+    expect(tabs[0].term).toEqual({ id: 'a', view: 'split' })
+    tabs = setTabTerm(tabs, 't1', { id: 'a', view: 'hidden' })
+    tabs = pickTerm(tabs, 't1', 'b')
+    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
+    expect(pickTerm(tabs, 't1', 'zzz')[0].term?.id).toBe('b')
+  })
+
+  it('removing the current shell hands over to the most recent survivor; the last leaves null', () => {
+    let tabs = addTerm(addTerm(addTerm([tab()], 't1', 'a', 'full'), 't1', 'b', 'full'), 't1', 'c', 'full')
+    tabs = removeTerm(tabs, 't1', 'c')
+    expect(tabs[0].terms).toEqual(['a', 'b'])
+    expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })
+    tabs = removeTerm(tabs, 't1', 'a') // not current: list only
+    expect(tabs[0].term?.id).toBe('b')
+    tabs = removeTerm(tabs, 't1', 'b')
+    expect(tabs[0].term).toBeNull()
+    expect(tabs[0].terms).toEqual([])
+  })
+
+  it('labels follow the order opened', () => {
+    const t = { terms: ['a', 'b'] }
+    expect(termLabel(t, 'a')).toBe('Terminal 1')
+    expect(termLabel(t, 'b')).toBe('Terminal 2')
+    expect(termLabel(t, 'q')).toBe('Terminal ?')
+  })
+
+  it('a terminal pane wears a sentinel path and moves on re-pin', () => {
+    let panes = pinTermPane([], 'p1', 'a', 'right')
+    expect(panes[0]).toEqual({ id: 'p1', path: 'term:a', dir: 'right', term: 'a' })
+    panes = pinTermPane(panes, 'p2', 'a', 'bottom')
+    expect(panes).toHaveLength(1)
+    expect(panes[0].dir).toBe('bottom')
   })
 })

@@ -13,7 +13,11 @@ import {
   setTabTerm,
   toggleTermView,
   type TabState,
-  type TreeState
+  type TreeState,
+  addTerm,
+  pickTerm,
+  removeTerm,
+  termLabel
 } from './lib/tabs'
 import {
   lastSplitDir,
@@ -21,7 +25,8 @@ import {
   pinPane,
   saveSplitDir,
   unpinPane,
-  type SplitDir
+  type SplitDir,
+  pinTermPane
 } from './lib/panes'
 import { fileKind } from '@shared/fileKind'
 import {
@@ -46,6 +51,9 @@ import {
 } from './lib/termActivity'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
+// A shell pinned as a PANE renders the same panel the dock does, behind the
+// same lazy boundary, so xterm stays out of the launch bundle.
+const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
 import { tickIf } from './lib/fileVerbs'
 import { focusTermSession } from './components/TerminalPanel'
@@ -623,6 +631,9 @@ function PinnedPaneView({
   path,
   area,
   dir,
+  term,
+  termRoot,
+  shellId,
   onMove,
   onClose,
   viewerProps
@@ -631,11 +642,16 @@ function PinnedPaneView({
   path: string
   area: string
   dir: SplitDir
+  /** A TERMINAL pane (2026-09-03): the shell's id, its root and the shell
+   *  to spawn, instead of a file. */
+  term?: string
+  termRoot?: string
+  shellId?: string
   onMove: (dir: SplitDir) => void
   onClose: () => void
   viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
-  const name = path.split(/[\\/]/).pop() ?? path
+  const name = term ? 'terminal' : (path.split(/[\\/]/).pop() ?? path)
   const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
   const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -676,7 +692,21 @@ function PinnedPaneView({
           ]}
         />
       )}
-      <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      {term ? (
+        <div className="h-full w-full" data-term-region>
+          <Suspense
+            fallback={
+              <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">
+                Starting shell…
+              </div>
+            }
+          >
+            <TerminalPanelLazy sessionId={term} root={termRoot ?? ''} shellId={shellId} />
+          </Suspense>
+        </div>
+      ) : (
+        <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
+      )}
       <button
         className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
         onClick={onClose}
@@ -1062,6 +1092,14 @@ export default function App(): JSX.Element {
             m.ensureTermSession(termId, root, savedShellId())
           )
           tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
+          // The other shells the tab held get their SLOTS now and spawn when
+          // picked (2026-09-03): a hidden terminal never mounts a panel, and
+          // the panel is what spawns.
+          for (let k = 1; k < (p.terms ?? 1); k += 1) {
+            const extra = nextTermId()
+            termRoots.current.set(extra, target.root)
+            tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
+          }
         }
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
@@ -1303,10 +1341,11 @@ export default function App(): JSX.Element {
       // The tab's shell dies with it, both halves: main's pty and the
       // renderer's xterm instance.
       const tab = s.tabs.find((t) => t.id === id)
-      if (tab?.term) {
-        window.prism.termKill(tab.term.id)
-        disposeSession(tab.term.id)
-        termRoots.current.delete(tab.term.id)
+      // EVERY shell the tab held (2026-09-03), not only the current one.
+      for (const termId of tab?.terms ?? []) {
+        window.prism.termKill(termId)
+        disposeSession(termId)
+        termRoots.current.delete(termId)
       }
       // ...and so does the level it was playing at: the id never comes back.
       forgetTabVolume(id)
@@ -1387,16 +1426,19 @@ export default function App(): JSX.Element {
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else {
         const mode = confirmCloseMode()
-        const agentLive = !!tab.term && agentIds.has(tab.term.id)
+        // ANY of the tab's shells (2026-09-03): a working agent in a hidden
+        // second terminal is exactly what the question exists to protect.
+        const agentLive = tab.terms.some((id) => agentIds.has(id))
         // What is actually at stake, so the question can say it: an agent
         // that is WORKING (not merely present) and how long it has been at
         // it. 'never' still means never - it is an explicit choice, and a
         // confirmation that appears anyway is a setting that lies.
-        const busy = tab.term && workingIds.has(tab.term.id) ? workingFor(tab.term.id) : null
+        const workingId = tab.terms.find((id) => workingIds.has(id))
+        const busy = workingId ? workingFor(workingId) : null
         const agent: AgentBusy | null =
-          busy === null || !tab.term
+          busy === null || !workingId
             ? null
-            : { kind: agentKinds.current.get(tab.term.id) ?? 'other', forMs: busy }
+            : { kind: agentKinds.current.get(workingId) ?? 'other', forMs: busy }
         if (mode === 'always' || (mode === 'agent' && agentLive))
           setAsk({
             kind: 'close-tab-confirm',
@@ -1594,6 +1636,8 @@ export default function App(): JSX.Element {
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
         term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        // How many shells, so a tab with three comes back with three slots.
+        terms: t.terms.length > 1 ? t.terms.length : undefined,
         // Where you had got to in the tree. Not a per-tab setting - the tab is
         // still a root and a file - but closing Prism used to collapse
         // everything, so a file six folders down came back unmarked in a
@@ -1674,8 +1718,15 @@ export default function App(): JSX.Element {
           return next
         })
         setTabState((s) => {
-          const tab = s.tabs.find((t) => t.term?.id === id)
-          return tab ? { ...s, tabs: setTabTerm(s.tabs, tab.id, null) } : s
+          // Out of the LIST, not only out of the current slot (2026-09-03):
+          // a dead id left in `terms` was handed the dock back the moment
+          // its replacement closed. A pane holding it goes with it, and the
+          // most recent survivor - if any - takes over.
+          const tab = s.tabs.find((t) => t.terms.includes(id))
+          if (!tab) return s
+          const pane = tab.panes.find((pn) => pn.term === id)
+          const tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
+          return { ...s, tabs: removeTerm(tabs, tab.id, id) }
         })
       }),
     []
@@ -1789,15 +1840,88 @@ export default function App(): JSX.Element {
    * terminal in the right folder. Hiding (Ctrl+`, the X) still keeps the
    * shell running; this is the verb for when you are done with it.
    */
+  const closeTermId = useCallback(
+    (termId: string) => {
+      if (!active) return
+      window.prism.termKill(termId)
+      disposeSession(termId)
+      termRoots.current.delete(termId)
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === active.id)
+        if (!tab) return s
+        // A pane holding this shell goes with it; the survivors keep their
+        // places, and the most recent survivor becomes current.
+        const pane = tab.panes.find((pn) => pn.term === termId)
+        let tabs = pane ? setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, pane.id)) : s.tabs
+        tabs = removeTerm(tabs, tab.id, termId)
+        return { ...s, tabs }
+      })
+      setPaneFocus('live')
+    },
+    [active]
+  )
   const closeTerm = useCallback(() => {
-    const term = active?.term
-    if (!term || !active) return
-    window.prism.termKill(term.id)
-    disposeSession(term.id)
-    termRoots.current.delete(term.id)
-    setTabState((s) => ({ ...s, tabs: setTabTerm(s.tabs, active.id, null) }))
-    setPaneFocus('live')
+    if (active?.term) closeTermId(active.term.id)
+  }, [active, closeTermId])
+
+  /**
+   * SEVERAL TERMINALS PER TAB (2026-09-03, owner). "Open new terminal" mints
+   * a shell and makes it current; picking one from the button's menu makes
+   * THAT one current (the button's left click always opens the most recent);
+   * and a shell can be pinned as a PANE beside the live file or another
+   * shell, through the same grid the file pins use.
+   */
+  const openNewTerm = useCallback(() => {
+    if (!active || active.kind === 'settings') return
+    const termId = nextTermId()
+    termRoots.current.set(termId, active.root)
+    setTabState((s) => ({ ...s, tabs: addTerm(s.tabs, active.id, termId, 'full') }))
+    setPaneFocus('term')
   }, [active])
+  const pickTermId = useCallback(
+    (termId: string) => {
+      if (!active) return
+      setTabState((s) => ({ ...s, tabs: pickTerm(s.tabs, active.id, termId) }))
+      setPaneFocus('term')
+    },
+    [active]
+  )
+  const pinTermAsPane = useCallback(
+    (termId: string, dir?: SplitDir) => {
+      if (!active || active.kind === 'settings') return
+      const d = dir ?? lastSplitDir()
+      saveSplitDir(d)
+      const already = active.panes.find((pn) => pn.term === termId)
+      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === active.id)
+        if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
+        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(tab.panes, paneId, termId, d))
+        // The grid has to be on screen for a pane to be: a FULL terminal
+        // covers it, so the current one drops to its dock split - and a
+        // shell that just became a pane leaves the dock, or it would be
+        // drawn twice.
+        const cur = tab.term
+        if (cur?.id === termId) tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'hidden' })
+        else if (cur?.view === 'full') tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'split' })
+        return { ...s, tabs }
+      })
+      setPaneFocus(paneId)
+    },
+    [active]
+  )
+  /** "Open in split view" for one of several: the current shell takes the
+   *  dock, any other becomes a pane. */
+  const splitTermId = useCallback(
+    (termId: string) => {
+      // openTermSplit is declared further down and resolved at call time;
+      // it is not a dep on purpose (its own deps are stable).
+      if (active?.term?.id === termId) openTermSplit()
+      else pinTermAsPane(termId)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+    [active, pinTermAsPane]
+  )
 
   /** The split's X buttons and the context menu's "Remove from split view".
    *  Closing ONE window of a split leaves the others standing: with pinned
@@ -2890,6 +3014,19 @@ export default function App(): JSX.Element {
             onOpenNewTab={openInNewTab}
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
+            terms={active.terms.map((id) => ({
+              id,
+              label:
+                termLabel(active, id) +
+                (agentIds.has(id) && agentKinds.current.get(id)
+                  ? ` · ${agentKinds.current.get(id)}`
+                  : ''),
+              current: active.term?.id === id
+            }))}
+            onPickTerm={pickTermId}
+            onNewTerm={openNewTerm}
+            onCloseTermId={closeTermId}
+            onSplitTermId={splitTermId}
             onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
@@ -3099,7 +3236,10 @@ export default function App(): JSX.Element {
                       path={pn.path}
                       area={areas.pinned[i]}
                       dir={pn.dir}
-                      onMove={(d) => pinSplit(pn.path, d)}
+                      term={pn.term}
+                      termRoot={pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined}
+                      shellId={pn.term ? savedShellId() : undefined}
+                      onMove={(d) => (pn.term ? pinTermAsPane(pn.term, d) : pinSplit(pn.path, d))}
                       onClose={() => unpinSplitId(pn.id)}
                       viewerProps={{
                         onUndoable: noteUndo,

@@ -20,6 +20,7 @@ import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
 import { intendToPlay } from '../lib/playState'
+import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -183,6 +184,11 @@ export function Sidebar({
   onTermHere,
   onTermSplit,
   onCloseTerm,
+  terms,
+  onPickTerm,
+  onNewTerm,
+  onCloseTermId,
+  onSplitTermId,
   state,
   onTree
 }: {
@@ -231,6 +237,13 @@ export function Sidebar({
   onTermHere: (folder: string) => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
+  /** The tab's shells (2026-09-03): the button's menu lists them when there
+   *  are several - pick one, split one, close one. */
+  terms: Array<{ id: string; label: string; current: boolean }>
+  onPickTerm: (id: string) => void
+  onNewTerm: () => void
+  onCloseTermId: (id: string) => void
+  onSplitTermId: (id: string) => void
   /** Null while no shell exists: there is nothing to clear yet. */
   /** Kill the shell for good; null when there is none. */
   onCloseTerm: (() => void) | null
@@ -1375,25 +1388,56 @@ export function Sidebar({
           y={termMenu.y}
           onClose={() => setTermMenu(null)}
           items={[
+            // SEVERAL SHELLS (owner, 2026-09-03): with more than one, the
+            // menu lists them to pick from (the current one ticked; the
+            // button's left click always opens the most recent), and the
+            // verbs that need a target - split, close - become submenus so
+            // the menu itself stays short.
+            ...(terms.length > 1
+              ? terms.map((t) => ({
+                  label: t.label,
+                  icon: tickIf(t.current),
+                  onPick: () => onPickTerm(t.id)
+                }))
+              : []),
             {
-              label: 'Open in split view',
-              icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
-              onPick: onTermSplit
+              label: 'Open new terminal',
+              icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13 12h6M16 9v6" />,
+              onPick: onNewTerm
             },
+            terms.length > 1
+              ? {
+                  label: 'Open in split view',
+                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  children: terms.map((t) => ({ label: t.label, onPick: () => onSplitTermId(t.id) }))
+                }
+              : {
+                  label: 'Open in split view',
+                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  onPick: onTermSplit
+                },
             // CLOSE means close (owner, 2026-09-03): the shell dies, and the
             // next open is a fresh one in the tab's current folder. It took
             // Clear's place and Clear's bin glyph (owner, same day) - a fresh
             // shell IS a cleared one - and it is not red: closing a shell is
             // routine, not destructive. "Open in new tab" went with it.
-            ...(onCloseTerm
+            ...(terms.length > 1
               ? [
                   {
                     label: 'Close terminal',
                     icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
-                    onPick: onCloseTerm
+                    children: terms.map((t) => ({ label: t.label, onPick: () => onCloseTermId(t.id) }))
                   }
                 ]
-              : [])
+              : onCloseTerm
+                ? [
+                    {
+                      label: 'Close terminal',
+                      icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
+                      onPick: onCloseTerm
+                    }
+                  ]
+                : [])
           ]}
         />
       )}

@@ -694,6 +694,7 @@ async function restoreTabs(): Promise<OpenPayload[]> {
         restore: true,
         ...(i === saved.active ? { restoreActive: true } : {}),
         ...(t.term ? { term: t.term } : {}),
+        ...(t.terms && t.terms > 1 ? { terms: t.terms } : {}),
         ...(t.open?.length ? { open: t.open } : {}),
         ...(resume ? { agentResume: resume } : {})
       })

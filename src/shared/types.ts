@@ -125,6 +125,9 @@ export interface OpenPayload {
    *  that lived as a Claude session must come back as a terminal, not as an
    *  empty viewer. */
   term?: 'full' | 'split'
+  /** Restore only: how many shells the tab held (2026-09-03). The current one
+   *  is spawned at once; the others get their slots and spawn when picked. */
+  terms?: number
   /** Restore only: the SESSION ID of the Claude conversation the terminal
    *  hosted at close. The fresh shell launches `claude --resume <id>` as its
    *  startup command - the ONE command Prism ever writes itself (owner
