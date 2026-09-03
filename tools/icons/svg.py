@@ -440,7 +440,9 @@ PAGE_GLYPHS = {
     "video": _play_disc_svg,
 }
 EXT = {"archive": "ZIP", "audio": "MP3", "code": "PY", "comic": "CBZ",
-       "document": "DOCX", "image": "JPG", "video": "MP4"}
+       "document": "DOCX", "image": "JPG", "video": "MP4",
+       # Not a kind: the disc is its own SHAPE for one extension (round 33).
+       "iso": "ISO"}
 
 
 def _page_kind(fn):
@@ -507,6 +509,48 @@ def _archive():
     return layers
 
 
+# ------------------------------------------------------------------- the disc
+# THE .ISO IS A DISC IN THE APP (owner, 2026-09-03, round 33 pick). It is filed
+# as an archive - it opens read-only through 7-Zip like a .7z - and in Explorer
+# the Prism.Iso class keeps the container artwork, because the owner said to
+# leave Explorer alone where it already used the archive icon. In the tree it
+# is a disc: one silhouette with its hole knocked out, the extension on the
+# same foot band every kind wears, clipped to the circle. Nothing else on it -
+# at 16px each extra mark costs a pixel the hole needs (rounds 33's ring and
+# sheen both fell to that).
+DISC = (0.5, 0.5, 15.5, 15.5)
+DISC_C, DISC_R = 8.0, 7.5
+DISC_HOLE = 2.1
+DISC_BAND = (DISC[0] + 1.2, DISC[3] - BAND_H, DISC[2] - 1.2, DISC[3])
+
+
+def disc_band_path():
+    """The foot band, overshooting the disc for the reason band_path gives."""
+    o = 0.6
+    return rect_path(DISC[0] - o, DISC_BAND[1], DISC[2] + o, DISC[3] + o)
+
+
+def disc_band_path_clipped():
+    """The same band kept inside the circle: a chord, its arc along the foot."""
+    y0 = DISC_BAND[1]
+    dx = (DISC_R ** 2 - (y0 - DISC_C) ** 2) ** 0.5
+    a, b, yy, R = u(DISC_C - dx), u(DISC_C + dx), u(y0), u(DISC_R)
+    # Left point to right point by way of the bottom: on a y-down canvas that
+    # is the anticlockwise sweep (0), and under half a turn (large-arc 0).
+    return f"M{a} {yy}A{R} {R} 0 0 0 {b} {yy}Z"
+
+
+def _disc():
+    hole = ellipse_path(DISC_C - DISC_HOLE, DISC_C - DISC_HOLE, DISC_C + DISC_HOLE, DISC_C + DISC_HOLE)
+    # Band first, then the mark: KO is `koBand` followed by `mark`, the split
+    # the app makes and the tables' own test checks.
+    return {BODY: [ellipse_path(*DISC)], KO: [disc_band_path(), hole], HI: [],
+            L_BAND: [disc_band_path_clipped()], L_KOBAND: [disc_band_path()],
+            # What COLOURED fills, clipped by the body: the disc's whole box,
+            # axis-aligned, so every curve comes from the clip alone.
+            L_BLEED: [rect_path(*DISC)], L_MARK: [hole]}
+
+
 def _lang_layers(name):
     """One language mark, recorded into the same three layers a kind uses.
 
@@ -567,21 +611,25 @@ def icons():
     out = {}
     for kind in sorted(EXT):
         arch = kind == "archive"
-        layers = _archive() if arch else _page_kind(PAGE_GLYPHS[kind])
+        disc = kind == "iso"
+        layers = _archive() if arch else _disc() if disc else _page_kind(PAGE_GLYPHS[kind])
         out[kind] = {k: " ".join(v) for k, v in layers.items()}
         solid = list(layers[BODY])
         # The archive's low CHIP still overhangs and still has to be clipped for
         # the evenodd variant; the page kinds' BAND is inside the page already,
-        # so it is a hole exactly as drawn.
+        # so it is a hole exactly as drawn. The disc's band is a chord.
         if arch:
             solid += [p for p in layers[KO] if p != arch_band_path()]
             solid += [arch_band_path_clipped()]
+        elif disc:
+            solid += [p for p in layers[KO] if p != disc_band_path()]
+            solid += [disc_band_path_clipped()]
         else:
             solid += [p for p in layers[KO] if p != band_path()]
             solid += [band_path_clipped()]
         solid += list(layers[HI])
         out[kind]["solid"] = " ".join(solid)
-        out[kind]["label"] = label(ARCH_BAND if arch else BAND)
+        out[kind]["label"] = label(ARCH_BAND if arch else DISC_BAND if disc else BAND)
         out[kind]["ext"] = EXT[kind]
     return out
 
@@ -640,6 +688,8 @@ def ink_for(bg):
 IDENTITIES = [
     # The seven kinds, each shown with a representative extension.
     ("archive", "ZIP", "archive", None),
+    # The disc: an archive by kind, its own SHAPE in the app (round 33).
+    ("iso", "ISO", "iso", None),
     ("audio", "MP3", "audio", None),
     ("code", "TS", "code", None),
     ("comic", "CBZ", "comic", None),
@@ -789,6 +839,7 @@ MARKUP = ("#222244", "#ffffff")      # html, json, xml, swift - anything not run
 SCHEME = {
     # The kinds.
     "archive": ("#8b8be2", "#000000"),
+    "iso": ("#8b8be2", "#000000"),  # a container's colour, the disc's shape
     "audio": ("#69b485", "#000000"),
     "code": SCRIPTING,
     "document": ("#464646", "#ffffff"),
@@ -845,7 +896,7 @@ FULL_COLOUR = ("comic", "pdf", "word", "sheet", "slides", "ebook")
 # "make the zip icon colored in even in the monochrome colro styole", and the
 # comic likewise). The zip is a flat coloured page like any other; the comic is
 # artwork, and is handled by COMIC_ART rather than by a page colour.
-ALWAYS_COLOUR = ("archive", "comic")
+ALWAYS_COLOUR = ("archive", "iso", "comic")
 
 # COMIC KEEPS ITS EXPLORER SCHEME (owner instruction) and cannot use the rule at
 # all, because its mark is not ink on a page - it is one piece of a five-colour
@@ -869,6 +920,7 @@ GLINT = 1.0
 # a document: they all draw the same page, and under a per-KIND scheme a PDF, a
 # spreadsheet and a Word file were one colour between them.
 SPECIAL_EXT = {
+    "iso": "iso",
     "md": "markdown", "markdown": "markdown",
     "pdf": "pdf",
     "docx": "word", "docm": "word",

@@ -115,6 +115,17 @@ export const ICON_PATHS = {
     solid: "M6.0 1.5H16.5L21.0 6.0V22.5A1.5 1.5 0 0 1 19.5 24.0H6.0A1.5 1.5 0 0 1 4.5 22.5V3.0A1.5 1.5 0 0 1 6.0 1.5Z M16.5 1.5L21.0 6.0L16.5 6.0Z M15.25 6.28A1.66 1.66 0 1 1 18.57 6.28A1.66 1.66 0 1 1 15.25 6.28Z M5.82 15.69L10.53 8.38L15.24 15.69Z M12.47 15.69L16.08 10.82L19.68 15.69Z M4.5 17.42H21.0V22.5A1.5 1.5 0 0 1 19.5 24.0H6.0A1.5 1.5 0 0 1 4.5 22.5Z",
     label: { x: 12.75, y: 20.71, sizes: { 1: 4.08, 2: 4.08, 3: 4.08, 4: 3.6, 5: 2.99, 6: 2.49 } },
   },
+  iso: {
+    body: "M0.75 12.0A11.25 11.25 0 1 1 23.25 12.0A11.25 11.25 0 1 1 0.75 12.0Z",
+    ko: "M-0.15 16.67H24.15V24.15H-0.15Z M8.85 12.0A3.15 3.15 0 1 1 15.15 12.0A3.15 3.15 0 1 1 8.85 12.0Z",
+    band: "M1.77 16.67A11.25 11.25 0 0 0 22.23 16.67Z",
+    koBand: "M-0.15 16.67H24.15V24.15H-0.15Z",
+    bleed: "M0.75 0.75H23.25V23.25H0.75Z",
+    mark: "M8.85 12.0A3.15 3.15 0 1 1 15.15 12.0A3.15 3.15 0 1 1 8.85 12.0Z",
+    hi: "",
+    solid: "M0.75 12.0A11.25 11.25 0 1 1 23.25 12.0A11.25 11.25 0 1 1 0.75 12.0Z M8.85 12.0A3.15 3.15 0 1 1 15.15 12.0A3.15 3.15 0 1 1 8.85 12.0Z M1.77 16.67A11.25 11.25 0 0 0 22.23 16.67Z",
+    label: { x: 12.0, y: 19.96, sizes: { 1: 4.08, 2: 4.08, 3: 4.08, 4: 4.08, 5: 3.18, 6: 2.81 } },
+  },
   video: {
     body: "M6.0 1.5H16.5L21.0 6.0V22.5A1.5 1.5 0 0 1 19.5 24.0H6.0A1.5 1.5 0 0 1 4.5 22.5V3.0A1.5 1.5 0 0 1 6.0 1.5Z",
     ko: "M16.5 1.5L21.0 6.0L16.5 6.0Z M3.6 17.42H21.9V24.9H3.6Z M7.77 10.16A4.98 4.99 0 1 1 17.73 10.16A4.98 4.99 0 1 1 7.77 10.16Z",
@@ -155,6 +166,7 @@ export const ICON_COLOURS = {
   git: { page: '#24292e', band: '#000000', mark: '#ffffff', text: '#ffffff' },
   html: { page: '#222244', band: '#000000', mark: '#ffffff', text: '#ffffff' },
   image: { page: '#69b485', band: '#000000', mark: '#000000', text: '#ffffff' },
+  iso: { page: '#8b8be2', band: '#000000', mark: '#000000', text: '#ffffff' },
   java: { page: '#e8a13c', band: '#000000', mark: '#000000', text: '#ffffff' },
   markdown: { page: '#2b2b69', band: '#000000', mark: '#ffffff', text: '#ffffff' },
   pdf: { page: '#ff3b3b', band: '#000000', mark: '#ffffff', text: '#ffffff' },
@@ -194,6 +206,7 @@ export const ICON_FULL_COLOUR: readonly IconIdentity[] = [
 // colours cannot all collide with one accent.
 export const ICON_ALWAYS_COLOUR: readonly IconIdentity[] = [
   'archive',
+  'iso',
   'comic',
 ]
 
@@ -207,6 +220,7 @@ export const IDENT_BY_EXT: Record<string, IconIdentity> = {
   'docm': 'word',
   'docx': 'word',
   'epub': 'ebook',
+  'iso': 'iso',
   'markdown': 'markdown',
   'md': 'markdown',
   'odp': 'slides',

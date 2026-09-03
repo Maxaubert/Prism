@@ -168,7 +168,11 @@ export function KindIcon({
   // body, then ko, then hi. Any other order and the detail vanishes: `hi` is
   // punched back OVER ko in the ink, which is what keeps the clapperboard's
   // stripes, the splat's core and a mark's own holes from filling in solid.
-  const key = KIND_ICON[kind] ?? 'document'
+  // THE DISC (owner, 2026-09-03, round 33): a .iso is an archive by kind and
+  // wears the container in Explorer, but in the tree it is a disc - the one
+  // extension whose SHAPE is not its kind's.
+  const isDisc = (ext ?? '').replace(/^\./, '').toLowerCase() === 'iso'
+  const key: keyof typeof ICON_PATHS = isDisc ? 'iso' : (KIND_ICON[kind] ?? 'document')
   const g = ICON_PATHS[key]
   // COLOURED ignores `color` and `bg` entirely. Nothing is knocked out to the
   // row's background there - every layer is a colour of its own - which is also

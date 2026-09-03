@@ -1262,6 +1262,22 @@ async function iconSchemeScenario(fixtures) {
     const other = await icon('read-only.7z')
     ok(other !== null && other.masked, 'a .7z is an archive too, so it is coloured')
 
+    // THE DISC (owner, 2026-09-03, round 33): a .iso is an archive by kind and
+    // keeps the container in Explorer, but the tree draws a DISC - a circle,
+    // which no other shape in the set is - in the archive's colour, with ISO
+    // on its band.
+    const disc = await icon('disc.iso')
+    ok(disc !== null && disc.masked, 'a .iso is coloured like the other archives')
+    ok(disc.page === '#8b8be2' && disc.label === 'ISO', `in the archive colour with ISO on the band (${disc?.page}, ${disc?.label})`)
+    const round = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
+      )
+      const d = row?.querySelector('svg[viewBox="0 0 24 24"] path')?.getAttribute('d') ?? ''
+      return /A[\d. ]+/.test(d)
+    })
+    ok(round, 'and its silhouette is a circle, not a page or a container')
+
     // THE SETTINGS SWITCH IS GONE.
     await win.click('[aria-label="Settings"]')
     await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
