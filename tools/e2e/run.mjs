@@ -14,6 +14,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -1445,7 +1446,13 @@ async function treeVerbsScenario(fixtures) {
 /** Delete, then Delete again: the key must still reach the tree. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
-  const { app, win } = await launch(join(fixtures, 'dragbox', 'anchor.txt'))
+  // Its OWN folder, removed afterwards: it used to launch on dragbox and
+  // bin whichever row came second, which was anchor.txt - the file the paste
+  // scenario later launches on. Fixtures are built once per run.
+  const dir = join(fixtures, 'deltwice')
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'a.txt'))
   const rows = () => win.locator('[role="treeitem"]').count()
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
@@ -1474,6 +1481,7 @@ async function deleteAgainScenario(fixtures) {
     await win.locator('[role="dialog"] button:has-text("Cancel")').click()
   } finally {
     await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -3783,6 +3791,11 @@ async function pauseScenario(fixtures) {
     // holds a handle through the media stream and the Recycle Bin refuses a
     // file with one open, so the player is released first and the bin
     // asked after a beat, with retries.
+    // The bin is REAL, and so is the loss: the video menu scenario later in
+    // the run needs ep2 as its Next video. Stash a copy in the profile (not
+    // in the fixtures, where the tree would count it) and put it back once
+    // the app has let go.
+    copyFileSync(join(fixtures, 'ep2.mp4'), join(PROFILE, 'ep2.stash'))
     await win.locator('[role="dialog"] button:has-text("Delete")').click()
     for (let i = 0; i < 40 && existsSync(join(fixtures, 'ep2.mp4')); i++) await sleep(200)
     ok(!existsSync(join(fixtures, 'ep2.mp4')), 'and a film that was playing is really in the bin')
@@ -3792,6 +3805,8 @@ async function pauseScenario(fixtures) {
     )
   } finally {
     await app.close()
+    if (existsSync(join(PROFILE, 'ep2.stash')) && !existsSync(join(fixtures, 'ep2.mp4')))
+      copyFileSync(join(PROFILE, 'ep2.stash'), join(fixtures, 'ep2.mp4'))
   }
 }
 
