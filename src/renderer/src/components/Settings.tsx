@@ -45,8 +45,6 @@ import {
   paletteOf,
   folderIconOf,
   sideOf,
-  tabsOf,
-  titleOf,
   resolveVizTheme,
   savePreset,
   setAcrylic,
@@ -803,34 +801,18 @@ function StyleTab(): JSX.Element {
               Background still paints the window; this narrows it - unset, the
               panel keeps deriving from Background exactly as before, and only
               an explicit pick gives it a colour of its own (`sideOwn`). */}
-          <Pref id="c-side" label="Sidebar" hint="The panel behind the file tree.">
+          {/* ONE PICK for the sidebar, the title bar and the tab bar (owner,
+              2026-09-03): changing one of them means adjusting the others, so
+              they moved as three wells for an afternoon and are one again.
+              The model still keeps them apart; the well writes all three.
+              Unset, each keeps deriving from Background exactly as before. */}
+          <Pref id="c-chrome" label="Panels" hint="The sidebar, the title bar and the tab bar, together.">
             <ColourWell
-              id="c-side"
+              id="c-chrome"
               value={sideOf(style)}
               custom={!!edits.side}
-              onChange={(v) => setOverride('side', v)}
-              onReset={() => setOverride('side', null)}
-            />
-          </Pref>
-          {/* Title bar and tab bar, each their own (owner, 2026-09-03): a
-              sidebar colour on its own looked odd against a title bar and a
-              tab strip that stayed put, so the three are separately yours. */}
-          <Pref id="c-title" label="Title bar" hint="The strip with the logo, the sidebar toggle and the gear.">
-            <ColourWell
-              id="c-title"
-              value={titleOf(style)}
-              custom={!!edits.title}
-              onChange={(v) => setOverride('title', v)}
-              onReset={() => setOverride('title', null)}
-            />
-          </Pref>
-          <Pref id="c-tabs" label="Tab bar" hint="The strip of tabs. The active tab is always a step off it.">
-            <ColourWell
-              id="c-tabs"
-              value={tabsOf(style)}
-              custom={!!edits.tabs}
-              onChange={(v) => setOverride('tabs', v)}
-              onReset={() => setOverride('tabs', null)}
+              onChange={(v) => setOverride('chrome', v)}
+              onReset={() => setOverride('chrome', null)}
             />
           </Pref>
           <Pref id="c-text" label="Text" hint="File names, labels and readouts.">

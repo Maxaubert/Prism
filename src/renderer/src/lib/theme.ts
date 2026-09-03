@@ -971,6 +971,27 @@ export function setStyle(id: string): void {
   apply()
 }
 
+/**
+ * THE PANELS ARE ONE PICK (owner, 2026-09-03): the sidebar, the title bar
+ * and the tab bar move together, because changing one of them means you
+ * should probably adjust the others as well. The model keeps them apart -
+ * a saved style may still carry three different colours - but the well
+ * writes and clears all three at once. Pure, so it is testable.
+ */
+export function withChrome(o: Overrides, value: string | null): Overrides {
+  const next: Overrides = { ...o }
+  if (value) {
+    next.side = value
+    next.title = value
+    next.tabs = value
+  } else {
+    delete next.side
+    delete next.title
+    delete next.tabs
+  }
+  return next
+}
+
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
   role:
@@ -979,6 +1000,7 @@ export function setOverride(
     | 'side'
     | 'title'
     | 'tabs'
+    | 'chrome'
     | 'text'
     | 'font'
     | 'borders'
@@ -987,8 +1009,9 @@ export function setOverride(
     | 'iconScheme',
   value: string | null
 ): void {
-  const next: Overrides = { ...draft }
-  if (value)
+  let next: Overrides = { ...draft }
+  if (role === 'chrome') next = withChrome(next, value)
+  else if (value)
     next[role] = value as FontId & Style['borders'] & Style['corners'] & IconScheme & string
   else delete next[role]
   draft = next

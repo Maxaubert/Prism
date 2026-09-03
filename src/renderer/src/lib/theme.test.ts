@@ -15,7 +15,8 @@ import {
   STYLES,
   type Style,
   tabsOf,
-  titleOf
+  titleOf,
+  withChrome
 } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
@@ -304,6 +305,14 @@ describe('the title bar and the tab bar are their own (owner, 2026-09-03)', () =
     expect(titleOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
     expect(tabsOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
     expect(tabsOf({ ...base, tabs: '#654321', tabsOwn: true })).toBe('#654321')
+  })
+})
+
+describe('the panels are one pick (owner, 2026-09-03)', () => {
+  it('writes the sidebar, title bar and tab bar together, and clears them together', () => {
+    const on = withChrome({ accent: 'prism' }, '#123456')
+    expect(on).toEqual({ accent: 'prism', side: '#123456', title: '#123456', tabs: '#123456' })
+    expect(withChrome(on, null)).toEqual({ accent: 'prism' })
   })
 })
 
