@@ -690,7 +690,7 @@ async function contextMenuScenario(fixtures) {
     await row.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
 
-    for (const label of ['Open in', 'Show in File Explorer', 'Copy path', 'Copy file', 'Duplicate', 'Rename', 'Delete']) {
+    for (const label of ['Cut', 'Copy', 'Open in', 'Show in File Explorer', 'Copy path', 'Duplicate', 'Rename', 'Delete']) {
       ok((await win.locator(`[role="menuitem"]:has-text("${label}")`).count()) >= 1, `menu has ${label}`)
     }
 
@@ -1656,7 +1656,7 @@ async function rowPasteScenario(fixtures) {
     // Copy file verb, which goes through the same CF_HDROP route.
     await rowFor('movable.txt').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    await win.locator('[role="menu"] >> text="Copy file"').click()
+    await win.locator('[role="menu"] >> text="Copy"').first().click()
     await sleep(1200)
 
     // NOW it appears, on a FILE row, and near the top.
@@ -1669,9 +1669,13 @@ async function rowPasteScenario(fixtures) {
         .map((e) => (e.textContent ?? '').trim())
         .filter(Boolean)
     )
+    // startsWith: the clipboard rows carry keybind hints in their text now
+    // (PasteCtrl+V), and Cut and Copy sit above Paste since 2026-09-03.
+    const pasteAt = order.findIndex((t) => t.startsWith('Paste'))
+    const cutAt = order.findIndex((t) => t.startsWith('Cut'))
     ok(
-      order.indexOf('Paste') >= 0 && order.indexOf('Paste') < 4,
-      `and near the top of the menu (position ${order.indexOf('Paste')} of ${order.length})`
+      pasteAt >= 0 && pasteAt < 7 && cutAt >= 0 && cutAt < pasteAt,
+      `and the Cut/Copy/Paste block sits near the top (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
     const before = await win.locator('[role="treeitem"]').count()
@@ -1679,6 +1683,33 @@ async function rowPasteScenario(fixtures) {
     await sleep(2500)
     const after = await win.locator('[role="treeitem"]').count()
     ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
+    // THE PASTED FILE IS THE MARKED ROW (2026-09-03, owner - Explorer's way).
+    await sleep(600)
+    const markedAfterPaste = await win.evaluate(() =>
+      [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|')
+    )
+    ok(/movable \(2\)/.test(markedAfterPaste), `and the pasted copy is what is marked (${markedAfterPaste})`)
+
+    // CUT AND PASTE FROM THE KEYBOARD (2026-09-03, owner): Ctrl+X dims the
+    // row, Ctrl+V on a folder MOVES it there, and the mark clears.
+    await rowFor('anchor.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+x')
+    await sleep(300)
+    const dimmed = await win.evaluate(
+      () =>
+        [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+          (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
+        )?.style.opacity
+    )
+    ok(dimmed === '0.45', `Ctrl+X dims the cut row (opacity ${dimmed})`)
+    await rowFor('into').click() // first click selects a folder
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    await win.waitForFunction(() => true, null, { timeout: 100 })
+    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
+    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'Ctrl+V after a cut MOVES the file into the folder')
+    ok(!existsSync(join(dir, 'anchor.txt')), 'and it left where it was')
   } finally {
     await app.close()
   }
@@ -1798,15 +1829,16 @@ async function extractScenario(fixtures) {
       (await win.locator('button:has-text("Extract to")').count()) === 1,
       'and Extract to... beside it'
     )
-    // The progress track is ALWAYS in the layout, so nothing moves when an
-    // extraction starts or ends. Measured, because "it looks fine" is exactly
-    // how the jump got shipped.
+    // The inline track is GONE (2026-09-03, owner): extraction progress is
+    // the same self-dismissing popup the sidebar's verb shows, so the layout
+    // has nothing to move. Still measured, because "it looks fine" is
+    // exactly how the jump got shipped the first time.
     const listTop = async () =>
       win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
     const beforeTop = await listTop()
     ok(
-      (await win.locator('[role="progressbar"]').count()) === 1,
-      'the progress track is present before anything runs'
+      (await win.locator('[role="progressbar"]').count()) === 0,
+      'no inline progress track: the popup is the one look'
     )
     // The first row starts ON the header's hairline: no gutter above it.
     const gap = await win.evaluate(() => {
@@ -4026,12 +4058,47 @@ async function dragScenario(fixtures) {
         { timeout: 8000 }
       )
       ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
-      // The folder you dropped ONTO is what is marked afterwards: what you
-      // dragged has left, so a mark on it would point at nothing.
-      const marked = await win.evaluate(
-        () => document.querySelector('aside [data-selected]')?.textContent ?? ''
+      // THE DROP RING CLEARS (2026-09-03): a row's drop handler stops
+      // propagation, and the window-level clear used to live in the bubble
+      // phase, so the accent ring around the viewer stayed up until restart.
+      await sleep(300)
+      const ringLeft = await win.evaluate(
+        () => !!document.querySelector('main .ring-2.ring-inset, [class*="ring-[var(--p-accent)]"]')
       )
-      ok(marked.includes('into'), `the destination folder is marked after the drop (${marked})`)
+      ok(!ringLeft, 'and the drop ring around the viewer is gone')
+      // The DROPPED FILE is what is marked afterwards (2026-09-03, owner -
+      // Explorer's way; narrows the 2026-08-31 folder-mark rule): where it
+      // arrived is what you are now looking at. Its row lives inside the
+      // destination folder, which may need expanding to see - the mark is on
+      // the data-selected row carrying the file's name.
+      const expandInto = () =>
+        win.evaluate(() => {
+          const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+            (r.textContent ?? '').includes('into')
+          )
+          // The CHEVRON, not the row: a row click would SELECT the folder and
+          // replace the very mark this asserts on.
+          const collapsed = el?.getAttribute('aria-expanded') === 'false'
+          if (collapsed !== undefined && el)
+            el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          return collapsed
+        })
+      const wasCollapsed = await expandInto()
+      await sleep(600)
+      const marked = await win.evaluate(
+        () =>
+          [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|') ?? ''
+      )
+      ok(
+        marked.includes('movable'),
+        `the dropped file is the marked row after the drop (${marked})`
+      )
+      // Put the folder's state back the way the steps below expect it: their
+      // own select-then-toggle click pair assumes a collapsed folder.
+      if (wasCollapsed) {
+        await expandInto()
+        await sleep(400)
+      }
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.

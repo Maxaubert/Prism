@@ -109,9 +109,25 @@ const api = {
    *  be anywhere (you copied them in Explorer); the destination must be inside
    *  a root. Nothing is ever written over: a taken name becomes "name (2)". */
   pasteInto: (
-    dir: string
-  ): Promise<{ pasted: number; failed: number; refused?: boolean; empty?: boolean }> =>
-    ipcRenderer.invoke('file:paste-into', dir),
+    dir: string,
+    cut?: string[]
+  ): Promise<{
+    pasted: number
+    failed: number
+    refused?: boolean
+    empty?: boolean
+    /** What actually landed, new names and all, so the tree can select it. */
+    paths: string[]
+    /** The paste was a MOVE: `cut` still matched the clipboard. */
+    moved?: boolean
+  }> => ipcRenderer.invoke('file:paste-into', dir, cut),
+  /** Byte progress of a running paste, 0-100. Only pastes big enough to
+   *  measure ever report. */
+  onPasteProgress: (cb: (m: { pct: number }) => void): (() => void) => {
+    const listener = (_e: unknown, m: { pct: number }): void => cb(m)
+    ipcRenderer.on('paste:progress', listener)
+    return () => ipcRenderer.removeListener('paste:progress', listener)
+  },
   /** Whether a Paste row is worth drawing at all. */
   clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke('clipboard:has-files'),
   /** Size, modified time and folder-ness for the Properties popup. */

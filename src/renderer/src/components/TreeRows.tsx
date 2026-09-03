@@ -459,6 +459,7 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           // Tab reaches the tree once and Enter/Space then work natively on the
           // row the arrows are on - no key handling of our own for either.
           data-row={path}
+          data-dropdir={path}
           data-selected={t.selected.has(path) || undefined}
           data-drop={t.dropTarget === path || undefined}
           tabIndex={onCursor ? 0 : -1}
@@ -510,6 +511,8 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             height: t.size.row,
             paddingLeft: pad,
             fontSize: t.size.font,
+            // A cut row is half gone already, and looks it (Explorer's cue).
+            opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
             // Contiguous selected rows fuse: shared edges drop their rounding.
             ...(t.selected.has(path)
               ? (() => {
@@ -641,6 +644,7 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               role="treeitem"
               aria-selected={on}
               data-row={f.path}
+              data-dropdir={dirOf(f.path)}
               data-selected={onSel || undefined}
               draggable
               onDragStart={(e) => t.onRowDragStart(e, f.path)}
@@ -691,6 +695,8 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 height: t.size.row,
                 paddingLeft: pad + 19,
                 fontSize: t.size.font,
+                // A cut row is half gone already, and looks it (Explorer's cue).
+                opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
                 // Contiguous selected rows fuse: shared edges drop rounding.
                 ...(onSel
                   ? (() => {

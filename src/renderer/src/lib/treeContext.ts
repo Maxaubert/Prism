@@ -24,6 +24,9 @@ export interface TreeApi {
    *  only when this says so. Folders always render. */
   /** Explorer selection (2026-08-22): every selected row, filled accent. */
   selected: ReadonlySet<string>
+  /** Rows marked CUT (2026-09-03): dimmed the way Explorer dims them, until
+   *  the paste moves them or another copy takes the clipboard. Lower-cased. */
+  cut: ReadonlySet<string>
   /** Whether this selected row touches another selected row above/below in
    *  the visible order: shared edges drop their rounding so a contiguous
    *  selection reads as one block. */

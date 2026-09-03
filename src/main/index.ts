@@ -2090,28 +2090,113 @@ if (!app.requestSingleInstanceLock()) {
      *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
     ipcMain.handle('clipboard:has-files', async () => (await clipboardFiles()).length > 0)
 
-    ipcMain.handle('file:paste-into', async (_e, destDir: string) => {
+    /** Every file under a path, with sizes, for the progress arithmetic. */
+    async function walkSizes(p: string): Promise<number> {
+      const fs = await import('fs/promises')
+      const st = await fs.stat(p)
+      if (!st.isDirectory()) return st.size
+      let total = 0
+      for (const e of await fs.readdir(p, { withFileTypes: true })) {
+        try {
+          total += await walkSizes(join(p, e.name))
+        } catch {
+          /* unreadable entries copy as failures later; the bar only guides */
+        }
+      }
+      return total
+    }
+
+    /** Copy a file or a whole folder, streaming files so the byte count can
+     *  tick. fs.cp gives no progress at all, which for a 4GB ISO is minutes
+     *  of nothing (owner, 2026-09-03). */
+    async function copyCounted(
+      src: string,
+      target: string,
+      tick: (bytes: number) => void
+    ): Promise<void> {
+      const fs = await import('fs/promises')
+      const st = await fs.stat(src)
+      if (st.isDirectory()) {
+        await fs.mkdir(target)
+        for (const e of await fs.readdir(src)) {
+          await copyCounted(join(src, e), join(target, e), tick)
+        }
+        return
+      }
+      const { createReadStream, createWriteStream } = await import('fs')
+      const { pipeline } = await import('stream/promises')
+      const reader = createReadStream(src)
+      reader.on('data', (chunk) => tick(chunk.length))
+      await pipeline(reader, createWriteStream(target, { flags: 'wx' }))
+    }
+
+    /**
+     * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
+     * `cut` is the renderer's own cut mark: when it still matches what the
+     * clipboard holds, the paste MOVES - rename where the volume allows,
+     * counted copy plus delete across volumes - and a stale mark (the user
+     * copied something else since) quietly falls back to an ordinary copy.
+     */
+    ipcMain.handle('file:paste-into', async (_e, destDir: string, cut?: string[]) => {
       if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
-        return { pasted: 0, failed: 0, refused: true }
+        return { pasted: 0, failed: 0, refused: true, paths: [] }
       }
       const src = await clipboardFiles()
-      if (!src.length) return { pasted: 0, failed: 0, empty: true }
+      if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
+      const norm = (p: string): string => p.replace(/[\/]+$/, '').toLowerCase()
+      const moving =
+        Array.isArray(cut) &&
+        cut.length === src.length &&
+        cut.every((c) => src.some((f) => norm(f) === norm(String(c))))
       ownWrite(join(destDir, 'x'))
       const fs = await import('fs/promises')
+      const total = moving
+        ? 0 // a rename is instant; only the cross-volume fallback counts bytes
+        : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0))).then((a) =>
+            a.reduce((x, y) => x + y, 0)
+          )
+      let done = 0
+      let lastSent = 0
+      const tick = (bytes: number, of = total): void => {
+        done += bytes
+        const now = Date.now()
+        if (of > 0 && now - lastSent > 120) {
+          lastSent = now
+          mainWindow?.webContents.send('paste:progress', {
+            pct: Math.min(100, (done / of) * 100)
+          })
+        }
+      }
       let pasted = 0
       let failed = 0
+      const paths: string[] = []
       for (const s of src) {
         try {
           const target = join(destDir, uniqueName(destDir, basename(s)))
-          // AWAITED and recursive: a folder travels whole, and cpSync on main's
-          // one thread would freeze every window for as long as it took.
-          await fs.cp(s, target, { recursive: true, errorOnExist: true, force: false })
+          if (moving) {
+            try {
+              await fs.rename(s, target)
+            } catch {
+              // EXDEV or a lock: counted copy, then the source goes.
+              const size = await walkSizes(s).catch(() => 0)
+              let moved = 0
+              await copyCounted(s, target, (b) => {
+                moved += b
+                tick(b, size)
+              })
+              void moved
+              await fs.rm(s, { recursive: true })
+            }
+          } else {
+            await copyCounted(s, target, tick)
+          }
+          paths.push(target)
           pasted += 1
         } catch {
           failed += 1
         }
       }
-      return { pasted, failed }
+      return { pasted, failed, paths, moved: moving }
     })
 
     // The icon Windows itself shows for a file of this type - the user's own

@@ -8,6 +8,7 @@ import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { Dialog } from './Dialog'
+import { JobBar } from './JobBar'
 import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
@@ -964,15 +965,7 @@ function ArchiveInner({
             archive to do, and hunting a menu for "extract" was the gap. */}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
           <ArcVerb
-            label={
-              busy === 'extract'
-                ? pct === null
-                  ? 'Extracting…'
-                  : `Extracting… ${pct}%`
-                : justDone
-                  ? 'Extracted'
-                  : 'Extract here'
-            }
+            label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
             disabled={busy !== null}
             onClick={() => extractAll(true)}
             path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
@@ -1009,28 +1002,24 @@ function ArchiveInner({
             path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
           />
         </div>
-        {/* The track is ALWAYS in the layout and only fades in, so starting
-            and finishing an extraction moves nothing: the first cut of this
-            inserted the bar when the work began, which pushed the member list
-            down and pulled it back up again. Only painted once 7-Zip has said
-            a number - a bar that appears at 0 and sits there is worse than the
-            word on the button. */}
-        <div
-          className={`mx-auto mt-2.5 h-[3px] w-[220px] overflow-hidden rounded-full bg-[var(--p-divider)] transition-opacity duration-200 ${
-            busy === 'extract' && pct !== null ? 'opacity-100' : 'opacity-0'
-          }`}
-          role="progressbar"
-          aria-valuenow={pct ?? 0}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Extracting"
-          aria-hidden={busy === 'extract' && pct !== null ? undefined : true}
-        >
-          <div
-            className="h-full rounded-full bg-[var(--p-accent)] transition-[width] duration-200"
-            style={{ width: `${pct ?? 0}%` }}
+        {/* The inline track is GONE (2026-09-03, owner): the sidebar's
+            extract verb showed a popup while this panel drew a bar under the
+            verbs, and two looks for the same wait read as two apps. The
+            popup below is the one look - bar plus percentage, leaving by
+            itself when the work lands. */}
+        {busy === 'extract' && (
+          <Dialog
+            title="Extracting"
+            body={
+              <span className="block">
+                <span className="break-all">{file.name}</span>
+                <JobBar pct={pct} />
+              </span>
+            }
+            onCancel={() => undefined}
+            choices={[]}
           />
-        </div>
+        )}
 
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
