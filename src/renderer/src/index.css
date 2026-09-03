@@ -479,3 +479,47 @@ input[type='color']::-webkit-color-swatch {
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-color: var(--p-checker-a);
 }
+
+/* Viewer chrome coming back (2026-09-02). A KEYFRAME rather than a transition:
+   the element has just been mounted, so a transition has no previous value to
+   run from. The exit is a transition, in `chromeClass`, because by then there
+   is one. Opacity only - these bars are centred with a transform, and animating
+   `transform` would fight it. */
+@keyframes p-chrome-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.p-chrome-in {
+  animation: p-chrome-in 160ms ease-out;
+}
+
+/* THE FULLSCREEN ELEMENT PAINTS OPAQUE BLACK (2026-09-02).
+
+   Entering fullscreen flashed a white frame before the fade settled. The
+   element was NOT missing a background - MEASURED, it was `rgba(11, 13, 18,
+   0.87)`, the theme's own translucent surface. Thirteen percent of whatever is
+   behind it therefore shows through, and during the OS transition, while the
+   element is being resized to the screen and the veil inside it has not been
+   laid out at the new size yet, what is behind it is not the app.
+
+   That is the whole bug: not a missing colour, a colour that was see-through at
+   the one moment nothing sensible was underneath.
+
+   Fixed in CSS rather than in React because the flash is one or two frames of
+   an OS transition, which is before any state we set could land; a rule keyed
+   on `:fullscreen` is applied by the same engine doing the resizing. It also
+   matches the rule the stage already follows (2026-08-28): fullscreen is black
+   whatever the theme says, because the letterbox is part of the picture. */
+:fullscreen {
+  background-color: #000;
+}
+/* The area outside the element while it is fullscreen. Chromium's default is
+   already black, but stating it costs nothing and removes a second thing that
+   could change under us. */
+:fullscreen::backdrop {
+  background-color: #000;
+}

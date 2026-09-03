@@ -66,7 +66,7 @@ import {
 } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
-import { installVerb, removeVerb, verbInstalled } from './shellVerb'
+import { installVerb, removeVerb, shouldWriteVerb, verbInstalled } from './shellVerb'
 import { isRaw, rawPreview } from './rawPreview'
 import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
@@ -829,12 +829,63 @@ function watchWindowState(win: BrowserWindow): void {
  */
 let wantedMaterial: { material: string; light?: boolean } = { material: 'none' }
 
+/**
+ * A fullscreen transition is in flight, so hold the window OPAQUE (2026-09-02).
+ *
+ * THE ONE-FRAME FLASH. A translucent style sets the window background to
+ * `#00000000` - genuinely transparent, because DWM composites the material
+ * behind it - and `applyMaterial(true)` only made it opaque on
+ * `enter-full-screen`, which fires once the resize is already under way. For a
+ * single frame the window has grown but the page has not painted the new area,
+ * and with nothing behind it that gap is the DESKTOP. Caught on video and
+ * measured: one frame in sixteen of black, a 15px border of flat #ababab going
+ * in and a blue-grey strip coming out - two different colours because it was
+ * two different bits of wallpaper.
+ *
+ * The renderer already fades to black for 150ms before it calls
+ * requestFullscreen, so it says so first and main goes opaque inside that fade,
+ * where nothing can be seen changing. It stays opaque until the fade on the far
+ * side has lifted.
+ */
+let fsTransition = false
+/**
+ * BORDERLESS FULLSCREEN (2026-09-02), and why the OS one is not used.
+ *
+ * Windows animates a real fullscreen change, and for ONE FRAME it composites
+ * the window at its OLD bounds - so the desktop and the taskbar show in the
+ * gap, which is the white frame. Read off the owner's recording: in a video
+ * where the taskbar is hidden for all 563 frames it is VISIBLE on exactly one,
+ * and that one is the flash. Nothing of ours can paint it, because the gap is
+ * outside the window.
+ *
+ * So the OS is never asked. The window is simply moved to cover the display and
+ * put above the taskbar - no `setFullScreen`, no `requestFullscreen`, no
+ * animation to have a stale frame in. Covering the display FIRST and then also
+ * going fullscreen was tried and is worse than either: it improved the flash
+ * and broke the viewer, because two resizes land on top of one another.
+ *
+ * What is given up: `document.fullscreenElement`, and with it the `:fullscreen`
+ * CSS hook and Chromium's native Escape. App owns Escape already and tracks the
+ * state from this IPC, so both are covered.
+ */
+let preFsBounds: Electron.Rectangle | null = null
+/** MAXIMIZED IS A STATE, NOT A SIZE (2026-09-03). `setBounds` on a maximized
+ *  window is ignored by Windows - verified by sending F11 to one: the window
+ *  answered `IsZoomed: true` with its bottom still at the work area's edge,
+ *  taskbar showing, which is exactly "it's more like window maximized" as the
+ *  owner put it. So the state is dropped before the bounds are set, and put
+ *  back on the way out instead of restoring a rectangle. */
+let preFsMaximized = false
+const isFs = (): boolean => !!preFsBounds
+
 function applyMaterial(fullscreen: boolean): void {
+  // Borderless counts: there is nothing behind a window covering the screen.
+  fullscreen = fullscreen || !!preFsBounds
   if (!mainWindow) return
   const { material, light } = wantedMaterial
   const solid = light ? '#f7f7f9' : '#111318'
   try {
-    if (fullscreen || material === 'none') {
+    if (fullscreen || fsTransition || material === 'none') {
       mainWindow.setBackgroundColor(solid)
       mainWindow.setBackgroundMaterial('none')
     } else {
@@ -844,7 +895,18 @@ function applyMaterial(fullscreen: boolean): void {
   } catch {
     /* older Windows: the solid background stands */
   }
+  // Chromium rewrites DWM window attributes when the backdrop changes, which
+  // silently restores the 1px border this app strips (measured: the strip at
+  // ready-to-show read back as default once the theme handshake had run). So
+  // the strip rides behind every material application, debounced past the
+  // rewrite.
+  if (borderStrip) clearTimeout(borderStrip)
+  borderStrip = setTimeout(() => {
+    borderStrip = null
+    applyDwmBorder()
+  }, 80)
 }
+let borderStrip: NodeJS.Timeout | null = null
 
 /**
  * The e2e's window never takes the foreground (2026-08-28).
@@ -912,35 +974,52 @@ setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()
 // about.
 comicsDir = join(app.getPath('userData'), 'comics')
 
+/** Written only when someone turns the verb OFF in Settings. Its ABSENCE is
+ *  what licenses a repair; see reconcileVerb. */
+const verbOffMarker = (): string => join(app.getPath('userData'), 'shell-verb-off')
+
 /**
- * "Open in Prism" is ON by default (2026-08-31, owner decision).
+ * "Open in Prism" is ON by default (2026-08-31), and STAYS on across upgrades
+ * (2026-09-02).
  *
- * Applied ONCE, and the marker file is the whole design. A default that
- * reapplied itself every launch would be a setting that lies: turn the verb
- * off in Settings and it would be back tomorrow, which is exactly the failure
- * the confirm-close setting's own rule warns about.
+ * THE BUG THIS FIXES. Every upgrade dropped the verb and it had to be switched
+ * back on by hand. electron-builder's NSIS uninstalls the old version before
+ * installing the new one, and `PRISM_UNREGISTER_TYPES` deletes the three
+ * OpenWithPrism keys - correctly, for a real uninstall. userData survives an
+ * upgrade, so the old `shell-verb-applied` marker was still there, the default
+ * counted itself as already applied, and nothing ever put the keys back.
+ *
+ * WHY THIS IS NOT THE SETTING LYING. The rule that marker existed to enforce is
+ * real: a default that reapplies itself every launch means turning the verb off
+ * brings it back tomorrow. But "applied once" was recording the wrong fact.
+ * What has to be remembered is the only thing that cannot be read back from the
+ * registry - that somebody said NO. So an explicit off writes a marker and is
+ * honoured forever, and everything else is a repair: if nobody has said no and
+ * Explorer does not have the verb, put it back. A user who never touched the
+ * switch cannot tell an upgrade from a fresh install, and should not have to.
  *
  * Not in dev and not under --e2e. `app.getPath('exe')` is the built electron
  * binary in both, and writing HKCU keys pointing at it would repoint the real
  * installed Prism's verb at a throwaway build - thirty e2e launches doing that
  * is its own kind of broken.
  *
- * One wart, said rather than hidden: someone who deliberately turned the verb
- * off before this change has no record of having done so - the switch reads
- * the registry, not a preference - so they get it back once on upgrade, and
- * have to turn it off again.
+ * One wart, said rather than hidden: someone who turned the verb off BEFORE
+ * this change has no off-marker, because nothing recorded one, so they get it
+ * back once. Their next "off" is remembered permanently. That is the same
+ * one-time cost the previous version of this comment already accepted, and it
+ * is the price of there having been no record to migrate.
  */
-async function applyVerbDefault(): Promise<void> {
+async function reconcileVerb(): Promise<void> {
   if (!app.isPackaged || E2E) return
-  const marker = join(app.getPath('userData'), 'shell-verb-applied')
   try {
     const fs = await import('fs/promises')
-    if (await fs.stat(marker).catch(() => null)) return
-    await installVerb(app.getPath('exe'))
-    // After the attempt, whatever it answered: the fact recorded is "the
-    // default has been applied", not "the write succeeded". A reg.exe that
-    // fails every launch is worse than a verb that is missing.
-    await fs.writeFile(marker, new Date().toISOString())
+    const saidNo = !!(await fs.stat(verbOffMarker()).catch(() => null))
+    const exe = app.getPath('exe')
+    // The registry rather than a marker: it is the thing that is actually wrong
+    // after an upgrade, and `verbInstalled` already checks the command points at
+    // THIS build, so a moved install repoints itself too.
+    if (!shouldWriteVerb(saidNo, saidNo ? true : await verbInstalled(exe))) return
+    await installVerb(exe)
   } catch {
     /* no userData, no registry: the switch in Settings still works */
   }
@@ -989,6 +1068,41 @@ function raise(win: BrowserWindow): void {
   win.setAlwaysOnTop(true)
   win.focus()
   win.setAlwaysOnTop(wasOnTop)
+}
+
+/**
+ * THE DWM BORDER FOLLOWS THE WINDOW'S STATE (2026-09-03, owner). Windows 11
+ * draws a 1px border on every framed window; with the title bar hidden it
+ * lies as a hairline across the top. RESTORED, the owner wants it - a floating
+ * window reads better with an edge. MAXIMIZED or FULLSCREEN it is a hairline
+ * across the top of the screen and goes: dwmapi attribute 34 (border color),
+ * -2 DWMWA_COLOR_NONE to strip, -1 DWMWA_COLOR_DEFAULT to give back. Spawned
+ * async through PowerShell - one dwmapi call is not worth a native module -
+ * and purely cosmetic, so a failure costs nothing but the hairline.
+ * Chromium rewrites DWM attributes when the backdrop changes, so
+ * applyDwmBorder also rides behind every material application.
+ */
+function setDwmBorder(win: BrowserWindow, visible: boolean): void {
+  try {
+    const buf = win.getNativeWindowHandle()
+    const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
+    const script =
+      `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
+      `$b=${visible ? -1 : -2};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},34,[ref]$b,4)|Out-Null`
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      () => {}
+    )
+  } catch {
+    /* cosmetic */
+  }
+}
+
+function applyDwmBorder(): void {
+  const win = mainWindow
+  if (!win) return
+  setDwmBorder(win, !win.isMaximized() && !isFs())
 }
 
 function createWindow(): void {
@@ -1040,7 +1154,12 @@ function createWindow(): void {
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
+    applyDwmBorder()
   })
+  // The border follows maximize state; fullscreen changes reach applyDwmBorder
+  // through applyMaterial's debounce.
+  mainWindow.on('maximize', applyDwmBorder)
+  mainWindow.on('unmaximize', applyDwmBorder)
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
   /**
@@ -1069,6 +1188,12 @@ function createWindow(): void {
   mainWindow.on('enter-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', true)
     applyMaterial(true)
+  })
+  // The renderer's fade brackets the whole swap: opaque on the way in, and the
+  // material comes back only once the far side has been painted and lifted.
+  ipcMain.on('window:fs-transition', (_e, active: boolean) => {
+    fsTransition = !!active
+    applyMaterial(!!mainWindow?.isFullScreen())
   })
   mainWindow.on('leave-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', false)
@@ -1822,6 +1947,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('shell:verb-status', () => verbInstalled(app.getPath('exe')))
     ipcMain.handle('shell:verb-set', async (_e, on: boolean): Promise<boolean> => {
       if (typeof on !== 'boolean') return false
+      // The off-marker is the record that survives an upgrade. Written when the
+      // answer is no, removed when it is yes - so the reconcile on the next
+      // launch repairs a wiped verb but never argues with a deliberate off.
+      const fs = await import('fs/promises')
+      await (on
+        ? fs.rm(verbOffMarker(), { force: true })
+        : fs.writeFile(verbOffMarker(), new Date().toISOString())
+      ).catch(() => undefined)
       return on ? installVerb(app.getPath('exe')) : removeVerb()
     })
 
@@ -1951,6 +2084,12 @@ if (!app.requestSingleInstanceLock()) {
      * the way Duplicate does, so a paste can add to a folder but never write
      * over what is in it.
      */
+    /** Are there files on the clipboard? Asked when a menu OPENS, so a Paste
+     *  row that would do nothing is never drawn (2026-09-02). The same
+     *  PowerShell route the paste itself uses - Electron's clipboard API
+     *  exposes one path and Windows puts a multi-file copy on as CF_HDROP. */
+    ipcMain.handle('clipboard:has-files', async () => (await clipboardFiles()).length > 0)
+
     ipcMain.handle('file:paste-into', async (_e, destDir: string) => {
       if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
         return { pasted: 0, failed: 0, refused: true }
@@ -2546,7 +2685,179 @@ if (!app.requestSingleInstanceLock()) {
       if (force) closeConfirmed = true
       mainWindow?.close()
     })
-    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => mainWindow?.setFullScreen(!!on))
+    /**
+     * BORDERLESS FULLSCREEN, NO TOPMOST (2026-09-03, third design).
+     *
+     * Real OS fullscreen is VISIBLY ANIMATED by DWM and the tail of that
+     * animation escapes any in-window veil - the owner saw the white frame on
+     * both ways with it. Borderless WITH always-on-top looked perfect going
+     * in but lost the taskbar war: Windows strips WS_EX_TOPMOST from a window
+     * it takes for fullscreen (measured: the bit held 0.3-3s, then dropped
+     * while Electron still said true) and the taskbar redrew over the picture.
+     *
+     * The answer is what borderless-windowed games do: NOTHING. A foreground
+     * window covering its monitor trips the shell's own fullscreen detection
+     * (SHQueryUserNotificationState flips to QUNS_BUSY the moment the cover
+     * lands - measured, overhang and all) and the shell puts the taskbar
+     * beneath it. It was the TOPMOST bit that kept that path from engaging.
+     * setResizable(false) does NOT shrink the frame overhang (measured, the
+     * rect stays ~6px proud) - it is here so the screen's edges are not live
+     * resize handles while the picture is up.
+     *
+     * The way OUT: win.maximize() from the covering bounds runs DWM's
+     * maximize animation, which paints a default frame - the owner's exit
+     * flash. Setting the work-area bounds first makes that animation
+     * degenerate: same rect to same rect, nothing to draw.
+     */
+    /**
+     * THE SHROUD FADES (2026-09-03, after the owner's recording). The
+     * in-window veil cannot touch the taskbar or the desktop around a
+     * windowed app, so however well the window fades, the SURROUNDINGS
+     * snapped: the taskbar cut to black on the way in and popped back a
+     * frame early on the way out - both visible in the recording. The shroud
+     * is a plain black window over the whole display, and it FADES on the
+     * same clock as the veil: raised when the renderer says a transition has
+     * begun (fs-transition true, which fires before anything moves), black
+     * before the swap arrives, and faded out when the renderer starts
+     * lifting. The window transform happens under it; the taskbar now fades
+     * with everything else. Its brief always-on-top is safe - the strip
+     * Windows applies to topmost fullscreen-sized windows took 300ms-3s to
+     * land, measured, and the shroud lives under a second. A 2.5s watchdog
+     * lifts it no matter what, because a stuck black screen is the one
+     * failure worse than any flash.
+     */
+    let fsShroud: BrowserWindow | null = null
+    let shroudAnim: NodeJS.Timeout | null = null
+    let shroudSafety: NodeJS.Timeout | null = null
+    const shroudTo = (target: number, ms: number, done?: () => void): void => {
+      const w = fsShroud
+      if (!w || w.isDestroyed()) return
+      if (shroudAnim) clearInterval(shroudAnim)
+      const from = w.getOpacity()
+      const t0 = Date.now()
+      shroudAnim = setInterval(() => {
+        const k = Math.min(1, (Date.now() - t0) / ms)
+        try {
+          if (!w.isDestroyed()) w.setOpacity(from + (target - from) * k)
+        } catch {
+          /* gone is gone */
+        }
+        if (k >= 1 && shroudAnim) {
+          clearInterval(shroudAnim)
+          shroudAnim = null
+          done?.()
+        }
+      }, 16)
+    }
+    const shroudLift = (): void => {
+      if (shroudSafety) clearTimeout(shroudSafety)
+      shroudSafety = null
+      shroudTo(0, 280, () => {
+        try {
+          fsShroud?.hide()
+        } catch {
+          /* gone is gone */
+        }
+      })
+    }
+    const shroudRaise = (): void => {
+      if (E2E) return // it would cover the REAL display while the suite runs parked
+      const win = mainWindow
+      if (!win) return
+      try {
+        if (!fsShroud || fsShroud.isDestroyed()) {
+          fsShroud = new BrowserWindow({
+            show: false,
+            frame: false,
+            backgroundColor: '#000000',
+            skipTaskbar: true,
+            focusable: false,
+            resizable: false,
+            movable: false,
+            minimizable: false,
+            maximizable: false,
+            hasShadow: false
+          })
+          fsShroud.setIgnoreMouseEvents(true)
+          fsShroud.setMenu(null)
+        }
+        const shroud = fsShroud
+        if (!shroud.isVisible()) shroud.setOpacity(0)
+        shroud.setBounds(screen.getDisplayMatching(win.getBounds()).bounds)
+        shroud.setAlwaysOnTop(true, 'screen-saver')
+        shroud.showInactive()
+        shroudTo(1, 150)
+      } catch {
+        return // a failed shroud only costs the cover, not the swap
+      }
+      if (shroudSafety) clearTimeout(shroudSafety)
+      shroudSafety = setTimeout(shroudLift, 2500)
+    }
+    ipcMain.on('window:fs-shroud', (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
+    /**
+     * SQUARE CORNERS WHILE FULLSCREEN (2026-09-03). Windows 11 rounds every
+     * top-level window, and a borderless cover is still just a window - the
+     * corner cut-outs showed the desktop as grey arcs (the owner's own
+     * screenshot). Electron 43 exposes rounding only as a constructor option
+     * and only for frameless windows, so the DWM attribute is set directly:
+     * corner preference (33), DONOTROUND going in, DEFAULT coming back.
+     * Spawned async through PowerShell (no native module for one dwmapi
+     * call); the few hundred ms land under the shroud. The 1px DWM BORDER is
+     * not handled here: the owner wants it gone in every state, so it is
+     * stripped once at window creation - see stripDwmBorder.
+     */
+    const setCornersRounded = (rounded: boolean): void => {
+      const win = mainWindow
+      if (!win) return
+      try {
+        const buf = win.getNativeWindowHandle()
+        const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
+        // 33 corner preference: 0 DEFAULT / 1 DONOTROUND.
+        const script =
+          `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
+          `$v=${rounded ? 0 : 1};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},33,[ref]$v,4)|Out-Null`
+        // -EncodedCommand: no quoting rules between three languages.
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+          () => {}
+        )
+      } catch {
+        /* rounded corners are cosmetic; the swap must not fail over them */
+      }
+    }
+    ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
+      const win = mainWindow
+      if (!win || !!on === isFs()) return
+      try {
+        if (on) {
+          preFsBounds = win.getBounds()
+          preFsMaximized = win.isMaximized()
+          const disp = screen.getDisplayMatching(preFsBounds)
+          if (preFsMaximized) win.unmaximize()
+          win.setResizable(false)
+          win.setBounds(disp.bounds)
+          setCornersRounded(false)
+        } else {
+          const back = preFsBounds
+          preFsBounds = null
+          const disp = screen.getDisplayMatching(back ?? win.getBounds())
+          win.setResizable(true)
+          setCornersRounded(true)
+          if (preFsMaximized) {
+            win.setBounds(disp.workArea)
+            win.maximize()
+          } else if (back) {
+            win.setBounds(back)
+          }
+          preFsMaximized = false
+        }
+      } catch {
+        preFsBounds = on ? preFsBounds : null
+      }
+      applyMaterial(isFs())
+      win.webContents.send('window:fullscreen', isFs())
+    })
     // Windows 11 composites acrylic and mica behind the window; CSS can't, since
     // backdrop-filter only sees the app's own pixels. The window background has
     // to go transparent for the material to show through.
@@ -2578,7 +2889,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     createWindow()
-    void applyVerbDefault()
+    void reconcileVerb()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

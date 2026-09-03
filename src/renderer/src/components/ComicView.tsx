@@ -150,15 +150,8 @@ export function ComicView({
         name={pageName}
         onToggleFullscreen={onToggleFullscreen}
         fullscreen={fullscreen}
+        status={total > 1 ? `Page ${at + 1} of ${total}` : undefined}
       />
-      {/* The page counter. MOUNTS and UNMOUNTS rather than fading, the rule
-          the transport learned the hard way: a layer taken to opacity 0
-          inside a fullscreen element is composited once and never repainted. */}
-      {total > 1 && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)]/90 px-3 py-1 text-[11.5px] tabular-nums text-[var(--p-dim)]">
-          Page {at + 1} of {total}
-        </div>
-      )}
     </div>
   )
 }

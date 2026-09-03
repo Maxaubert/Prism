@@ -80,6 +80,24 @@ function reg(args: string[]): Promise<{ ok: boolean; out: string }> {
   })
 }
 
+/**
+ * Should the verb be (re)written on this launch?
+ *
+ * THE ONE FACT WORTH STORING IS THE NO. Everything else can be read back from
+ * the registry, and a marker saying "the default has been applied" recorded the
+ * wrong thing: every upgrade runs the old uninstaller, which deletes the verb
+ * keys, while userData survives - so the marker said done, the keys were gone,
+ * and the verb had to be switched on by hand after every build.
+ *
+ * `saidNo` is honoured forever, which is the rule that stops a default
+ * reapplying itself and making the switch a lie. Without it, an absent verb is
+ * simply a verb to put back: a user who never touched the switch cannot tell an
+ * upgrade from a fresh install and should not have to.
+ */
+export function shouldWriteVerb(saidNo: boolean, installed: boolean): boolean {
+  return !saidNo && !installed
+}
+
 /** Is the verb registered, and pointing at this executable? */
 export async function verbInstalled(exe: string): Promise<boolean> {
   const r = await reg(queryArgs())
