@@ -23,7 +23,10 @@ export function JobChip({ floating = false }: { floating?: boolean }): JSX.Eleme
       aria-live="polite"
       title={title}
       className={`pointer-events-none flex min-w-0 select-none flex-col gap-[3px] rounded-full border border-[color:var(--p-line)] bg-[var(--p-side-flat)] px-2.5 py-[3px] text-[11px] text-[var(--p-text-soft)] shadow-[0_6px_18px_rgba(0,0,0,.35)] ${
-        floating ? 'fixed bottom-3 left-3 z-40 w-[200px]' : 'w-[168px]'
+        // In the footer it is LEFT-aligned and takes the whole row up to the
+        // terminal button (owner, 2026-09-03): the row is flex justify-end, so
+        // flex-1 fills everything the button leaves.
+        floating ? 'fixed bottom-3 left-3 z-40 w-[200px]' : 'flex-1'
       }`}
     >
       <span className="flex min-w-0 items-center gap-1.5">
