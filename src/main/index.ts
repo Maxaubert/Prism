@@ -895,7 +895,18 @@ function applyMaterial(fullscreen: boolean): void {
   } catch {
     /* older Windows: the solid background stands */
   }
+  // Chromium rewrites DWM window attributes when the backdrop changes, which
+  // silently restores the 1px border this app strips (measured: the strip at
+  // ready-to-show read back as default once the theme handshake had run). So
+  // the strip rides behind every material application, debounced past the
+  // rewrite.
+  if (borderStrip) clearTimeout(borderStrip)
+  borderStrip = setTimeout(() => {
+    borderStrip = null
+    if (mainWindow) stripDwmBorder(mainWindow)
+  }, 80)
 }
+let borderStrip: NodeJS.Timeout | null = null
 
 /**
  * The e2e's window never takes the foreground (2026-08-28).
@@ -1059,6 +1070,32 @@ function raise(win: BrowserWindow): void {
   win.setAlwaysOnTop(wasOnTop)
 }
 
+/**
+ * NO DWM BORDER, EVER (2026-09-03, owner). Windows 11 draws a 1px border on
+ * every framed window; with the title bar hidden it lies as a hairline across
+ * the top of the app, and in fullscreen across the top of the screen. The
+ * owner wants it gone in every state, so it is stripped ONCE when the window
+ * exists: dwmapi attribute 34 (border color) set to -2, DWMWA_COLOR_NONE.
+ * Spawned async through PowerShell - one dwmapi call is not worth a native
+ * module - and purely cosmetic, so a failure costs nothing but the hairline.
+ */
+function stripDwmBorder(win: BrowserWindow): void {
+  try {
+    const buf = win.getNativeWindowHandle()
+    const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
+    const script =
+      `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
+      `$b=-2;[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},34,[ref]$b,4)|Out-Null`
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      () => {}
+    )
+  } catch {
+    /* cosmetic */
+  }
+}
+
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
@@ -1108,6 +1145,7 @@ function createWindow(): void {
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
+    if (mainWindow) stripDwmBorder(mainWindow)
   })
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
@@ -2743,6 +2781,38 @@ if (!app.requestSingleInstanceLock()) {
       shroudSafety = setTimeout(shroudLift, 2500)
     }
     ipcMain.on('window:fs-shroud', (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
+    /**
+     * SQUARE CORNERS WHILE FULLSCREEN (2026-09-03). Windows 11 rounds every
+     * top-level window, and a borderless cover is still just a window - the
+     * corner cut-outs showed the desktop as grey arcs (the owner's own
+     * screenshot). Electron 43 exposes rounding only as a constructor option
+     * and only for frameless windows, so the DWM attribute is set directly:
+     * corner preference (33), DONOTROUND going in, DEFAULT coming back.
+     * Spawned async through PowerShell (no native module for one dwmapi
+     * call); the few hundred ms land under the shroud. The 1px DWM BORDER is
+     * not handled here: the owner wants it gone in every state, so it is
+     * stripped once at window creation - see stripDwmBorder.
+     */
+    const setCornersRounded = (rounded: boolean): void => {
+      const win = mainWindow
+      if (!win) return
+      try {
+        const buf = win.getNativeWindowHandle()
+        const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
+        // 33 corner preference: 0 DEFAULT / 1 DONOTROUND.
+        const script =
+          `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
+          `$v=${rounded ? 0 : 1};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},33,[ref]$v,4)|Out-Null`
+        // -EncodedCommand: no quoting rules between three languages.
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+          () => {}
+        )
+      } catch {
+        /* rounded corners are cosmetic; the swap must not fail over them */
+      }
+    }
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
       const win = mainWindow
       if (!win || !!on === isFs()) return
@@ -2754,11 +2824,13 @@ if (!app.requestSingleInstanceLock()) {
           if (preFsMaximized) win.unmaximize()
           win.setResizable(false)
           win.setBounds(disp.bounds)
+          setCornersRounded(false)
         } else {
           const back = preFsBounds
           preFsBounds = null
           const disp = screen.getDisplayMatching(back ?? win.getBounds())
           win.setResizable(true)
+          setCornersRounded(true)
           if (preFsMaximized) {
             win.setBounds(disp.workArea)
             win.maximize()
