@@ -3525,6 +3525,9 @@ async function terminalScenario(fixtures) {
         (await win.locator('.xterm').count()) === 2,
       'the other terminal is pinned as a pane beside the current one'
     )
+    // ...and TERMINALS ONLY (owner, 2026-09-03): a split built from a full
+    // terminal draws no file pane - the old split does not come back.
+    ok((await win.locator('[data-pane="live"]').count()) === 0, 'with no file pane drawn beside them')
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     await win.hover('[role="menuitem"]:has-text("Close terminal")')

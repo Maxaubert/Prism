@@ -649,7 +649,8 @@ function PinnedPaneView({
   shellId?: string
   onMove: (dir: SplitDir) => void
   onClose: () => void
-  viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
+  /** What a FILE pane's viewer needs; a terminal pane has no viewer. */
+  viewerProps?: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
   const name = term ? 'terminal' : (path.split(/[\\/]/).pop() ?? path)
   const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
@@ -704,9 +705,9 @@ function PinnedPaneView({
             <TerminalPanelLazy sessionId={term} root={termRoot ?? ''} shellId={shellId} />
           </Suspense>
         </div>
-      ) : (
+      ) : viewerProps ? (
         <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
-      )}
+      ) : null}
       <button
         className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
         onClick={onClose}
@@ -1541,7 +1542,14 @@ export default function App(): JSX.Element {
         if (!tab || tab.kind === 'settings') return s
         const next = fn(tab.term, nextTermId())
         if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, next) }
+        let tabs = setTabTerm(s.tabs, tab.id, next)
+        // A FULL terminal is a single-item view, and a split you have left
+        // falls apart rather than lying in wait (owner, 2026-09-03): the file
+        // pins go. Terminal panes stay, so two shells side by side survive a
+        // hide and show.
+        if (next.view === 'full' && tab.panes.some((pn) => !pn.term))
+          tabs = setTabPanes(tabs, tab.id, tab.panes.filter((pn) => !!pn.term))
+        return { ...s, tabs }
       }),
     []
   )
@@ -1875,7 +1883,12 @@ export default function App(): JSX.Element {
     if (!active || active.kind === 'settings') return
     const termId = nextTermId()
     termRoots.current.set(termId, active.root)
-    setTabState((s) => ({ ...s, tabs: addTerm(s.tabs, active.id, termId, 'full') }))
+    setTabState((s) => {
+      const tab = s.tabs.find((t) => t.id === active.id)
+      // Full view: the file pins fall apart, as in applyTermView.
+      const tabs = tab ? setTabPanes(s.tabs, tab.id, tab.panes.filter((pn) => !!pn.term)) : s.tabs
+      return { ...s, tabs: addTerm(tabs, active.id, termId, 'full') }
+    })
     setPaneFocus('term')
   }, [active])
   const pickTermId = useCallback(
@@ -1896,17 +1909,18 @@ export default function App(): JSX.Element {
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === active.id)
         if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
-        // The same fresh start as a file pin: a full-view terminal hid the
-        // grid, so the old panes are not what this pin is adding to.
-        const base = fullscreen || tab.term?.view === 'full' ? [] : tab.panes
-        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(base, paneId, termId, d))
-        // The grid has to be on screen for a pane to be: a FULL terminal
-        // covers it, so the current one drops to its dock split - and a
-        // shell that just became a pane leaves the dock, or it would be
-        // drawn twice.
+        // From a FULL terminal the split is TERMINALS ONLY (owner, 2026-09-03:
+        // "I just wanted the two terminals"): the file pins are already gone
+        // (applyTermView) and the current shell stays full, with the pinned
+        // shells drawn inside the terminal area beside it. From fullscreen a
+        // pin starts fresh; otherwise it adds to the grid you can see.
         const cur = tab.term
+        const base =
+          cur?.view === 'full' ? tab.panes.filter((pn) => !!pn.term) : fullscreen ? [] : tab.panes
+        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(base, paneId, termId, d))
+        // A shell that just became a pane leaves the dock, or it would be
+        // drawn twice.
         if (cur?.id === termId) tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'hidden' })
-        else if (cur?.view === 'full') tabs = setTabTerm(tabs, tab.id, { ...cur, view: 'split' })
         return { ...s, tabs }
       })
       setPaneFocus(paneId)
@@ -3207,7 +3221,10 @@ export default function App(): JSX.Element {
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
-              const pins = active?.panes ?? []
+              // While the terminal is FULL its panes are drawn in the terminal
+              // area, not here: this grid sits hidden behind it, and mounting a
+              // shell's panel twice would attach one xterm to one session twice.
+              const pins = (active?.panes ?? []).filter((pn) => termView !== 'full' || !pn.term)
               const withPlayers = (
                 <>
                   {players}
@@ -3319,22 +3336,57 @@ export default function App(): JSX.Element {
             coming back reattaches them with scrollback intact. Full view is
             the terminal's home; split is the dock. Fullscreen is for watching:
             no terminal, like the rest of the chrome. */}
-          {active?.term && termView !== 'hidden' && !fullscreen && (
-            <TermDock
-              mode={termView}
-              onClose={closeTermPane}
-              onKill={closeTerm}
-              edge={dockEdge}
-              size={termSizes[dockAxis(dockEdge)]}
-              onResize={resizeTermPanel}
-              onDockPick={pickDock}
-              sessionId={active.term.id}
-              root={termRoots.current.get(active.term.id) ?? active.root}
-              shellId={savedShellId()}
-              find={termFind}
-              onFind={setTermFind}
-            />
-          )}
+          {active?.term &&
+            termView !== 'hidden' &&
+            !fullscreen &&
+            (() => {
+              const dock = (
+                <TermDock
+                  mode={termView}
+                  onClose={closeTermPane}
+                  onKill={closeTerm}
+                  edge={dockEdge}
+                  size={termSizes[dockAxis(dockEdge)]}
+                  onResize={resizeTermPanel}
+                  onDockPick={pickDock}
+                  sessionId={active.term.id}
+                  root={termRoots.current.get(active.term.id) ?? active.root}
+                  shellId={savedShellId()}
+                  find={termFind}
+                  onFind={setTermFind}
+                />
+              )
+              // TERMINALS ONLY, in full view (owner, 2026-09-03): the shells
+              // pinned as panes share the terminal's own area with it - the
+              // current one in the live slot - and no file pane is drawn.
+              const termPanes = active.panes.filter((pn) => !!pn.term)
+              if (termView !== 'full' || !termPanes.length) return dock
+              const ta = paneAreas(termPanes)
+              return (
+                <div
+                  className="grid min-h-0 min-w-0 flex-1 gap-px bg-[var(--p-divider)]"
+                  style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
+                >
+                  <div className="flex min-h-0 min-w-0" style={{ gridArea: ta.live }}>
+                    {dock}
+                  </div>
+                  {termPanes.map((pn, i) => (
+                    <PinnedPaneView
+                      key={pn.id}
+                      paneId={pn.id}
+                      path={pn.path}
+                      area={ta.pinned[i]}
+                      dir={pn.dir}
+                      term={pn.term}
+                      termRoot={termRoots.current.get(pn.term ?? '') ?? active.root}
+                      shellId={savedShellId()}
+                      onMove={(d) => pinTermAsPane(pn.term ?? '', d)}
+                      onClose={() => unpinSplitId(pn.id)}
+                    />
+                  ))}
+                </div>
+              )
+            })()}
         </div>
       </div>
       <Settings
