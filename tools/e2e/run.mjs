@@ -528,17 +528,24 @@ async function pdfScenario(fixtures) {
     await win.click('button[title="Default zoom (0)"]')
     ok((await win.textContent('button[title="Default zoom (0)"]')) === '100%', 'clicking the label resets to 100%')
     await win.click('button[title="Fullscreen (F)"]')
-    await sleep(600)
-    ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
-      'clicking fullscreen goes fullscreen'
-    )
+    await sleep(900)
+    // BORDERLESS (2026-09-03): fullscreen is the window covering its display
+    // with its resize borders dropped, never the OS flag - see the sandwich
+    // scenario for the why. The main window is the one that is resizable
+    // in the ordinary state; the shroud is a second BrowserWindow.
+    const fsMeasure = () =>
+      app.evaluate(({ BrowserWindow, screen }) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== '' || x.getBounds().width > 200) ?? BrowserWindow.getAllWindows()[0]
+        const b = w.getBounds()
+        const d = screen.getDisplayMatching(b).bounds
+        return { covers: b.width >= d.width && b.height >= d.height, rs: w.isResizable() }
+      })
+    const fsIn = await fsMeasure()
+    ok(fsIn.covers && !fsIn.rs, 'clicking fullscreen goes fullscreen')
     await win.keyboard.press('f')
-    await sleep(600)
-    ok(
-      !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())),
-      'F leaves fullscreen again'
-    )
+    await sleep(900)
+    const fsOut = await fsMeasure()
+    ok(fsOut.rs, 'F leaves fullscreen again')
 
     // A PDF's Properties knows its pages.
     await win.click('[role="treeitem"][aria-selected="true"]', { button: 'right' })
