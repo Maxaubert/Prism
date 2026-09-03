@@ -489,6 +489,10 @@ const api = {
    *  it, so the frame where it has resized but not repainted shows the desktop. */
   setFsTransition: (active: boolean): void =>
     ipcRenderer.send('window:fs-transition', active),
+  /** Raise or fade out the display-covering black shroud. The in-window veil
+   *  cannot touch the taskbar or the desktop around the window; the shroud
+   *  fades them on the same clock. */
+  setFsShroud: (up: boolean): void => ipcRenderer.send('window:fs-shroud', up),
   onFullscreen: (cb: (on: boolean) => void): (() => void) => {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)

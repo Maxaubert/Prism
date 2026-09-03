@@ -1089,6 +1089,7 @@ export default function App(): JSX.Element {
       const fresh = (): boolean => gen === veilGen.current
       if (!list.length) {
         window.prism.setFsTransition(false)
+        window.prism.setFsShroud(false)
         return
       }
       // Hold the black (320ms) before lifting: long enough for main's shroud
@@ -1104,6 +1105,10 @@ export default function App(): JSX.Element {
               v.style.transition = 'opacity 280ms ease-out'
               v.style.opacity = '0'
             }
+            // The shroud fades out on the same clock, so the taskbar and the
+            // desktop reappear WITH the window instead of popping a frame
+            // ahead of it.
+            window.prism.setFsShroud(false)
             // The far side is painted and the black is lifting: the window may
             // have its material back. Held until now rather than released on
             // `enter-full-screen`, which fires while the resize is still running.
@@ -1131,6 +1136,9 @@ export default function App(): JSX.Element {
       // Opaque FIRST, and before anything moves: this is the whole fix for the
       // one-frame desktop flash, and it has to happen while the black is up.
       window.prism.setFsTransition(true)
+      // And the shroud rises with the veil, so the taskbar and the desktop
+      // fade to black on the same clock as the window instead of snapping.
+      window.prism.setFsShroud(true)
       if (!veil || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         doSwap()
         return

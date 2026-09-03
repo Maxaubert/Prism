@@ -2659,21 +2659,60 @@ if (!app.requestSingleInstanceLock()) {
      * degenerate: same rect to same rect, nothing to draw.
      */
     /**
-     * THE SHROUD (2026-09-03). The one artifact left was a white bar on the
-     * right during the resize itself, both ways: pixels the window claims
-     * before its renderer has painted them, which an IN-WINDOW veil cannot
-     * cover by definition - the veil is part of the very surface that has
-     * not painted yet. So a plain black window covers the whole display for
-     * the ~300ms of the swap: it appears over a screen the veil has already
-     * taken to black (black over black, invisible), the resize happens
-     * beneath it, and it leaves while the veil is still black. Its brief
-     * always-on-top is safe - the strip Windows applies to topmost
-     * fullscreen-sized windows took 300ms-3s to land, measured.
+     * THE SHROUD FADES (2026-09-03, after the owner's recording). The
+     * in-window veil cannot touch the taskbar or the desktop around a
+     * windowed app, so however well the window fades, the SURROUNDINGS
+     * snapped: the taskbar cut to black on the way in and popped back a
+     * frame early on the way out - both visible in the recording. The shroud
+     * is a plain black window over the whole display, and it FADES on the
+     * same clock as the veil: raised when the renderer says a transition has
+     * begun (fs-transition true, which fires before anything moves), black
+     * before the swap arrives, and faded out when the renderer starts
+     * lifting. The window transform happens under it; the taskbar now fades
+     * with everything else. Its brief always-on-top is safe - the strip
+     * Windows applies to topmost fullscreen-sized windows took 300ms-3s to
+     * land, measured, and the shroud lives under a second. A 2.5s watchdog
+     * lifts it no matter what, because a stuck black screen is the one
+     * failure worse than any flash.
      */
     let fsShroud: BrowserWindow | null = null
-    let shroudTimer: NodeJS.Timeout | null = null
-    const shroudShow = (bounds: Electron.Rectangle): void => {
+    let shroudAnim: NodeJS.Timeout | null = null
+    let shroudSafety: NodeJS.Timeout | null = null
+    const shroudTo = (target: number, ms: number, done?: () => void): void => {
+      const w = fsShroud
+      if (!w || w.isDestroyed()) return
+      if (shroudAnim) clearInterval(shroudAnim)
+      const from = w.getOpacity()
+      const t0 = Date.now()
+      shroudAnim = setInterval(() => {
+        const k = Math.min(1, (Date.now() - t0) / ms)
+        try {
+          if (!w.isDestroyed()) w.setOpacity(from + (target - from) * k)
+        } catch {
+          /* gone is gone */
+        }
+        if (k >= 1 && shroudAnim) {
+          clearInterval(shroudAnim)
+          shroudAnim = null
+          done?.()
+        }
+      }, 16)
+    }
+    const shroudLift = (): void => {
+      if (shroudSafety) clearTimeout(shroudSafety)
+      shroudSafety = null
+      shroudTo(0, 280, () => {
+        try {
+          fsShroud?.hide()
+        } catch {
+          /* gone is gone */
+        }
+      })
+    }
+    const shroudRaise = (): void => {
       if (E2E) return // it would cover the REAL display while the suite runs parked
+      const win = mainWindow
+      if (!win) return
       try {
         if (!fsShroud || fsShroud.isDestroyed()) {
           fsShroud = new BrowserWindow({
@@ -2691,22 +2730,19 @@ if (!app.requestSingleInstanceLock()) {
           fsShroud.setIgnoreMouseEvents(true)
           fsShroud.setMenu(null)
         }
-        fsShroud.setBounds(bounds)
-        fsShroud.setAlwaysOnTop(true, 'screen-saver')
-        fsShroud.showInactive()
+        const shroud = fsShroud
+        if (!shroud.isVisible()) shroud.setOpacity(0)
+        shroud.setBounds(screen.getDisplayMatching(win.getBounds()).bounds)
+        shroud.setAlwaysOnTop(true, 'screen-saver')
+        shroud.showInactive()
+        shroudTo(1, 150)
       } catch {
-        /* a failed shroud only costs the cover, not the swap */
+        return // a failed shroud only costs the cover, not the swap
       }
-      if (shroudTimer) clearTimeout(shroudTimer)
-      shroudTimer = setTimeout(() => {
-        shroudTimer = null
-        try {
-          fsShroud?.hide()
-        } catch {
-          /* gone is gone */
-        }
-      }, 300)
+      if (shroudSafety) clearTimeout(shroudSafety)
+      shroudSafety = setTimeout(shroudLift, 2500)
     }
+    ipcMain.on('window:fs-shroud', (_e, up: boolean) => (up ? shroudRaise() : shroudLift()))
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
       const win = mainWindow
       if (!win || !!on === isFs()) return
@@ -2715,7 +2751,6 @@ if (!app.requestSingleInstanceLock()) {
           preFsBounds = win.getBounds()
           preFsMaximized = win.isMaximized()
           const disp = screen.getDisplayMatching(preFsBounds)
-          shroudShow(disp.bounds)
           if (preFsMaximized) win.unmaximize()
           win.setResizable(false)
           win.setBounds(disp.bounds)
@@ -2723,7 +2758,6 @@ if (!app.requestSingleInstanceLock()) {
           const back = preFsBounds
           preFsBounds = null
           const disp = screen.getDisplayMatching(back ?? win.getBounds())
-          shroudShow(disp.bounds)
           win.setResizable(true)
           if (preFsMaximized) {
             win.setBounds(disp.workArea)
