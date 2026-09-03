@@ -1277,6 +1277,24 @@ async function iconSchemeScenario(fixtures) {
       return /A[\d. ]+/.test(d)
     })
     ok(round, 'and its silhouette is a circle, not a page or a container')
+    // The coloured disc must be BLUE with a HOLE (owner, 2026-09-03: the first
+    // cut came out black): the bleed the band colour paints last is only the
+    // band's strip, never the whole box, and the body carries the hole as a
+    // second subpath so the mask has a hole in it.
+    const discLayers = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      const body = svg?.querySelector('mask path')?.getAttribute('d') ?? ''
+      const g = svg?.querySelector('g[mask]')
+      const last = g ? [...g.querySelectorAll('path')].pop() : null
+      const bleed = last?.getAttribute('d') ?? ''
+      const top = parseFloat(/M[-\d.]+ ([-\d.]+)/.exec(bleed)?.[1] ?? '0')
+      return { subpaths: (body.match(/M/g) ?? []).length, bleedTop: top }
+    })
+    ok(discLayers.subpaths === 2, `the disc body has a hole as its second subpath (${discLayers.subpaths})`)
+    ok(discLayers.bleedTop > 12, `and the band colour paints only the foot strip (from y=${discLayers.bleedTop})`)
 
     // THE SETTINGS SWITCH IS GONE.
     await win.click('[aria-label="Settings"]')

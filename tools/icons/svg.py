@@ -540,15 +540,29 @@ def disc_band_path_clipped():
     return f"M{a} {yy}A{R} {R} 0 0 0 {b} {yy}Z"
 
 
+def hole_path_ccw():
+    """The hole wound ANTICLOCKWISE, so that inside the body's own path it
+    cancels under the nonzero rule and is a real hole - in the mask the
+    coloured scheme clips with, and in the one-path monochrome body alike.
+    Painted marks cannot make a hole: the archive's mark colour is black, and
+    a black dot is what the first cut of this drew (owner: "completely
+    black", together with the bleed mistake below)."""
+    a, b = u(DISC_C - DISC_HOLE), u(DISC_C + DISC_HOLE)
+    r, cy = round((b - a) / 2, 2), u(DISC_C)
+    return f"M{a} {cy}A{r} {r} 0 1 0 {b} {cy}A{r} {r} 0 1 0 {a} {cy}Z"
+
+
 def _disc():
     hole = ellipse_path(DISC_C - DISC_HOLE, DISC_C - DISC_HOLE, DISC_C + DISC_HOLE, DISC_C + DISC_HOLE)
     # Band first, then the mark: KO is `koBand` followed by `mark`, the split
     # the app makes and the tables' own test checks.
-    return {BODY: [ellipse_path(*DISC)], KO: [disc_band_path(), hole], HI: [],
+    return {BODY: [ellipse_path(*DISC), hole_path_ccw()], KO: [disc_band_path(), hole], HI: [],
             L_BAND: [disc_band_path_clipped()], L_KOBAND: [disc_band_path()],
-            # What COLOURED fills, clipped by the body: the disc's whole box,
-            # axis-aligned, so every curve comes from the clip alone.
-            L_BLEED: [rect_path(*DISC)], L_MARK: [hole]}
+            # `bleed` is what COLOURED paints LAST, in the band colour, inside
+            # the body's mask - the band, in other words: the overshooting
+            # rectangle, axis-aligned, and the mask supplies the curve. The
+            # first cut put the disc's whole box here and painted it black.
+            L_BLEED: [disc_band_path()], L_MARK: [hole]}
 
 
 def _lang_layers(name):
@@ -622,7 +636,8 @@ def icons():
             solid += [p for p in layers[KO] if p != arch_band_path()]
             solid += [arch_band_path_clipped()]
         elif disc:
-            solid += [p for p in layers[KO] if p != disc_band_path()]
+            # The hole is already IN the body (wound the other way); under
+            # evenodd a second copy would cancel it back to solid.
             solid += [disc_band_path_clipped()]
         else:
             solid += [p for p in layers[KO] if p != band_path()]
