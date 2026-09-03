@@ -1406,11 +1406,11 @@ async function treeVerbsScenario(fixtures) {
     await rowFor('wrapped.zip').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     await win.locator('[role="menu"] >> text="Extract here"').click()
-    await win.waitForSelector('[role="dialog"]', { timeout: 8000 })
-    // The job reports, then finishes. "Done" is the finished title.
-    await win.waitForSelector('[role="dialog"] >> text="Done"', { timeout: 30000 })
-    ok(true, 'Extract here runs and reports when it is done')
-    await win.locator('[role="dialog"] button:has-text("Close")').click()
+    // No popup any more (owner, 2026-09-03): the job reports in the
+    // sidebar's chip, which shows while it runs and steps down when done.
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    ok(true, 'Extract here runs and reports in the chip')
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
     await sleep(600)
     // `Collection`, not `wrapped`: the ONE-FOLDER RULE hoists an archive whose
     // whole content is a single top-level folder rather than burying it under
