@@ -56,6 +56,18 @@ describe('the job queue behind the chip (2026-09-03)', () => {
     expect(listJobs()).toHaveLength(0)
   })
 
+  it('a job lingering at 100% yields the chip to a live one', () => {
+    const a = startJob('paste', 'Copying')
+    vi.advanceTimersByTime(20)
+    endJob(a) // held at 100 for the minimum
+    const b = startJob('paste', 'Copying')
+    expect(chipSummary(listJobs())).toEqual({ label: 'Copying', pct: null, more: 1 })
+    updateJob(b, 7)
+    expect(chipSummary(listJobs())?.pct).toBe(7)
+    vi.advanceTimersByTime(MIN_SHOW_MS)
+    expect(listJobs().map((j) => j.id)).toEqual([b])
+  })
+
   it('a job that ran long enough leaves at once', () => {
     const a = startJob('extract', 'Extracting big.7z')
     vi.advanceTimersByTime(MIN_SHOW_MS * 3)

@@ -26,6 +26,8 @@ export interface Job {
   pct: number | null
   /** When it started, for the minimum showing below. */
   since: number
+  /** Finished, and only lingering for the minimum showing. */
+  done?: boolean
 }
 
 /**
@@ -79,7 +81,8 @@ export function endJob(id: string): void {
   const shown = Date.now() - job.since
   if (shown >= MIN_SHOW_MS) return remove(id)
   // Too quick to have been seen: hold it at done for the rest of the minimum.
-  updateJob(id, 100)
+  jobs = jobs.map((j) => (j.id === id ? { ...j, pct: 100, done: true } : j))
+  emit()
   leaving.set(
     id,
     setTimeout(() => remove(id), MIN_SHOW_MS - shown)
@@ -97,15 +100,19 @@ export function resetJobs(): void {
 }
 
 /**
- * What the chip draws: the OLDEST job (it is the one you have been waiting
- * on longest, and the one most likely to finish next) and how many more are
- * queued behind it. Pure, so the chip's arithmetic is testable without React.
+ * What the chip draws: the oldest job STILL WORKING (the one you have been
+ * waiting on longest, and the one most likely to finish next), and how many
+ * more are behind it. A job that has finished and is only lingering for its
+ * minimum showing yields to any live one - otherwise a second paste opened
+ * on the first paste's 100% and then fell to 0 (owner, 2026-09-03). It is
+ * shown only when nothing else is running. Pure, so the chip's arithmetic
+ * is testable without React.
  */
 export function chipSummary(
   list: readonly Job[]
 ): { label: string; pct: number | null; more: number } | null {
   if (!list.length) return null
-  const head = list[0]
+  const head = list.find((j) => !j.done) ?? list[0]
   return { label: head.label, pct: head.pct, more: list.length - 1 }
 }
 

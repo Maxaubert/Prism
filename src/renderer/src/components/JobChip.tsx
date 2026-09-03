@@ -28,17 +28,24 @@ export function JobChip({ floating = false }: { floating?: boolean }): JSX.Eleme
         floating ? 'fixed bottom-3 left-3 z-40 h-7 w-[260px]' : 'h-[26px] flex-1'
       }`}
     >
-      <span className="max-w-[45%] shrink-0 truncate">{s.label}</span>
-      <span className="block h-[3px] min-w-[40px] flex-1 overflow-hidden rounded-full bg-[var(--p-track)]">
+      {/* leading-none on the text: an inherited line-height centred the LINE
+          BOX and left the glyphs sitting low beside a 3px bar. */}
+      <span className="max-w-[45%] shrink-0 truncate leading-none">{s.label}</span>
+      {/* No width transition: the fill only ever grows from 0, and an
+          indeterminate job pulses the TRACK with an empty fill rather than
+          showing a block the first real number would then shrink from. */}
+      <span
+        className={`block h-[3px] min-w-[40px] flex-1 overflow-hidden rounded-full bg-[var(--p-track)] ${
+          s.pct === null ? 'animate-pulse' : ''
+        }`}
+      >
         <span
-          className={`block h-full rounded-full bg-[var(--p-accent)] ${
-            s.pct === null ? 'w-1/3 animate-pulse' : 'transition-[width] duration-200'
-          }`}
-          style={s.pct === null ? undefined : { width: `${Math.max(2, s.pct)}%` }}
+          className="block h-full rounded-full bg-[var(--p-accent)]"
+          style={{ width: s.pct === null ? '0%' : `${Math.max(1, s.pct)}%` }}
         />
       </span>
       {s.pct !== null && (
-        <span className="w-[30px] shrink-0 text-right font-mono text-[10px] text-[var(--p-dim)]">
+        <span className="w-[30px] shrink-0 text-right font-mono text-[10px] leading-none text-[var(--p-dim)]">
           {Math.round(s.pct)}%
         </span>
       )}
