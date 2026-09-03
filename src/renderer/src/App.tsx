@@ -1896,7 +1896,10 @@ export default function App(): JSX.Element {
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === active.id)
         if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
-        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(tab.panes, paneId, termId, d))
+        // The same fresh start as a file pin: a full-view terminal hid the
+        // grid, so the old panes are not what this pin is adding to.
+        const base = fullscreen || tab.term?.view === 'full' ? [] : tab.panes
+        let tabs = setTabPanes(s.tabs, tab.id, pinTermPane(base, paneId, termId, d))
         // The grid has to be on screen for a pane to be: a FULL terminal
         // covers it, so the current one drops to its dock split - and a
         // shell that just became a pane leaves the dock, or it would be
@@ -1908,7 +1911,7 @@ export default function App(): JSX.Element {
       })
       setPaneFocus(paneId)
     },
-    [active]
+    [active, fullscreen]
   )
   /** "Open in split view" for one of several is a TOGGLE (owner, 2026-09-03):
    *  a shell on screen comes out of the split, one that is not goes in - the
@@ -2037,11 +2040,16 @@ export default function App(): JSX.Element {
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
-        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(tab.panes, paneId, path, d)) }
+        // A SPLIT STARTS FRESH from a single-item view (owner, 2026-09-03):
+        // fullscreen and a full-view terminal both hide the grid, and a pin
+        // made from there used to bring every old pane back with it. What
+        // you could not see is not what you meant to add to.
+        const base = fullscreen || tab.term?.view === 'full' ? [] : tab.panes
+        return { ...s, tabs: setTabPanes(s.tabs, tab.id, pinPane(base, paneId, path, d)) }
       })
       setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
-    [active, applyTermView, open, pickDock]
+    [active, applyTermView, open, pickDock, fullscreen]
   )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {

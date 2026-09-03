@@ -1416,6 +1416,7 @@ export function Sidebar({
                   children: terms.map((t) => ({
                     label: t.label,
                     icon: tickIf(t.shown),
+                    keepOpen: true, // tick several, or change your mind (owner)
                     onPick: () => onSplitTermId(t.id)
                   }))
                 }
