@@ -3660,8 +3660,17 @@ async function pauseScenario(fixtures) {
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
     const q = await win.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? '')
     ok(/ep2/i.test(q), `Delete over a focused film asks about that film (${q.slice(0, 60)})`)
-    await win.keyboard.press('Escape')
-    await sleep(300)
+    // ...and the film that is PLAYING actually goes (owner, 2026-09-03): it
+    // holds a handle through the media stream and the Recycle Bin refuses a
+    // file with one open, so the player is released first and the bin
+    // asked after a beat, with retries.
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    for (let i = 0; i < 40 && existsSync(join(fixtures, 'ep2.mp4')); i++) await sleep(200)
+    ok(!existsSync(join(fixtures, 'ep2.mp4')), 'and a film that was playing is really in the bin')
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      'with no "could not be moved" complaint'
+    )
   } finally {
     await app.close()
   }

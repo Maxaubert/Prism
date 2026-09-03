@@ -2157,10 +2157,43 @@ export default function App(): JSX.Element {
     [file, noteUndo, reopen, rekeyBuffer]
   )
 
+  /**
+   * LET GO OF A FILE BEFORE IT GOES (2026-09-03, owner: "still getting the
+   * block when trying to delete a movie I'm watching"). A film that is
+   * playing - in this tab or any other, since the deck keeps their players
+   * mounted - holds an open handle through the media stream, and the
+   * Recycle Bin refuses a file with a handle open. So every tab showing the
+   * file steps off it FIRST, which unmounts its element, and the bin is
+   * asked after a beat and with retries, because Chromium closes the stream
+   * on its own clock rather than on ours. Returns whether anything had it.
+   */
+  const releaseFiles = useCallback((paths: string[]): boolean => {
+    let held = false
+    setTabState((s) => {
+      const tabs = s.tabs.map((t) => {
+        const cur = t.index >= 0 ? t.files[t.index]?.path : undefined
+        if (!cur || !paths.some((p) => within(cur, p))) return t
+        held = true
+        return { ...t, index: -1 }
+      })
+      return held ? { ...s, tabs } : s
+    })
+    return held
+  }, [])
+  const trashWithRetry = useCallback(async (path: string, held: boolean): Promise<boolean> => {
+    if (held) await new Promise((r) => setTimeout(r, 350))
+    for (let i = 0; i < 4; i += 1) {
+      if (await window.prism.trashFile(path)) return true
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    return false
+  }, [])
+
   const runDelete = useCallback(
     async (path: string): Promise<void> => {
       setAsk(null)
-      const ok = await window.prism.trashFile(path)
+      const held = releaseFiles([path])
+      const ok = await trashWithRetry(path, held)
       if (!ok) {
         setAsk({ kind: 'failed', message: 'That could not be moved to the Recycle Bin.' })
         return
@@ -2180,16 +2213,17 @@ export default function App(): JSX.Element {
       if (next) reopen(next.path)
       else showNothing()
     },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
   )
   /** The multi-selection's delete (2026-08-22): every path to the bin, one
    *  refresh, and the viewer steps off anything that just vanished. */
   const runDeleteMany = useCallback(
     async (paths: string[]): Promise<void> => {
       setAsk(null)
+      const held = releaseFiles(paths)
       const binned: string[] = []
       for (const p of paths) {
-        if (await window.prism.trashFile(p)) binned.push(p)
+        if (await trashWithRetry(p, held && binned.length === 0)) binned.push(p)
       }
       const failed = paths.length - binned.length
       setRefreshKey((n) => n + 1)
@@ -2212,7 +2246,7 @@ export default function App(): JSX.Element {
           message: `${failed} of ${paths.length} could not be moved to the Recycle Bin.`
         })
     },
-    [dropBuffers, file, noteUndo, reopen, showNothing, view]
+    [dropBuffers, file, noteUndo, reopen, showNothing, view, releaseFiles, trashWithRetry]
   )
 
   /** A drop landed on a folder (#70): files move in, archive members extract
