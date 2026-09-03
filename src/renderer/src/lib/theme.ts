@@ -369,6 +369,20 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
+/** The tab strip's ground for an active tab of `flat`: 30% towards black,
+ *  which is the natural well for a strip, unless that step is too small to
+ *  see - a black tab bar has nowhere darker to go - in which case it lifts
+ *  8% towards white instead. The floor is a contrast RATIO, not a colour
+ *  test, because ratios near black are compressed: #1a1d21's dark step
+ *  measures 1.09:1 and is plainly visible, while a better-of-two rule would
+ *  have picked the lift there and put a light strip under a dark tab. Pure,
+ *  exported for the test. */
+export function tabStripOf(flat: string): string {
+  const dark = mix(flat, '#000000', 0.3)
+  const light = mix(flat, '#ffffff', 0.08)
+  return contrast(dark, flat) >= 1.05 ? dark : light
+}
+
 /**
  * Ink or paper on `bg`. White is the default and only loses when black is
  * clearly better: on mid-tones the two land within a few percent of each other,
@@ -563,16 +577,20 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     side = ownSide ?? bg
     title = ownTitle ?? bg
   }
-  // THE TAB BAR follows the title bar unless it has a colour of its own, and
-  // THE ACTIVE TAB is a step off the tab bar - towards the ink - whatever
-  // the tab bar is (owner, 2026-09-03). It used to wear the SIDEBAR's colour
-  // so the two read as one surface, which made a sidebar colour repaint the
-  // active tab: a black tab bar keeps a near-black active tab now.
+  // THE ACTIVE TAB WEARS THE SECONDARY COLOUR (owner, 2026-09-03): it is
+  // one surface with the sidebar and the title bar it sits between, so the
+  // three read as one frame around the viewer. THE STRIP's ground is what
+  // steps off it now - the inverse of the first cut, where the strip was the
+  // panel and the tab stepped up. The step is the better of two, measured
+  // rather than fixed: 30% towards black is the natural well for a strip,
+  // but on a black tab bar that is nothing, so a small lift towards white
+  // is the fallback when it separates better. A tab-bar colour of its own
+  // still moves both, and both carry the material's alpha.
   const flatTitle = ownTitle ?? (style.material === 'tinted' ? mix(style.bg, accent, 0.07) : style.bg)
   const flatTabs = ownTabs ?? flatTitle
-  const tabs = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
-  const activeFlat = mix(flatTabs, style.text, style.mode === 'light' ? 0.06 : 0.08)
-  const tabActive = glass < 1 ? rgba(activeFlat, glass) : activeFlat
+  const stripFlat = tabStripOf(flatTabs)
+  const tabs = glass < 1 ? rgba(stripFlat, glass) : stripFlat
+  const tabActive = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
   const divider =

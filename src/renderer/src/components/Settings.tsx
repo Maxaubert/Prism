@@ -809,7 +809,7 @@ function StyleTab(): JSX.Element {
               they moved as three wells for an afternoon and are one again.
               The model still keeps them apart; the well writes all three.
               Unset, each keeps deriving from Background exactly as before. */}
-          <Pref id="c-chrome" label="Secondary colour" hint="The sidebar, the title bar and the tab bar, together.">
+          <Pref id="c-chrome" label="Secondary colour" hint="The sidebar, the title bar and the tab you are on, together.">
             <ColourWell
               id="c-chrome"
               value={sideOf(style)}
