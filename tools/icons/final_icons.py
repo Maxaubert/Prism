@@ -286,6 +286,43 @@ def _archive(kind, size, text=None):
     return out
 
 
+def _disc(kind, size, text=None):
+    """THE DISC, for .iso alone (owner, 2026-09-03, round 33): a container's
+    colour on a disc's shape. One silhouette in the archive's blue, the hole
+    knocked out to transparent, the same black foot band as the rest of the
+    set clipped to the circle, the extension in white on it. Nothing else on
+    the disc - at 16px every extra mark costs a pixel the hole needs, which is
+    what the round's ring and sheen candidates lost to.
+    """
+    ext, colour = COLOURS["archive"]
+    ext = ext.upper() if text is None else text.upper()
+    n = size * S
+    u = n / 16.0
+    d0, d1 = 0.5 * u, 15.5 * u
+    body = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(body).ellipse([d0, d0, d1, d1], fill=255)
+    out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    out.paste(Image.new("RGBA", (n, n), tuple(colour) + (255,)), (0, 0), body)
+    # the hole, to the ground
+    hole = Image.new("L", (n, n), 0)
+    c, r = 8.0 * u, 2.1 * u
+    ImageDraw.Draw(hole).ellipse([c - r, c - r, c + r, c + r], fill=255)
+    out.paste(Image.new("RGBA", (n, n), (0, 0, 0, 0)), (0, 0), hole)
+    # the foot band, clipped to the disc, label knocked through in white
+    band_h = BAND[3] - BAND[1]
+    chip = (0.5 + 1.2, 15.5 - band_h, 15.5 - 1.2, 15.5)
+    band = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(band).rectangle([0, (15.5 - band_h) * u, n, 15.5 * u], fill=255)
+    band = Image.composite(band, Image.new("L", (n, n), 0), body)
+    out.paste(Image.new("RGBA", (n, n), INK_A), (0, 0), band)
+    (tx, ty), f = _label_at(n, ext, chip)
+    lab = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(lab).text((tx, ty), ext, font=f, fill=255, anchor="mm")
+    out.paste(Image.new("RGBA", (n, n), (255, 255, 255, 255)), (0, 0),
+              Image.composite(lab, Image.new("L", (n, n), 0), band))
+    return out.resize((size, size), Image.LANCZOS)
+
+
 def _comic(kind, size, text=None):
     """Pop-art sunburst ground, BAM lettered into a splat, baked at 4x.
 
@@ -396,6 +433,11 @@ def icon_for_ext(ext, size):
     of the 160 extensions the code kind covers.
     """
     kind = EXT_KIND[ext]
+    # THE DISC (owner, 2026-09-03): the one extension whose SHAPE is not its
+    # kind's, in Explorer as in the tree. The legacy Prism.Archive class keeps
+    # the container, since it stands for every archive at once.
+    if ext == "iso":
+        return _disc(kind, size, text=ext)
     if kind == "code":
         # THE SAME CONSTRUCTION AS EVERY OTHER KIND (2026-09-01). This branch
         # carried its own copy of the dark-page treatment - band and fold in

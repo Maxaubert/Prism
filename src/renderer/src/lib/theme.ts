@@ -43,6 +43,14 @@ export interface Style {
    *  rule below derives the panel from bg. Set, the user chose the panel's
    *  colour and variablesFor honours it. */
   sideOwn?: boolean
+  /** The title bar wears its OWN colour (owner, 2026-09-03), same rule as
+   *  `sideOwn`: unset, `title` is schematic-only and the bar derives from bg. */
+  titleOwn?: boolean
+  /** The tab bar's own colour, when chosen; unset it follows the title bar.
+   *  The ACTIVE tab is always a step off whatever the tab bar is - never the
+   *  sidebar's colour, which it used to borrow (owner, same day). */
+  tabs?: string
+  tabsOwn?: boolean
   title: string
   text: string
   iconMode: IconMode
@@ -361,6 +369,7 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
+
 /**
  * Ink or paper on `bg`. White is the default and only loses when black is
  * clearly better: on mid-tones the two land within a few percent of each other,
@@ -532,27 +541,39 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   // material's own alpha so glass stays one sheet; everything else still
   // derives from bg.
   const ownSide = style.sideOwn ? style.side : null
+  const ownTitle = style.titleOwn ? style.title : null
+  const ownTabs = style.tabsOwn && style.tabs ? style.tabs : null
   let bg = style.bg
   let side = ownSide ?? style.bg
-  let title = style.bg
+  let title = ownTitle ?? style.bg
   const translucent = style.material === 'acrylic' || style.material === 'mica'
+  const glass = translucent && !opaque ? paintedAlpha(style) : 1
   if (translucent && !opaque) {
     // Windows composites the material behind the window; the surfaces sit on
     // top of it, so they have to let it through - all at the same alpha, or
     // they read as panes butted together rather than one sheet.
-    const glass = paintedAlpha(style)
     bg = rgba(style.bg, glass)
     side = ownSide ? rgba(ownSide, glass) : bg
-    title = bg
+    title = ownTitle ? rgba(ownTitle, glass) : bg
   } else if (style.material === 'gradient') {
     const grad = `linear-gradient(180deg, ${lighten(style.bg, 0.06)}, ${style.bg})`
     side = ownSide ?? grad
-    title = grad
+    title = ownTitle ?? grad
   } else if (style.material === 'tinted') {
     bg = mix(style.bg, accent, 0.07)
     side = ownSide ?? bg
-    title = bg
+    title = ownTitle ?? bg
   }
+  // THE TAB BAR IS THE SECONDARY COLOUR, ALL OF IT (owner, 2026-09-03): the
+  // strip, the tabs at rest and the tab you are on are one surface with the
+  // sidebar and the title bar, so a black secondary is a black bar from end
+  // to end. Two earlier cuts stepped something off something - the active
+  // tab off the strip, then the strip off the active tab - and both were
+  // sent back. The active tab is told by its ink (text against dim), not by
+  // a fill. A tab-bar colour of its own still moves the bar; both tokens
+  // carry the material's alpha.
+  const tabs = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
+  const tabActive = tabs
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
   const divider =
@@ -611,6 +632,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // it, and neither wants an rgba.
     '--p-side-flat': flatSide,
     '--p-title': title,
+    '--p-tabs': tabs,
+    '--p-tab-active': tabActive,
     '--p-icon': icon,
     // The tree's icon colours, both user-pickable. The folder default is the
     // family indigo (kind styles) or the style's own icon tone; the file token
@@ -663,6 +686,18 @@ export const sideOf = (s: Style): string =>
 // The tree's inks measure against the SIDEBAR's own ground, not bg: they live
 // on the panel, and the panel can wear its own colour now (sideOwn). For every
 // style without one, sideOf is bg and nothing changes.
+/** The title bar's effective flat colour, for its Settings well. */
+export const titleOf = (s: Style): string =>
+  s.titleOwn
+    ? s.title
+    : s.material === 'tinted'
+      ? mix(s.bg, paletteOf(s.accent)[0], 0.07)
+      : s.bg
+
+/** The tab bar's effective flat colour, for its Settings well: its own pick,
+ *  else the title bar's. */
+export const tabsOf = (s: Style): string => (s.tabsOwn && s.tabs ? s.tabs : titleOf(s))
+
 export const folderIconOf = (s: Style): string => {
   if (s.folderIcon) return s.folderIcon
   const ground = sideOf(s)
@@ -756,6 +791,10 @@ export interface Overrides {
   bg?: string
   /** The sidebar's own colour; unset, the panel derives from bg. */
   side?: string
+  /** The title bar's own colour; unset, it derives from bg. */
+  title?: string
+  /** The tab bar's own colour; unset, it follows the title bar. */
+  tabs?: string
   text?: string
   /** How much frost, 0 (opaque) to 100 (glassiest). */
   acrylic?: number
@@ -827,6 +866,8 @@ export const isEdited = (): boolean =>
     draft.accent ||
     draft.bg ||
     draft.side ||
+    draft.title ||
+    draft.tabs ||
     draft.text ||
     draft.font ||
     draft.borders ||
@@ -844,6 +885,10 @@ function edited(s: Style): Style {
     bg: draft.bg ?? s.bg,
     side: draft.side ?? s.side,
     sideOwn: draft.side ? true : s.sideOwn,
+    title: draft.title ?? s.title,
+    titleOwn: draft.title ? true : s.titleOwn,
+    tabs: draft.tabs ?? s.tabs,
+    tabsOwn: draft.tabs ? true : s.tabsOwn,
     text: draft.text ?? s.text,
     font: draft.font ?? s.font,
     borders: draft.borders ?? s.borders,
@@ -927,12 +972,60 @@ export function setStyle(id: string): void {
   apply()
 }
 
+/**
+ * THE PANELS ARE ONE PICK (owner, 2026-09-03): the sidebar, the title bar
+ * and the tab bar move together, because changing one of them means you
+ * should probably adjust the others as well. The model keeps them apart -
+ * a saved style may still carry three different colours - but the well
+ * writes and clears all three at once. Pure, so it is testable.
+ */
+export function withChrome(o: Overrides, value: string | null): Overrides {
+  const next: Overrides = { ...o }
+  if (value) {
+    next.side = value
+    next.title = value
+    next.tabs = value
+  } else {
+    delete next.side
+    delete next.title
+    delete next.tabs
+  }
+  return next
+}
+
+/**
+ * A COLOUR PUT BACK IS NOT AN EDIT (owner, 2026-09-03): picking your way back
+ * to the very colour the style had left an override equal to the base and
+ * a reset button offering to change nothing. The well only knows it was
+ * written, so the test lives where the write happens. The chrome pick is
+ * "back" only when all three panels agree with the style, since a saved
+ * style may keep them apart. Pure, so it is testable.
+ */
+export function isStylesOwn(base: Style, role: string, value: string): boolean {
+  const same = (a: string | undefined): boolean => !!a && a.toLowerCase() === value.toLowerCase()
+  switch (role) {
+    case 'chrome':
+      return same(sideOf(base)) && same(titleOf(base)) && same(tabsOf(base))
+    case 'side':
+      return same(sideOf(base))
+    case 'title':
+      return same(titleOf(base))
+    case 'tabs':
+      return same(tabsOf(base))
+    default:
+      return same((base as unknown as Record<string, string | undefined>)[role])
+  }
+}
+
 /** Change one colour role of what is on screen, or clear it with null. */
 export function setOverride(
   role:
     | 'accent'
     | 'bg'
     | 'side'
+    | 'title'
+    | 'tabs'
+    | 'chrome'
     | 'text'
     | 'font'
     | 'borders'
@@ -941,8 +1034,10 @@ export function setOverride(
     | 'iconScheme',
   value: string | null
 ): void {
-  const next: Overrides = { ...draft }
-  if (value)
+  let next: Overrides = { ...draft }
+  if (value && isStylesOwn(byId(current), role, value)) value = null
+  if (role === 'chrome') next = withChrome(next, value)
+  else if (value)
     next[role] = value as FontId & Style['borders'] & Style['corners'] & IconScheme & string
   else delete next[role]
   draft = next

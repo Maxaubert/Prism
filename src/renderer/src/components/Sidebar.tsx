@@ -17,6 +17,10 @@ import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
 import { Dialog } from './Dialog'
+import { JobChip } from './JobChip'
+import { endJob, startJob, updateJob } from '../lib/jobs'
+import { intendToPlay } from '../lib/playState'
+import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
 import { Rows } from './TreeRows'
 import { SearchResults } from './SearchResults'
@@ -123,7 +127,6 @@ interface ArcJob {
   path: string
   name: string
   pct: number | null
-  dest?: string
   error?: string
 }
 
@@ -178,10 +181,14 @@ export function Sidebar({
   onUnpinSplit,
   pinnedPaths,
   onOpenNewTab,
-  onTermNewTab,
   onTermHere,
   onTermSplit,
-  onClearTerm,
+  onCloseTerm,
+  terms,
+  onPickTerm,
+  onNewTerm,
+  onCloseTermId,
+  onSplitTermId,
   state,
   onTree
 }: {
@@ -226,13 +233,20 @@ export function Sidebar({
   /** A fresh tab rooted at the file's folder. */
   onOpenNewTab: (path: string) => void
   /** The terminal button menu's "Open in new tab". */
-  onTermNewTab: () => void
   /** A folder row's "Open terminal here": a shell spawned in that folder. */
   onTermHere: (folder: string) => void
   /** The terminal button's own right-click menu. */
   onTermSplit: () => void
+  /** The tab's shells (2026-09-03): the button's menu lists them when there
+   *  are several - pick one, split one, close one. */
+  terms: Array<{ id: string; label: string; current: boolean; shown: boolean }>
+  onPickTerm: (id: string) => void
+  onNewTerm: () => void
+  onCloseTermId: (id: string) => void
+  onSplitTermId: (id: string) => void
   /** Null while no shell exists: there is nothing to clear yet. */
-  onClearTerm: (() => void) | null
+  /** Kill the shell for good; null when there is none. */
+  onCloseTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -303,22 +317,36 @@ export function Sidebar({
    *  right-click that missed every row here simply read as a miss. */
   const [placeMenu, setPlaceMenu] = useState<{ x: number; y: number } | null>(null)
   const [pasteNote, setPasteNote] = useState<string | null>(null)
-  /** A folder something was just dropped INTO. State and not a ref, because
-   *  the reset below reads it while RENDERING, which a ref may not be. */
-  const [droppedOn, setDroppedOn] = useState<string | null>(null)
+  // Which row the arrows are on. Normally that is the open file, but it parts
+  // company with it the moment the cursor steps onto a folder: a folder isn't
+  // something to view, so landing there must not disturb what's on screen.
+  // Declared up here because the droppedOn reset below steers it during render.
+  const [cursor, setCursor] = useState<string | null>(null)
+  /** What a drop or a paste just LANDED (2026-09-03, owner - Explorer's way:
+   *  the arrived files become the selection, narrowing the 2026-08-31
+   *  folder-mark rule). State and not a ref, because the reset below reads it
+   *  while RENDERING, which a ref may not be. */
+  const [droppedOn, setDroppedOn] = useState<string[] | null>(null)
   // A new place - or anything that rewrote the folder (a delete, a rename, a
   // move) - starts clean: the old paths may not exist any more, and acting on
   // them later took files the user could no longer see.
   const [selFor, setSelFor] = useState(`${root}\u0000${refreshKey}`)
   if (selFor !== `${root}\u0000${refreshKey}`) {
     setSelFor(`${root}\u0000${refreshKey}`)
-    // The one exception is the folder a drop just landed in: it still
-    // exists, it is what you are now looking at, and the refresh being
-    // cleared up after is the move's own.
-    setSel(droppedOn ? { anchor: droppedOn, items: new Set([droppedOn]) } : emptySelection)
-    // Consumed once: left set it would restore that folder's mark on the NEXT
+    // The one exception is what a drop or a paste just landed: it exists, it
+    // is what you are now looking at, and the refresh being cleared up after
+    // is the write's own.
+    setSel(
+      droppedOn?.length
+        ? { anchor: droppedOn[0], items: new Set(droppedOn) }
+        : emptySelection
+    )
+    // Consumed once: left set it would restore those marks on the NEXT
     // refresh too, after a rename or a delete with nothing to do with it.
-    if (droppedOn) setDroppedOn(null)
+    if (droppedOn) {
+      if (droppedOn.length) setCursor(droppedOn[0])
+      setDroppedOn(null)
+    }
   }
   // What a drag carries when the dragged row is part of a selection.
   // Mirrored via effect (refs must not be written during render).
@@ -630,10 +658,7 @@ export function Sidebar({
 
   /* ---------- the keyboard cursor ---------- */
 
-  // Which row the arrows are on. Normally that is the open file, but it parts
-  // company with it the moment the cursor steps onto a folder: a folder isn't
-  // something to view, so landing there must not disturb what's on screen.
-  const [cursor, setCursor] = useState<string | null>(null)
+  // (declared earlier, above the droppedOn reset that steers it)
   const at = cursor ?? currentPath
 
   // Reset to the open file whenever the viewer moves on its own (a click, a
@@ -700,8 +725,18 @@ export function Sidebar({
       // Shift and ctrl select WITHOUT opening or expanding either way - that
       // is what makes select-then-right-click and multi-select work.
       if (!e.shiftKey && !e.ctrlKey) {
-        if (!isFolder) onOpenFile(path)
-        else if (wasOnlySelection) toggle(path)
+        if (!isFolder) {
+          // A CLICK on a film or a track PLAYS it (owner, 2026-09-03). This
+          // narrows the 2026-08-28 rule rather than reversing it: nothing
+          // autoplays on launch, on a restore, or on a file Windows hands
+          // over - those arrive without a click. The click is the intent, and
+          // it is recorded the way the playlist records its own, so the
+          // player that mounts for it starts rather than waits.
+          const kind = fileKind(extOf(path))
+          // Keyed by the media URL, which is what the players ask wasPlaying for.
+          if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(path))
+          onOpenFile(path)
+        } else if (wasOnlySelection) toggle(path)
       }
     },
     [order, toggle, onOpenFile, sel]
@@ -727,6 +762,122 @@ export function Sidebar({
     e.dataTransfer.setData(DRAG_MIME, 'files')
     e.dataTransfer.effectAllowed = 'move'
   }, [])
+  /** CUT is a mark, not a different clipboard (2026-09-03): the paths go on
+   *  the clipboard exactly as Copy puts them, and the mark makes the NEXT
+   *  paste a move - checked in main against what the clipboard then holds, so
+   *  a copy taken elsewhere in between quietly downgrades it to a copy.
+   *  Explorer interop is one-way: files cut here paste as copies there. */
+  const cutRef = useRef<string[]>([])
+  const [cutSet, setCutSet] = useState<ReadonlySet<string>>(new Set())
+  const copyMark = useCallback((paths: string[], cut: boolean): void => {
+    if (!paths.length) return
+    void window.prism.copyFilesToClipboard(paths)
+    cutRef.current = cut ? paths : []
+    setCutSet(cut ? new Set(paths.map((q) => q.toLowerCase())) : new Set())
+  }, [])
+
+  // Byte progress lands on the job it was tagged with: several pastes can
+  // run at once, and the chip shows the oldest with a count of the rest.
+  useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
+
+  const runPaste = useCallback(
+    (dest: string): void => {
+      const cutPaths = cutRef.current
+      const job = startJob('paste', cutPaths.length ? 'Moving' : 'Copying')
+      void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined, job).then((r) => {
+        endJob(job)
+        if (r.empty) return setPasteNote('There are no files on the clipboard.')
+        if (r.refused) return setPasteNote('That folder is outside this tab.')
+        if (!r.pasted) return setPasteNote('Nothing could be pasted here.')
+        if (r.failed) setPasteNote('Pasted ' + r.pasted + ', but ' + r.failed + ' could not be copied.')
+        if (r.moved) {
+          cutRef.current = []
+          setCutSet(new Set())
+        }
+        // The pasted files become the selection, Explorer's way - now, and
+        // again after the watcher's refresh clears every mark (droppedOn).
+        if (r.paths.length) {
+          setDroppedOn(r.paths)
+          setSel({ anchor: r.paths[0], items: new Set(r.paths) })
+          setCursor(r.paths[0])
+          requestAnimationFrame(() =>
+            scroller.current
+              ?.querySelector('[data-row="' + CSS.escape(r.paths[0]) + '"]')
+              ?.scrollIntoView({ block: 'nearest' })
+          )
+          // And it OPENS (owner, 2026-09-03): highlighted but still showing
+          // the old film read as the paste having gone somewhere else. A
+          // pasted folder is not a thing to view, so files only.
+          const first = r.paths[0]
+          void window.prism.statFile(first).then((st) => {
+            if (st && !st.isFolder) onOpenFile(first)
+          })
+        }
+        void load(dest, true)
+      })
+    },
+    [load, onOpenFile]
+  )
+
+  /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
+   *  surface guard as Ctrl+A: the last press was in the panel, and nothing
+   *  else - search box, rename field, editor, terminal - holds the keyboard,
+   *  so every one of those keeps its own clipboard untouched. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.altKey || e.metaKey) return
+      const a = document.activeElement as HTMLElement | null
+      // The typing guard: anything that owns its own keys keeps them - the
+      // search box, a rename field, the editor, the shell, a dialog. A FOCUSED
+      // VIDEO is not typing (2026-09-03, owner): clicking a film hands the
+      // element the keyboard, and Delete then reached nothing at all.
+      const typing =
+        !!a &&
+        a !== document.body &&
+        a.dataset.row === undefined &&
+        (a.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])') ||
+          !!a.closest('.cm-editor,.xterm,[role="dialog"],[role="menu"]'))
+      if (e.key === 'Delete' && !e.ctrlKey && !e.shiftKey) {
+        // Delete on the cursor row from anywhere in the panel's reach. The
+        // row button handles its own when it is focused; this is for when
+        // the viewer took the focus with it.
+        if (!hasFocus.current || typing || a?.dataset.row !== undefined) return
+        const cur = at
+        if (!cur) return
+        e.preventDefault()
+        const items = selRef.current.items
+        if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
+        const el = scroller.current?.querySelector<HTMLElement>('[data-row="' + CSS.escape(cur) + '"]')
+        const isFolder = (el?.dataset.dropdir ?? '').toLowerCase() === cur.toLowerCase()
+        return onDelete(cur, cur.split(/[\\/]/).filter(Boolean).pop() ?? cur, isFolder)
+      }
+      if (!e.ctrlKey || e.shiftKey) return
+      const k = e.key.toLowerCase()
+      if (k !== 'c' && k !== 'x' && k !== 'v') return
+      if (!hasFocus.current || typing) return
+      if (k === 'v') {
+        e.preventDefault()
+        // EXPLORER'S RULE (owner, 2026-09-03): Ctrl+V pastes into the folder
+        // that CONTAINS the highlighted row, never into the highlighted
+        // folder itself - "Cloud" highlighted under Documents pastes into
+        // Documents; a file inside Cloud pastes into Cloud. The keyboard
+        // should not care what kind of row the cursor is on. The row MENU's
+        // Paste on a folder still means "into this folder": that verb is
+        // explicit. Clamped to the root, which is the floor of the tree.
+        const cur = at
+        const parent = cur ? parentDir(cur) : root
+        runPaste(parent.toLowerCase().startsWith(root.toLowerCase()) ? parent : root)
+        return
+      }
+      const targets = selRef.current.items.size ? [...selRef.current.items] : at ? [at] : []
+      if (!targets.length) return
+      e.preventDefault()
+      copyMark(targets, k === 'x')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany])
+
   /**
    * Extract a whole archive from its TREE ROW.
    *
@@ -738,14 +889,21 @@ export function Sidebar({
    */
   const extract = useCallback(
     (path: string, name: string, here: boolean): void => {
-      setArcJob({ path, name, pct: null })
+      // A job on the CHIP (2026-09-03, owner), not a popup: you can keep
+      // working, and a second archive queues behind the first. Progress
+      // arrives keyed by the archive's path and is routed to its job.
+      const job = startJob('extract', 'Extracting ' + name)
+      const off = window.prism.onArchiveProgress((m) => {
+        if (m.path.toLowerCase() === path.toLowerCase()) updateJob(job, m.pct)
+      })
       void window.prism.archiveExtractAll(path, here).then((r) => {
+        off()
+        endJob(job)
         if (r.ok) {
-          setArcJob({ path, name, pct: 100, dest: r.dest })
           // The extracted folder is a change Prism made, so the tree hears
           // about it from here rather than from the watcher.
           void load(parentDir(path), true)
-        } else if (r.reason === 'cancelled') setArcJob(null)
+        } else if (r.reason === 'cancelled') return
         else
           setArcJob({
             path,
@@ -771,53 +929,64 @@ export function Sidebar({
   const addToArchive = useCallback((path: string, name: string): void => {
     void window.prism.pickFiles().then((paths) => {
       if (!paths.length) return
-      setArcJob({ path, name, pct: null })
+      const job = startJob('add', 'Adding to ' + name)
       void window.prism.archiveAdd(path, paths, '', true).then((r) => {
+        endJob(job)
         if (r === 'encrypted')
           setArcJob({ path, name, pct: null, error: "Prism can't write to a protected archive." })
         else if (r === 'failed')
           setArcJob({ path, name, pct: null, error: "Those couldn't be added." })
-        else
+        else if (r.failed.length)
           setArcJob({
             path,
             name,
-            pct: 100,
-            dest: `${r.added.length} added${r.failed.length ? `, ${r.failed.length} failed` : ''}`
+            pct: null,
+            error: `${r.added.length} added, but ${r.failed.length} could not be.`
           })
       })
     })
   }, [])
 
-  // The percentage while an extraction runs. Subscribed only while a job is up,
-  // and filtered by path: main reports for every archive it is working on.
-  useEffect(() => {
-    if (!arcJob || arcJob.dest || arcJob.error) return
-    const off = window.prism.onArchiveProgress((m) => {
-      if (m.path.toLowerCase() === arcJob.path.toLowerCase())
-        setArcJob((j) => (j && j.path === arcJob.path && !j.dest && !j.error ? { ...j, pct: m.pct } : j))
-    })
-    return off
-  }, [arcJob])
+  /** The landing dir for a point in the panel: the row whose strip spans
+   *  that height (rows annotate their own with data-dropdir), else the root. */
+  const dropDirAt = (clientY: number): string => {
+    const rows = scroller.current?.querySelectorAll<HTMLElement>('[data-dropdir]')
+    if (rows)
+      for (const el of rows) {
+        const r = el.getBoundingClientRect()
+        if (clientY >= r.top && clientY < r.bottom) return el.dataset.dropdir ?? root
+      }
+    return root
+  }
 
   const onDropOn = useCallback(
     (e: DragEvent, folderPath: string): void => {
       setDropTarget(null)
       const payload = dragPayload(e.dataTransfer)
       setDrag(null)
-      // The folder you dropped ONTO becomes the marked row (2026-08-31). What
-      // you dragged has left - its row is about to disappear from where it was
-      // - so leaving the mark on it points at nothing, and clearing it points
-      // at nothing either. The destination is the thing you are now looking
-      // at, and it is where the arrows should carry on from.
-      setDroppedOn(folderPath)
-      setSel({ anchor: folderPath, items: new Set([folderPath]) })
-      setCursor(folderPath)
-      if (payload) onDropInto(folderPath, payload)
-      else {
+      // The DROPPED FILES become the marked rows (2026-09-03, owner -
+      // Explorer's way; it narrows the 2026-08-31 folder-mark rule). What you
+      // dragged has left where it was; where it ARRIVED is what you are now
+      // looking at. Best effort on the names: a keep-both rename lands under
+      // another name and simply goes unmarked.
+      const base = (q: string): string => q.split(/[\\/]/).filter(Boolean).pop() ?? q
+      const mark = (paths: string[]): void => {
+        const to = paths.length ? paths.map((q) => folderPath + '\\' + base(q)) : [folderPath]
+        setDroppedOn(to)
+        setSel({ anchor: to[0], items: new Set(to) })
+        setCursor(to[0])
+      }
+      if (payload) {
+        mark(payload.kind === 'files' ? payload.paths : [])
+        onDropInto(folderPath, payload)
+      } else {
         // Nothing of ours: Explorer, then. Its files are outside the root, so
         // main will refuse them - App says so rather than failing silently.
         const outside = droppedPaths(e.dataTransfer)
-        if (outside.length) onDropInto(folderPath, { kind: 'files', paths: outside })
+        if (outside.length) {
+          mark(outside)
+          onDropInto(folderPath, { kind: 'files', paths: outside })
+        }
       }
     },
     [onDropInto]
@@ -1047,24 +1216,26 @@ export function Sidebar({
             e.preventDefault()
             setPlaceMenu({ x: e.clientX, y: e.clientY })
           }}
-          // And a DROP that lands on no row is about the place too: it means
-          // the ROOT. Without this the drop fell through to the window, which
-          // opens whatever it is handed - so dropping a FOLDER on the tree's
-          // empty space re-rooted the tab onto that folder instead of moving
-          // it anywhere. Rows stop their own drops, so this only ever sees the
-          // dead space.
+          // A DROP that lands on no row is still ABOUT a row when there is
+          // one at that height (2026-09-03, owner): the scroller's left
+          // gutter sits outside the buttons, and a drop there used to mean
+          // the ROOT - an ISO dropped a few pixels left of a folder's rows
+          // landed a level up and was refused. The strip at that height is
+          // the target, Explorer's way; genuinely below every row still
+          // means the root. Rows stop their own drops, so this only ever
+          // sees the gutter and the space beneath.
           onDragOver={(e) => {
             if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
             e.preventDefault()
             e.dataTransfer.dropEffect = 'move'
-            setDropTarget(root)
+            setDropTarget(dropDirAt(e.clientY))
           }}
           onDragLeave={() => setDropTarget(null)}
           onDrop={(e) => {
             if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
             e.preventDefault()
             e.stopPropagation()
-            onDropOn(e, root)
+            onDropOn(e, dropDirAt(e.clientY))
           }}
         >
           {query.trim() ? (
@@ -1104,6 +1275,7 @@ export function Sidebar({
                 editing,
                 menuPath: menu?.path ?? null,
                 selected: sel.items,
+                cut: cutSet,
                 selJoin,
                 onRowDragStart,
                 dropTarget,
@@ -1145,6 +1317,9 @@ export function Sidebar({
             state reads through the GLYPH, not a border: outlined shut, filled
             open, the way the tab-strip accent belongs to the state it marks. */}
         <div className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-t border-[color:var(--p-line)] px-2">
+          {/* The job chip (2026-09-03): a paste or an extraction in flight,
+              beside the terminal button rather than over the window. */}
+          <JobChip />
           {/* Bare prompt, frameless (picked from the button lab, 2026-08-21):
               just the glyph. Hover brings the tree rows' grey tile; open tints
               the glyph accent and nothing else. */}
@@ -1213,26 +1388,65 @@ export function Sidebar({
           y={termMenu.y}
           onClose={() => setTermMenu(null)}
           items={[
+            // SEVERAL SHELLS (owner, 2026-09-03): with more than one, the
+            // menu lists them to pick from (the current one ticked; the
+            // button's left click always opens the most recent), and the
+            // verbs that need a target - split, close - become submenus so
+            // the menu itself stays short.
+            ...(terms.length > 1
+              ? terms.map((t) => ({
+                  label: t.label,
+                  icon: tickIf(t.current),
+                  onPick: () => onPickTerm(t.id)
+                }))
+              : []),
             {
-              label: 'Open in split view',
-              icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
-              onPick: onTermSplit
+              label: 'Open new terminal',
+              // A window with a prompt in it (owner, 2026-09-03: not the plus).
+              icon: <MenuIcon d="M4 5.5h16v13H4zM4 9h16M7.5 12l2.5 2-2.5 2M12 16h4" />,
+              onPick: onNewTerm
             },
-            {
-              label: 'Open in new tab',
-              icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
-              onPick: onTermNewTab
-            },
-            // Only once a shell exists: there is nothing to clear before that.
-            ...(onClearTerm
+            terms.length > 1
+              ? {
+                  label: 'Open in split view',
+                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  // A CHECKLIST (owner, 2026-09-03): a shell already on screen
+                  // is ticked, so it is plain which others to add; picking a
+                  // ticked one takes it out of the split again.
+                  children: terms.map((t) => ({
+                    label: t.label,
+                    icon: tickIf(t.shown),
+                    keepOpen: true, // tick several, or change your mind (owner)
+                    onPick: () => onSplitTermId(t.id)
+                  }))
+                }
+              : {
+                  label: 'Open in split view',
+                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  onPick: onTermSplit
+                },
+            // CLOSE means close (owner, 2026-09-03): the shell dies, and the
+            // next open is a fresh one in the tab's current folder. It took
+            // Clear's place and Clear's bin glyph (owner, same day) - a fresh
+            // shell IS a cleared one - and it is not red: closing a shell is
+            // routine, not destructive. "Open in new tab" went with it.
+            ...(terms.length > 1
               ? [
                   {
-                    label: 'Clear terminal',
+                    label: 'Close terminal',
                     icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
-                    onPick: onClearTerm
+                    children: terms.map((t) => ({ label: t.label, onPick: () => onCloseTermId(t.id) }))
                   }
                 ]
-              : [])
+              : onCloseTerm
+                ? [
+                    {
+                      label: 'Close terminal',
+                      icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
+                      onPick: onCloseTerm
+                    }
+                  ]
+                : [])
           ]}
         />
       )}
@@ -1245,18 +1459,9 @@ export function Sidebar({
           items={[
             {
               label: 'Paste',
+              hint: 'Ctrl+V',
               icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
-              onPick: () => {
-                void window.prism.pasteInto(root).then((r) => {
-                  // Said out loud rather than silently: a paste that finds an
-                  // empty clipboard looks exactly like one that failed.
-                  if (r.empty) setPasteNote('There are no files on the clipboard.')
-                  else if (r.refused) setPasteNote('That folder is outside this tab.')
-                  else if (!r.pasted) setPasteNote('Nothing could be pasted here.')
-                  else if (r.failed)
-                    setPasteNote(`Pasted ${r.pasted}, but ${r.failed} could not be copied.`)
-                })
-              }
+              onPick: () => runPaste(root)
             },
             {
               label: 'Open terminal here',
@@ -1280,40 +1485,13 @@ export function Sidebar({
       )}
 
       {arcJob && (
+        // Failures only (2026-09-03): the running job is on the chip, and a
+        // job that finishes simply leaves. A failure still has to speak.
         <Dialog
-          title={arcJob.error ? 'Extract' : arcJob.dest ? 'Done' : 'Extracting'}
-          body={
-            arcJob.error ??
-            (arcJob.dest ? (
-              <span className="break-all">{arcJob.dest}</span>
-            ) : (
-              // A number, because minutes of nothing is indistinguishable from
-              // a hang - and 7-Zip only reports a percentage on the archives
-              // big enough for it to matter.
-              `${arcJob.name}${arcJob.pct === null ? '' : ` - ${Math.round(arcJob.pct)}%`}`
-            ))
-          }
+          title="Extract"
+          body={arcJob.error ?? 'Something went wrong.'}
           onCancel={() => setArcJob(null)}
-          choices={[
-            ...(arcJob.dest && !arcJob.error
-              ? [
-                  {
-                    label: 'Show in File Explorer',
-                    onPick: () => {
-                      window.prism.showInExplorer(arcJob.dest as string)
-                      setArcJob(null)
-                    }
-                  }
-                ]
-              : []),
-            {
-              // Closing while it runs leaves it running: the work is main's, and
-              // nothing here can stop it half way.
-              label: arcJob.dest || arcJob.error ? 'Close' : 'Hide',
-              primary: true,
-              onPick: () => setArcJob(null)
-            }
-          ]}
+          choices={[{ label: 'Close', primary: true, onPick: () => setArcJob(null) }]}
         />
       )}
 
@@ -1326,6 +1504,8 @@ export function Sidebar({
         />
       )}
 
+
+
       {menu && menu.multi && (
         // A multi-selection's menu: the verbs that make sense N at a time.
         <ContextMenu
@@ -1334,9 +1514,18 @@ export function Sidebar({
           onClose={() => setMenu(null)}
           items={[
             {
+              label: `Cut ${menu.multi.length} files`,
+              hint: 'Ctrl+X',
+              icon: (
+                <MenuIcon d="M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0" />
+              ),
+              onPick: () => copyMark(menu.multi!, true)
+            },
+            {
               label: `Copy ${menu.multi.length} files`,
+              hint: 'Ctrl+C',
               icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
-              onPick: () => void window.prism.copyFilesToClipboard(menu.multi!)
+              onPick: () => copyMark(menu.multi!, false)
             },
             {
               label: 'Copy paths',
@@ -1433,6 +1622,20 @@ export function Sidebar({
                   }
                 ]
               : []),
+            {
+              label: 'Cut',
+              hint: 'Ctrl+X',
+              icon: (
+                <MenuIcon d="M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0" />
+              ),
+              onPick: () => copyMark([menu.path], true)
+            },
+            {
+              label: 'Copy',
+              hint: 'Ctrl+C',
+              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+              onPick: () => copyMark([menu.path], false)
+            },
             ...(menu.canPaste
               ? [
                   {
@@ -1449,19 +1652,9 @@ export function Sidebar({
                      * actually holds files.
                      */
                     label: 'Paste',
+                    hint: 'Ctrl+V',
                     icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
-                    onPick: () => {
-                      const dest = menu.isFolder ? menu.path : parentDir(menu.path)
-                      void window.prism.pasteInto(dest).then((r) => {
-                        if (r.empty) setPasteNote('There are no files on the clipboard.')
-                        else if (r.refused) setPasteNote('That folder is outside this tab.')
-                        else if (!r.pasted) setPasteNote('Nothing could be pasted here.')
-                        else if (r.failed)
-                          setPasteNote(`Pasted ${r.pasted}, but ${r.failed} could not be copied.`)
-                        // The tree hears about Prism's own writes from here.
-                        void load(dest, true)
-                      })
-                    }
+                    onPick: () => runPaste(menu.isFolder ? menu.path : parentDir(menu.path))
                   }
                 ]
               : []),
@@ -1513,11 +1706,6 @@ export function Sidebar({
                 <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
               ),
               onPick: () => void navigator.clipboard.writeText(menu.path)
-            },
-            {
-              label: 'Copy file',
-              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
-              onPick: () => void window.prism.copyFileToClipboard(menu.path)
             },
             ...(!menu.isFolder
               ? [

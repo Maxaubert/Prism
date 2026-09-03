@@ -14,6 +14,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import electronPath from 'electron'
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -528,17 +529,24 @@ async function pdfScenario(fixtures) {
     await win.click('button[title="Default zoom (0)"]')
     ok((await win.textContent('button[title="Default zoom (0)"]')) === '100%', 'clicking the label resets to 100%')
     await win.click('button[title="Fullscreen (F)"]')
-    await sleep(600)
-    ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
-      'clicking fullscreen goes fullscreen'
-    )
+    await sleep(900)
+    // BORDERLESS (2026-09-03): fullscreen is the window covering its display
+    // with its resize borders dropped, never the OS flag - see the sandwich
+    // scenario for the why. The main window is the one that is resizable
+    // in the ordinary state; the shroud is a second BrowserWindow.
+    const fsMeasure = () =>
+      app.evaluate(({ BrowserWindow, screen }) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.getTitle() !== '' || x.getBounds().width > 200) ?? BrowserWindow.getAllWindows()[0]
+        const b = w.getBounds()
+        const d = screen.getDisplayMatching(b).bounds
+        return { covers: b.width >= d.width && b.height >= d.height, rs: w.isResizable() }
+      })
+    const fsIn = await fsMeasure()
+    ok(fsIn.covers && !fsIn.rs, 'clicking fullscreen goes fullscreen')
     await win.keyboard.press('f')
-    await sleep(600)
-    ok(
-      !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen())),
-      'F leaves fullscreen again'
-    )
+    await sleep(900)
+    const fsOut = await fsMeasure()
+    ok(fsOut.rs, 'F leaves fullscreen again')
 
     // A PDF's Properties knows its pages.
     await win.click('[role="treeitem"][aria-selected="true"]', { button: 'right' })
@@ -690,7 +698,7 @@ async function contextMenuScenario(fixtures) {
     await row.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
 
-    for (const label of ['Open in', 'Show in File Explorer', 'Copy path', 'Copy file', 'Duplicate', 'Rename', 'Delete']) {
+    for (const label of ['Cut', 'Copy', 'Open in', 'Show in File Explorer', 'Copy path', 'Duplicate', 'Rename', 'Delete']) {
       ok((await win.locator(`[role="menuitem"]:has-text("${label}")`).count()) >= 1, `menu has ${label}`)
     }
 
@@ -800,6 +808,25 @@ async function contextMenuScenario(fixtures) {
         (await win.locator('[data-pane="pinned"]').count()) === 1,
       'the flyout pins the file beside the live pane'
     )
+    // THE PANE'S OWN MENU (owner, 2026-09-03): a right-click along the top
+    // band of a pinned pane offers where it sits, as a submenu, and the way
+    // out - without touching the file's own menu lower down.
+    await win.locator('[data-pane="pinned"]').click({ button: 'right', position: { x: 60, y: 10 } })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Split view position")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Remove from split view")').count()) === 1,
+      'the pane band offers Split view position and Remove from split view'
+    )
+    await win.hover('[role="menuitem"]:has-text("Split view position")')
+    await sleep(400)
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Bottom")').count()) === 1,
+      'and the position is a submenu, not four rows'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
     // Its menu now offers the way out.
     await notesRow.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
@@ -1243,6 +1270,40 @@ async function iconSchemeScenario(fixtures) {
     const other = await icon('read-only.7z')
     ok(other !== null && other.masked, 'a .7z is an archive too, so it is coloured')
 
+    // THE DISC (owner, 2026-09-03, round 33): a .iso is an archive by kind and
+    // keeps the container in Explorer, but the tree draws a DISC - a circle,
+    // which no other shape in the set is - in the archive's colour, with ISO
+    // on its band.
+    const disc = await icon('disc.iso')
+    ok(disc !== null && disc.masked, 'a .iso is coloured like the other archives')
+    ok(disc.page === '#8b8be2' && disc.label === 'ISO', `in the archive colour with ISO on the band (${disc?.page}, ${disc?.label})`)
+    const round = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
+      )
+      const d = row?.querySelector('svg[viewBox="0 0 24 24"] path')?.getAttribute('d') ?? ''
+      return /A[\d. ]+/.test(d)
+    })
+    ok(round, 'and its silhouette is a circle, not a page or a container')
+    // The coloured disc must be BLUE with a HOLE (owner, 2026-09-03: the first
+    // cut came out black): the bleed the band colour paints last is only the
+    // band's strip, never the whole box, and the body carries the hole as a
+    // second subpath so the mask has a hole in it.
+    const discLayers = await win.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+        (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
+      )
+      const svg = row?.querySelector('svg[viewBox="0 0 24 24"]')
+      const body = svg?.querySelector('mask path')?.getAttribute('d') ?? ''
+      const g = svg?.querySelector('g[mask]')
+      const last = g ? [...g.querySelectorAll('path')].pop() : null
+      const bleed = last?.getAttribute('d') ?? ''
+      const top = parseFloat(/M[-\d.]+ ([-\d.]+)/.exec(bleed)?.[1] ?? '0')
+      return { subpaths: (body.match(/M/g) ?? []).length, bleedTop: top }
+    })
+    ok(discLayers.subpaths === 2, `the disc body has a hole as its second subpath (${discLayers.subpaths})`)
+    ok(discLayers.bleedTop > 12, `and the band colour paints only the foot strip (from y=${discLayers.bleedTop})`)
+
     // THE SETTINGS SWITCH IS GONE.
     await win.click('[aria-label="Settings"]')
     await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
@@ -1353,11 +1414,11 @@ async function treeVerbsScenario(fixtures) {
     await rowFor('wrapped.zip').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     await win.locator('[role="menu"] >> text="Extract here"').click()
-    await win.waitForSelector('[role="dialog"]', { timeout: 8000 })
-    // The job reports, then finishes. "Done" is the finished title.
-    await win.waitForSelector('[role="dialog"] >> text="Done"', { timeout: 30000 })
-    ok(true, 'Extract here runs and reports when it is done')
-    await win.locator('[role="dialog"] button:has-text("Close")').click()
+    // No popup any more (owner, 2026-09-03): the job reports in the
+    // sidebar's chip, which shows while it runs and steps down when done.
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    ok(true, 'Extract here runs and reports in the chip')
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
     await sleep(600)
     // `Collection`, not `wrapped`: the ONE-FOLDER RULE hoists an archive whose
     // whole content is a single top-level folder rather than burying it under
@@ -1385,7 +1446,13 @@ async function treeVerbsScenario(fixtures) {
 /** Delete, then Delete again: the key must still reach the tree. */
 async function deleteAgainScenario(fixtures) {
   console.log('delete twice')
-  const { app, win } = await launch(join(fixtures, 'dragbox', 'anchor.txt'))
+  // Its OWN folder, removed afterwards: it used to launch on dragbox and
+  // bin whichever row came second, which was anchor.txt - the file the paste
+  // scenario later launches on. Fixtures are built once per run.
+  const dir = join(fixtures, 'deltwice')
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(dir, n), n)
+  const { app, win } = await launch(join(dir, 'a.txt'))
   const rows = () => win.locator('[role="treeitem"]').count()
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
@@ -1414,6 +1481,7 @@ async function deleteAgainScenario(fixtures) {
     await win.locator('[role="dialog"] button:has-text("Cancel")').click()
   } finally {
     await app.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 }
 
@@ -1656,7 +1724,7 @@ async function rowPasteScenario(fixtures) {
     // Copy file verb, which goes through the same CF_HDROP route.
     await rowFor('movable.txt').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    await win.locator('[role="menu"] >> text="Copy file"').click()
+    await win.locator('[role="menu"] >> text="Copy"').first().click()
     await sleep(1200)
 
     // NOW it appears, on a FILE row, and near the top.
@@ -1669,9 +1737,13 @@ async function rowPasteScenario(fixtures) {
         .map((e) => (e.textContent ?? '').trim())
         .filter(Boolean)
     )
+    // startsWith: the clipboard rows carry keybind hints in their text now
+    // (PasteCtrl+V), and Cut and Copy sit above Paste since 2026-09-03.
+    const pasteAt = order.findIndex((t) => t.startsWith('Paste'))
+    const cutAt = order.findIndex((t) => t.startsWith('Cut'))
     ok(
-      order.indexOf('Paste') >= 0 && order.indexOf('Paste') < 4,
-      `and near the top of the menu (position ${order.indexOf('Paste')} of ${order.length})`
+      pasteAt >= 0 && pasteAt < 7 && cutAt >= 0 && cutAt < pasteAt,
+      `and the Cut/Copy/Paste block sits near the top (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
     const before = await win.locator('[role="treeitem"]').count()
@@ -1679,6 +1751,69 @@ async function rowPasteScenario(fixtures) {
     await sleep(2500)
     const after = await win.locator('[role="treeitem"]').count()
     ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
+    // THE PASTED FILE IS THE MARKED ROW (2026-09-03, owner - Explorer's way).
+    await sleep(600)
+    const markedAfterPaste = await win.evaluate(() =>
+      [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|')
+    )
+    ok(/movable \(2\)/.test(markedAfterPaste), `and the pasted copy is what is marked (${markedAfterPaste})`)
+    // ...and it is the OPEN file too (owner, 2026-09-03): aria-selected is
+    // the tree's word for what the viewer is showing.
+    await sleep(600)
+    const openAfterPaste = await win.evaluate(
+      () => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? ''
+    )
+    ok(/movable \(2\)/.test(openAfterPaste), `and the pasted copy is what is OPEN (${openAfterPaste})`)
+
+    // CUT AND PASTE FROM THE KEYBOARD (2026-09-03, owner): Ctrl+X dims the
+    // row, Ctrl+V on a folder MOVES it there, and the mark clears.
+    await rowFor('anchor.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+x')
+    await sleep(300)
+    const dimmed = await win.evaluate(
+      () =>
+        [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+          (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
+        )?.style.opacity
+    )
+    ok(dimmed === '0.45', `Ctrl+X dims the cut row (opacity ${dimmed})`)
+    // EXPLORER'S RULE for Ctrl+V (owner, 2026-09-03): the target is the
+    // folder CONTAINING the highlighted row. First a file INSIDE `into`, so
+    // the cursor can stand there: the row menu's Paste on the folder row
+    // (explicit, so it means "into this folder") puts movable.txt in.
+    await rowFor('into').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    // the clipboard holds anchor.txt (cut) now; that is what lands in `into`
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
+    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'menu Paste on a folder row lands INSIDE it, and a cut moves')
+    ok(!existsSync(join(dir, 'anchor.txt')), 'so it left where it was')
+    await sleep(800)
+    // Now the keyboard: with the cursor on into/anchor.txt, Ctrl+C then
+    // Ctrl+V with the FOLDER `into` highlighted must paste into its PARENT
+    // (the root), not into `into`.
+    // `into` is usually open already - the moved file OPENED, and opening a
+    // file expands the folders above it - so expand only if it is shut, and
+    // by the CHEVRON, since a row click would select and a second toggle.
+    await win.evaluate(() => {
+      const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+        (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('\\into')
+      )
+      if (el?.getAttribute('aria-expanded') === 'false')
+        el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await win.waitForSelector('[role="treeitem"][data-row$="anchor.txt" i]', { timeout: 8000 })
+    await rowFor('anchor.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+c')
+    await sleep(400)
+    await rowFor('into').click() // first click on a folder row only highlights it
+    await sleep(300)
+    await win.keyboard.press('Control+v')
+    for (let i = 0; i < 40 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
+    ok(existsSync(join(dir, 'anchor.txt')), 'Ctrl+V with a folder highlighted pastes into its PARENT')
+    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'and a copy leaves the original where it was')
   } finally {
     await app.close()
   }
@@ -1798,15 +1933,16 @@ async function extractScenario(fixtures) {
       (await win.locator('button:has-text("Extract to")').count()) === 1,
       'and Extract to... beside it'
     )
-    // The progress track is ALWAYS in the layout, so nothing moves when an
-    // extraction starts or ends. Measured, because "it looks fine" is exactly
-    // how the jump got shipped.
+    // The inline track is GONE (2026-09-03, owner): extraction progress is
+    // the same self-dismissing popup the sidebar's verb shows, so the layout
+    // has nothing to move. Still measured, because "it looks fine" is
+    // exactly how the jump got shipped the first time.
     const listTop = async () =>
       win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
     const beforeTop = await listTop()
     ok(
-      (await win.locator('[role="progressbar"]').count()) === 1,
-      'the progress track is present before anything runs'
+      (await win.locator('[role="progressbar"]').count()) === 0,
+      'no inline progress track: the popup is the one look'
     )
     // The first row starts ON the header's hairline: no gutter above it.
     const gap = await win.evaluate(() => {
@@ -3125,21 +3261,29 @@ async function terminalScenario(fixtures) {
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
     await win.locator('.xterm').click()
 
-    // The terminal button's own menu: split, and clear.
+    // The terminal button's own menu: split, and CLOSE (owner, 2026-09-03 -
+    // Close took Clear's place and its glyph; a fresh shell is a cleared one;
+    // "Open in new tab" went with it).
     await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
       (await win.locator('[role="menuitem"]:has-text("Open in split view")').count()) === 1 &&
-        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 1,
-      'right-clicking the terminal button offers split and clear'
+        (await win.locator('[role="menuitem"]:has-text("Close terminal")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Clear terminal")').count()) === 0 &&
+        (await win.locator('[role="menuitem"]:has-text("Open in new tab")').count()) === 0,
+      'right-clicking the terminal button offers split and close, and nothing retired'
     )
-    await win.locator('[role="menuitem"]:has-text("Clear terminal")').click()
-    await sleep(500)
-    ok((await countMarker()) === 0, 'Clear terminal wipes screen and scrollback')
-    ok(
-      ((await win.locator('.xterm').textContent()) ?? '').includes('PS '),
-      'but the prompt (same shell, same cwd) is still there'
+    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
+    for (let i = 0; i < 30 && (await win.locator('.xterm').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('.xterm').count()) === 0, 'Close terminal from the button takes the shell away')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(
+      () => (document.querySelector('.xterm')?.textContent ?? '').includes('PS '),
+      null,
+      { timeout: 15000 }
     )
+    ok((await countMarker()) === 0, 'and the next open is a fresh shell: no old scrollback')
     await win.locator('.xterm').click()
 
     // The activity indicator: streaming output lights the tab's dot, quiet
@@ -3390,6 +3534,57 @@ async function terminalScenario(fixtures) {
     await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
     ok(true, 'exit closes the panel')
     ok(!win.isClosed(), 'window survives the shell')
+
+    // CLOSE TERMINAL MEANS CLOSE (owner, 2026-09-03): the shell dies, and the
+    // next Ctrl+` is a fresh one. Hiding (the X, Ctrl+`) still keeps it.
+    // The step above ended with `exit`, so open one to close.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await win.locator('.xterm').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
+    for (let i = 0; i < 30 && (await win.locator('.xterm').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('.xterm').count()) === 0, 'Close terminal takes the shell away')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(true, 'and the next Ctrl+` opens a fresh one')
+
+    // SEVERAL TERMINALS (owner, 2026-09-03): a second shell, the list to pick
+    // from, one pinned as a pane beside the other, and a close submenu.
+    const termBtn = () => win.locator('aside [aria-label="Terminal"]')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open new terminal")').click()
+    await sleep(1500)
+    ok((await win.locator('.xterm').count()) === 1, 'a new terminal takes the full view alone')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Terminal 1")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 1,
+      'the menu lists both terminals'
+    )
+    await win.hover('[role="menuitem"]:has-text("Open in split view")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    await sleep(1800)
+    ok(
+      (await win.locator('[data-pane="pinned"] .xterm').count()) === 1 &&
+        (await win.locator('.xterm').count()) === 2,
+      'the other terminal is pinned as a pane beside the current one'
+    )
+    // ...and TERMINALS ONLY (owner, 2026-09-03): a split built from a full
+    // terminal draws no file pane - the old split does not come back.
+    ok((await win.locator('[data-pane="live"]').count()) === 0, 'with no file pane drawn beside them')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.hover('[role="menuitem"]:has-text("Close terminal")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    for (let i = 0; i < 30 && (await win.locator('[data-pane="pinned"]').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'closing the pinned shell removes its pane')
+    ok((await win.locator('.xterm').count()) === 1, 'and the other one carries on')
   } finally {
     await app.close()
   }
@@ -3563,8 +3758,55 @@ async function pauseScenario(fixtures) {
       'the video is fetched CORS-clean, so a boost over 100% is loud and not silent'
     )
     ok((await win.locator('video').count()) === 1, 'and one player, never two')
+
+    // A CLICK on a film PLAYS it (owner, 2026-09-03), which narrows the
+    // 2026-08-28 rule rather than reversing it: a launch, a restore and a
+    // file Windows hands over still arrive paused. The click is the intent.
+    await win.evaluate(() => document.querySelector('video')?.pause())
+    await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
+    await win.waitForFunction(
+      () => {
+        const v = document.querySelector('video')
+        return !!v && /ep2/i.test(v.currentSrc || v.src)
+      },
+      null,
+      { timeout: 8000 }
+    )
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(900)
+    ok(
+      (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
+      'a film you CLICKED in the tree starts playing'
+    )
+    // DELETE REACHES A FILM (owner, 2026-09-03): clicking the row hands the
+    // video element the keyboard, and the row's own Delete handler never
+    // saw the key. The tree listens at the window now, behind the typing
+    // guard - and a focused video is not typing.
+    await win.evaluate(() => document.querySelector('video')?.focus())
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    const q = await win.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? '')
+    ok(/ep2/i.test(q), `Delete over a focused film asks about that film (${q.slice(0, 60)})`)
+    // ...and the film that is PLAYING actually goes (owner, 2026-09-03): it
+    // holds a handle through the media stream and the Recycle Bin refuses a
+    // file with one open, so the player is released first and the bin
+    // asked after a beat, with retries.
+    // The bin is REAL, and so is the loss: the video menu scenario later in
+    // the run needs ep2 as its Next video. Stash a copy in the profile (not
+    // in the fixtures, where the tree would count it) and put it back once
+    // the app has let go.
+    copyFileSync(join(fixtures, 'ep2.mp4'), join(PROFILE, 'ep2.stash'))
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    for (let i = 0; i < 40 && existsSync(join(fixtures, 'ep2.mp4')); i++) await sleep(200)
+    ok(!existsSync(join(fixtures, 'ep2.mp4')), 'and a film that was playing is really in the bin')
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      'with no "could not be moved" complaint'
+    )
   } finally {
     await app.close()
+    if (existsSync(join(PROFILE, 'ep2.stash')) && !existsSync(join(fixtures, 'ep2.mp4')))
+      copyFileSync(join(PROFILE, 'ep2.stash'), join(fixtures, 'ep2.mp4'))
   }
 }
 
@@ -4026,12 +4268,47 @@ async function dragScenario(fixtures) {
         { timeout: 8000 }
       )
       ok(existsSync(join(box, 'into', 'movable.txt')), 'the file really moved into the folder')
-      // The folder you dropped ONTO is what is marked afterwards: what you
-      // dragged has left, so a mark on it would point at nothing.
-      const marked = await win.evaluate(
-        () => document.querySelector('aside [data-selected]')?.textContent ?? ''
+      // THE DROP RING CLEARS (2026-09-03): a row's drop handler stops
+      // propagation, and the window-level clear used to live in the bubble
+      // phase, so the accent ring around the viewer stayed up until restart.
+      await sleep(300)
+      const ringLeft = await win.evaluate(
+        () => !!document.querySelector('main .ring-2.ring-inset, [class*="ring-[var(--p-accent)]"]')
       )
-      ok(marked.includes('into'), `the destination folder is marked after the drop (${marked})`)
+      ok(!ringLeft, 'and the drop ring around the viewer is gone')
+      // The DROPPED FILE is what is marked afterwards (2026-09-03, owner -
+      // Explorer's way; narrows the 2026-08-31 folder-mark rule): where it
+      // arrived is what you are now looking at. Its row lives inside the
+      // destination folder, which may need expanding to see - the mark is on
+      // the data-selected row carrying the file's name.
+      const expandInto = () =>
+        win.evaluate(() => {
+          const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+            (r.textContent ?? '').includes('into')
+          )
+          // The CHEVRON, not the row: a row click would SELECT the folder and
+          // replace the very mark this asserts on.
+          const collapsed = el?.getAttribute('aria-expanded') === 'false'
+          if (collapsed !== undefined && el)
+            el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+          return collapsed
+        })
+      const wasCollapsed = await expandInto()
+      await sleep(600)
+      const marked = await win.evaluate(
+        () =>
+          [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|') ?? ''
+      )
+      ok(
+        marked.includes('movable'),
+        `the dropped file is the marked row after the drop (${marked})`
+      )
+      // Put the folder's state back the way the steps below expect it: their
+      // own select-then-toggle click pair assumes a collapsed folder.
+      if (wasCollapsed) {
+        await expandInto()
+        await sleep(400)
+      }
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.

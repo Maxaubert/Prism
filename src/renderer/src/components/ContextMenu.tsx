@@ -17,6 +17,10 @@ export interface MenuItem {
   onPick?: () => void
   /** One level of flyout, opened on hover. */
   children?: MenuItem[]
+  /** A CHECKLIST row (2026-09-03, owner): picking it acts but leaves the menu
+   *  up, so several can be ticked or a tick undone. The rows re-render from
+   *  their owner's state, so the ticks move while the menu stands. */
+  keepOpen?: boolean
 }
 
 const PANEL =
@@ -170,7 +174,7 @@ export function ContextMenu({
     // hover); one without is flyout-only, like "Open in".
     if (it.children && !it.onPick) return
     it.onPick?.()
-    onClose()
+    if (!it.keepOpen) onClose()
   }
 
   const hover = (index: number, it: MenuItem, el: HTMLElement): void => {

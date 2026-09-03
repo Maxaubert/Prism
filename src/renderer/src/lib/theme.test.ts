@@ -13,8 +13,10 @@ import {
   setOverride,
   setStyle,
   STYLES,
-  type Style
-} from './theme'
+  type Style,
+  tabsOf,
+  titleOf,
+  withChrome, isStylesOwn } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
@@ -276,6 +278,44 @@ describe('the sidebar can wear its own colour (owner, 2026-09-03)', () => {
   })
 })
 
+describe('the title bar and the tab bar are their own (owner, 2026-09-03)', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it('the strip and the active tab are both the secondary colour, no step', () => {
+    const plain = variablesFor(base)
+    expect(plain['--p-tab-active']).toBe(plain['--p-title'])
+    expect(plain['--p-tabs']).toBe(plain['--p-title'])
+    const chromed = variablesFor({ ...base, side: '#000000', sideOwn: true, title: '#000000', titleOwn: true })
+    expect(chromed['--p-side']).toBe('#000000')
+    expect(chromed['--p-tabs']).toBe('#000000')
+    expect(chromed['--p-tab-active']).toBe('#000000')
+  })
+
+  it('a tab bar colour of its own moves the strip and the active tab alike', () => {
+    const v = variablesFor({ ...base, tabs: '#000000', tabsOwn: true })
+    expect(v['--p-tabs']).toBe('#000000')
+    expect(v['--p-tab-active']).toBe('#000000')
+  })
+
+  it('the tab bar follows the title bar until it has a colour of its own', () => {
+    const titled = variablesFor({ ...base, title: '#123456', titleOwn: true })
+    expect(titled['--p-title']).toBe('#123456')
+    expect(titled['--p-tab-active']).toBe('#123456')
+    expect(titled['--p-tabs']).toBe('#123456')
+    expect(titleOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
+    expect(tabsOf({ ...base, title: '#123456', titleOwn: true })).toBe('#123456')
+    expect(tabsOf({ ...base, tabs: '#654321', tabsOwn: true })).toBe('#654321')
+  })
+})
+
+describe('the panels are one pick (owner, 2026-09-03)', () => {
+  it('writes the sidebar, title bar and tab bar together, and clears them together', () => {
+    const on = withChrome({ accent: 'prism' }, '#123456')
+    expect(on).toEqual({ accent: 'prism', side: '#123456', title: '#123456', tabs: '#123456' })
+    expect(withChrome(on, null)).toEqual({ accent: 'prism' })
+  })
+})
+
 describe('the tree inks measure against the sidebar the icons actually sit on', () => {
   const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
 
@@ -284,5 +324,24 @@ describe('the tree inks measure against the sidebar the icons actually sit on', 
     expect(fileIconOf(dark)).toBe('#ffffff')
     const lightPanel = { ...dark, side: '#f2f2f4', sideOwn: true }
     expect(fileIconOf(lightPanel)).not.toBe('#ffffff')
+  })
+})
+
+describe('a colour put back is not an edit (owner, 2026-09-03)', () => {
+  const base = STYLES.find((st) => st.material === 'solid') ?? STYLES[0]
+
+  it("knows the style's own colour for every well, case-insensitively", () => {
+    expect(isStylesOwn(base, 'bg', base.bg)).toBe(true)
+    expect(isStylesOwn(base, 'bg', base.bg.toUpperCase())).toBe(true)
+    expect(isStylesOwn(base, 'accent', base.accent)).toBe(true)
+    expect(isStylesOwn(base, 'text', '#123456')).toBe(false)
+    expect(isStylesOwn(base, 'chrome', sideOf(base))).toBe(true)
+  })
+
+  it('the chrome pick is back only when all three panels agree with the style', () => {
+    const split = { ...base, side: '#111111', sideOwn: true, title: '#222222', titleOwn: true }
+    expect(isStylesOwn(split, 'chrome', '#111111')).toBe(false)
+    expect(isStylesOwn(split, 'side', '#111111')).toBe(true)
+    expect(isStylesOwn(split, 'title', '#222222')).toBe(true)
   })
 })

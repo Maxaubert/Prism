@@ -788,7 +788,10 @@ function StyleTab(): JSX.Element {
               />
             </div>
           </Pref>
-          <Pref id="c-bg" label="Background" hint="The viewer behind your file.">
+          {/* PRIMARY and SECONDARY (owner, 2026-09-03): the viewer's ground,
+              and the panels around it. Accent, Text and the rest stay their
+              own things. */}
+          <Pref id="c-bg" label="Primary colour" hint="The viewer behind your file.">
             <ColourWell
               id="c-bg"
               value={style.bg}
@@ -801,13 +804,18 @@ function StyleTab(): JSX.Element {
               Background still paints the window; this narrows it - unset, the
               panel keeps deriving from Background exactly as before, and only
               an explicit pick gives it a colour of its own (`sideOwn`). */}
-          <Pref id="c-side" label="Sidebar" hint="The panel behind the file tree.">
+          {/* ONE PICK for the sidebar, the title bar and the tab bar (owner,
+              2026-09-03): changing one of them means adjusting the others, so
+              they moved as three wells for an afternoon and are one again.
+              The model still keeps them apart; the well writes all three.
+              Unset, each keeps deriving from Background exactly as before. */}
+          <Pref id="c-chrome" label="Secondary colour" hint="The sidebar, the title bar and the tab bar, together.">
             <ColourWell
-              id="c-side"
+              id="c-chrome"
               value={sideOf(style)}
               custom={!!edits.side}
-              onChange={(v) => setOverride('side', v)}
-              onReset={() => setOverride('side', null)}
+              onChange={(v) => setOverride('chrome', v)}
+              onReset={() => setOverride('chrome', null)}
             />
           </Pref>
           <Pref id="c-text" label="Text" hint="File names, labels and readouts.">
