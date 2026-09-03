@@ -869,6 +869,13 @@ let fsTransition = false
  * state from this IPC, so both are covered.
  */
 let preFsBounds: Electron.Rectangle | null = null
+/** MAXIMIZED IS A STATE, NOT A SIZE (2026-09-03). `setBounds` on a maximized
+ *  window is ignored by Windows - verified by sending F11 to one: the window
+ *  answered `IsZoomed: true` with its bottom still at the work area's edge,
+ *  taskbar showing, which is exactly "it's more like window maximized" as the
+ *  owner put it. So the state is dropped before the bounds are set, and put
+ *  back on the way out instead of restoring a rectangle. */
+let preFsMaximized = false
 const isFs = (): boolean => !!preFsBounds
 
 function applyMaterial(fullscreen: boolean): void {
@@ -2633,6 +2640,8 @@ if (!app.requestSingleInstanceLock()) {
       try {
         if (on) {
           preFsBounds = win.getBounds()
+          preFsMaximized = win.isMaximized()
+          if (preFsMaximized) win.unmaximize()
           // 'screen-saver' is the level that clears the taskbar; the plain one
           // leaves it drawn over the picture.
           win.setAlwaysOnTop(true, 'screen-saver')
@@ -2641,7 +2650,9 @@ if (!app.requestSingleInstanceLock()) {
           const back = preFsBounds
           preFsBounds = null
           win.setAlwaysOnTop(false)
-          if (back) win.setBounds(back)
+          if (preFsMaximized) win.maximize()
+          else if (back) win.setBounds(back)
+          preFsMaximized = false
         }
       } catch {
         preFsBounds = on ? preFsBounds : null
