@@ -112,6 +112,8 @@ const api = {
     dir: string
   ): Promise<{ pasted: number; failed: number; refused?: boolean; empty?: boolean }> =>
     ipcRenderer.invoke('file:paste-into', dir),
+  /** Whether a Paste row is worth drawing at all. */
+  clipboardHasFiles: (): Promise<boolean> => ipcRenderer.invoke('clipboard:has-files'),
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
@@ -482,6 +484,15 @@ const api = {
    *  in the given mode: DWM tints its own blur, so it has to be told. */
   setWindowMaterial: (material: string, mode: string): void =>
     ipcRenderer.send('window:material', material, mode),
+  /** A fullscreen transition is starting or has finished. While one is in
+   *  flight the window is held OPAQUE: a translucent window has nothing behind
+   *  it, so the frame where it has resized but not repainted shows the desktop. */
+  setFsTransition: (active: boolean): void =>
+    ipcRenderer.send('window:fs-transition', active),
+  /** Raise or fade out the display-covering black shroud. The in-window veil
+   *  cannot touch the taskbar or the desktop around the window; the shroud
+   *  fades them on the same clock. */
+  setFsShroud: (up: boolean): void => ipcRenderer.send('window:fs-shroud', up),
   onFullscreen: (cb: (on: boolean) => void): (() => void) => {
     const listener = (_: unknown, on: boolean): void => cb(on)
     ipcRenderer.on('window:fullscreen', listener)

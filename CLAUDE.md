@@ -1209,12 +1209,27 @@ version replaces that release's installer in place. Bump the version when a rele
 NEW; CI gates are typecheck + unit tests only (the e2e needs this machine). Unsigned, per-user,
 GitHub Releases.
 
-**Installing is the LAST verification step, every time work is finished** - after tests,
-typecheck, lint and e2e, and not something to ask about first. Tests and e2e drive the built
-bundle, never the shipped app: packaging and installing is what proves the installer still
-works, that the associations still register, and that the resident app actually launches.
+**Installing is the LAST verification step, every time work is finished** - after typecheck,
+lint and the unit tests, and not something to ask about first. They drive the built bundle,
+never the shipped app: packaging and installing is what proves the installer still works, that
+the associations still register, and that the resident app actually launches.
 `npm run package`, then install `dist/Prism-Setup-x64-<version>.exe` silently with `/S`
 (per-user, no elevation), closing any running Prism first. Report the installed version.
+
+**THE FULL E2E RUNS BEFORE A PUSH, NOT BEFORE AN INSTALL** (owner, 2026-09-02). It is four
+minutes, and it is the PR gate, not a step between "the change is written" and "let me see it".
+Run the SCENARIOS THAT COVER THE CHANGE while iterating, the whole suite before pushing.
+
+**AND THE INSTALL IS NOT DONE UNTIL THE EXE'S TIMESTAMP MOVES** (2026-09-02). Two ways to be
+fooled, both met on the same day. `Start-Process -Wait` on the installer hung for five minutes
+and had to be killed. And a second installer started while one was already running, or while
+Prism was running, sits waiting for the app to close - burning 30% of a core, writing NOTHING,
+with a "Prism Setup" window on screen - so the version string still reads correct while the
+build is the previous one. That is how a fix gets reported as shipped and looked at in a binary
+that does not contain it. Kill every Prism AND every Prism-Setup first, then POLL
+`Prism.exe`'s LastWriteTime until it changes, remembering it goes MISSING part way through
+(the uninstall phase) before the new one appears. Launch the app only after the setup process
+has gone.
 
 ## Conventions
 

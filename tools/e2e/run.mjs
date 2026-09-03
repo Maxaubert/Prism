@@ -1475,6 +1475,245 @@ async function arrowKeysScenario(fixtures) {
   }
 }
 
+/**
+ * THE PICTURE'S CONTROLS GET OUT OF THE WAY (2026-09-02), windowed and in
+ * fullscreen alike.
+ *
+ * They used to be `opacity-0 group-hover:opacity-100`, a CSS hover on the
+ * stage. Fine windowed, and exactly the pattern that failed for the video
+ * transport in fullscreen, where a layer taken to zero opacity is composited
+ * once and never repainted. So the cluster MOUNTS AND UNMOUNTS on the
+ * transport's own clock, and this asserts the mounting rather than the opacity
+ * - checking a class would pass while the element sat there invisible and
+ * eating clicks.
+ *
+ * It also asserts the two do not share a row. The comic's page counter was at
+ * bottom-4, which is where the zoom cluster lives, so they were drawn on top of
+ * one another and the cluster's `+` and `1:1` showed through from behind the
+ * counter.
+ */
+async function chromeHideScenario(fixtures) {
+  console.log('viewer chrome hides')
+  const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
+  const bar = () => win.locator('[data-viewer-chrome]')
+  // A real regex. Written as a string, `\d` collapses to `d` and the locator
+  // matches nothing, so the assertion below passed without testing anything.
+  const pill = () => win.getByText(/Page \d+ of \d+/)
+  try {
+    await win.waitForSelector('[data-viewer-chrome]', { timeout: 20000 })
+    ok(true, 'the control cluster is up when the page opens')
+
+    // ONE BAR (owner, 2026-09-02). The counter used to be a second pill stacked
+    // above the cluster, and before that the two were drawn on top of one
+    // another - the counter won on z-index and the cluster's `+` and `1:1`
+    // showed through from behind it. It lives INSIDE the bar now, which is what
+    // this asserts: one element on screen, with the counter within it.
+    const bars = await win.evaluate(() => {
+      const all = [...document.querySelectorAll('[data-viewer-chrome]')]
+      const counter = [...document.querySelectorAll('span')].filter((e) =>
+        /^Page \d+ of \d+$/.test(e.textContent ?? '')
+      )
+      return {
+        bars: all.length,
+        counters: counter.length,
+        inside: counter.length === 1 && !!all[0]?.contains(counter[0])
+      }
+    })
+    ok(bars.bars === 1, `there is ONE control bar (${bars.bars})`)
+    ok(bars.counters === 1, `and one page counter (${bars.counters})`)
+    ok(bars.inside, 'and the counter is inside the bar, not a second one above it')
+
+    // IT ANIMATES BOTH WAYS. Asserted from the computed style rather than by
+    // catching it mid-fade, which would race the clock and be flaky: the
+    // entrance is a keyframe (a freshly mounted element has no previous value
+    // to transition FROM) and the exit is a transition.
+    const anim = await win.evaluate(() => {
+      const el = document.querySelector('[data-viewer-chrome]')
+      const cs = el && getComputedStyle(el)
+      return cs ? { name: cs.animationName, prop: cs.transitionProperty, dur: cs.transitionDuration } : null
+    })
+    ok(anim?.name === 'p-chrome-in', `it fades IN on a keyframe (${anim?.name})`)
+    ok(
+      anim.prop.includes('opacity') && parseFloat(anim.dur) > 0,
+      `and carries an opacity transition for the way out (${anim?.prop} ${anim?.dur})`
+    )
+
+    // Park the pointer clear of the cluster so its own :hover cannot pin it,
+    // then stop moving. The clock is 2.6s.
+    await win.mouse.move(40, 60)
+    await sleep(4200)
+    ok((await bar().count()) === 0, 'it UNMOUNTS after a few seconds of stillness')
+    ok((await pill().count()) === 0, 'and the page counter goes with it')
+
+    // And comes back on movement, with no click.
+    await win.mouse.move(300, 300)
+    await win.mouse.move(320, 310)
+    await sleep(500)
+    ok((await bar().count()) === 1, 'and comes back on pointer movement alone')
+
+    // BUT NOT ON AN ARROW. Turning a page is the thing you came to do, and it
+    // brought the bar back on every page of a comic read with the keyboard.
+    await win.mouse.move(40, 60)
+    await sleep(4200)
+    ok((await bar().count()) === 0, 'it is away again')
+    await win.keyboard.press('ArrowRight')
+    await sleep(700)
+    ok((await bar().count()) === 0, 'an ArrowRight page turn does NOT summon it')
+    // While a key that changes what the bar SHOWS still does.
+    await win.keyboard.press('r')
+    await sleep(400)
+    ok((await bar().count()) === 1, 'but R, which rotates, still does')
+
+    // Hovering it holds it up: reaching for a button and pausing your hand
+    // must not make the button disappear.
+    const box = await bar().boundingBox()
+    await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await sleep(4200)
+    ok((await bar().count()) === 1, 'and hovering it holds it up past the clock')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * ZOOMING OUT HAS A FLOOR (2026-09-03). The old floor was fit or actual size,
+ * whichever was smaller - and on a tiny image actual size is nothing: a 1x1
+ * PNG could be wheeled down to a single screen pixel and kept going. The
+ * longest on-screen edge now never drops under 64px.
+ */
+async function zoomFloorScenario(fixtures) {
+  console.log('zoom-out floor')
+  const { app, win } = await launch(join(fixtures, 'two.png'))
+  try {
+    await win.waitForSelector('img[alt="two.png"]', { timeout: 15000 })
+    await sleep(600)
+    const stage = await win.locator('.p-checker').boundingBox()
+    ok(!!stage, 'the picture wrapper is up')
+    await win.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    for (let i = 0; i < 40; i++) {
+      await win.mouse.wheel(0, 120)
+      await sleep(30)
+    }
+    await sleep(400)
+    const b = await win.locator('.p-checker').boundingBox()
+    const edge = Math.max(b.width, b.height)
+    ok(edge >= 60, `a 1x1 image stops shrinking at the floor (${Math.round(edge)}px)`)
+    ok(edge <= 110, `and the floor is the floor, not fit (${Math.round(edge)}px)`)
+
+    // DOUBLE-CLICK IS FIT <-> ACTUAL SIZE (2026-09-03), not fit <-> double
+    // fit, which on a tiny image was 200,000% of actual. From zoomed-out it
+    // returns to fit; from fit it goes to actual size (the floor, here).
+    await win.mouse.dblclick(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    await sleep(500)
+    const atFit = await win.locator('.p-checker').boundingBox()
+    ok(
+      Math.abs(Math.max(atFit.width, atFit.height) - Math.max(stage.width, stage.height)) < 8,
+      `double-click from zoomed-out returns to fit (${Math.round(atFit.height)}px)`
+    )
+    await win.mouse.dblclick(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    await sleep(500)
+    const atActual = await win.locator('.p-checker').boundingBox()
+    const ae = Math.max(atActual.width, atActual.height)
+    ok(ae >= 60 && ae <= 110, `double-click from fit goes to actual size, clamped (${Math.round(ae)}px)`)
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * PASTE BELONGS ON A ROW, and deleting the last file must not close the tab.
+ *
+ * A full folder has no dead space to right-click, and the one strip that is
+ * left pasted into the ROOT rather than where you were looking. So the row menu
+ * carries Paste: a FOLDER row takes it, a FILE row means its folder. It is
+ * drawn only when the clipboard actually holds files, because a verb that
+ * cannot work is noise.
+ *
+ * And deleting the last file used to close the TAB - the same failure Ctrl+W's
+ * rule exists to prevent. Prism is resident, and a tab that vanishes takes its
+ * root, its tree and its terminal with it.
+ */
+async function rowPasteScenario(fixtures) {
+  console.log('paste on a row')
+  const dir = join(fixtures, 'dragbox')
+  const { app, win } = await launch(join(dir, 'anchor.txt'))
+  const rowFor = (suffix) =>
+    win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const menuHas = (label) => win.locator(`[role="menu"] >> text="${label}"`).count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // NOTHING ON THE CLIPBOARD: no Paste row at all.
+    await win.evaluate(() => navigator.clipboard.writeText('not a file').catch(() => {}))
+    await rowFor('movable.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok((await menuHas('Paste')) === 0, 'no Paste row when the clipboard holds no files')
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
+    // Put a real file on the clipboard the way the user would: the row's own
+    // Copy file verb, which goes through the same CF_HDROP route.
+    await rowFor('movable.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Copy file"').click()
+    await sleep(1200)
+
+    // NOW it appears, on a FILE row, and near the top.
+    await rowFor('anchor.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    ok(true, 'Paste appears on a FILE row once the clipboard holds files')
+    const order = await win.evaluate(() =>
+      [...document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')]
+        .map((e) => (e.textContent ?? '').trim())
+        .filter(Boolean)
+    )
+    ok(
+      order.indexOf('Paste') >= 0 && order.indexOf('Paste') < 4,
+      `and near the top of the menu (position ${order.indexOf('Paste')} of ${order.length})`
+    )
+
+    const before = await win.locator('[role="treeitem"]').count()
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    await sleep(2500)
+    const after = await win.locator('[role="treeitem"]').count()
+    ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
+  } finally {
+    await app.close()
+  }
+}
+
+/** Deleting the last file leaves the tab open and empty, not closed. */
+async function deleteLastScenario(fixtures) {
+  console.log('delete the last file')
+  const dir = join(fixtures, 'lastfile')
+  const { app, win } = await launch(join(dir, 'only.txt'))
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    const tabs = () => win.locator('[role="tab"]').count()
+    const before = await tabs()
+    ok(before >= 1, `the tab is there to begin with (${before})`)
+
+    await win.locator('[role="treeitem"]').first().click()
+    await sleep(400)
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    await win.locator('[role="dialog"] button:has-text("Delete")').click()
+    await sleep(1500)
+
+    ok(!win.isClosed(), 'the window survives deleting the only file')
+    ok((await tabs()) === before, `and the TAB is still open (${await tabs()})`)
+    ok(
+      (await win.locator('[role="treeitem"]').count()) === 0,
+      'with an empty tree, which is the point: the folder is still the tab root'
+    )
+  } finally {
+    await app.close()
+  }
+}
+
 async function comicScenario(fixtures) {
   console.log('comic books')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
@@ -1519,9 +1758,14 @@ async function comicScenario(fixtures) {
       'Up pages the FOLDER, to the next comic'
     )
 
-    // And coming back opens where the book was put down.
+    // And coming back opens where the book was put down. The counter lives on
+    // the auto-hiding bar and the two folder steps above outlast its idle
+    // clock, so wake it the way a reader would - by moving the mouse.
     await win.keyboard.press('ArrowDown')
     await sleep(1500)
+    await win.mouse.move(700, 400)
+    await win.mouse.move(720, 420)
+    await sleep(300)
     ok((await win.locator('text=Page 2 of 3').count()) === 1, 'a comic reopens where you left it')
     ok(!win.isClosed(), 'window survives the comic')
   } finally {
@@ -3411,16 +3655,75 @@ async function fullscreenBlackScenario(fixtures) {
     const windowed = await stageBg()
     await win.keyboard.press('F11')
     await sleep(900)
+    // BORDERLESS, EXACT (2026-09-03): no OS fullscreen (its DWM animation is
+    // what flashed), no topmost (Windows strips it). The window drops its
+    // resize borders and covers the monitor exactly, which is what makes the
+    // shell's own borderless-game detection put the taskbar beneath it.
+    const covers = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      return { b, d, onTop: w.isAlwaysOnTop(), osFs: w.isFullScreen(), rs: w.isResizable() }
+    })
+    // >= rather than ==: the frame overhang survives setResizable(false)
+    // (measured), and proud of the display is the right direction - no edge
+    // left uncovered. The shell's fullscreen detection engages regardless.
     ok(
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFullScreen()),
-      'F11 goes fullscreen'
+      covers.b.width >= covers.d.width && covers.b.height >= covers.d.height,
+      `F11 covers the whole display (${covers.b.width}x${covers.b.height} of ${covers.d.width}x${covers.d.height})`
     )
+    ok(!covers.rs, 'the screen edges are not live resize handles while the picture is up')
+    ok(!covers.osFs, 'no OS fullscreen - its animation is what flashed')
+    ok(!covers.onTop, 'and no always-on-top for the shell to strip')
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
+
+    // The `:fullscreen` rule no longer applies - there is no fullscreen element
+    // in a borderless window - and the stage's own black above is what matters.
     await win.keyboard.press('F11')
     await sleep(900)
     ok((await stageBg()) === windowed, 'and the theme comes back on the way out')
+    const back = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      return { b, d: screen.getDisplayMatching(b).bounds, onTop: w.isAlwaysOnTop() }
+    })
+    ok(!back.onTop, 'the window stops floating above the taskbar')
+    ok(
+      back.b.width !== back.d.width || back.b.height !== back.d.height,
+      `and goes back to its own size (${back.b.width}x${back.b.height})`
+    )
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isResizable()),
+      'and is resizable again'
+    )
+
+    // FROM A MAXIMIZED WINDOW (2026-09-03): `setBounds` on a maximized window
+    // is IGNORED by Windows - the owner's window is normally maximized, and
+    // F11 left it at the work area with the taskbar still showing. Main drops
+    // the maximized state first and puts it back on the way out.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+    await sleep(600)
+    await win.keyboard.press('F11')
+    await sleep(900)
+    const fromMax = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      return { b, d, maxed: w.isMaximized() }
+    })
+    ok(
+      fromMax.b.height >= fromMax.d.height,
+      `F11 from maximized still covers the taskbar (${fromMax.b.height} of ${fromMax.d.height})`
+    )
+    ok(!fromMax.maxed, 'the maximized state is dropped, or the bounds would not stick')
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()),
+      'and comes back maximized, not restored'
+    )
   } finally {
     await app.close()
   }
@@ -3936,6 +4239,10 @@ await run(comicIconScenario)
 await run(treeVerbsScenario)
 await run(deleteAgainScenario)
 await run(arrowKeysScenario)
+await run(chromeHideScenario)
+await run(zoomFloorScenario)
+await run(rowPasteScenario)
+await run(deleteLastScenario)
 await run(unsupportedScenario)
 
 // A filter that matched nothing ran nothing, and "all e2e checks passed" over

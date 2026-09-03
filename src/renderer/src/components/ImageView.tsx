@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type JSX, type MouseEvent, type WheelEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type MouseEvent,
+  type ReactNode,
+  type WheelEvent
+} from 'react'
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
+import { chromeClass, useAutoHideChrome } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
@@ -22,6 +32,9 @@ const CANVAS_PATH_PIXELS = 40_000_000
 // Longest edge of that bitmap. Sharp at a step or two of zoom while staying cheap
 // to rasterize: measured, 4096 cost ~550ms of raster on display, 2560 ~200ms.
 const MAX_EDGE = 2560
+// The smallest the longest on-screen edge may go when zooming out: below this
+// a picture is a speck, not a picture. See `zoomFloor`.
+const MIN_EDGE = 64
 
 
 // The image viewer: fit-to-window by default, wheel zoom toward the cursor, drag
@@ -38,6 +51,7 @@ export function ImageView({
   onToggleFullscreen,
   onStep,
   canStep,
+  status,
   fullscreen = false
 }: {
   url: string
@@ -51,11 +65,30 @@ export function ImageView({
   /** Whether there IS one that way, which is how the slideshow knows to wrap
    *  by walking back to the start rather than stopping at the end. */
   canStep?: (dir: 1 | -1) => boolean
+  /** Something to show in the control bar, between the zoom group and the
+   *  rotate/fullscreen group: the comic's page counter. ONE BAR rather than two
+   *  (owner, 2026-09-02) - a second pill stacked above this one was twice the
+   *  chrome for one line of text. */
+  status?: ReactNode
   /** Fullscreen paints the stage black and shows no checkerboard: the same
    *  rule the film follows, for the same reason. */
   fullscreen?: boolean
 }): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Pinned while the pointer is on the bar, or while the right-click menu is
+  // open - an invisible menu would keep eating clicks and the first Escape.
+  const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
+    useCallback(
+      () => !!menu || !!document.querySelector('[data-viewer-chrome]:hover'),
+      [menu]
+    ),
+    undefined,
+    // The arrows are navigation - a comic page turn, a step through the folder -
+    // and doing the thing you came to do should not summon the controls. Every
+    // other key still does, because +, -, 0, 1 and R all change what the bar is
+    // showing.
+    useCallback((e: KeyboardEvent) => !e.key.startsWith('Arrow'), [])
+  )
   /**
    * What the ELEMENT says it is, when the header parser could not say.
    *
@@ -130,7 +163,18 @@ export function ImageView({
    * range every button clamps to, where zooming OUT made the picture bigger.
    */
   const trueZoom = fitScale ? 1 / (fitScale * rotFit) : 1
-  const zoomFloor = Math.min(1, trueZoom)
+  /** Zooming OUT stops while the picture is still a picture (2026-09-03).
+   *  The floor used to be fit or actual size, whichever was smaller - and on
+   *  a tiny image actual size IS nothing: a 1x1 PNG could be wheeled down to
+   *  a single screen pixel and kept going, which the owner met as "you can
+   *  zoom it out infinitely". The floor now refuses to let the longest edge
+   *  drop under 64 screen pixels, still capped at fit so a big photo keeps
+   *  its old floor exactly. Actual size on something smaller than 64px lands
+   *  at 64px too - a clamped landing beats a state the buttons cannot leave
+   *  (the 2026-08-28 rule). */
+  const minEdgeZoom =
+    src && fitScale ? MIN_EDGE / (Math.max(src.width, src.height) * fitScale * rotFit) : 0
+  const zoomFloor = Math.min(1, Math.max(trueZoom, minEdgeZoom))
 
   const oneToOne = (): void => {
     if (!fitScale) return
@@ -219,6 +263,23 @@ export function ImageView({
     setTx(0)
     setTy(0)
   }, [])
+
+  /** An explicit zoom is an ABSOLUTE size, not a multiple of fit
+   *  (2026-09-03). `zoom` is stored fit-relative, so when the stage grew -
+   *  entering fullscreen, opening the sidebar - the picture silently grew
+   *  with it and the pill jumped ("100% became 3000%"). When the fit changes
+   *  under a zoomed picture, the zoom is rescaled so what is on screen stays
+   *  the size it was. Fit itself (zoom 1) still re-fits, which is what fit
+   *  means. */
+  const fitRef = useRef(0)
+  useEffect(() => {
+    const f = fitScale * rotFit
+    const prev = fitRef.current
+    fitRef.current = f
+    if (!prev || !f || prev === f) return
+    setZoom((z) => (z === 1 ? z : clamp((z * prev) / f, Math.min(1, zoomFloor), MAX_ZOOM)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- zoomFloor derives from fitScale/rotFit
+  }, [fitScale, rotFit])
 
   const cursorFromCentre = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = stageRef.current?.getBoundingClientRect()
@@ -483,73 +544,88 @@ export function ImageView({
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
               cap at intrinsic size, which left images smaller than the window sitting
               tiny in the middle of the screen. Zoom still scales up from this fit. */}
-          {/* The ground behind a transparent picture, and ONLY behind it.
-              The element is `object-contain`, so its box is the whole stage
-              while the painted picture is a letterboxed sub-rect the DOM
-              never names - a background on either paints the entire window.
-              This is a sibling sized to the picture (fitScale times the
-              source) carrying the identical transform, so it moves, zooms
-              and turns with it. Not in fullscreen: the 2026-08-28 rule is
-              that a fullscreen stage is black whatever the theme says, and a
-              checkerboard is exactly the app leaking into the picture. */}
-          {img && src && fitScale > 0 && !fullscreen && (
+          {/* ONE transformed layer holds the picture AND its checkerboard
+              ground (2026-09-03). They used to be siblings, each carrying an
+              identical transform with an identical .12s transition - and two
+              compositor layers do NOT stay in step: under a wheel-zoom burst
+              the main thread lags, one layer wears the new transform while
+              the other still wears the old, and the checker pokes out past
+              the picture's edge for a frame. Through a translucent pixel
+              every mismatch is a brightness jump - filmed by the owner on a
+              1x1 half-alpha PNG as "the image flickers heavily". Layers that
+              must agree have to BE one layer: the wrapper is sized to the
+              picture (fitScale times the source) and carries the checker as
+              its background, the picture simply fills it. No checker in
+              fullscreen: the 2026-08-28 rule is that a fullscreen stage is
+              black whatever the theme says, and a checkerboard is exactly
+              the app leaking into the picture. */}
+          {img && (
             <div
-              aria-hidden
-              className="p-checker pointer-events-none absolute left-1/2 top-1/2"
+              onMouseDown={onImgDown}
+              // Fit <-> ACTUAL SIZE, not fit <-> double fit (2026-09-03): on a
+              // tiny image 2x fit is thousands of times actual - the owner
+              // double-clicked a near-1px view and landed at 200,000%. Actual
+              // size is the classic viewer toggle and is already clamped sane.
+              onDoubleClick={(e) =>
+                zoomAt(e, Math.abs(zoom - 1) < 0.01 ? clamp(trueZoom, zoomFloor, MAX_ZOOM) : 1)
+              }
+              className={`absolute left-1/2 top-1/2 ${fullscreen ? '' : 'p-checker'}`}
               style={{
-                width: src.width * fitScale,
-                height: src.height * fitScale,
+                width: src && fitScale ? src.width * fitScale : stage.w,
+                height: src && fitScale ? src.height * fitScale : stage.h,
                 transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
-                opacity: loaded ? 1 : 0,
-                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
-              }}
-            />
-          )}
-          {img && huge && (
-            <canvas
-              ref={canvasRef}
-              onMouseDown={onImgDown}
-              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
-              style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
                 cursor,
                 opacity: loaded ? 1 : 0,
                 transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
               }}
-              className="h-full w-full object-contain"
-            />
-          )}
-          {img && !huge && (
-            <img
-              src={img.objectUrl}
-              alt={name}
-              draggable={false}
-              decoding="async"
-              onLoad={(e) => {
-                setLoaded(true)
-                const el = e.currentTarget
-                if (el.naturalWidth && el.naturalHeight) {
-                  setNatural({ w: el.naturalWidth, h: el.naturalHeight })
-                }
-              }}
-              onError={() => setFailed(true)}
-              onMouseDown={onImgDown}
-              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
-              style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
-                cursor,
-                opacity: loaded ? 1 : 0,
-                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
-              }}
-              className="h-full w-full object-contain"
-            />
+            >
+              {huge ? (
+                <canvas ref={canvasRef} className="h-full w-full object-contain" />
+              ) : (
+                <img
+                  src={img.objectUrl}
+                  alt={name}
+                  draggable={false}
+                  decoding="async"
+                  onLoad={(e) => {
+                    setLoaded(true)
+                    const el = e.currentTarget
+                    if (el.naturalWidth && el.naturalHeight) {
+                      setNatural({ w: el.naturalWidth, h: el.naturalHeight })
+                    }
+                  }}
+                  onError={() => setFailed(true)}
+                  className="h-full w-full object-contain"
+                />
+              )}
+            </div>
           )}
         </>
       )}
 
-      {/* control cluster, appears on hover */}
-      {!failed && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] opacity-0 backdrop-blur transition-opacity group-hover:opacity-100">
+      {/* THE CONTROL CLUSTER HIDES ITSELF (2026-09-02), windowed and in
+          fullscreen alike. It used to be `opacity-0 group-hover:opacity-100`,
+          which is a CSS hover on the stage: fine windowed, and exactly the
+          pattern that failed for the video transport in fullscreen, where a
+          layer taken to zero opacity is composited once and never repainted.
+          So it MOUNTS AND UNMOUNTS on a clock, through the transport's own
+          rule - see `useAutoHideChrome`, which carries the reasoning.
+          `data-viewer-chrome` is how the clock asks whether the pointer is on
+          it: reaching for a button and pausing your hand must not make the
+          button disappear, and asking the DOM cannot be a flag that failed to
+          clear. */}
+      {!failed && chromeShown && (
+        <div
+          data-viewer-chrome
+          // THE WHOLE PILL TAKES THE POINTER, not just its buttons. It was
+          // `pointer-events-none` with each button opting back in, which meant
+          // the gaps, the dividers and the page counter could not be hovered -
+          // so `[data-viewer-chrome]:hover`, which is what pins the bar open,
+          // did not match when the cursor sat on the counter in the middle of
+          // it. Reaching for a control and pausing your hand has to hold it up
+          // wherever on the bar the hand stopped.
+          className={`pointer-events-auto absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[var(--p-title)]/90 px-2 py-1 text-[var(--p-text)] backdrop-blur ${chromeClass(chromeLeaving)}`}
+        >
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full text-lg hover:bg-white/15" onClick={() => zoomCentered(1 / 1.18)} title="Zoom out (-)">−</button>
           <button className="pointer-events-auto min-w-[3.2rem] rounded-full px-2 text-[12px] font-semibold tabular-nums hover:bg-white/15" onClick={reset} title="Reset (0)">
             {Math.round((shownScale || zoom) * 100)}%
@@ -562,6 +638,12 @@ export function ImageView({
           >
             1:1
           </button>
+          {status != null && (
+            <>
+              <div className="mx-1 h-5 w-px bg-white/15" />
+              <span className="px-1 text-[11.5px] tabular-nums text-[var(--p-dim)]">{status}</span>
+            </>
+          )}
           <div className="mx-1 h-5 w-px bg-white/15" />
           <button className="pointer-events-auto grid h-8 w-8 place-items-center rounded-full hover:bg-white/15" onClick={() => setRot((d) => (d + 90) % 360)} title="Rotate (R)">
             <svg viewBox="0 0 24 24" width={17} height={17} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

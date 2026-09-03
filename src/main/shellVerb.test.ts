@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { addArgs, pointsAt, queryArgs, removeArgs, verbKeys, verbSpec } from './shellVerb'
+import { addArgs, pointsAt, queryArgs, removeArgs, shouldWriteVerb, verbKeys, verbSpec } from './shellVerb'
 
 const EXE = 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Prism\\Prism.exe'
 
@@ -115,5 +115,29 @@ describe('the uninstaller removes every verb key', () => {
     // defined there is a macro the uninstaller never has.
     expect(nsh).toContain('!macro customUnInstall')
     expect(readFileSync('build/installer/pages.nsh', 'utf8')).not.toContain('!macro customUnInstall')
+  })
+})
+
+describe('the verb survives an upgrade', () => {
+  /**
+   * Every upgrade dropped it and it had to be switched on by hand. The
+   * uninstaller runs as part of an upgrade and deletes the three keys - which
+   * is right for a real uninstall - while userData survives, so a marker
+   * reading "the default has been applied" said done over a registry that was
+   * empty. The fact worth storing is the NO, not the yes.
+   */
+  it('puts an absent verb back when nobody said no', () => {
+    expect(shouldWriteVerb(false, false)).toBe(true)
+  })
+
+  it('leaves a working verb alone', () => {
+    expect(shouldWriteVerb(false, true)).toBe(false)
+  })
+
+  it('never argues with a deliberate off, even with the keys gone', () => {
+    // The rule the old marker existed to enforce, and the one that matters: a
+    // default that reapplies itself makes the switch a setting that lies.
+    expect(shouldWriteVerb(true, false)).toBe(false)
+    expect(shouldWriteVerb(true, true)).toBe(false)
   })
 })

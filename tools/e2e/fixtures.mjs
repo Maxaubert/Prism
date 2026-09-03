@@ -508,6 +508,10 @@ export function buildFixtures() {
   dragzip.addFile('carry.txt', Buffer.from('carried out of the zip'))
   dragzip.addFile('sub/nested.txt', Buffer.from('nested'))
   dragzip.writeZip(join(FIXTURES, 'zips', 'dragzip.zip'))
+  // Exactly one viewable file: deleting it used to close the whole tab.
+  mkdirSync(join(FIXTURES, 'lastfile'), { recursive: true })
+  writeFileSync(join(FIXTURES, 'lastfile', 'only.txt'), 'the only one')
+
   mkdirSync(join(FIXTURES, 'dragbox', 'into'), { recursive: true })
   writeFileSync(join(FIXTURES, 'dragbox', 'movable.txt'), 'drag me')
   writeFileSync(join(FIXTURES, 'dragbox', 'anchor.txt'), 'stay')
