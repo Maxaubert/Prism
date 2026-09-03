@@ -793,11 +793,18 @@ export function Sidebar({
               ?.querySelector('[data-row="' + CSS.escape(r.paths[0]) + '"]')
               ?.scrollIntoView({ block: 'nearest' })
           )
+          // And it OPENS (owner, 2026-09-03): highlighted but still showing
+          // the old film read as the paste having gone somewhere else. A
+          // pasted folder is not a thing to view, so files only.
+          const first = r.paths[0]
+          void window.prism.statFile(first).then((st) => {
+            if (st && !st.isFolder) onOpenFile(first)
+          })
         }
         void load(dest, true)
       })
     },
-    [load]
+    [load, onOpenFile]
   )
 
   /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
@@ -806,12 +813,36 @@ export function Sidebar({
    *  so every one of those keeps its own clipboard untouched. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+      if (e.altKey || e.metaKey) return
+      const a = document.activeElement as HTMLElement | null
+      // The typing guard: anything that owns its own keys keeps them - the
+      // search box, a rename field, the editor, the shell, a dialog. A FOCUSED
+      // VIDEO is not typing (2026-09-03, owner): clicking a film hands the
+      // element the keyboard, and Delete then reached nothing at all.
+      const typing =
+        !!a &&
+        a !== document.body &&
+        a.dataset.row === undefined &&
+        (a.matches('input,textarea,select,[contenteditable]:not([contenteditable="false"])') ||
+          !!a.closest('.cm-editor,.xterm,[role="dialog"],[role="menu"]'))
+      if (e.key === 'Delete' && !e.ctrlKey && !e.shiftKey) {
+        // Delete on the cursor row from anywhere in the panel's reach. The
+        // row button handles its own when it is focused; this is for when
+        // the viewer took the focus with it.
+        if (!hasFocus.current || typing || a?.dataset.row !== undefined) return
+        const cur = at
+        if (!cur) return
+        e.preventDefault()
+        const items = selRef.current.items
+        if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
+        const el = scroller.current?.querySelector<HTMLElement>('[data-row="' + CSS.escape(cur) + '"]')
+        const isFolder = (el?.dataset.dropdir ?? '').toLowerCase() === cur.toLowerCase()
+        return onDelete(cur, cur.split(/[\\/]/).filter(Boolean).pop() ?? cur, isFolder)
+      }
+      if (!e.ctrlKey || e.shiftKey) return
       const k = e.key.toLowerCase()
       if (k !== 'c' && k !== 'x' && k !== 'v') return
-      if (!hasFocus.current) return
-      const a = document.activeElement as HTMLElement | null
-      if (a && a !== document.body && a.dataset.row === undefined) return
+      if (!hasFocus.current || typing) return
       if (k === 'v') {
         e.preventDefault()
         // EXPLORER'S RULE (owner, 2026-09-03): Ctrl+V pastes into the folder
@@ -833,7 +864,7 @@ export function Sidebar({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [at, root, copyMark, runPaste])
+  }, [at, root, copyMark, runPaste, onDelete, onDeleteMany])
 
   /**
    * Extract a whole archive from its TREE ROW.

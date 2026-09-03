@@ -1689,6 +1689,13 @@ async function rowPasteScenario(fixtures) {
       [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|')
     )
     ok(/movable \(2\)/.test(markedAfterPaste), `and the pasted copy is what is marked (${markedAfterPaste})`)
+    // ...and it is the OPEN file too (owner, 2026-09-03): aria-selected is
+    // the tree's word for what the viewer is showing.
+    await sleep(600)
+    const openAfterPaste = await win.evaluate(
+      () => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? ''
+    )
+    ok(/movable \(2\)/.test(openAfterPaste), `and the pasted copy is what is OPEN (${openAfterPaste})`)
 
     // CUT AND PASTE FROM THE KEYBOARD (2026-09-03, owner): Ctrl+X dims the
     // row, Ctrl+V on a folder MOVES it there, and the mark clears.
@@ -1718,10 +1725,16 @@ async function rowPasteScenario(fixtures) {
     // Now the keyboard: with the cursor on into/anchor.txt, Ctrl+C then
     // Ctrl+V with the FOLDER `into` highlighted must paste into its PARENT
     // (the root), not into `into`.
-    // Expand `into` (select, then toggle) - the only anchor.txt left is in it.
-    await rowFor('into').click()
-    await sleep(300)
-    await rowFor('into').click()
+    // `into` is usually open already - the moved file OPENED, and opening a
+    // file expands the folders above it - so expand only if it is shut, and
+    // by the CHEVRON, since a row click would select and a second toggle.
+    await win.evaluate(() => {
+      const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+        (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('\\into')
+      )
+      if (el?.getAttribute('aria-expanded') === 'false')
+        el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
     await win.waitForSelector('[role="treeitem"][data-row$="anchor.txt" i]', { timeout: 8000 })
     await rowFor('anchor.txt').click()
     await sleep(400)
@@ -3638,6 +3651,17 @@ async function pauseScenario(fixtures) {
       (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
       'a film you CLICKED in the tree starts playing'
     )
+    // DELETE REACHES A FILM (owner, 2026-09-03): clicking the row hands the
+    // video element the keyboard, and the row's own Delete handler never
+    // saw the key. The tree listens at the window now, behind the typing
+    // guard - and a focused video is not typing.
+    await win.evaluate(() => document.querySelector('video')?.focus())
+    await win.keyboard.press('Delete')
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    const q = await win.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? '')
+    ok(/ep2/i.test(q), `Delete over a focused film asks about that film (${q.slice(0, 60)})`)
+    await win.keyboard.press('Escape')
+    await sleep(300)
   } finally {
     await app.close()
   }

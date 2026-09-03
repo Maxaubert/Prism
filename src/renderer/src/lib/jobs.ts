@@ -24,11 +24,23 @@ export interface Job {
   label: string
   /** 0-100, or null while the worker has not said (indeterminate). */
   pct: number | null
+  /** When it started, for the minimum showing below. */
+  since: number
 }
+
+/**
+ * A job SHOWS FOR AT LEAST THIS LONG (2026-09-03, owner: "the chip didn't
+ * pop up, so I thought it wasn't pasting"). A small file copies inside a
+ * frame, so the job started and ended before anything painted and the
+ * paste looked like nothing had happened. A job that finishes early stays
+ * on the chip at 100% until the minimum has passed, then leaves.
+ */
+export const MIN_SHOW_MS = 900
 
 let jobs: readonly Job[] = []
 const listeners = new Set<() => void>()
 let seq = 0
+const leaving = new Map<string, ReturnType<typeof setTimeout>>()
 
 function emit(): void {
   for (const l of listeners) l()
@@ -38,7 +50,7 @@ function emit(): void {
 export function startJob(kind: JobKind, label: string): string {
   seq += 1
   const id = `${kind}-${seq}`
-  jobs = [...jobs, { id, kind, label, pct: null }]
+  jobs = [...jobs, { id, kind, label, pct: null, since: Date.now() }]
   emit()
   return id
 }
@@ -46,24 +58,40 @@ export function startJob(kind: JobKind, label: string): string {
 export function updateJob(id: string, pct: number | null): void {
   let changed = false
   jobs = jobs.map((j) => {
-    if (j.id !== id || j.pct === pct) return j
+    if (j.id !== id || j.pct === pct || leaving.has(j.id)) return j
     changed = true
     return { ...j, pct }
   })
   if (changed) emit()
 }
 
-export function endJob(id: string): void {
+function remove(id: string): void {
+  leaving.delete(id)
   const next = jobs.filter((j) => j.id !== id)
   if (next.length === jobs.length) return
   jobs = next
   emit()
 }
 
+export function endJob(id: string): void {
+  const job = jobs.find((j) => j.id === id)
+  if (!job || leaving.has(id)) return
+  const shown = Date.now() - job.since
+  if (shown >= MIN_SHOW_MS) return remove(id)
+  // Too quick to have been seen: hold it at done for the rest of the minimum.
+  updateJob(id, 100)
+  leaving.set(
+    id,
+    setTimeout(() => remove(id), MIN_SHOW_MS - shown)
+  )
+}
+
 export const listJobs = (): readonly Job[] => jobs
 
 /** Test seam: forget every job. */
 export function resetJobs(): void {
+  for (const t of leaving.values()) clearTimeout(t)
+  leaving.clear()
   jobs = []
   emit()
 }
