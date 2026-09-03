@@ -808,13 +808,16 @@ export function Sidebar({
       if (a && a !== document.body && a.dataset.row === undefined) return
       if (k === 'v') {
         e.preventDefault()
-        // The cursor row's own landing dir - a folder is itself, a file means
-        // its folder - read off the row the drops already annotate.
+        // EXPLORER'S RULE (owner, 2026-09-03): Ctrl+V pastes into the folder
+        // that CONTAINS the highlighted row, never into the highlighted
+        // folder itself - "Cloud" highlighted under Documents pastes into
+        // Documents; a file inside Cloud pastes into Cloud. The keyboard
+        // should not care what kind of row the cursor is on. The row MENU's
+        // Paste on a folder still means "into this folder": that verb is
+        // explicit. Clamped to the root, which is the floor of the tree.
         const cur = at
-        const el = cur
-          ? scroller.current?.querySelector<HTMLElement>('[data-row="' + CSS.escape(cur) + '"]')
-          : null
-        runPaste(el?.dataset.dropdir ?? root)
+        const parent = cur ? parentDir(cur) : root
+        runPaste(parent.toLowerCase().startsWith(root.toLowerCase()) ? parent : root)
         return
       }
       const targets = selRef.current.items.size ? [...selRef.current.items] : at ? [at] : []

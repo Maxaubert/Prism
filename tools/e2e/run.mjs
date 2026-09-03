@@ -1703,13 +1703,36 @@ async function rowPasteScenario(fixtures) {
         )?.style.opacity
     )
     ok(dimmed === '0.45', `Ctrl+X dims the cut row (opacity ${dimmed})`)
-    await rowFor('into').click() // first click selects a folder
+    // EXPLORER'S RULE for Ctrl+V (owner, 2026-09-03): the target is the
+    // folder CONTAINING the highlighted row. First a file INSIDE `into`, so
+    // the cursor can stand there: the row menu's Paste on the folder row
+    // (explicit, so it means "into this folder") puts movable.txt in.
+    await rowFor('into').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    // the clipboard holds anchor.txt (cut) now; that is what lands in `into`
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
+    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'menu Paste on a folder row lands INSIDE it, and a cut moves')
+    ok(!existsSync(join(dir, 'anchor.txt')), 'so it left where it was')
+    await sleep(800)
+    // Now the keyboard: with the cursor on into/anchor.txt, Ctrl+C then
+    // Ctrl+V with the FOLDER `into` highlighted must paste into its PARENT
+    // (the root), not into `into`.
+    // Expand `into` (select, then toggle) - the only anchor.txt left is in it.
+    await rowFor('into').click()
+    await sleep(300)
+    await rowFor('into').click()
+    await win.waitForSelector('[role="treeitem"][data-row$="anchor.txt" i]', { timeout: 8000 })
+    await rowFor('anchor.txt').click()
+    await sleep(400)
+    await win.keyboard.press('Control+c')
+    await sleep(400)
+    await rowFor('into').click() // first click on a folder row only highlights it
     await sleep(300)
     await win.keyboard.press('Control+v')
-    await win.waitForFunction(() => true, null, { timeout: 100 })
-    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
-    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'Ctrl+V after a cut MOVES the file into the folder')
-    ok(!existsSync(join(dir, 'anchor.txt')), 'and it left where it was')
+    for (let i = 0; i < 40 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
+    ok(existsSync(join(dir, 'anchor.txt')), 'Ctrl+V with a folder highlighted pastes into its PARENT')
+    ok(existsSync(join(dir, 'into', 'anchor.txt')), 'and a copy leaves the original where it was')
   } finally {
     await app.close()
   }
