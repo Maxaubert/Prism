@@ -2634,31 +2634,76 @@ if (!app.requestSingleInstanceLock()) {
       if (force) closeConfirmed = true
       mainWindow?.close()
     })
+    /**
+     * OS FULLSCREEN, BUT ONLY EVER BETWEEN TWO DISPLAY-COVERING STATES
+     * (2026-09-03). Pure borderless (cover the display, always-on-top) was
+     * tried and LOSES: Windows itself strips WS_EX_TOPMOST from a window it
+     * takes for fullscreen - polled from outside, the bit held for between
+     * 0.3s and 3s and then dropped while Electron's isAlwaysOnTop() still
+     * said true - and the taskbar then redraws OVER the picture. The shell
+     * cannot be out-stubborned, so the taskbar has to be ours by the front
+     * door: real setFullScreen. Its old flaw was the one frame the OS
+     * composites at the window's OLD bounds, showing the desktop in the gap -
+     * so the window is moved to COVER the display first (a plain setBounds,
+     * measured clean), and only then asked to go fullscreen: old and new both
+     * cover the display, so the stale frame has nothing behind it to show.
+     * The way out is the same sandwich reversed - setFullScreen(false) lands
+     * on the covering bounds, the real restore follows a beat later. The
+     * brief always-on-top only spans the 90ms hop, before the shell would
+     * ever strip it; steady state holds no topmost at all.
+     */
+    let fsStep: { timer: NodeJS.Timeout; run: () => void } | null = null
+    const scheduleFsStep = (run: () => void): void => {
+      fsStep = { timer: setTimeout(() => { fsStep = null; run() }, 90), run }
+    }
+    // A toggle arriving inside the 90ms hop completes the hop first, so the
+    // two halves of a swap can never interleave with the next swap's.
+    const flushFsStep = (): void => {
+      if (!fsStep) return
+      clearTimeout(fsStep.timer)
+      const { run } = fsStep
+      fsStep = null
+      run()
+    }
     ipcMain.on('window:set-fullscreen', (_e, on: boolean) => {
       const win = mainWindow
       if (!win || !!on === isFs()) return
+      flushFsStep()
       try {
         if (on) {
           preFsBounds = win.getBounds()
           preFsMaximized = win.isMaximized()
           if (preFsMaximized) win.unmaximize()
-          // 'screen-saver' is the level that clears the taskbar; the plain one
-          // leaves it drawn over the picture.
+          // Topmost for the hop alone: between the cover and the fullscreen
+          // the taskbar would otherwise draw over the black for 90ms.
           win.setAlwaysOnTop(true, 'screen-saver')
           win.setBounds(screen.getDisplayMatching(preFsBounds).bounds)
+          scheduleFsStep(() => {
+            try {
+              win.setFullScreen(true)
+              win.setAlwaysOnTop(false)
+            } catch { /* the window may be gone */ }
+          })
         } else {
           const back = preFsBounds
+          const wasMax = preFsMaximized
           preFsBounds = null
-          win.setAlwaysOnTop(false)
-          if (preFsMaximized) win.maximize()
-          else if (back) win.setBounds(back)
           preFsMaximized = false
+          win.setAlwaysOnTop(true, 'screen-saver')
+          win.setFullScreen(false)
+          scheduleFsStep(() => {
+            try {
+              if (wasMax) win.maximize()
+              else if (back) win.setBounds(back)
+              win.setAlwaysOnTop(false)
+            } catch { /* the window may be gone */ }
+          })
         }
       } catch {
         preFsBounds = on ? preFsBounds : null
       }
-      // The events a real fullscreen change would have raised. The renderer
-      // tracks its own state from these, and the material follows.
+      // Announce the INTENT now rather than waiting for enter-full-screen:
+      // the renderer's veil is already up and tracks its state from this.
       applyMaterial(isFs())
       win.webContents.send('window:fullscreen', isFs())
     })

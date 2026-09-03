@@ -1075,38 +1075,54 @@ export default function App(): JSX.Element {
       [fsVeilEl.current, fsVeilOuter.current].filter((v): v is HTMLDivElement => !!v),
     []
   )
-  const liftVeil = useCallback(() => {
-    const list = veils()
-    if (!list.length) {
-      window.prism.setFsTransition(false)
-      return
-    }
-    // Hold the black a beat (200ms) before lifting: the swap should be felt,
-    // not glimpsed. The double rAF then guarantees the new frame is laid out.
-    setTimeout(() => {
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          for (const v of list) {
-            v.style.transition = 'opacity 280ms ease-out'
-            v.style.opacity = '0'
-          }
-          // The far side is painted and the black is lifting: the window may
-          // have its material back. Held until now rather than released on
-          // `enter-full-screen`, which fires while the resize is still running.
-          setTimeout(() => window.prism.setFsTransition(false), 300)
-        })
-      )
-    }, 200)
-  }, [veils])
+  /** Every raise of the veil starts a new GENERATION, and every scheduled
+   *  lift carries the generation it belongs to (2026-09-03). Without this the
+   *  1.5s safety lift outlived its own toggle: its delayed chain fired INTO
+   *  the next toggle's fade-in and yanked the fresh black back to transparent
+   *  mid-rise, so at certain toggle rhythms the swap ran half-veiled or bare -
+   *  the owner's "sometimes it just switches without fading". A stale lift
+   *  now checks its generation at every step and dies quietly. */
+  const veilGen = useRef(0)
+  const liftVeil = useCallback(
+    (gen: number) => {
+      const list = veils()
+      const fresh = (): boolean => gen === veilGen.current
+      if (!list.length) {
+        window.prism.setFsTransition(false)
+        return
+      }
+      // Hold the black a beat (200ms) before lifting: the swap should be felt,
+      // not glimpsed. The double rAF then guarantees the new frame is laid out.
+      setTimeout(() => {
+        if (!fresh()) return
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            if (!fresh()) return
+            for (const v of list) {
+              v.style.transition = 'opacity 280ms ease-out'
+              v.style.opacity = '0'
+            }
+            // The far side is painted and the black is lifting: the window may
+            // have its material back. Held until now rather than released on
+            // `enter-full-screen`, which fires while the resize is still running.
+            setTimeout(() => {
+              if (fresh()) window.prism.setFsTransition(false)
+            }, 300)
+          })
+        )
+      }, 200)
+    },
+    [veils]
+  )
   const setFs = useCallback(
     (on: boolean) => {
+      veilGen.current += 1
+      const gen = veilGen.current
       const doSwap = (): void => {
-        // BORDERLESS, always: main moves the window to cover the display
-        // rather than asking Windows for fullscreen, because the OS transition
-        // shows the window at its old bounds for a frame and that gap is the
-        // white flash. See the note beside `preFsBounds` in main.
+        // Main covers the display first and asks Windows for real fullscreen a
+        // beat later - the sandwich; see `window:set-fullscreen` in main.
         window.prism.setFullscreen(on)
-        liftVeil()
+        liftVeil(gen)
       }
       const list = veils()
       const veil = fsVeilEl.current
@@ -1123,15 +1139,17 @@ export default function App(): JSX.Element {
       }
       let fired = false
       const done = (): void => {
-        if (fired) return
+        if (fired || gen !== veilGen.current) return
         fired = true
         // One frame of margin after the fade completes, so the swap happens
         // under GUARANTEED full black, never on the fade's last visible frame.
-        setTimeout(doSwap, 40)
+        setTimeout(() => {
+          if (gen === veilGen.current) doSwap()
+        }, 40)
       }
       veil.addEventListener('transitionend', done, { once: true })
       setTimeout(done, 240) // transitionend can be swallowed; the swap may not
-      setTimeout(liftVeil, 1500) // and if the swap itself failed, never stay black
+      setTimeout(() => liftVeil(gen), 1500) // if the swap failed, never stay black
     },
     [liftVeil, veils]
   )
@@ -1144,7 +1162,7 @@ export default function App(): JSX.Element {
   }, [])
   // Whichever path changed the state (element, fallback, OS), the new frame is
   // up: lift the veil over it.
-  useEffect(() => liftVeil(), [fullscreen, liftVeil])
+  useEffect(() => liftVeil(veilGen.current), [fullscreen, liftVeil])
   // Main held the window open because the editor is dirty; ask, then answer it.
   useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
 
