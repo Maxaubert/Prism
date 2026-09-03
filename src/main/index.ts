@@ -903,7 +903,7 @@ function applyMaterial(fullscreen: boolean): void {
   if (borderStrip) clearTimeout(borderStrip)
   borderStrip = setTimeout(() => {
     borderStrip = null
-    if (mainWindow) stripDwmBorder(mainWindow)
+    applyDwmBorder()
   }, 80)
 }
 let borderStrip: NodeJS.Timeout | null = null
@@ -1071,21 +1071,24 @@ function raise(win: BrowserWindow): void {
 }
 
 /**
- * NO DWM BORDER, EVER (2026-09-03, owner). Windows 11 draws a 1px border on
- * every framed window; with the title bar hidden it lies as a hairline across
- * the top of the app, and in fullscreen across the top of the screen. The
- * owner wants it gone in every state, so it is stripped ONCE when the window
- * exists: dwmapi attribute 34 (border color) set to -2, DWMWA_COLOR_NONE.
- * Spawned async through PowerShell - one dwmapi call is not worth a native
- * module - and purely cosmetic, so a failure costs nothing but the hairline.
+ * THE DWM BORDER FOLLOWS THE WINDOW'S STATE (2026-09-03, owner). Windows 11
+ * draws a 1px border on every framed window; with the title bar hidden it
+ * lies as a hairline across the top. RESTORED, the owner wants it - a floating
+ * window reads better with an edge. MAXIMIZED or FULLSCREEN it is a hairline
+ * across the top of the screen and goes: dwmapi attribute 34 (border color),
+ * -2 DWMWA_COLOR_NONE to strip, -1 DWMWA_COLOR_DEFAULT to give back. Spawned
+ * async through PowerShell - one dwmapi call is not worth a native module -
+ * and purely cosmetic, so a failure costs nothing but the hairline.
+ * Chromium rewrites DWM attributes when the backdrop changes, so
+ * applyDwmBorder also rides behind every material application.
  */
-function stripDwmBorder(win: BrowserWindow): void {
+function setDwmBorder(win: BrowserWindow, visible: boolean): void {
   try {
     const buf = win.getNativeWindowHandle()
     const hwnd = (buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0))).toString()
     const script =
       `Add-Type 'using System;using System.Runtime.InteropServices;public class DW{[DllImport("dwmapi.dll")]public static extern int DwmSetWindowAttribute(IntPtr h,int a,ref int v,int s);}';` +
-      `$b=-2;[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},34,[ref]$b,4)|Out-Null`
+      `$b=${visible ? -1 : -2};[DW]::DwmSetWindowAttribute([IntPtr]${hwnd},34,[ref]$b,4)|Out-Null`
     execFile(
       'powershell.exe',
       ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
@@ -1094,6 +1097,12 @@ function stripDwmBorder(win: BrowserWindow): void {
   } catch {
     /* cosmetic */
   }
+}
+
+function applyDwmBorder(): void {
+  const win = mainWindow
+  if (!win) return
+  setDwmBorder(win, !win.isMaximized() && !isFs())
 }
 
 function createWindow(): void {
@@ -1145,8 +1154,12 @@ function createWindow(): void {
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
-    if (mainWindow) stripDwmBorder(mainWindow)
+    applyDwmBorder()
   })
+  // The border follows maximize state; fullscreen changes reach applyDwmBorder
+  // through applyMaterial's debounce.
+  mainWindow.on('maximize', applyDwmBorder)
+  mainWindow.on('unmaximize', applyDwmBorder)
   watchWindowState(mainWindow)
   mainWindow.on('closed', () => (mainWindow = null))
   /**
