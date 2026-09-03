@@ -513,66 +513,55 @@ export function ImageView({
           {/* Fit the stage in both directions (same reason as the video): max-w/max-h
               cap at intrinsic size, which left images smaller than the window sitting
               tiny in the middle of the screen. Zoom still scales up from this fit. */}
-          {/* The ground behind a transparent picture, and ONLY behind it.
-              The element is `object-contain`, so its box is the whole stage
-              while the painted picture is a letterboxed sub-rect the DOM
-              never names - a background on either paints the entire window.
-              This is a sibling sized to the picture (fitScale times the
-              source) carrying the identical transform, so it moves, zooms
-              and turns with it. Not in fullscreen: the 2026-08-28 rule is
-              that a fullscreen stage is black whatever the theme says, and a
-              checkerboard is exactly the app leaking into the picture. */}
-          {img && src && fitScale > 0 && !fullscreen && (
+          {/* ONE transformed layer holds the picture AND its checkerboard
+              ground (2026-09-03). They used to be siblings, each carrying an
+              identical transform with an identical .12s transition - and two
+              compositor layers do NOT stay in step: under a wheel-zoom burst
+              the main thread lags, one layer wears the new transform while
+              the other still wears the old, and the checker pokes out past
+              the picture's edge for a frame. Through a translucent pixel
+              every mismatch is a brightness jump - filmed by the owner on a
+              1x1 half-alpha PNG as "the image flickers heavily". Layers that
+              must agree have to BE one layer: the wrapper is sized to the
+              picture (fitScale times the source) and carries the checker as
+              its background, the picture simply fills it. No checker in
+              fullscreen: the 2026-08-28 rule is that a fullscreen stage is
+              black whatever the theme says, and a checkerboard is exactly
+              the app leaking into the picture. */}
+          {img && (
             <div
-              aria-hidden
-              className="p-checker pointer-events-none absolute left-1/2 top-1/2"
+              onMouseDown={onImgDown}
+              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
+              className={`absolute left-1/2 top-1/2 ${fullscreen ? '' : 'p-checker'}`}
               style={{
-                width: src.width * fitScale,
-                height: src.height * fitScale,
+                width: src && fitScale ? src.width * fitScale : stage.w,
+                height: src && fitScale ? src.height * fitScale : stage.h,
                 transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
-                opacity: loaded ? 1 : 0,
-                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
-              }}
-            />
-          )}
-          {img && huge && (
-            <canvas
-              ref={canvasRef}
-              onMouseDown={onImgDown}
-              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
-              style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
                 cursor,
                 opacity: loaded ? 1 : 0,
                 transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
               }}
-              className="h-full w-full object-contain"
-            />
-          )}
-          {img && !huge && (
-            <img
-              src={img.objectUrl}
-              alt={name}
-              draggable={false}
-              decoding="async"
-              onLoad={(e) => {
-                setLoaded(true)
-                const el = e.currentTarget
-                if (el.naturalWidth && el.naturalHeight) {
-                  setNatural({ w: el.naturalWidth, h: el.naturalHeight })
-                }
-              }}
-              onError={() => setFailed(true)}
-              onMouseDown={onImgDown}
-              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
-              style={{
-                transform: `translate(${tx}px, ${ty}px) scale(${zoom * rotFit}) rotate(${rot}deg)`,
-                cursor,
-                opacity: loaded ? 1 : 0,
-                transition: panning ? 'none' : 'transform .12s ease-out, opacity .2s ease-out'
-              }}
-              className="h-full w-full object-contain"
-            />
+            >
+              {huge ? (
+                <canvas ref={canvasRef} className="h-full w-full object-contain" />
+              ) : (
+                <img
+                  src={img.objectUrl}
+                  alt={name}
+                  draggable={false}
+                  decoding="async"
+                  onLoad={(e) => {
+                    setLoaded(true)
+                    const el = e.currentTarget
+                    if (el.naturalWidth && el.naturalHeight) {
+                      setNatural({ w: el.naturalWidth, h: el.naturalHeight })
+                    }
+                  }}
+                  onError={() => setFailed(true)}
+                  className="h-full w-full object-contain"
+                />
+              )}
+            </div>
           )}
         </>
       )}

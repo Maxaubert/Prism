@@ -1713,9 +1713,14 @@ async function comicScenario(fixtures) {
       'Up pages the FOLDER, to the next comic'
     )
 
-    // And coming back opens where the book was put down.
+    // And coming back opens where the book was put down. The counter lives on
+    // the auto-hiding bar and the two folder steps above outlast its idle
+    // clock, so wake it the way a reader would - by moving the mouse.
     await win.keyboard.press('ArrowDown')
     await sleep(1500)
+    await win.mouse.move(700, 400)
+    await win.mouse.move(720, 420)
+    await sleep(300)
     ok((await win.locator('text=Page 2 of 3').count()) === 1, 'a comic reopens where you left it')
     ok(!win.isClosed(), 'window survives the comic')
   } finally {
@@ -3644,6 +3649,32 @@ async function fullscreenBlackScenario(fixtures) {
     ok(
       back.b.width !== back.d.width || back.b.height !== back.d.height,
       `and goes back to its own size (${back.b.width}x${back.b.height})`
+    )
+
+    // FROM A MAXIMIZED WINDOW (2026-09-03): `setBounds` on a maximized window
+    // is IGNORED by Windows - the owner's window is normally maximized, and
+    // F11 left it at the work area with the taskbar still showing. Main drops
+    // the maximized state first and puts it back on the way out.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+    await sleep(600)
+    await win.keyboard.press('F11')
+    await sleep(900)
+    const fromMax = await app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      const d = screen.getDisplayMatching(b).bounds
+      return { b, d, maxed: w.isMaximized() }
+    })
+    ok(
+      fromMax.b.height >= fromMax.d.height,
+      `F11 from maximized still covers the taskbar (${fromMax.b.height} of ${fromMax.d.height})`
+    )
+    ok(!fromMax.maxed, 'the maximized state is dropped, or the bounds would not stick')
+    await win.keyboard.press('F11')
+    await sleep(900)
+    ok(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()),
+      'and comes back maximized, not restored'
     )
   } finally {
     await app.close()
