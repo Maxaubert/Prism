@@ -800,6 +800,25 @@ async function contextMenuScenario(fixtures) {
         (await win.locator('[data-pane="pinned"]').count()) === 1,
       'the flyout pins the file beside the live pane'
     )
+    // THE PANE'S OWN MENU (owner, 2026-09-03): a right-click along the top
+    // band of a pinned pane offers where it sits, as a submenu, and the way
+    // out - without touching the file's own menu lower down.
+    await win.locator('[data-pane="pinned"]').click({ button: 'right', position: { x: 60, y: 10 } })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Split view position")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Remove from split view")').count()) === 1,
+      'the pane band offers Split view position and Remove from split view'
+    )
+    await win.hover('[role="menuitem"]:has-text("Split view position")')
+    await sleep(400)
+    ok(
+      (await win.locator('[role="menuitem"]:has-text("Bottom")').count()) === 1,
+      'and the position is a submenu, not four rows'
+    )
+    await win.keyboard.press('Escape')
+    await sleep(300)
+
     // Its menu now offers the way out.
     await notesRow.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
@@ -3458,6 +3477,21 @@ async function terminalScenario(fixtures) {
     await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
     ok(true, 'exit closes the panel')
     ok(!win.isClosed(), 'window survives the shell')
+
+    // CLOSE TERMINAL MEANS CLOSE (owner, 2026-09-03): the shell dies, and the
+    // next Ctrl+` is a fresh one. Hiding (the X, Ctrl+`) still keeps it.
+    // The step above ended with `exit`, so open one to close.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await win.locator('.xterm').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
+    for (let i = 0; i < 30 && (await win.locator('.xterm').count()) > 0; i++) await sleep(100)
+    ok((await win.locator('.xterm').count()) === 0, 'Close terminal takes the shell away')
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok(true, 'and the next Ctrl+` opens a fresh one')
   } finally {
     await app.close()
   }

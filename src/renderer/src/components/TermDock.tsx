@@ -13,16 +13,19 @@ const TerminalPanel = lazy(() => import('./TerminalPanel'))
 // costs the launch bundle nothing.
 const TermFind = lazy(() => import('./TermFind'))
 
+// Under a "Split view position" parent (owner, 2026-09-03: a submenu, so the
+// menu does not bloat), so the labels are bare edges.
 const EDGE_NAMES: Array<{ edge: DockEdge; label: string }> = [
-  { edge: 'bottom', label: 'Dock bottom' },
-  { edge: 'top', label: 'Dock top' },
-  { edge: 'left', label: 'Dock left' },
-  { edge: 'right', label: 'Dock right' }
+  { edge: 'left', label: 'Left' },
+  { edge: 'right', label: 'Right' },
+  { edge: 'top', label: 'Top' },
+  { edge: 'bottom', label: 'Bottom' }
 ]
 
 export function TermDock({
   mode,
   onClose,
+  onKill,
   edge,
   size,
   onResize,
@@ -38,6 +41,9 @@ export function TermDock({
   mode: 'full' | 'split'
   /** The split's X: hide this pane, leaving the file the room. */
   onClose: () => void
+  /** Close the terminal for real: the shell dies, and the next open is a
+   *  fresh one in the tab's current folder. */
+  onKill: () => void
   edge: DockEdge
   size: number
   onResize: (px: number) => void
@@ -200,13 +206,19 @@ export function TermDock({
             ...(full
               ? []
               : ([
-                  ...EDGE_NAMES.map((it) => ({
-                    label: it.label,
-                    icon: tickIf(it.edge === edge),
-                    onPick: () => onDockPick(it.edge)
-                  })),
+                  {
+                    label: 'Split view position',
+                    children: EDGE_NAMES.map((it) => ({
+                      label: it.label,
+                      icon: tickIf(it.edge === edge),
+                      onPick: () => onDockPick(it.edge)
+                    }))
+                  },
                   { label: 'Remove from split view', onPick: onClose }
-                ] as MenuItem[]))
+                ] as MenuItem[])),
+            // CLOSE means close (owner, 2026-09-03): the shell dies here, and
+            // the next open is a fresh one in the tab's current folder.
+            { label: 'Close terminal', danger: true, onPick: onKill }
           ]}
         />
       )}

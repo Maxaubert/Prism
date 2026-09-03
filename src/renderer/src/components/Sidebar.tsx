@@ -184,6 +184,7 @@ export function Sidebar({
   onTermHere,
   onTermSplit,
   onClearTerm,
+  onCloseTerm,
   state,
   onTree
 }: {
@@ -235,6 +236,8 @@ export function Sidebar({
   onTermSplit: () => void
   /** Null while no shell exists: there is nothing to clear yet. */
   onClearTerm: (() => void) | null
+  /** Kill the shell for good; null when there is none. */
+  onCloseTerm: (() => void) | null
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
@@ -1393,6 +1396,18 @@ export function Sidebar({
                     label: 'Clear terminal',
                     icon: <MenuIcon d="M5 7h14M9 7V5h6v2M7 7l1 12h8l1-12M10 11v5M14 11v5" />,
                     onPick: onClearTerm
+                  }
+                ]
+              : []),
+            // CLOSE means close (owner, 2026-09-03): the shell dies, and the
+            // next open is a fresh one in the tab's current folder.
+            ...(onCloseTerm
+              ? [
+                  {
+                    label: 'Close terminal',
+                    danger: true,
+                    icon: <MenuIcon d="M6 6l12 12M18 6L6 18" />,
+                    onPick: onCloseTerm
                   }
                 ]
               : [])

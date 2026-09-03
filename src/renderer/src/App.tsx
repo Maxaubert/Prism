@@ -46,6 +46,8 @@ import {
 } from './lib/termActivity'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
+import { ContextMenu } from './components/ContextMenu'
+import { tickIf } from './lib/fileVerbs'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -605,30 +607,75 @@ function Viewer({
   }
 }
 
+/** The four places a split pane can sit, as a submenu (owner, 2026-09-03:
+ *  "a tree structure ... so we don't bloat the options"). Shared by the
+ *  pinned panes and the terminal dock. */
+export const SPLIT_DIRS: ReadonlyArray<{ dir: SplitDir; label: string }> = [
+  { dir: 'left', label: 'Left' },
+  { dir: 'right', label: 'Right' },
+  { dir: 'top', label: 'Top' },
+  { dir: 'bottom', label: 'Bottom' }
+]
+
 /** One pinned split pane: a fixed file, independent of paging, with its X. */
 function PinnedPaneView({
   paneId,
   path,
   area,
+  dir,
+  onMove,
   onClose,
   viewerProps
 }: {
   paneId: string
   path: string
   area: string
+  dir: SplitDir
+  onMove: (dir: SplitDir) => void
   onClose: () => void
   viewerProps: Omit<Parameters<typeof Viewer>[0], 'file'>
 }): JSX.Element {
   const name = path.split(/[\\/]/).pop() ?? path
   const ext = /\.[^.]+$/.exec(name)?.[0]?.toLowerCase() ?? ''
   const file: ViewerFile = { path, name, ext, kind: fileKind(ext, name), size: 0, mtimeMs: 0 }
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   return (
     <div
       data-pane="pinned"
       data-pane-id={paneId}
       className="group/pane relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-[var(--p-bg)]"
       style={{ gridArea: area }}
+      // A right-click along the pane's TOP BAND (owner, 2026-09-03) is about
+      // the pane - where it sits, and taking it out of the split. Lower down
+      // the file's own menu answers, so this is decided by height in the
+      // capture phase rather than by a strip that would eat the picture's
+      // clicks.
+      onContextMenuCapture={(e) => {
+        const top = e.currentTarget.getBoundingClientRect().top
+        if (e.clientY - top > 28) return
+        e.preventDefault()
+        e.stopPropagation()
+        setMenu({ x: e.clientX, y: e.clientY })
+      }}
     >
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            {
+              label: 'Split view position',
+              children: SPLIT_DIRS.map((d) => ({
+                label: d.label,
+                icon: tickIf(d.dir === dir),
+                onPick: () => onMove(d.dir)
+              }))
+            },
+            { label: 'Remove from split view', onPick: onClose }
+          ]}
+        />
+      )}
       <Viewer key={`${file.kind}:${path}`} file={file} {...viewerProps} />
       <button
         className="no-drag absolute right-2 top-2 z-20 grid h-6 w-6 place-items-center rounded bg-black/30 text-[var(--p-icon)] opacity-0 transition-opacity hover:bg-black/50 hover:text-[var(--p-text)] focus-visible:opacity-100 group-hover/pane:opacity-100"
@@ -1735,6 +1782,23 @@ export default function App(): JSX.Element {
     () => applyTermView((term, id) => (term ? { ...term, view: 'split' } : { id, view: 'split' })),
     [applyTermView]
   )
+  /**
+   * CLOSE THE TERMINAL means close it (owner, 2026-09-03): the shell is
+   * killed and the tab forgets it, so the next open spawns a FRESH shell in
+   * the tab's CURRENT root - which is how a tab that re-rooted since gets a
+   * terminal in the right folder. Hiding (Ctrl+`, the X) still keeps the
+   * shell running; this is the verb for when you are done with it.
+   */
+  const closeTerm = useCallback(() => {
+    const term = active?.term
+    if (!term || !active) return
+    window.prism.termKill(term.id)
+    disposeSession(term.id)
+    termRoots.current.delete(term.id)
+    setTabState((s) => ({ ...s, tabs: setTabTerm(s.tabs, active.id, null) }))
+    setPaneFocus('live')
+  }, [active])
+
   const clearTerm = useCallback(() => {
     const term = active?.term
     if (!term || !active) return
@@ -2852,6 +2916,7 @@ export default function App(): JSX.Element {
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
             onClearTerm={active.term ? clearTerm : null}
+            onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
             // The selected row follows what is ON SCREEN: a pinned pane marks
@@ -3059,6 +3124,8 @@ export default function App(): JSX.Element {
                       paneId={pn.id}
                       path={pn.path}
                       area={areas.pinned[i]}
+                      dir={pn.dir}
+                      onMove={(d) => pinSplit(pn.path, d)}
                       onClose={() => unpinSplitId(pn.id)}
                       viewerProps={{
                         onUndoable: noteUndo,
@@ -3120,6 +3187,7 @@ export default function App(): JSX.Element {
             <TermDock
               mode={termView}
               onClose={closeTermPane}
+              onKill={closeTerm}
               edge={dockEdge}
               size={termSizes[dockAxis(dockEdge)]}
               onResize={resizeTermPanel}
