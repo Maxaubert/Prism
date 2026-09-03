@@ -32,6 +32,9 @@ const CANVAS_PATH_PIXELS = 40_000_000
 // Longest edge of that bitmap. Sharp at a step or two of zoom while staying cheap
 // to rasterize: measured, 4096 cost ~550ms of raster on display, 2560 ~200ms.
 const MAX_EDGE = 2560
+// The smallest the longest on-screen edge may go when zooming out: below this
+// a picture is a speck, not a picture. See `zoomFloor`.
+const MIN_EDGE = 64
 
 
 // The image viewer: fit-to-window by default, wheel zoom toward the cursor, drag
@@ -160,7 +163,18 @@ export function ImageView({
    * range every button clamps to, where zooming OUT made the picture bigger.
    */
   const trueZoom = fitScale ? 1 / (fitScale * rotFit) : 1
-  const zoomFloor = Math.min(1, trueZoom)
+  /** Zooming OUT stops while the picture is still a picture (2026-09-03).
+   *  The floor used to be fit or actual size, whichever was smaller - and on
+   *  a tiny image actual size IS nothing: a 1x1 PNG could be wheeled down to
+   *  a single screen pixel and kept going, which the owner met as "you can
+   *  zoom it out infinitely". The floor now refuses to let the longest edge
+   *  drop under 64 screen pixels, still capped at fit so a big photo keeps
+   *  its old floor exactly. Actual size on something smaller than 64px lands
+   *  at 64px too - a clamped landing beats a state the buttons cannot leave
+   *  (the 2026-08-28 rule). */
+  const minEdgeZoom =
+    src && fitScale ? MIN_EDGE / (Math.max(src.width, src.height) * fitScale * rotFit) : 0
+  const zoomFloor = Math.min(1, Math.max(trueZoom, minEdgeZoom))
 
   const oneToOne = (): void => {
     if (!fitScale) return
@@ -249,6 +263,23 @@ export function ImageView({
     setTx(0)
     setTy(0)
   }, [])
+
+  /** An explicit zoom is an ABSOLUTE size, not a multiple of fit
+   *  (2026-09-03). `zoom` is stored fit-relative, so when the stage grew -
+   *  entering fullscreen, opening the sidebar - the picture silently grew
+   *  with it and the pill jumped ("100% became 3000%"). When the fit changes
+   *  under a zoomed picture, the zoom is rescaled so what is on screen stays
+   *  the size it was. Fit itself (zoom 1) still re-fits, which is what fit
+   *  means. */
+  const fitRef = useRef(0)
+  useEffect(() => {
+    const f = fitScale * rotFit
+    const prev = fitRef.current
+    fitRef.current = f
+    if (!prev || !f || prev === f) return
+    setZoom((z) => (z === 1 ? z : clamp((z * prev) / f, Math.min(1, zoomFloor), MAX_ZOOM)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- zoomFloor derives from fitScale/rotFit
+  }, [fitScale, rotFit])
 
   const cursorFromCentre = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = stageRef.current?.getBoundingClientRect()
@@ -531,7 +562,13 @@ export function ImageView({
           {img && (
             <div
               onMouseDown={onImgDown}
-              onDoubleClick={(e) => zoomAt(e, zoom > 1 ? 1 : 2)}
+              // Fit <-> ACTUAL SIZE, not fit <-> double fit (2026-09-03): on a
+              // tiny image 2x fit is thousands of times actual - the owner
+              // double-clicked a near-1px view and landed at 200,000%. Actual
+              // size is the classic viewer toggle and is already clamped sane.
+              onDoubleClick={(e) =>
+                zoomAt(e, Math.abs(zoom - 1) < 0.01 ? clamp(trueZoom, zoomFloor, MAX_ZOOM) : 1)
+              }
               className={`absolute left-1/2 top-1/2 ${fullscreen ? '' : 'p-checker'}`}
               style={{
                 width: src && fitScale ? src.width * fitScale : stage.w,

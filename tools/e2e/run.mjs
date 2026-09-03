@@ -1576,6 +1576,51 @@ async function chromeHideScenario(fixtures) {
 }
 
 /**
+ * ZOOMING OUT HAS A FLOOR (2026-09-03). The old floor was fit or actual size,
+ * whichever was smaller - and on a tiny image actual size is nothing: a 1x1
+ * PNG could be wheeled down to a single screen pixel and kept going. The
+ * longest on-screen edge now never drops under 64px.
+ */
+async function zoomFloorScenario(fixtures) {
+  console.log('zoom-out floor')
+  const { app, win } = await launch(join(fixtures, 'two.png'))
+  try {
+    await win.waitForSelector('img[alt="two.png"]', { timeout: 15000 })
+    await sleep(600)
+    const stage = await win.locator('.p-checker').boundingBox()
+    ok(!!stage, 'the picture wrapper is up')
+    await win.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    for (let i = 0; i < 40; i++) {
+      await win.mouse.wheel(0, 120)
+      await sleep(30)
+    }
+    await sleep(400)
+    const b = await win.locator('.p-checker').boundingBox()
+    const edge = Math.max(b.width, b.height)
+    ok(edge >= 60, `a 1x1 image stops shrinking at the floor (${Math.round(edge)}px)`)
+    ok(edge <= 110, `and the floor is the floor, not fit (${Math.round(edge)}px)`)
+
+    // DOUBLE-CLICK IS FIT <-> ACTUAL SIZE (2026-09-03), not fit <-> double
+    // fit, which on a tiny image was 200,000% of actual. From zoomed-out it
+    // returns to fit; from fit it goes to actual size (the floor, here).
+    await win.mouse.dblclick(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    await sleep(500)
+    const atFit = await win.locator('.p-checker').boundingBox()
+    ok(
+      Math.abs(Math.max(atFit.width, atFit.height) - Math.max(stage.width, stage.height)) < 8,
+      `double-click from zoomed-out returns to fit (${Math.round(atFit.height)}px)`
+    )
+    await win.mouse.dblclick(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    await sleep(500)
+    const atActual = await win.locator('.p-checker').boundingBox()
+    const ae = Math.max(atActual.width, atActual.height)
+    ok(ae >= 60 && ae <= 110, `double-click from fit goes to actual size, clamped (${Math.round(ae)}px)`)
+  } finally {
+    await app.close()
+  }
+}
+
+/**
  * PASTE BELONGS ON A ROW, and deleting the last file must not close the tab.
  *
  * A full folder has no dead space to right-click, and the one strip that is
@@ -3610,11 +3655,11 @@ async function fullscreenBlackScenario(fixtures) {
     const windowed = await stageBg()
     await win.keyboard.press('F11')
     await sleep(900)
-    // BORDERLESS (2026-09-02): the window covers the display and sits above
-    // the taskbar rather than asking Windows for fullscreen, because the OS
-    // transition shows the window at its old bounds for a frame and that gap
-    // is the white flash. So `isFullScreen()` is false by design - what is
-    // asserted is that it COVERS the screen.
+    // THE SANDWICH (2026-09-03): the window covers the display first (so the
+    // OS transition's stale frame has nothing behind it to show) and THEN
+    // goes genuinely fullscreen 90ms later, because Windows strips the
+    // topmost bit from a pure borderless cover and redraws the taskbar over
+    // it. Steady state is real OS fullscreen with NO always-on-top.
     const covers = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = BrowserWindow.getAllWindows()[0]
       const b = w.getBounds()
@@ -3629,8 +3674,8 @@ async function fullscreenBlackScenario(fixtures) {
       covers.b.width >= covers.d.width && covers.b.height >= covers.d.height,
       `F11 covers the whole display (${covers.b.width}x${covers.b.height} of ${covers.d.width}x${covers.d.height})`
     )
-    ok(covers.onTop, 'and sits above the taskbar')
-    ok(!covers.osFs, 'without asking Windows for fullscreen, which is what flashed')
+    ok(covers.osFs, 'and is genuinely fullscreen, which is what owns the taskbar')
+    ok(!covers.onTop, 'with no always-on-top left for the shell to strip')
     // The letterbox is part of the picture: a theme colour behind a film is
     // the app leaking into it (2026-08-28).
     ok((await stageBg()) === 'rgb(0, 0, 0)', 'the stage behind a fullscreen film is black')
@@ -4192,6 +4237,7 @@ await run(treeVerbsScenario)
 await run(deleteAgainScenario)
 await run(arrowKeysScenario)
 await run(chromeHideScenario)
+await run(zoomFloorScenario)
 await run(rowPasteScenario)
 await run(deleteLastScenario)
 await run(unsupportedScenario)
