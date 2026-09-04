@@ -1043,10 +1043,12 @@ async function reloadScenario(fixtures) {
       { timeout: 10000 }
     )
     ok(true, 'Reload from disk takes theirs')
-    ok(
-      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
-      'and the file is clean again afterwards'
-    )
+    // The star clears a beat after the text lands; wait for it rather than
+    // reading it on the same tick (it flaked once under a full-suite load).
+    const clean = await win
+      .waitForFunction(() => document.querySelectorAll('[aria-label="Unsaved changes"]').length === 0, null, { timeout: 5000 })
+      .then(() => true, () => false)
+    ok(clean, 'and the file is clean again afterwards')
   } finally {
     await app.close()
   }
