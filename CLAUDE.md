@@ -526,6 +526,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   its first prompt - keys are heard on onKey now, and onData counts only plain text; and
   Ctrl+` left to xterm became a NUL byte to the pty, so hiding the panel with the key it is
   hidden with counted as typing too.
+  **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a
+  directory bold on a BLUE BACKGROUND (a tint on a navy console, a selection on Prism's
+  palette), an .exe green, a .ps1 yellow, a .zip red and the table header green with the
+  numeric column's header in italic green on top - a listing read as highlighted source.
+  The bootstrap (`PS_FILE_STYLE`) sets directories to bold blue TEXT and clears the rest,
+  so files and headers take the terminal's own foreground; the blue is ANSI blue, which is
+  the chosen theme's blue. AND EVERY THEME'S SIXTEEN NOW CLEAR THE CONTRAST FLOOR
+  (`legiblePalette`): the curated presets used to be kept exact, and MEASURED against their
+  own backgrounds a dozen dark ones carried a bright black at 1.0-2.7:1 - the colour
+  PSReadLine paints parameters, operators and its inline prediction in - and the light ones
+  a bright white (numbers, members) at 1.0:1. Only a colour that fails moves, and only to
+  the floor, so a scheme that reads keeps its exact colours; `termTheme.legible.test.ts`
+  asserts it for every preset.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

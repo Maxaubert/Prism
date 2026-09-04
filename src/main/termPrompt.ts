@@ -43,7 +43,10 @@ export const PS_FILE_STYLE =
   // terminal's own foreground - white on a dark theme, near-black on a
   // light one - and so is the table header, which pwsh paints green.
   "$PSStyle.FileInfo.Executable = ''; $PSStyle.FileInfo.SymbolicLink = ''; " +
-  "$PSStyle.FileInfo.Extension.Clear(); $PSStyle.Formatting.TableHeader = '' }"
+  "$PSStyle.FileInfo.Extension.Clear(); " +
+  // TableHeader is the green header row; FormatAccent is the italic green
+  // that a numeric column's header ("Length") wears on top of it.
+  "$PSStyle.Formatting.TableHeader = ''; $PSStyle.Formatting.FormatAccent = '' }"
 
 /** cmd's PROMPT with the report in front of whatever it already was. */
 export function cmdPrompt(existing: string | undefined): string {
