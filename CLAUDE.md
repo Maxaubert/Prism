@@ -552,10 +552,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   heuristic cost. A title with a state is ALSO the agent being present, NOW, ahead of the
   process poll that would have said so up to 2.5s later; the poll still notices it leaving.
   A titled session is never scored from its output again - the agent's own word is exact and
-  its repaints would only second-guess it. Codex sets no such title (measured), so it keeps
-  the output fallback, which lost its 700ms tick: the chunk that carries a run past the
-  sustain sets working right then, and ONE timer armed on the latest chunk clears it after
-  the silence. The e2e stands a shell in for Claude with `$Host.UI.RawUI.WindowTitle`, NOT a
+  its repaints would only second-guess it. CODEX HAS A DIALECT OF ITS OWN (measured the same
+  day, in a folder it trusts - in an untrusted one the trust prompt eats the first keystroke
+  and it quits): a BRAILLE spinner before the FOLDER NAME while busy ("⠙ yeah", cycling
+  ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) and the bare folder name at rest, during startup too - the spinner runs while
+  MCP servers load and the bare name marks the moment it is ready - with its child
+  processes' titles ("npm", "cmd.exe") interleaved, meaning nothing. So the reader is PER
+  SESSION (`readAgentTitle`) and remembers the name after the spinner, whose bare form is
+  the idle; a spinner BEFORE the first idle is the agent STARTING, present and not working,
+  for both dialects. A braille spinner is common currency (ora, and every CLI built on it),
+  so the Codex dialect is acted on only once the process poll has found an agent in the
+  shell; Claude's glyphs are its own and act alone. A session with no title state keeps the
+  output fallback, which lost its 700ms tick: the chunk that carries a run past the sustain
+  sets working right then, and ONE timer armed on the latest chunk clears it after the
+  silence. The e2e stands a shell in for Claude with `$Host.UI.RawUI.WindowTitle`, NOT a
   raw `[Console]::Write` of the sequence - that one re-encodes the glyph to "?" on its way
   through the console (measured); Claude writes its bytes straight to the pty.
   **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a

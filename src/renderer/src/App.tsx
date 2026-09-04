@@ -52,7 +52,7 @@ import {
   startupOutput
 } from './lib/termActivity'
 import { onCwd, onTitle } from './lib/termBus'
-import { titleState } from './lib/agentTitle'
+import { forgetAgentTitle, readAgentTitle } from './lib/agentTitle'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from '@shared/termCwd'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
@@ -1622,6 +1622,7 @@ export default function App(): JSX.Element {
           // The agent left: its title state and any working mark go with it,
           // and the next agent in this shell starts on the fallback again.
           titled.current.delete(id)
+          forgetAgentTitle(id)
           stopFallback(id)
           setWorkingIds((prev) => {
             if (!prev.has(id)) return prev
@@ -1757,27 +1758,34 @@ export default function App(): JSX.Element {
    * Claude Code writes its state into the terminal title - "✳ …" idle, a
    * spinner glyph while working, MEASURED at 30ms after Enter and at the
    * instant an answer lands - so the indicator follows the title and nothing
-   * else for such a session. A title with a state is also the agent being
-   * present, NOW, ahead of the process poll that would have said so up to
-   * 2.5s later; the poll still notices it leaving. Codex sets no such title
-   * (measured), so it keeps the output fallback above.
+   * else for such a session. Codex has a dialect of its own (a braille
+   * spinner before the folder name, the bare name at rest) and the reader
+   * knows both; a spinner before the agent's first rest is it STARTING,
+   * which is present and not working. A Claude title is also the agent
+   * being present, NOW, ahead of the process poll that would have said so
+   * up to 2.5s later. A braille spinner is common currency (ora, and
+   * every CLI built on it), so the Codex dialect is acted on only once the
+   * poll has found an agent in the shell; the poll notices either leaving.
+   * Sessions with no title state at all keep the output fallback above.
    */
   useEffect(
     () =>
       onTitle((id, title) => {
-        const state = titleState(title)
-        if (!state) return
+        const r = readAgentTitle(id, title)
+        if (!r) return
+        if (r.kind === 'codex' && !agentKinds.current.has(id)) return
         if (!titled.current.has(id)) {
           titled.current.add(id)
           outputRuns.current.delete(id)
           stopFallback(id)
         }
-        if (!agentKinds.current.has(id)) agentKinds.current.set(id, 'claude')
+        if (!agentKinds.current.has(id)) agentKinds.current.set(id, r.kind)
         setAgentIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+        const working = r.state === 'working'
         setWorkingIds((prev) => {
-          if (prev.has(id) === (state === 'working')) return prev
+          if (prev.has(id) === working) return prev
           const next = new Set(prev)
-          if (state === 'working') next.add(id)
+          if (working) next.add(id)
           else next.delete(id)
           return next
         })
@@ -1820,6 +1828,7 @@ export default function App(): JSX.Element {
         disposeSession(id)
         outputRuns.current.delete(id)
         titled.current.delete(id)
+        forgetAgentTitle(id)
         stopFallback(id)
         termRoots.current.delete(id)
         setAgentIds((prev) => {

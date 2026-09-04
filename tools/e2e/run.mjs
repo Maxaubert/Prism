@@ -3293,6 +3293,12 @@ async function agentTitleScenario(fixtures) {
     await sleep(3500) // a cold pwsh takes a moment to prompt
     ok((await state()) === null, 'a plain shell shows no agent state')
 
+    // Claude's birth title is idle; a spinner BEFORE any idle would be the
+    // agent starting, which is present and not working.
+    await say('2733', 'Claude Code') // ✳
+    await sleep(600)
+    ok((await attr('data-agent-present')) !== null && (await state()) === null, 'the idle birth title marks the agent present and nothing else')
+
     const t1 = await say('25D0', 'Claude Code') // ◐
     await win.waitForFunction(
       () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
@@ -3319,6 +3325,13 @@ async function agentTitleScenario(fixtures) {
     await win.keyboard.press('Enter')
     await sleep(2500)
     ok((await state()) !== 'working', 'output alone does not light a session whose title says idle')
+
+    // The Codex dialect (a braille spinner before the folder name) is common
+    // currency - ora and every CLI built on it - so in a shell where the
+    // process poll has found no agent it is not taken as one.
+    await say('2819', 'yeah') // ⠙
+    await sleep(600)
+    ok((await state()) !== 'working', 'a braille spinner in a plain shell lights nothing without the poll behind it')
   } finally {
     await app.close()
   }
