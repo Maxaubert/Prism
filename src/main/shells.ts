@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import type { ShellDef } from '@shared/types'
+import { PS_PROMPT_HOOK } from './termPrompt'
 
 // The shells this machine actually has. Prism never execs a renderer-supplied
 // path: the renderer names a shell by id, and the id is looked up in this list,
@@ -65,14 +66,22 @@ export function detectShells(): Promise<ShellDef[]> {
         // The try keeps older PSReadLine versions (no such parameter) working.
         //
         // Windows PowerShell ships PSReadLine 2.0: no prediction, plain args.
+        //
+        // The prompt hook (#99) rides the same bootstrap: the shell reports
+        // its folder at every prompt, which is what keeps the sidebar in step.
         args: [
           '-NoLogo',
           '-NoExit',
           '-Command',
-          'Set-PSReadLineOption -PredictionSource History; try { Set-PSReadLineOption -EnableScreenReaderMode:$false } catch {}'
+          `Set-PSReadLineOption -PredictionSource History; try { Set-PSReadLineOption -EnableScreenReaderMode:$false } catch {}; ${PS_PROMPT_HOOK}`
         ]
       })
-    list.push({ id: 'powershell', name: 'Windows PowerShell', exe: 'powershell.exe', args: ['-NoLogo'] })
+    list.push({
+      id: 'powershell',
+      name: 'Windows PowerShell',
+      exe: 'powershell.exe',
+      args: ['-NoLogo', '-NoExit', '-Command', PS_PROMPT_HOOK]
+    })
     list.push({ id: 'cmd', name: 'Command Prompt', exe: 'cmd.exe', args: [] })
     // wsl -l -q prints UTF-16LE. --cd . starts the distro in the pty's cwd.
     const wsl = await run('wsl.exe', ['-l', '-q'])

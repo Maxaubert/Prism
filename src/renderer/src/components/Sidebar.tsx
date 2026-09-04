@@ -190,7 +190,8 @@ export function Sidebar({
   onCloseTermId,
   onSplitTermId,
   state,
-  onTree
+  onTree,
+  reveal = null
 }: {
   open: boolean
   root: string
@@ -250,6 +251,10 @@ export function Sidebar({
   /** The tree's expanded folders and loaded children. Owned by the tab. */
   state: TreeState
   onTree: (update: (s: TreeState) => TreeState) => void
+  /** A folder the shell has walked into (#99): expand to it and put the
+   *  cursor on it, the way clicking it would. `seq` makes the same folder
+   *  twice two requests. */
+  reveal?: { path: string; seq: number } | null
 }): JSX.Element {
   // The tree's state belongs to the TAB, not to this component. Owned here it
   // reset on every tab switch, which made a tab feel like a reload rather than
@@ -1039,6 +1044,30 @@ export function Sidebar({
     },
     [onOpenFile]
   )
+
+  // The shell walked into a folder (#99): show it and mark it, WITHOUT taking
+  // the keyboard - the person who typed the cd is still typing in the
+  // terminal, and `land` would move focus onto the row. The row is scrolled
+  // into view once the expansion has rendered it.
+  // App has already expanded the chain in the tab's tree (and the gap-filler
+  // loads what that opened), so this is the mark alone, adjusted during
+  // render like the cursor reset above: one request, one mark.
+  const [revealSeen, setRevealSeen] = useState(0)
+  if (reveal && reveal.seq !== revealSeen) {
+    setRevealSeen(reveal.seq)
+    setCursor(reveal.path)
+    setSel({ anchor: reveal.path, items: new Set([reveal.path]) })
+  }
+  useEffect(() => {
+    if (!reveal) return
+    const path = reveal.path
+    const raf = requestAnimationFrame(() => {
+      scroller.current
+        ?.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [reveal])
 
   // The tree's answer to an arrow key. Returns false when it has nothing to
   // say, and App pages the folder the old way instead: while the panel is shut,

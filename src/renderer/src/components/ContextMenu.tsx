@@ -21,6 +21,12 @@ export interface MenuItem {
    *  up, so several can be ticked or a tick undone. The rows re-render from
    *  their owner's state, so the ticks move while the menu stands. */
   keepOpen?: boolean
+  /** A small control on the row's RIGHT edge with its own click (2026-09-04,
+   *  #99: the pin on a recent folder). Rows are buttons, so this is a span
+   *  with a role rather than a nested button; its click never reaches the
+   *  row's pick and never closes the menu, so a pin can be set and unset
+   *  while you look at the list. */
+  trailing?: { icon: JSX.Element; title: string; onClick: () => void }
 }
 
 const PANEL =
@@ -65,6 +71,22 @@ function Row({
       <span className="flex shrink-0 items-center gap-2">
         {it.hint && (
           <span className="text-[10.5px] tracking-wide text-[var(--p-dim2)]">{it.hint}</span>
+        )}
+        {it.trailing && (
+          <span
+            role="button"
+            tabIndex={-1}
+            title={it.trailing.title}
+            aria-label={it.trailing.title}
+            data-menu-trailing
+            className="-mr-1 grid h-5 w-5 place-items-center rounded text-[var(--p-dim2)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+            onClick={(e) => {
+              e.stopPropagation()
+              it.trailing?.onClick()
+            }}
+          >
+            {it.trailing.icon}
+          </span>
         )}
         {it.children && (
           <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden>

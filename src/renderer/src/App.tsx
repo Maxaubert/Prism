@@ -44,11 +44,15 @@ import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from './lib/recentRoots'
 import {
   activitySuppressed,
+  idleAtPrompt,
   inputEcho,
   isTouched,
   markResume,
   suppressActivity
 } from './lib/termActivity'
+import { onCwd } from './lib/termBus'
+import { ancestorChain } from './lib/fileTree'
+import { decideFollow } from '@shared/termCwd'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
@@ -1360,6 +1364,13 @@ export default function App(): JSX.Element {
       .filter((b) => b.path.toLowerCase().startsWith(r))
       .map((b) => baseName(b.path))
   }, [])
+  /** Which agent each session hosts - resume is claude-only. Up here because
+   *  the reroot below asks it before writing into a shell. */
+  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
+  /** Where each shell last said it was (#99): its prompt's own report. A
+   *  shell that has never reported (WSL, a shell still starting) is absent,
+   *  and absent means Prism does not know, so it does not act. */
+  const termCwd = useRef(new Map<string, string>())
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
     setTabState((s) => {
       const next = rerootTab(s.tabs, id, p, nextTabId())
@@ -1379,6 +1390,25 @@ export default function App(): JSX.Element {
         const termId = nextTermId()
         termRoots.current.set(termId, p.root)
         return { ...next, tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view }) }
+      }
+      // A TOUCHED shell follows too now (#99, owner decision 2026-09-04), by
+      // one Set-Location written into it - and only at a moment that cannot
+      // hurt: it has reported a prompt and nothing has been typed since (so
+      // no half-typed line runs with the cd in front of it), no agent is
+      // living in it (its folder is the agent's, not the tab's), and it is
+      // not already there. Anything else, it is left alone, silently: the
+      // shell is somebody's work and a folder change is not a reason to
+      // interrupt it.
+      if (
+        tab?.term &&
+        isTouched(tab.term.id) &&
+        !agentKinds.current.has(tab.term.id) &&
+        idleAtPrompt(tab.term.id) &&
+        decideFollow(p.root, termCwd.current.get(tab.term.id) ?? '') !== 'same' &&
+        termCwd.current.has(tab.term.id)
+      ) {
+        termCwd.current.set(tab.term.id, p.root)
+        window.prism.termCd(tab.term.id, p.root)
       }
       return next
     })
@@ -1410,8 +1440,6 @@ export default function App(): JSX.Element {
   // Up here for the same reason as `agentIds`: the close path asks what it
   // is about to interrupt. Scored by the polling effect further down.
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
-  /** Which agent each session hosts - resume is claude-only. */
-  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -1809,6 +1837,57 @@ export default function App(): JSX.Element {
   const onTree = useCallback(
     (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),
     [activeId, setTree]
+  )
+  /**
+   * The shell walked somewhere (#99): its tab follows. INSIDE the root the
+   * tree expands to the folder and marks it (the root stays - a project tab
+   * that rerooted on every `cd src` would throw the project away, and no
+   * editor surveyed does that; Warp pins to the git root for the same
+   * reason). OUTSIDE it the tab reroots to the folder, since the tree would
+   * otherwise show nothing true. Same place, nothing. Only the tab's CURRENT
+   * shell drives it; a pane's shell reports and is remembered, no more.
+   *
+   * The report is the prompt's, so it arrives once per prompt, including the
+   * prompt after a Set-Location Prism wrote itself - which is why "same as
+   * last time" is checked first: that echo is exactly a no-op.
+   */
+  const [revealReq, setRevealReq] = useState<{ tabId: string; path: string; seq: number } | null>(
+    null
+  )
+  const revealSeq = useRef(0)
+  useEffect(
+    () =>
+      onCwd((sessionId, path) => {
+        const before = termCwd.current.get(sessionId)
+        termCwd.current.set(sessionId, path)
+        if (before && decideFollow(before, path) === 'same') return
+        // The tab whose CURRENT shell this is. `tabs` is a dependency, so the
+        // subscription is renewed with the state and never reads a stale list.
+        const tab = tabs.find((t) => t.kind !== 'settings' && t.term?.id === sessionId)
+        if (!tab) return
+        const where = decideFollow(tab.root, path)
+        if (where === 'same') return
+        if (where === 'inside') {
+          const chain = [...ancestorChain(tab.root, path), path]
+          setTree(tab.id, (t) => {
+            if (chain.every((c) => t.expanded.has(c))) return t
+            const expanded = new Set(t.expanded)
+            chain.forEach((c) => expanded.add(c))
+            return { ...t, expanded }
+          })
+          revealSeq.current += 1
+          setRevealReq({ tabId: tab.id, path, seq: revealSeq.current })
+          return
+        }
+        // Past the wall. A folder some other tab already holds is left to that
+        // tab: rerooting would switch you there, mid-keystroke, which is worse
+        // than a tree that lags one cd behind.
+        const held = tabs.some((t) => t.kind !== 'settings' && sameRoot(t.root, path))
+        if (held) return
+        const id = tab.id
+        void window.prism.openRoot(path).then((p) => p && applyReroot(id, p))
+      }),
+    [applyReroot, setTree, tabs]
   )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
@@ -3066,6 +3145,7 @@ export default function App(): JSX.Element {
             onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
+            reveal={revealReq && revealReq.tabId === active.id ? revealReq : null}
             // The selected row follows what is ON SCREEN: a pinned pane marks
             // its file, the terminal marks nothing - in a split when it holds
             // the focus, and in FULL view always, where the viewer is not

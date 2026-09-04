@@ -35,6 +35,7 @@ import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import {
   killAll,
+  cdTerm,
   killTerm,
   killWarm,
   livePids,
@@ -1443,6 +1444,12 @@ if (!app.requestSingleInstanceLock()) {
       }
     )
     ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
+    // The tab rerooted and its shell should follow (#99). The destination is
+    // a root, so it is inside the wall by construction; main composes the
+    // line, the renderer decided whether now was a safe moment to write it.
+    ipcMain.on('term:cd', (_e, id: string, path: string) => {
+      if (isAnyRoot(path) || insideAnyRoot(path)) cdTerm(id, path)
+    })
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
     // The renderer says which root is in front and shell-less; main starts

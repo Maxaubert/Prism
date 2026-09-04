@@ -5,7 +5,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { decidePaste } from '../lib/termPaste'
-import { registerPaste } from '../lib/termBus'
+import { registerPaste, reportCwd } from '../lib/termBus'
+import { parseOsc9 } from '@shared/termCwd'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import {
   onTermLookChange,
@@ -14,7 +15,14 @@ import {
   termFontStack,
   termThemeId
 } from '../lib/termLook'
-import { forgetSession, markTouched, suppressActivity, takeResume } from '../lib/termActivity'
+import {
+  forgetSession,
+  looksTyped,
+  markPrompt,
+  markTouched,
+  suppressActivity,
+  takeResume
+} from '../lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the
@@ -219,9 +227,29 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   el.className = 'h-full w-full'
   term.open(el)
 
+  // Touched means the USER typed (#99 found the lie): xterm also answers the
+  // pty on its own - focus in/out (ESC[I / ESC[O, which pwsh 7.5 switches
+  // on), device attributes at spawn (ESC[?1;2c), cursor position - and every
+  // one of those went through onData and counted as typing, so a shell
+  // nobody had touched read as touched from its first prompt. Keys are
+  // heard on onKey, which only fires for a key; the rest of onData counts
+  // only when it is plain text (an IME commit), never when it is a reply.
+  term.onKey(() => markTouched(id))
   term.onData((d) => {
-    markTouched(id) // user input: the reroot policy leaves this shell alone
+    if (looksTyped(d)) markTouched(id)
     window.prism.termInput(id, d)
+  })
+  // The prompt's own report of where the shell is (#99): OSC 9;9, the
+  // Windows Terminal convention, printed by the hook main put in the
+  // bootstrap. Read here rather than in main because xterm already parses
+  // the stream; handled (true) so it is never drawn as stray text.
+  term.parser.registerOscHandler(9, (data) => {
+    const p = parseOsc9(data)
+    if (p) {
+      markPrompt(id)
+      reportCwd(id, p)
+    }
+    return true
   })
   // A resuming session shows a quiet spinner until claude's first paint:
   // the ~4s between an empty terminal and the conversation appearing read
@@ -258,7 +286,10 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     if (decision.kind === 'key') {
       markTouched(id)
       window.prism.termInput(id, '')
-    } else if (decision.kind === 'text') term.paste(decision.data)
+    } else if (decision.kind === 'text') {
+      markTouched(id) // a paste is typing; bracketed, it starts with ESC
+      term.paste(decision.data)
+    }
   }
 
   const unsub = [
@@ -306,6 +337,11 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     ) {
       return false
     }
+    // Ctrl+` is Prism's too (it hides the panel). Left to xterm it became a
+    // NUL byte to the pty, which counted as TYPING (#99): hiding the shell
+    // with the key it is hidden with then stopped it following a reroot,
+    // because "nothing typed since the prompt" was no longer true.
+    if (e.key === '`' && e.ctrlKey && !e.altKey) return false
     if (e.key === 'Enter' && e.shiftKey) {
       // Newline-without-submit, the continuation form Claude Code accepts
       // everywhere. This is what /terminal-setup exists to configure; here it
@@ -321,7 +357,10 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     if ((e.key === 'v' || e.key === 'V') && e.ctrlKey && e.shiftKey) {
       // The escape hatch: plain text paste even when an image rides along.
       const clip = window.prism.readClipboard()
-      if (clip.text) term.paste(clip.text)
+      if (clip.text) {
+        markTouched(id)
+        term.paste(clip.text)
+      }
       return false
     }
     return true

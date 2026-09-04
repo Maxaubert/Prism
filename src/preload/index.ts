@@ -413,6 +413,8 @@ const api = {
   termSpawn: (id: string, root: string, shellId?: string, resume?: string): Promise<boolean> =>
     ipcRenderer.invoke('term:spawn', id, root, shellId, resume),
   termInput: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
+  /** Move a shell to a root it should follow (#99); main writes the line. */
+  termCd: (id: string, path: string): void => ipcRenderer.send('term:cd', id, path),
   termResize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send('term:resize', id, cols, rows),
   termKill: (id: string): void => ipcRenderer.send('term:kill', id),

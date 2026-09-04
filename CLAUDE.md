@@ -466,8 +466,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   HOSTED CLAUDE at quit resumes the conversation BY SESSION ID: main reads the newest
   session claude recorded for the folder (~/.claude/projects) and launches the shell with
   `claude --resume <id>` as its STARTUP command - never typed on screen, never a bare
-  --continue guessing (no session on disk = no resume). That is the ONE command Prism
-  ever writes itself - an explicit owner exception (2026-08-21) to the line below,
+  --continue guessing (no session on disk = no resume). That was the ONE command Prism
+  ever wrote itself - an explicit owner exception (2026-08-21) to the line below; the
+  Set-Location of #99 (2026-09-04) is the second -
   claude AND codex (2026-08-23): claude comes back by session id, codex by its own `codex resume --last`, whose picker already filters by cwd so no lookup is needed; agent detection names the kind and tabs.json records it (the old boolean means claude). Other agents light the dot but have nothing to come back to. Ctrl+C
   over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
   pwsh by default, Settings picks from what the machine has. The pty gets a
@@ -503,6 +504,28 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
   cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
   'Off' still means off: a confirmation that appears anyway is a setting that lies.
+- **The terminal and the sidebar stay in step** (2026-09-04, #99). The shell REPORTS its
+  folder at every prompt, Windows Terminal's way: the pwsh bootstrap wraps whatever `prompt`
+  the profile installed (oh-my-posh and starship survive) to print OSC 9;9 for the FileSystem
+  provider, Windows PowerShell gets the same `-Command`, cmd gets it through PROMPT
+  (`termPrompt.ts`); WSL and bash report nothing and are left out. xterm's OSC handler reads
+  it, never the process - pwsh's process cwd does not follow Set-Location. A cd INSIDE the
+  tab's root expands to the folder and marks it, root unchanged (research across Warp, VS
+  Code, Zed, JetBrains and Dolphin: no editor reroots on a cd, and Warp pins to the git root
+  precisely so an in-project cd moves nothing); a cd OUTSIDE reroots the tab, unless another
+  tab holds that folder, which would switch you there mid-keystroke. The other way, a reroot
+  (folder button, a folder row dropped on the viewer) respawns an UNTOUCHED shell as before
+  and now writes ONE `Set-Location -LiteralPath` into a TOUCHED one - **the second command
+  Prism ever writes itself**, beside the agent resume (owner decision) - and only when the
+  shell has reported a prompt with nothing typed since, hosts no agent, and is not already
+  there. Anything else is left alone, silently. Equal cwd is a no-op both ways, which is also
+  what stops the echo loop. `termCwd.ts` (shared, pure) holds the parsing, the quoting and the
+  inside/outside decision. TWO LIES FOUND ON THE WAY: xterm answers the pty on its own (focus
+  in/out, which pwsh 7.5 switches on; device attributes at spawn), and every reply went through
+  onData and counted as the USER typing, so a shell nobody had touched read as touched from
+  its first prompt - keys are heard on onKey now, and onData counts only plain text; and
+  Ctrl+` left to xterm became a NUL byte to the pty, so hiding the panel with the key it is
+  hidden with counted as typing too.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

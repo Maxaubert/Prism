@@ -3095,6 +3095,173 @@ async function tabsScenario(fixtures) {
   }
 }
 
+/**
+ * The pin on the + menu (#99): a pinned folder climbs above the recents, the
+ * pin fills, the menu stays up while you do it, and the pin outlives history.
+ */
+async function pinRecentScenario(fixtures) {
+  console.log('pin recent')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const rows = () => win.locator('[role="menuitem"]')
+  const rowLabels = () => rows().evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  const pinOf = (label) => win.locator(`[role="menuitem"]:has-text("${label}") [data-pin]`)
+  const openMenu = async () => {
+    await win.locator('[aria-label="New tab"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menuitem"]', { timeout: 5000 })
+  }
+  try {
+    await win.evaluate(
+      ([a, b]) => {
+        localStorage.setItem('prism.pinnedRoots', '[]')
+        const recent = JSON.parse(localStorage.getItem('prism.recentRoots') ?? '[]')
+        localStorage.setItem('prism.recentRoots', JSON.stringify([...recent, a, b]))
+      },
+      [join(fixtures, 'code'), join(fixtures, 'docs')]
+    )
+    await openMenu()
+    const before = await rowLabels()
+    ok(before.length >= 3 && before[0] !== 'docs', `the menu lists the recents, history order (${before.join(' | ')})`)
+    ok(
+      (await win.locator('[role="menuitem"] [data-pin="off"]').count()) === before.length,
+      'every row carries an outlined pin'
+    )
+    await pinOf('docs').click()
+    await sleep(200)
+    ok((await rows().count()) === before.length, 'pinning keeps the menu open and the row count')
+    const after = await rowLabels()
+    ok(after[0] === 'docs', `the pinned folder climbs to the top (${after[0]})`)
+    ok((await pinOf('docs').getAttribute('data-pin')) === 'on', 'and its pin is filled')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    // History moves on; the pin does not.
+    await win.evaluate((p) => {
+      const recent = JSON.parse(localStorage.getItem('prism.recentRoots') ?? '[]')
+      localStorage.setItem('prism.recentRoots', JSON.stringify(recent.filter((x) => x !== p)))
+    }, join(fixtures, 'docs'))
+    await openMenu()
+    const again = await rowLabels()
+    ok(again[0] === 'docs' && (await pinOf('docs').getAttribute('data-pin')) === 'on', 'a pin outlives the recents list')
+    ok(again.filter((l) => l === 'docs').length === 1, 'a pinned folder is never also a recent row')
+    await pinOf('docs').click()
+    await sleep(200)
+    ok((await win.evaluate(() => localStorage.getItem('prism.pinnedRoots'))) === '[]', 'the pin clicked again unpins')
+    ok((await rowLabels())[0] !== 'docs', 'and the row drops back into history order')
+    await win.keyboard.press('Escape')
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.pinnedRoots')).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * The terminal and the sidebar in step (#99). A cd INSIDE the root expands
+ * to the folder and marks it, root unchanged; a cd OUTSIDE reroots the tab.
+ * Drives a real pwsh, so this also proves the prompt hook survives node-pty's
+ * argv quoting and reaches xterm as OSC 9;9 rather than as text.
+ */
+async function termCwdScenario(fixtures) {
+  console.log('terminal cwd')
+  const root = join(fixtures, 'code')
+  const { app, win } = await launch(join(root, 'bad.json'))
+  const rowFor = (folder) =>
+    win.evaluate(
+      (f) => {
+        const el = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+          (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(f.toLowerCase())
+        )
+        return el
+          ? { expanded: el.getAttribute('aria-expanded'), selected: el.hasAttribute('data-selected'), tab: el.getAttribute('tabindex') }
+          : null
+      },
+      folder
+    )
+  const tabText = () => win.locator('[role="tab"]').first().textContent()
+  const typeLine = async (s) => {
+    await win.keyboard.type(s)
+    await win.keyboard.press('Enter')
+  }
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    ok((await rowFor('nested'))?.expanded === 'false', 'the folder starts collapsed')
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500) // a cold pwsh takes a moment to prompt
+    ok(
+      !((await win.locator('.xterm').textContent()) ?? '').includes(']9;9;'),
+      'the prompt report is parsed by xterm, never drawn as text'
+    )
+    await typeLine('cd nested')
+    await win.waitForFunction(
+      () => !![...document.querySelectorAll('[role="treeitem"][data-selected]')].find((e) => /nested$/i.test(e.getAttribute('data-row') ?? '')),
+      null,
+      { timeout: 10000 }
+    )
+    const nested = await rowFor('nested')
+    ok(nested?.expanded === 'true', 'cd into a folder inside the root expands it in the tree')
+    ok(nested?.selected && nested?.tab === '0', 'and the cursor marks it, without opening anything')
+    ok(await win.evaluate(() => !!document.activeElement?.closest('.xterm')), 'the keyboard stays in the terminal')
+    ok(((await tabText()) ?? '').includes('code'), `the root did not move (${await tabText()})`)
+
+    await typeLine('cd level-two')
+    await win.waitForFunction(
+      () => !![...document.querySelectorAll('[role="treeitem"][data-selected]')].find((e) => /level-two$/i.test(e.getAttribute('data-row') ?? '')),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a second cd walks the mark one level down')
+
+    // The other direction: the tab reroots (a folder row dropped on the
+    // viewer is the dialog-less way to do what the folder button does) and
+    // the TOUCHED shell follows by one Set-Location, because it is idle at a
+    // prompt with nothing typed and hosts no agent.
+    await win.keyboard.press('Control+`') // from inside: hides the terminal
+    await sleep(500)
+    const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
+    await win
+      .locator('aside [role="treeitem"]:has-text("nested")')
+      .first()
+      .dragTo(win.locator('body'), { targetPosition: { x: viewer.width - 220, y: viewer.height / 2 } })
+    await win.waitForFunction(
+      () => /nested/i.test(document.querySelector('[role="tab"]')?.textContent ?? ''),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, `a folder dropped on the viewer reroots the tab (${await tabText()})`)
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
+    const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+    const deadline = Date.now() + 10000
+    let moved = false
+    while (Date.now() < deadline && !moved) {
+      moved = (await termText()).includes('Set-Location -LiteralPath')
+      if (!moved) await sleep(250)
+    }
+    ok(moved, `the used shell was moved by one Set-Location, written at its idle prompt${moved ? '' : ` (saw: ...${(await termText()).slice(-260)})`}`)
+    await sleep(800)
+    ok(
+      /nested>\s*$/.test((await termText()).trimEnd()),
+      'and its prompt now sits in the new root'
+    )
+    await win.locator('.xterm').click()
+
+    // Past the wall: the tab reroots to where the shell went.
+    await typeLine(`cd '${OTHER_ROOT}'`)
+    await win.waitForFunction(
+      () => (document.querySelector('[role="tab"]')?.textContent ?? '').includes('other'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, `cd outside the root reroots the tab (${await tabText()})`)
+    ok(
+      await win.evaluate(() => [...document.querySelectorAll('[role="treeitem"]')].every((e) => /\\other\\/i.test(e.getAttribute('data-row') ?? ''))),
+      'and the tree is the new root'
+    )
+    ok((await win.locator('.xterm').count()) === 1, 'the shell survived the reroot')
+  } finally {
+    await app.close()
+  }
+}
+
 async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4498,6 +4665,8 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
+await run(pinRecentScenario)
+await run(termCwdScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)

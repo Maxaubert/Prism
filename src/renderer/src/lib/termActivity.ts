@@ -27,6 +27,16 @@ const touchedIds = new Set<string>()
 // long after the last key and scores normally.
 const lastInput = new Map<string, number>()
 
+/**
+ * Is this onData payload something a person produced? Terminal REPLIES all
+ * start with ESC (focus reports, DA, CPR, OSC colour answers); so do the
+ * keys that matter (arrows, Escape), but those arrive on onKey and are
+ * marked there. What is left for this test is plain text: an IME commit.
+ */
+export function looksTyped(data: string): boolean {
+  return data.length > 0 && !data.startsWith('\x1b')
+}
+
 export function markTouched(id: string): void {
   touchedIds.add(id)
   lastInput.set(id, Date.now())
@@ -64,4 +74,22 @@ export function forgetSession(id: string): void {
   lastInput.delete(id)
   until.delete(id)
   resumeIds.delete(id)
+  lastPrompt.delete(id)
+}
+
+// The shell's PROMPT reports its folder (#99), and a report is also the one
+// reliable "I am idle" signal a pty gives: nothing prints a prompt while a
+// command runs. A keystroke after it means somebody is typing on that prompt,
+// so the shell is idle but the line is not empty - and a Set-Location written
+// then would run whatever was half-typed in front of it.
+const lastPrompt = new Map<string, number>()
+
+export function markPrompt(id: string): void {
+  lastPrompt.set(id, Date.now())
+}
+
+/** A prompt has appeared, and nothing has been typed since it did. */
+export function idleAtPrompt(id: string): boolean {
+  const p = lastPrompt.get(id)
+  return p !== undefined && p > (lastInput.get(id) ?? 0)
 }

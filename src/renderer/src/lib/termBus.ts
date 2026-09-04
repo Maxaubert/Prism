@@ -31,3 +31,19 @@ export function pasteInto(sessionId: string): boolean {
   fn()
   return true
 }
+
+// Where each shell says it is (#99). TerminalPanel hears the prompt's report
+// through xterm's OSC parser and posts it here; App listens, because the
+// tree and the tab root are its to move.
+const cwdListeners = new Set<(sessionId: string, path: string) => void>()
+
+export function reportCwd(sessionId: string, path: string): void {
+  cwdListeners.forEach((fn) => fn(sessionId, path))
+}
+
+export function onCwd(fn: (sessionId: string, path: string) => void): () => void {
+  cwdListeners.add(fn)
+  return () => {
+    cwdListeners.delete(fn)
+  }
+}
