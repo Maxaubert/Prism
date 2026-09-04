@@ -30,5 +30,8 @@ describe('the prompt reports its folder (#99)', () => {
     expect(PS_FILE_STYLE).toContain('Get-Variable PSStyle -ErrorAction SilentlyContinue')
     expect(PS_FILE_STYLE).toContain('$PSStyle.FileInfo.Directory = "$([char]27)[34;1m"')
     expect(PS_FILE_STYLE).not.toContain('[44')
+    for (const plain of ['FileInfo.Executable', 'FileInfo.SymbolicLink', 'Formatting.TableHeader'])
+      expect(PS_FILE_STYLE).toContain(`$PSStyle.${plain} = ''`)
+    expect(PS_FILE_STYLE).toContain('$PSStyle.FileInfo.Extension.Clear()')
   })
 })

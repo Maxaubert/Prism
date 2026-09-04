@@ -27,7 +27,7 @@ export const PS_PROMPT_HOOK =
 
 /**
  * Directory names in `ls` as bold blue TEXT rather than pwsh's default of
- * bold on a blue BACKGROUND (owner, 2026-09-04). pwsh's default assumes a
+ * bold on a blue BACKGROUND, and nothing else coloured (owner, 2026-09-04). pwsh's default assumes a
  * dark navy console where the block reads as a tint; on Prism's own palette
  * it reads as a selection. Guarded, because Windows PowerShell has no
  * $PSStyle. It runs AFTER the profile (that is when -Command executes), so
@@ -35,7 +35,15 @@ export const PS_PROMPT_HOOK =
  * Prism's palette, and this is one more part of that look, like the theme.
  */
 export const PS_FILE_STYLE =
-  `if (Get-Variable PSStyle -ErrorAction SilentlyContinue) { $PSStyle.FileInfo.Directory = "${ESC}[34;1m" }`
+  'if (Get-Variable PSStyle -ErrorAction SilentlyContinue) { ' +
+  `$PSStyle.FileInfo.Directory = "${ESC}[34;1m"; ` +
+  // Files in the text colour, whatever they are: the .exe green, the .ps1
+  // yellow and the .zip red made a listing read as a syntax-highlighted
+  // document (owner, same day). Empty means "no style", which is the
+  // terminal's own foreground - white on a dark theme, near-black on a
+  // light one - and so is the table header, which pwsh paints green.
+  "$PSStyle.FileInfo.Executable = ''; $PSStyle.FileInfo.SymbolicLink = ''; " +
+  "$PSStyle.FileInfo.Extension.Clear(); $PSStyle.Formatting.TableHeader = '' }"
 
 /** cmd's PROMPT with the report in front of whatever it already was. */
 export function cmdPrompt(existing: string | undefined): string {
