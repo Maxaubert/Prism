@@ -3114,13 +3114,15 @@ async function pinRecentScenario(fixtures) {
       ([a, b]) => {
         localStorage.setItem('prism.pinnedRoots', '[]')
         const recent = JSON.parse(localStorage.getItem('prism.recentRoots') ?? '[]')
-        localStorage.setItem('prism.recentRoots', JSON.stringify([...recent, a, b]))
+        // In FRONT: the suite before this one has filled the list, and only
+        // the newest five are shown.
+        localStorage.setItem('prism.recentRoots', JSON.stringify([a, b, ...recent.filter((x) => x !== a && x !== b)]))
       },
       [join(fixtures, 'code'), join(fixtures, 'docs')]
     )
     await openMenu()
     const before = await rowLabels()
-    ok(before.length >= 3 && before[0] !== 'docs', `the menu lists the recents, history order (${before.join(' | ')})`)
+    ok(before.length >= 3 && before[0] !== 'docs' && before.includes('docs'), `the menu lists the recents, history order (${before.join(' | ')})`)
     ok(
       (await win.locator('[role="menuitem"] [data-pin="off"]').count()) === before.length,
       'every row carries an outlined pin'
