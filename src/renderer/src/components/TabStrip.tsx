@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEve
 import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
-import { recentLabels, recentRoots } from '../lib/recentRoots'
+import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from '../lib/recentRoots'
 import { dragPayload, setDrag } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 
@@ -23,6 +23,29 @@ const FolderGlyph = (): JSX.Element => (
     <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
   </svg>
 )
+
+/** The pin on a + menu row (#99): outlined while the folder is only history,
+ *  filled once it is pinned. One path, two fills, so the two states line up. */
+const PinGlyph = ({ filled }: { filled: boolean }): JSX.Element => (
+  <svg
+    viewBox="0 0 24 24"
+    width={12}
+    height={12}
+    fill={filled ? 'currentColor' : 'none'}
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinejoin="round"
+    className="shrink-0"
+    data-pin={filled ? 'on' : 'off'}
+    aria-hidden
+  >
+    <path d="M15 3l6 6-3 1-4 4 .5 4.5L10 14l-6 6-1-1 6-6-4.5-4.5L9 8l4-4z" />
+  </svg>
+)
+
+/** What the + menu lists right now: pins first, then the newest recents. */
+const plusMenuRows = (): Array<{ path: string; pinned: boolean }> =>
+  plusMenuList(pinnedRoots(), recentRoots())
 
 export function TabStrip({
   tabs,
@@ -101,7 +124,11 @@ export function TabStrip({
       window.removeEventListener('drop', off, true)
     }
   }, [])
-  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number; recent: string[] } | null>(null)
+  const [plusMenu, setPlusMenu] = useState<{
+    x: number
+    y: number
+    rows: Array<{ path: string; pinned: boolean }>
+  } | null>(null)
   /** A tab's own menu. Deliberately WITHOUT 'close others': each close can
    *  raise the unsaved-changes question, and firing several would overwrite
    *  it and lose the work it exists to protect. That wants App-side
@@ -256,6 +283,7 @@ export function TabStrip({
           <div
             key={t.id}
             data-agent={tint ? indicator : undefined}
+            data-agent-state={working ? 'working' : done ? 'done' : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
@@ -395,7 +423,7 @@ export function TabStrip({
         onContextMenu={(e) => {
           e.preventDefault()
           // Read when it opens: the list is history, and history moves.
-          setPlusMenu({ x: e.clientX, y: e.clientY, recent: recentRoots().slice(0, 5) })
+          setPlusMenu({ x: e.clientX, y: e.clientY, rows: plusMenuRows() })
         }}
       >
         <svg viewBox="0 0 24 24" width={13} height={13} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -436,15 +464,29 @@ export function TabStrip({
           y={plusMenu.y}
           onClose={() => setPlusMenu(null)}
           items={
-            plusMenu.recent.length
-              ? recentLabels(plusMenu.recent).map((r) => ({
-                  label: r.label,
-                  // A folder in front of each, in the tree's own folder
-                  // colour: the menu should say "places" at a glance, not
-                  // read as a list of commands.
-                  icon: <FolderGlyph />,
-                  onPick: () => onOpenRecent(r.path)
-                }))
+            plusMenu.rows.length
+              ? recentLabels(plusMenu.rows.map((r) => r.path)).map((r, i) => {
+                  const pinned = plusMenu.rows[i].pinned
+                  return {
+                    label: r.label,
+                    // A folder in front of each, in the tree's own folder
+                    // colour: the menu should say "places" at a glance, not
+                    // read as a list of commands.
+                    icon: <FolderGlyph />,
+                    onPick: () => onOpenRecent(r.path),
+                    // The pin (#99): toggles in place and the list re-reads,
+                    // so the row you pinned climbs to the top while the menu
+                    // stands. Pinned rows stay for good, above the recents.
+                    trailing: {
+                      icon: <PinGlyph filled={pinned} />,
+                      title: pinned ? 'Unpin' : 'Pin to this menu',
+                      onClick: () => {
+                        togglePin(r.path)
+                        setPlusMenu((m) => (m ? { ...m, rows: plusMenuRows() } : m))
+                      }
+                    }
+                  }
+                })
               : [{ label: 'No recent folders', disabled: true }]
           }
         />

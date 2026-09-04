@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { activitySuppressed, forgetSession, inputEcho, isTouched, markTouched, suppressActivity } from './termActivity'
+import {
+  activitySuppressed,
+  forgetSession,
+  idleAtPrompt,
+  inputEcho,
+  isTouched,
+  looksTyped,
+  markPrompt,
+  markTouched,
+  suppressActivity
+} from './termActivity'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -42,5 +52,36 @@ describe('suppression windows', () => {
     expect(activitySuppressed('s3')).toBe(true)
     vi.advanceTimersByTime(900)
     expect(activitySuppressed('s3')).toBe(false)
+  })
+})
+
+describe('looksTyped (#99)', () => {
+  it('counts plain text as typing and every ESC-led reply as not', () => {
+    expect(looksTyped('a')).toBe(true)
+    expect(looksTyped('日本')).toBe(true) // an IME commit
+    expect(looksTyped('')).toBe(false)
+    expect(looksTyped('\x1b[I')).toBe(false) // focus in
+    expect(looksTyped('\x1b[O')).toBe(false) // focus out
+    expect(looksTyped('\x1b[?1;2c')).toBe(false) // device attributes
+    expect(looksTyped('\x1b[12;40R')).toBe(false) // cursor position
+    expect(looksTyped('\x1b[200~pasted\x1b[201~')).toBe(false) // bracketed paste: marked by its caller
+  })
+})
+
+describe('idleAtPrompt (#99)', () => {
+  it('is true only once a prompt has appeared after the last keystroke', () => {
+    expect(idleAtPrompt('s')).toBe(false)
+    markPrompt('s')
+    expect(idleAtPrompt('s')).toBe(true)
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 10)
+    markTouched('s')
+    expect(idleAtPrompt('s')).toBe(false)
+    vi.setSystemTime(Date.now() + 10)
+    markPrompt('s')
+    expect(idleAtPrompt('s')).toBe(true)
+    vi.useRealTimers()
+    forgetSession('s')
+    expect(idleAtPrompt('s')).toBe(false)
   })
 })

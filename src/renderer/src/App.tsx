@@ -44,11 +44,17 @@ import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from './lib/recentRoots'
 import {
   activitySuppressed,
+  idleAtPrompt,
   inputEcho,
   isTouched,
+  markBorn,
   markResume,
-  suppressActivity
+  startupOutput
 } from './lib/termActivity'
+import { onCwd, onTitle } from './lib/termBus'
+import { forgetAgentTitle, readAgentTitle } from './lib/agentTitle'
+import { ancestorChain } from './lib/fileTree'
+import { decideFollow } from '@shared/termCwd'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
@@ -1102,6 +1108,14 @@ export default function App(): JSX.Element {
             tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
           }
         }
+        // A file ARRIVING means "show me this file" (2026-09-04), exactly as
+        // a tree click does: over a FULL terminal it hides the shell (still
+        // running) and gives the file the room. It used to land underneath
+        // the terminal, unseen, and - since a full terminal marks nothing in
+        // the tree - unmarked as well, so Explorer's double-click looked like
+        // it had done nothing. In split the file lands in its pane as before.
+        if (!p.restore && target?.term?.view === 'full')
+          tabs = setTabTerm(tabs, target.id, { ...target.term, view: 'hidden' })
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
         // strip), and only the saved active tab takes the front.
@@ -1360,6 +1374,13 @@ export default function App(): JSX.Element {
       .filter((b) => b.path.toLowerCase().startsWith(r))
       .map((b) => baseName(b.path))
   }, [])
+  /** Which agent each session hosts - resume is claude-only. Up here because
+   *  the reroot below asks it before writing into a shell. */
+  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
+  /** Where each shell last said it was (#99): its prompt's own report. A
+   *  shell that has never reported (WSL, a shell still starting) is absent,
+   *  and absent means Prism does not know, so it does not act. */
+  const termCwd = useRef(new Map<string, string>())
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
     setTabState((s) => {
       const next = rerootTab(s.tabs, id, p, nextTabId())
@@ -1379,6 +1400,25 @@ export default function App(): JSX.Element {
         const termId = nextTermId()
         termRoots.current.set(termId, p.root)
         return { ...next, tabs: setTabTerm(next.tabs, tab.id, { id: termId, view: tab.term.view }) }
+      }
+      // A TOUCHED shell follows too now (#99, owner decision 2026-09-04), by
+      // one Set-Location written into it - and only at a moment that cannot
+      // hurt: it has reported a prompt and nothing has been typed since (so
+      // no half-typed line runs with the cd in front of it), no agent is
+      // living in it (its folder is the agent's, not the tab's), and it is
+      // not already there. Anything else, it is left alone, silently: the
+      // shell is somebody's work and a folder change is not a reason to
+      // interrupt it.
+      if (
+        tab?.term &&
+        isTouched(tab.term.id) &&
+        !agentKinds.current.has(tab.term.id) &&
+        idleAtPrompt(tab.term.id) &&
+        decideFollow(p.root, termCwd.current.get(tab.term.id) ?? '') !== 'same' &&
+        termCwd.current.has(tab.term.id)
+      ) {
+        termCwd.current.set(tab.term.id, p.root)
+        window.prism.termCd(tab.term.id, p.root)
       }
       return next
     })
@@ -1410,8 +1450,6 @@ export default function App(): JSX.Element {
   // Up here for the same reason as `agentIds`: the close path asks what it
   // is about to interrupt. Scored by the polling effect further down.
   const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
-  /** Which agent each session hosts - resume is claude-only. */
-  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -1571,20 +1609,47 @@ export default function App(): JSX.Element {
    * a finished answer, waiting.
    */
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
+  /** Sessions whose agent reports its state through the title (Claude). */
+  const titled = useRef(new Set<string>())
+  /** The one clearing timer per fallback-scored session. */
+  const fallbackTimers = useRef(new Map<string, number>())
+  const stopFallback = (id: string): void => {
+    const t = fallbackTimers.current.get(id)
+    if (t !== undefined) {
+      clearTimeout(t)
+      fallbackTimers.current.delete(id)
+    }
+  }
   useEffect(
     () =>
       window.prism.onTermAgent((id, present, kind) => {
         if (present && (kind === 'claude' || kind === 'codex' || kind === 'other'))
           agentKinds.current.set(id, kind)
-        else if (!present) agentKinds.current.delete(id)
+        else if (!present) {
+          agentKinds.current.delete(id)
+          // The agent left: its title state and any working mark go with it,
+          // and the next agent in this shell starts on the fallback again.
+          titled.current.delete(id)
+          forgetAgentTitle(id)
+          stopFallback(id)
+          setWorkingIds((prev) => {
+            if (!prev.has(id)) return prev
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        }
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
           // box, the loading spinners after it) is a stream, but it is not the
-          // agent answering anything. Wipe the run and suppress scoring long
-          // enough to outlast the whole startup animation, so the indicator
-          // only ever means a real answer underway.
+          // agent answering anything. Wipe the run, and score nothing until
+          // the FIRST SILENCE after the agent appeared (2026-09-04): the 4s
+          // clock this replaced guessed at how late the poll noticed the
+          // agent and how long the machine took to boot it, and at app start
+          // with several tabs resuming at once the paint outlasted it - so
+          // the tail of a startup lit the tab as an answer underway.
           outputRuns.current.delete(id)
-          suppressActivity(id, 4000)
+          markBorn(id)
           setWorkingIds((prev) => {
             if (!prev.has(id)) return prev
             const next = new Set(prev)
@@ -1605,13 +1670,42 @@ export default function App(): JSX.Element {
   useEffect(
     () =>
       window.prism.onTermData((id) => {
+        // A session whose agent SAYS what it is doing (through the title,
+        // see onTitle below) is never scored from its output: the agent's
+        // own word is exact, and its repaints would only second-guess it.
+        if (titled.current.has(id)) return
         // Output on the heels of a keystroke is that keystroke's echo (the TUI
         // repainting its input box), so typing at an idle agent never scores.
-        if (!activitySuppressed(id) && !inputEcho(id)) {
+        // Every chunk is shown to the birth rule (it tracks the gaps), and
+        // only then is the rest of the scoring asked.
+        const startup = startupOutput(id)
+        if (!startup && !activitySuppressed(id) && !inputEcho(id)) {
           const now = Date.now()
           const run = outputRuns.current.get(id)
           if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
           else run.last = now
+          const r = outputRuns.current.get(id)!
+          // EVENT-DRIVEN, no loop (owner, 2026-09-04): the chunk that carries
+          // the run past the sustain sets working right then, and ONE timer
+          // armed on the latest chunk clears it after the silence - a debounce
+          // in place of the 700ms tick that used to add up to a tick of lag
+          // to both ends.
+          if (r.last - r.start > 1200) {
+            setWorkingIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+            stopFallback(id)
+            fallbackTimers.current.set(
+              id,
+              window.setTimeout(() => {
+                fallbackTimers.current.delete(id)
+                setWorkingIds((prev) => {
+                  if (!prev.has(id)) return prev
+                  const next = new Set(prev)
+                  next.delete(id)
+                  return next
+                })
+              }, 2000)
+            )
+          }
         }
       }),
     []
@@ -1667,22 +1761,45 @@ export default function App(): JSX.Element {
     )
   }, [tabs, activeId, agentIds])
 
-  // One slow tick derives "working" from the runs; state only changes when
-  // the set actually changes, so idle terminals cost nothing.
-  useEffect(() => {
-    const t = setInterval(() => {
-      const now = Date.now()
-      setWorkingIds((prev) => {
-        const next = new Set<string>()
-        for (const [id, run] of outputRuns.current) {
-          if (now - run.last < 2000 && run.last - run.start > 1200) next.add(id)
+  /**
+   * The agent's OWN word (2026-09-04, owner: "instant, and event-driven").
+   * Claude Code writes its state into the terminal title - "✳ …" idle, a
+   * spinner glyph while working, MEASURED at 30ms after Enter and at the
+   * instant an answer lands - so the indicator follows the title and nothing
+   * else for such a session. Codex has a dialect of its own (a braille
+   * spinner before the folder name, the bare name at rest) and the reader
+   * knows both; a spinner before the agent's first rest is it STARTING,
+   * which is present and not working. A Claude title is also the agent
+   * being present, NOW, ahead of the process poll that would have said so
+   * up to 2.5s later. A braille spinner is common currency (ora, and
+   * every CLI built on it), so the Codex dialect is acted on only once the
+   * poll has found an agent in the shell; the poll notices either leaving.
+   * Sessions with no title state at all keep the output fallback above.
+   */
+  useEffect(
+    () =>
+      onTitle((id, title) => {
+        const r = readAgentTitle(id, title)
+        if (!r) return
+        if (r.kind === 'codex' && !agentKinds.current.has(id)) return
+        if (!titled.current.has(id)) {
+          titled.current.add(id)
+          outputRuns.current.delete(id)
+          stopFallback(id)
         }
-        if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
-        return next
-      })
-    }, 700)
-    return () => clearInterval(t)
-  }, [])
+        if (!agentKinds.current.has(id)) agentKinds.current.set(id, r.kind)
+        setAgentIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+        const working = r.state === 'working'
+        setWorkingIds((prev) => {
+          if (prev.has(id) === working) return prev
+          const next = new Set(prev)
+          if (working) next.add(id)
+          else next.delete(id)
+          return next
+        })
+      }),
+    []
+  )
   // Finished-while-away: an agent that STOPS working on a background tab
   // leaves a mark that stays until the tab is visited (or work restarts).
   // An answer that lands while you are watching needs no flag; one that
@@ -1718,6 +1835,9 @@ export default function App(): JSX.Element {
       window.prism.onTermExit((id) => {
         disposeSession(id)
         outputRuns.current.delete(id)
+        titled.current.delete(id)
+        forgetAgentTitle(id)
+        stopFallback(id)
         termRoots.current.delete(id)
         setAgentIds((prev) => {
           if (!prev.has(id)) return prev
@@ -1809,6 +1929,57 @@ export default function App(): JSX.Element {
   const onTree = useCallback(
     (update: (t: TreeState) => TreeState) => activeId && setTree(activeId, update),
     [activeId, setTree]
+  )
+  /**
+   * The shell walked somewhere (#99): its tab follows. INSIDE the root the
+   * tree expands to the folder and marks it (the root stays - a project tab
+   * that rerooted on every `cd src` would throw the project away, and no
+   * editor surveyed does that; Warp pins to the git root for the same
+   * reason). OUTSIDE it the tab reroots to the folder, since the tree would
+   * otherwise show nothing true. Same place, nothing. Only the tab's CURRENT
+   * shell drives it; a pane's shell reports and is remembered, no more.
+   *
+   * The report is the prompt's, so it arrives once per prompt, including the
+   * prompt after a Set-Location Prism wrote itself - which is why "same as
+   * last time" is checked first: that echo is exactly a no-op.
+   */
+  const [revealReq, setRevealReq] = useState<{ tabId: string; path: string; seq: number } | null>(
+    null
+  )
+  const revealSeq = useRef(0)
+  useEffect(
+    () =>
+      onCwd((sessionId, path) => {
+        const before = termCwd.current.get(sessionId)
+        termCwd.current.set(sessionId, path)
+        if (before && decideFollow(before, path) === 'same') return
+        // The tab whose CURRENT shell this is. `tabs` is a dependency, so the
+        // subscription is renewed with the state and never reads a stale list.
+        const tab = tabs.find((t) => t.kind !== 'settings' && t.term?.id === sessionId)
+        if (!tab) return
+        const where = decideFollow(tab.root, path)
+        if (where === 'same') return
+        if (where === 'inside') {
+          const chain = [...ancestorChain(tab.root, path), path]
+          setTree(tab.id, (t) => {
+            if (chain.every((c) => t.expanded.has(c))) return t
+            const expanded = new Set(t.expanded)
+            chain.forEach((c) => expanded.add(c))
+            return { ...t, expanded }
+          })
+          revealSeq.current += 1
+          setRevealReq({ tabId: tab.id, path, seq: revealSeq.current })
+          return
+        }
+        // Past the wall. A folder some other tab already holds is left to that
+        // tab: rerooting would switch you there, mid-keystroke, which is worse
+        // than a tree that lags one cd behind.
+        const held = tabs.some((t) => t.kind !== 'settings' && sameRoot(t.root, path))
+        if (held) return
+        const id = tab.id
+        void window.prism.openRoot(path).then((p) => p && applyReroot(id, p))
+      }),
+    [applyReroot, setTree, tabs]
   )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
@@ -3066,6 +3237,7 @@ export default function App(): JSX.Element {
             onCloseTerm={active.term ? closeTerm : null}
             state={active.tree}
             onTree={onTree}
+            reveal={revealReq && revealReq.tabId === active.id ? revealReq : null}
             // The selected row follows what is ON SCREEN: a pinned pane marks
             // its file, the terminal marks nothing - in a split when it holds
             // the focus, and in FULL view always, where the viewer is not

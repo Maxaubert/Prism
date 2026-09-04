@@ -1,4 +1,4 @@
-import { deriveAnsi, normalizeColor, type Ansi16 } from './termAnsi'
+import { deriveAnsi, legiblePalette, normalizeColor, type Ansi16 } from './termAnsi'
 import { customTermTheme } from './termLook'
 
 // The terminal wears the style. Styles publish their surfaces as CSS custom
@@ -360,7 +360,7 @@ export function resolveTermTheme(themeId: string): TermTheme {
         foreground: c.fg,
         cursor: c.cursor,
         selectionBackground: `${c.cursor}55`,
-        ...c.ansi
+        ...legiblePalette(c.ansi, c.bg)
       }
   }
   const p = TERM_PRESETS.find((x) => x.id === themeId)
@@ -370,8 +370,10 @@ export function resolveTermTheme(themeId: string): TermTheme {
     foreground: p.fg,
     cursor: p.cursor,
     selectionBackground: `${p.cursor}55`,
-    // A curated palette is taste and stays exact; only base-only presets get
-    // the derived sixteen.
-    ...(p.ansi ?? deriveAnsi(p.bg, p.fg))
+    // A curated palette is taste and stays as exact as legibility allows:
+    // only a colour that fails the floor against the background moves, and
+    // only as far as the floor (owner, 2026-09-04). Base-only presets get
+    // the derived sixteen, which clear it by construction.
+    ...legiblePalette(p.ansi ?? deriveAnsi(p.bg, p.fg), p.bg)
   }
 }

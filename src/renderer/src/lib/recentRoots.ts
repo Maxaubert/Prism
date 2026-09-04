@@ -70,3 +70,58 @@ export function forgetRoot(path: string): void {
     /* nothing to do */
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pins (2026-09-04, #99). History moves; a pin does not. A pinned folder sits
+// at the top of the + menu, in the order it was pinned, for as long as it is
+// pinned - nothing else adds to or removes from this list, not a visit, not
+// the folder going missing. That is what makes it a pin rather than a
+// stickier kind of recent.
+// ---------------------------------------------------------------------------
+
+const PIN_KEY = 'prism.pinnedRoots'
+/** How many recents the menu shows under the pins. */
+export const RECENT_SHOWN = 5
+
+export function pinnedRoots(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PIN_KEY) ?? '[]') as unknown
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && !!x) : []
+  } catch {
+    return []
+  }
+}
+
+export function isPinned(path: string): boolean {
+  return pinnedRoots().some((p) => same(p, path))
+}
+
+/** The list after toggling `path`: a pinned folder is unpinned, an unpinned
+ *  one goes to the END, so the menu keeps the order things were pinned in. Pure. */
+export function withPinToggled(pinned: readonly string[], path: string): string[] {
+  const p = path.trim()
+  if (!p) return [...pinned]
+  return pinned.some((x) => same(x, p)) ? pinned.filter((x) => !same(x, p)) : [...pinned, p]
+}
+
+export function togglePin(path: string): void {
+  try {
+    localStorage.setItem(PIN_KEY, JSON.stringify(withPinToggled(pinnedRoots(), path)))
+  } catch {
+    /* no storage: the pin simply does not take */
+  }
+}
+
+/**
+ * What the + menu shows: the pins first, then the newest recents that are not
+ * pinned, `shown` of them. A pinned folder is never also a recent row, so
+ * revisiting it moves nothing. Pure.
+ */
+export function plusMenuList(
+  pinned: readonly string[],
+  recent: readonly string[],
+  shown = RECENT_SHOWN
+): Array<{ path: string; pinned: boolean }> {
+  const rest = recent.filter((r) => !pinned.some((p) => same(p, r))).slice(0, shown)
+  return [...pinned.map((path) => ({ path, pinned: true })), ...rest.map((path) => ({ path, pinned: false }))]
+}

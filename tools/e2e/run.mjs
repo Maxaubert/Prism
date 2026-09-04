@@ -1043,10 +1043,12 @@ async function reloadScenario(fixtures) {
       { timeout: 10000 }
     )
     ok(true, 'Reload from disk takes theirs')
-    ok(
-      (await win.locator('[aria-label="Unsaved changes"]').count()) === 0,
-      'and the file is clean again afterwards'
-    )
+    // The star clears a beat after the text lands; wait for it rather than
+    // reading it on the same tick (it flaked once under a full-suite load).
+    const clean = await win
+      .waitForFunction(() => document.querySelectorAll('[aria-label="Unsaved changes"]').length === 0, null, { timeout: 5000 })
+      .then(() => true, () => false)
+    ok(clean, 'and the file is clean again afterwards')
   } finally {
     await app.close()
   }
@@ -2817,6 +2819,40 @@ async function handoff(file) {
   await sleep(600)
 }
 
+/**
+ * A file handed over by Explorer while the tab shows a FULL terminal
+ * (2026-09-04): the shell hides and the file shows, marked in the tree. It
+ * used to land underneath the terminal, unseen and unmarked.
+ */
+async function handoffOverTermScenario(fixtures) {
+  console.log('handoff over terminal')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    // A file IN the tab's root: that is the one case that folds now.
+    await handoff(join(fixtures, 'notes.txt'))
+    await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
+    ok(true, 'a file arriving from Explorer hides the full terminal')
+    await win.waitForSelector('.cm-editor', { timeout: 8000 })
+    ok(true, 'and the file is what shows')
+    await win.waitForFunction(
+      () => /notes\.txt$/i.test(document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? ''),
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'and the tree marks it')
+    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === 1, 'in the same tab: the root already held it')
+    // The shell is hidden, not gone: Ctrl+` brings it straight back.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 8000 })
+    ok(true, 'the shell was hidden, not killed')
+  } finally {
+    await app.close()
+  }
+}
+
 async function tabsScenario(fixtures) {
   console.log('project tabs')
   const otherRoot = OTHER_ROOT
@@ -2838,18 +2874,23 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A file from a SUBFOLDER of an open root lands in THAT root's tab, rather
-    // than spawning one rooted at the subfolder (2026-09-01). Most files are
-    // not sitting directly in their project's root, so the old rule - fold
-    // only when the root IS the file's folder - accumulated a tab per folder
-    // every time anything was opened from Explorer.
+    // A file from a SUBFOLDER of an open root opens a tab of its own, rooted
+    // at that folder (owner, 2026-09-04, reversing 2026-09-01): separate
+    // folders are separate tabs, and only the exact root folds. The tab it
+    // did not land in is left exactly as it was.
     await handoff(join(fixtures, 'code', 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
-    ok((await tabRows().count()) === 1, 'a file from a subfolder stays in the tab that holds it')
+    ok((await tabRows().count()) === 2, 'a file from a subfolder opens a tab of its own')
     ok(
-      /fixtures/i.test((await tabRows().first().getAttribute('title')) ?? ''),
-      'and that tab keeps ITS root, not the subfolder'
+      /\\code$/i.test((await tabRows().last().getAttribute('title')) ?? ''),
+      'rooted at the subfolder'
     )
+    ok(
+      /fixtures$/i.test((await tabRows().first().getAttribute('title')) ?? ''),
+      'and the tab above it keeps ITS root'
+    )
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(400)
 
     // A second root, opened deliberately - a genuine sibling, since a
     // subfolder is no longer a second root at all.
@@ -2891,10 +2932,8 @@ async function tabsScenario(fixtures) {
     }
 
     // Switching: the tree and the viewer both follow. Point the first tab back
-    // at its README first - the subfolder handoff above legitimately moved it
-    // to bad.json, which is the fold working - then switch AWAY and back, so
-    // this tests the switch rather than what the last handoff happened to
-    // leave on screen.
+    // at its README first, then switch AWAY and back, so this tests the
+    // switch rather than what the last handoff happened to leave on screen.
     await handoff(join(fixtures, 'README.md'))
     await sleep(400)
     await tabRows().last().click()
@@ -3092,6 +3131,348 @@ async function tabsScenario(fixtures) {
     ok(!stuck, 'and none of them is still saying "loading"')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * The pin on the + menu (#99): a pinned folder climbs above the recents, the
+ * pin fills, the menu stays up while you do it, and the pin outlives history.
+ */
+async function pinRecentScenario(fixtures) {
+  console.log('pin recent')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const rows = () => win.locator('[role="menuitem"]')
+  const rowLabels = () => rows().evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  const pinOf = (label) => win.locator(`[role="menuitem"]:has-text("${label}") [data-pin]`)
+  const openMenu = async () => {
+    await win.locator('[aria-label="New tab"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menuitem"]', { timeout: 5000 })
+  }
+  try {
+    await win.evaluate(
+      ([a, b]) => {
+        localStorage.setItem('prism.pinnedRoots', '[]')
+        const recent = JSON.parse(localStorage.getItem('prism.recentRoots') ?? '[]')
+        // In FRONT: the suite before this one has filled the list, and only
+        // the newest five are shown.
+        localStorage.setItem('prism.recentRoots', JSON.stringify([a, b, ...recent.filter((x) => x !== a && x !== b)]))
+      },
+      [join(fixtures, 'code'), join(fixtures, 'docs')]
+    )
+    await openMenu()
+    const before = await rowLabels()
+    ok(before.length >= 3 && before[0] !== 'docs' && before.includes('docs'), `the menu lists the recents, history order (${before.join(' | ')})`)
+    ok(
+      (await win.locator('[role="menuitem"] [data-pin="off"]').count()) === before.length,
+      'every row carries an outlined pin'
+    )
+    await pinOf('docs').click()
+    await sleep(200)
+    // The menu stays up; the count may GROW by one, since a pin sits above
+    // the five recents rather than among them.
+    const count = await rows().count()
+    ok(count === before.length || count === before.length + 1, `pinning keeps the menu open (${before.length} rows -> ${count})`)
+    const after = await rowLabels()
+    ok(after[0] === 'docs', `the pinned folder climbs to the top (${after[0]})`)
+    ok((await pinOf('docs').getAttribute('data-pin')) === 'on', 'and its pin is filled')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    // History moves on; the pin does not.
+    await win.evaluate((p) => {
+      const recent = JSON.parse(localStorage.getItem('prism.recentRoots') ?? '[]')
+      localStorage.setItem('prism.recentRoots', JSON.stringify(recent.filter((x) => x !== p)))
+    }, join(fixtures, 'docs'))
+    await openMenu()
+    const again = await rowLabels()
+    ok(again[0] === 'docs' && (await pinOf('docs').getAttribute('data-pin')) === 'on', 'a pin outlives the recents list')
+    ok(again.filter((l) => l === 'docs').length === 1, 'a pinned folder is never also a recent row')
+    await pinOf('docs').click()
+    await sleep(200)
+    ok((await win.evaluate(() => localStorage.getItem('prism.pinnedRoots'))) === '[]', 'the pin clicked again unpins')
+    ok((await rowLabels())[0] !== 'docs', 'and the row drops back into history order')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+
+    // Over the SETTINGS page (owner, 2026-09-04): the page is a fixed layer
+    // and the menu used to open underneath it. The topmost element at a
+    // row's centre must be the row.
+    await win.click('[aria-label="Settings"]')
+    await sleep(500)
+    await openMenu()
+    const hit = await win.evaluate(() => {
+      // The LAST row: the page starts 68px down, and the first row can sit
+      // above its top edge and prove nothing.
+      const rows = document.querySelectorAll('[role="menuitem"]')
+      const row = rows[rows.length - 1]
+      if (!row) return 'no row'
+      const r = row.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return top && row.contains(top) ? 'row' : (top?.tagName ?? 'nothing') + '.' + (top?.className?.toString().slice(0, 40) ?? '')
+    })
+    ok(hit === 'row', `the + menu opens ABOVE the Settings page (topmost at the row: ${hit})`)
+    await win.keyboard.press('Escape')
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.pinnedRoots')).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * The terminal and the sidebar in step (#99). A cd INSIDE the root expands
+ * to the folder and marks it, root unchanged; a cd OUTSIDE reroots the tab.
+ * Drives a real pwsh, so this also proves the prompt hook survives node-pty's
+ * argv quoting and reaches xterm as OSC 9;9 rather than as text.
+ */
+async function termCwdScenario(fixtures) {
+  console.log('terminal cwd')
+  const root = join(fixtures, 'code')
+  const { app, win } = await launch(join(root, 'bad.json'))
+  const rowFor = (folder) =>
+    win.evaluate(
+      (f) => {
+        const el = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
+          (e.getAttribute('data-row') ?? '').toLowerCase().endsWith(f.toLowerCase())
+        )
+        return el
+          ? { expanded: el.getAttribute('aria-expanded'), selected: el.hasAttribute('data-selected'), tab: el.getAttribute('tabindex') }
+          : null
+      },
+      folder
+    )
+  const tabText = () => win.locator('[role="tab"]').first().textContent()
+  const typeLine = async (s) => {
+    await win.keyboard.type(s)
+    await win.keyboard.press('Enter')
+  }
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    ok((await rowFor('nested'))?.expanded === 'false', 'the folder starts collapsed')
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500) // a cold pwsh takes a moment to prompt
+    ok(
+      !((await win.locator('.xterm').textContent()) ?? '').includes(']9;9;'),
+      'the prompt report is parsed by xterm, never drawn as text'
+    )
+    await typeLine('cd nested')
+    await win.waitForFunction(
+      () => !![...document.querySelectorAll('[role="treeitem"][data-selected]')].find((e) => /nested$/i.test(e.getAttribute('data-row') ?? '')),
+      null,
+      { timeout: 10000 }
+    )
+    const nested = await rowFor('nested')
+    ok(nested?.expanded === 'true', 'cd into a folder inside the root expands it in the tree')
+    ok(nested?.selected && nested?.tab === '0', 'and the cursor marks it, without opening anything')
+    ok(await win.evaluate(() => !!document.activeElement?.closest('.xterm')), 'the keyboard stays in the terminal')
+    ok(((await tabText()) ?? '').includes('code'), `the root did not move (${await tabText()})`)
+
+    await typeLine('cd level-two')
+    await win.waitForFunction(
+      () => !![...document.querySelectorAll('[role="treeitem"][data-selected]')].find((e) => /level-two$/i.test(e.getAttribute('data-row') ?? '')),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'a second cd walks the mark one level down')
+
+    // The other direction: the tab reroots (a folder row dropped on the
+    // viewer is the dialog-less way to do what the folder button does) and
+    // the TOUCHED shell follows by one Set-Location, because it is idle at a
+    // prompt with nothing typed and hosts no agent.
+    await win.keyboard.press('Control+`') // from inside: hides the terminal
+    await sleep(500)
+    const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
+    await win
+      .locator('aside [role="treeitem"]:has-text("nested")')
+      .first()
+      .dragTo(win.locator('body'), { targetPosition: { x: viewer.width - 220, y: viewer.height / 2 } })
+    await win.waitForFunction(
+      () => /nested/i.test(document.querySelector('[role="tab"]')?.textContent ?? ''),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, `a folder dropped on the viewer reroots the tab (${await tabText()})`)
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 10000 })
+    const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+    const deadline = Date.now() + 10000
+    let moved = false
+    while (Date.now() < deadline && !moved) {
+      moved = (await termText()).includes('Set-Location -LiteralPath')
+      if (!moved) await sleep(250)
+    }
+    ok(moved, `the used shell was moved by one Set-Location, written at its idle prompt${moved ? '' : ` (saw: ...${(await termText()).slice(-260)})`}`)
+    await sleep(800)
+    ok(
+      /nested>\s*$/.test((await termText()).trimEnd()),
+      'and its prompt now sits in the new root'
+    )
+    await win.locator('.xterm').click()
+
+    // Past the wall: the tab reroots to where the shell went.
+    await typeLine(`cd '${OTHER_ROOT}'`)
+    await win.waitForFunction(
+      () => (document.querySelector('[role="tab"]')?.textContent ?? '').includes('other'),
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, `cd outside the root reroots the tab (${await tabText()})`)
+    ok(
+      await win.evaluate(() => [...document.querySelectorAll('[role="treeitem"]')].every((e) => /\\other\\/i.test(e.getAttribute('data-row') ?? ''))),
+      'and the tree is the new root'
+    )
+    ok((await win.locator('.xterm').count()) === 1, 'the shell survived the reroot')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * The agent's own word (2026-09-04): Claude Code writes its state into the
+ * terminal title, and the tab follows it at once - no sustain window, no
+ * poll. A shell setting the same titles stands in for Claude here, so the
+ * check is deterministic and costs no network. The glyphs are typed as code
+ * points so nothing non-ASCII goes through the keyboard.
+ */
+async function agentTitleScenario(fixtures) {
+  console.log('agent title')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  // The indicator attributes sit on the tab's WRAPPER, the button's parent.
+  const attr = (name) =>
+    win.evaluate((n) => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute(n) ?? null, name)
+  const state = () => attr('data-agent-state')
+  const say = async (glyph, text) => {
+    // The title API, not a raw [Console]::Write: that one re-encodes the
+    // glyph to "?" on the way through the console (measured). Claude writes
+    // its bytes straight to the pty and is not affected.
+    await win.keyboard.type(`$Host.UI.RawUI.WindowTitle = "$([char]0x${glyph}) ${text}"`)
+    const t = Date.now()
+    await win.keyboard.press('Enter')
+    return t
+  }
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500) // a cold pwsh takes a moment to prompt
+    ok((await state()) === null, 'a plain shell shows no agent state')
+
+    // Claude's birth title is idle; a spinner BEFORE any idle would be the
+    // agent starting, which is present and not working.
+    await say('2733', 'Claude Code') // ✳
+    await sleep(600)
+    ok((await attr('data-agent-present')) !== null && (await state()) === null, 'the idle birth title marks the agent present and nothing else')
+
+    const t1 = await say('25D0', 'Claude Code') // ◐
+    await win.waitForFunction(
+      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
+      null,
+      { timeout: 5000 }
+    )
+    const startMs = Date.now() - t1
+    ok(startMs < 800, `a working title lights the tab at once (${startMs}ms after Enter, shell latency included)`)
+    ok((await attr('data-agent-present')) !== null, 'and the title alone marks the agent present, ahead of the poll')
+
+    await sleep(300)
+    const t2 = await say('2733', 'Session greeting') // ✳
+    await win.waitForFunction(
+      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
+      null,
+      { timeout: 5000 }
+    )
+    const stopMs = Date.now() - t2
+    ok(stopMs < 800, `an idle title clears it at once (${stopMs}ms after Enter)`)
+
+    // The shell's own repaints never score for a titled session: a long burst
+    // of output is not an answer when the title says idle.
+    await win.keyboard.type('1..400 | ForEach-Object { "line $_" }')
+    await win.keyboard.press('Enter')
+    await sleep(2500)
+    ok((await state()) !== 'working', 'output alone does not light a session whose title says idle')
+
+    // The Codex dialect (a braille spinner before the folder name) is common
+    // currency - ora and every CLI built on it - so in a shell where the
+    // process poll has found no agent it is not taken as one.
+    await say('2819', 'yeah') // ⠙
+    await sleep(600)
+    ok((await state()) !== 'working', 'a braille spinner in a plain shell lights nothing without the poll behind it')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * The prompt hook must not break the prompt's layout (2026-09-04, owner
+ * screenshot: "PS C:\" then fifty blank columns then the tail of the path).
+ * PSReadLine redraws the prompt itself on Ctrl+L and after a resize, and
+ * counts what it cannot parse as visible text.
+ */
+async function promptLayoutScenario(fixtures) {
+  console.log('prompt layout')
+  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  const lastRow = () =>
+    win.evaluate(() => {
+      const rows = [...document.querySelectorAll('.xterm .xterm-rows > div')].map((r) => r.textContent ?? '')
+      return rows.filter((r) => r.trim()).pop() ?? ''
+    })
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500)
+    await win.keyboard.type('cd nested\\level-two')
+    await win.keyboard.press('Enter')
+    await sleep(1200)
+    const fresh = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(fresh) && !/\s{3,}/.test(fresh), `the prompt draws contiguous after a cd (${JSON.stringify(fresh.trim())})`)
+    // Ctrl+L: PSReadLine clears and REDRAWS the prompt from its own idea of it.
+    await win.keyboard.press('Control+l')
+    await sleep(1200)
+    const redrawn = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(redrawn) && !/\s{3,}/.test(redrawn), `and still after PSReadLine redraws it (${JSON.stringify(redrawn.trim())})`)
+    // A resize that WRAPS the prompt and one that unwraps it again: ConPTY
+    // repaints the line on each, and xterm reflows it on each, and where the
+    // two disagree the line comes back with holes (owner screenshot,
+    // 2026-09-04: "PS C:\" then blank columns then the tail of the path).
+    const resize = async (dx) => {
+      await app.evaluate(({ BrowserWindow }, d) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.getTitle())
+        const [cw, ch] = w.getSize()
+        w.setSize(cw + d, ch)
+      }, dx)
+      await sleep(1500)
+    }
+    await resize(-700)
+    await resize(700)
+    const resized = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(resized) && !/\s{3,}/.test(resized), `and after a wrap and an unwrap (${JSON.stringify(resized.trim())})`)
+    // And what is typed next lands where ConPTY thinks the cursor is: right
+    // after the prompt, not fifty columns along.
+    await win.keyboard.type('echo ok')
+    await sleep(400)
+    const typed = await lastRow()
+    ok(/level-two> echo ok\s*$/.test(typed), `typing after the resize lands right after the prompt (${JSON.stringify(typed.trim())})`)
+    await win.keyboard.press('Enter')
+    await sleep(800)
+    // A folder with a Norwegian letter and one with a space.
+    mkdirSync(join(fixtures, 'code', 'nested', 'level-two', 'Høst praksis'), { recursive: true })
+    // Back to the full width first: the prompt below is long enough to wrap
+    // at the narrowed size, and a wrap is not a layout fault.
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.getTitle())
+      const [cw, ch] = w.getSize()
+      w.setSize(cw, ch)
+    })
+    await sleep(600)
+    await win.keyboard.type('cd ("H" + [char]0xF8 + "st praksis")')
+    await win.keyboard.press('Enter')
+    await sleep(1500)
+    const nordic = await lastRow()
+    ok(/^PS .*praksis>\s*$/.test(nordic) && !/\s{3,}/.test(nordic), `a folder with a Norwegian letter and a space draws contiguous (${JSON.stringify(nordic.trim())})`)
+    await win.keyboard.press('Control+l')
+    await sleep(1200)
+    const nordic2 = await lastRow()
+    ok(/^PS .*praksis>\s*$/.test(nordic2) && !/\s{3,}/.test(nordic2), `and after a redraw (${JSON.stringify(nordic2.trim())})`)
+  } finally {
+    await app.close()
+    rmSync(join(fixtures, 'code', 'nested', 'level-two', 'Høst praksis'), { recursive: true, force: true })
   }
 }
 
@@ -4498,6 +4879,11 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
+await run(pinRecentScenario)
+await run(termCwdScenario)
+await run(agentTitleScenario)
+await run(handoffOverTermScenario)
+await run(promptLayoutScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)

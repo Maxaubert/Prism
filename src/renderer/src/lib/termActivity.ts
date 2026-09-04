@@ -26,10 +26,30 @@ const touchedIds = new Set<string>()
 // typing streak never scores; an agent genuinely answering keeps streaming
 // long after the last key and scores normally.
 const lastInput = new Map<string, number>()
+// The agent-birth rule's state, declared up here because markTouched ends a
+// birth too; the rule itself is explained below at markBorn.
+const QUIET_GAP = 1500
+const born = new Set<string>()
+const lastOut = new Map<string, number>()
+
+/**
+ * Is this onData payload something a person produced? Terminal REPLIES all
+ * start with ESC (focus reports, DA, CPR, OSC colour answers); so do the
+ * keys that matter (arrows, Escape), but those arrive on onKey and are
+ * marked there. What is left for this test is plain text: an IME commit.
+ */
+export function looksTyped(data: string): boolean {
+  return data.length > 0 && !data.startsWith('\x1b')
+}
 
 export function markTouched(id: string): void {
   touchedIds.add(id)
   lastInput.set(id, Date.now())
+  // Typing into the agent is the other end of its startup (2026-09-04): a
+  // prompt typed within a moment of the paint, or while detection landed,
+  // left no silence between the echoes and the answer, so the whole first
+  // answer read as startup and the tab lit only on the second message.
+  born.delete(id)
 }
 
 /** Is this output close enough behind a keystroke to be its echo? */
@@ -64,4 +84,56 @@ export function forgetSession(id: string): void {
   lastInput.delete(id)
   until.delete(id)
   resumeIds.delete(id)
+  lastPrompt.delete(id)
+  born.delete(id)
+  lastOut.delete(id)
+}
+
+// The shell's PROMPT reports its folder (#99), and a report is also the one
+// reliable "I am idle" signal a pty gives: nothing prints a prompt while a
+// command runs. A keystroke after it means somebody is typing on that prompt,
+// so the shell is idle but the line is not empty - and a Set-Location written
+// then would run whatever was half-typed in front of it.
+const lastPrompt = new Map<string, number>()
+
+export function markPrompt(id: string): void {
+  lastPrompt.set(id, Date.now())
+}
+
+/** A prompt has appeared, and nothing has been typed since it did. */
+export function idleAtPrompt(id: string): boolean {
+  const p = lastPrompt.get(id)
+  return p !== undefined && p > (lastInput.get(id) ?? 0)
+}
+
+// An agent's BIRTH (2026-09-04). Its startup paint - banner, plugin loading,
+// the first prompt - is one continuous stream, and the clock that used to
+// cover it (4s from detection) was a guess about two things it cannot know:
+// how late the process poll noticed the agent, and how long the machine
+// takes to boot it - at app start, with several tabs resuming at once, well
+// past four seconds. The rule that needs no guess: the startup ends at the
+// FIRST SILENCE after the agent appears. Output up to that silence is the
+// agent arriving; output after it is the agent answering.
+
+/** The agent was just detected in this session. */
+export function markBorn(id: string, now = Date.now()): void {
+  born.add(id)
+  lastOut.set(id, now)
+}
+
+/**
+ * Called on EVERY chunk the pty prints. True while the chunk is still the
+ * startup paint - born, and no quiet gap seen since. The first chunk after
+ * a gap is the agent's own (or nothing much: a status blip too short to
+ * score), and from then on output counts normally.
+ */
+export function startupOutput(id: string, now = Date.now()): boolean {
+  const prev = lastOut.get(id) ?? 0
+  lastOut.set(id, now)
+  if (!born.has(id)) return false
+  if (now - prev > QUIET_GAP) {
+    born.delete(id)
+    return false
+  }
+  return true
 }

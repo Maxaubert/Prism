@@ -1,5 +1,7 @@
 import type { IPty } from 'node-pty'
+import { cdCommand } from '@shared/termCwd'
 import { detectShells, shellById } from './shells'
+import { cmdPrompt } from './termPrompt'
 
 // The pty host. Sessions are keyed by an id the renderer assigns - the same
 // pattern as tabs, where the renderer owns the list and main owns the
@@ -61,6 +63,8 @@ interface Session {
   /** The onData/onExit subscriptions, disposed BEFORE the pty is killed so no
    *  callback can fire into a session that is being torn down. */
   subs: Array<{ dispose(): void }>
+  /** Which shell this is, for the one line Prism may write into it (#99). */
+  defId: string
 }
 
 /**
@@ -114,8 +118,9 @@ const SESSION_MARKERS = new Set([
   'CODEX_COMPANION_TRANSCRIPT_PATH'
 ])
 
-export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
+export function ptyEnv(from: NodeJS.ProcessEnv, shellId?: string): Record<string, string> {
   const env: Record<string, string> = {}
+  let prompt: string | undefined
   for (const [k, v] of Object.entries(from)) {
     if (v === undefined) continue
     const key = k.toUpperCase()
@@ -123,11 +128,32 @@ export function ptyEnv(from: NodeJS.ProcessEnv): Record<string, string> {
     if (key === 'FORCE_COLOR' && /^(0|false|none)$/i.test(v)) continue
     if (key === 'TERM' || key === 'COLORTERM') continue
     if (SESSION_MARKERS.has(key)) continue
+    if (key === 'PROMPT') prompt = v
     env[k] = v
   }
   env.TERM = PTY_OPTS.name
   env.COLORTERM = 'truecolor'
+  // cmd reports its folder through PROMPT (#99), in front of whatever prompt
+  // the user already had.
+  if (shellId === 'cmd') env.PROMPT = cmdPrompt(prompt)
   return env
+}
+
+/**
+ * Move a shell to `path` (#99): the SECOND command Prism ever writes itself,
+ * beside the agent resume (owner decision, 2026-09-04). Composed here, next to
+ * the first one, from the shell id main spawned - never from text the
+ * renderer sends. The renderer holds the guard (idle prompt, nothing typed,
+ * no agent); main only knows how to say it in the shell's own language.
+ * False when there is no session or no way to say it (WSL).
+ */
+export function cdTerm(id: string, path: string): boolean {
+  const s = sessions.get(id)
+  if (!s) return false
+  const line = cdCommand(s.defId, path)
+  if (!line) return false
+  s.pty.write(line)
+  return true
 }
 
 const sessions = new Map<string, Session>()
@@ -174,7 +200,7 @@ export async function prewarmShell(root: string, shellId: string | undefined): P
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: ptyEnv(process.env)
+      env: ptyEnv(process.env, def.id)
     })
     const w: WarmShell = { pty: p, defId: def.id, buf: '', sub: { dispose: () => {} }, exited: false }
     w.sub = p.onData((d) => {
@@ -233,9 +259,10 @@ function withResume(def: { exe: string; args: string[]; id: string }, resume: st
   // now covering codex too): claude comes back by session id, codex by its own
   // cwd-filtered --last. Never typed on screen, never a guess.
   const cmd = resume === 'codex:last' ? 'codex resume --last' : `claude --resume ${resume}`
-  if (def.id === 'pwsh' && def.args.length > 0)
+  // Both PowerShells end their args in a `-Command` bootstrap now (the prompt
+  // hook, #99), so the resume is appended to it for either.
+  if ((def.id === 'pwsh' || def.id === 'powershell') && def.args.length > 0)
     return { exe: def.exe, args: [...def.args.slice(0, -1), `${def.args[def.args.length - 1]}; ${cmd}`] }
-  if (def.id === 'powershell') return { exe: def.exe, args: [...def.args, '-NoExit', '-Command', cmd] }
   if (def.id === 'cmd') return { exe: def.exe, args: ['/K', cmd] }
   return { exe: def.exe, args: def.args }
 }
@@ -270,7 +297,7 @@ export async function spawnTerm(
         send('term:exit', id)
       })
     ]
-    sessions.set(id, { pty: w.pty, batcher, subs })
+    sessions.set(id, { pty: w.pty, batcher, subs, defId: w.defId })
     const want = desiredSize.get(id)
     if (want) resizeTerm(id, want.cols, want.rows)
     return true
@@ -284,7 +311,7 @@ export async function spawnTerm(
       cols: size.cols,
       rows: size.rows,
       cwd: root,
-      env: ptyEnv(process.env)
+      env: ptyEnv(process.env, def.id)
     })
     const batcher = new OutputBatcher((data) => send('term:data', id, data), 8)
     const subs = [
@@ -298,7 +325,7 @@ export async function spawnTerm(
         send('term:exit', id)
       })
     ]
-    sessions.set(id, { pty: p, batcher, subs })
+    sessions.set(id, { pty: p, batcher, subs, defId: def.id })
     return true
   } catch {
     return false // shell missing or ConPTY refused; the renderer shows the line
