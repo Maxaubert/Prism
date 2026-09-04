@@ -2817,6 +2817,39 @@ async function handoff(file) {
   await sleep(600)
 }
 
+/**
+ * A file handed over by Explorer while the tab shows a FULL terminal
+ * (2026-09-04): the shell hides and the file shows, marked in the tree. It
+ * used to land underneath the terminal, unseen and unmarked.
+ */
+async function handoffOverTermScenario(fixtures) {
+  console.log('handoff over terminal')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    await handoff(join(fixtures, 'code', 'bad.json'))
+    await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
+    ok(true, 'a file arriving from Explorer hides the full terminal')
+    await win.waitForSelector('.cm-editor', { timeout: 8000 })
+    ok(true, 'and the file is what shows')
+    await win.waitForFunction(
+      () => /bad\.json$/i.test(document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? ''),
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'and the tree marks it')
+    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === 1, 'in the same tab: the root already held it')
+    // The shell is hidden, not gone: Ctrl+` brings it straight back.
+    await win.keyboard.press('Control+`')
+    await win.waitForSelector('.xterm', { timeout: 8000 })
+    ok(true, 'the shell was hidden, not killed')
+  } finally {
+    await app.close()
+  }
+}
+
 async function tabsScenario(fixtures) {
   console.log('project tabs')
   const otherRoot = OTHER_ROOT
@@ -4746,6 +4779,7 @@ await run(terminalScenario)
 await run(pinRecentScenario)
 await run(termCwdScenario)
 await run(agentTitleScenario)
+await run(handoffOverTermScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)

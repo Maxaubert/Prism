@@ -542,6 +542,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
+  **A FILE ARRIVING MEANS "SHOW ME THIS FILE"** (2026-09-04), exactly as a tree click does:
+  over a FULL terminal it hides the shell (still running) and gives the file the room. It
+  used to land underneath the terminal, unseen, and - since a full terminal marks nothing in
+  the tree - unmarked too, so Explorer's double-click on a file in the tab's folder looked
+  like it had done nothing. Restores are untouched: they set the terminal view themselves.
   **THE INDICATOR IS THE AGENT'S OWN WORD** (2026-09-04, owner: "instant, and event-driven,
   no loop"). Claude Code writes its state into the terminal TITLE, MEASURED on a real
   session: "✳ Claude Code" at idle, a half-circle spinner glyph ("◐ Claude Code", cycling

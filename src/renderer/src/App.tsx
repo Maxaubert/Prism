@@ -1108,6 +1108,14 @@ export default function App(): JSX.Element {
             tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
           }
         }
+        // A file ARRIVING means "show me this file" (2026-09-04), exactly as
+        // a tree click does: over a FULL terminal it hides the shell (still
+        // running) and gives the file the room. It used to land underneath
+        // the terminal, unseen, and - since a full terminal marks nothing in
+        // the tree - unmarked as well, so Explorer's double-click looked like
+        // it had done nothing. In split the file lands in its pane as before.
+        if (!p.restore && target?.term?.view === 'full')
+          tabs = setTabTerm(tabs, target.id, { ...target.term, view: 'hidden' })
         // Background restores keep the focus where it is: restore arrives in
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
         // strip), and only the saved active tab takes the front.
