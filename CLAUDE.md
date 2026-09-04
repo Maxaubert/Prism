@@ -546,6 +546,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
+  **THE PROMPT LINE IS CARRIED ACROSS A RESIZE BY HAND** (2026-09-04, owner screenshot:
+  "PS C:\" and the tail of the path with blank columns between, Ctrl+L putting it right).
+  ConPTY - node-pty's bundled dll, which Prism must use because the inbox conhost fast-fails
+  the app when a pty dies mid-read - sends NOTHING on a resize, MEASURED: 0 bytes narrower
+  and 0 bytes wider, where the inbox conhost repaints the whole screen (339 bytes). It
+  reflows its own buffer and expects the terminal to do the same; xterm does, for every line
+  EXCEPT the one holding the cursor, on the Unix assumption that the shell redraws its own
+  line on SIGWINCH. Nobody redraws it here, so the prompt was cut at the narrower width and
+  stayed cut once widened, and the next keystroke landed at ConPTY's idea of the column. So
+  `fitKeepingCursorLine` reads the logical line under the cursor before the resize and
+  writes it back after, through xterm's own parser, cursor restored - only when it is the
+  LAST thing in the buffer (a prompt), never on the alternate screen. `windowsPty` is
+  declared too, with a build number past 21376 (the dll is newer than any inbox conhost),
+  which keeps xterm's reflow on and its scrollback growth ConPTY-shaped; declared WITHOUT a
+  build number it turns reflow off, which loses every long line. `promptLayout` in the e2e
+  wraps and unwraps a prompt and types after it; it was written to reproduce this and did.
   **A FILE ARRIVING MEANS "SHOW ME THIS FILE"** (2026-09-04), exactly as a tree click does:
   over a FULL terminal it hides the shell (still running) and gives the file the room. It
   used to land underneath the terminal, unseen, and - since a full terminal marks nothing in

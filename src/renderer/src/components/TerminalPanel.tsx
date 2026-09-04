@@ -53,11 +53,75 @@ function currentTermTheme(): ReturnType<typeof resolveTermTheme> {
   return theme
 }
 
+/**
+ * Resize xterm to its box, carrying the CURSOR LINE across (2026-09-04).
+ *
+ * ConPTY - node-pty's bundled dll, which Prism must use because the inbox
+ * conhost fast-fails the app when a pty dies mid-read - sends NOTHING on a
+ * resize. MEASURED: 0 bytes narrower and 0 bytes wider, where the inbox
+ * conhost repaints the whole screen (339 bytes). It reflows its own buffer
+ * and expects the terminal to do the same; xterm does, for every line
+ * EXCEPT the one holding the cursor, on the Unix assumption that the shell
+ * redraws its own line on SIGWINCH. Nobody redraws it here, so the prompt
+ * was cut at the narrower width and stayed cut once widened again, and a
+ * keystroke then landed at ConPTY's idea of the column: "PS C:\" and the
+ * tail of the path with blank columns between (owner screenshot; Ctrl+L put
+ * it right). So the logical line under the cursor - its wrapped rows joined
+ * - is read BEFORE the resize and written back AFTER it through xterm's own
+ * parser, which wraps it exactly as ConPTY's buffer does, and the cursor is
+ * put back at the same character. Only when that line is the LAST thing in
+ * the buffer, which is a prompt; lines below it would be moved by ConPTY
+ * too and cannot be followed from here. The alternate screen is left alone:
+ * a TUI owns every cell and repaints itself.
+ */
+function fitKeepingCursorLine(term: Terminal, fit: FitAddon): void {
+  const b = term.buffer.active
+  if (b.type !== 'normal') {
+    fit.fit()
+    return
+  }
+  const oldCols = term.cols
+  const y = b.baseY + b.cursorY
+  // The logical line: walk back over wrapped rows to its first row.
+  let first = y
+  while (first > 0 && b.getLine(first)?.isWrapped) first -= 1
+  let last = y
+  while (last + 1 < b.length && b.getLine(last + 1)?.isWrapped) last += 1
+  let text = ''
+  for (let i = first; i <= last; i += 1) text += b.getLine(i)?.translateToString(i === last) ?? ''
+  const offset = (y - first) * oldCols + b.cursorX
+  let tail = false
+  for (let i = last + 1; i < b.length && !tail; i += 1)
+    if ((b.getLine(i)?.translateToString(true) ?? '').length) tail = true
+  fit.fit()
+  if (term.cols === oldCols || tail || !text.length) return
+  const row = first - b.baseY
+  if (row < 0 || row >= term.rows) return
+  // Home to the line's first row, erase it and everything below, write the
+  // line back (xterm wraps it at the new width), then put the cursor on the
+  // same character - read after the write lands, since a long line can
+  // scroll the buffer while it is being laid out.
+  term.write(`\x1b[${row + 1};1H\x1b[J${text}`, () => {
+    const nb = term.buffer.active
+    const end = nb.baseY + nb.cursorY
+    const back = text.length - Math.min(offset, text.length)
+    const endCol = nb.cursorX
+    // Walk the cursor back `back` cells over the wrapped rows just written.
+    let r = end
+    let c = endCol - back
+    while (c < 0 && r > 0) {
+      c += term.cols
+      r -= 1
+    }
+    term.write(`\x1b[${Math.max(0, r - nb.baseY) + 1};${Math.max(0, c) + 1}H`)
+  })
+}
+
 /** Refit a session and tell the pty its new geometry. */
 function refitSession(id: string, s: Session): void {
   if (!s.el.clientWidth || !s.el.clientHeight) return
   suppressActivity(id)
-  s.fit.fit()
+  fitKeepingCursorLine(s.term, s.fit)
   window.prism.termResize(id, s.term.cols, s.term.rows)
 }
 
@@ -210,7 +274,17 @@ function createSession(id: string, root: string, shellId: string | undefined): S
     fontSize: termBaseFontPx(),
     // Follow-style by default, or the chosen preset. Live switches of either
     // are handled by applyLook above.
-    theme: currentTermTheme()
+    theme: currentTermTheme(),
+    // The pty is ConPTY (2026-09-04): without saying so, xterm reflowed
+    // wrapped lines on a resize while ConPTY repainted them from its own
+    // buffer, and where the two disagreed the prompt came back with holes -
+    // "PS C:\" then blank columns then the tail of the path (owner
+    // screenshot), Ctrl+L putting it right. Declared, xterm leaves the
+    // reflow to ConPTY and grows the scrollback the way ConPTY expects.
+    // The bundled dll is newer than any inbox conhost; to xterm only
+    // "21376 or later" matters, which keeps its reflow ON and grows the
+    // scrollback the way ConPTY expects when rows are added.
+    windowsPty: { backend: 'conpty', buildNumber: 22621 }
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
@@ -415,7 +489,7 @@ export default function TerminalPanel({
       if (!host.clientWidth || !host.clientHeight) return
       // The redraw this resize provokes is us, not the shell working.
       suppressActivity(sessionId)
-      s.fit.fit()
+      fitKeepingCursorLine(s.term, s.fit)
       window.prism.termResize(sessionId, s.term.cols, s.term.rows)
     }
     refit()

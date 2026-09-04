@@ -3379,6 +3379,83 @@ async function agentTitleScenario(fixtures) {
   }
 }
 
+/**
+ * The prompt hook must not break the prompt's layout (2026-09-04, owner
+ * screenshot: "PS C:\" then fifty blank columns then the tail of the path).
+ * PSReadLine redraws the prompt itself on Ctrl+L and after a resize, and
+ * counts what it cannot parse as visible text.
+ */
+async function promptLayoutScenario(fixtures) {
+  console.log('prompt layout')
+  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  const lastRow = () =>
+    win.evaluate(() => {
+      const rows = [...document.querySelectorAll('.xterm .xterm-rows > div')].map((r) => r.textContent ?? '')
+      return rows.filter((r) => r.trim()).pop() ?? ''
+    })
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500)
+    await win.keyboard.type('cd nested\\level-two')
+    await win.keyboard.press('Enter')
+    await sleep(1200)
+    const fresh = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(fresh) && !/\s{3,}/.test(fresh), `the prompt draws contiguous after a cd (${JSON.stringify(fresh.trim())})`)
+    // Ctrl+L: PSReadLine clears and REDRAWS the prompt from its own idea of it.
+    await win.keyboard.press('Control+l')
+    await sleep(1200)
+    const redrawn = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(redrawn) && !/\s{3,}/.test(redrawn), `and still after PSReadLine redraws it (${JSON.stringify(redrawn.trim())})`)
+    // A resize that WRAPS the prompt and one that unwraps it again: ConPTY
+    // repaints the line on each, and xterm reflows it on each, and where the
+    // two disagree the line comes back with holes (owner screenshot,
+    // 2026-09-04: "PS C:\" then blank columns then the tail of the path).
+    const resize = async (dx) => {
+      await app.evaluate(({ BrowserWindow }, d) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.getTitle())
+        const [cw, ch] = w.getSize()
+        w.setSize(cw + d, ch)
+      }, dx)
+      await sleep(1500)
+    }
+    await resize(-700)
+    await resize(700)
+    const resized = await lastRow()
+    ok(/^PS .*level-two>\s*$/.test(resized) && !/\s{3,}/.test(resized), `and after a wrap and an unwrap (${JSON.stringify(resized.trim())})`)
+    // And what is typed next lands where ConPTY thinks the cursor is: right
+    // after the prompt, not fifty columns along.
+    await win.keyboard.type('echo ok')
+    await sleep(400)
+    const typed = await lastRow()
+    ok(/level-two> echo ok\s*$/.test(typed), `typing after the resize lands right after the prompt (${JSON.stringify(typed.trim())})`)
+    await win.keyboard.press('Enter')
+    await sleep(800)
+    // A folder with a Norwegian letter and one with a space.
+    mkdirSync(join(fixtures, 'code', 'nested', 'level-two', 'Høst praksis'), { recursive: true })
+    // Back to the full width first: the prompt below is long enough to wrap
+    // at the narrowed size, and a wrap is not a layout fault.
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.getTitle())
+      const [cw, ch] = w.getSize()
+      w.setSize(cw, ch)
+    })
+    await sleep(600)
+    await win.keyboard.type('cd ("H" + [char]0xF8 + "st praksis")')
+    await win.keyboard.press('Enter')
+    await sleep(1500)
+    const nordic = await lastRow()
+    ok(/^PS .*praksis>\s*$/.test(nordic) && !/\s{3,}/.test(nordic), `a folder with a Norwegian letter and a space draws contiguous (${JSON.stringify(nordic.trim())})`)
+    await win.keyboard.press('Control+l')
+    await sleep(1200)
+    const nordic2 = await lastRow()
+    ok(/^PS .*praksis>\s*$/.test(nordic2) && !/\s{3,}/.test(nordic2), `and after a redraw (${JSON.stringify(nordic2.trim())})`)
+  } finally {
+    await app.close()
+    rmSync(join(fixtures, 'code', 'nested', 'level-two', 'Høst praksis'), { recursive: true, force: true })
+  }
+}
+
 async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4786,6 +4863,7 @@ await run(pinRecentScenario)
 await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
+await run(promptLayoutScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)
