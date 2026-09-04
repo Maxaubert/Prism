@@ -409,8 +409,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
   file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
-  arriving from outside reuses a tab whose root already holds it (five photos from one
-  folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
+  arriving from outside reuses a tab whose root IS its folder (five photos from one
+  folder is one tab), otherwise spawns one rooted at that folder, otherwise fills the
+  empty window. EXACT ROOT ONLY (owner, 2026-09-04, reversing 2026-09-01's containing-root
+  fold): that fold put a Downloads file into a tab rooted at the user's folder and moved
+  that tab's view, and an agent's tab is the one you least want moved under you. A file
+  from a subfolder of an open tab opens its own tab; separate folders, separate tabs. Tabs persist
   in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
   (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
   collapses everything - a file six folders down came back in the viewer with NOTHING marked

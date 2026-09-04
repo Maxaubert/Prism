@@ -64,32 +64,40 @@ describe('receiveFile', () => {
     expect(r.tabs[0].index).toBe(1) // and it moved to the file that arrived
   })
 
-  it('lands a file from a SUBFOLDER in the tab that already holds that tree', () => {
-    // The bug this covers: a tab rooted at X:\ with a file two folders down
-    // spawned a SECOND tab rooted at the subfolder, because the fold only
-    // matched when the root WAS the file's own folder. Opening anything from
-    // Explorer while a project tab was open therefore accumulated tabs.
+  it('opens a file from a SUBFOLDER in a tab of its own, rooted there (owner, 2026-09-04)', () => {
+    // Reverses 2026-09-01: the containing-root fold put a Downloads file into
+    // a tab rooted at the user's folder and moved that tab's view. Separate
+    // folders are separate tabs; only the exact root folds.
     const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
     const r = receiveFile(
       [drive],
       payload('X:' + BS + 'Comics' + BS + 'Artbooks', ['X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg']),
       'new'
     )
-    expect(r.tabs).toHaveLength(1)
-    expect(r.activeId).toBe(drive.id)
-    expect(r.tabs[0].root).toBe('X:' + BS) // the tab keeps ITS root, not the subfolder
+    expect(r.tabs).toHaveLength(2)
+    expect(r.activeId).toBe('new')
+    expect(r.tabs[1].root).toBe('X:' + BS + 'Comics' + BS + 'Artbooks')
+    expect(r.tabs[0].root).toBe('X:' + BS) // the old tab is left exactly as it was
+    expect(r.tabs[0].index).toBe(drive.index)
   })
 
-  it('prefers the DEEPEST tab that holds the file', () => {
+  it('folds only into the tab whose root IS the folder, however many contain it', () => {
     const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
     const comics = tabOf('X:' + BS + 'Comics', ['X:' + BS + 'Comics' + BS + 'b.jpg'])
-    const r = receiveFile(
+    const same = receiveFile(
+      [drive, comics],
+      payload('x:' + BS + 'comics', ['X:' + BS + 'Comics' + BS + 'p.jpg']),
+      'new'
+    )
+    expect(same.tabs).toHaveLength(2)
+    expect(same.activeId).toBe(comics.id)
+    const deeper = receiveFile(
       [drive, comics],
       payload('X:' + BS + 'Comics' + BS + 'Art', ['X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg']),
       'new'
     )
-    expect(r.tabs).toHaveLength(2)
-    expect(r.activeId).toBe(comics.id)
+    expect(deeper.tabs).toHaveLength(3)
+    expect(deeper.activeId).toBe('new')
   })
 
   it('does not treat a sibling with a shared prefix as containing the file', () => {

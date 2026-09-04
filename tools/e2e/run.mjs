@@ -2829,13 +2829,14 @@ async function handoffOverTermScenario(fixtures) {
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     await sleep(1500)
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // A file IN the tab's root: that is the one case that folds now.
+    await handoff(join(fixtures, 'notes.txt'))
     await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
     ok(true, 'a file arriving from Explorer hides the full terminal')
     await win.waitForSelector('.cm-editor', { timeout: 8000 })
     ok(true, 'and the file is what shows')
     await win.waitForFunction(
-      () => /bad\.json$/i.test(document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? ''),
+      () => /notes\.txt$/i.test(document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? ''),
       null,
       { timeout: 8000 }
     )
@@ -2871,18 +2872,23 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A file from a SUBFOLDER of an open root lands in THAT root's tab, rather
-    // than spawning one rooted at the subfolder (2026-09-01). Most files are
-    // not sitting directly in their project's root, so the old rule - fold
-    // only when the root IS the file's folder - accumulated a tab per folder
-    // every time anything was opened from Explorer.
+    // A file from a SUBFOLDER of an open root opens a tab of its own, rooted
+    // at that folder (owner, 2026-09-04, reversing 2026-09-01): separate
+    // folders are separate tabs, and only the exact root folds. The tab it
+    // did not land in is left exactly as it was.
     await handoff(join(fixtures, 'code', 'bad.json'))
     await win.waitForSelector(strip, { timeout: 10000 })
-    ok((await tabRows().count()) === 1, 'a file from a subfolder stays in the tab that holds it')
+    ok((await tabRows().count()) === 2, 'a file from a subfolder opens a tab of its own')
     ok(
-      /fixtures/i.test((await tabRows().first().getAttribute('title')) ?? ''),
-      'and that tab keeps ITS root, not the subfolder'
+      /\\code$/i.test((await tabRows().last().getAttribute('title')) ?? ''),
+      'rooted at the subfolder'
     )
+    ok(
+      /fixtures$/i.test((await tabRows().first().getAttribute('title')) ?? ''),
+      'and the tab above it keeps ITS root'
+    )
+    await win.locator(`${strip} [aria-label^="Close"]`).last().click()
+    await sleep(400)
 
     // A second root, opened deliberately - a genuine sibling, since a
     // subfolder is no longer a second root at all.
@@ -2924,10 +2930,8 @@ async function tabsScenario(fixtures) {
     }
 
     // Switching: the tree and the viewer both follow. Point the first tab back
-    // at its README first - the subfolder handoff above legitimately moved it
-    // to bad.json, which is the fold working - then switch AWAY and back, so
-    // this tests the switch rather than what the last handoff happened to
-    // leave on screen.
+    // at its README first, then switch AWAY and back, so this tests the
+    // switch rather than what the last handoff happened to leave on screen.
     await handoff(join(fixtures, 'README.md'))
     await sleep(400)
     await tabRows().last().click()
