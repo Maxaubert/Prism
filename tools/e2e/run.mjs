@@ -3191,6 +3191,26 @@ async function pinRecentScenario(fixtures) {
     ok((await win.evaluate(() => localStorage.getItem('prism.pinnedRoots'))) === '[]', 'the pin clicked again unpins')
     ok((await rowLabels())[0] !== 'docs', 'and the row drops back into history order')
     await win.keyboard.press('Escape')
+    await sleep(200)
+
+    // Over the SETTINGS page (owner, 2026-09-04): the page is a fixed layer
+    // and the menu used to open underneath it. The topmost element at a
+    // row's centre must be the row.
+    await win.click('[aria-label="Settings"]')
+    await sleep(500)
+    await openMenu()
+    const hit = await win.evaluate(() => {
+      // The LAST row: the page starts 68px down, and the first row can sit
+      // above its top edge and prove nothing.
+      const rows = document.querySelectorAll('[role="menuitem"]')
+      const row = rows[rows.length - 1]
+      if (!row) return 'no row'
+      const r = row.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return top && row.contains(top) ? 'row' : (top?.tagName ?? 'nothing') + '.' + (top?.className?.toString().slice(0, 40) ?? '')
+    })
+    ok(hit === 'row', `the + menu opens ABOVE the Settings page (topmost at the row: ${hit})`)
+    await win.keyboard.press('Escape')
   } finally {
     await win.evaluate(() => localStorage.removeItem('prism.pinnedRoots')).catch(() => {})
     await app.close()

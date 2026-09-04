@@ -231,7 +231,7 @@ export function ContextMenu({
     // dismiss listener and the menu just sat there. Carving the region out
     // for the life of the menu makes every click dismiss it, wherever it
     // lands. (Dragging the window by its bar can wait until the menu is shut.)
-    <div data-owns-escape className="no-drag fixed inset-0 z-40 pointer-events-none">
+    <div data-owns-escape className="no-drag fixed inset-0 z-[45] pointer-events-none">
       <div
         ref={box}
         role="menu"
