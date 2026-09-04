@@ -75,6 +75,8 @@ export function forgetSession(id: string): void {
   until.delete(id)
   resumeIds.delete(id)
   lastPrompt.delete(id)
+  born.delete(id)
+  lastOut.delete(id)
 }
 
 // The shell's PROMPT reports its folder (#99), and a report is also the one
@@ -92,4 +94,39 @@ export function markPrompt(id: string): void {
 export function idleAtPrompt(id: string): boolean {
   const p = lastPrompt.get(id)
   return p !== undefined && p > (lastInput.get(id) ?? 0)
+}
+
+// An agent's BIRTH (2026-09-04). Its startup paint - banner, plugin loading,
+// the first prompt - is one continuous stream, and the clock that used to
+// cover it (4s from detection) was a guess about two things it cannot know:
+// how late the process poll noticed the agent, and how long the machine
+// takes to boot it - at app start, with several tabs resuming at once, well
+// past four seconds. The rule that needs no guess: the startup ends at the
+// FIRST SILENCE after the agent appears. Output up to that silence is the
+// agent arriving; output after it is the agent answering.
+const QUIET_GAP = 1500
+const born = new Set<string>()
+const lastOut = new Map<string, number>()
+
+/** The agent was just detected in this session. */
+export function markBorn(id: string, now = Date.now()): void {
+  born.add(id)
+  lastOut.set(id, now)
+}
+
+/**
+ * Called on EVERY chunk the pty prints. True while the chunk is still the
+ * startup paint - born, and no quiet gap seen since. The first chunk after
+ * a gap is the agent's own (or nothing much: a status blip too short to
+ * score), and from then on output counts normally.
+ */
+export function startupOutput(id: string, now = Date.now()): boolean {
+  const prev = lastOut.get(id) ?? 0
+  lastOut.set(id, now)
+  if (!born.has(id)) return false
+  if (now - prev > QUIET_GAP) {
+    born.delete(id)
+    return false
+  }
+  return true
 }

@@ -526,6 +526,18 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   its first prompt - keys are heard on onKey now, and onData counts only plain text; and
   Ctrl+` left to xterm became a NUL byte to the pty, so hiding the panel with the key it is
   hidden with counted as typing too.
+  **AN AGENT'S STARTUP IS NOT WORK** (2026-09-04, owner: the tab lit "working" while
+  Claude was only starting). The indicator scores SUSTAINED output, and an agent's startup
+  paint is exactly that. The 4s clock from detection that covered it guessed at two things
+  it could not know - how late the process poll noticed the agent (up to 2.5s), and how
+  long the machine takes to boot it, which at app start with several tabs resuming at once
+  runs past four seconds - so the paint's tail scored as an answer. MEASURED: a plain start
+  streams 2.2s, a resume of a 46MB session 2.1s, both inside the clock on a quiet machine,
+  which is why it only showed under load. The rule now (`markBorn` / `startupOutput`,
+  pure and tested) needs no guess: nothing after detection counts until the FIRST SILENCE
+  (1.5s), and the first chunk after it is the agent's own. Cost, said plainly: `claude
+  "do this"` typed as one command runs straight from startup into work with no gap, and
+  shows nothing until its first pause.
   **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a
   directory bold on a BLUE BACKGROUND (a tint on a navy console, a selection on Prism's
   palette), an .exe green, a .ps1 yellow, a .zip red and the table header green with the

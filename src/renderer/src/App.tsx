@@ -47,8 +47,9 @@ import {
   idleAtPrompt,
   inputEcho,
   isTouched,
+  markBorn,
   markResume,
-  suppressActivity
+  startupOutput
 } from './lib/termActivity'
 import { onCwd } from './lib/termBus'
 import { ancestorChain } from './lib/fileTree'
@@ -1608,11 +1609,14 @@ export default function App(): JSX.Element {
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
           // box, the loading spinners after it) is a stream, but it is not the
-          // agent answering anything. Wipe the run and suppress scoring long
-          // enough to outlast the whole startup animation, so the indicator
-          // only ever means a real answer underway.
+          // agent answering anything. Wipe the run, and score nothing until
+          // the FIRST SILENCE after the agent appeared (2026-09-04): the 4s
+          // clock this replaced guessed at how late the poll noticed the
+          // agent and how long the machine took to boot it, and at app start
+          // with several tabs resuming at once the paint outlasted it - so
+          // the tail of a startup lit the tab as an answer underway.
           outputRuns.current.delete(id)
-          suppressActivity(id, 4000)
+          markBorn(id)
           setWorkingIds((prev) => {
             if (!prev.has(id)) return prev
             const next = new Set(prev)
@@ -1635,7 +1639,10 @@ export default function App(): JSX.Element {
       window.prism.onTermData((id) => {
         // Output on the heels of a keystroke is that keystroke's echo (the TUI
         // repainting its input box), so typing at an idle agent never scores.
-        if (!activitySuppressed(id) && !inputEcho(id)) {
+        // Every chunk is shown to the birth rule (it tracks the gaps), and
+        // only then is the rest of the scoring asked.
+        const startup = startupOutput(id)
+        if (!startup && !activitySuppressed(id) && !inputEcho(id)) {
           const now = Date.now()
           const run = outputRuns.current.get(id)
           if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
