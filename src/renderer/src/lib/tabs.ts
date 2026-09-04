@@ -277,20 +277,15 @@ export function addTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabSta
  * left, not a reload.
  */
 export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
-  // A tab HOLDS the file when its root CONTAINS it, not only when the root is
-  // the file's own folder (2026-09-01). Equality alone meant that opening a
-  // photo two folders down from a tab's root - which is where most files
-  // are - spawned a second tab rooted at that subfolder, instead of landing
-  // in the tab already showing that tree. The deepest containing root wins,
-  // so a tab on X:\Comics beats one on X:\ for a file inside it.
-  const candidates = tabs
-    .map((t, i) => ({ t, i }))
-    .filter(
-      ({ t }) =>
-        t.kind !== 'settings' && (sameRoot(t.root, p.root) || underRoot(t.root, p.root))
-    )
-    .sort((a, b) => b.t.root.length - a.t.root.length)
-  const hit = candidates.length ? candidates[0].i : -1
+  // A tab takes the file only when its root IS the file's own folder (owner,
+  // 2026-09-04, reversing 2026-09-01). The containing-root fold - a file two
+  // folders down landing in the tab already showing that tree - put a file
+  // from Downloads into a tab rooted at the user's folder and moved that
+  // tab's view, and an agent's tab is the one you least want moved under
+  // you. A file from any other folder, a subfolder of an open tab included,
+  // opens a tab of its own rooted at that folder: separate folders, separate
+  // tabs, and one tab per root still holds.
+  const hit = tabs.findIndex((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
   if (hit >= 0) {
     const next = tabs.slice()
     const was = next[hit]

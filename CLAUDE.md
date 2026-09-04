@@ -409,8 +409,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
   file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
-  arriving from outside reuses a tab whose root already holds it (five photos from one
-  folder is one tab), otherwise spawns one, otherwise fills the empty window. Tabs persist
+  arriving from outside reuses a tab whose root IS its folder (five photos from one
+  folder is one tab), otherwise spawns one rooted at that folder, otherwise fills the
+  empty window. EXACT ROOT ONLY (owner, 2026-09-04, reversing 2026-09-01's containing-root
+  fold): that fold put a Downloads file into a tab rooted at the user's folder and moved
+  that tab's view, and an agent's tab is the one you least want moved under you. A file
+  from a subfolder of an open tab opens its own tab; separate folders, separate tabs. Tabs persist
   in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
   (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
   collapses everything - a file six folders down came back in the viewer with NOTHING marked
@@ -466,8 +470,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   HOSTED CLAUDE at quit resumes the conversation BY SESSION ID: main reads the newest
   session claude recorded for the folder (~/.claude/projects) and launches the shell with
   `claude --resume <id>` as its STARTUP command - never typed on screen, never a bare
-  --continue guessing (no session on disk = no resume). That is the ONE command Prism
-  ever writes itself - an explicit owner exception (2026-08-21) to the line below,
+  --continue guessing (no session on disk = no resume). That was the ONE command Prism
+  ever wrote itself - an explicit owner exception (2026-08-21) to the line below; the
+  Set-Location of #99 (2026-09-04) is the second -
   claude AND codex (2026-08-23): claude comes back by session id, codex by its own `codex resume --last`, whose picker already filters by cwd so no lookup is needed; agent detection names the kind and tabs.json records it (the old boolean means claude). Other agents light the dot but have nothing to come back to. Ctrl+C
   over a selection copies it, Windows Terminal style; unselected it stays the interrupt.
   pwsh by default, Settings picks from what the machine has. The pty gets a
@@ -503,6 +508,104 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
   cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
   'Off' still means off: a confirmation that appears anyway is a setting that lies.
+- **The terminal and the sidebar stay in step** (2026-09-04, #99). The shell REPORTS its
+  folder at every prompt, Windows Terminal's way: the pwsh bootstrap wraps whatever `prompt`
+  the profile installed (oh-my-posh and starship survive) to print OSC 9;9 for the FileSystem
+  provider, Windows PowerShell gets the same `-Command`, cmd gets it through PROMPT
+  (`termPrompt.ts`); WSL and bash report nothing and are left out. xterm's OSC handler reads
+  it, never the process - pwsh's process cwd does not follow Set-Location. A cd INSIDE the
+  tab's root expands to the folder and marks it, root unchanged (research across Warp, VS
+  Code, Zed, JetBrains and Dolphin: no editor reroots on a cd, and Warp pins to the git root
+  precisely so an in-project cd moves nothing); a cd OUTSIDE reroots the tab, unless another
+  tab holds that folder, which would switch you there mid-keystroke. The other way, a reroot
+  (folder button, a folder row dropped on the viewer) respawns an UNTOUCHED shell as before
+  and now writes ONE `Set-Location -LiteralPath` into a TOUCHED one - **the second command
+  Prism ever writes itself**, beside the agent resume (owner decision) - and only when the
+  shell has reported a prompt with nothing typed since, hosts no agent, and is not already
+  there. Anything else is left alone, silently. Equal cwd is a no-op both ways, which is also
+  what stops the echo loop. `termCwd.ts` (shared, pure) holds the parsing, the quoting and the
+  inside/outside decision. TWO LIES FOUND ON THE WAY: xterm answers the pty on its own (focus
+  in/out, which pwsh 7.5 switches on; device attributes at spawn), and every reply went through
+  onData and counted as the USER typing, so a shell nobody had touched read as touched from
+  its first prompt - keys are heard on onKey now, and onData counts only plain text; and
+  Ctrl+` left to xterm became a NUL byte to the pty, so hiding the panel with the key it is
+  hidden with counted as typing too.
+  **AN AGENT'S STARTUP IS NOT WORK** (2026-09-04, owner: the tab lit "working" while
+  Claude was only starting). The indicator scores SUSTAINED output, and an agent's startup
+  paint is exactly that. The 4s clock from detection that covered it guessed at two things
+  it could not know - how late the process poll noticed the agent (up to 2.5s), and how
+  long the machine takes to boot it, which at app start with several tabs resuming at once
+  runs past four seconds - so the paint's tail scored as an answer. MEASURED: a plain start
+  streams 2.2s, a resume of a 46MB session 2.1s, both inside the clock on a quiet machine,
+  which is why it only showed under load. The rule now (`markBorn` / `startupOutput`,
+  pure and tested) needs no guess: nothing after detection counts until the FIRST SILENCE
+  (1.5s) OR the first KEYSTROKE into the agent - whichever comes first - and the first
+  chunk after that is the agent's own. The keystroke half was found the same hour: a prompt
+  typed within a moment of the paint left no silence between its echoes and the answer, so
+  the whole first answer read as startup and the tab lit only on the second message. Cost,
+  said plainly: `claude
+  "do this"` typed as one command runs straight from startup into work with no gap, and
+  shows nothing until its first pause.
+  **THE PROMPT LINE IS CARRIED ACROSS A RESIZE BY HAND** (2026-09-04, owner screenshot:
+  "PS C:\" and the tail of the path with blank columns between, Ctrl+L putting it right).
+  ConPTY - node-pty's bundled dll, which Prism must use because the inbox conhost fast-fails
+  the app when a pty dies mid-read - sends NOTHING on a resize, MEASURED: 0 bytes narrower
+  and 0 bytes wider, where the inbox conhost repaints the whole screen (339 bytes). It
+  reflows its own buffer and expects the terminal to do the same; xterm does, for every line
+  EXCEPT the one holding the cursor, on the Unix assumption that the shell redraws its own
+  line on SIGWINCH. Nobody redraws it here, so the prompt was cut at the narrower width and
+  stayed cut once widened, and the next keystroke landed at ConPTY's idea of the column. So
+  `fitKeepingCursorLine` reads the logical line under the cursor before the resize and
+  writes it back after, through xterm's own parser, cursor restored - only when it is the
+  LAST thing in the buffer (a prompt), never on the alternate screen. `windowsPty` is
+  declared too, with a build number past 21376 (the dll is newer than any inbox conhost),
+  which keeps xterm's reflow on and its scrollback growth ConPTY-shaped; declared WITHOUT a
+  build number it turns reflow off, which loses every long line. `promptLayout` in the e2e
+  wraps and unwraps a prompt and types after it; it was written to reproduce this and did.
+  **A FILE ARRIVING MEANS "SHOW ME THIS FILE"** (2026-09-04), exactly as a tree click does:
+  over a FULL terminal it hides the shell (still running) and gives the file the room. It
+  used to land underneath the terminal, unseen, and - since a full terminal marks nothing in
+  the tree - unmarked too, so Explorer's double-click on a file in the tab's folder looked
+  like it had done nothing. Restores are untouched: they set the terminal view themselves.
+  **THE INDICATOR IS THE AGENT'S OWN WORD** (2026-09-04, owner: "instant, and event-driven,
+  no loop"). Claude Code writes its state into the terminal TITLE, MEASURED on a real
+  session: "✳ Claude Code" at idle, a half-circle spinner glyph ("◐ Claude Code", cycling
+  ◐◑◒◓) from 30ms after Enter, held through tool calls, and back to "✳ <task>" the instant
+  the answer lands. xterm already parses titles, so `lib/agentTitle.ts` (pure, tested) reads
+  the glyph and App sets the tab the moment the event arrives - measured in the e2e at 41ms
+  to light and 21ms to clear, shell latency included, against the 1.2-2.7s the output
+  heuristic cost. A title with a state is ALSO the agent being present, NOW, ahead of the
+  process poll that would have said so up to 2.5s later; the poll still notices it leaving.
+  A titled session is never scored from its output again - the agent's own word is exact and
+  its repaints would only second-guess it. CODEX HAS A DIALECT OF ITS OWN (measured the same
+  day, in a folder it trusts - in an untrusted one the trust prompt eats the first keystroke
+  and it quits): a BRAILLE spinner before the FOLDER NAME while busy ("⠙ yeah", cycling
+  ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏) and the bare folder name at rest, during startup too - the spinner runs while
+  MCP servers load and the bare name marks the moment it is ready - with its child
+  processes' titles ("npm", "cmd.exe") interleaved, meaning nothing. So the reader is PER
+  SESSION (`readAgentTitle`) and remembers the name after the spinner, whose bare form is
+  the idle; a spinner BEFORE the first idle is the agent STARTING, present and not working,
+  for both dialects. A braille spinner is common currency (ora, and every CLI built on it),
+  so the Codex dialect is acted on only once the process poll has found an agent in the
+  shell; Claude's glyphs are its own and act alone. A session with no title state keeps the
+  output fallback, which lost its 700ms tick: the chunk that carries a run past the sustain
+  sets working right then, and ONE timer armed on the latest chunk clears it after the
+  silence. The e2e stands a shell in for Claude with `$Host.UI.RawUI.WindowTitle`, NOT a
+  raw `[Console]::Write` of the sequence - that one re-encodes the glyph to "?" on its way
+  through the console (measured); Claude writes its bytes straight to the pty.
+  **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a
+  directory bold on a BLUE BACKGROUND (a tint on a navy console, a selection on Prism's
+  palette), an .exe green, a .ps1 yellow, a .zip red and the table header green with the
+  numeric column's header in italic green on top - a listing read as highlighted source.
+  The bootstrap (`PS_FILE_STYLE`) sets directories to bold blue TEXT and clears the rest,
+  so files and headers take the terminal's own foreground; the blue is ANSI blue, which is
+  the chosen theme's blue. AND EVERY THEME'S SIXTEEN NOW CLEAR THE CONTRAST FLOOR
+  (`legiblePalette`): the curated presets used to be kept exact, and MEASURED against their
+  own backgrounds a dozen dark ones carried a bright black at 1.0-2.7:1 - the colour
+  PSReadLine paints parameters, operators and its inline prediction in - and the light ones
+  a bright white (numbers, members) at 1.0:1. Only a colour that fails moves, and only to
+  the floor, so a scheme that reads keeps its exact colours; `termTheme.legible.test.ts`
+  asserts it for every preset.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

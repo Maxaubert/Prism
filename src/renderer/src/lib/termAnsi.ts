@@ -155,3 +155,19 @@ export function deriveAnsi(rawBg: string, rawFg: string): Ansi16 {
     brightCyan: adapt(SEEDS.bright.cyan)
   }
 }
+
+/**
+ * A palette with every one of the sixteen legible against `bg` (2026-09-04,
+ * owner: every command should read on every theme). Curated schemes were
+ * kept exact before this, and most of them hide something: bright black -
+ * which PSReadLine paints parameters, operators and its inline prediction
+ * in - measured 1.0-2.7:1 on a dozen dark presets, and the light presets
+ * carried a bright white (numbers, members) at 1.0:1, which is invisible.
+ * Only a colour that FAILS the floor is touched, and it moves the least it
+ * can, so a scheme that already reads keeps its exact colours.
+ */
+export function legiblePalette<T extends Ansi16 | Record<string, string>>(ansi: T, bg: string): T {
+  const out: Record<string, string> = { ...ansi }
+  for (const k of Object.keys(out)) out[k] = ensureContrast(out[k], bg)
+  return out as T
+}
