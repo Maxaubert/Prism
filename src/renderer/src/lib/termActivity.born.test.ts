@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { forgetSession, markBorn, startupOutput } from './termActivity'
+import { forgetSession, markBorn, markTouched, startupOutput } from './termActivity'
 
 describe("an agent's startup paint ends at the first silence (2026-09-04)", () => {
   it('suppresses the stream after birth however long it runs, until a quiet gap', () => {
@@ -27,5 +27,13 @@ describe("an agent's startup paint ends at the first silence (2026-09-04)", () =
     markBorn('c', 1000)
     forgetSession('c')
     expect(startupOutput('c', 1100)).toBe(false)
+  })
+
+  it('typing into the agent ends the startup too, so the first answer counts', () => {
+    markBorn('d', 1000)
+    expect(startupOutput('d', 1200)).toBe(true) // still painting
+    markTouched('d') // the user types a prompt straight away
+    expect(startupOutput('d', 1400)).toBe(false) // its echo, and the answer after it, are real
+    forgetSession('d')
   })
 })

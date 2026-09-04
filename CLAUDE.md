@@ -535,7 +535,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   streams 2.2s, a resume of a 46MB session 2.1s, both inside the clock on a quiet machine,
   which is why it only showed under load. The rule now (`markBorn` / `startupOutput`,
   pure and tested) needs no guess: nothing after detection counts until the FIRST SILENCE
-  (1.5s), and the first chunk after it is the agent's own. Cost, said plainly: `claude
+  (1.5s) OR the first KEYSTROKE into the agent - whichever comes first - and the first
+  chunk after that is the agent's own. The keystroke half was found the same hour: a prompt
+  typed within a moment of the paint left no silence between its echoes and the answer, so
+  the whole first answer read as startup and the tab lit only on the second message. Cost,
+  said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
   **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a

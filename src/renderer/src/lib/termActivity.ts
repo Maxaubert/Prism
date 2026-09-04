@@ -26,6 +26,11 @@ const touchedIds = new Set<string>()
 // typing streak never scores; an agent genuinely answering keeps streaming
 // long after the last key and scores normally.
 const lastInput = new Map<string, number>()
+// The agent-birth rule's state, declared up here because markTouched ends a
+// birth too; the rule itself is explained below at markBorn.
+const QUIET_GAP = 1500
+const born = new Set<string>()
+const lastOut = new Map<string, number>()
 
 /**
  * Is this onData payload something a person produced? Terminal REPLIES all
@@ -40,6 +45,11 @@ export function looksTyped(data: string): boolean {
 export function markTouched(id: string): void {
   touchedIds.add(id)
   lastInput.set(id, Date.now())
+  // Typing into the agent is the other end of its startup (2026-09-04): a
+  // prompt typed within a moment of the paint, or while detection landed,
+  // left no silence between the echoes and the answer, so the whole first
+  // answer read as startup and the tab lit only on the second message.
+  born.delete(id)
 }
 
 /** Is this output close enough behind a keystroke to be its echo? */
@@ -104,9 +114,6 @@ export function idleAtPrompt(id: string): boolean {
 // past four seconds. The rule that needs no guess: the startup ends at the
 // FIRST SILENCE after the agent appears. Output up to that silence is the
 // agent arriving; output after it is the agent answering.
-const QUIET_GAP = 1500
-const born = new Set<string>()
-const lastOut = new Map<string, number>()
 
 /** The agent was just detected in this session. */
 export function markBorn(id: string, now = Date.now()): void {
