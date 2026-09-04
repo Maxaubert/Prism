@@ -25,6 +25,18 @@ export const PS_PROMPT_HOOK =
   "$o = if ($global:__prismPrompt) { (& $global:__prismPrompt) -join '' } else { 'PS> ' }; " +
   `if ($PWD.Provider.Name -eq 'FileSystem') { "${ESC}]9;9;$($PWD.ProviderPath)${ESC}\\" + $o } else { $o } }`
 
+/**
+ * Directory names in `ls` as bold blue TEXT rather than pwsh's default of
+ * bold on a blue BACKGROUND (owner, 2026-09-04). pwsh's default assumes a
+ * dark navy console where the block reads as a tint; on Prism's own palette
+ * it reads as a selection. Guarded, because Windows PowerShell has no
+ * $PSStyle. It runs AFTER the profile (that is when -Command executes), so
+ * inside Prism it overrides a profile's own choice: Prism's terminal wears
+ * Prism's palette, and this is one more part of that look, like the theme.
+ */
+export const PS_FILE_STYLE =
+  `if (Get-Variable PSStyle -ErrorAction SilentlyContinue) { $PSStyle.FileInfo.Directory = "${ESC}[34;1m" }`
+
 /** cmd's PROMPT with the report in front of whatever it already was. */
 export function cmdPrompt(existing: string | undefined): string {
   return `$e]9;9;$P$e\\${existing || '$P$G'}`

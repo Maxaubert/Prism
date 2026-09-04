@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PS_PROMPT_HOOK, cmdPrompt } from './termPrompt'
+import { PS_FILE_STYLE, PS_PROMPT_HOOK, cmdPrompt } from './termPrompt'
 import { ptyEnv } from './terminal'
 
 describe('the prompt reports its folder (#99)', () => {
@@ -24,5 +24,11 @@ describe('the prompt reports its folder (#99)', () => {
     expect(ptyEnv({}, 'cmd').PROMPT).toBe('$e]9;9;$P$e\\$P$G')
     expect(ptyEnv({ PROMPT: '$P$G' }, 'pwsh').PROMPT).toBe('$P$G')
     expect(ptyEnv({}, 'pwsh').PROMPT).toBeUndefined()
+  })
+
+  it('paints directory names as bold blue text, no background, where $PSStyle exists', () => {
+    expect(PS_FILE_STYLE).toContain('Get-Variable PSStyle -ErrorAction SilentlyContinue')
+    expect(PS_FILE_STYLE).toContain('$PSStyle.FileInfo.Directory = "$([char]27)[34;1m"')
+    expect(PS_FILE_STYLE).not.toContain('[44')
   })
 })

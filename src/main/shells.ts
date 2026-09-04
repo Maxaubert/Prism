@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import type { ShellDef } from '@shared/types'
-import { PS_PROMPT_HOOK } from './termPrompt'
+import { PS_FILE_STYLE, PS_PROMPT_HOOK } from './termPrompt'
 
 // The shells this machine actually has. Prism never execs a renderer-supplied
 // path: the renderer names a shell by id, and the id is looked up in this list,
@@ -73,14 +73,14 @@ export function detectShells(): Promise<ShellDef[]> {
           '-NoLogo',
           '-NoExit',
           '-Command',
-          `Set-PSReadLineOption -PredictionSource History; try { Set-PSReadLineOption -EnableScreenReaderMode:$false } catch {}; ${PS_PROMPT_HOOK}`
+          `Set-PSReadLineOption -PredictionSource History; try { Set-PSReadLineOption -EnableScreenReaderMode:$false } catch {}; ${PS_FILE_STYLE}; ${PS_PROMPT_HOOK}`
         ]
       })
     list.push({
       id: 'powershell',
       name: 'Windows PowerShell',
       exe: 'powershell.exe',
-      args: ['-NoLogo', '-NoExit', '-Command', PS_PROMPT_HOOK]
+      args: ['-NoLogo', '-NoExit', '-Command', `${PS_FILE_STYLE}; ${PS_PROMPT_HOOK}`]
     })
     list.push({ id: 'cmd', name: 'Command Prompt', exe: 'cmd.exe', args: [] })
     // wsl -l -q prints UTF-16LE. --cd . starts the distro in the pty's cwd.
