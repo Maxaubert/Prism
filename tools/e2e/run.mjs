@@ -3264,6 +3264,66 @@ async function termCwdScenario(fixtures) {
   }
 }
 
+/**
+ * The agent's own word (2026-09-04): Claude Code writes its state into the
+ * terminal title, and the tab follows it at once - no sustain window, no
+ * poll. A shell setting the same titles stands in for Claude here, so the
+ * check is deterministic and costs no network. The glyphs are typed as code
+ * points so nothing non-ASCII goes through the keyboard.
+ */
+async function agentTitleScenario(fixtures) {
+  console.log('agent title')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  // The indicator attributes sit on the tab's WRAPPER, the button's parent.
+  const attr = (name) =>
+    win.evaluate((n) => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute(n) ?? null, name)
+  const state = () => attr('data-agent-state')
+  const say = async (glyph, text) => {
+    // The title API, not a raw [Console]::Write: that one re-encodes the
+    // glyph to "?" on the way through the console (measured). Claude writes
+    // its bytes straight to the pty and is not affected.
+    await win.keyboard.type(`$Host.UI.RawUI.WindowTitle = "$([char]0x${glyph}) ${text}"`)
+    const t = Date.now()
+    await win.keyboard.press('Enter')
+    return t
+  }
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500) // a cold pwsh takes a moment to prompt
+    ok((await state()) === null, 'a plain shell shows no agent state')
+
+    const t1 = await say('25D0', 'Claude Code') // ◐
+    await win.waitForFunction(
+      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
+      null,
+      { timeout: 5000 }
+    )
+    const startMs = Date.now() - t1
+    ok(startMs < 800, `a working title lights the tab at once (${startMs}ms after Enter, shell latency included)`)
+    ok((await attr('data-agent-present')) !== null, 'and the title alone marks the agent present, ahead of the poll')
+
+    await sleep(300)
+    const t2 = await say('2733', 'Session greeting') // ✳
+    await win.waitForFunction(
+      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
+      null,
+      { timeout: 5000 }
+    )
+    const stopMs = Date.now() - t2
+    ok(stopMs < 800, `an idle title clears it at once (${stopMs}ms after Enter)`)
+
+    // The shell's own repaints never score for a titled session: a long burst
+    // of output is not an answer when the title says idle.
+    await win.keyboard.type('1..400 | ForEach-Object { "line $_" }')
+    await win.keyboard.press('Enter')
+    await sleep(2500)
+    ok((await state()) !== 'working', 'output alone does not light a session whose title says idle')
+  } finally {
+    await app.close()
+  }
+}
+
 async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4669,6 +4729,7 @@ await run(tabsScenario)
 await run(terminalScenario)
 await run(pinRecentScenario)
 await run(termCwdScenario)
+await run(agentTitleScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)

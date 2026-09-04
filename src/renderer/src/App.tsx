@@ -51,7 +51,8 @@ import {
   markResume,
   startupOutput
 } from './lib/termActivity'
-import { onCwd } from './lib/termBus'
+import { onCwd, onTitle } from './lib/termBus'
+import { titleState } from './lib/agentTitle'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from '@shared/termCwd'
 import { humanFor, noteWorking, workingFor } from './lib/agentClock'
@@ -1600,12 +1601,35 @@ export default function App(): JSX.Element {
    * a finished answer, waiting.
    */
   const outputRuns = useRef(new Map<string, { start: number; last: number }>())
+  /** Sessions whose agent reports its state through the title (Claude). */
+  const titled = useRef(new Set<string>())
+  /** The one clearing timer per fallback-scored session. */
+  const fallbackTimers = useRef(new Map<string, number>())
+  const stopFallback = (id: string): void => {
+    const t = fallbackTimers.current.get(id)
+    if (t !== undefined) {
+      clearTimeout(t)
+      fallbackTimers.current.delete(id)
+    }
+  }
   useEffect(
     () =>
       window.prism.onTermAgent((id, present, kind) => {
         if (present && (kind === 'claude' || kind === 'codex' || kind === 'other'))
           agentKinds.current.set(id, kind)
-        else if (!present) agentKinds.current.delete(id)
+        else if (!present) {
+          agentKinds.current.delete(id)
+          // The agent left: its title state and any working mark go with it,
+          // and the next agent in this shell starts on the fallback again.
+          titled.current.delete(id)
+          stopFallback(id)
+          setWorkingIds((prev) => {
+            if (!prev.has(id)) return prev
+            const next = new Set(prev)
+            next.delete(id)
+            return next
+          })
+        }
         if (present) {
           // An agent's BIRTH state is idle: its startup paint (banner, welcome
           // box, the loading spinners after it) is a stream, but it is not the
@@ -1637,6 +1661,10 @@ export default function App(): JSX.Element {
   useEffect(
     () =>
       window.prism.onTermData((id) => {
+        // A session whose agent SAYS what it is doing (through the title,
+        // see onTitle below) is never scored from its output: the agent's
+        // own word is exact, and its repaints would only second-guess it.
+        if (titled.current.has(id)) return
         // Output on the heels of a keystroke is that keystroke's echo (the TUI
         // repainting its input box), so typing at an idle agent never scores.
         // Every chunk is shown to the birth rule (it tracks the gaps), and
@@ -1647,6 +1675,28 @@ export default function App(): JSX.Element {
           const run = outputRuns.current.get(id)
           if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
           else run.last = now
+          const r = outputRuns.current.get(id)!
+          // EVENT-DRIVEN, no loop (owner, 2026-09-04): the chunk that carries
+          // the run past the sustain sets working right then, and ONE timer
+          // armed on the latest chunk clears it after the silence - a debounce
+          // in place of the 700ms tick that used to add up to a tick of lag
+          // to both ends.
+          if (r.last - r.start > 1200) {
+            setWorkingIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+            stopFallback(id)
+            fallbackTimers.current.set(
+              id,
+              window.setTimeout(() => {
+                fallbackTimers.current.delete(id)
+                setWorkingIds((prev) => {
+                  if (!prev.has(id)) return prev
+                  const next = new Set(prev)
+                  next.delete(id)
+                  return next
+                })
+              }, 2000)
+            )
+          }
         }
       }),
     []
@@ -1702,22 +1752,38 @@ export default function App(): JSX.Element {
     )
   }, [tabs, activeId, agentIds])
 
-  // One slow tick derives "working" from the runs; state only changes when
-  // the set actually changes, so idle terminals cost nothing.
-  useEffect(() => {
-    const t = setInterval(() => {
-      const now = Date.now()
-      setWorkingIds((prev) => {
-        const next = new Set<string>()
-        for (const [id, run] of outputRuns.current) {
-          if (now - run.last < 2000 && run.last - run.start > 1200) next.add(id)
+  /**
+   * The agent's OWN word (2026-09-04, owner: "instant, and event-driven").
+   * Claude Code writes its state into the terminal title - "✳ …" idle, a
+   * spinner glyph while working, MEASURED at 30ms after Enter and at the
+   * instant an answer lands - so the indicator follows the title and nothing
+   * else for such a session. A title with a state is also the agent being
+   * present, NOW, ahead of the process poll that would have said so up to
+   * 2.5s later; the poll still notices it leaving. Codex sets no such title
+   * (measured), so it keeps the output fallback above.
+   */
+  useEffect(
+    () =>
+      onTitle((id, title) => {
+        const state = titleState(title)
+        if (!state) return
+        if (!titled.current.has(id)) {
+          titled.current.add(id)
+          outputRuns.current.delete(id)
+          stopFallback(id)
         }
-        if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
-        return next
-      })
-    }, 700)
-    return () => clearInterval(t)
-  }, [])
+        if (!agentKinds.current.has(id)) agentKinds.current.set(id, 'claude')
+        setAgentIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+        setWorkingIds((prev) => {
+          if (prev.has(id) === (state === 'working')) return prev
+          const next = new Set(prev)
+          if (state === 'working') next.add(id)
+          else next.delete(id)
+          return next
+        })
+      }),
+    []
+  )
   // Finished-while-away: an agent that STOPS working on a background tab
   // leaves a mark that stays until the tab is visited (or work restarts).
   // An answer that lands while you are watching needs no flag; one that
@@ -1753,6 +1819,8 @@ export default function App(): JSX.Element {
       window.prism.onTermExit((id) => {
         disposeSession(id)
         outputRuns.current.delete(id)
+        titled.current.delete(id)
+        stopFallback(id)
         termRoots.current.delete(id)
         setAgentIds((prev) => {
           if (!prev.has(id)) return prev

@@ -5,7 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { decidePaste } from '../lib/termPaste'
-import { registerPaste, reportCwd } from '../lib/termBus'
+import { registerPaste, reportCwd, reportTitle } from '../lib/termBus'
 import { parseOsc9 } from '@shared/termCwd'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import {
@@ -243,6 +243,9 @@ function createSession(id: string, root: string, shellId: string | undefined): S
   // Windows Terminal convention, printed by the hook main put in the
   // bootstrap. Read here rather than in main because xterm already parses
   // the stream; handled (true) so it is never drawn as stray text.
+  // The title (OSC 0/2) is where Claude Code writes its working state; App
+  // reads the glyph. xterm parses it either way, this only passes it on.
+  term.onTitleChange((t) => reportTitle(id, t))
   term.parser.registerOscHandler(9, (data) => {
     const p = parseOsc9(data)
     if (p) {

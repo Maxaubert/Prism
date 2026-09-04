@@ -47,3 +47,19 @@ export function onCwd(fn: (sessionId: string, path: string) => void): () => void
     cwdListeners.delete(fn)
   }
 }
+
+// What each shell's TITLE says (2026-09-04): Claude Code writes its working
+// state into it, and App turns that into the tab indicator the moment it
+// arrives. TerminalPanel hears xterm's title event and posts it here.
+const titleListeners = new Set<(sessionId: string, title: string) => void>()
+
+export function reportTitle(sessionId: string, title: string): void {
+  titleListeners.forEach((fn) => fn(sessionId, title))
+}
+
+export function onTitle(fn: (sessionId: string, title: string) => void): () => void {
+  titleListeners.add(fn)
+  return () => {
+    titleListeners.delete(fn)
+  }
+}

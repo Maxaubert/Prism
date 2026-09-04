@@ -542,6 +542,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
+  **THE INDICATOR IS THE AGENT'S OWN WORD** (2026-09-04, owner: "instant, and event-driven,
+  no loop"). Claude Code writes its state into the terminal TITLE, MEASURED on a real
+  session: "✳ Claude Code" at idle, a half-circle spinner glyph ("◐ Claude Code", cycling
+  ◐◑◒◓) from 30ms after Enter, held through tool calls, and back to "✳ <task>" the instant
+  the answer lands. xterm already parses titles, so `lib/agentTitle.ts` (pure, tested) reads
+  the glyph and App sets the tab the moment the event arrives - measured in the e2e at 41ms
+  to light and 21ms to clear, shell latency included, against the 1.2-2.7s the output
+  heuristic cost. A title with a state is ALSO the agent being present, NOW, ahead of the
+  process poll that would have said so up to 2.5s later; the poll still notices it leaving.
+  A titled session is never scored from its output again - the agent's own word is exact and
+  its repaints would only second-guess it. Codex sets no such title (measured), so it keeps
+  the output fallback, which lost its 700ms tick: the chunk that carries a run past the
+  sustain sets working right then, and ONE timer armed on the latest chunk clears it after
+  the silence. The e2e stands a shell in for Claude with `$Host.UI.RawUI.WindowTitle`, NOT a
+  raw `[Console]::Write` of the sequence - that one re-encodes the glyph to "?" on its way
+  through the console (measured); Claude writes its bytes straight to the pty.
   **AND `ls` COLOURS ONLY THE FOLDERS** (owner, same day): pwsh's own defaults paint a
   directory bold on a BLUE BACKGROUND (a tint on a navy console, a selection on Prism's
   palette), an .exe green, a .ps1 yellow, a .zip red and the table header green with the

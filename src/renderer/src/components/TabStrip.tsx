@@ -283,6 +283,7 @@ export function TabStrip({
           <div
             key={t.id}
             data-agent={tint ? indicator : undefined}
+            data-agent-state={working ? 'working' : done ? 'done' : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
