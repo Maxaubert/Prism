@@ -44,9 +44,11 @@ export const PS_FILE_STYLE =
   // light one - and so is the table header, which pwsh paints green.
   "$PSStyle.FileInfo.Executable = ''; $PSStyle.FileInfo.SymbolicLink = ''; " +
   "$PSStyle.FileInfo.Extension.Clear(); " +
-  // TableHeader is the green header row; FormatAccent is the italic green
-  // that a numeric column's header ("Length") wears on top of it.
-  "$PSStyle.Formatting.TableHeader = ''; $PSStyle.Formatting.FormatAccent = '' }"
+  // TableHeader is the green header row; CustomTableHeaderLabel is the
+  // italic green on a column whose label is not its property's name
+  // ("Length"); FormatAccent is the accent the rest of Format-* uses.
+  "$PSStyle.Formatting.TableHeader = ''; $PSStyle.Formatting.CustomTableHeaderLabel = ''; " +
+  "$PSStyle.Formatting.FormatAccent = '' }"
 
 /** cmd's PROMPT with the report in front of whatever it already was. */
 export function cmdPrompt(existing: string | undefined): string {
