@@ -3566,6 +3566,158 @@ async function promptLayoutScenario(fixtures) {
   }
 }
 
+async function termClickScenario(fixtures) {
+  console.log('terminal then click')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const xterms = () => win.locator('.xterm').count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    // 1. full terminal, click a DIFFERENT file
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'a full terminal hides when a different file is clicked')
+    // 2. terminal again, click the SAME file that is open
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'and when the file already showing is clicked')
+    // 3. Ctrl+Shift+T (openTermFull), then click
+    await win.keyboard.press('Control+Shift+T')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await rowFor('README.md').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'and after Ctrl+Shift+T opened it')
+    // 4. a second terminal (menu "New terminal"), then click
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Open in split view"').click()
+    await sleep(1200)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 1 && (await win.locator('.cm-editor').first().isVisible().catch(() => false)), 'in split view the file lands in its pane and the terminal stays')
+    // 5. a terminal-first NEW tab (no file), then click a file
+    await win.evaluate(() => localStorage.setItem('prism.newtab.show', 'terminal'))
+    await win.keyboard.press('Control+t')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    const fileRow = win.locator('[role="treeitem"]:not([aria-expanded])').first()
+    await fileRow.click()
+    await sleep(1200)
+    ok((await xterms()) === 0, 'a terminal-first tab hides its terminal when a file is clicked')
+    await win.evaluate(() => localStorage.removeItem('prism.newtab.show'))
+  } finally {
+    await app.close()
+  }
+  // 6. A RESTORED tab whose terminal was showing at quit.
+  await sleep(900)
+  {
+    const { app, win } = await launch(join(fixtures, 'README.md'))
+    try {
+      await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+      await win.locator('aside [aria-label="Terminal"]').click()
+      await win.waitForSelector('.xterm', { timeout: 15000 })
+      await sleep(1500) // the save is debounced
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
+  {
+    // A file from the OTHER root, so the restored tab is not the one it lands
+    // in (an arrival hides a full terminal by design).
+    const { app, win } = await launch(join(OTHER_ROOT, 'bad.json'), true)
+    try {
+      await sleep(2500)
+      await win.locator('[role="tab"]:has-text("fixtures")').first().click()
+      await win.waitForSelector('.xterm', { timeout: 15000 })
+      await sleep(1500)
+      ok((await win.locator('.xterm').count()) === 1, 'a restored tab shows its terminal')
+      await win.locator('[role="treeitem"][data-row$="notes.txt" i]').first().click()
+      await sleep(1200)
+      ok((await win.locator('.xterm').count()) === 0, 'and hides it when a file is clicked')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+async function extractThenTermScenario(fixtures) {
+  console.log('extract, then terminal, then click')
+  const dir = join(fixtures, 'landing2')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'wrapped.zip'))
+  copyFileSync(join(fixtures, 'notes.txt'), join(dir, 'notes.txt'))
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const xterms = () => win.locator('.xterm').count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Extract here"').click()
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
+    await win.waitForFunction(() => !!document.querySelector('[role="treeitem"][data-row$="Collection" i][data-selected]'), null, { timeout: 8000 })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    await rowFor('one.png').click()
+    await sleep(1200)
+    ok((await xterms()) === 0, 'after an extraction, a file click still hides the full terminal')
+    // and a file inside the extracted folder
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    const inner = win.locator('[role="treeitem"][data-row*="Collection\\\\" i]:not([aria-expanded])').first()
+    if (await inner.count()) {
+      await inner.click()
+      await sleep(1200)
+      ok((await xterms()) === 0, 'and so does a click inside the extracted folder')
+    }
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function shotScrollScenario(fixtures) {
+  console.log('scrollbar shots')
+  const out = process.env.SHOT_DIR
+  const long = join(fixtures, 'code', 'long.js')
+  writeFileSync(long, Array.from({ length: 400 }, (_, i) => `const line${i} = ${i} // padding text to make the line a bit longer than usual\n`).join(''))
+  const { app, win } = await launch(long)
+  try {
+    await win.waitForSelector('.cm-editor', { timeout: 15000 })
+    await sleep(1200)
+    await win.locator('.cm-scroller').hover()
+    await win.mouse.wheel(0, 600)
+    await sleep(600)
+    await win.screenshot({ path: join(out, 'scroll-code.png') })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(2500)
+    for (let i = 0; i < 60; i += 1) {
+      await win.keyboard.type(`echo line ${i}`)
+      await win.keyboard.press('Enter')
+    }
+    await sleep(1000)
+    await win.screenshot({ path: join(out, 'scroll-term.png') })
+  } finally {
+    await app.close()
+    rmSync(long, { force: true })
+  }
+}
+
 async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4967,6 +5119,9 @@ await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(promptLayoutScenario)
 await run(landingScenario)
+await run(termClickScenario)
+await run(extractThenTermScenario)
+if (process.env.SHOT_DIR) await run(shotScrollScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)
