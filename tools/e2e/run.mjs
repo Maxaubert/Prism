@@ -4733,8 +4733,11 @@ async function dragScenario(fixtures) {
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      // The move LANDS the file (#101): its row reappears inside `into`, which
+      // the tree opens to show it, marked - so wait for that row rather than
+      // for the name to vanish from the sidebar.
       await win.waitForFunction(
-        () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
+        () => !!document.querySelector('aside [role="treeitem"][data-row$="\\\\into\\\\movable.txt" i][data-selected]'),
         null,
         { timeout: 8000 }
       )
@@ -4748,24 +4751,9 @@ async function dragScenario(fixtures) {
       )
       ok(!ringLeft, 'and the drop ring around the viewer is gone')
       // The DROPPED FILE is what is marked afterwards (2026-09-03, owner -
-      // Explorer's way; narrows the 2026-08-31 folder-mark rule): where it
-      // arrived is what you are now looking at. Its row lives inside the
-      // destination folder, which may need expanding to see - the mark is on
-      // the data-selected row carrying the file's name.
-      const expandInto = () =>
-        win.evaluate(() => {
-          const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
-            (r.textContent ?? '').includes('into')
-          )
-          // The CHEVRON, not the row: a row click would SELECT the folder and
-          // replace the very mark this asserts on.
-          const collapsed = el?.getAttribute('aria-expanded') === 'false'
-          if (collapsed !== undefined && el)
-            el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-          return collapsed
-        })
-      const wasCollapsed = await expandInto()
-      await sleep(600)
+      // Explorer's way; narrows the 2026-08-31 folder-mark rule), and since
+      // #101 the tree opens the destination to show it and, being one file,
+      // the viewer shows it too.
       const marked = await win.evaluate(
         () =>
           [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|') ?? ''
@@ -4774,12 +4762,10 @@ async function dragScenario(fixtures) {
         marked.includes('movable'),
         `the dropped file is the marked row after the drop (${marked})`
       )
-      // Put the folder's state back the way the steps below expect it: their
-      // own select-then-toggle click pair assumes a collapsed folder.
-      if (wasCollapsed) {
-        await expandInto()
-        await sleep(400)
-      }
+      ok(
+        /movable/.test((await win.locator('aside [role="treeitem"][aria-selected="true"]').textContent()) ?? ''),
+        'and, being one file, it is what the viewer shows'
+      )
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.
