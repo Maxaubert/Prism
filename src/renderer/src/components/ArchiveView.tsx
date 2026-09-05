@@ -183,6 +183,7 @@ export function ArchiveView({
   file,
   onUndoable,
   onRenameSelf,
+  onLanded,
   refreshKey = 0,
   fullscreen = false,
   trail
@@ -194,6 +195,8 @@ export function ArchiveView({
    *  it knows how to answer a taken name, how to follow the file that just
    *  moved, and how to put the rename on the undo stack. */
   onRenameSelf?: (name: string) => void
+  /** Paths an extraction just wrote to disk (#101): the tree marks them. */
+  onLanded?: (paths: string[]) => void
   /** Bumped by App after an undo, so the listing re-reads the container. */
   refreshKey?: number
   /** The archives this one is nested INSIDE, outermost first.
@@ -216,6 +219,7 @@ export function ArchiveView({
       file={file}
       onUndoable={onUndoable}
       onRenameSelf={onRenameSelf}
+      onLanded={onLanded}
       refreshKey={refreshKey}
       trail={trail}
     />
@@ -226,6 +230,7 @@ function ArchiveInner({
   file,
   onUndoable,
   onRenameSelf,
+  onLanded,
   refreshKey,
   fullscreen,
   trail
@@ -233,6 +238,7 @@ function ArchiveInner({
   file: ViewerFile
   onUndoable?: (entry: UndoEntry) => void
   onRenameSelf?: (name: string) => void
+  onLanded?: (paths: string[]) => void
   refreshKey: number
   fullscreen: boolean
   /** The archives this one is nested inside, outermost first; see ArchiveView. */
@@ -428,7 +434,11 @@ function ArchiveInner({
           : window.prism.archiveExtractMembersTo(file.path, entries, pw)
         ).then((r) => {
           endJob(job)
-          if (r.ok) return 'ok'
+          if (r.ok) {
+            // Where they went: beside the archive, or the folder picked.
+            onLanded?.([here || !('dest' in r) ? besideArchive : r.dest])
+            return 'ok'
+          }
           return r.reason === 'cancelled' ? 'ok' : r.reason
         })
       )
@@ -569,7 +579,10 @@ function ArchiveInner({
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
         endJob(job)
         setBusy(null)
-        if (r.ok) setJustDone(true)
+        if (r.ok) {
+          setJustDone(true)
+          onLanded?.([r.path])
+        }
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops('That folder is password protected. Open a member first to unlock the archive.')
         else
@@ -626,7 +639,10 @@ function ArchiveInner({
         off()
         endJob(job)
         setBusy(null)
-        if (r.ok) setJustDone(true)
+        if (r.ok) {
+          setJustDone(true)
+          onLanded?.([r.dest])
+        }
         else if (r.reason === 'cancelled') return
         else if (r.reason === 'password')
           setOops(
