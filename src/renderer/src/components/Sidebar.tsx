@@ -13,6 +13,7 @@ import type { TreeState } from '../lib/tabs'
 import { fileKind } from '@shared/fileKind'
 import { lastSplitDir, type SplitDir } from '../lib/panes'
 import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '../lib/fileTree'
+import { planLanding, type EntryKind } from '../lib/landing'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
@@ -191,7 +192,8 @@ export function Sidebar({
   onSplitTermId,
   state,
   onTree,
-  reveal = null
+  reveal = null,
+  landed = null
 }: {
   open: boolean
   root: string
@@ -255,6 +257,10 @@ export function Sidebar({
    *  cursor on it, the way clicking it would. `seq` makes the same folder
    *  twice two requests. */
   reveal?: { path: string; seq: number } | null
+  /** Paths an action outside the tree just created or put back (#101): an
+   *  archive's extraction, an undo. Marked the same way the tree's own
+   *  verbs mark what they land. */
+  landed?: { paths: string[]; seq: number } | null
 }): JSX.Element {
   // The tree's state belongs to the TAB, not to this component. Owned here it
   // reset on every tab switch, which made a tab feel like a reload rather than
@@ -468,6 +474,76 @@ export function Sidebar({
     },
     [load, root, setState]
   )
+
+  /**
+   * THE LANDING (#101, 2026-09-05): what an action just created or moved
+   * is expanded to, marked, and put under the cursor - a paste, a dropped
+   * move, a duplicate, an extraction, an undo, all through here. Explorer's
+   * rule then decides: exactly ONE FILE is also shown in the viewer; a
+   * folder, or several of anything, is a ctrl-click selection and nothing
+   * opens. The rows may not exist yet (an extraction's folder reaches the
+   * tree through the watcher a beat later), so the marks are set by path
+   * now and the open-or-mark decision waits, in `pendingLand`, for the rows.
+   * A ref plus a tick rather than state: the settling runs in an effect that
+   * must not set state itself.
+   */
+  const pendingLand = useRef<string[] | null>(null)
+  const [landTick, setLandTick] = useState(0)
+  const landPaths = useCallback(
+    (paths: string[]): void => {
+      const ps = paths.filter(Boolean)
+      if (!ps.length) return
+      setDroppedOn(ps) // survives the refresh the write itself provokes
+      setSel({ anchor: ps[0], items: new Set(ps) })
+      setCursor(ps[0])
+      setState((st) => {
+        const expanded = new Set(st.expanded)
+        ps.forEach((q) => ancestorChain(root, q).forEach((a) => expanded.add(a)))
+        return { ...st, expanded }
+      })
+      new Set(ps.map(parentDir)).forEach((d) => void load(d, true))
+      pendingLand.current = ps
+      setLandTick((n) => n + 1)
+    },
+    [load, root, setState]
+  )
+  const kindOf = useCallback(
+    (q: string): EntryKind | undefined => {
+      const dir = state.children[parentDir(q)]
+      if (!dir) return undefined
+      const lc = q.toLowerCase()
+      if (dir.folders.some((f) => f.path.toLowerCase() === lc)) return 'folder'
+      if (dir.files.some((f) => f.path.toLowerCase() === lc)) return 'file'
+      return undefined
+    },
+    [state.children]
+  )
+  useEffect(() => {
+    const ps = pendingLand.current
+    if (!ps) return
+    const plan = planLanding(ps, kindOf)
+    if (!plan.settled) return
+    pendingLand.current = null
+    if (plan.open) onOpenFile(plan.open)
+    const first = plan.cursor
+    if (first)
+      requestAnimationFrame(() =>
+        scroller.current
+          ?.querySelector<HTMLElement>(`[data-row="${CSS.escape(first)}"]`)
+          ?.scrollIntoView({ block: 'nearest' })
+      )
+  }, [landTick, kindOf, onOpenFile])
+  // A new root forgets what was pending: those paths belong to another tree.
+  useEffect(() => {
+    pendingLand.current = null
+  }, [root])
+  // From outside the tree (App): once per request.
+  const landSeen = useRef(0)
+  useEffect(() => {
+    if (!landed || landed.seq === landSeen.current) return
+    landSeen.current = landed.seq
+    landPaths(landed.paths)
+  }, [landed, landPaths])
 
   // Reveal: when the open file changes, expand every folder between the root and
   // it. Adjusting state during render (rather than in an effect) keeps a folder
@@ -802,21 +878,10 @@ export function Sidebar({
         // The pasted files become the selection, Explorer's way - now, and
         // again after the watcher's refresh clears every mark (droppedOn).
         if (r.paths.length) {
-          setDroppedOn(r.paths)
-          setSel({ anchor: r.paths[0], items: new Set(r.paths) })
-          setCursor(r.paths[0])
-          requestAnimationFrame(() =>
-            scroller.current
-              ?.querySelector('[data-row="' + CSS.escape(r.paths[0]) + '"]')
-              ?.scrollIntoView({ block: 'nearest' })
-          )
-          // And it OPENS (owner, 2026-09-03): highlighted but still showing
-          // the old film read as the paste having gone somewhere else. A
-          // pasted folder is not a thing to view, so files only.
-          const first = r.paths[0]
-          void window.prism.statFile(first).then((st) => {
-            if (st && !st.isFolder) onOpenFile(first)
-          })
+          // The landing decides what opens (#101): one file shows, several
+          // only mark - the 2026-09-03 "the first pasted file opens" rule
+          // collapsed a multi-paste's marks to that one file.
+          landPaths(r.paths)
         }
         void load(dest, true)
       })
@@ -906,8 +971,8 @@ export function Sidebar({
         endJob(job)
         if (r.ok) {
           // The extracted folder is a change Prism made, so the tree hears
-          // about it from here rather than from the watcher.
-          void load(parentDir(path), true)
+          // about it from here rather than from the watcher - and marks it.
+          landPaths([r.dest])
         } else if (r.reason === 'cancelled') return
         else
           setArcJob({
@@ -977,9 +1042,7 @@ export function Sidebar({
       const base = (q: string): string => q.split(/[\\/]/).filter(Boolean).pop() ?? q
       const mark = (paths: string[]): void => {
         const to = paths.length ? paths.map((q) => folderPath + '\\' + base(q)) : [folderPath]
-        setDroppedOn(to)
-        setSel({ anchor: to[0], items: new Set(to) })
-        setCursor(to[0])
+        landPaths(to)
       }
       if (payload) {
         mark(payload.kind === 'files' ? payload.paths : [])
@@ -1745,7 +1808,7 @@ export function Sidebar({
                       void window.prism.duplicateFile(menu.path).then((copy) => {
                         if (copy) {
                           onDuplicated(menu.path, copy)
-                          void load(parentDir(menu.path), true)
+                          landPaths([copy]) // one file: marked and shown
                         }
                       })
                   }

@@ -1378,6 +1378,96 @@ async function comicIconScenario(fixtures) {
  * terminal and unsaved text; a reflex keystroke that puts all of that away is
  * the failure the close flow exists to prevent.
  */
+/**
+ * What an action creates is marked, Explorer's way (#101, 2026-09-05): an
+ * extraction's folder, a duplicate, a paste. One file also opens; a folder
+ * or several only mark.
+ */
+async function landingScenario(fixtures) {
+  console.log('landing marks')
+  const dir = join(fixtures, 'landing')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'target'), { recursive: true })
+  copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'wrapped.zip'))
+  copyFileSync(join(fixtures, 'notes.txt'), join(dir, 'notes.txt'))
+  const { app, win } = await launch(join(dir, 'wrapped.zip'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const marked = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[role="treeitem"][data-selected]')].map((e) => (e.getAttribute('data-row') ?? '').split('\\').pop())
+    )
+  const open = () =>
+    win.evaluate(() => (document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? '').split('\\').pop())
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // Extract here: the folder it made is marked, nothing opens.
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Extract here"').click()
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
+    await win.waitForFunction(
+      () => !!document.querySelector('[role="treeitem"][data-row$="Collection" i][data-selected]'),
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'Extract here marks the folder it made')
+    ok((await open()) === 'wrapped.zip', `and opens nothing: the archive is still what shows (${await open()})`)
+    ok(
+      (await rowFor('Collection').getAttribute('tabindex')) === '0',
+      'and the cursor is on it'
+    )
+
+    // Duplicate: one file, marked AND shown.
+    await rowFor('notes.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Duplicate"').click()
+    await win.waitForFunction(
+      () => document.querySelector('[role="treeitem"][data-row$="notes (2).txt" i]')?.getAttribute('aria-selected') === 'true',
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'Duplicate opens the copy: one file is shown')
+    ok((await marked()).join() === 'notes (2).txt', `and it is the one marked row (${(await marked()).join(' | ')})`)
+
+    // Paste TWO files into a folder: both marked, nothing opens.
+    await rowFor('notes.txt').click()
+    await sleep(300)
+    await rowFor('notes (2).txt').click({ modifiers: ['Control'] })
+    await sleep(300)
+    await rowFor('notes (2).txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    // Inside a multi-selection the verb counts what it acts on ("Copy 2 files").
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: /^Copy( 2 files)?/ }).first().click()
+    await sleep(1200)
+    const before = await open()
+    await rowFor('target').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    await win.waitForFunction(
+      () => document.querySelectorAll('[role="treeitem"][data-row*="\\\\target\\\\" i][data-selected]').length === 2,
+      null,
+      { timeout: 10000 }
+    ).catch(async (e) => {
+      const rows = await win.evaluate(() =>
+        [...document.querySelectorAll('[role="treeitem"]')].map(
+          (el) =>
+            (el.getAttribute('data-row') ?? '').split('\\').slice(-2).join('/') +
+            (el.hasAttribute('data-selected') ? ' *' : '')
+        )
+      )
+      throw new Error(e.message + ' rows: ' + JSON.stringify(rows))
+    })
+    ok(true, 'pasting two files marks both, in the folder they landed in')
+    ok((await open()) === before, `and opens neither: what showed still shows (${await open()})`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function treeVerbsScenario(fixtures) {
   console.log('tree row verbs')
   const { app, win } = await launch(join(fixtures, 'zips', 'bundle.zip'))
@@ -1442,6 +1532,10 @@ async function treeVerbsScenario(fixtures) {
     )
   } finally {
     await app.close()
+    // What Extract here made, so the extract scenario's one-folder rule finds
+    // the name free next time.
+    rmSync(join(fixtures, 'zips', 'Collection'), { recursive: true, force: true })
+    rmSync(join(fixtures, 'zips', 'wrapped'), { recursive: true, force: true })
   }
 }
 
@@ -1924,6 +2018,9 @@ async function extractScenario(fixtures) {
   const zip = join(fixtures, 'zips', 'wrapped.zip')
   const landed = join(fixtures, 'zips', 'Collection')
   rmSync(landed, { recursive: true, force: true })
+  // The un-hoisted folder too: left behind by a run in which `Collection`
+  // already existed, it makes the next extraction land as "wrapped (2)".
+  rmSync(join(fixtures, 'zips', 'wrapped'), { recursive: true, force: true })
   const { app, win } = await launch(zip)
   try {
     await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
@@ -3476,6 +3573,158 @@ async function promptLayoutScenario(fixtures) {
   }
 }
 
+async function termClickScenario(fixtures) {
+  console.log('terminal then click')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const xterms = () => win.locator('.xterm').count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    // 1. full terminal, click a DIFFERENT file
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'a full terminal hides when a different file is clicked')
+    // 2. terminal again, click the SAME file that is open
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'and when the file already showing is clicked')
+    // 3. Ctrl+Shift+T (openTermFull), then click
+    await win.keyboard.press('Control+Shift+T')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    await rowFor('README.md').click()
+    await sleep(800)
+    ok((await xterms()) === 0, 'and after Ctrl+Shift+T opened it')
+    // 4. a second terminal (menu "New terminal"), then click
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Open in split view"').click()
+    await sleep(1200)
+    await rowFor('notes.txt').click()
+    await sleep(800)
+    ok((await xterms()) === 1 && (await win.locator('.cm-editor').first().isVisible().catch(() => false)), 'in split view the file lands in its pane and the terminal stays')
+    // 5. a terminal-first NEW tab (no file), then click a file
+    await win.evaluate(() => localStorage.setItem('prism.newtab.show', 'terminal'))
+    await win.keyboard.press('Control+t')
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    const fileRow = win.locator('[role="treeitem"]:not([aria-expanded])').first()
+    await fileRow.click()
+    await sleep(1200)
+    ok((await xterms()) === 0, 'a terminal-first tab hides its terminal when a file is clicked')
+    await win.evaluate(() => localStorage.removeItem('prism.newtab.show'))
+  } finally {
+    await app.close()
+  }
+  // 6. A RESTORED tab whose terminal was showing at quit.
+  await sleep(900)
+  {
+    const { app, win } = await launch(join(fixtures, 'README.md'))
+    try {
+      await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+      await win.locator('aside [aria-label="Terminal"]').click()
+      await win.waitForSelector('.xterm', { timeout: 15000 })
+      await sleep(1500) // the save is debounced
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
+  {
+    // A file from the OTHER root, so the restored tab is not the one it lands
+    // in (an arrival hides a full terminal by design).
+    const { app, win } = await launch(join(OTHER_ROOT, 'bad.json'), true)
+    try {
+      await sleep(2500)
+      await win.locator('[role="tab"]:has-text("fixtures")').first().click()
+      await win.waitForSelector('.xterm', { timeout: 15000 })
+      await sleep(1500)
+      ok((await win.locator('.xterm').count()) === 1, 'a restored tab shows its terminal')
+      await win.locator('[role="treeitem"][data-row$="notes.txt" i]').first().click()
+      await sleep(1200)
+      ok((await win.locator('.xterm').count()) === 0, 'and hides it when a file is clicked')
+    } finally {
+      await app.close()
+    }
+  }
+}
+
+async function extractThenTermScenario(fixtures) {
+  console.log('extract, then terminal, then click')
+  const dir = join(fixtures, 'landing2')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'wrapped.zip'))
+  copyFileSync(join(fixtures, 'notes.txt'), join(dir, 'notes.txt'))
+  copyFileSync(join(fixtures, 'one.png'), join(dir, 'one.png'))
+  const { app, win } = await launch(join(dir, 'notes.txt'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const xterms = () => win.locator('.xterm').count()
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Extract here"').click()
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
+    await win.waitForFunction(() => !!document.querySelector('[role="treeitem"][data-row$="Collection" i][data-selected]'), null, { timeout: 8000 })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(1500)
+    await rowFor('one.png').click()
+    await sleep(1200)
+    ok((await xterms()) === 0, 'after an extraction, a file click still hides the full terminal')
+    // and a file inside the extracted folder
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(800)
+    const inner = win.locator('[role="treeitem"][data-row*="Collection\\\\" i]:not([aria-expanded])').first()
+    if (await inner.count()) {
+      await inner.click()
+      await sleep(1200)
+      ok((await xterms()) === 0, 'and so does a click inside the extracted folder')
+    }
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function shotScrollScenario(fixtures) {
+  console.log('scrollbar shots')
+  const out = process.env.SHOT_DIR
+  const long = join(fixtures, 'code', 'long.js')
+  writeFileSync(long, Array.from({ length: 400 }, (_, i) => `const line${i} = ${i} // padding text to make the line a bit longer than usual\n`).join(''))
+  const { app, win } = await launch(long)
+  try {
+    await win.waitForSelector('.cm-editor', { timeout: 15000 })
+    await sleep(1200)
+    await win.locator('.cm-scroller').hover()
+    await win.mouse.wheel(0, 600)
+    await sleep(600)
+    await win.screenshot({ path: join(out, 'scroll-code.png') })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(2500)
+    for (let i = 0; i < 60; i += 1) {
+      await win.keyboard.type(`echo line ${i}`)
+      await win.keyboard.press('Enter')
+    }
+    await sleep(1000)
+    await win.screenshot({ path: join(out, 'scroll-term.png') })
+  } finally {
+    await app.close()
+    rmSync(long, { force: true })
+  }
+}
+
 async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4643,8 +4892,11 @@ async function dragScenario(fixtures) {
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      // The move LANDS the file (#101): its row reappears inside `into`, which
+      // the tree opens to show it, marked - so wait for that row rather than
+      // for the name to vanish from the sidebar.
       await win.waitForFunction(
-        () => !/movable\.txt/.test(document.querySelector('aside')?.textContent ?? ''),
+        () => !!document.querySelector('aside [role="treeitem"][data-row$="\\\\into\\\\movable.txt" i][data-selected]'),
         null,
         { timeout: 8000 }
       )
@@ -4658,24 +4910,9 @@ async function dragScenario(fixtures) {
       )
       ok(!ringLeft, 'and the drop ring around the viewer is gone')
       // The DROPPED FILE is what is marked afterwards (2026-09-03, owner -
-      // Explorer's way; narrows the 2026-08-31 folder-mark rule): where it
-      // arrived is what you are now looking at. Its row lives inside the
-      // destination folder, which may need expanding to see - the mark is on
-      // the data-selected row carrying the file's name.
-      const expandInto = () =>
-        win.evaluate(() => {
-          const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
-            (r.textContent ?? '').includes('into')
-          )
-          // The CHEVRON, not the row: a row click would SELECT the folder and
-          // replace the very mark this asserts on.
-          const collapsed = el?.getAttribute('aria-expanded') === 'false'
-          if (collapsed !== undefined && el)
-            el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-          return collapsed
-        })
-      const wasCollapsed = await expandInto()
-      await sleep(600)
+      // Explorer's way; narrows the 2026-08-31 folder-mark rule), and since
+      // #101 the tree opens the destination to show it and, being one file,
+      // the viewer shows it too.
       const marked = await win.evaluate(
         () =>
           [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|') ?? ''
@@ -4684,12 +4921,10 @@ async function dragScenario(fixtures) {
         marked.includes('movable'),
         `the dropped file is the marked row after the drop (${marked})`
       )
-      // Put the folder's state back the way the steps below expect it: their
-      // own select-then-toggle click pair assumes a collapsed folder.
-      if (wasCollapsed) {
-        await expandInto()
-        await sleep(400)
-      }
+      ok(
+        /movable/.test((await win.locator('aside [role="treeitem"][aria-selected="true"]').textContent()) ?? ''),
+        'and, being one file, it is what the viewer shows'
+      )
       ok(!existsSync(join(box, 'movable.txt')), 'and left where it was')
 
       // Undo (2026-08-22) puts it back, and redo sends it again.
@@ -4711,10 +4946,16 @@ async function dragScenario(fixtures) {
       // The file is inside `into` at this point, so open it and drag back OUT -
       // which is the owner's own case: a thing from a subfolder, dropped on a
       // file sitting in the root.
-      const intoRow = win.locator('[role="treeitem"]:has-text("into")').first()
-      await intoRow.click()
-      await sleep(250)
-      await intoRow.click() // first click selects a folder, the second opens it
+      // Open `into` if it is not open already: since the undo LANDS the moved
+      // file (#101) and the viewer follows it on redo, the tree may already
+      // show it, and a second row click would collapse the folder instead.
+      await win.evaluate(() => {
+        const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+          (r.textContent ?? '').includes('into')
+        )
+        if (el?.getAttribute('aria-expanded') === 'false')
+          el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
       await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 8000 })
       await sleep(400)
       await win
@@ -4884,6 +5125,10 @@ await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(promptLayoutScenario)
+await run(landingScenario)
+await run(termClickScenario)
+await run(extractThenTermScenario)
+if (process.env.SHOT_DIR) await run(shotScrollScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)

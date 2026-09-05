@@ -374,6 +374,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   double-click, where single click selects. Contiguous selected rows fuse in the TREE (shared
   edges drop their rounding); the archive's rows are square and edge to edge, so there is
   nothing there to fuse.
+  **WHAT AN ACTION CREATES IS MARKED, EXPLORER'S WAY** (2026-09-05, #101). Extract here left
+  its folder unmarked in the tree, Duplicate its copy, an undo what it put back; a paste and a
+  dropped move had marked what landed since 2026-09-03, and the paste also OPENED the first
+  file, which collapsed a multi-paste's marks to that one. One landing now (`landPaths` in
+  Sidebar, fed by the tree's own verbs and by App's `landed` request for what the archive
+  view extracts and what an undo restores): the entries are expanded to, marked, the cursor
+  on the first, and `lib/landing.ts` (pure, tested) applies the rule - exactly ONE FILE also
+  shows in the viewer; a folder, or several of anything, is a ctrl-click selection and
+  nothing opens. The rows may not exist yet when the action reports (an extraction's folder
+  reaches the tree through the watcher a beat later), so the marks are set by path and the
+  open-or-mark decision waits for the rows. Extract to a folder outside every root cannot be
+  marked, since the tree cannot show it. And files arriving from outside fold ONLY into the
+  tab whose root IS their folder (2026-09-04, above), so a landing is always in the active
+  tab's own tree.
   Search results speak the same selection language, multi right-click included.
   DRAG-SELECT came back for the ARCHIVE alone (2026-08-25): it starts only on the
   panel's DEAD SPACE, so a row drag (which moves members) can never leave a phantom
@@ -546,6 +560,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
+  **ONE QUIET SCROLLBAR, AND NONE IN THE TERMINAL** (owner, 2026-09-05). Every scrolling
+  surface wears the same 8px thumb in the text colour at low alpha, no track, no steppers,
+  a little stronger on hover - mixed against `--p-text` so it holds on void, paper and an
+  accent-tinted ground alike; `.p-scroll` still means none at all (the viewer pane, the
+  tree). The terminal's viewport hides its bar entirely: the scrollback is scrolled with the
+  wheel and searched with Ctrl+Shift+F, and a bar beside a prompt read as chrome the shell
+  had not asked for. Chromium ignores `scrollbar-color` once `::-webkit-scrollbar` is
+  styled, so only the webkit rules carry. A `shotScroll` scenario (run with SHOT_DIR set)
+  screenshots the code view and the terminal for eyeballing.
   **THE PROMPT LINE IS CARRIED ACROSS A RESIZE BY HAND** (2026-09-04, owner screenshot:
   "PS C:\" and the tail of the path with blank columns between, Ctrl+L putting it right).
   ConPTY - node-pty's bundled dll, which Prism must use because the inbox conhost fast-fails
