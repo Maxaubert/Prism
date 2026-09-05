@@ -1532,6 +1532,10 @@ async function treeVerbsScenario(fixtures) {
     )
   } finally {
     await app.close()
+    // What Extract here made, so the extract scenario's one-folder rule finds
+    // the name free next time.
+    rmSync(join(fixtures, 'zips', 'Collection'), { recursive: true, force: true })
+    rmSync(join(fixtures, 'zips', 'wrapped'), { recursive: true, force: true })
   }
 }
 
@@ -2014,6 +2018,9 @@ async function extractScenario(fixtures) {
   const zip = join(fixtures, 'zips', 'wrapped.zip')
   const landed = join(fixtures, 'zips', 'Collection')
   rmSync(landed, { recursive: true, force: true })
+  // The un-hoisted folder too: left behind by a run in which `Collection`
+  // already existed, it makes the next extraction land as "wrapped (2)".
+  rmSync(join(fixtures, 'zips', 'wrapped'), { recursive: true, force: true })
   const { app, win } = await launch(zip)
   try {
     await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
