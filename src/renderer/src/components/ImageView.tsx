@@ -585,7 +585,13 @@ export function ImageView({
                 <img
                   src={img.objectUrl}
                   alt={name}
-                  draggable={false}
+                  // The picture drags OUT to Explorer and friends (#103) while
+                  // it is at fit; zoomed in, a drag is a pan.
+                  draggable={!!path && zoom <= 1 && window.prism.nativeDrag}
+                  onDragStart={(e) => {
+                    e.preventDefault()
+                    if (path && zoom <= 1 && window.prism.nativeDrag) window.prism.startDrag([path])
+                  }}
                   decoding="async"
                   onLoad={(e) => {
                     setLoaded(true)

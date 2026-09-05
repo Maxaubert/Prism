@@ -28,7 +28,7 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
+import { DRAG_MIME, droppedPaths, ownDrag, setDrag, type DragPayload } from '../lib/dragDrop'
 
 // The folder tree, rooted at the folder Prism was opened in. Children load the
 // first time a folder is opened and are cached after that; main refuses anything
@@ -763,7 +763,18 @@ export function Sidebar({
   const onRowDragStart = useCallback((e: DragEvent, path: string): void => {
     // Dragging a row that is part of a multi-selection takes all of it.
     const items = selRef.current.items
-    setDrag({ kind: 'files', paths: items.has(path) && items.size > 1 ? [...items] : [path] })
+    const paths = items.has(path) && items.size > 1 ? [...items] : [path]
+    setDrag({ kind: 'files', paths })
+    // An OS drag when one is on offer (#103): it lands in Explorer, a
+    // browser, Discord, anything that takes files - and on Prism's own
+    // targets as dropped files, which they read the way they read Explorer's.
+    // The HTML drag is cancelled for it; `drag:end` from main clears the
+    // payload when the button is released.
+    if (window.prism.nativeDrag) {
+      e.preventDefault()
+      window.prism.startDrag(paths)
+      return
+    }
     e.dataTransfer.setData(DRAG_MIME, 'files')
     e.dataTransfer.effectAllowed = 'move'
   }, [])
@@ -967,7 +978,7 @@ export function Sidebar({
   const onDropOn = useCallback(
     (e: DragEvent, folderPath: string): void => {
       setDropTarget(null)
-      const payload = dragPayload(e.dataTransfer)
+      const payload = ownDrag(e.dataTransfer)
       setDrag(null)
       // The DROPPED FILES become the marked rows (2026-09-03, owner -
       // Explorer's way; it narrows the 2026-08-31 folder-mark rule). What you

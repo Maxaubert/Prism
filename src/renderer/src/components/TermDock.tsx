@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
-import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
+import { droppedPaths, ownDrag, setDrag } from '../lib/dragDrop'
 import { quotePaths } from '../lib/termPaste'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { pasteInto } from '../lib/termBus'
@@ -97,7 +97,7 @@ export function TermDock({
       // Prism's own rows carry their paths in the drag payload, not as files:
       // dragging a picture out of the sidebar into an AI prompt has to work
       // as well as dragging it in from Explorer.
-      const inside = dragPayload(e.dataTransfer)
+      const inside = ownDrag(e.dataTransfer)
       setDrag(null)
       const paths = inside?.kind === 'files' ? inside.paths : droppedPaths(e.dataTransfer)
       if (paths.length) window.prism.termInput(sessionId, quotePaths(paths))

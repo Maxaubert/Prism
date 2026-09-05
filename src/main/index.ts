@@ -9,7 +9,9 @@ import {
   nativeTheme,
   utilityProcess,
   Menu,
-  powerSaveBlocker
+  powerSaveBlocker,
+  nativeImage,
+  type NativeImage
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
@@ -1447,6 +1449,47 @@ if (!app.requestSingleInstanceLock()) {
     // The tab rerooted and its shell should follow (#99). The destination is
     // a root, so it is inside the wall by construction; main composes the
     // line, the renderer decided whether now was a safe moment to write it.
+    /**
+     * DRAGGING OUT (2026-09-05, #103): the renderer cancels its own HTML drag
+     * and asks for an OS one, which carries file paths and lands in Explorer,
+     * a browser's upload box, Discord, anything that takes files - and back
+     * onto Prism's own drop targets as dropped files. Walled like everything
+     * else: a path is dragged only if a root holds it or main made it (an
+     * archive member's temp copy). The drag runs a MODAL loop in this process
+     * until the button is released, which is why the e2e never asks for one:
+     * with no mouse to release it, the suite would hang inside it. The icon is
+     * the file's own system icon, the app's when Windows has none.
+     */
+    ipcMain.on('drag:native', (e) => {
+      e.returnValue = !E2E
+    })
+    ipcMain.on('drag:start', async (e, paths: unknown) => {
+      if (E2E || !Array.isArray(paths)) return
+      const files = paths.filter(
+        (q): q is string =>
+          typeof q === 'string' &&
+          (insideAnyRoot(q) || isAnyRoot(q) || extractedPaths.has(q)) &&
+          existsSync(q)
+      )
+      if (!files.length) return
+      let icon: NativeImage | null
+      try {
+        icon = await app.getFileIcon(files[0], { size: 'normal' })
+      } catch {
+        icon = null
+      }
+      if (!icon || icon.isEmpty())
+        icon = nativeImage.createFromPath(
+          app.isPackaged ? join(process.resourcesPath, 'icon.ico') : join(__dirname, '../../build/icon.ico')
+        )
+      try {
+        e.sender.startDrag({ file: files[0], files, icon })
+      } finally {
+        // startDrag returns when the drag ends, dropped or not; the renderer
+        // clears what it thought was in flight.
+        if (!e.sender.isDestroyed()) e.sender.send('drag:end')
+      }
+    })
     ipcMain.on('term:cd', (_e, id: string, path: string) => {
       if (isAnyRoot(path) || insideAnyRoot(path)) cdTerm(id, path)
     })

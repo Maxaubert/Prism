@@ -14,7 +14,8 @@ import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
 import { KindIcon, iconColour } from './TreeRows'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
+import { DRAG_MIME, droppedPaths, ownDrag, setDrag } from '../lib/dragDrop'
+import { nativePaths, prefetchPlan } from '../lib/dragOut'
 import { archivePassword, rememberArchivePassword } from '../lib/archivePass'
 import type { UndoEntry } from '../lib/undo'
 
@@ -738,18 +739,63 @@ function ArchiveInner({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [order, member])
 
+  /**
+   * DRAGGING MEMBERS OUT (#103). An OS drag needs files that exist when it
+   * begins, and a member lives inside the container, so the PRESS on a row
+   * starts extracting the members it would drag to temp copies (within a
+   * budget, see dragOut.ts), and the drag goes native only if every copy is
+   * ready by the time it starts - which for anything small it is. Otherwise
+   * it stays the in-app drag, and Copy remains the way out to Explorer. The
+   * copies are keyed by entry for this archive's lifetime; main registered
+   * them as its own, so they pass the wall.
+   */
+  const copies = useRef(new Map<string, string>())
+  const extracting = useRef(new Set<string>())
+  const dragTargets = useCallback(
+    (path: string): string[] => {
+      const items = selRef.current.items
+      return items.has(path) && items.size > 1 ? [...items] : [path]
+    },
+    []
+  )
+  const prefetchForDrag = useCallback(
+    (path: string): void => {
+      if (!window.prism.nativeDrag) return
+      const targets = dragTargets(path)
+      const members = targets
+        .map((t) => rows.find((r) => r.path === t))
+        .filter((r): r is NonNullable<typeof r> => !!r)
+        .map((r) => ({ path: r.path, size: r.size, dir: r.dir }))
+      const ready = new Set([...copies.current.keys(), ...extracting.current])
+      for (const entry of prefetchPlan(members, ready)) {
+        const member = members.find((m) => m.path === entry)
+        if (!member) continue
+        extracting.current.add(entry)
+        const pw = archivePassword(file.path)
+        const done = (r: { ok: true; path: string } | { ok: false }): void => {
+          extracting.current.delete(entry)
+          if (r.ok) copies.current.set(entry, r.path)
+        }
+        if (member.dir) void window.prism.archiveExtractDir(file.path, entry).then(done)
+        else void window.prism.archiveExtract(file.path, entry, pw).then(done)
+      }
+    },
+    [dragTargets, file.path, rows]
+  )
   const onRowDragStart = useCallback(
     (e: React.DragEvent, path: string): void => {
-      const items = selRef.current.items
-      setDrag({
-        kind: 'members',
-        archive: file.path,
-        entries: items.has(path) && items.size > 1 ? [...items] : [path]
-      })
+      const entries = dragTargets(path)
+      setDrag({ kind: 'members', archive: file.path, entries })
+      const native = window.prism.nativeDrag ? nativePaths(entries, copies.current) : null
+      if (native) {
+        e.preventDefault()
+        window.prism.startDrag(native)
+        return
+      }
       e.dataTransfer.setData(DRAG_MIME, 'members')
       e.dataTransfer.effectAllowed = 'move'
     },
-    [file.path]
+    [dragTargets, file.path]
   )
   const addInto = useCallback(
     (paths: string[], dest: string, keepBoth = false, fromPrism = false): void => {
@@ -804,7 +850,7 @@ function ArchiveInner({
   const onDropInArchive = useCallback(
     (e: React.DragEvent, destFolder: string): void => {
       setDropTarget(null)
-      const payload = dragPayload(e.dataTransfer)
+      const payload = ownDrag(e.dataTransfer)
       setDrag(null)
       if (payload?.kind === 'members') {
         if (payload.archive.toLowerCase() !== file.path.toLowerCase()) {
@@ -1168,6 +1214,7 @@ function ArchiveInner({
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
                           draggable
+                          onPointerDown={() => prefetchForDrag(r.path)}
                           onDragStart={(e) => onRowDragStart(e, r.path)}
                           onDragEnd={() => {
                             setDropTarget(null)

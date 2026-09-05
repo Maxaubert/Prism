@@ -554,6 +554,12 @@ export function VideoView({
       <video
         ref={video}
         src={src}
+        // The film drags OUT to Explorer and friends (#103).
+        draggable={!!path && window.prism.nativeDrag}
+        onDragStart={(e) => {
+          e.preventDefault()
+          if (path && window.prism.nativeDrag) window.prism.startDrag([path])
+        }}
         // Volume over 100% routes this element through Web Audio, and a source
         // that is not CORS-clean feeds the graph SILENCE rather than sound -
         // permanently, since the routing outlives the setting that asked for

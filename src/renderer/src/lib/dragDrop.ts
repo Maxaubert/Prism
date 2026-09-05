@@ -42,3 +42,21 @@ export function droppedPaths(dt: DataTransfer | null): string[] {
 export function dragPayload(dt: DataTransfer | null): DragPayload | null {
   return dt?.types?.includes?.(DRAG_MIME) ? getDrag() : null
 }
+
+/**
+ * The payload for this drop when the drag is Prism's own, HTML or NATIVE
+ * (2026-09-05, #103). A native drag carries no MIME type - it arrives as
+ * dropped FILES, exactly like a drag from Explorer - so the second look is
+ * at the payload set when the drag began, which main clears the moment the
+ * OS drag ends (`drag:end`). That is what keeps the old worry out: a stale
+ * payload cannot outlive its drag, so an Explorer drop never inherits it.
+ */
+export function ownDrag(dt: DataTransfer | null): DragPayload | null {
+  const html = dragPayload(dt)
+  if (html) return html
+  return dt?.files?.length ? getDrag() : null
+}
+
+// Main says when a native drag is over; nothing else can, since the HTML
+// dragend never fires for a drag that was cancelled in favour of the OS one.
+if (typeof window !== 'undefined' && window.prism?.onDragEnd) window.prism.onDragEnd(() => setDrag(null))

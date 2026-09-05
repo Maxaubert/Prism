@@ -3,7 +3,7 @@ import { tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from '../lib/recentRoots'
-import { dragPayload, setDrag } from '../lib/dragDrop'
+import { ownDrag, setDrag } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 
 /**
@@ -249,12 +249,15 @@ export function TabStrip({
         // Prism's own rows carry their paths in the drag payload, not as
         // files - a folder dragged out of the tree has to land here too, and
         // that is the natural way to open one beside what you have.
-        const inside = dragPayload(e.dataTransfer)
+        const inside = ownDrag(e.dataTransfer)
         setDrag(null)
         if (inside?.kind === 'files') {
           for (const p of inside.paths) onDropFile(p)
           return
         }
+        // Archive members dragged natively arrive as their temp copies:
+        // not something to open a tab on.
+        if (inside?.kind === 'members') return
         for (const f of e.dataTransfer.files ?? []) onDropFile(window.prism.getDroppedPath(f))
       }}
       // While a tab is genuinely being carried the whole strip wears the

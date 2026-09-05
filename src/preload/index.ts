@@ -225,6 +225,19 @@ const api = {
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths),
+  /** Whether an OS drag is on offer (#103): off under --e2e, where one would
+   *  hold the suite in a modal loop. Asked once, here, so a dragstart handler
+   *  can decide synchronously whether to cancel its HTML drag. */
+  nativeDrag: ipcRenderer.sendSync('drag:native') === true,
+  /** Start an OS drag carrying these files (#103); returns at once, the drag
+   *  itself runs in main until the button is released. */
+  startDrag: (paths: string[]): void => ipcRenderer.send('drag:start', paths),
+  /** The OS drag ended, dropped or not. */
+  onDragEnd: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('drag:end', listener)
+    return () => ipcRenderer.removeListener('drag:end', listener)
+  },
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
