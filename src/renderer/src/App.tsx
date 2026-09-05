@@ -9,6 +9,7 @@ import {
   reorderTabs,
   rerootTab,
   sameRoot,
+  underRoot,
   setTabPanes,
   setTabTerm,
   toggleTermView,
@@ -473,6 +474,7 @@ function Viewer({
   canStep,
   onBuffer,
   onRenameSelf,
+  onLanded,
   getPending,
   onExternalChange,
   reloadAnswer,
@@ -484,6 +486,8 @@ function Viewer({
   onUndoable: (entry: UndoEntry) => void
   /** An archive's own "Rename" verb: App owns renaming, so it does it. */
   onRenameSelf: (name: string) => void
+  /** Paths an archive's extraction just wrote (#101): the tree marks them. */
+  onLanded?: (paths: string[]) => void
   /** Bumped after an undo, so an open archive re-reads its container. */
   refreshKey: number
   onToggleFullscreen: () => void
@@ -587,6 +591,7 @@ function Viewer({
           fullscreen={fullscreen}
           onUndoable={onUndoable}
           onRenameSelf={onRenameSelf}
+          onLanded={onLanded}
           refreshKey={refreshKey}
         />
       )
@@ -1947,6 +1952,25 @@ export default function App(): JSX.Element {
     null
   )
   const revealSeq = useRef(0)
+  /**
+   * What an action just CREATED or put back (#101, 2026-09-05): the tree
+   * marks it, Explorer's way - one file also opens, a folder or several only
+   * mark. Archive extractions report through the viewer, undo reports from
+   * below; the sidebar's own verbs (paste, drop, duplicate, extract) go
+   * straight to the same landing inside it. Filtered to the active tab's
+   * root, since the tree cannot show anything else.
+   */
+  const [landReq, setLandReq] = useState<{ tabId: string; paths: string[]; seq: number } | null>(null)
+  const landSeq = useRef(0)
+  const landPaths = useCallback((paths: string[]) => {
+    const id = activeIdRef.current
+    const root = activeRootRef.current
+    if (!id || !root) return
+    const inside = paths.filter((p) => underRoot(root, p))
+    if (!inside.length) return
+    landSeq.current += 1
+    setLandReq({ tabId: id, paths: inside, seq: landSeq.current })
+  }, [])
   useEffect(
     () =>
       onCwd((sessionId, path) => {
@@ -2674,17 +2698,20 @@ export default function App(): JSX.Element {
           // after the mover has left, not before.
           if (entry.replaced?.length) await window.prism.restoreFromBin(entry.replaced)
           setRefreshKey((n) => n + 1)
+          landPaths(items.map((it) => it.from))
           return { ...entry, items, replaced: undefined }
         }
         case 'rename': {
           const back = await runRename(entry.to, baseName(entry.from), 'keep-both', false)
           if (entry.replaced) await window.prism.restoreFromBin([entry.replaced])
           setRefreshKey((n) => n + 1)
+          landPaths([back ?? entry.from])
           return back ? { ...entry, from: back, replaced: undefined } : entry
         }
         case 'trash': {
           const ok = await window.prism.restoreFromBin(entry.paths)
           setRefreshKey((n) => n + 1)
+          if (ok) landPaths(entry.paths)
           if (!ok)
             setAsk({
               kind: 'failed',
@@ -3238,6 +3265,7 @@ export default function App(): JSX.Element {
             state={active.tree}
             onTree={onTree}
             reveal={revealReq && revealReq.tabId === active.id ? revealReq : null}
+            landed={landReq && landReq.tabId === active.id ? landReq : null}
             // The selected row follows what is ON SCREEN: a pinned pane marks
             // its file, the terminal marks nothing - in a split when it holds
             // the focus, and in FULL view always, where the viewer is not
@@ -3308,6 +3336,7 @@ export default function App(): JSX.Element {
                     volumeKey={e.tabId}
                     onUndoable={noteUndo}
                     onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
+                    onLanded={landPaths}
                     refreshKey={refreshKey}
                     onToggleFullscreen={toggleFullscreen}
                     fullscreen={fullscreen}
@@ -3366,6 +3395,7 @@ export default function App(): JSX.Element {
                           file={w.file}
                           onUndoable={noteUndo}
                           onRenameSelf={(name) => void runRename(w.file.path, name, 'ask')}
+                          onLanded={landPaths}
                           refreshKey={refreshKey}
                           onToggleFullscreen={toggleFullscreen}
                           fullscreen={fullscreen}

@@ -1378,6 +1378,96 @@ async function comicIconScenario(fixtures) {
  * terminal and unsaved text; a reflex keystroke that puts all of that away is
  * the failure the close flow exists to prevent.
  */
+/**
+ * What an action creates is marked, Explorer's way (#101, 2026-09-05): an
+ * extraction's folder, a duplicate, a paste. One file also opens; a folder
+ * or several only mark.
+ */
+async function landingScenario(fixtures) {
+  console.log('landing marks')
+  const dir = join(fixtures, 'landing')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(join(dir, 'target'), { recursive: true })
+  copyFileSync(join(fixtures, 'zips', 'wrapped.zip'), join(dir, 'wrapped.zip'))
+  copyFileSync(join(fixtures, 'notes.txt'), join(dir, 'notes.txt'))
+  const { app, win } = await launch(join(dir, 'wrapped.zip'))
+  const rowFor = (suffix) => win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
+  const marked = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[role="treeitem"][data-selected]')].map((e) => (e.getAttribute('data-row') ?? '').split('\\').pop())
+    )
+  const open = () =>
+    win.evaluate(() => (document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? '').split('\\').pop())
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await sleep(700)
+
+    // Extract here: the folder it made is marked, nothing opens.
+    await rowFor('wrapped.zip').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Extract here"').click()
+    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
+    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
+    await win.waitForFunction(
+      () => !!document.querySelector('[role="treeitem"][data-row$="Collection" i][data-selected]'),
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'Extract here marks the folder it made')
+    ok((await open()) === 'wrapped.zip', `and opens nothing: the archive is still what shows (${await open()})`)
+    ok(
+      (await rowFor('Collection').getAttribute('tabindex')) === '0',
+      'and the cursor is on it'
+    )
+
+    // Duplicate: one file, marked AND shown.
+    await rowFor('notes.txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menu"] >> text="Duplicate"').click()
+    await win.waitForFunction(
+      () => document.querySelector('[role="treeitem"][data-row$="notes (2).txt" i]')?.getAttribute('aria-selected') === 'true',
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'Duplicate opens the copy: one file is shown')
+    ok((await marked()).join() === 'notes (2).txt', `and it is the one marked row (${(await marked()).join(' | ')})`)
+
+    // Paste TWO files into a folder: both marked, nothing opens.
+    await rowFor('notes.txt').click()
+    await sleep(300)
+    await rowFor('notes (2).txt').click({ modifiers: ['Control'] })
+    await sleep(300)
+    await rowFor('notes (2).txt').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    // Inside a multi-selection the verb counts what it acts on ("Copy 2 files").
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: /^Copy( 2 files)?/ }).first().click()
+    await sleep(1200)
+    const before = await open()
+    await rowFor('target').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
+    await win.locator('[role="menu"] >> text="Paste"').click()
+    await win.waitForFunction(
+      () => document.querySelectorAll('[role="treeitem"][data-row*="\\\\target\\\\" i][data-selected]').length === 2,
+      null,
+      { timeout: 10000 }
+    ).catch(async (e) => {
+      const rows = await win.evaluate(() =>
+        [...document.querySelectorAll('[role="treeitem"]')].map(
+          (el) =>
+            (el.getAttribute('data-row') ?? '').split('\\').slice(-2).join('/') +
+            (el.hasAttribute('data-selected') ? ' *' : '')
+        )
+      )
+      throw new Error(e.message + ' rows: ' + JSON.stringify(rows))
+    })
+    ok(true, 'pasting two files marks both, in the folder they landed in')
+    ok((await open()) === before, `and opens neither: what showed still shows (${await open()})`)
+  } finally {
+    await app.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function treeVerbsScenario(fixtures) {
   console.log('tree row verbs')
   const { app, win } = await launch(join(fixtures, 'zips', 'bundle.zip'))
@@ -4884,6 +4974,7 @@ await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(promptLayoutScenario)
+await run(landingScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(flatZipScenario)
