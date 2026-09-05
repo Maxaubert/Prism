@@ -4801,10 +4801,16 @@ async function dragScenario(fixtures) {
       // The file is inside `into` at this point, so open it and drag back OUT -
       // which is the owner's own case: a thing from a subfolder, dropped on a
       // file sitting in the root.
-      const intoRow = win.locator('[role="treeitem"]:has-text("into")').first()
-      await intoRow.click()
-      await sleep(250)
-      await intoRow.click() // first click selects a folder, the second opens it
+      // Open `into` if it is not open already: since the undo LANDS the moved
+      // file (#101) and the viewer follows it on redo, the tree may already
+      // show it, and a second row click would collapse the folder instead.
+      await win.evaluate(() => {
+        const el = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+          (r.textContent ?? '').includes('into')
+        )
+        if (el?.getAttribute('aria-expanded') === 'false')
+          el.querySelector('span')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
       await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 8000 })
       await sleep(400)
       await win
