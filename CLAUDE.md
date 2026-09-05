@@ -560,6 +560,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   said plainly: `claude
   "do this"` typed as one command runs straight from startup into work with no gap, and
   shows nothing until its first pause.
+  **ONE QUIET SCROLLBAR, AND NONE IN THE TERMINAL** (owner, 2026-09-05). Every scrolling
+  surface wears the same 8px thumb in the text colour at low alpha, no track, no steppers,
+  a little stronger on hover - mixed against `--p-text` so it holds on void, paper and an
+  accent-tinted ground alike; `.p-scroll` still means none at all (the viewer pane, the
+  tree). The terminal's viewport hides its bar entirely: the scrollback is scrolled with the
+  wheel and searched with Ctrl+Shift+F, and a bar beside a prompt read as chrome the shell
+  had not asked for. Chromium ignores `scrollbar-color` once `::-webkit-scrollbar` is
+  styled, so only the webkit rules carry. A `shotScroll` scenario (run with SHOT_DIR set)
+  screenshots the code view and the terminal for eyeballing.
   **THE PROMPT LINE IS CARRIED ACROSS A RESIZE BY HAND** (2026-09-04, owner screenshot:
   "PS C:\" and the tail of the path with blank columns between, Ctrl+L putting it right).
   ConPTY - node-pty's bundled dll, which Prism must use because the inbox conhost fast-fails
