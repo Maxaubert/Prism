@@ -8,7 +8,13 @@
  * minute 30 would produce a segment claiming to be minute 0. Keyframes are
  * FORCED on the boundary (measured: `-hls_time 4` alone gave 10.4s segments,
  * NVENC's GOP deciding) and the expression carries the start time, or every
- * frame after a restart becomes a keyframe until n_forced catches up.
+ * frame after a restart becomes a keyframe until n_forced catches up. AND
+ * NVENC NEEDS `-forced-idr 1` TO OBEY: measured through the real route on
+ * the 4K Zoolander, `-force_key_frames` alone still gave 10.5s segments
+ * (the forced frames come out as plain I-frames, which the HLS muxer does
+ * not cut on), so every segment after the first sat 6.5s later than the
+ * playlist said. With it, 4.004s each and the same 17x. libopenh264 obeys
+ * the expression as it is.
  * Paths go to ffmpeg with FORWARD slashes: its HLS muxer finds the output
  * directory by the last '/', and with backslashes wrote init.mp4 into the
  * current directory (measured).
@@ -117,7 +123,7 @@ export function hlsArgs(o: {
           '-vf',
           filter,
           ...(gpu
-            ? ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '23', '-b:v', '0', '-maxrate', '12M', '-bufsize', '24M', '-profile:v', 'high']
+            ? ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', '23', '-b:v', '0', '-maxrate', '12M', '-bufsize', '24M', '-profile:v', 'high', '-forced-idr', '1']
             : // libopenh264, since the bundled build is LGPL and has no x264.
               ['-c:v', 'libopenh264', '-b:v', '6000k', '-profile:v', 'high']),
           '-force_key_frames',

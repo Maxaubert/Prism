@@ -46,6 +46,13 @@ describe('hlsArgs', () => {
     expect(a).toContain('h264_nvenc')
     expect(a).toContain('-hwaccel')
   })
+  it('makes NVENC honour the forced keyframes as IDR, or the segments are 10.4s whatever the expression says', () => {
+    const gpu = hlsArgs({ ...base, plan, startSegment: 0, encoder: { video: 'nvenc' } })
+    expect(gpu[gpu.indexOf('-forced-idr') + 1]).toBe('1')
+    expect(gpu.indexOf('-forced-idr')).toBeGreaterThan(gpu.indexOf('h264_nvenc'))
+    const cpu = hlsArgs({ ...base, plan, startSegment: 0, encoder: { video: 'openh264' } })
+    expect(cpu).not.toContain('-forced-idr')
+  })
   it('starts at the beginning with no seek at all', () => {
     const a = hlsArgs({ ...base, plan, startSegment: 0, encoder: { video: 'nvenc' } })
     expect(a).not.toContain('-ss')
