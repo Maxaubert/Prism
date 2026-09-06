@@ -118,8 +118,11 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
     and a 1080p AC-3 MKV, and the time from tap to first frame on each device.
 - Subtitles: the sidecar files Prism already finds (`sidecarsFor`), served as WebVTT through
   `/api/subs`, attached as `<track>` elements. Embedded tracks stay out, as on the PC.
-- iPhone and iPad play HLS natively; Android gets `hls.js` (reasoned new renderer dependency,
-  loaded only on devices without native HLS).
+- The playlist goes through `hls.js` (reasoned new renderer dependency, loaded on demand)
+  wherever MSE is available, and is the element's own `src` only where there is none (an
+  iPhone). MSE-first on purpose, revised 2026-09-06 while measuring: Chromium answers "maybe"
+  to the HLS mime, and its built-in player asks for segments without the token, so trusting a
+  native claim sent an Android to a player that could not work.
 
 ### The phone page (`src/renderer/phone.html`, `src/renderer/src/phone/`, PR1 + PR3)
 
@@ -200,7 +203,8 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 ## Dependencies added
 
 - `qrcode` (main, MIT): QR as SVG for the dialog.
-- `hls.js` (renderer, Apache-2.0): HLS on devices without native support. Loaded on demand.
+- `hls.js` (renderer, Apache-2.0): HLS wherever MSE is available; the element plays the
+  playlist itself only where MSE is absent (iPhone). Loaded on demand.
 
 ## Versions
 

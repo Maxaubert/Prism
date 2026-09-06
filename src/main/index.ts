@@ -22,7 +22,7 @@ import {
   statSync,
   writeFileSync
 } from 'fs'
-import { copyFile, readFile, stat, writeFile } from 'fs/promises'
+import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
@@ -39,6 +39,7 @@ import {
   validRoot
 } from './roots'
 import { DEFAULT_PORT, PhoneServer } from './phone/server'
+import { HlsJobs } from './phone/jobs'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
@@ -1349,6 +1350,38 @@ if (!app.requestSingleInstanceLock()) {
     let phoneError = ''
     const phoneChanged = (): void => mainWindow?.webContents.send('phone:changed')
     const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
+
+    // One probe per file, kept for as long as the file has not changed: the
+    // audio player, the video player, the no-picture note and the phone's
+    // /api/play all ask. Null is "ffprobe could not read it" AND "there is
+    // no ffprobe": the callers that tell those apart ask findFfmpeg first.
+    const probeCache = new Map<string, MediaInfo | null>()
+    const probeCached = async (p: string): Promise<MediaInfo | null> => {
+      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!tools?.ffprobe) return null
+      let key: string
+      try {
+        key = `${p}|${(await stat(p)).mtimeMs}`
+      } catch {
+        return null
+      }
+      let info = probeCache.get(key)
+      if (info === undefined) {
+        info = await probeMedia(tools.ffprobe, p)
+        if (probeCache.size > 40) probeCache.clear()
+        probeCache.set(key, info)
+      }
+      return info
+    }
+
+    // The phone's HLS jobs (#105): one ffmpeg per phone and file, under
+    // userData. Made once, and the directory is wiped at startup: segments
+    // of a previous run belong to jobs nothing remembers.
+    const HLS_DIR = join(app.getPath('userData'), 'phone', 'hls')
+    const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+    const hlsJobs = hlsTools ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR }) : null
+    void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
+
     const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
       rendererDir: RENDERER_DIR,
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
@@ -1360,6 +1393,8 @@ if (!app.requestSingleInstanceLock()) {
       subsFor: (p: string) => sidecarsFor(p).map((t) => ({ path: t.path, label: t.label })),
       readSubs: (p: string) =>
         readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
+      probe: probeCached,
+      jobs: hlsJobs,
       onChange: () => {
         savePhone()
         phoneChanged()
@@ -1443,6 +1478,9 @@ if (!app.requestSingleInstanceLock()) {
     })
     app.on('will-quit', () => {
       void phone?.stop()
+      // The server's stop kills them too; this covers jobs left by a server
+      // that was already off, and an ffmpeg with no app is an orphan.
+      void hlsJobs?.stopAll()
     })
 
     // The update check: watch GitHub Releases, remember the newest offer so a
@@ -1911,10 +1949,6 @@ if (!app.requestSingleInstanceLock()) {
     const sidecarUrl = (p: string, stream: number, duration: number): string =>
       `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
 
-    // One probe per file, kept for as long as the file has not changed: the
-    // audio player, the video player and the no-picture note all ask.
-    const probeCache = new Map<string, MediaInfo | null>()
-
     // Ask before playing: what does this file hold, does its audio need Prism's
     // own decoder, and is there one? The renderer plays the answer's url beside
     // the video (which stays silent by itself, having no decoder for the track
@@ -1948,20 +1982,8 @@ if (!app.requestSingleInstanceLock()) {
         const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
         return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
       }
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
-      if (!tools) return none
-      let key: string
-      try {
-        key = `${p}|${statSync(p).mtimeMs}`
-      } catch {
-        return none
-      }
-      let info = probeCache.get(key)
-      if (info === undefined) {
-        info = tools.ffprobe ? await probeMedia(tools.ffprobe, p) : null
-        if (probeCache.size > 40) probeCache.clear()
-        probeCache.set(key, info)
-      }
+      if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return none
+      const info = await probeCached(p)
       // No ffprobe, or a container it could not read: the renderer still has a
       // second way in (its decoder byte counter), so offer the first track
       // blind rather than nothing.

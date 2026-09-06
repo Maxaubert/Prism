@@ -57,7 +57,8 @@ export function AudioView({
   canStep,
   transportStyle,
   background = false,
-  volumeKey
+  volumeKey,
+  attach
 }: {
   url: string
   /** The file's real path, for asking main whether Chromium can play it. */
@@ -77,6 +78,11 @@ export function AudioView({
   background?: boolean
   /** Whose volume this is: the tab's, for the session (lib/tabVolume). */
   volumeKey?: string
+  /** The phone's hls.js hook (2026-09-06, #105), as on VideoView: when given,
+   *  the element is rendered WITHOUT src (the decoded-source swap included,
+   *  since the library owns `src`) and `attach` is called with it once it is
+   *  mounted; its return detaches. */
+  attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
   const v = useViz()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -97,6 +103,13 @@ export function AudioView({
     audioRef.current = el
     setMediaEl(el)
   }
+  // Keyed on the element STATE rather than the ref: the callback ref above
+  // is how this view learns the element exists, and an effect on the ref
+  // alone would run before it does.
+  useEffect(() => {
+    if (!attach || !mediaEl) return
+    return attach(mediaEl)
+  }, [attach, mediaEl, url])
 
   // In fullscreen the transport auto-hides like a video player: it slides away
   // after a moment of no mouse movement and returns on the next move. Windowed, it
@@ -210,7 +223,7 @@ export function AudioView({
         ref={setMedia}
         // undefined, not "": an empty src resolves against the page and the
         // element reports an error before the rendering can arrive.
-        src={src || undefined}
+        src={attach ? undefined : src || undefined}
         crossOrigin="anonymous"
         // Play only what was ALREADY playing (2026-08-28, owner decision):
         // opening a file does not start it, and neither does restoring a

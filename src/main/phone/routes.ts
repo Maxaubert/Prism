@@ -10,9 +10,19 @@ export type Route =
   | { kind: 'pair' }
   | { kind: 'api'; name: string; query: URLSearchParams }
   | { kind: 'media'; path: string; query: URLSearchParams }
+  | { kind: 'hls'; job: string; file: string; query: URLSearchParams }
   | { kind: 'none' }
 
 const NONE: Route = { kind: 'none' }
+
+/**
+ * `/hls/<job>/<file>` (2026-09-06, #105): a job id is sixteen hex characters
+ * and the file is one of the three shapes the job directory is known to
+ * hold. The parser is the wall here, on purpose: nothing else under a job
+ * directory is ever served, so `ffmpeg.m3u8` (ffmpeg's own playlist), a
+ * `.tmp` in flight or a climb never reach the server's fs at all.
+ */
+const HLS = /^\/hls\/([0-9a-f]{16})\/(index\.m3u8|init\.mp4|\d+\.m4s)$/
 
 /**
  * Whether any segment of a raw request path is `..`, decoded or not. The
@@ -52,6 +62,11 @@ export function parseRoute(url: string): Route {
       return NONE
     }
     return { kind: 'media', path, query: u.searchParams }
+  }
+  if (p.startsWith('/hls/')) {
+    const m = HLS.exec(p)
+    if (!m) return NONE
+    return { kind: 'hls', job: m[1], file: m[2], query: u.searchParams }
   }
   if (climbs(url.replace(/[?#][\s\S]*$/, ''))) return NONE
   let file: string

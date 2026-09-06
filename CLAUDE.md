@@ -635,8 +635,57 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
   bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
   every `phone:changed`, never what was clicked. NOT on the phone yet, each its own
-  decision: transcoding what the phone cannot play (#105), documents (#106), and the phone
-  as a remote for the PC (#107).
+  decision: documents (#106), and the phone as a remote for the PC (#107).
+- **The phone plays what it cannot play** (2026-09-06, #105): an MKV, HEVC on an Android,
+  Dolby audio anywhere, through a live transcode to HLS that SEEKS LIKE A FILE. THE PLAYLIST
+  IS PRISM'S AND THE SEGMENTS ARE FFMPEG'S (`src/main/phone/hls.ts`, pure and tested):
+  `/api/play` writes every four-second segment of the whole film up front, VOD, so the
+  scrubber knows the duration from the first byte and can ask for segment 400 before
+  segment 2 exists; one ffmpeg per phone-and-file (`jobs.ts`) makes the files, from
+  whatever segment it was started at, and a request past its head by more than three
+  segments kills it and restarts it there (`nextAction`). That works only because of
+  `-copyts`: a segment's own timestamps say where in the film it is, or a run restarted at
+  minute 30 would hand over a segment claiming to be minute 0. Keyframes are FORCED on the
+  boundary with the start time in the expression, and NVENC NEEDS `-forced-idr 1` TO OBEY:
+  measured through the real route, `-force_key_frames` alone still gave 10.5s segments
+  (the forced frames come out as plain I-frames, which the HLS muxer does not cut on), so
+  every segment after the first sat 6.5s later than the playlist said and nothing errored.
+  Paths go to ffmpeg with FORWARD slashes, or its HLS muxer writes `init.mp4` into the
+  current directory. The token rides on EVERY URI in the playlist (`0.m4s?t=`): a player
+  resolves them against the playlist's url and drops its query, so a token on the playlist
+  alone reached no segment at all (401 on init.mp4, found by the e2e). The decision is PER
+  DEVICE, never from a user agent (`decide.ts`, pure): the phone reports what its own
+  `canPlayType` answers as tokens (`canPlay.ts`, `can=h264,aac,mp4,mse`), a container the
+  phone cannot demux is HLS whatever the codecs, a codec the phone plays is COPIED into the
+  segments and one it does not is encoded - so an iPhone gets its HEVC and Dolby copied
+  while an Android gets both re-encoded. Encodes are capped at 1080p, audio is always AAC
+  stereo 192k. HDR is tone-mapped through libplacebo on Vulkan (the plan's bench: 7.5x
+  realtime with the colours right; `tonemap_opencl` 0.7x, unusable; without a tone-map the
+  picture is flat grey), and the encoder flips to libopenh264 after ONE GPU refusal and
+  stays there for the session. MEASURED THROUGH THE ROUTE (2026-09-06, RTX 5090, the built
+  app under `--e2e`, `can` forcing an encode): the 4K SDR HEVC Zoolander answers `/api/play`
+  in 48ms (cold probe), its first segment in 560ms, holds 17.6-18.4x realtime on disk and
+  lands a ten-minute seek in 1.2s; the 4K HDR10 Hellboy II remux answers in 74ms, first
+  segment 1.5s, 8-10.4x with the tone-map, a ten-minute seek in 2.2s. On the PHONE the
+  playlist goes through hls.js wherever MSE can take it and is the element's own `src` only
+  where there is none (an iPhone), MSE-FIRST ON PURPOSE (`hlsPlayer`, pure): Chromium answers
+  "maybe" to the HLS mime (its built-in player, measured on Chrome 150) and that player asks
+  for segments without the token, so trusting the claim sent an Android to a player that
+  could not work. hls.js is loaded on demand so an iPhone never downloads it, and it owns
+  `src` through the players' one new prop, `attach`. A job nobody asks about for 30s has its
+  ffmpeg KILLED and nothing else: a paused player fetches nothing, and the first cut reaped
+  the whole job at 30s, so a phone paused longer than that resumed into a 404 and a fatal
+  hls.js error nobody handled (the element's own error event never fires when hls.js owns
+  the source, so the page simply went quiet). The record and its segments stay for ten
+  minutes and the next ask restarts ffmpeg where it stands; a fatal hls.js error now retries
+  the network, recovers the media once, and past that raises the element's own error so the
+  player draws the overlay it already has. `userData/phone/hls` is wiped at startup. An HLS
+  film is handed its playlist as the url from the start, never the direct bytes first (one
+  aborted request per film, measured in the console). Everything on
+  the path is walled: a job is opened only on a path that passed the phone's own root, its id
+  is what `/hls/` is keyed by, another phone's token gets 404 rather than 403, and only
+  `index.m3u8`, `init.mp4` and `<n>.m4s` are served from a job directory.
+  `PRISM_PHONE_DEBUG=1` logs ffmpeg's own progress line and exit per job.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

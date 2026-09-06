@@ -26,6 +26,24 @@ describe('parseRoute', () => {
     const r = parseRoute('/m/C%3A%5Cfilms%5Ca%20b.mp4?t=abc')
     expect(r).toMatchObject({ kind: 'media', path: 'C:\\films\\a b.mp4' })
   })
+  it('names the hls routes and refuses anything else under them', () => {
+    const job = '0123456789abcdef'
+    const pl = parseRoute(`/hls/${job}/index.m3u8?t=x`)
+    expect(pl).toMatchObject({ kind: 'hls', job, file: 'index.m3u8' })
+    if (pl.kind === 'hls') expect(pl.query.get('t')).toBe('x')
+    expect(parseRoute(`/hls/${job}/12.m4s`)).toMatchObject({ kind: 'hls', job, file: '12.m4s' })
+    expect(parseRoute(`/hls/${job}/init.mp4`)).toMatchObject({ kind: 'hls', job, file: 'init.mp4' })
+    // A job id is sixteen lower-case hex characters and nothing else.
+    expect(parseRoute('/hls/abc/index.m3u8')).toEqual({ kind: 'none' })
+    expect(parseRoute('/hls/0123456789ABCDEF/index.m3u8')).toEqual({ kind: 'none' })
+    // Only the three file shapes the job directory is known to hold.
+    expect(parseRoute(`/hls/${job}/../x`)).toEqual({ kind: 'none' })
+    expect(parseRoute(`/hls/${job}/..%2Fx`)).toEqual({ kind: 'none' })
+    expect(parseRoute(`/hls/${job}/ffmpeg.m3u8`)).toEqual({ kind: 'none' })
+    expect(parseRoute(`/hls/${job}/1.m4s.tmp`)).toEqual({ kind: 'none' })
+    expect(parseRoute(`/hls/${job}/`)).toEqual({ kind: 'none' })
+    expect(parseRoute(`/hls/${job}`)).toEqual({ kind: 'none' })
+  })
 })
 
 describe('tokenOf', () => {

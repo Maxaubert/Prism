@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { request } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import type { MediaInfo } from '../ffmpeg'
+import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
 import { PhoneServer, type PhoneDeps } from './server'
+import { fakeFfmpeg } from './testing/fakeFfmpeg'
 
 /**
  * The server over real loopback http: every route the phone page will call,
@@ -19,6 +22,23 @@ let port: number
 let changes = 0
 /** The server holds this object, so a test can swap one dep for a failing one. */
 let deps: PhoneDeps
+
+/** What main's cached probe would say: the same h264 picture in both files,
+ *  AAC in the mp4 and Dolby in the mkv, and nothing for a file that is not there. */
+const probeOf = (p: string): MediaInfo | null => {
+  const name = p.toLowerCase()
+  if (!name.endsWith('clip.mp4') && !name.endsWith('clip.mkv')) return null
+  const codec = name.endsWith('.mkv') ? 'ac3' : 'aac'
+  const audio = { index: 1, title: '', codec, channels: 2, layout: 'stereo', language: 'eng', duration: 10 }
+  return {
+    audio,
+    tracks: [audio],
+    videoCodec: 'h264',
+    video: { width: 1920, height: 1080, pixFmt: 'yuv420p', transfer: 'bt709' },
+    fps: 24,
+    duration: 10
+  }
+}
 
 const listing = (files: string[]) => ({
   folders: [],
@@ -39,6 +59,7 @@ beforeEach(async () => {
   writeFileSync(join(renderer, 'phone.html'), '<html>phone</html>')
   writeFileSync(join(renderer, 'assets', 'a.js'), 'console.log(1)')
   writeFileSync(join(dir, 'clip.mp4'), 'abcd')
+  writeFileSync(join(dir, 'clip.mkv'), 'abcd')
   deps = {
     rendererDir: renderer,
     media: async (req) => {
@@ -55,6 +76,10 @@ beforeEach(async () => {
     rootOpen: (root) => root === dir,
     subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
+    probe: async (p) => probeOf(p),
+    // A real HlsJobs on the fake ffmpeg: the routes are the thing under test,
+    // and a stubbed jobs class would only prove the stub.
+    jobs: new HlsJobs({ ffmpeg: 'f', baseDir: join(dir, 'hls'), spawn: fakeFfmpeg().spawn }),
     onChange: () => {
       changes += 1
     },
@@ -197,6 +222,99 @@ describe('PhoneServer', () => {
     expect((await fetch(url('/api/dir?path=C%3A%5CWindows'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/api/subs?path=C%3A%5CWindows%5Ca.mp4'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/m/C%3A%5CWindows%5Cnotepad.exe'), { headers: auth })).status).toBe(403)
+  })
+
+  const play = (token: string, file: string, can = 'h264,aac,mp4'): Promise<Record<string, unknown>> =>
+    fetch(url(`/api/play?path=${encodeURIComponent(join(dir, file))}&can=${can}`), {
+      headers: { authorization: `Bearer ${token}` }
+    }).then((r) => r.json() as Promise<Record<string, unknown>>)
+
+  it('/api/play answers direct for an mp4 the phone plays and hls for an mkv', async () => {
+    const token = await pair()
+    const direct = await play(token, 'clip.mp4')
+    expect(direct).toMatchObject({ mode: 'direct', fps: 24, duration: 10 })
+    expect(direct.url).toContain('/m/')
+    expect(direct.url).toContain(`t=${token}`)
+
+    const hls = await play(token, 'clip.mkv')
+    expect(hls).toMatchObject({ mode: 'hls', copyVideo: true, audioOnly: false, fps: 24, duration: 10 })
+    const playlistUrl = String(hls.url)
+    expect(playlistUrl).toMatch(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/)
+
+    const pl = await fetch(url(playlistUrl))
+    expect(pl.status).toBe(200)
+    expect(pl.headers.get('content-type')).toBe('application/vnd.apple.mpegurl')
+    expect(pl.headers.get('cache-control')).toBe('no-store')
+    const text = await pl.text()
+    // The player resolves each uri against the playlist's and drops its
+    // query, so the token has to be ON the uris or every segment is a 401.
+    expect(text).toContain(`#EXT-X-MAP:URI="init.mp4?t=${token}"`)
+    expect(text).toContain(`2.m4s?t=${token}`)
+    expect(text).not.toContain('3.m4s') // ten seconds is three segments
+
+    const seg = await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))
+    expect(seg.status).toBe(200)
+    expect(seg.headers.get('content-type')).toBe('video/iso.segment')
+    expect(seg.headers.get('cache-control')).toBe('no-store')
+    expect(await seg.text()).toBe('seg1')
+
+    const init = await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))
+    expect(init.status).toBe(200)
+    expect(init.headers.get('content-type')).toBe('video/mp4')
+    expect(await init.text()).toBe('init')
+
+    // Past the end of the film: not a segment the playlist names.
+    const past = await fetch(url(playlistUrl.replace('index.m3u8', '9.m4s')))
+    expect(past.status).toBe(404)
+    expect(await past.json()).toMatchObject({ error: expect.any(String) })
+
+    // Asking again for the same file is the same job, not a second ffmpeg.
+    expect((await play(token, 'clip.mkv')).url).toBe(playlistUrl)
+  })
+
+  it('/api/play is walled and needs a probe', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    expect((await fetch(url('/api/play?path=C%3A%5CWindows%5Cx.mkv&can=h264'), { headers: auth })).status).toBe(403)
+    expect((await fetch(url(`/api/play?path=${encodeURIComponent(join(dir, 'clip.mkv'))}`))).status).toBe(401)
+    const none = await play(token, 'nothing.mkv', 'h264')
+    expect(none).toMatchObject({ mode: 'none', reason: expect.any(String) })
+  })
+
+  it('/api/play says none, with a reason, when there is no ffmpeg to convert with', async () => {
+    const token = await pair()
+    deps.jobs = null
+    expect(await play(token, 'clip.mp4')).toMatchObject({ mode: 'direct' })
+    const none = await play(token, 'clip.mkv')
+    expect(none).toMatchObject({ mode: 'none' })
+    expect(String(none.reason)).toContain('ffmpeg')
+  })
+
+  it('an hls job belongs to the phone that opened it', async () => {
+    const a = await pair()
+    const hls = await play(a, 'clip.mkv', 'h264')
+    const playlistUrl = String(hls.url)
+    const b = await pair()
+    const other = playlistUrl.replace(/t=.*$/, `t=${b}`)
+    // 404 and never 403: another phone is not told the job exists.
+    expect((await fetch(url(other))).status).toBe(404)
+    expect((await fetch(url(other.replace('index.m3u8', '1.m4s')))).status).toBe(404)
+    expect((await fetch(url(other.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
+    // No token at all is the wall, as for every other route.
+    expect((await fetch(url(playlistUrl.replace(/\?t=.*$/, '')))).status).toBe(401)
+    // A job id nobody opened, from a paired phone: the same 404.
+    expect((await fetch(url(`/hls/0123456789abcdef/index.m3u8?t=${a}`))).status).toBe(404)
+  })
+
+  it('stopping the server stops every hls job and removes its directory', async () => {
+    const token = await pair()
+    const hls = await play(token, 'clip.mkv')
+    const playlistUrl = String(hls.url)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    const jobDir = join(dir, 'hls', playlistUrl.split('/')[2])
+    expect(existsSync(jobDir)).toBe(true)
+    await server.stop()
+    expect(existsSync(jobDir)).toBe(false)
   })
 
   /**

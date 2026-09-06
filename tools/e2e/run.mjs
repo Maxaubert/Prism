@@ -4825,19 +4825,36 @@ async function dragScenario(fixtures) {
  * pairing screen. Under --e2e the server binds loopback only, so the
  * "phone" is a second window of the app's own Chromium on 127.0.0.1.
  */
+/**
+ * Switch the phone server on from the renderer, the way the dialog does, and
+ * pair one phone over HTTP the way the phone does (2026-09-06, #105: shared
+ * by the pairing scenario and the HLS one). The active tab's title attribute
+ * IS its root (TabStrip's role="tab"). Returns the server's state as
+ * reported, the pairing response status, and what the phone was handed.
+ */
+async function pairPhone(win) {
+  const state = await win.evaluate(() =>
+    window.prism.phoneSetOn(
+      true,
+      document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
+    )
+  )
+  const base = `http://127.0.0.1:${state.port}`
+  const r = await fetch(`${base}/pair`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code: state.code?.code ?? '', name: 'e2e phone' })
+  })
+  const { token, root } = r.status === 200 ? await r.json() : { token: '', root: '' }
+  return { base, token, root, state, status: r.status }
+}
+
 async function phoneScenario(fixtures) {
   console.log('phone: pair, browse, play over the LAN server')
   const { app, win } = await launch(join(fixtures, 'one.png'))
   let page = null
   try {
-    // Switch the server on from the renderer, the way the dialog does. The
-    // active tab's title attribute IS its root (TabStrip's role="tab").
-    const state = await win.evaluate(() =>
-      window.prism.phoneSetOn(
-        true,
-        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
-      )
-    )
+    const { base, token, root, state, status } = await pairPhone(win)
     ok(state.on === true, 'the server reports on')
     ok(typeof state.port === 'number', 'the server has a port')
     ok(state.addresses[0] === '127.0.0.1', 'under --e2e it binds loopback only')
@@ -4846,16 +4863,7 @@ async function phoneScenario(fixtures) {
       'a six-character code is issued for the tab'
     )
     ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
-    const base = `http://127.0.0.1:${state.port}`
-
-    // Pair the way the phone does.
-    const r = await fetch(`${base}/pair`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code: state.code.code, name: 'e2e phone' })
-    })
-    ok(r.status === 200, 'pairing succeeds')
-    const { token, root } = await r.json()
+    ok(status === 200, 'pairing succeeds')
     ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone is paired to the tab root')
     ok((await fetch(`${base}/api/me`)).status === 401, 'no token, no answer')
     const auth = { authorization: `Bearer ${token}` }
@@ -4958,6 +4966,146 @@ async function phoneScenario(fixtures) {
     await page?.close().catch(() => {})
     // Off again, or the profile's phone.json carries the switch into every
     // scenario after this one.
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * The phone's transcode (2026-09-06, #105). The route first, from Node, with
+ * a `can` list a phone without Dolby or MKV would send: the answer, the
+ * playlist Prism writes up front, the first segment timed, init.mp4, the
+ * last segment, and a picture that has to be re-encoded (Xvid). Then the
+ * stream is PLAYED, in the app's own Chromium standing in for an Android:
+ * it has no native HLS, so hls.js feeds the element through MSE, and a seek
+ * has to land where the playlist says, which is what `-copyts` is for.
+ */
+async function phoneHlsScenario(fixtures) {
+  console.log('phone: an mkv with Dolby audio plays over HLS, and seeks')
+  const dolby = join(fixtures, 'av', 'dolby.mkv')
+  const { app, win } = await launch(dolby)
+  let page = null
+  try {
+    const { base, token, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    const auth = { authorization: `Bearer ${token}` }
+    const can = 'h264,aac,mp4,mse'
+    const play = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(dolby)}&can=${can}`, { headers: auth })
+    ).json()
+    ok(play.mode === 'hls' && play.copyVideo === true, 'an h264 mkv with ac3 is HLS with the picture copied')
+    ok(Math.abs(play.duration - 6) < 1, `the answer carries the duration (${play.duration}s)`)
+    ok(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/.test(play.url ?? ''), 'the stream url names a job and carries the token')
+    const at = (name) => `${base}${play.url.replace('index.m3u8', name)}`
+    const pl = await (await fetch(at('index.m3u8'))).text()
+    ok(
+      pl.includes('#EXT-X-PLAYLIST-TYPE:VOD') && pl.includes('1.m4s') && pl.trim().endsWith('#EXT-X-ENDLIST'),
+      'the playlist lists every segment up front, and ends'
+    )
+    const t0 = Date.now()
+    const seg0 = await fetch(at('0.m4s'))
+    const seg0Bytes = seg0.status === 200 ? (await seg0.arrayBuffer()).byteLength : 0
+    ok(seg0.status === 200 && seg0Bytes > 1000, `segment 0 arrives (${Date.now() - t0}ms, ${seg0Bytes} bytes)`)
+    const init = await fetch(at('init.mp4'))
+    ok(init.status === 200 && (await init.arrayBuffer()).byteLength > 0, 'init.mp4 arrives')
+    const seg1 = await fetch(at('1.m4s'))
+    ok(seg1.status === 200 && (await seg1.arrayBuffer()).byteLength > 0, 'the last segment arrives')
+    ok((await fetch(at('9.m4s'))).status === 404, 'a segment past the film is refused')
+    // A second phone, paired on a fresh code for the same tab: the job is
+    // the first phone's, and the answer is 404 rather than 403, which would
+    // confirm that a stream exists.
+    const again = await win.evaluate(() =>
+      window.prism.phoneCode(
+        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+      )
+    )
+    const other = await fetch(`${base}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: again.code?.code ?? '', name: 'e2e phone two' })
+    })
+    const otherToken = other.status === 200 ? (await other.json()).token : ''
+    ok(
+      !!otherToken && (await fetch(`${base}${play.url.replace(/t=.*$/, `t=${otherToken}`)}`)).status === 404,
+      'another phone gets no stream'
+    )
+
+    const xvidFile = join(fixtures, 'av', 'xvid.avi')
+    const xvid = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(xvidFile)}&can=${can}`, { headers: auth })
+    ).json()
+    ok(xvid.mode === 'hls' && xvid.copyVideo === false, 'xvid is re-encoded')
+    const tx = Date.now()
+    const xseg = await fetch(`${base}${xvid.url.replace('index.m3u8', '0.m4s')}`)
+    const xBytes = xseg.status === 200 ? (await xseg.arrayBuffer()).byteLength : 0
+    ok(
+      xseg.status === 200 && xBytes > 1000,
+      `a re-encoded segment arrives (${Date.now() - tx}ms, nvenc or openh264 if the GPU refused)`
+    )
+
+    // Playback through hls.js in the app's Chromium, which has no native
+    // HLS. The page is handed Node's token, so it is the same phone and the
+    // same job as above.
+    page = await openPhoneWindow(app, `${base}/`)
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await page.reload()
+    // The tab is rooted at the film's own folder, so the file is on the
+    // first screen.
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("dolby.mkv")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
+    // hls.js owns the element in two states, both of them right: no src at
+    // all while the dynamic import is still in flight, and a blob: object
+    // URL once attachMedia has run (a warm chunk cache attaches before this
+    // evaluate does). Only a real url (http, fsmedia) would mean the page
+    // handed the playlist to the element itself.
+    const src = await page.evaluate(() => document.querySelector('video')?.getAttribute('src'))
+    ok(src === null || src.startsWith('blob:'), `hls.js owns the element: src is ${src ?? 'none'}`)
+    // play() is fired and NOT awaited: its promise settles only when playback
+    // starts or the element itself errors, and with hls.js owning the source
+    // a fatal hls.js error does neither, so an evaluate that returned the
+    // promise parked the whole suite (measured: half an hour, on a run whose
+    // job the 30s reaper had long since removed). The wait below is the
+    // assertion, and it has a timeout, so a stream that never plays is a
+    // recorded failure naming this step rather than a hang.
+    await page.evaluate(() => {
+      const v = document.querySelector('video')
+      v.muted = true
+      void v.play().catch(() => {})
+    })
+    let played = true
+    await page
+      .waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 0.5, null, {
+        timeout: 20000
+      })
+      .catch(() => {
+        played = false
+      })
+    ok(played, 'hls.js plays the stream')
+    await page.screenshot({ path: join(SHOTS, 'phone-hls.png') })
+    await page.evaluate(() => {
+      document.querySelector('video').currentTime = 4.2
+    })
+    let landed = true
+    await page
+      .waitForFunction(
+        () => {
+          const v = document.querySelector('video')
+          return !!v && v.currentTime > 4.3 && v.currentTime < 6 && !v.paused
+        },
+        null,
+        { timeout: 20000 }
+      )
+      .catch(() => {
+        landed = false
+      })
+    ok(landed, 'a seek into the second segment lands where the playlist says (copyts)')
+    ok(
+      await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
+      'frames decode'
+    )
+  } finally {
+    await page?.close().catch(() => {})
     await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
     await app.close()
   }
@@ -5073,6 +5221,7 @@ await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
 await run(phoneScenario)
+await run(phoneHlsScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)
