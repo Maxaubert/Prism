@@ -232,3 +232,26 @@ export interface TailEvent {
   text: string
   reset: boolean
 }
+
+/** A phone paired to this PC (2026-09-06, #104): its token, the name it gave,
+ *  and the ROOT it was paired to, which is the tab the QR was shown from. */
+export interface PhoneInfo {
+  token: string
+  name: string
+  root: string
+  paired: number
+  seen: number
+}
+
+/** What the Tools > Phone dialog shows: main's answer to `phone:get`. */
+export interface PhoneState {
+  on: boolean
+  port: number | null
+  addresses: string[]
+  phones: PhoneInfo[]
+  /** Phones that fetched something in the last 30 seconds, by token. */
+  watching: string[]
+  /** The current tab's pairing: link and QR (SVG) for it, when the server is up. */
+  code?: { code: string; link: string; svg: string; expires: number }
+  error?: string
+}
