@@ -22,6 +22,23 @@ import type {
 // `mediaUrl` + the open payload, nothing app-specific.
 
 const api = {
+  /**
+   * What this host can do (#106). The viewers serve two hosts, the desktop
+   * app and the phone page, and the phone's bridge (`phone/prismShim.ts`)
+   * answers the same shape with every flag false. A viewer consults it to
+   * leave a verb OUT rather than to offer one that answers "did not happen":
+   * `write` is anything that changes a file (save, rename, extract, delete),
+   * `clipboard` is the OS clipboard (files, pixels; the browser's own
+   * writeText is not it), `explorer` is the desktop around the window (Show
+   * in File Explorer, and the hex view a file handed over by Windows lands
+   * in), `drag` is dragging out to other windows. The desktop has all four.
+   */
+  capabilities: { write: true, clipboard: true, explorer: true, drag: true } as {
+    write: boolean
+    clipboard: boolean
+    explorer: boolean
+    drag: boolean
+  },
   /** fsmedia:// URL for a local path, so <img>/<video>/<audio>/<embed> can load it. */
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 

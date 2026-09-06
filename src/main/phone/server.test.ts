@@ -419,6 +419,20 @@ describe('PhoneServer', () => {
     expect(lastPw).toBe('untouched')
   })
 
+  it('stats a file or the root itself, 404s one that is gone, and walls the rest', async () => {
+    expect((await fetch(url(`/api/stat?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    const stat = (p: string): Promise<Response> =>
+      fetch(url(`/api/stat?path=${encodeURIComponent(p)}`), { headers: auth })
+    const f = (await (await stat(join(dir, 'clip.mp4'))).json()) as Record<string, unknown>
+    expect(f).toMatchObject({ size: 4, isFolder: false })
+    expect(typeof f.mtimeMs).toBe('number')
+    expect(await (await stat(dir)).json()).toMatchObject({ isFolder: true })
+    expect((await stat(join(dir, 'gone.txt'))).status).toBe(404)
+    expect((await stat('C:\\Windows\\notepad.exe')).status).toBe(403)
+  })
+
   it('refuses a path outside the phone root, even for a paired phone', async () => {
     const token = await pair()
     const auth = { authorization: `Bearer ${token}` }

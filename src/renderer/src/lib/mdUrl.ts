@@ -40,15 +40,30 @@ function relativePath(url: string, baseDir: string): string {
   return joinBase(decoded, baseDir)
 }
 
+/** The desktop's own scheme for a local file: what `window.prism.mediaUrl`
+ *  answers there. The default, so every caller that never said otherwise
+ *  keeps the URL it always got. */
+export const fsmediaUrl = (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`
+
 /**
  * The urlTransform handed to react-markdown: what a src/href becomes in the
  * rendered document. `''` means "drop it" (react-markdown renders no URL).
+ *
+ * `toUrl` is the last step only (#106): the policy above decides WHETHER a
+ * local file is named, and the host decides how one is fetched. The phone's
+ * bridge answers `/m/<path>?t=<token>` where the desktop's answers
+ * fsmedia://, and the viewer passes `window.prism.mediaUrl` so the same
+ * document renders its pictures on both.
  */
-export function resolveMdUrl(url: string, baseDir: string): string {
+export function resolveMdUrl(
+  url: string,
+  baseDir: string,
+  toUrl: (path: string) => string = fsmediaUrl
+): string {
   if (!url) return ''
   if (WEB.test(url) || isAnchor(url)) return url
   if (PASS.some((p) => p.test(url))) return url
   if (DROP.some((p) => p.test(url))) return ''
   const path = relativePath(url, baseDir)
-  return path ? `fsmedia://local/${encodeURIComponent(path)}` : ''
+  return path ? toUrl(path) : ''
 }

@@ -370,27 +370,38 @@ export function VideoView({
           { label: 'Add subtitle file…', icon: tickIf(false), onPick: () => subtitles.add() }
         ]
       },
-      {
-        // VLC's Shift+S, as a visible verb rather than a keystroke: the
-        // fullscreen read-only rule allows a click on something you can see.
-        // Greyed when there is no picture to take - an enabled row that does
-        // nothing is the failure that got the other rows cut.
-        label: 'Copy frame',
-        icon: tickIf(false),
-        disabled: !hasFrame,
-        // Wrapped rather than passed: menuItems() runs in the render pass that
-        // draws the menu, and the linter follows a bare reference into
-        // copyFrame's ref access. The extra closure is the seam.
-        onPick: () =>
-          void pngFromVideo(el).then((png) => {
-            if (png) window.prism.copyImageToClipboard(png)
-          })
-      },
-      {
-        label: 'Show in File Explorer',
-        icon: tickIf(false),
-        onPick: () => window.prism.showInExplorer(path)
-      },
+      // The frame goes to the OS clipboard and Explorer is the desktop's:
+      // on the phone (#106) neither row is offered.
+      ...(window.prism.capabilities.clipboard
+        ? [
+            {
+              // VLC's Shift+S, as a visible verb rather than a keystroke: the
+              // fullscreen read-only rule allows a click on something you can
+              // see. Greyed when there is no picture to take - an enabled row
+              // that does nothing is the failure that got the other rows cut.
+              label: 'Copy frame',
+              icon: tickIf(false),
+              disabled: !hasFrame,
+              // Wrapped rather than passed: menuItems() runs in the render
+              // pass that draws the menu, and the linter follows a bare
+              // reference into copyFrame's ref access. The extra closure is
+              // the seam.
+              onPick: () =>
+                void pngFromVideo(el).then((png) => {
+                  if (png) window.prism.copyImageToClipboard(png)
+                })
+            }
+          ]
+        : []),
+      ...(window.prism.capabilities.explorer
+        ? [
+            {
+              label: 'Show in File Explorer',
+              icon: tickIf(false),
+              onPick: () => window.prism.showInExplorer(path)
+            }
+          ]
+        : []),
       {
         label: 'Copy path',
         icon: tickIf(false),

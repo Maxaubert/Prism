@@ -3,13 +3,18 @@
  * of the bridge, answered over HTTP. Everything else is a Proxy fallback
  * that warns once and resolves to false, so a verb a reused viewer reaches
  * for cannot crash the page; `capabilities` is how the viewers learn not to
- * offer it in the first place (PR 3 wires the menus to it).
+ * offer it in the first place (#106: `fileVerbs`, the picture, the video,
+ * the archive panel and the editor all consult it).
+ *
+ * NOTHING WRITES from here. `writeText`, `renameFile`, `trashFile` and the
+ * archive's member verbs are not members of this object, so they fall to the
+ * warning Proxy below and answer false; the server has no route for them.
  *
  * Installed by `boot.ts` before any viewer module loads: `lib/theme` paints
  * on import and asks the bridge for the window material as it does.
  */
 import type { PrismApi } from '../../../preload/index'
-import type { DirListing, MediaProbe, TextRead } from '@shared/types'
+import type { ArchiveListing, DirListing, FileKind, MediaProbe, TextRead } from '@shared/types'
 import { apiUrl, getJson, mediaUrl } from './api'
 import { canCsv } from './canPlay'
 
@@ -21,7 +26,9 @@ export const capabilities = {
 } as const
 
 /** `nativeDrag` is the drag-out bridge's flag (#103, not merged here yet);
- *  the phone says no to it either way, so a viewer can read it safely. */
+ *  the phone says no to it either way, so a viewer can read it safely.
+ *  `capabilities` IS on PrismApi (#106); it is named here so the shim
+ *  cannot be built without one. */
 type Shim = Partial<PrismApi> & { capabilities: typeof capabilities; nativeDrag: false }
 
 /**
@@ -60,6 +67,11 @@ export function askPlay(path: string): Promise<PlayAnswer> {
   return answer
 }
 
+/** `pw` rides only when there is one: the server reads an absent one as
+ *  "no password", and an empty one would be a password of nothing. */
+const withPw = (params: Record<string, string>, password?: string): Record<string, string> =>
+  password ? { ...params, pw: password } : params
+
 const implemented: Shim = {
   capabilities,
   mediaUrl,
@@ -68,7 +80,54 @@ const implemented: Shim = {
   forceSetup: false,
   listDir: (_root: string, path: string): Promise<DirListing | null> =>
     getJson<DirListing>('/api/dir', { path }).catch(() => null),
-  readText: (): Promise<TextRead> => Promise.resolve({ error: 'unreadable' }), // PR 3
+  /**
+   * The read-only document routes (#106). Each answers in the shape its IPC
+   * does, so the viewers are not told the difference, and a refused or
+   * failed fetch is the same failure the IPC would report: a text the phone
+   * cannot read is `unreadable`, a document that would not convert is null,
+   * an archive that would not list is `failed`.
+   */
+  readText: (path: string): Promise<TextRead> =>
+    getJson<TextRead>('/api/text', { path }).catch((): TextRead => ({ error: 'unreadable' })),
+  docHtml: (path: string): Promise<string | null> =>
+    getJson<{ html: string }>('/api/doc', { path })
+      .then((r) => r.html)
+      .catch(() => null),
+  comicOpen: (
+    path: string,
+    password = ''
+  ): Promise<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }> =>
+    getJson<{ pages: string[] } | { error: 'password' | 'failed' | 'empty' }>('/api/comic', {
+      path,
+      pw: password
+    }).catch(() => ({ error: 'failed' as const })),
+  archiveList: (path: string, password?: string): Promise<ArchiveListing> =>
+    getJson<ArchiveListing>('/api/archive', withPw({ path }, password)).catch(
+      (): ArchiveListing => ({ ok: false, reason: 'failed' })
+    ),
+  archiveExtract: (
+    path: string,
+    entry: string,
+    password?: string
+  ): Promise<
+    { ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }
+  > =>
+    getJson<{ ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }>(
+      '/api/archive/extract',
+      withPw({ path, entry }, password)
+    ).catch(() => ({ ok: false as const, reason: 'failed' as const })),
+  // The panel asks this for one thing, whether the container can be written,
+  // and on the phone no container can: every archive reads as the 7z kind.
+  // The counts are the Properties popup's, which the phone does not have.
+  archiveStat: () =>
+    Promise.resolve({ files: 0, folders: 0, uncompressed: 0, encryption: 'none' as const, readOnly: true }),
+  statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
+    getJson<{ size: number; mtimeMs: number; isFolder: boolean }>('/api/stat', { path }).catch(() => null),
+  // A file too big to hand over whole has no tail on the phone, and nothing
+  // is followed: the editor shows its "too large" note and leaves it there.
+  tailBytes: () => Promise.resolve(null),
+  startTail: () => Promise.resolve(false),
+  stopTail: () => Promise.resolve(),
   /**
    * The reused players ask this, and the answer is shaped for the hooks
    * they already have (#105): a FILM the phone cannot play as it is looks

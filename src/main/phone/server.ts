@@ -404,6 +404,18 @@ export class PhoneServer {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.listDir(path))
       }
+      // What `file:stat` answers the editor and the Properties popup: size,
+      // modified time and folder-ness. Async where the IPC is `statSync`,
+      // because the phone path shares main's one thread with a playing film.
+      case 'stat': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        try {
+          const st = await fsp.stat(path)
+          return void json(res, 200, { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() })
+        } catch {
+          return void json(res, 404, { error: 'no such file' })
+        }
+      }
       case 'subs': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, this.deps.subsFor(path))
