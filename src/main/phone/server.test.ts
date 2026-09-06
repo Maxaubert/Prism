@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { request } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { emptyState } from './pairing'
+import { emptyState, forget } from './pairing'
 import { PhoneServer, type PhoneDeps } from './server'
 
 /**
@@ -17,6 +17,8 @@ let renderer: string
 let server: PhoneServer
 let port: number
 let changes = 0
+/** The server holds this object, so a test can swap one dep for a failing one. */
+let deps: PhoneDeps
 
 const listing = (files: string[]) => ({
   folders: [],
@@ -37,7 +39,7 @@ beforeEach(async () => {
   writeFileSync(join(renderer, 'phone.html'), '<html>phone</html>')
   writeFileSync(join(renderer, 'assets', 'a.js'), 'console.log(1)')
   writeFileSync(join(dir, 'clip.mp4'), 'abcd')
-  const deps: PhoneDeps = {
+  deps = {
     rendererDir: renderer,
     media: async (req) => {
       const p = decodeURIComponent(new URL(req.url).pathname).slice(1)
@@ -130,6 +132,13 @@ describe('PhoneServer', () => {
     expect((await fetch(url('/pair'), { method: 'POST', body: '{"name":"x"}' })).status).toBe(400)
   })
 
+  it('answers 413 to an oversized pair body instead of dropping the socket', async () => {
+    const body = JSON.stringify({ code: 'ABCDEF', name: 'x'.repeat(8000) })
+    const r = await fetch(url('/pair'), { method: 'POST', body })
+    expect(r.status).toBe(413)
+    expect(await r.json()).toEqual({ error: 'too large' })
+  })
+
   it('a paired phone scanning another code keeps its token and moves root', async () => {
     const token = await pair()
     const { code } = server.issue(dir) // stands in for another tab's root
@@ -188,6 +197,74 @@ describe('PhoneServer', () => {
     expect((await fetch(url('/api/dir?path=C%3A%5CWindows'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/api/subs?path=C%3A%5CWindows%5Ca.mp4'), { headers: auth })).status).toBe(403)
     expect((await fetch(url('/m/C%3A%5CWindows%5Cnotepad.exe'), { headers: auth })).status).toBe(403)
+  })
+
+  /**
+   * A route that THROWS is a status and a reason, never a hung request. The
+   * routes are `return await`ed inside handle's try; without the await a
+   * returned promise is adopted after the try has exited and its rejection
+   * escapes the catch, which is a phone waiting forever and an unhandled
+   * rejection in main. Every route kind that can reject is driven here.
+   */
+  it('turns a failing route into a 500 with a reason, and no unhandled rejection', async () => {
+    let unhandled = 0
+    const onUnhandled = (): void => {
+      unhandled += 1
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const token = await pair()
+      const auth = { authorization: `Bearer ${token}` }
+      deps.listDir = async () => {
+        throw new Error('listing exploded')
+      }
+      const d = await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`), {
+        headers: auth,
+        signal: AbortSignal.timeout(3000)
+      })
+      expect(d.status).toBe(500)
+      expect(await d.json()).toEqual({ error: 'listing exploded' })
+
+      deps.readSubs = async () => {
+        throw new Error('ffmpeg exploded')
+      }
+      const s = await fetch(url(`/api/subs/read?path=${encodeURIComponent(join(dir, 'clip.srt'))}`), {
+        headers: auth,
+        signal: AbortSignal.timeout(3000)
+      })
+      expect(s.status).toBe(500)
+      expect(await s.json()).toEqual({ error: 'ffmpeg exploded' })
+
+      deps.media = async () => {
+        throw new Error('media exploded')
+      }
+      const m = await fetch(url(`/m/${encodeURIComponent(join(dir, 'clip.mp4'))}?t=${token}`), {
+        signal: AbortSignal.timeout(3000)
+      })
+      expect(m.status).toBe(500)
+      expect(await m.json()).toEqual({ error: 'media exploded' })
+
+      // The dev proxy with vite down: a refused connection, not a hung page.
+      deps.devUrl = 'http://127.0.0.1:1/'
+      const p = await fetch(url('/'), { signal: AbortSignal.timeout(3000) })
+      expect(p.status).toBe(500)
+      expect(((await p.json()) as { error: string }).error).toBeTruthy()
+      deps.devUrl = undefined
+
+      // Let anything that escaped surface before the count is read.
+      await new Promise((r) => setTimeout(r, 20))
+      expect(unhandled).toBe(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  it('stops listing a forgotten phone as watching', async () => {
+    const token = await pair()
+    await fetch(url('/api/me'), { headers: { authorization: `Bearer ${token}` } })
+    expect(server.watching()).toEqual([token])
+    forget(server.state, token)
+    expect(server.watching()).toEqual([])
   })
 
   it('rate-limits pairing attempts', async () => {

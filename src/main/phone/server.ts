@@ -42,7 +42,10 @@ export interface PhoneDeps {
   listDir: (dir: string) => Promise<DirListing>
   /** The strict per-root check: is `p` inside `root`? */
   validRoot: (root: string, p: string) => boolean
-  /** Is `p` the root itself? `validRoot` says no to that, and the phone lists it first. */
+  /** Is `p` the root itself? The real `validRoot` already says yes to that
+   *  (`isInsideRoot` counts an equal canonical path as inside), so this is the
+   *  belt to that brace: the phone lists the root FIRST, and a check that
+   *  stopped counting the root as inside would leave it with an empty page. */
   isRoot: (root: string, p: string) => boolean
   /** Does a tab still hold this root? False is the phone's "scan again" screen. */
   rootOpen: (root: string) => boolean
@@ -75,16 +78,30 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(text)
 }
 
-/** The request body as text, refused past `max` bytes: pairing is a code and a name. */
+/** Thrown by `readBody` past the cap; the route turns it into a 413. */
+class TooLarge extends Error {
+  constructor() {
+    super('too large')
+  }
+}
+
+/** The request body as text, refused past `max` bytes: pairing is a code and
+ *  a name. The socket is NOT destroyed on an oversized body: tearing it down
+ *  here would drop the 413 the route is about to write, and the phone would
+ *  see a dead connection rather than a reason. The rest of the body is
+ *  drained instead, and Node closes the connection after the reply. */
 function readBody(req: IncomingMessage, max = 4096): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0
+    let over = false
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => {
+      if (over) return
       size += c.length
       if (size > max) {
-        reject(new Error('too large'))
-        req.destroy()
+        over = true
+        chunks.length = 0
+        reject(new TooLarge())
         return
       }
       chunks.push(c)
@@ -114,10 +131,15 @@ export class PhoneServer {
     return this.bound
   }
 
-  /** Phones that fetched something in the last 30s. */
+  /** Phones that fetched something in the last 30s. Filtered against the
+   *  pairing list rather than pruned on forget: `forget` is called from main
+   *  and this server never hears about it, so a phone the dialog just
+   *  dropped would otherwise stay "watching" for up to 30s more. */
   watching(): string[] {
     const cutoff = this.now() - WATCH_WINDOW_MS
-    return [...this.seen.entries()].filter(([, t]) => t >= cutoff).map(([tok]) => tok)
+    return [...this.seen.entries()]
+      .filter(([tok, t]) => t >= cutoff && phoneFor(this.state, tok) !== null)
+      .map(([tok]) => tok)
   }
 
   /** A fresh code for `root`, replacing any live one for the same root. */
@@ -160,12 +182,19 @@ export class PhoneServer {
     })
   }
 
+  /**
+   * Every route is `return await`ed, and that is not style: a promise RETURNED
+   * from inside a try block is adopted after the block has exited, so its
+   * rejection sails past the catch, the phone waits on a reply that never
+   * comes and main logs an unhandled rejection. The rule is a status and a
+   * one-line reason, never a blank page, and the await is what keeps it.
+   */
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const route = parseRoute(req.url ?? '/')
       if (route.kind === 'none') return void json(res, 404, { error: 'not found' })
-      if (route.kind === 'static') return this.serveStatic(route.file, req, res)
-      if (route.kind === 'pair') return this.pair(req, res)
+      if (route.kind === 'static') return await this.serveStatic(route.file, req, res)
+      if (route.kind === 'pair') return await this.pair(req, res)
 
       // THE WALL. Everything past here is a paired phone, and every path it
       // names is checked against the root it paired to, not against every
@@ -179,9 +208,9 @@ export class PhoneServer {
 
       if (route.kind === 'media') {
         if (!this.deps.validRoot(phone.root, route.path)) return void json(res, 403, { error: 'outside the folder' })
-        return this.serveMedia(route.path, req, res)
+        return await this.serveMedia(route.path, req, res)
       }
-      return this.api(route.name, route.query, phone.root, phone.name, res)
+      return await this.api(route.name, route.query, phone.root, phone.name, res)
     } catch (err) {
       if (!res.headersSent) json(res, 500, { error: String((err as Error)?.message ?? err) })
       else res.end()
@@ -196,9 +225,16 @@ export class PhoneServer {
     if (hits.length >= PAIR_LIMIT) return void json(res, 429, { error: 'too many attempts, wait a minute' })
     hits.push(now)
     this.pairHits.set(from, hits)
+    let raw: string
+    try {
+      raw = await readBody(req)
+    } catch (err) {
+      if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
+      return void json(res, 400, { error: 'bad request' })
+    }
     let body: { code?: unknown; name?: unknown; token?: unknown }
     try {
-      body = JSON.parse(await readBody(req)) as typeof body
+      body = JSON.parse(raw) as typeof body
     } catch {
       return void json(res, 400, { error: 'bad request' })
     }
@@ -275,7 +311,13 @@ export class PhoneServer {
   /** The phone bundle out of the renderer dir; in dev, out of vite's server. */
   private async serveStatic(file: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (this.deps.devUrl) {
-      const target = new URL(file ? `/${file}` : '/phone.html', this.deps.devUrl)
+      // The QUERY rides along: vite tells a module from a file by it
+      // (`?import`, `?v=`, `?t=`), and the parser dropped it for static
+      // routes because a file on disk has none. The index is the one path
+      // renamed. The HMR websocket is not proxied; a dev edit needs a reload
+      // on the phone, which is what a dev proxy is.
+      const raw = new URL(req.url ?? '/', this.deps.devUrl)
+      const target = new URL((file ? `/${file}` : '/phone.html') + raw.search, this.deps.devUrl)
       const r = await fetch(target, { headers: { accept: String(req.headers.accept ?? '*/*') } })
       res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'application/octet-stream' })
       if (!r.body) return void res.end()

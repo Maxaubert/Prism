@@ -22,7 +22,7 @@ import {
   statSync,
   writeFileSync
 } from 'fs'
-import { copyFile, readFile, writeFile } from 'fs/promises'
+import { copyFile, readFile, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
@@ -427,9 +427,12 @@ async function serveMedia(request: Request): Promise<Response> {
     return new Response(null, { status: 400 })
   }
   if (!mediaAllowed(filePath)) return new Response(null, { status: 403 })
-  let st: ReturnType<typeof statSync>
+  // Async since the phone server (2026-09-06) started answering a LAN's
+  // worth of Range requests through here: a sync stat on main's one thread
+  // was cheap for one window and is the wrong shape for many phones.
+  let st: Awaited<ReturnType<typeof stat>>
   try {
-    st = statSync(filePath)
+    st = await stat(filePath)
   } catch {
     return new Response(null, { status: 404 })
   }
