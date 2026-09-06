@@ -686,6 +686,35 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   is what `/hls/` is keyed by, another phone's token gets 404 rather than 403, and only
   `index.m3u8`, `init.mp4` and `<n>.m4s` are served from a job directory.
   `PRISM_PHONE_DEBUG=1` logs ffmpeg's own progress line and exit per job.
+- **Documents on the phone** (2026-09-07, #106): PDFs, markdown, code and text, office and
+  ebook documents, comics and archive listings, through the SAME viewers the PC mounts
+  (`PhoneViewer`, lazy-loaded exactly as App loads them, so a phone that only plays films
+  never downloads pdf.js or CodeMirror; measured in the e2e from the page's own resource
+  timing). Five read-only routes (`/api/text`, `/api/doc`, `/api/comic`, `/api/archive`,
+  `/api/archive/extract`) call the converters main already has, and the WALL'S ONE
+  SOFTENING ON THE PHONE is a grant set (`grants.ts`) that is per PHONE and per ANSWER: a
+  markdown's own pictures, a comic's unpacked page directory, one extracted member, each
+  allowed to the token that asked and to nobody else, consulted by the media route beside
+  `validRoot`. NOTHING WRITES: the shim has no `writeText`, no rename, no delete and no
+  archive verb, and the server has no route for any of them. `window.prism.capabilities`
+  (`write`, `clipboard`, `explorer`, `drag`; all true in preload, all false in the shim) is
+  how ONE viewer serves TWO hosts - `fileVerbs` answers only Copy path without `explorer`,
+  the picture, the video, the archive panel and the editor each hide what they cannot
+  honour, and `CodeView` is `readOnly` STRUCTURALLY (no `saved.current`, so `save()` has
+  nothing to write). `resolveMdUrl` takes the url builder as an argument instead of
+  hard-coding `fsmedia://`, which is what lets a README's picture arrive over `/m/`.
+  THE TOUCH PASS, the parts a real device is not needed for, MEASURED in the app's own
+  Chromium under CDP touch emulation: a tap on a comic's outer thirds turns the page (touch
+  pointers only, so a click on the desktop does what it always did), a TAP WAKES THE CHROME
+  (`autoHideChrome` heard only `pointermove`, and a finger that touches and lifts fires none,
+  so a phone could never bring the page counter or the transport back), the archive's rows
+  are 44px under `(pointer: coarse)`, and code WRAPS by default - written ONCE into
+  `prism.code.wrap` if the phone has not chosen (`phoneWrapDefault`, pure), never forced
+  over a choice. Two things found on the way: pdf.js's worker is an `.mjs` and the server's
+  MIME table did not know it, so a module worker got `application/octet-stream` and refused
+  it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
+  phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
+  wait for a real device; hex and the terminal are not offered.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

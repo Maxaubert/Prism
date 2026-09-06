@@ -65,7 +65,9 @@ never shipped: one small app that opens everything and looks good doing it.
   and pictures straight from the PC. Plain HTTP on your own network, nothing leaves it; the
   PC lists every paired phone and can forget one at any time. What the phone cannot play as
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
-  and the phone seeks through it like any other file.
+  and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
+  documents, comics and archives open on the phone too, read-only: nothing on the phone can
+  change a file on the PC.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 
