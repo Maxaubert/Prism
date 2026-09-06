@@ -1382,6 +1382,51 @@ if (!app.requestSingleInstanceLock()) {
     const hlsJobs = hlsTools ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR }) : null
     void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
 
+    /**
+     * `file:text`'s body, factored (#106) so the phone's `/api/text` reads
+     * the same way: capped, decoded by its own byte-order mark, the shape
+     * remembered for a save. The WALL is not in here: the IPC handler checks
+     * the root set and the extracted grants, the phone route checks its own
+     * phone's root, and each grants what the answer names on its own side.
+     */
+    const readTextWalled = async (p: string): Promise<TextRead> => {
+      try {
+        const fs = await import('fs/promises')
+        // AWAITED, so a read error is caught here rather than escaping as a
+        // rejected invoke; and capped, because the contract is small text
+        // files and CodeMirror is handed one string (2026-08-28).
+        const st = await fs.stat(p)
+        // Too big to hand over as one string. Answered as a REASON rather than
+        // as null: the editor used to seed itself with a placeholder and could
+        // then save that placeholder over the file (2026-08-28).
+        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
+        // Decoded by its own byte-order mark rather than assumed utf-8: a
+        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
+        // anything PowerShell 5.1 redirected to a file. Those used to open as
+        // mojibake, which Prism would then offer to save back over them. The
+        // file's SHAPE is remembered so the save can reproduce it, line
+        // endings included (see textFile.ts).
+        const buf = await fs.readFile(p)
+        const { text, encoding, eol } = shapeOf(buf)
+        textShape.set(p.toLowerCase(), { encoding, eol })
+        return { text }
+      } catch {
+        return { error: 'unreadable' }
+      }
+    }
+    /** `doc:html`'s body, factored the same way (#106): converted AND
+     *  sanitised in main, null for anything that is not a document or
+     *  would not convert. No wall in here either. */
+    const docHtmlOf = async (p: string): Promise<string | null> => {
+      if (!docKind(extname(p))) return null
+      try {
+        const html = await convertDoc(p)
+        return html === null ? null : await sanitizeDoc(html)
+      } catch {
+        return null
+      }
+    }
+
     const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
       rendererDir: RENDERER_DIR,
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
@@ -1395,6 +1440,15 @@ if (!app.requestSingleInstanceLock()) {
         readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
       probe: probeCached,
       jobs: hlsJobs,
+      readText: readTextWalled,
+      docHtml: docHtmlOf,
+      docImages: documentImages,
+      isMarkdown: isMarkdownPath,
+      // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
+      // phone's grant on its side is not enough on its own.
+      grantServable: (paths) => {
+        for (const img of paths) servable.add(img)
+      },
       onChange: () => {
         savePhone()
         phoneChanged()
@@ -1471,6 +1525,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
       await phoneReady
       if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
+        // Its grants go with it (#106): a forgotten phone keeps nothing.
+        phone?.dropGrants(token)
         savePhone()
         phoneChanged()
       }
@@ -1810,34 +1866,13 @@ if (!app.requestSingleInstanceLock()) {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
       if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
-      try {
-        const fs = await import('fs/promises')
-        // AWAITED, so a read error is caught here rather than escaping as a
-        // rejected invoke; and capped, because the contract is small text
-        // files and CodeMirror is handed one string (2026-08-28).
-        const st = await fs.stat(p)
-        // Too big to hand over as one string. Answered as a REASON rather than
-        // as null: the editor used to seed itself with a placeholder and could
-        // then save that placeholder over the file (2026-08-28).
-        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        // Decoded by its own byte-order mark rather than assumed utf-8: a
-        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
-        // anything PowerShell 5.1 redirected to a file. Those used to open as
-        // mojibake, which Prism would then offer to save back over them. The
-        // file's SHAPE is remembered so the save can reproduce it, line
-        // endings included (see textFile.ts).
-        const buf = await fs.readFile(p)
-        const { text, encoding, eol } = shapeOf(buf)
-        textShape.set(p.toLowerCase(), { encoding, eol })
-        // A markdown document may point at pictures OUTSIDE the folder Prism
-        // opened in ("../assets/logo.png" from a doc in docs/), which the
-        // media wall would otherwise refuse. Main grants exactly the files
-        // this document names, having read it (see docImages.ts).
-        if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
-        return { text }
-      } catch {
-        return { error: 'unreadable' }
-      }
+      const r = await readTextWalled(p)
+      // A markdown document may point at pictures OUTSIDE the folder Prism
+      // opened in ("../assets/logo.png" from a doc in docs/), which the
+      // media wall would otherwise refuse. Main grants exactly the files
+      // this document names, having read it (see docImages.ts).
+      if ('text' in r && isMarkdownPath(p)) for (const img of documentImages(p, r.text)) servable.add(img)
+      return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
@@ -2106,13 +2141,7 @@ if (!app.requestSingleInstanceLock()) {
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
-      if (!docKind(extname(p))) return null
-      try {
-        const html = await convertDoc(p)
-        return html === null ? null : await sanitizeDoc(html)
-      } catch {
-        return null
-      }
+      return docHtmlOf(p)
     })
 
     // "Open in Prism" in File Explorer's own context menu (HKCU only).

@@ -4,6 +4,7 @@ import { request } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
+import type { TextRead } from '@shared/types'
 import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
 import { PhoneServer, type PhoneDeps } from './server'
@@ -17,6 +18,10 @@ import { fakeFfmpeg } from './testing/fakeFfmpeg'
 
 let dir: string
 let renderer: string
+/** A picture OUTSIDE the phone's root, that only a grant can let through. */
+let picOutside: string
+/** What the text route handed main's own servable set. */
+let servable: string[]
 let server: PhoneServer
 let port: number
 let changes = 0
@@ -60,15 +65,21 @@ beforeEach(async () => {
   writeFileSync(join(renderer, 'assets', 'a.js'), 'console.log(1)')
   writeFileSync(join(dir, 'clip.mp4'), 'abcd')
   writeFileSync(join(dir, 'clip.mkv'), 'abcd')
+  const outside = mkdtempSync(join(tmpdir(), 'prism-phone-outside-'))
+  picOutside = join(outside, 'pic.png')
+  writeFileSync(picOutside, 'png')
+  servable = []
   deps = {
     rendererDir: renderer,
     media: async (req) => {
       const p = decodeURIComponent(new URL(req.url).pathname).slice(1)
       const range = req.headers.get('range')
       if (range) return new Response('bc', { status: 206, headers: { 'Content-Range': 'bytes 1-2/4' } })
-      return new Response(p.endsWith('clip.mp4') ? 'abcd' : null, {
-        status: p.endsWith('clip.mp4') ? 200 : 404
-      })
+      // The wall under test is the SERVER's; serveMedia is faked, and it
+      // answers for the picture outside the root as it would once main
+      // had it in its servable set.
+      const ok = p.endsWith('clip.mp4') || p.endsWith('pic.png')
+      return new Response(ok ? 'abcd' : null, { status: ok ? 200 : 404 })
     },
     listDir: async () => listing(['clip.mp4']),
     validRoot: (root, p) => root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
@@ -77,6 +88,14 @@ beforeEach(async () => {
     subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
     probe: async (p) => probeOf(p),
+    readText: async (p): Promise<TextRead> =>
+      p.endsWith('.md') ? { text: '![x](pic.png)' } : p.endsWith('.bin') ? { error: 'unreadable' } : { text: 'hello' },
+    docHtml: async (p) => (p.endsWith('.docx') ? '<p>doc</p>' : null),
+    docImages: () => [picOutside],
+    isMarkdown: (p) => p.endsWith('.md'),
+    grantServable: (paths) => {
+      servable.push(...paths)
+    },
     // A real HlsJobs on the fake ffmpeg: the routes are the thing under test,
     // and a stubbed jobs class would only prove the stub.
     jobs: new HlsJobs({ ffmpeg: 'f', baseDir: join(dir, 'hls'), spawn: fakeFfmpeg().spawn }),
@@ -93,6 +112,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await server.stop()
   rmSync(dir, { recursive: true, force: true })
+  rmSync(join(picOutside, '..'), { recursive: true, force: true })
 })
 
 const url = (p: string) => `http://127.0.0.1:${port}${p}`
@@ -214,6 +234,53 @@ describe('PhoneServer', () => {
     expect(r.headers.get('content-range')).toBe('bytes 1-2/4')
     expect(server.watching()).toEqual([token])
     expect((await fetch(url('/api/nope'), { headers: auth })).status).toBe(404)
+  })
+
+  const api = (token: string, name: string, file: string): Promise<Response> =>
+    fetch(url(`/api/${name}?path=${encodeURIComponent(join(dir, file))}`), {
+      headers: { authorization: `Bearer ${token}` }
+    })
+
+  it('reads text and grants a markdown its own pictures to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const t = await (await api(a, 'text', 'readme.md')).json()
+    expect(t).toEqual({ text: '![x](pic.png)' })
+    // Main's own wall learned about the picture too, once.
+    expect(servable).toEqual([picOutside])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${b}`))).status).toBe(403)
+    // Forgetting the phone takes its grants with it.
+    server.dropGrants(a)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('a plain text file grants nothing, and an unreadable one says so', async () => {
+    const a = await pair()
+    expect(await (await api(a, 'text', 'notes.txt')).json()).toEqual({ text: 'hello' })
+    expect(servable).toEqual([])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+    expect(await (await api(a, 'text', 'blob.bin')).json()).toEqual({ error: 'unreadable' })
+  })
+
+  it('converts a document, and 404s one it cannot', async () => {
+    const a = await pair()
+    const d = await api(a, 'doc', 'a.docx')
+    expect(d.status).toBe(200)
+    expect(await d.json()).toEqual({ html: '<p>doc</p>' })
+    expect((await api(a, 'doc', 'a.xyz')).status).toBe(404)
+  })
+
+  it('walls text and doc behind the token and the root', async () => {
+    expect((await fetch(url(`/api/text?path=${encodeURIComponent(join(dir, 'readme.md'))}`))).status).toBe(401)
+    expect((await fetch(url(`/api/doc?path=${encodeURIComponent(join(dir, 'a.docx'))}`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    expect((await fetch(url('/api/text?path=C%3A%5CWindows%5Creadme.md'), { headers: auth })).status).toBe(403)
+    expect((await fetch(url('/api/doc?path=C%3A%5CWindows%5Ca.docx'), { headers: auth })).status).toBe(403)
+    // A markdown outside the root grants nothing on the way to its 403.
+    expect(servable).toEqual([])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
   })
 
   it('refuses a path outside the phone root, even for a paired phone', async () => {

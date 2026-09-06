@@ -5,7 +5,11 @@
  * route but pairing and the static page needs a paired phone, and every
  * path is checked against THAT phone's root with the strict per-root check
  * before anything else looks at it. Bytes come from `serveMedia`, so the
- * media route inherits fsmedia's own rules on top.
+ * media route inherits fsmedia's own rules on top. The one softening (#106)
+ * is a PER-PHONE grant (`grants.ts`): a file an answer to THIS phone
+ * produced, such as a picture its markdown names outside the root, may be
+ * fetched by this phone and by no other, and it is gone when the phone is
+ * forgotten.
  *
  * Nothing here is synchronous on main's thread: static files stream, the
  * listing is the bounded async one the sidebar uses, and pairing is a list
@@ -16,9 +20,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
-import type { DirListing } from '@shared/types'
+import type { DirListing, TextRead } from '@shared/types'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
+import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
 import { parseRoute, tokenOf, type Route } from './routes'
@@ -72,6 +77,20 @@ export interface PhoneDeps {
   /** The HLS jobs, one ffmpeg per phone and file; null when Prism found no
    *  ffmpeg, in which case a file the phone cannot play directly is `none`. */
   jobs: HlsJobs | null
+  /** Main's `file:text` body, factored (#106): the text with its encoding
+   *  remembered, or a reason. The wall is the route's, not this function's. */
+  readText: (p: string) => Promise<TextRead>
+  /** An office or ebook document converted AND sanitised in main; null when
+   *  it is not one, or the conversion failed. */
+  docHtml: (p: string) => Promise<string | null>
+  /** The local pictures a markdown names (`documentImages`): what the
+   *  phone that read it is granted. */
+  docImages: (p: string, text: string) => string[]
+  isMarkdown: (p: string) => boolean
+  /** Main's own media wall has to learn the same pictures: `/m/` goes
+   *  through `serveMedia`, which checks its `servable` set on top of this
+   *  server's grant. The two are granted side by side, from one call. */
+  grantServable: (paths: string[]) => void
   /** Pairing changed: persist and tell the dialog. */
   onChange: () => void
   loopbackOnly: boolean
@@ -139,6 +158,10 @@ export class PhoneServer {
   private pairHits = new Map<string, number[]>()
   /** Looks for idle HLS jobs while the server is up. */
   private reaper: ReturnType<typeof setInterval> | null = null
+  /** What each phone's answers have let it fetch past the root wall (#106):
+   *  a markdown's pictures, and in time a comic's pages and an extracted
+   *  member. Consulted by the media route beside `validRoot`, never instead. */
+  private grants = new Grants()
   private readonly now: () => number
 
   constructor(
@@ -161,6 +184,13 @@ export class PhoneServer {
     return [...this.seen.entries()]
       .filter(([tok, t]) => t >= cutoff && phoneFor(this.state, tok) !== null)
       .map(([tok]) => tok)
+  }
+
+  /** A forgotten phone's grants go with it: main calls this from
+   *  `phone:forget`, since `forget` itself is pairing's and this server
+   *  never hears about it otherwise. */
+  dropGrants(token: string): void {
+    this.grants.drop(token)
   }
 
   /** A fresh code for `root`, replacing any live one for the same root. */
@@ -241,7 +271,9 @@ export class PhoneServer {
       this.seen.set(phone.token, now)
 
       if (route.kind === 'media') {
-        if (!this.deps.validRoot(phone.root, route.path)) return void json(res, 403, { error: 'outside the folder' })
+        // The root, or a file one of THIS phone's own answers granted it.
+        const allowed = this.deps.validRoot(phone.root, route.path) || this.grants.has(phone.token, route.path)
+        if (!allowed) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
       if (route.kind === 'hls') return await this.hls(route, phone.token, res)
@@ -359,6 +391,28 @@ export class PhoneServer {
         if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
         res.writeHead(200, { 'content-type': 'text/vtt; charset=utf-8', 'cache-control': 'no-store' })
         return void res.end(vtt)
+      }
+      // A text file, read-only: the phone has no route to write one back.
+      // A MARKDOWN grants the pictures it names to the phone that read it
+      // (they may sit outside its root, as `docImages.ts` explains), and to
+      // main's own wall in the same breath, since `/m/` passes through both.
+      case 'text': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const r = await this.deps.readText(path)
+        if ('text' in r && this.deps.isMarkdown(path)) {
+          const imgs = this.deps.docImages(path, r.text)
+          for (const img of imgs) this.grants.grant(token, img)
+          if (imgs.length) this.deps.grantServable(imgs)
+        }
+        return void json(res, 200, r)
+      }
+      // An office or ebook document as the sanitised HTML the PC's DocView
+      // renders; 404 with a reason when main could not convert it.
+      case 'doc': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const html = await this.deps.docHtml(path)
+        if (html === null) return void json(res, 404, { error: 'Prism could not convert this document' })
+        return void json(res, 200, { html })
       }
       default:
         return void json(res, 404, { error: 'no such route' })
