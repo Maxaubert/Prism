@@ -95,9 +95,11 @@ export function parseCmd(raw: unknown): RemoteCmd | null {
 
 /**
  * Whether `b` is worth sending after `a`: any field but the clock, and the
- * clock only once it has moved more than 0.9s. Playing, the renderer reports
- * once a second anyway; paused, the clock moves only on a seek, which is a
- * change by any measure.
+ * clock only once it has moved more than 0.9s WHILE PLAYING. Playing, the
+ * renderer reports once a second anyway; paused, the clock moves only on a
+ * seek, which is a change by any measure (found by the phoneRemote e2e: a
+ * paused seek of half a second was swallowed by the epsilon, and the phone's
+ * scrubber stayed where it was).
  */
 export function stateChanged(a: RemoteState, b: RemoteState): boolean {
   if (a === b) return false
@@ -112,6 +114,6 @@ export function stateChanged(a: RemoteState, b: RemoteState): boolean {
     a.rate !== b.rate ||
     a.canNext !== b.canNext ||
     a.canPrev !== b.canPrev ||
-    Math.abs(a.cur - b.cur) > CUR_EPSILON
+    (b.playing ? Math.abs(a.cur - b.cur) > CUR_EPSILON : a.cur !== b.cur)
   )
 }

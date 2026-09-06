@@ -96,6 +96,13 @@ describe('stateChanged', () => {
     expect(stateChanged(base(), { ...base(), cur: 9 })).toBe(true)
   })
 
+  it('reports any move of a paused clock, which can only be a seek', () => {
+    const paused = { ...base(), playing: false }
+    expect(stateChanged(paused, { ...paused, cur: 10.5 })).toBe(true)
+    expect(stateChanged(paused, { ...paused, cur: 9.9 })).toBe(true)
+    expect(stateChanged(paused, { ...paused })).toBe(false)
+  })
+
   it('reports every other field', () => {
     expect(stateChanged(base(), { ...base(), playing: false })).toBe(true)
     expect(stateChanged(base(), { ...base(), name: 'ep2.mp4' })).toBe(true)
