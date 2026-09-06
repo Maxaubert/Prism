@@ -589,6 +589,18 @@ describe('PhoneServer', () => {
     expect(again.status).toBe(403)
   })
 
+  it('a paired phone scanning another code keeps its token and moves root', async () => {
+    const token = await pair()
+    const { code } = server.issue(dir) // stands in for another tab's root
+    const r = await fetch(url('/pair'), {
+      method: 'POST',
+      body: JSON.stringify({ code, name: 'Test phone', token })
+    })
+    expect(r.status).toBe(200)
+    expect(((await r.json()) as { token: string }).token).toBe(token)
+    expect(server.state.phones).toHaveLength(1)
+  })
+
   it('walls every api route behind the token', async () => {
     expect((await fetch(url('/api/me'))).status).toBe(401)
     expect((await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`))).status).toBe(401)
@@ -657,7 +669,7 @@ import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
 import type { DirListing } from '@shared/types'
-import { issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
+import { forget, issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
 import { parseRoute, tokenOf } from './routes'
 
 export const DEFAULT_PORT = 47320
@@ -820,6 +832,18 @@ export class PhoneServer {
     if (typeof body.code !== 'string') return void json(res, 400, { error: 'no code' })
     const phone = redeem(this.state, body.code, typeof body.name === 'string' ? body.name : 'Phone', now)
     if (!phone) return void json(res, 403, { error: 'that code is not valid any more; scan again' })
+    // A phone that is ALREADY paired and scans a code from another tab MOVES
+    // to that root (spec): it keeps its token and the list does not grow a
+    // second entry for the same phone.
+    const existing = phoneFor(this.state, typeof body.token === 'string' ? body.token : null)
+    if (existing) {
+      existing.root = phone.root
+      existing.name = phone.name
+      existing.seen = now
+      forget(this.state, phone.token)
+      this.deps.onChange()
+      return void json(res, 200, { token: existing.token, root: existing.root })
+    }
     this.deps.onChange()
     json(res, 200, { token: phone.token, root: phone.root })
   }
@@ -1682,7 +1706,13 @@ export function PhoneApp(): JSX.Element {
     const r = await fetch('/pair', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, name: navigator.userAgent.replace(/^Mozilla\/5\.0 \(([^;)]+).*$/, '$1') })
+      // The current token rides along: an already-paired phone scanning a
+      // code from another tab MOVES to that root and keeps its token.
+      body: JSON.stringify({
+        code,
+        name: navigator.userAgent.replace(/^Mozilla\/5\.0 \(([^;)]+).*$/, '$1'),
+        token: readToken() ?? undefined
+      })
     })
     if (!r.ok) {
       setError(((await r.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not pair')
@@ -2029,7 +2059,7 @@ async function phoneScenario(fixtures) {
   try {
     // Switch the server on from the renderer, the way the dialog does.
     const state = await win.evaluate(async () => {
-      const root = document.querySelector('[data-tab-root]')?.getAttribute('data-tab-root')
+      const root = document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title')
       return window.prism.phoneSetOn(true, root ?? null)
     })
     ok(state.on === true, 'the server reports on')
@@ -2063,14 +2093,15 @@ async function phoneScenario(fixtures) {
     ok((await win.locator('[data-phone-row]').count()) === 1, 'the dialog lists the paired phone')
     await win.keyboard.press('Escape')
 
-    // The phone page itself, in a phone-sized Chromium.
-    browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
-    await page.goto(`${base}/?code=INVALID`)
+    // The phone page itself, in a phone-sized window of the app's own
+    // Chromium: the harness ships playwright-core and no browser binary, so
+    // a second BrowserWindow stands in for the phone. Hidden and parked like
+    // the main one; Playwright drives it over CDP all the same.
+    page = await openPhoneWindow(app, `${base}/?code=INVALID`)
     await page.waitForSelector('text=Pair', { timeout: 10000 })
     // A second code for the same tab: the first was spent above.
     const again = await win.evaluate(async () => {
-      const root = document.querySelector('[data-tab-root]')?.getAttribute('data-tab-root')
+      const root = document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title')
       return window.prism.phoneCode(root)
     })
     await page.goto(`${base}/?code=${again.code.code}`)
@@ -2103,7 +2134,29 @@ async function phoneScenario(fixtures) {
 }
 ```
 
-Requirements this scenario places on the app, to do while writing it: `[data-tab-root]` must exist on the active tab (add `data-tab-root={tab.root}` to the active tab's element in `TabStrip.tsx` if it is not there; grep first), `chromium` imported from `playwright` next to `electron` at the top of `run.mjs`, and the `phoneScenario` name registered with `await run(phoneScenario)`. Confirm `ok`/`fail` helper names by reading the head of `run.mjs`.
+Requirements this scenario places on the app, to do while writing it: the active tab's `title` attribute IS its root (`TabStrip.tsx`, the `role="tab"` button), which is what the scenario reads, the `phoneScenario` name registered with `await run(phoneScenario)`, and the helper below added near `launchOnce` (drop the `browser` variable and its close from the scenario; `page.close()` closes the window). Confirm `ok`/`fail` helper names by reading the head of `run.mjs`.
+
+```js
+/** A second window of the app's own Chromium standing in for the phone. */
+async function openPhoneWindow(app, url) {
+  const before = app.windows().length
+  await app.evaluate(({ BrowserWindow }, target) => {
+    const w = new BrowserWindow({ width: 390, height: 844, show: false, webPreferences: { sandbox: true } })
+    void w.loadURL(target)
+  }, url)
+  let page = null
+  for (let i = 0; i < 100 && !page; i++) {
+    const wins = app.windows()
+    if (wins.length > before) page = wins[wins.length - 1]
+    else await sleep(100)
+  }
+  if (!page) throw new Error('the phone window never appeared')
+  await page.waitForLoadState('domcontentloaded')
+  return page
+}
+```
+
+`page.goto(...)` on that page navigates the window; use it for the second code.
 
 - [ ] **Step 2: Run the scenario until green**
 
@@ -2119,7 +2172,7 @@ Add under the terminal notes, in the file's voice, a paragraph beginning `- **Pr
 Run: `npm run typecheck && npm run lint && npm test`, then the FULL e2e (`npm run e2e`) before pushing. Then:
 
 ```bash
-git add CLAUDE.md README.md tools/e2e/run.mjs src/renderer/src/components/TabStrip.tsx
+git add CLAUDE.md README.md tools/e2e/run.mjs
 git commit -m "test(phone): e2e pairs, browses and plays over the LAN server; notes (#104)"
 git push -u origin feat/104-phone-server
 gh pr create --title "Prism on your phone (1): LAN server, pairing, Tools menu, phone page, direct play (#104)" --body "..."
