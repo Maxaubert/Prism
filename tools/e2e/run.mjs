@@ -5286,6 +5286,175 @@ async function phoneDocsScenario(fixtures) {
   }
 }
 
+/**
+ * The phone as a remote (2026-09-07, #107). The PC opens a film; the phone
+ * switches to Remote, which unmounts its own player and hides the folder,
+ * and the PC's file name arrives over the state stream. Commands go in two
+ * ways, from Node (the route, as a phone would POST it) and from the
+ * phone's own buttons, and each one is asserted on the PC's `<video>`
+ * itself. The latency is MEASURED both ways: the POST to the element
+ * playing, and the tap to the element playing, printed with the pass.
+ */
+async function phoneRemoteScenario(fixtures) {
+  console.log("phone: the Remote screen drives the PC's player")
+  const { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  let page = null
+  try {
+    const { base, token, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    const auth = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+    const cmd = (body) =>
+      fetch(`${base}/remote/cmd`, { method: 'POST', headers: auth, body: JSON.stringify(body) })
+    const pcVideo = (fn) => win.evaluate(fn)
+    const pcPlaying = () => pcVideo(() => !(document.querySelector('video')?.paused ?? true))
+    const untilPc = (fn, timeout = 5000) => win.waitForFunction(fn, null, { timeout, polling: 'raf' })
+    const remoteAttr = (name) =>
+      page.evaluate((n) => document.querySelector('[data-phone-remote]')?.getAttribute(n) ?? null, name)
+
+    // Nothing is playing yet, nothing autoplays on open, and no phone
+    // listens: the command is refused by main's own copy of the state.
+    ok((await cmd({ op: 'toggle' })).status === 409, 'a command before any phone listens is 409')
+    ok((await cmd({ op: 'seek', to: -1 })).status === 400, 'a bad command is 400 before anything')
+
+    page = await openPhoneWindow(app, `${base}/`)
+    page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
+    page.on('console', (m) => {
+      if (m.type() === 'error') console.warn('  phone console:', m.text())
+    })
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    ok(
+      (await page.locator('[data-phone-mode="watch"][aria-checked="true"]').count()) === 1,
+      'a fresh phone starts in Watch'
+    )
+    // Open the film on the phone first, so switching proves the unmount.
+    await page.click('[data-phone-file]:has-text("ep1.mp4")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
+    await page.click('[aria-label="Back to the folder"]')
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+
+    await page.click('[data-phone-mode="remote"]')
+    await page.waitForSelector('[data-phone-remote]', { timeout: 10000 })
+    ok((await page.locator('[data-phone-file]').count()) === 0, 'Remote mode hides the folder')
+    ok((await page.locator('video, audio').count()) === 0, "the phone's own player is unmounted")
+    ok(
+      (await page.evaluate(() => localStorage.getItem('prism.phone.mode'))) === 'remote',
+      'the mode is remembered'
+    )
+    await page.waitForFunction(
+      () => document.querySelector('[data-remote-name]')?.textContent?.includes('ep1.mp4') ?? false,
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, "the PC's file name reaches the phone over the state stream")
+    ok((await remoteAttr('data-remote-playing')) === 'false', 'the PC reports paused: nothing autoplays on open')
+    ok((await remoteAttr('data-remote-can-next')) === 'true', 'the PC reports a next video (ep2.mp4)')
+    ok((await remoteAttr('data-remote-can-prev')) === 'false', 'and no previous one')
+    await page.screenshot({ path: join(SHOTS, 'phone-remote.png') })
+
+    // The route, as a phone POSTs it, asserted on the PC's own element.
+    const t0 = performance.now()
+    const toggled = await cmd({ op: 'toggle' })
+    const tAnswered = performance.now()
+    let played = true
+    await untilPc(() => !(document.querySelector('video')?.paused ?? true)).catch(() => {
+      played = false
+    })
+    const tPlaying = performance.now()
+    ok(
+      toggled.status === 204 && played,
+      `toggle plays the PC's video (${(tPlaying - t0).toFixed(0)}ms from POST to playing, ${(tAnswered - t0).toFixed(0)}ms to the 204)`
+    )
+    await page.waitForFunction(
+      () => document.querySelector('[data-phone-remote]')?.getAttribute('data-remote-playing') === 'true',
+      null,
+      { timeout: 5000 }
+    )
+    const tPhone = performance.now()
+    ok(true, `the phone hears it playing (${(tPhone - t0).toFixed(0)}ms from the POST)`)
+    ok((await cmd({ op: 'pause' })).status === 204, 'pause is taken')
+    await untilPc(() => document.querySelector('video')?.paused === true)
+    ok(!(await pcPlaying()), 'the PC is paused')
+    ok((await cmd({ op: 'pause' })).status === 204, 'a second pause is a no-op, not an error')
+
+    ok((await cmd({ op: 'seek', to: 1 })).status === 204, 'a seek is taken')
+    await untilPc(() => (document.querySelector('video')?.currentTime ?? 0) > 0.9)
+    const at = await pcVideo(() => document.querySelector('video')?.currentTime ?? 0)
+    ok(at > 0.9 && at < 1.2, `the PC seeks to 1s (${at.toFixed(2)}s)`)
+    await page.waitForFunction(
+      () => (document.querySelector('[data-remote-cur]')?.textContent ?? '') === '0:01',
+      null,
+      { timeout: 5000 }
+    )
+    ok(true, "the phone's clock follows the seek")
+
+    ok((await cmd({ op: 'volume', to: 0.5 })).status === 204, 'a volume command is taken')
+    await untilPc(() => Math.abs((document.querySelector('video')?.volume ?? -1) - 0.5) < 0.001)
+    ok(true, "the PC's video is at 50%")
+    await page.waitForFunction(
+      () => (document.querySelector('[data-remote-vol]')?.textContent ?? '') === '50%',
+      null,
+      { timeout: 5000 }
+    )
+    ok(true, 'the phone shows 50%')
+    ok((await cmd({ op: 'mute' })).status === 204, 'mute is taken')
+    await untilPc(() => document.querySelector('video')?.muted === true)
+    ok(true, 'the PC is muted')
+    await cmd({ op: 'mute' })
+    await untilPc(() => document.querySelector('video')?.muted === false)
+
+    // The phone's own buttons: a tap on Play, timed to the PC's element.
+    await page.waitForSelector('[aria-label="Play"]:not([disabled])', { timeout: 5000 })
+    const tTap = performance.now()
+    await page.click('[aria-label="Play"]')
+    let tapped = true
+    await untilPc(() => !(document.querySelector('video')?.paused ?? true)).catch(() => {
+      tapped = false
+    })
+    ok(tapped, `a tap on the phone's Play plays the PC's video (${(performance.now() - tTap).toFixed(0)}ms)`)
+    await page.waitForSelector('[aria-label="Pause"]', { timeout: 5000 })
+    await page.click('[aria-label="Pause"]')
+    await untilPc(() => document.querySelector('video')?.paused === true)
+    ok(true, "a tap on the phone's Pause pauses it")
+
+    // Next: the PC steps to ep2.mp4 and the phone follows.
+    await page.click('[aria-label="Next"]')
+    await win.waitForFunction(
+      () =>
+        document.querySelector('[role="treeitem"][aria-selected="true"]')?.textContent?.includes('ep2.mp4') ??
+        false,
+      null,
+      { timeout: 10000 }
+    )
+    await page.waitForFunction(
+      () => document.querySelector('[data-remote-name]')?.textContent?.includes('ep2.mp4') ?? false,
+      null,
+      { timeout: 10000 }
+    )
+    ok(true, 'Next steps the PC to ep2.mp4 and the phone follows')
+    await page.waitForFunction(
+      () => document.querySelector('[data-phone-remote]')?.getAttribute('data-remote-can-next') === 'false',
+      null,
+      { timeout: 5000 }
+    )
+    ok((await page.locator('[aria-label="Next"][disabled]').count()) === 1, 'Next greys out at the last video')
+    ok((await page.locator('[aria-label="Previous"]:not([disabled])').count()) === 1, 'Previous is offered')
+
+    // The mode survives a reload, and Watch brings the folder back.
+    await page.reload()
+    await page.waitForSelector('[data-phone-remote]', { timeout: 10000 })
+    ok((await page.locator('[data-phone-file]').count()) === 0, 'a reload comes back as a remote')
+    await page.click('[data-phone-mode="watch"]')
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    ok((await page.locator('[data-phone-remote]').count()) === 0, 'Watch brings the folder back')
+  } finally {
+    await page?.close().catch(() => {})
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism anything whenever someone picks it out of "More apps",
@@ -5398,6 +5567,7 @@ await run(dragScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)
+await run(phoneRemoteScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)

@@ -44,6 +44,16 @@ describe('parseRoute', () => {
     expect(parseRoute(`/hls/${job}/`)).toEqual({ kind: 'none' })
     expect(parseRoute(`/hls/${job}`)).toEqual({ kind: 'none' })
   })
+  it('names the two remote routes and nothing else under /remote', () => {
+    const st = parseRoute('/remote/state?t=abc')
+    expect(st).toMatchObject({ kind: 'remote', what: 'state' })
+    if (st.kind === 'remote') expect(st.query.get('t')).toBe('abc')
+    expect(parseRoute('/remote/cmd')).toMatchObject({ kind: 'remote', what: 'cmd' })
+    expect(parseRoute('/remote/')).toEqual({ kind: 'none' })
+    expect(parseRoute('/remote')).toEqual({ kind: 'none' })
+    expect(parseRoute('/remote/state/x')).toEqual({ kind: 'none' })
+    expect(parseRoute('/remote/STATE')).toEqual({ kind: 'none' })
+  })
 })
 
 describe('tokenOf', () => {

@@ -17,6 +17,7 @@ import type {
   TextRead,
   WriteResult
 } from '@shared/types'
+import type { RemoteCmd, RemoteState } from '@shared/remote'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
 // `mediaUrl` + the open payload, nothing app-specific.
@@ -91,6 +92,24 @@ const api = {
     const listener = (): void => cb()
     ipcRenderer.on('phone:changed', listener)
     return () => ipcRenderer.removeListener('phone:changed', listener)
+  },
+  // The phone as a remote (#107). App reports what the foreground player is
+  // doing, main fans it out to the phones listening, and a phone's command
+  // comes back the other way, already validated in main.
+  /** What the active tab is playing, for the phones in Remote mode. */
+  phoneState: (s: RemoteState): void => ipcRenderer.send('phone:state', s),
+  /** A command a phone sent; main has validated its shape and ranges. */
+  onPhoneCmd: (cb: (c: RemoteCmd) => void): (() => void) => {
+    const listener = (_: unknown, c: RemoteCmd): void => cb(c)
+    ipcRenderer.on('phone:cmd', listener)
+    return () => ipcRenderer.removeListener('phone:cmd', listener)
+  },
+  /** How many phones are listening for state right now. Zero means App
+   *  reports nothing at all. */
+  onPhoneListeners: (cb: (n: number) => void): (() => void) => {
+    const listener = (_: unknown, n: number): void => cb(n)
+    ipcRenderer.on('phone:listeners', listener)
+    return () => ipcRenderer.removeListener('phone:listeners', listener)
   },
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a

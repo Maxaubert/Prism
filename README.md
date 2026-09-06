@@ -67,7 +67,8 @@ never shipped: one small app that opens everything and looks good doing it.
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
   and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
   documents, comics and archives open on the phone too, read-only: nothing on the phone can
-  change a file on the PC.
+  change a file on the PC. Flip the phone to **Remote** and it drives what the PC is
+  playing instead: play, pause, seek, next, previous and volume, from the sofa.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 

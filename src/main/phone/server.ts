@@ -21,6 +21,7 @@ import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
 import type { ArchiveListing, DirListing, FileKind, TextRead } from '@shared/types'
+import { emptyState as emptyRemote, parseCmd, type RemoteCmd, type RemoteState } from '@shared/remote'
 import type { ComicOpen } from '../comic'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
@@ -41,6 +42,10 @@ const PAIR_WINDOW_MS = 60_000
 const PORT_TRIES = 10
 /** How often idle HLS jobs are looked for; a job is idle after 30s. */
 const REAP_MS = 10_000
+/** A comment down every open state stream this often (#107): a proxy or a
+ *  phone's radio drops a connection that has said nothing for a while, and
+ *  a paused film says nothing for as long as it is paused. */
+const SSE_PING_MS = 15_000
 /** What the phone plays from a job directory, by file: the playlist Prism
  *  wrote, ffmpeg's init segment and its media segments. Nothing else there
  *  has a type because nothing else there is served. */
@@ -116,6 +121,16 @@ export interface PhoneDeps {
   isComic: (p: string) => boolean
   /** Pairing changed: persist and tell the dialog. */
   onChange: () => void
+  /** The remote (#107). `onCmd` hands a command the server has ALREADY
+   *  validated to the renderer, resolving false when there is no window to
+   *  take it; `onListeners` is the number of phones holding a state stream,
+   *  so App reports only while somebody is listening. */
+  remote: {
+    onCmd: (token: string, cmd: RemoteCmd) => Promise<boolean>
+    onListeners: (n: number) => void
+    /** The ping period; tests shorten it, the app keeps the 15s default. */
+    pingMs?: number
+  }
   loopbackOnly: boolean
   now?: () => number
 }
@@ -140,6 +155,12 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body)
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(text)
+}
+
+/** One Server-Sent Event carrying the state. JSON has no newline in it, so
+ *  the frame is one data line and the blank line that ends it. */
+function stateFrame(s: RemoteState): string {
+  return `event: state\ndata: ${JSON.stringify(s)}\n\n`
 }
 
 /** Thrown by `readBody` past the cap; the route turns it into a 413. */
@@ -188,6 +209,16 @@ export class PhoneServer {
    *  a markdown's pictures, a comic's page directory and an extracted
    *  member. Consulted by the media route beside `validRoot`, never instead. */
   private grants = new Grants()
+  /** The open state streams (#107), each with the phone holding it. */
+  private streams = new Map<ServerResponse, string>()
+  /** Pings every open stream; exists only while one does. */
+  private pinger: ReturnType<typeof setInterval> | null = null
+  /** The renderer's last report, and what a stream is sent on connecting.
+   *  Reset to empty when the last listener leaves: App stops reporting the
+   *  moment nobody listens, so a state kept past that point is one nobody is
+   *  keeping true, and a command answered against it would say 204 for a
+   *  film that may have been closed since. */
+  private remoteState: RemoteState = emptyRemote()
   private readonly now: () => number
 
   constructor(
@@ -217,6 +248,27 @@ export class PhoneServer {
    *  never hears about it otherwise. */
   dropGrants(token: string): void {
     this.grants.drop(token)
+  }
+
+  /** What the renderer last reported (#107); empty when nothing has been
+   *  reported since the last listener left. */
+  get lastState(): RemoteState {
+    return this.remoteState
+  }
+
+  /** How many state streams are open right now. */
+  get listeners(): number {
+    return this.streams.size
+  }
+
+  /** The renderer's report: kept for the next stream to open, and written
+   *  down every open one at once. Nothing is written while no phone listens,
+   *  which is also the only time App sends one. */
+  pushState(s: RemoteState): void {
+    this.remoteState = s
+    if (!this.streams.size) return
+    const frame = stateFrame(s)
+    for (const res of this.streams.keys()) res.write(frame)
   }
 
   /** A fresh code for `root`, replacing any live one for the same root. */
@@ -264,6 +316,10 @@ export class PhoneServer {
       clearInterval(this.reaper)
       this.reaper = null
     }
+    if (this.pinger) {
+      clearInterval(this.pinger)
+      this.pinger = null
+    }
     await this.deps.jobs?.stopAll()
     if (!s) return
     await new Promise<void>((resolve) => {
@@ -303,6 +359,10 @@ export class PhoneServer {
         return await this.serveMedia(route.path, req, res)
       }
       if (route.kind === 'hls') return await this.hls(route, phone.token, res)
+      if (route.kind === 'remote') {
+        if (route.what === 'state') return this.stream(req, phone.token, res)
+        return await this.command(req, phone.token, res)
+      }
       return await this.api(route.name, route.query, phone.root, phone.name, phone.token, res)
     } catch (err) {
       if (!res.headersSent) json(res, 500, { error: String((err as Error)?.message ?? err) })
@@ -489,6 +549,88 @@ export class PhoneServer {
       default:
         return void json(res, 404, { error: 'no such route' })
     }
+  }
+
+  /**
+   * `GET /remote/state` (#107): the state as Server-Sent Events. The last
+   * known state goes down at once, so the phone draws something before the
+   * renderer's next report, and every push after it. Kept open until the
+   * phone goes; `close` is the one signal a dropped phone gives, and it is
+   * what the listener count follows.
+   */
+  private stream(req: IncomingMessage, token: string, res: ServerResponse): void {
+    if (req.method !== 'GET') return void json(res, 405, { error: 'GET' })
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-store',
+      connection: 'keep-alive'
+    })
+    res.write(stateFrame(this.remoteState))
+    this.streams.set(res, token)
+    this.listenersChanged()
+    res.on('close', () => {
+      if (this.streams.delete(res)) this.listenersChanged()
+    })
+  }
+
+  /** The count moved: the pinger lives while a stream does, the state is
+   *  forgotten when the last one goes, and main hears the number. */
+  private listenersChanged(): void {
+    const n = this.streams.size
+    if (n === 0) {
+      this.remoteState = emptyRemote()
+      if (this.pinger) {
+        clearInterval(this.pinger)
+        this.pinger = null
+      }
+    } else if (!this.pinger) {
+      this.pinger = setInterval(() => this.ping(), this.deps.remote.pingMs ?? SSE_PING_MS)
+      this.pinger.unref()
+    }
+    this.deps.remote.onListeners(n)
+  }
+
+  /** A comment down every stream, and the phone holding it counts as
+   *  watching: a remote never fetches anything else, and would otherwise
+   *  drop out of the dialog's "watching" list thirty seconds in. */
+  private ping(): void {
+    const now = this.now()
+    for (const [res, token] of this.streams) {
+      res.write(': ping\n\n')
+      touch(this.state, token, now)
+      this.seen.set(token, now)
+    }
+  }
+
+  /**
+   * `POST /remote/cmd` (#107): a JSON body, validated by `parseCmd` before
+   * anything else sees it (400 for a shape or range it refuses), answered
+   * 409 with a reason while nothing is playing on the PC or no window can
+   * take it, and 204 once the renderer has it. No body comes back for a
+   * command that went through: the state stream is where its effect shows.
+   */
+  private async command(req: IncomingMessage, token: string, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
+    let raw: string
+    try {
+      raw = await readBody(req)
+    } catch (err) {
+      if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
+      return void json(res, 400, { error: 'bad request' })
+    }
+    let body: unknown
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return void json(res, 400, { error: 'bad request' })
+    }
+    const cmd = parseCmd(body)
+    if (!cmd) return void json(res, 400, { error: 'bad command' })
+    if (this.remoteState.empty) return void json(res, 409, { error: 'nothing is playing on the PC' })
+    const took = await this.deps.remote.onCmd(token, cmd)
+    if (!took) return void json(res, 409, { error: 'nothing is playing on the PC' })
+    res.writeHead(204, { 'cache-control': 'no-store' })
+    res.end()
   }
 
   /** Bytes through serveMedia: same handler as fsmedia://, same rules. */

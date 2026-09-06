@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
 import type { ArchiveListing, TextRead } from '@shared/types'
+import { emptyState as emptyRemote, type RemoteCmd, type RemoteState } from '@shared/remote'
 import type { ComicOpen } from '../comic'
 import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
@@ -33,6 +34,12 @@ let port: number
 let changes = 0
 /** The server holds this object, so a test can swap one dep for a failing one. */
 let deps: PhoneDeps
+/** Every listener count the server reported, in order. */
+let listeners: number[]
+/** Every command the server handed the renderer, with the phone it came from. */
+let cmds: Array<{ token: string; cmd: RemoteCmd }>
+/** What the fake renderer answers a command with: false is "no window". */
+let takeCmd: boolean
 
 /** What main's cached probe would say: the same h264 picture in both files,
  *  AAC in the mp4 and Dolby in the mkv, and nothing for a file that is not there. */
@@ -78,6 +85,9 @@ beforeEach(async () => {
   servable = []
   cache = mkdtempSync(join(tmpdir(), 'prism-phone-cache-'))
   lastPw = undefined
+  listeners = []
+  cmds = []
+  takeCmd = true
   deps = {
     rendererDir: renderer,
     media: async (req) => {
@@ -143,6 +153,17 @@ beforeEach(async () => {
     jobs: new HlsJobs({ ffmpeg: 'f', baseDir: join(dir, 'hls'), spawn: fakeFfmpeg().spawn }),
     onChange: () => {
       changes += 1
+    },
+    remote: {
+      onCmd: async (token, cmd) => {
+        cmds.push({ token, cmd })
+        return takeCmd
+      },
+      onListeners: (n) => {
+        listeners.push(n)
+      },
+      // Fast enough for a test to see one; 15s in the app.
+      pingMs: 40
     },
     loopbackOnly: true,
     now: () => 1000
@@ -613,6 +634,186 @@ describe('PhoneServer', () => {
       await fetch(url('/pair'), { method: 'POST', body: JSON.stringify({ code: 'ZZZZZZ', name: 'x' }) })
     const r = await fetch(url('/pair'), { method: 'POST', body: JSON.stringify({ code: 'ZZZZZZ', name: 'x' }) })
     expect(r.status).toBe(429)
+  })
+
+  /**
+   * The state stream, read the way a phone reads it: a body that never ends,
+   * cut into frames on the blank line. `next` yields every frame, pings
+   * included; `event` skips the comments and parses the state out.
+   */
+  async function openStream(
+    token: string,
+    ctl: AbortController
+  ): Promise<{
+    res: Response
+    next: () => Promise<string>
+    event: () => Promise<RemoteState>
+  }> {
+    const res = await fetch(url(`/remote/state?t=${token}`), { signal: ctl.signal })
+    const reader = res.body!.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    const next = async (): Promise<string> => {
+      for (;;) {
+        const i = buf.indexOf('\n\n')
+        if (i >= 0) {
+          const frame = buf.slice(0, i)
+          buf = buf.slice(i + 2)
+          return frame
+        }
+        const { value, done } = await reader.read()
+        if (done) throw new Error('the stream ended')
+        buf += dec.decode(value, { stream: true })
+      }
+    }
+    const event = async (): Promise<RemoteState> => {
+      for (;;) {
+        const frame = await next()
+        if (frame.startsWith(':')) continue
+        expect(frame.startsWith('event: state\ndata: ')).toBe(true)
+        return JSON.parse(frame.slice('event: state\ndata: '.length)) as RemoteState
+      }
+    }
+    return { res, next, event }
+  }
+
+  /** Poll until `cond` holds, or a second has passed. */
+  async function until(cond: () => boolean): Promise<void> {
+    for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 10))
+    expect(cond()).toBe(true)
+  }
+
+  const playing: RemoteState = {
+    empty: false,
+    name: 'clip.mp4',
+    kind: 'video',
+    playing: true,
+    cur: 3,
+    dur: 10,
+    vol: 1,
+    muted: false,
+    rate: 1,
+    canNext: true,
+    canPrev: false
+  }
+
+  it('streams the last known state at once and every push after it, counting listeners', async () => {
+    const token = await pair()
+    const a = new AbortController()
+    const sa = await openStream(token, a)
+    expect(sa.res.status).toBe(200)
+    expect(sa.res.headers.get('content-type')).toBe('text/event-stream')
+    expect(sa.res.headers.get('cache-control')).toBe('no-store')
+    // Nothing reported yet: the empty state, so the phone draws "nothing playing".
+    expect(await sa.event()).toEqual(emptyRemote())
+    expect(listeners).toEqual([1])
+
+    server.pushState(playing)
+    expect(await sa.event()).toEqual(playing)
+
+    // A second phone connecting later is handed what the first already has.
+    const b = new AbortController()
+    const sb = await openStream(token, b)
+    expect(await sb.event()).toEqual(playing)
+    expect(listeners).toEqual([1, 2])
+    const paused = { ...playing, playing: false }
+    server.pushState(paused)
+    expect(await sa.event()).toEqual(paused)
+    expect(await sb.event()).toEqual(paused)
+
+    // Going away is heard: the count falls on each abort.
+    a.abort()
+    await until(() => listeners.at(-1) === 1)
+    b.abort()
+    await until(() => listeners.at(-1) === 0)
+    expect(listeners).toEqual([1, 2, 1, 0])
+  })
+
+  it('pings an open stream so nothing between the two closes it', async () => {
+    const token = await pair()
+    const ctl = new AbortController()
+    const s = await openStream(token, ctl)
+    await s.event()
+    expect(await s.next()).toBe(': ping')
+    ctl.abort()
+    await until(() => listeners.at(-1) === 0)
+  })
+
+  it('walls the stream behind the token and GET', async () => {
+    expect((await fetch(url('/remote/state'))).status).toBe(401)
+    expect((await fetch(url('/remote/state?t=nope'))).status).toBe(401)
+    const token = await pair()
+    expect((await fetch(url(`/remote/state?t=${token}`), { method: 'POST' })).status).toBe(405)
+    expect(listeners).toEqual([])
+  })
+
+  const cmd = (token: string | null, body: string): Promise<Response> =>
+    fetch(url('/remote/cmd'), {
+      method: 'POST',
+      headers: token ? { authorization: `Bearer ${token}`, 'content-type': 'application/json' } : {},
+      body
+    })
+
+  it('validates a command before the renderer sees it, and 409s with nothing playing', async () => {
+    expect((await cmd(null, '{"op":"toggle"}')).status).toBe(401)
+    const token = await pair()
+    expect((await fetch(url('/remote/cmd'), { headers: { authorization: `Bearer ${token}` } })).status).toBe(405)
+    expect((await cmd(token, 'soup')).status).toBe(400)
+    expect((await cmd(token, '{"op":"stop"}')).status).toBe(400)
+    expect((await cmd(token, '{"op":"seek","to":-1}')).status).toBe(400)
+    expect((await cmd(token, '{"op":"volume","to":3}')).status).toBe(400)
+    expect((await cmd(token, '["play"]')).status).toBe(400)
+    const big = await cmd(token, JSON.stringify({ op: 'play', pad: 'x'.repeat(8000) }))
+    expect(big.status).toBe(413)
+    // Nothing playing on the PC: a reason, and the renderer never asked.
+    const none = await cmd(token, '{"op":"toggle"}')
+    expect(none.status).toBe(409)
+    expect(await none.json()).toEqual({ error: 'nothing is playing on the PC' })
+    expect(cmds).toEqual([])
+  })
+
+  it('hands a valid command to the renderer with the phone that sent it, only the fields it validated', async () => {
+    const token = await pair()
+    server.pushState(playing)
+    const r = await cmd(token, '{"op":"seek","to":4.5,"extra":"dropped"}')
+    expect(r.status).toBe(204)
+    expect(cmds).toEqual([{ token, cmd: { op: 'seek', to: 4.5 } }])
+    expect((await cmd(token, '{"op":"next"}')).status).toBe(204)
+    expect(cmds[1]).toEqual({ token, cmd: { op: 'next' } })
+    // The renderer could not take it (no window): the same 409.
+    takeCmd = false
+    const lost = await cmd(token, '{"op":"pause"}')
+    expect(lost.status).toBe(409)
+    expect(await lost.json()).toEqual({ error: 'nothing is playing on the PC' })
+  })
+
+  it('forgets the state once the last listener has gone, since nobody is keeping it true', async () => {
+    const token = await pair()
+    server.pushState(playing)
+    const ctl = new AbortController()
+    const s = await openStream(token, ctl)
+    expect(await s.event()).toEqual(playing)
+    expect((await cmd(token, '{"op":"toggle"}')).status).toBe(204)
+    ctl.abort()
+    await until(() => listeners.at(-1) === 0)
+    expect((await cmd(token, '{"op":"toggle"}')).status).toBe(409)
+    // And the next phone to connect starts from nothing, not a stale film.
+    const again = new AbortController()
+    const s2 = await openStream(token, again)
+    expect(await s2.event()).toEqual(emptyRemote())
+    again.abort()
+    await until(() => listeners.at(-1) === 0)
+  })
+
+  it('stops with a stream open, and the listener count goes to zero', async () => {
+    const token = await pair()
+    const ctl = new AbortController()
+    const s = await openStream(token, ctl)
+    await s.event()
+    expect(listeners).toEqual([1])
+    await server.stop()
+    await until(() => listeners.at(-1) === 0)
+    await expect(s.next()).rejects.toThrow()
   })
 
   it('stops, and answers nothing afterwards', async () => {
