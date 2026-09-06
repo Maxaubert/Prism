@@ -38,7 +38,7 @@ import {
   openRoots,
   validRoot
 } from './roots'
-import { DEFAULT_PORT, PhoneServer } from './phone/server'
+import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
@@ -89,7 +89,7 @@ import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
-import { openComic } from './comic'
+import { openComic, type ComicOpen } from './comic'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -112,7 +112,6 @@ import { fileKind } from '@shared/fileKind'
 import type {
   ArchiveListing,
   DirListing,
-  FileKind,
   OnClash,
   OpenPayload,
   OpenWithApp,
@@ -1382,6 +1381,51 @@ if (!app.requestSingleInstanceLock()) {
     const hlsJobs = hlsTools ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR }) : null
     void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
 
+    /**
+     * `file:text`'s body, factored (#106) so the phone's `/api/text` reads
+     * the same way: capped, decoded by its own byte-order mark, the shape
+     * remembered for a save. The WALL is not in here: the IPC handler checks
+     * the root set and the extracted grants, the phone route checks its own
+     * phone's root, and each grants what the answer names on its own side.
+     */
+    const readTextWalled = async (p: string): Promise<TextRead> => {
+      try {
+        const fs = await import('fs/promises')
+        // AWAITED, so a read error is caught here rather than escaping as a
+        // rejected invoke; and capped, because the contract is small text
+        // files and CodeMirror is handed one string (2026-08-28).
+        const st = await fs.stat(p)
+        // Too big to hand over as one string. Answered as a REASON rather than
+        // as null: the editor used to seed itself with a placeholder and could
+        // then save that placeholder over the file (2026-08-28).
+        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
+        // Decoded by its own byte-order mark rather than assumed utf-8: a
+        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
+        // anything PowerShell 5.1 redirected to a file. Those used to open as
+        // mojibake, which Prism would then offer to save back over them. The
+        // file's SHAPE is remembered so the save can reproduce it, line
+        // endings included (see textFile.ts).
+        const buf = await fs.readFile(p)
+        const { text, encoding, eol } = shapeOf(buf)
+        textShape.set(p.toLowerCase(), { encoding, eol })
+        return { text }
+      } catch {
+        return { error: 'unreadable' }
+      }
+    }
+    /** `doc:html`'s body, factored the same way (#106): converted AND
+     *  sanitised in main, null for anything that is not a document or
+     *  would not convert. No wall in here either. */
+    const docHtmlOf = async (p: string): Promise<string | null> => {
+      if (!docKind(extname(p))) return null
+      try {
+        const html = await convertDoc(p)
+        return html === null ? null : await sanitizeDoc(html)
+      } catch {
+        return null
+      }
+    }
+
     const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
       rendererDir: RENDERER_DIR,
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
@@ -1395,6 +1439,26 @@ if (!app.requestSingleInstanceLock()) {
         readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
       probe: probeCached,
       jobs: hlsJobs,
+      readText: readTextWalled,
+      docHtml: docHtmlOf,
+      docImages: documentImages,
+      isMarkdown: isMarkdownPath,
+      // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
+      // phone's grant on its side is not enough on its own.
+      grantServable: (paths) => {
+        for (const img of paths) servable.add(img)
+      },
+      // The comic and archive bodies are declared further down this block,
+      // beside their IPC handlers and the gates they share. That is fine:
+      // `phoneDeps()` is only ever called from `startPhone`, which runs after
+      // the block has finished, so nothing here is read before it exists.
+      comicOpen: (p, password) => openComicWalled(p, password),
+      archiveList: (p, password) => listArchiveWalled(p, password),
+      archiveExtract: (p, entry, password) => extractMemberWalled(p, entry, password),
+      // The IPC's own kind gates, minus their root half (the route walls
+      // with the phone's root instead): a .txt is never handed to 7-Zip.
+      isArchive: (p) => fileKind(extname(p)) === 'archive',
+      isComic: (p) => fileKind(extname(p)) === 'comic',
       onChange: () => {
         savePhone()
         phoneChanged()
@@ -1471,6 +1535,8 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
       await phoneReady
       if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
+        // Its grants go with it (#106): a forgotten phone keeps nothing.
+        phone?.dropGrants(token)
         savePhone()
         phoneChanged()
       }
@@ -1810,34 +1876,13 @@ if (!app.requestSingleInstanceLock()) {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
       if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
-      try {
-        const fs = await import('fs/promises')
-        // AWAITED, so a read error is caught here rather than escaping as a
-        // rejected invoke; and capped, because the contract is small text
-        // files and CodeMirror is handed one string (2026-08-28).
-        const st = await fs.stat(p)
-        // Too big to hand over as one string. Answered as a REASON rather than
-        // as null: the editor used to seed itself with a placeholder and could
-        // then save that placeholder over the file (2026-08-28).
-        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        // Decoded by its own byte-order mark rather than assumed utf-8: a
-        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
-        // anything PowerShell 5.1 redirected to a file. Those used to open as
-        // mojibake, which Prism would then offer to save back over them. The
-        // file's SHAPE is remembered so the save can reproduce it, line
-        // endings included (see textFile.ts).
-        const buf = await fs.readFile(p)
-        const { text, encoding, eol } = shapeOf(buf)
-        textShape.set(p.toLowerCase(), { encoding, eol })
-        // A markdown document may point at pictures OUTSIDE the folder Prism
-        // opened in ("../assets/logo.png" from a doc in docs/), which the
-        // media wall would otherwise refuse. Main grants exactly the files
-        // this document names, having read it (see docImages.ts).
-        if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
-        return { text }
-      } catch {
-        return { error: 'unreadable' }
-      }
+      const r = await readTextWalled(p)
+      // A markdown document may point at pictures OUTSIDE the folder Prism
+      // opened in ("../assets/logo.png" from a doc in docs/), which the
+      // media wall would otherwise refuse. Main grants exactly the files
+      // this document names, having read it (see docImages.ts).
+      if ('text' in r && isMarkdownPath(p)) for (const img of documentImages(p, r.text)) servable.add(img)
+      return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
@@ -2106,13 +2151,7 @@ if (!app.requestSingleInstanceLock()) {
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
-      if (!docKind(extname(p))) return null
-      try {
-        const html = await convertDoc(p)
-        return html === null ? null : await sanitizeDoc(html)
-      } catch {
-        return null
-      }
+      return docHtmlOf(p)
     })
 
     // "Open in Prism" in File Explorer's own context menu (HKCU only).
@@ -2569,16 +2608,32 @@ if (!app.requestSingleInstanceLock()) {
     const comicOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'comic'
 
-    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
-      if (!comicOk(p)) return { error: 'failed' as const }
+    /**
+     * `comic:open`'s body, factored (#106) so the phone's `/api/comic` opens
+     * a book the same way: unpacked once under `comicsDir`, the password
+     * remembered when it worked. No wall in here; the IPC handler checks
+     * `comicOk` and the phone route checks its own root and kind. The answer
+     * keeps the DIRECTORY, which the phone server grants to the phone that
+     * asked; the IPC drops it, since the media wall already allows
+     * `comicsDir` as a whole.
+     */
+    const openComicWalled = async (
+      p: string,
+      password: string
+    ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
       comicsDir = join(app.getPath('userData'), 'comics')
-      const pw =
-        typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+      const pw = password || (archivePasswords.get(p) ?? '')
       const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!exe) return { error: 'failed' as const }
       const got = await openComic(exe, p, comicsDir, pw)
       if ('error' in got) return got
       if (pw) archivePasswords.set(p, pw)
+      return got
+    }
+    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
+      if (!comicOk(p)) return { error: 'failed' as const }
+      const got = await openComicWalled(p, typeof password === 'string' ? password : '')
+      if ('error' in got) return got
       // No per-page grant: the pages live under `comicsDir`, which the media
       // wall allows as a directory.
       return { pages: got.pages }
@@ -2711,60 +2766,68 @@ if (!app.requestSingleInstanceLock()) {
     // good archive read as broken, with nowhere to type what it was asking
     // for. A password that works is remembered here too, so the member verbs
     // and the drag-out do not ask again.
+    /** `archive:list`'s body, factored (#106) for the phone's `/api/archive`.
+     *  No wall in here: the IPC handler checks `archiveReadOk`, the phone
+     *  route its own root and kind. */
+    const listArchiveWalled = async (p: string, password?: string): Promise<ArchiveListing> => {
+      try {
+        const exe = seven(p)
+        if (!exe) {
+          const entries = listArchive(p)
+          return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
+        }
+        const pw = password || (archivePasswords.get(p) ?? '')
+        const listed = await listSeven(exe, p, pw)
+        if (listed.ok && pw) archivePasswords.set(p, pw)
+        return listed
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    }
     ipcMain.handle(
       'archive:list',
       async (_e, p: string, password?: string): Promise<ArchiveListing> => {
         if (!archiveReadOk(p)) return { ok: false, reason: 'failed' }
-        try {
-          const exe = seven(p)
-          if (!exe) {
-            const entries = listArchive(p)
-            return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
-          }
-          const pw =
-            typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
-          const listed = await listSeven(exe, p, pw)
-          if (listed.ok && pw) archivePasswords.set(p, pw)
-          return listed
-        } catch {
-          return { ok: false, reason: 'failed' }
-        }
+        return listArchiveWalled(p, typeof password === 'string' ? password : undefined)
       }
     )
-    type ExtractResult =
-      | { ok: true; path: string; kind: FileKind }
-      | { ok: false; reason: 'password' | 'aes' | 'failed' }
+    /** `archive:extract`'s body, factored the same way (#106): one member to
+     *  a temp file, which joins `extractedPaths` so the media wall serves it.
+     *  The phone server adds its own per-phone grant on top. */
+    const extractMemberWalled = async (
+      p: string,
+      entry: string,
+      password?: string
+    ): Promise<ExtractResult> => {
+      try {
+        const exe = seven(p)
+        // The cap is ADM-ZIP's - it reads the whole container into memory.
+        // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
+        // by a check that ran before the branch (2026-08-28).
+        if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+        if (exe) {
+          const pw = password ?? ''
+          const s7 = await extractSeven(exe, p, entry, pw)
+          if (!s7.ok) return s7
+          if (pw) archivePasswords.set(p, pw)
+          extractedPaths.add(s7.path)
+          return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
+        }
+        const r = await extractMember(p, entry, password)
+        if (!r.ok) return r
+        extractedPaths.add(r.path)
+        return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    }
     ipcMain.handle(
       'archive:extract',
       async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
         // The READ gate: extracting a member to view it is a read, and the
         // container may itself be a member Prism extracted a moment ago.
         if (!archiveReadOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
-        try {
-          const exe = seven(p)
-          // The cap is ADM-ZIP's - it reads the whole container into memory.
-          // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
-          // by a check that ran before the branch (2026-08-28).
-          if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
-          if (exe) {
-            const pw = typeof password === 'string' ? password : ''
-            const s7 = await extractSeven(exe, p, entry, pw)
-            if (!s7.ok) return s7
-            if (pw) archivePasswords.set(p, pw)
-            extractedPaths.add(s7.path)
-            return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
-          }
-          const r = await extractMember(
-            p,
-            entry,
-            typeof password === 'string' ? password : undefined
-          )
-          if (!r.ok) return r
-          extractedPaths.add(r.path)
-          return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
-        } catch {
-          return { ok: false, reason: 'failed' }
-        }
+        return extractMemberWalled(p, entry, typeof password === 'string' ? password : undefined)
       }
     )
     /**

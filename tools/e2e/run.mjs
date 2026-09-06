@@ -5111,6 +5111,181 @@ async function phoneHlsScenario(fixtures) {
   }
 }
 
+/**
+ * Documents on the phone (2026-09-07, #106): markdown, code, a pdf, a comic
+ * and an archive, each through the SAME viewer the PC mounts, over the
+ * read-only routes. Three things are measured here that the unit tests
+ * cannot: a markdown's own picture arrives (the per-phone grant, end to
+ * end through the media route), a member viewed out of a zip arrives (the
+ * extract grant, the same way), and the touch pass: a tap on the comic's
+ * right third turns the page, and the archive's rows grow to a finger's
+ * 44px under a coarse pointer, which Chromium's touch emulation supplies.
+ * The heavy chunks are watched too: nothing of pdf.js or CodeMirror is
+ * fetched until the file that needs it is opened.
+ */
+async function phoneDocsScenario(fixtures) {
+  console.log('phone: documents, code, a pdf, a comic and an archive over the LAN server')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let page = null
+  try {
+    const { base, token, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    page = await openPhoneWindow(app, `${base}/`)
+    // The phone page's own errors, printed as they happen: a viewer that
+    // fails to mount over the wire otherwise reads as a bare timeout.
+    page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
+    page.on('console', (m) => {
+      if (m.type() === 'error') console.warn('  phone console:', m.text())
+    })
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    // A finger rather than a pointer: Chromium's touch emulation is what
+    // flips `(pointer: coarse)` and what makes a dispatched touch arrive as
+    // a touch pointer. Set before the reload so the page is laid out for it.
+    const cdp = await app.context().newCDPSession(page)
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches)
+    ok(coarse, 'the emulated phone reports a coarse pointer')
+    const loadedChunks = () =>
+      page.evaluate(() =>
+        performance.getEntriesByType('resource').map((e) => e.name.split('/').pop() ?? '')
+      )
+    const before = await loadedChunks()
+    ok(
+      !before.some((n) => /pdf|CodeView|codemirror/i.test(n)),
+      'neither pdf.js nor CodeMirror is fetched for the folder listing'
+    )
+    const decodes = (el) =>
+      el.complete && el.naturalWidth > 0
+        ? true
+        : new Promise((r) => {
+            el.addEventListener('load', () => r(true), { once: true })
+            el.addEventListener('error', () => r(false), { once: true })
+            setTimeout(() => r(false), 8000)
+          })
+
+    // Markdown, formatted, with its own picture granted to this phone.
+    await page.click('[data-phone-file]:has-text("README.md")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="text"] .p-md h1', { timeout: 15000 })
+    ok((await page.textContent('.p-md h1')) === 'Prism', 'markdown renders formatted (h1)')
+    ok((await page.locator('[aria-label="Edit"]').count()) === 0, 'no pencil on the phone')
+    const local = page.locator('.p-md img[src^="/m/"]').first()
+    await local.waitFor({ timeout: 10000 }).catch(() => {})
+    ok((await local.count()) === 1, 'a local image resolves to the /m/ route, not fsmedia://')
+    ok(await local.evaluate(decodes), 'the markdown\'s own picture decodes (the per-phone grant)')
+    await page.screenshot({ path: join(SHOTS, 'phone-md.png') })
+
+    // Code, read-only, wrapped by the phone's default.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-folder]:has-text("code")')
+    await page.waitForSelector('[data-phone-file]:has-text("main.py")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("main.py")')
+    await page.waitForSelector('[data-phone-viewer] .cm-content', { timeout: 15000 })
+    ok(
+      (await page.locator('.cm-content[contenteditable="false"]').count()) === 1,
+      'the editor is read-only'
+    )
+    ok(
+      /class Greeter/.test((await page.textContent('.cm-content')) ?? ''),
+      'the source is on screen'
+    )
+    ok((await page.locator('.cm-lineWrapping').count()) >= 1, 'code wraps by default on the phone')
+    ok(
+      (await page.evaluate(() => localStorage.getItem('prism.code.wrap'))) === 'on',
+      'the wrap default was written once into the preference'
+    )
+    const withCode = await loadedChunks()
+    ok(
+      withCode.some((n) => /CodeView/i.test(n)),
+      'the editor chunk was fetched for the code file and not before'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-code.png') })
+
+    // A pdf: pdf.js pages, its worker and side data over the static route.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[aria-label="Up"]')
+    await page.waitForSelector('[data-phone-file]:has-text("sample.pdf")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("sample.pdf")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="pdf"] canvas', { timeout: 20000 })
+    ok((await page.locator('[data-phone-viewer] canvas').count()) >= 1, 'a pdf page canvas renders')
+    await page.screenshot({ path: join(SHOTS, 'phone-pdf.png') })
+
+    // A comic: the page list around the picture viewer, turned by a tap.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-folder]:has-text("comics")')
+    await page.waitForSelector('[data-phone-file]:has-text("story.cbz")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("story.cbz")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="comic"] img[alt]', { timeout: 15000 })
+    // The page is read off the picture's alt, as the PC scenario reads it:
+    // the counter lives in the chrome, which nothing has woken yet.
+    const shownPage = () => page.getAttribute('[data-phone-viewer] img[alt]', 'alt')
+    ok((await shownPage()) === 'page1.png', `the comic opens on page one (${await shownPage()})`)
+    ok(await page.locator('[data-phone-viewer] img').first().evaluate(decodes), 'the first page decodes (the comic directory grant)')
+    ok(
+      (await page.locator('text=Page 1 of 3').count()) === 0,
+      'with nothing touched, the chrome is down'
+    )
+    const stage = await page.locator('[data-owns-arrows]').boundingBox()
+    const tapAt = async (x, y) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    }
+    const pageBecomes = async (alt) => {
+      let got = true
+      await page
+        .waitForFunction((a) => document.querySelector('[data-phone-viewer] img[alt]')?.getAttribute('alt') === a, alt, {
+          timeout: 5000
+        })
+        .catch(() => {
+          got = false
+        })
+      return got
+    }
+    await tapAt(stage.x + stage.width * 0.9, stage.y + stage.height / 2)
+    ok(await pageBecomes('page2.png'), 'a tap on the right third turns the page')
+    ok(
+      (await page.locator('text=Page 2 of 3').count()) === 1,
+      'and the tap wakes the chrome, so the counter says where you are'
+    )
+    await tapAt(stage.x + stage.width * 0.1, stage.y + stage.height / 2)
+    ok(await pageBecomes('page1.png'), 'a tap on the left third turns it back')
+    await tapAt(stage.x + stage.width * 0.5, stage.y + stage.height / 2)
+    await sleep(300)
+    ok((await shownPage()) === 'page1.png', 'a tap in the middle turns nothing')
+    await page.screenshot({ path: join(SHOTS, 'phone-comic.png') })
+
+    // An archive: listed, no write verbs, a member viewed through its grant.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[aria-label="Up"]')
+    await page.click('[data-phone-folder]:has-text("zips")')
+    await page.waitForSelector('[data-phone-file]:has-text("phone.zip")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("phone.zip")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="archive"] [data-arc-row]', {
+      timeout: 15000
+    })
+    ok((await page.locator('[data-arc-row]').count()) === 2, 'the archive lists its members')
+    const rowH = await page.locator('[data-arc-row]').first().evaluate((el) => el.getBoundingClientRect().height)
+    ok(rowH >= 44, `a row is a finger tall under a coarse pointer (${rowH}px)`)
+    const verbs = (await page.locator('[data-phone-viewer] button').allTextContents()).join(' | ')
+    ok(
+      !/Extract|Add files|Rename|Delete|Copy/.test(verbs),
+      `no write or clipboard verb is offered (${verbs || 'no buttons'})`
+    )
+    await page.locator('[data-arc-row]', { hasText: 'pic.png' }).first().dblclick()
+    await page.waitForSelector('[data-phone-viewer] img', { timeout: 15000 })
+    ok(
+      await page.locator('[data-phone-viewer] img').first().evaluate(decodes),
+      'a member viewed out of the zip decodes (the extract grant)'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-archive.png') })
+  } finally {
+    await page?.close().catch(() => {})
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism anything whenever someone picks it out of "More apps",
@@ -5222,6 +5397,7 @@ await run(selectionScenario)
 await run(dragScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
+await run(phoneDocsScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)

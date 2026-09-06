@@ -252,6 +252,17 @@ function ArchiveInner({
   useEffect(() => {
     void window.prism.archiveStat(file.path).then((st) => setReadOnly(!!st?.readOnly))
   }, [file.path])
+  /**
+   * What the HOST can do (#106). On the phone nothing writes, nothing
+   * reaches the OS clipboard, nothing drags out and there is no Explorer, so
+   * the panel keeps View and the folder navigation and offers none of the
+   * rest. `readOnly` above is the CONTAINER's (a 7z is listed and never
+   * written); `writable` is the two together, and is what every verb that
+   * changes the archive itself asks. Extracting is a write to the DISK, so
+   * it asks `caps.write` alone and stays on a 7z.
+   */
+  const caps = window.prism.capabilities
+  const writable = !readOnly && caps.write
   const [cwd, setCwdRaw] = useState('')
   const [member, setMember] = useState<{ name: string; path: string; kind: FileKind } | null>(null)
   /** The member currently being extracted for viewing, if any.
@@ -874,24 +885,34 @@ function ArchiveInner({
     const items: MenuItem[] = [
       { label: 'Open', onPick: () => setCwd(entry.path) },
       // The folder itself, not the files that happen to be in it.
-      { label: 'Copy folder', disabled: n === 0, onPick: () => copyFolder(entry.path) },
-      {
-        label: 'Extract folder here',
-        disabled: n === 0,
-        onPick: () => extractFolderHere(entry.path)
-      },
-      {
-        label: 'Extract folder to…',
-        disabled: n === 0,
-        onPick: () => extractMembers(entry, members, false)
-      },
-      {
-        label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
-        disabled: n === 0,
-        onPick: () => copyMany(members)
-      }
+      ...(caps.clipboard
+        ? [{ label: 'Copy folder', disabled: n === 0, onPick: () => copyFolder(entry.path) }]
+        : []),
+      ...(caps.write
+        ? [
+            {
+              label: 'Extract folder here',
+              disabled: n === 0,
+              onPick: () => extractFolderHere(entry.path)
+            },
+            {
+              label: 'Extract folder to…',
+              disabled: n === 0,
+              onPick: () => extractMembers(entry, members, false)
+            }
+          ]
+        : []),
+      ...(caps.clipboard
+        ? [
+            {
+              label: `Copy ${n} file${n === 1 ? '' : 's'} inside`,
+              disabled: n === 0,
+              onPick: () => copyMany(members)
+            }
+          ]
+        : [])
     ]
-    if (!readOnly)
+    if (writable)
       items.push({
         label: `Delete ${n} file${n === 1 ? '' : 's'} from archive`,
         danger: true,
@@ -904,47 +925,60 @@ function ArchiveInner({
   const menuItems = (entry: Entry): MenuItem[] =>
     entry.dir
       ? folderItems(entry)
-      : readOnly
-        ? [
-            { label: 'View', onPick: () => view(entry) },
-            { label: 'Copy file', onPick: () => copyOut(entry) },
-            { label: 'Extract here', onPick: () => extractMembers(entry, [entry.path], true) },
-            { label: 'Extract to…', onPick: () => extractMembers(entry, [entry.path], false) }
-          ]
-        : [
-            { label: 'View', onPick: () => view(entry) },
-            { label: 'Copy file', onPick: () => copyOut(entry) },
-            { label: 'Extract here', onPick: () => extractMembers(entry, [entry.path], true) },
-            { label: 'Extract to…', onPick: () => extractMembers(entry, [entry.path], false) },
-            { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
-            { label: 'Delete from archive', danger: true, onPick: () => setConfirmDel(entry) }
-          ]
+      : [
+          { label: 'View', onPick: () => view(entry) },
+          ...(caps.clipboard ? [{ label: 'Copy file', onPick: () => copyOut(entry) }] : []),
+          ...(caps.write
+            ? [
+                {
+                  label: 'Extract here',
+                  onPick: () => extractMembers(entry, [entry.path], true)
+                },
+                {
+                  label: 'Extract to…',
+                  onPick: () => extractMembers(entry, [entry.path], false)
+                }
+              ]
+            : []),
+          ...(writable
+            ? [
+                { label: 'Rename', hint: 'F2', onPick: () => setEditing(entry.path) },
+                {
+                  label: 'Delete from archive',
+                  danger: true,
+                  onPick: () => setConfirmDel(entry)
+                }
+              ]
+            : [])
+        ]
   /** Only file members can be copied out or deleted; a folder in the
    *  selection is carried by its members, and counting it made the labels
    *  promise more than the verbs could do. */
   const filesOf = (paths: string[]): string[] =>
     paths.filter((p) => rows.some((r) => r.path === p && !r.dir))
+  /** Empty when the host can do nothing with several at once, and the row's
+   *  own menu stands in for it. */
   const multiItems = (paths: string[]): MenuItem[] => {
     const files = filesOf(paths)
-    if (readOnly) {
-      return [
-        {
-          label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
-          onPick: () => copyMany(files)
-        }
-      ]
-    }
     return [
-      {
-        label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
-        onPick: () => copyMany(files)
-      },
-      {
-        label: `Delete ${files.length} from archive`,
-        danger: true,
-        disabled: !files.length,
-        onPick: () => setConfirmDelMany(files)
-      }
+      ...(caps.clipboard
+        ? [
+            {
+              label: `Copy ${files.length} file${files.length === 1 ? '' : 's'}`,
+              onPick: () => copyMany(files)
+            }
+          ]
+        : []),
+      ...(writable
+        ? [
+            {
+              label: `Delete ${files.length} from archive`,
+              danger: true,
+              disabled: !files.length,
+              onPick: () => setConfirmDelMany(files)
+            }
+          ]
+        : [])
     ]
   }
 
@@ -993,45 +1027,60 @@ function ArchiveInner({
         {/* The verbs that act on the WHOLE archive (2026-08-25). Row verbs
             stay on the right-click menu; these are the ones you come to an
             archive to do, and hunting a menu for "extract" was the gap. */}
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-          <ArcVerb
-            label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
-            disabled={busy !== null}
-            onClick={() => extractAll(true)}
-            path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
-          />
-          <ArcVerb
-            label="Extract to…"
-            disabled={busy !== null}
-            onClick={() => extractAll(false)}
-            path="M12 4v10m0 0l-4-4m4 4l4-4M4 19h6m4 0h6"
-          />
-          {!readOnly && (
-            <ArcVerb
-              label="Add files…"
-              disabled={busy !== null}
-              onClick={addFiles}
-              path="M12 5v14M5 12h14"
-            />
-          )}
-          <ArcVerb
-            label="Copy"
-            onClick={() => void window.prism.copyFileToClipboard(file.path)}
-            path="M9 9h10v10H9zM5 15V5h10"
-          />
-          {onRenameSelf && (
-            <ArcVerb
-              label="Rename…"
-              onClick={() => setRenamingSelf(true)}
-              path="M4 20h4L19 9l-4-4L4 16z"
-            />
-          )}
-          <ArcVerb
-            label="Show in Explorer"
-            onClick={() => window.prism.showInExplorer(file.path)}
-            path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
-          />
-        </div>
+        {/* Every one of these is a write, the OS clipboard or Explorer, so
+            on the phone (#106) the row is not drawn at all: an empty row
+            would be a gap where the verbs used to be. */}
+        {(caps.write || caps.clipboard || caps.explorer) && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+            {caps.write && (
+              <ArcVerb
+                label={
+                  busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'
+                }
+                disabled={busy !== null}
+                onClick={() => extractAll(true)}
+                path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
+              />
+            )}
+            {caps.write && (
+              <ArcVerb
+                label="Extract to…"
+                disabled={busy !== null}
+                onClick={() => extractAll(false)}
+                path="M12 4v10m0 0l-4-4m4 4l4-4M4 19h6m4 0h6"
+              />
+            )}
+            {writable && (
+              <ArcVerb
+                label="Add files…"
+                disabled={busy !== null}
+                onClick={addFiles}
+                path="M12 5v14M5 12h14"
+              />
+            )}
+            {caps.clipboard && (
+              <ArcVerb
+                label="Copy"
+                onClick={() => void window.prism.copyFileToClipboard(file.path)}
+                path="M9 9h10v10H9zM5 15V5h10"
+              />
+            )}
+            {onRenameSelf && caps.write && (
+              <ArcVerb
+                label="Rename…"
+                onClick={() => setRenamingSelf(true)}
+                path="M4 20h4L19 9l-4-4L4 16z"
+              />
+            )}
+            {caps.explorer && (
+              <ArcVerb
+                label="Show in Explorer"
+                onClick={() => window.prism.showInExplorer(file.path)}
+                path="M3 7h6l2 2h10v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+              />
+            )}
+          </div>
+        )}
         {/* The inline track is GONE (2026-09-03, owner): the sidebar's
             extract verb showed a popup while this panel drew a bar under the
             verbs, and two looks for the same wait read as two apps. The
@@ -1109,7 +1158,7 @@ function ArchiveInner({
                 ? 'border-[color:var(--p-accent-hi)]'
                 : 'border-[color:var(--p-divider)]'
             }`}
-            {...dropProps(cwd)}
+            {...(caps.write ? dropProps(cwd) : {})}
           >
             {/* The column header sits ABOVE the list rather than sticky inside
                 it, so a name never slides under it. */}
@@ -1167,13 +1216,15 @@ function ArchiveInner({
                                 ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                                 : `${rowIndex % 2 === 1 ? 'p-zebra ' : ''}text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] focus-visible:bg-[var(--p-hover)]`
                           }`}
-                          draggable
-                          onDragStart={(e) => onRowDragStart(e, r.path)}
+                          // A drag out is a move or an extraction and a drop in
+                          // is a write, and the phone has neither (#106).
+                          draggable={caps.drag}
+                          onDragStart={caps.drag ? (e) => onRowDragStart(e, r.path) : undefined}
                           onDragEnd={() => {
                             setDropTarget(null)
                             setDrag(null)
                           }}
-                          {...(r.dir ? dropProps(r.path) : {})}
+                          {...(r.dir && caps.write ? dropProps(r.path) : {})}
                           onClick={(e) => onRowClick(e, r.path)}
                           onDoubleClick={() => (r.dir ? setCwd(r.path) : view(r))}
                           onContextMenu={(e) => {
@@ -1190,10 +1241,10 @@ function ArchiveInner({
                               e.preventDefault()
                               if (r.dir) setCwd(r.path)
                               else view(r)
-                            } else if (!r.dir && e.key === 'F2' && !readOnly && !fullscreen) {
+                            } else if (!r.dir && e.key === 'F2' && writable && !fullscreen) {
                               e.preventDefault()
                               setEditing(r.path)
-                            } else if (e.key === 'Delete' && !readOnly && !fullscreen) {
+                            } else if (e.key === 'Delete' && writable && !fullscreen) {
                               e.preventDefault()
                               if (sel.items.size > 1 && sel.items.has(r.path))
                                 setConfirmDelMany(filesOf([...sel.items]))
@@ -1364,10 +1415,12 @@ function ArchiveInner({
           y={panelMenu.y}
           onClose={() => setPanelMenu(null)}
           items={[
-            { label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() },
-            ...(readOnly
-              ? []
-              : [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]),
+            ...(caps.write
+              ? [{ label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() }]
+              : []),
+            ...(writable
+              ? [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]
+              : []),
             {
               label: 'Select all',
               hint: 'Ctrl+A',
@@ -1375,16 +1428,36 @@ function ArchiveInner({
               onPick: () =>
                 setSel({ anchor: rows[0]?.path ?? null, items: new Set(rows.map((r) => r.path)) })
             },
-            { label: 'Extract here', disabled: busy !== null, onPick: () => extractAll(true) },
-            { label: 'Extract to…', disabled: busy !== null, onPick: () => extractAll(false) },
-            {
-              label: 'Copy archive',
-              onPick: () => void window.prism.copyFileToClipboard(file.path)
-            },
-            {
-              label: 'Show in File Explorer',
-              onPick: () => window.prism.showInExplorer(file.path)
-            },
+            ...(caps.write
+              ? [
+                  {
+                    label: 'Extract here',
+                    disabled: busy !== null,
+                    onPick: () => extractAll(true)
+                  },
+                  {
+                    label: 'Extract to…',
+                    disabled: busy !== null,
+                    onPick: () => extractAll(false)
+                  }
+                ]
+              : []),
+            ...(caps.clipboard
+              ? [
+                  {
+                    label: 'Copy archive',
+                    onPick: () => void window.prism.copyFileToClipboard(file.path)
+                  }
+                ]
+              : []),
+            ...(caps.explorer
+              ? [
+                  {
+                    label: 'Show in File Explorer',
+                    onPick: () => window.prism.showInExplorer(file.path)
+                  }
+                ]
+              : []),
             { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(file.path) }
           ]}
         />
@@ -1393,7 +1466,11 @@ function ArchiveInner({
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={menu.multi ? multiItems(menu.multi) : menuItems(menu.entry)}
+          items={
+            menu.multi && multiItems(menu.multi).length
+              ? multiItems(menu.multi)
+              : menuItems(menu.entry)
+          }
           onClose={() => setMenu(null)}
         />
       )}

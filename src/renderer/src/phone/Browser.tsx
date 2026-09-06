@@ -38,6 +38,16 @@ export function Browser({ root }: { root: string }): JSX.Element {
     if (next) setOpen(next)
   }
 
+  // A markdown's link to a local file opens it if THIS folder lists it, and
+  // is otherwise ignored (#106): the phone browses one level at a time and
+  // has no tree to walk to a file elsewhere, and the server would refuse a
+  // path outside the root regardless. Case-insensitive, as Windows paths are.
+  const openLocal = (p: string): void => {
+    const want = p.toLowerCase()
+    const hit = files.find((f) => f.path.toLowerCase() === want)
+    if (hit) setOpen(hit)
+  }
+
   if (open) {
     return (
       <PhoneViewer
@@ -45,6 +55,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
         onClose={() => setOpen(null)}
         onStep={step}
         canStep={(d) => !!stepFile(files, open.path, d)}
+        onOpenLocal={openLocal}
       />
     )
   }

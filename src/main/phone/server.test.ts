@@ -4,6 +4,8 @@ import { request } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
+import type { ArchiveListing, TextRead } from '@shared/types'
+import type { ComicOpen } from '../comic'
 import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
 import { PhoneServer, type PhoneDeps } from './server'
@@ -17,6 +19,15 @@ import { fakeFfmpeg } from './testing/fakeFfmpeg'
 
 let dir: string
 let renderer: string
+/** A picture OUTSIDE the phone's root, that only a grant can let through. */
+let picOutside: string
+/** What the text route handed main's own servable set. */
+let servable: string[]
+/** Where the fake comic opener unpacks and the fake extractor writes: OUTSIDE
+ *  the root, the way userData and temp are, so only a grant lets them through. */
+let cache: string
+/** The password the last comic or archive dep call was handed. */
+let lastPw: string | undefined
 let server: PhoneServer
 let port: number
 let changes = 0
@@ -58,17 +69,26 @@ beforeEach(async () => {
   mkdirSync(join(renderer, 'assets'), { recursive: true })
   writeFileSync(join(renderer, 'phone.html'), '<html>phone</html>')
   writeFileSync(join(renderer, 'assets', 'a.js'), 'console.log(1)')
+  writeFileSync(join(renderer, 'assets', 'w.mjs'), 'export {}')
   writeFileSync(join(dir, 'clip.mp4'), 'abcd')
   writeFileSync(join(dir, 'clip.mkv'), 'abcd')
+  const outside = mkdtempSync(join(tmpdir(), 'prism-phone-outside-'))
+  picOutside = join(outside, 'pic.png')
+  writeFileSync(picOutside, 'png')
+  servable = []
+  cache = mkdtempSync(join(tmpdir(), 'prism-phone-cache-'))
+  lastPw = undefined
   deps = {
     rendererDir: renderer,
     media: async (req) => {
       const p = decodeURIComponent(new URL(req.url).pathname).slice(1)
       const range = req.headers.get('range')
       if (range) return new Response('bc', { status: 206, headers: { 'Content-Range': 'bytes 1-2/4' } })
-      return new Response(p.endsWith('clip.mp4') ? 'abcd' : null, {
-        status: p.endsWith('clip.mp4') ? 200 : 404
-      })
+      // The wall under test is the SERVER's; serveMedia is faked, and it
+      // answers for the picture outside the root as it would once main
+      // had it in its servable set.
+      const ok = p.endsWith('clip.mp4') || p.endsWith('pic.png') || p.endsWith('.jpg')
+      return new Response(ok ? 'abcd' : null, { status: ok ? 200 : 404 })
     },
     listDir: async () => listing(['clip.mp4']),
     validRoot: (root, p) => root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
@@ -77,6 +97,47 @@ beforeEach(async () => {
     subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
     probe: async (p) => probeOf(p),
+    readText: async (p): Promise<TextRead> =>
+      p.endsWith('.md') ? { text: '![x](pic.png)' } : p.endsWith('.bin') ? { error: 'unreadable' } : { text: 'hello' },
+    docHtml: async (p) => (p.endsWith('.docx') ? '<p>doc</p>' : null),
+    docImages: () => [picOutside],
+    isMarkdown: (p) => p.endsWith('.md'),
+    grantServable: (paths) => {
+      servable.push(...paths)
+    },
+    // Two pages unpacked under a cache directory, one of them a folder down,
+    // which is what a real .cbz with chapters looks like: the grant has to be
+    // the whole directory, not the first page's parent.
+    comicOpen: async (
+      _p,
+      password
+    ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
+      lastPw = password
+      if (password === 'wrong') return { error: 'password' }
+      const d = join(cache, 'comics', 'abc')
+      mkdirSync(join(d, 'ch2'), { recursive: true })
+      writeFileSync(join(d, 'p1.jpg'), 'jpg')
+      writeFileSync(join(d, 'ch2', 'p2.jpg'), 'jpg')
+      return { dir: d, pages: [join(d, 'p1.jpg'), join(d, 'ch2', 'p2.jpg')] }
+    },
+    archiveList: async (_p, password): Promise<ArchiveListing> => {
+      lastPw = password
+      if (password === 'wrong') return { ok: false, reason: 'password' }
+      return {
+        ok: true,
+        entries: [{ path: 'inner/pic.png', name: 'pic.png', dir: false, size: 3 }]
+      }
+    },
+    archiveExtract: async (_p, entry, password) => {
+      lastPw = password
+      if (entry !== 'inner/pic.png') return { ok: false, reason: 'failed' }
+      const out = join(cache, 'extracted', 'pic.png')
+      mkdirSync(join(cache, 'extracted'), { recursive: true })
+      writeFileSync(out, 'png')
+      return { ok: true, path: out, kind: 'image' }
+    },
+    isArchive: (p) => p.endsWith('.zip'),
+    isComic: (p) => p.endsWith('.cbz'),
     // A real HlsJobs on the fake ffmpeg: the routes are the thing under test,
     // and a stubbed jobs class would only prove the stub.
     jobs: new HlsJobs({ ffmpeg: 'f', baseDir: join(dir, 'hls'), spawn: fakeFfmpeg().spawn }),
@@ -93,6 +154,8 @@ beforeEach(async () => {
 afterEach(async () => {
   await server.stop()
   rmSync(dir, { recursive: true, force: true })
+  rmSync(join(picOutside, '..'), { recursive: true, force: true })
+  rmSync(cache, { recursive: true, force: true })
 })
 
 const url = (p: string) => `http://127.0.0.1:${port}${p}`
@@ -132,6 +195,11 @@ describe('PhoneServer', () => {
     expect(await (await fetch(url('/'))).text()).toBe('<html>phone</html>')
     expect(await (await fetch(url('/?code=ABC'))).text()).toBe('<html>phone</html>')
     expect((await fetch(url('/assets/a.js'))).status).toBe(200)
+    // pdf.js's worker is an .mjs (#106): a module worker is REFUSED by the
+    // browser unless it arrives as JavaScript, and it did not, silently.
+    const mjs = await fetch(url('/assets/w.mjs'))
+    expect(mjs.status).toBe(200)
+    expect(mjs.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
     // A climb that resolves to the index page is the index page, which is
     // public anyway; one that lands ABOVE the renderer dir is refused.
     expect(await rawStatus('/assets/../../clip.mp4')).toBe(404)
@@ -214,6 +282,161 @@ describe('PhoneServer', () => {
     expect(r.headers.get('content-range')).toBe('bytes 1-2/4')
     expect(server.watching()).toEqual([token])
     expect((await fetch(url('/api/nope'), { headers: auth })).status).toBe(404)
+  })
+
+  const api = (token: string, name: string, file: string): Promise<Response> =>
+    fetch(url(`/api/${name}?path=${encodeURIComponent(join(dir, file))}`), {
+      headers: { authorization: `Bearer ${token}` }
+    })
+
+  it('reads text and grants a markdown its own pictures to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const t = await (await api(a, 'text', 'readme.md')).json()
+    expect(t).toEqual({ text: '![x](pic.png)' })
+    // Main's own wall learned about the picture too, once.
+    expect(servable).toEqual([picOutside])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${b}`))).status).toBe(403)
+    // Forgetting the phone takes its grants with it.
+    server.dropGrants(a)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('a plain text file grants nothing, and an unreadable one says so', async () => {
+    const a = await pair()
+    expect(await (await api(a, 'text', 'notes.txt')).json()).toEqual({ text: 'hello' })
+    expect(servable).toEqual([])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+    expect(await (await api(a, 'text', 'blob.bin')).json()).toEqual({ error: 'unreadable' })
+  })
+
+  it('converts a document, and 404s one it cannot', async () => {
+    const a = await pair()
+    const d = await api(a, 'doc', 'a.docx')
+    expect(d.status).toBe(200)
+    expect(await d.json()).toEqual({ html: '<p>doc</p>' })
+    expect((await api(a, 'doc', 'a.xyz')).status).toBe(404)
+  })
+
+  it('walls text and doc behind the token and the root', async () => {
+    expect((await fetch(url(`/api/text?path=${encodeURIComponent(join(dir, 'readme.md'))}`))).status).toBe(401)
+    expect((await fetch(url(`/api/doc?path=${encodeURIComponent(join(dir, 'a.docx'))}`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    expect((await fetch(url('/api/text?path=C%3A%5CWindows%5Creadme.md'), { headers: auth })).status).toBe(403)
+    expect((await fetch(url('/api/doc?path=C%3A%5CWindows%5Ca.docx'), { headers: auth })).status).toBe(403)
+    // A markdown outside the root grants nothing on the way to its 403.
+    expect(servable).toEqual([])
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('opens a comic and grants its whole page directory to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const r = await api(a, 'comic', 'b.cbz')
+    expect(r.status).toBe(200)
+    const c = (await r.json()) as { pages: string[] }
+    expect(c.pages).toHaveLength(2)
+    expect(lastPw).toBe('')
+    // Both pages, the one a folder down included, and nothing beside the
+    // directory: `abcd` shares a prefix with `abc` and is not under it.
+    for (const page of c.pages) {
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${a}`))).status).toBe(200)
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${b}`))).status).toBe(403)
+    }
+    const beside = join(cache, 'comics', 'abcd', 'p1.jpg')
+    expect((await fetch(url(`/m/${encodeURIComponent(beside)}?t=${a}`))).status).toBe(403)
+    // Main's own wall already allows the comics directory: nothing to add.
+    expect(servable).toEqual([])
+  })
+
+  it('a comic answers its own failures in the IPC shape, with the password passed along', async () => {
+    const a = await pair()
+    const r = await fetch(url(`/api/comic?path=${encodeURIComponent(join(dir, 'b.cbz'))}&pw=wrong`), {
+      headers: { authorization: `Bearer ${a}` }
+    })
+    expect(r.status).toBe(200)
+    expect(await r.json()).toEqual({ error: 'password' })
+    expect(lastPw).toBe('wrong')
+    // A file that is not a comic never reaches the opener.
+    lastPw = 'untouched'
+    expect(await (await api(a, 'comic', 'clip.mp4')).json()).toEqual({ error: 'failed' })
+    expect(lastPw).toBe('untouched')
+  })
+
+  it('lists an archive and extracts one member for viewing, granted to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const l = (await (await api(a, 'archive', 'z.zip')).json()) as ArchiveListing
+    expect(l.ok).toBe(true)
+    expect(lastPw).toBeUndefined()
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    const x = (await (
+      await fetch(url(`/api/archive/extract?path=${zip}&entry=${encodeURIComponent('inner/pic.png')}`), {
+        headers: { authorization: `Bearer ${a}` }
+      })
+    ).json()) as { ok: true; path: string; kind: string }
+    expect(x.ok).toBe(true)
+    expect(x.kind).toBe('image')
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${b}`))).status).toBe(403)
+    server.dropGrants(a)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('an archive passes the password along and answers failures in the IPC shape', async () => {
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    const l = await fetch(url(`/api/archive?path=${zip}&pw=wrong`), { headers: auth })
+    expect(l.status).toBe(200)
+    expect(await l.json()).toEqual({ ok: false, reason: 'password' })
+    expect(lastPw).toBe('wrong')
+    const x = await fetch(url(`/api/archive/extract?path=${zip}&entry=nope.txt&pw=secret`), { headers: auth })
+    expect(await x.json()).toEqual({ ok: false, reason: 'failed' })
+    expect(lastPw).toBe('secret')
+    // No entry named at all is a malformed ask, not an archive answer.
+    expect((await fetch(url(`/api/archive/extract?path=${zip}`), { headers: auth })).status).toBe(400)
+    // A file that is not an archive never reaches 7-Zip or adm-zip.
+    lastPw = 'untouched'
+    expect(await (await api(a, 'archive', 'clip.mp4')).json()).toEqual({ ok: false, reason: 'failed' })
+    const y = await fetch(url(`/api/archive/extract?path=${encodeURIComponent(join(dir, 'clip.mp4'))}&entry=x`), {
+      headers: auth
+    })
+    expect(await y.json()).toEqual({ ok: false, reason: 'failed' })
+    expect(lastPw).toBe('untouched')
+  })
+
+  it('walls comic and archive behind the token and the root', async () => {
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    expect((await fetch(url(`/api/comic?path=${encodeURIComponent(join(dir, 'b.cbz'))}`))).status).toBe(401)
+    expect((await fetch(url(`/api/archive?path=${zip}`))).status).toBe(401)
+    expect((await fetch(url(`/api/archive/extract?path=${zip}&entry=inner/pic.png`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    lastPw = 'untouched'
+    expect((await fetch(url('/api/comic?path=C%3A%5CWindows%5Cb.cbz'), { headers: auth })).status).toBe(403)
+    expect((await fetch(url('/api/archive?path=C%3A%5CWindows%5Cx.zip'), { headers: auth })).status).toBe(403)
+    const x = await fetch(url('/api/archive/extract?path=C%3A%5CWindows%5Cx.zip&entry=inner/pic.png'), {
+      headers: auth
+    })
+    expect(x.status).toBe(403)
+    expect(lastPw).toBe('untouched')
+  })
+
+  it('stats a file or the root itself, 404s one that is gone, and walls the rest', async () => {
+    expect((await fetch(url(`/api/stat?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    const stat = (p: string): Promise<Response> =>
+      fetch(url(`/api/stat?path=${encodeURIComponent(p)}`), { headers: auth })
+    const f = (await (await stat(join(dir, 'clip.mp4'))).json()) as Record<string, unknown>
+    expect(f).toMatchObject({ size: 4, isFolder: false })
+    expect(typeof f.mtimeMs).toBe('number')
+    expect(await (await stat(dir)).json()).toMatchObject({ isFolder: true })
+    expect((await stat(join(dir, 'gone.txt'))).status).toBe(404)
+    expect((await stat('C:\\Windows\\notepad.exe')).status).toBe(403)
   })
 
   it('refuses a path outside the phone root, even for a paired phone', async () => {

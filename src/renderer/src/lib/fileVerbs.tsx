@@ -55,11 +55,20 @@ export const tickIf = (on: boolean): JSX.Element =>
  * on it for whatever you are pasting into. Copying a file as a file is what
  * the sidebar is for, where it stands among the other file operations and
  * nothing is competing with it.
+ *
+ * On a host with no Explorer (the phone page, #106) only Copy path is
+ * offered: the path is the browser's own clipboard, which every host has,
+ * and a row that does nothing when tapped is worse than no row.
  */
 export function fileVerbs(path: string): MenuItem[] {
+  const copyPath: MenuItem = {
+    label: 'Copy path',
+    onPick: () => void navigator.clipboard.writeText(path)
+  }
+  if (!window.prism.capabilities.explorer) return [copyPath]
   return [
     { label: 'Show in File Explorer', onPick: () => window.prism.showInExplorer(path) },
-    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(path) }
+    copyPath
   ]
 }
 

@@ -37,8 +37,8 @@ describe('the phone shim', () => {
   })
   it('says what it cannot do, and never throws for it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    // Neither is on PrismApi yet: `capabilities` is the shim's own, and
-    // `nativeDrag` arrives with #103.
+    // `capabilities` is on both bridges since #106; `nativeDrag` is not on
+    // PrismApi yet (it arrives with #103), so the cast covers it.
     const p = window.prism as unknown as {
       nativeDrag: boolean
       capabilities: unknown
@@ -58,6 +58,79 @@ describe('the phone shim', () => {
   })
   it('is not a thenable, so nothing awaiting it hangs', () => {
     expect((window.prism as unknown as { then?: unknown }).then).toBeUndefined()
+  })
+
+  describe('documents through the read-only routes (#106)', () => {
+    /** A fetch that answers one route with a body and records what was asked. */
+    function answer(route: string, body: unknown, status = 200): ReturnType<typeof vi.fn> {
+      const f = vi.fn(async (u: string) => {
+        const url = new URL(u, 'http://phone')
+        if (url.pathname !== route) return new Response('{"error":"no"}', { status: 404 })
+        return new Response(JSON.stringify(body), { status })
+      })
+      vi.stubGlobal('fetch', f)
+      return f
+    }
+    const asked = (f: ReturnType<typeof vi.fn>): URL => new URL(String(f.mock.calls[0][0]), 'http://phone')
+
+    it('readText hits /api/text with the token, and a refusal reads as unreadable', async () => {
+      const f = answer('/api/text', { text: 'hello' })
+      await expect(window.prism.readText('C:\\a.txt')).resolves.toEqual({ text: 'hello' })
+      expect(asked(f).pathname).toBe('/api/text')
+      expect(asked(f).searchParams.get('path')).toBe('C:\\a.txt')
+      expect(asked(f).searchParams.get('t')).toBe('tok')
+      answer('/api/text', { error: 'forgotten' }, 401)
+      await expect(window.prism.readText('C:\\a.txt')).resolves.toEqual({ error: 'unreadable' })
+    })
+    it('docHtml unwraps the html, and null for a document Prism could not convert', async () => {
+      answer('/api/doc', { html: '<p>doc</p>' })
+      await expect(window.prism.docHtml('C:\\a.docx')).resolves.toBe('<p>doc</p>')
+      answer('/api/doc', { error: 'no' }, 404)
+      await expect(window.prism.docHtml('C:\\a.docx')).resolves.toBeNull()
+    })
+    it('comicOpen passes the password along and answers failures in the IPC shape', async () => {
+      const f = answer('/api/comic', { pages: ['C:\\c\\p1.jpg'] })
+      await expect(window.prism.comicOpen('C:\\b.cbz', 'pw')).resolves.toEqual({ pages: ['C:\\c\\p1.jpg'] })
+      expect(asked(f).searchParams.get('pw')).toBe('pw')
+      answer('/api/comic', { error: 'no' }, 500)
+      await expect(window.prism.comicOpen('C:\\b.cbz')).resolves.toEqual({ error: 'failed' })
+    })
+    it('archiveList and archiveExtract pass the entry and password, and fail in the IPC shape', async () => {
+      answer('/api/archive', { ok: true, entries: [] })
+      await expect(window.prism.archiveList('C:\\z.zip')).resolves.toEqual({ ok: true, entries: [] })
+      const f = answer('/api/archive/extract', { ok: true, path: 'C:\\t\\pic.png', kind: 'image' })
+      await expect(window.prism.archiveExtract('C:\\z.zip', 'inner/pic.png', 'pw')).resolves.toEqual({
+        ok: true,
+        path: 'C:\\t\\pic.png',
+        kind: 'image'
+      })
+      expect(asked(f).searchParams.get('entry')).toBe('inner/pic.png')
+      expect(asked(f).searchParams.get('pw')).toBe('pw')
+      answer('/api/archive', { error: 'no' }, 403)
+      await expect(window.prism.archiveList('C:\\z.zip')).resolves.toEqual({ ok: false, reason: 'failed' })
+      await expect(window.prism.archiveExtract('C:\\z.zip', 'x')).resolves.toEqual({ ok: false, reason: 'failed' })
+    })
+    it('statFile hits /api/stat and answers null for a file that is not there', async () => {
+      answer('/api/stat', { size: 4, mtimeMs: 1, isFolder: false })
+      await expect(window.prism.statFile('C:\\a.txt')).resolves.toEqual({ size: 4, mtimeMs: 1, isFolder: false })
+      answer('/api/stat', { error: 'no' }, 404)
+      await expect(window.prism.statFile('C:\\gone.txt')).resolves.toBeNull()
+    })
+    it('the archive panel reads every container as read-only, and a tail as nothing', async () => {
+      await expect(window.prism.archiveStat('C:\\z.zip')).resolves.toMatchObject({ readOnly: true })
+      await expect(window.prism.tailBytes('C:\\big.log', 100)).resolves.toBeNull()
+      await expect(window.prism.startTail('C:\\big.log', 0)).resolves.toBe(false)
+      await expect(window.prism.stopTail('C:\\big.log')).resolves.toBeUndefined()
+    })
+    it('has no way to write: the write verbs are the warning fallback, not members', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const p = window.prism as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>
+      for (const verb of ['writeText', 'archiveDelete', 'archiveRename', 'archiveAdd', 'renameFile']) {
+        await expect(p[verb]('x')).resolves.toBe(false)
+      }
+      expect(warn).toHaveBeenCalledTimes(5)
+      warn.mockRestore()
+    })
   })
 
   describe('playing through /api/play', () => {

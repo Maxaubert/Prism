@@ -5,7 +5,11 @@
  * route but pairing and the static page needs a paired phone, and every
  * path is checked against THAT phone's root with the strict per-root check
  * before anything else looks at it. Bytes come from `serveMedia`, so the
- * media route inherits fsmedia's own rules on top.
+ * media route inherits fsmedia's own rules on top. The one softening (#106)
+ * is a PER-PHONE grant (`grants.ts`): a file an answer to THIS phone
+ * produced, such as a picture its markdown names outside the root, may be
+ * fetched by this phone and by no other, and it is gone when the phone is
+ * forgotten.
  *
  * Nothing here is synchronous on main's thread: static files stream, the
  * listing is the bounded async one the sidebar uses, and pairing is a list
@@ -16,9 +20,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
-import type { DirListing } from '@shared/types'
+import type { ArchiveListing, DirListing, FileKind, TextRead } from '@shared/types'
+import type { ComicOpen } from '../comic'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
+import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
 import { parseRoute, tokenOf, type Route } from './routes'
@@ -43,6 +49,11 @@ const HLS_MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.m4s': 'video/iso.segment'
 }
+
+/** What `archive:extract` answers, and so what `/api/archive/extract` does:
+ *  the member's temp copy and the kind Prism will show it as. */
+export type ExtractResult =
+  { ok: true; path: string; kind: FileKind } | { ok: false; reason: 'password' | 'aes' | 'failed' }
 
 export interface PhoneDeps {
   /** Where the built phone bundle lives (`out/renderer`). */
@@ -72,6 +83,37 @@ export interface PhoneDeps {
   /** The HLS jobs, one ffmpeg per phone and file; null when Prism found no
    *  ffmpeg, in which case a file the phone cannot play directly is `none`. */
   jobs: HlsJobs | null
+  /** Main's `file:text` body, factored (#106): the text with its encoding
+   *  remembered, or a reason. The wall is the route's, not this function's. */
+  readText: (p: string) => Promise<TextRead>
+  /** An office or ebook document converted AND sanitised in main; null when
+   *  it is not one, or the conversion failed. */
+  docHtml: (p: string) => Promise<string | null>
+  /** The local pictures a markdown names (`documentImages`): what the
+   *  phone that read it is granted. */
+  docImages: (p: string, text: string) => string[]
+  isMarkdown: (p: string) => boolean
+  /** Main's own media wall has to learn the same pictures: `/m/` goes
+   *  through `serveMedia`, which checks its `servable` set on top of this
+   *  server's grant. The two are granted side by side, from one call. */
+  grantServable: (paths: string[]) => void
+  /** Main's `comic:open` body, factored (#106): the book unpacked ONCE under
+   *  userData and its pages in reading order, with the directory they sit
+   *  in, which is what the phone is granted. Its failures come back in the
+   *  same shape the IPC answers, so the shim is a plain fetch. */
+  comicOpen: (
+    p: string,
+    password: string
+  ) => Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }>
+  /** Main's `archive:list` body: adm-zip or 7-Zip, main's choice. */
+  archiveList: (p: string, password?: string) => Promise<ArchiveListing>
+  /** Main's `archive:extract` body: one member to a temp file main grants
+   *  its own wall; the phone's grant is this server's, beside it. */
+  archiveExtract: (p: string, entry: string, password?: string) => Promise<ExtractResult>
+  /** The kind gates the IPC handlers apply (`archiveReadOk`, `comicOk`):
+   *  a .txt must never be handed to 7-Zip because a phone asked. */
+  isArchive: (p: string) => boolean
+  isComic: (p: string) => boolean
   /** Pairing changed: persist and tell the dialog. */
   onChange: () => void
   loopbackOnly: boolean
@@ -81,6 +123,9 @@ export interface PhoneDeps {
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // pdf.js's worker is an ES module file (#106): without this a module
+  // worker gets application/octet-stream and the browser refuses it.
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -139,6 +184,10 @@ export class PhoneServer {
   private pairHits = new Map<string, number[]>()
   /** Looks for idle HLS jobs while the server is up. */
   private reaper: ReturnType<typeof setInterval> | null = null
+  /** What each phone's answers have let it fetch past the root wall (#106):
+   *  a markdown's pictures, a comic's page directory and an extracted
+   *  member. Consulted by the media route beside `validRoot`, never instead. */
+  private grants = new Grants()
   private readonly now: () => number
 
   constructor(
@@ -161,6 +210,13 @@ export class PhoneServer {
     return [...this.seen.entries()]
       .filter(([tok, t]) => t >= cutoff && phoneFor(this.state, tok) !== null)
       .map(([tok]) => tok)
+  }
+
+  /** A forgotten phone's grants go with it: main calls this from
+   *  `phone:forget`, since `forget` itself is pairing's and this server
+   *  never hears about it otherwise. */
+  dropGrants(token: string): void {
+    this.grants.drop(token)
   }
 
   /** A fresh code for `root`, replacing any live one for the same root. */
@@ -241,7 +297,9 @@ export class PhoneServer {
       this.seen.set(phone.token, now)
 
       if (route.kind === 'media') {
-        if (!this.deps.validRoot(phone.root, route.path)) return void json(res, 403, { error: 'outside the folder' })
+        // The root, or a file one of THIS phone's own answers granted it.
+        const allowed = this.deps.validRoot(phone.root, route.path) || this.grants.has(phone.token, route.path)
+        if (!allowed) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
       if (route.kind === 'hls') return await this.hls(route, phone.token, res)
@@ -349,6 +407,18 @@ export class PhoneServer {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.listDir(path))
       }
+      // What `file:stat` answers the editor and the Properties popup: size,
+      // modified time and folder-ness. Async where the IPC is `statSync`,
+      // because the phone path shares main's one thread with a playing film.
+      case 'stat': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        try {
+          const st = await fsp.stat(path)
+          return void json(res, 200, { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() })
+        } catch {
+          return void json(res, 404, { error: 'no such file' })
+        }
+      }
       case 'subs': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, this.deps.subsFor(path))
@@ -359,6 +429,62 @@ export class PhoneServer {
         if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
         res.writeHead(200, { 'content-type': 'text/vtt; charset=utf-8', 'cache-control': 'no-store' })
         return void res.end(vtt)
+      }
+      // A text file, read-only: the phone has no route to write one back.
+      // A MARKDOWN grants the pictures it names to the phone that read it
+      // (they may sit outside its root, as `docImages.ts` explains), and to
+      // main's own wall in the same breath, since `/m/` passes through both.
+      case 'text': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const r = await this.deps.readText(path)
+        if ('text' in r && this.deps.isMarkdown(path)) {
+          const imgs = this.deps.docImages(path, r.text)
+          for (const img of imgs) this.grants.grant(token, img)
+          if (imgs.length) this.deps.grantServable(imgs)
+        }
+        return void json(res, 200, r)
+      }
+      // An office or ebook document as the sanitised HTML the PC's DocView
+      // renders; 404 with a reason when main could not convert it.
+      case 'doc': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const html = await this.deps.docHtml(path)
+        if (html === null) return void json(res, 404, { error: 'Prism could not convert this document' })
+        return void json(res, 200, { html })
+      }
+      // A comic book, read-only: unpacked once under userData by main, and
+      // the phone granted the WHOLE directory rather than each page (a book
+      // with chapters has pages a folder down, and a 200-page one would be
+      // 200 entries to keep in step with an eviction). Main's own wall
+      // already allows its comics directory, so nothing is added there.
+      // The kind gate is the IPC's (`comicOk`) and so is the failure shape:
+      // a phone asking to open a .txt as a comic gets the same `failed`.
+      case 'comic': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!this.deps.isComic(path)) return void json(res, 200, { error: 'failed' })
+        const got = await this.deps.comicOpen(path, q.get('pw') ?? '')
+        if ('error' in got) return void json(res, 200, got)
+        this.grants.grantDir(token, got.dir)
+        return void json(res, 200, { pages: got.pages })
+      }
+      // An archive's listing, and one member extracted for viewing. Read
+      // only, by construction: there is no route for the panel's write verbs
+      // and the shim has no member for them. The extracted copy is main's
+      // own temp file, already in main's `extractedPaths`; the grant here is
+      // the one that lets THIS phone fetch it.
+      case 'archive': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
+        return void json(res, 200, await this.deps.archiveList(path, q.get('pw') || undefined))
+      }
+      case 'archive/extract': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const entry = q.get('entry')
+        if (!entry) return void json(res, 400, { error: 'no entry' })
+        if (!this.deps.isArchive(path)) return void json(res, 200, { ok: false, reason: 'failed' })
+        const r = await this.deps.archiveExtract(path, entry, q.get('pw') || undefined)
+        if (r.ok) this.grants.grant(token, r.path)
+        return void json(res, 200, r)
       }
       default:
         return void json(res, 404, { error: 'no such route' })
