@@ -123,6 +123,9 @@ export interface PhoneDeps {
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // pdf.js's worker is an ES module file (#106): without this a module
+  // worker gets application/octet-stream and the browser refuses it.
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',

@@ -511,6 +511,14 @@ export function buildFixtures() {
   dragzip.addFile('carry.txt', Buffer.from('carried out of the zip'))
   dragzip.addFile('sub/nested.txt', Buffer.from('nested'))
   dragzip.writeZip(join(FIXTURES, 'zips', 'dragzip.zip'))
+  // A zip with a PICTURE in it, for the phone (#106): viewing a member there
+  // is an extraction the server grants to that one phone, and a picture is
+  // what proves the grant reached the media route. Its own zip, since the
+  // archive scenario mutates bundle.zip and the drag scenario dragzip.zip.
+  const phonezip = new AdmZip()
+  phonezip.addFile('pic.png', PNG)
+  phonezip.addFile('readme.txt', Buffer.from('for the phone'))
+  phonezip.writeZip(join(FIXTURES, 'zips', 'phone.zip'))
   // Exactly one viewable file: deleting it used to close the whole tab.
   mkdirSync(join(FIXTURES, 'lastfile'), { recursive: true })
   writeFileSync(join(FIXTURES, 'lastfile', 'only.txt'), 'the only one')

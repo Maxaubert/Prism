@@ -69,6 +69,7 @@ beforeEach(async () => {
   mkdirSync(join(renderer, 'assets'), { recursive: true })
   writeFileSync(join(renderer, 'phone.html'), '<html>phone</html>')
   writeFileSync(join(renderer, 'assets', 'a.js'), 'console.log(1)')
+  writeFileSync(join(renderer, 'assets', 'w.mjs'), 'export {}')
   writeFileSync(join(dir, 'clip.mp4'), 'abcd')
   writeFileSync(join(dir, 'clip.mkv'), 'abcd')
   const outside = mkdtempSync(join(tmpdir(), 'prism-phone-outside-'))
@@ -194,6 +195,11 @@ describe('PhoneServer', () => {
     expect(await (await fetch(url('/'))).text()).toBe('<html>phone</html>')
     expect(await (await fetch(url('/?code=ABC'))).text()).toBe('<html>phone</html>')
     expect((await fetch(url('/assets/a.js'))).status).toBe(200)
+    // pdf.js's worker is an .mjs (#106): a module worker is REFUSED by the
+    // browser unless it arrives as JavaScript, and it did not, silently.
+    const mjs = await fetch(url('/assets/w.mjs'))
+    expect(mjs.status).toBe(200)
+    expect(mjs.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
     // A climb that resolves to the index page is the index page, which is
     // public anyway; one that lands ABOVE the renderer dir is refused.
     expect(await rawStatus('/assets/../../clip.mp4')).toBe(404)

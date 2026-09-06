@@ -1,15 +1,50 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ImageView } from '../components/ImageView'
 import { VideoView } from '../components/VideoView'
 import { AudioView } from '../components/AudioView'
+import { ArchiveView } from '../components/ArchiveView'
+import { UnsupportedView } from '../components/UnsupportedView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
 import { hlsPlayerHere } from './canPlay'
 import { askPlay, type PlayAnswer } from './prismShim'
 
+// Split out exactly as App splits them (#106): none of these is on the path
+// of playing a film, and a phone that only ever plays films must never
+// download pdf.js or CodeMirror. Each is one chunk, fetched on first use.
+const CodeView = lazy(() => import('../components/CodeView').then((m) => ({ default: m.CodeView })))
+const PdfView = lazy(() => import('../components/pdf/PdfView').then((m) => ({ default: m.PdfView })))
+const MarkdownView = lazy(() =>
+  import('../components/MarkdownView').then((m) => ({ default: m.MarkdownView }))
+)
+const DocView = lazy(() => import('../components/DocView').then((m) => ({ default: m.DocView })))
+const ComicView = lazy(() =>
+  import('../components/ComicView').then((m) => ({ default: m.ComicView }))
+)
+
+/** App's own rule: markdown is a document until the pencil says otherwise,
+ *  and on the phone there is no pencil. */
+const isMarkdown = (name: string): boolean => /\.(md|markdown)$/i.test(name)
+const noop = (): void => {}
+const nothingPending = (): undefined => undefined
+
+/** While a viewer chunk arrives. `delayed-loader` keeps it invisible unless
+ *  the wait is long enough to notice, the same as App's. */
+function ViewerLoading(): JSX.Element {
+  return (
+    <div className="delayed-loader grid h-full w-full place-items-center">
+      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[color:var(--p-divider)] border-t-[var(--color-accent-hi)]" />
+    </div>
+  )
+}
+
 /**
  * The reused viewers on a phone (2026-09-06, #104). Video, audio and
- * pictures in this PR; the rest say so honestly until PR 3. A slim bar on
+ * pictures first; documents, code, comics and archives since #106, mounted
+ * with the props App gives them and nothing the phone cannot honour: the
+ * editor is `readOnly`, the archive panel reads `capabilities` and offers
+ * View and the folders, a markdown's local link opens only a file the
+ * folder lists. A slim bar on
  * top carries back and next/previous; it goes with fullscreen, which is the
  * browser's own (`requestFullscreen` on the document), and the flag follows
  * `fullscreenchange` rather than the tap, because the phone can leave
@@ -110,12 +145,15 @@ export function PhoneViewer({
   file,
   onClose,
   onStep,
-  canStep
+  canStep,
+  onOpenLocal
 }: {
   file: ViewerFile
   onClose: () => void
   onStep: (d: 1 | -1) => void
   canStep: (d: 1 | -1) => boolean
+  /** A markdown link to a local file; the browser decides whether it opens. */
+  onOpenLocal: (path: string) => void
 }): JSX.Element {
   const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement)
   useEffect(() => {
@@ -206,12 +244,67 @@ export function PhoneViewer({
         />
       )
       break
-    default:
+    case 'pdf':
       view = (
-        <p className="p-6 text-center opacity-70" data-phone-unsupported>
-          {file.name}: this kind is not on the phone yet.
-        </p>
+        <Suspense fallback={<ViewerLoading />}>
+          <PdfView key={file.path} url={url} path={file.path} onToggleFullscreen={toggleFullscreen} />
+        </Suspense>
       )
+      break
+    case 'doc':
+      view = (
+        <Suspense fallback={<ViewerLoading />}>
+          <DocView key={file.path} path={file.path} name={file.name} />
+        </Suspense>
+      )
+      break
+    case 'comic':
+      view = (
+        <Suspense fallback={<ViewerLoading />}>
+          <ComicView
+            key={file.path}
+            path={file.path}
+            name={file.name}
+            onToggleFullscreen={toggleFullscreen}
+            fullscreen={fullscreen}
+          />
+        </Suspense>
+      )
+      break
+    case 'archive':
+      // No onUndoable, no onRenameSelf, no refreshKey: those are the writes
+      // and the undo stack, and the panel hides every verb that would need
+      // them once `capabilities` says so.
+      view = <ArchiveView key={file.path} file={file} fullscreen={fullscreen} />
+      break
+    case 'text':
+      // Read-only, structurally: the editor is told so and keeps no buffer,
+      // so `onBuffer` and `getPending` are what App would pass for a file
+      // with nothing unsaved. There is no writeText on the phone anyway.
+      view = isMarkdown(file.name) ? (
+        <Suspense fallback={<ViewerLoading />}>
+          <MarkdownView key={file.path} path={file.path} onOpenLocal={onOpenLocal} />
+        </Suspense>
+      ) : (
+        <Suspense fallback={<ViewerLoading />}>
+          <CodeView
+            key={file.path}
+            path={file.path}
+            name={file.name}
+            readOnly
+            onSaved={noop}
+            onBuffer={noop}
+            getPending={nothingPending}
+            fullscreen={fullscreen}
+          />
+        </Suspense>
+      )
+      break
+    default:
+      // The listing never carries a kind Prism cannot show, so this is
+      // reached only by a path typed by hand; the view names the file and
+      // stops, its hex button being the desktop's (it reads `capabilities`).
+      view = <UnsupportedView file={file} />
   }
   return (
     <div

@@ -6,5 +6,18 @@
  * shim in place before anything can look for it.
  */
 import { installShim } from './prismShim'
+import { setWrapPref } from '../lib/codePrefs'
+import { phoneWrapDefault } from './defaults'
 
 installShim()
+// The phone's own defaults, written once into the preferences a viewer
+// reads (#106): word wrap on, unless this phone has already chosen.
+// `localStorage` itself can throw where site data is blocked; a phone with
+// no storage still gets the default, for the session.
+let wrap: 'on' | null
+try {
+  wrap = phoneWrapDefault(localStorage)
+} catch {
+  wrap = 'on'
+}
+if (wrap) setWrapPref(wrap)
