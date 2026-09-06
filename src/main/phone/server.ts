@@ -336,6 +336,9 @@ export class PhoneServer {
           mode: 'hls',
           url: `/hls/${id}/index.m3u8?t=${token}`,
           copyVideo: plan.copyVideo,
+          // The phone hands an audio-only playlist to its <audio> as the
+          // source and a film to the video's convert path (Task 6).
+          audioOnly: plan.audioOnly,
           fps: info.fps,
           duration: info.duration
         })

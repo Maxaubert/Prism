@@ -237,7 +237,7 @@ describe('PhoneServer', () => {
     expect(direct.url).toContain(`t=${token}`)
 
     const hls = await play(token, 'clip.mkv')
-    expect(hls).toMatchObject({ mode: 'hls', copyVideo: true, fps: 24, duration: 10 })
+    expect(hls).toMatchObject({ mode: 'hls', copyVideo: true, audioOnly: false, fps: 24, duration: 10 })
     const playlistUrl = String(hls.url)
     expect(playlistUrl).toMatch(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/)
 

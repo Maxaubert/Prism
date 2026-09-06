@@ -11,6 +11,7 @@
 import type { PrismApi } from '../../../preload/index'
 import type { DirListing, MediaProbe, TextRead } from '@shared/types'
 import { apiUrl, getJson, mediaUrl } from './api'
+import { canCsv } from './canPlay'
 
 export const capabilities = {
   write: false,
@@ -23,6 +24,42 @@ export const capabilities = {
  *  the phone says no to it either way, so a viewer can read it safely. */
 type Shim = Partial<PrismApi> & { capabilities: typeof capabilities; nativeDrag: false }
 
+/**
+ * What `/api/play` answers (#105): direct is the `/m/` url the viewers
+ * already build for themselves, hls is a playlist url Prism serves from a
+ * live transcode, none is a reason. `audioOnly` is what tells the shim
+ * which reused hook the playlist belongs to (see `probeMedia` below).
+ */
+export type PlayAnswer =
+  | { mode: 'direct'; url: string; fps: number | null; duration: number }
+  | { mode: 'hls'; url: string; copyVideo: boolean; audioOnly: boolean; fps: number | null; duration: number }
+  | { mode: 'none'; reason: string }
+
+/**
+ * A playlist url names a JOB on the PC, and the PC reaps a job nobody has
+ * asked about for 30s: an answer older than that may point at nothing, so
+ * it is asked again rather than trusted. Inside the window every hook that
+ * wants to know (the shell, the video's probe, its convert, the sidecar's
+ * probe) shares the one fetch.
+ */
+const PLAY_TTL_MS = 10_000
+const plays = new Map<string, { at: number; answer: Promise<PlayAnswer> }>()
+
+/** Direct or HLS for this file, on THIS device. Exported for the phone shell,
+ *  which reads the answer to decide whether hls.js has to be loaded. */
+export function askPlay(path: string): Promise<PlayAnswer> {
+  const now = Date.now()
+  const held = plays.get(path)
+  if (held && now - held.at < PLAY_TTL_MS) return held.answer
+  const answer = getJson<PlayAnswer>('/api/play', { path, can: canCsv() })
+  plays.set(path, { at: now, answer })
+  // A refused or failed ask is not an answer to keep: the next one tries again.
+  answer.catch(() => {
+    if (plays.get(path)?.answer === answer) plays.delete(path)
+  })
+  return answer
+}
+
 const implemented: Shim = {
   capabilities,
   mediaUrl,
@@ -32,7 +69,31 @@ const implemented: Shim = {
   listDir: (_root: string, path: string): Promise<DirListing | null> =>
     getJson<DirListing>('/api/dir', { path }).catch(() => null),
   readText: (): Promise<TextRead> => Promise.resolve({ error: 'unreadable' }), // PR 3
-  probeMedia: (): Promise<MediaProbe> => Promise.resolve({ ffmpeg: false, needed: false }),
+  /**
+   * The reused players ask this, and the answer is shaped for the hooks
+   * they already have (#105): a FILM the phone cannot play as it is looks
+   * like a file that needs converting (`usePlayableVideo`), and the
+   * "copy" `convertVideo` then hands back is the playlist url; `quick` is
+   * whether the picture is copied rather than encoded, which is what the
+   * overlay's wording turns on. An AUDIO-ONLY stream takes the other hook:
+   * `useDecodedSource` swaps in a `needed` stream's url as the element's
+   * source, which for the PC is the decoder's fsaudio:// and here is the
+   * playlist. Told apart by the server's `audioOnly`, never guessed from
+   * the file. A refused ask reads as nothing to decode, so the element
+   * tries the file itself and reports what happens.
+   */
+  probeMedia: async (path: string): Promise<MediaProbe> => {
+    const a = await askPlay(path).catch((): PlayAnswer => ({ mode: 'none', reason: '' }))
+    if (a.mode === 'none') return { ffmpeg: false, needed: false }
+    if (a.mode === 'direct') return { ffmpeg: true, needed: false, fps: a.fps ?? undefined }
+    if (a.audioOnly) return { ffmpeg: true, needed: true, url: a.url }
+    return { ffmpeg: true, needed: false, fps: a.fps ?? undefined, convert: { reason: 'container', quick: a.copyVideo } }
+  },
+  convertVideo: async (path: string): Promise<{ url?: string; error?: string }> => {
+    const a = await askPlay(path).catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message }))
+    if (a.mode === 'hls') return { url: a.url }
+    return { error: a.mode === 'none' && a.reason ? a.reason : 'Prism could not prepare this file' }
+  },
   audioBlind: () => Promise.resolve(null),
   subsFor: (path: string) =>
     getJson<Array<{ path: string; label: string }>>('/api/subs', { path }).catch(() => []),
@@ -41,11 +102,11 @@ const implemented: Shim = {
     return r.ok ? r.text() : null
   },
   pickSubtitle: () => Promise.resolve(null),
-  // The PC's decoders: `probeMedia` above says nothing needs converting, so
-  // these are never asked for real work. They are named here anyway because
-  // `usePlayableVideo` returns `onConvertProgress`'s answer as an effect's
-  // cleanup, and the Proxy fallback's Promise there is a React error on
-  // every video. The waveform and MIDI say "nothing" (PR 2 streams them).
+  // A phone "conversion" is a live transcode on the PC with nothing to
+  // report and nothing to cancel (a job nobody asks about reaps itself).
+  // Named anyway: `usePlayableVideo` returns `onConvertProgress`'s answer as
+  // an effect's cleanup, and the Proxy fallback's Promise there is a React
+  // error on every video. The waveform and MIDI say "nothing" for now.
   onConvertProgress: () => () => {},
   cancelConvert: () => {},
   mediaPeaks: () => Promise.resolve(null),
