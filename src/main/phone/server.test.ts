@@ -4,7 +4,8 @@ import { request } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
-import type { TextRead } from '@shared/types'
+import type { ArchiveListing, TextRead } from '@shared/types'
+import type { ComicOpen } from '../comic'
 import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
 import { PhoneServer, type PhoneDeps } from './server'
@@ -22,6 +23,11 @@ let renderer: string
 let picOutside: string
 /** What the text route handed main's own servable set. */
 let servable: string[]
+/** Where the fake comic opener unpacks and the fake extractor writes: OUTSIDE
+ *  the root, the way userData and temp are, so only a grant lets them through. */
+let cache: string
+/** The password the last comic or archive dep call was handed. */
+let lastPw: string | undefined
 let server: PhoneServer
 let port: number
 let changes = 0
@@ -69,6 +75,8 @@ beforeEach(async () => {
   picOutside = join(outside, 'pic.png')
   writeFileSync(picOutside, 'png')
   servable = []
+  cache = mkdtempSync(join(tmpdir(), 'prism-phone-cache-'))
+  lastPw = undefined
   deps = {
     rendererDir: renderer,
     media: async (req) => {
@@ -78,7 +86,7 @@ beforeEach(async () => {
       // The wall under test is the SERVER's; serveMedia is faked, and it
       // answers for the picture outside the root as it would once main
       // had it in its servable set.
-      const ok = p.endsWith('clip.mp4') || p.endsWith('pic.png')
+      const ok = p.endsWith('clip.mp4') || p.endsWith('pic.png') || p.endsWith('.jpg')
       return new Response(ok ? 'abcd' : null, { status: ok ? 200 : 404 })
     },
     listDir: async () => listing(['clip.mp4']),
@@ -96,6 +104,39 @@ beforeEach(async () => {
     grantServable: (paths) => {
       servable.push(...paths)
     },
+    // Two pages unpacked under a cache directory, one of them a folder down,
+    // which is what a real .cbz with chapters looks like: the grant has to be
+    // the whole directory, not the first page's parent.
+    comicOpen: async (
+      _p,
+      password
+    ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
+      lastPw = password
+      if (password === 'wrong') return { error: 'password' }
+      const d = join(cache, 'comics', 'abc')
+      mkdirSync(join(d, 'ch2'), { recursive: true })
+      writeFileSync(join(d, 'p1.jpg'), 'jpg')
+      writeFileSync(join(d, 'ch2', 'p2.jpg'), 'jpg')
+      return { dir: d, pages: [join(d, 'p1.jpg'), join(d, 'ch2', 'p2.jpg')] }
+    },
+    archiveList: async (_p, password): Promise<ArchiveListing> => {
+      lastPw = password
+      if (password === 'wrong') return { ok: false, reason: 'password' }
+      return {
+        ok: true,
+        entries: [{ path: 'inner/pic.png', name: 'pic.png', dir: false, size: 3 }]
+      }
+    },
+    archiveExtract: async (_p, entry, password) => {
+      lastPw = password
+      if (entry !== 'inner/pic.png') return { ok: false, reason: 'failed' }
+      const out = join(cache, 'extracted', 'pic.png')
+      mkdirSync(join(cache, 'extracted'), { recursive: true })
+      writeFileSync(out, 'png')
+      return { ok: true, path: out, kind: 'image' }
+    },
+    isArchive: (p) => p.endsWith('.zip'),
+    isComic: (p) => p.endsWith('.cbz'),
     // A real HlsJobs on the fake ffmpeg: the routes are the thing under test,
     // and a stubbed jobs class would only prove the stub.
     jobs: new HlsJobs({ ffmpeg: 'f', baseDir: join(dir, 'hls'), spawn: fakeFfmpeg().spawn }),
@@ -113,6 +154,7 @@ afterEach(async () => {
   await server.stop()
   rmSync(dir, { recursive: true, force: true })
   rmSync(join(picOutside, '..'), { recursive: true, force: true })
+  rmSync(cache, { recursive: true, force: true })
 })
 
 const url = (p: string) => `http://127.0.0.1:${port}${p}`
@@ -281,6 +323,100 @@ describe('PhoneServer', () => {
     // A markdown outside the root grants nothing on the way to its 403.
     expect(servable).toEqual([])
     expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('opens a comic and grants its whole page directory to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const r = await api(a, 'comic', 'b.cbz')
+    expect(r.status).toBe(200)
+    const c = (await r.json()) as { pages: string[] }
+    expect(c.pages).toHaveLength(2)
+    expect(lastPw).toBe('')
+    // Both pages, the one a folder down included, and nothing beside the
+    // directory: `abcd` shares a prefix with `abc` and is not under it.
+    for (const page of c.pages) {
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${a}`))).status).toBe(200)
+      expect((await fetch(url(`/m/${encodeURIComponent(page)}?t=${b}`))).status).toBe(403)
+    }
+    const beside = join(cache, 'comics', 'abcd', 'p1.jpg')
+    expect((await fetch(url(`/m/${encodeURIComponent(beside)}?t=${a}`))).status).toBe(403)
+    // Main's own wall already allows the comics directory: nothing to add.
+    expect(servable).toEqual([])
+  })
+
+  it('a comic answers its own failures in the IPC shape, with the password passed along', async () => {
+    const a = await pair()
+    const r = await fetch(url(`/api/comic?path=${encodeURIComponent(join(dir, 'b.cbz'))}&pw=wrong`), {
+      headers: { authorization: `Bearer ${a}` }
+    })
+    expect(r.status).toBe(200)
+    expect(await r.json()).toEqual({ error: 'password' })
+    expect(lastPw).toBe('wrong')
+    // A file that is not a comic never reaches the opener.
+    lastPw = 'untouched'
+    expect(await (await api(a, 'comic', 'clip.mp4')).json()).toEqual({ error: 'failed' })
+    expect(lastPw).toBe('untouched')
+  })
+
+  it('lists an archive and extracts one member for viewing, granted to this phone only', async () => {
+    const a = await pair()
+    const b = await pair()
+    const l = (await (await api(a, 'archive', 'z.zip')).json()) as ArchiveListing
+    expect(l.ok).toBe(true)
+    expect(lastPw).toBeUndefined()
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    const x = (await (
+      await fetch(url(`/api/archive/extract?path=${zip}&entry=${encodeURIComponent('inner/pic.png')}`), {
+        headers: { authorization: `Bearer ${a}` }
+      })
+    ).json()) as { ok: true; path: string; kind: string }
+    expect(x.ok).toBe(true)
+    expect(x.kind).toBe('image')
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(200)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${b}`))).status).toBe(403)
+    server.dropGrants(a)
+    expect((await fetch(url(`/m/${encodeURIComponent(x.path)}?t=${a}`))).status).toBe(403)
+  })
+
+  it('an archive passes the password along and answers failures in the IPC shape', async () => {
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    const l = await fetch(url(`/api/archive?path=${zip}&pw=wrong`), { headers: auth })
+    expect(l.status).toBe(200)
+    expect(await l.json()).toEqual({ ok: false, reason: 'password' })
+    expect(lastPw).toBe('wrong')
+    const x = await fetch(url(`/api/archive/extract?path=${zip}&entry=nope.txt&pw=secret`), { headers: auth })
+    expect(await x.json()).toEqual({ ok: false, reason: 'failed' })
+    expect(lastPw).toBe('secret')
+    // No entry named at all is a malformed ask, not an archive answer.
+    expect((await fetch(url(`/api/archive/extract?path=${zip}`), { headers: auth })).status).toBe(400)
+    // A file that is not an archive never reaches 7-Zip or adm-zip.
+    lastPw = 'untouched'
+    expect(await (await api(a, 'archive', 'clip.mp4')).json()).toEqual({ ok: false, reason: 'failed' })
+    const y = await fetch(url(`/api/archive/extract?path=${encodeURIComponent(join(dir, 'clip.mp4'))}&entry=x`), {
+      headers: auth
+    })
+    expect(await y.json()).toEqual({ ok: false, reason: 'failed' })
+    expect(lastPw).toBe('untouched')
+  })
+
+  it('walls comic and archive behind the token and the root', async () => {
+    const zip = encodeURIComponent(join(dir, 'z.zip'))
+    expect((await fetch(url(`/api/comic?path=${encodeURIComponent(join(dir, 'b.cbz'))}`))).status).toBe(401)
+    expect((await fetch(url(`/api/archive?path=${zip}`))).status).toBe(401)
+    expect((await fetch(url(`/api/archive/extract?path=${zip}&entry=inner/pic.png`))).status).toBe(401)
+    const a = await pair()
+    const auth = { authorization: `Bearer ${a}` }
+    lastPw = 'untouched'
+    expect((await fetch(url('/api/comic?path=C%3A%5CWindows%5Cb.cbz'), { headers: auth })).status).toBe(403)
+    expect((await fetch(url('/api/archive?path=C%3A%5CWindows%5Cx.zip'), { headers: auth })).status).toBe(403)
+    const x = await fetch(url('/api/archive/extract?path=C%3A%5CWindows%5Cx.zip&entry=inner/pic.png'), {
+      headers: auth
+    })
+    expect(x.status).toBe(403)
+    expect(lastPw).toBe('untouched')
   })
 
   it('refuses a path outside the phone root, even for a paired phone', async () => {
