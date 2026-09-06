@@ -60,6 +60,10 @@ never shipped: one small app that opens everything and looks good doing it.
   another file and your edits wait for you: unsaved files are starred in the tree, and nothing
   closes Prism out from under them.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
+- **On your phone**: Tools > Phone serves the folder you have open to phones on your own
+  Wi-Fi. Scan the QR code once, then browse the folder on the phone and play video, audio
+  and pictures straight from the PC. Plain HTTP on your own network, nothing leaves it; the
+  PC lists every paired phone and can forget one at any time.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 

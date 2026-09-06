@@ -606,6 +606,37 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   a bright white (numbers, members) at 1.0:1. Only a colour that fails moves, and only to
   the floor, so a scheme that reads keeps its exact colours; `termTheme.legible.test.ts`
   asserts it for every preset.
+- **Prism on your phone** (2026-09-06, #104). A plain Node `http` server in
+  `src/main/phone/` serves a phone-sized page on the LAN, and the phone browses the tab's
+  folder and plays what it can play natively. PLAIN HTTP, deliberately: a self-signed
+  certificate is a warning page on every phone and a trust prompt nobody can act on, and the
+  bytes never leave the user's own network. The DIALOG says so, and says BEFORE the switch
+  goes on that Windows will ask about the firewall, because a per-user installer cannot add
+  the rule and a declined prompt is a phone that cannot connect with no error anywhere.
+  Pairing is a six-character SINGLE-USE code (no 0/O/1/I, since it is typed as well as
+  scanned), two minutes long, never persisted; the phone trades it for a token it keeps, and
+  the token remembers the ROOT it was paired to, which is the tab the code was shown from. A
+  paired phone scanning another tab's code MOVES to that root and keeps its token, so the
+  list never grows a second row for one phone. The wall is written ONCE at the top of
+  `handle`: every route but the page and `/pair` needs a paired phone, and every path is
+  checked against THAT phone's own root with `validRoot` before anything reads it; media
+  bytes then go through `serveMedia` itself, so `/m/` inherits `fsmedia://`'s rules on top.
+  The token rides as a Bearer header for fetches and as `?t=` for `<video src>`, which can
+  carry no header. Nothing on the phone path is synchronous on main's thread: the page
+  streams, the listing is the bounded async `listDir` the sidebar uses, pairing is a Map.
+  Under `--e2e` it binds `127.0.0.1` ONLY, so a throwaway build never raises the firewall
+  prompt; the e2e's "phone" is a second sandboxed window of the app's own Chromium, since
+  the harness ships no browser binary. The phone page is a SECOND VITE ENTRY
+  (`src/renderer/phone.html`, `src/renderer/src/phone/`) mounting the SAME `ImageView`,
+  `VideoView` and `AudioView` behind `prismShim.ts`, a Proxy standing in for `window.prism`:
+  the handful of calls the viewers make are answered over the wire, and anything else WARNS
+  rather than throws, because a viewer's optional call (position memory, settings) must
+  not take the picture down with it. The Tools button in the TITLE BAR is the home of the
+  dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
+  bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
+  every `phone:changed`, never what was clicked. NOT on the phone yet, each its own
+  decision: transcoding what the phone cannot play (#105), documents (#106), and the phone
+  as a remote for the PC (#107).
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

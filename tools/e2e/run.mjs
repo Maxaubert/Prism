@@ -221,6 +221,36 @@ async function launchOnce(file, keepTabs = false) {
   return { app, win }
 }
 
+/**
+ * A second window of the app's own Chromium standing in for the phone
+ * (2026-09-06, #104). The harness ships playwright-core and no browser
+ * binary, so the phone page is loaded into a plain sandboxed BrowserWindow
+ * with no preload, which is what a phone's browser is to the server: a
+ * remote page and a fetch. Parked like the main window (opacity 0, off the
+ * desktop, no taskbar entry) rather than hidden, for the same reason: a
+ * hidden window stops answering clicks. Playwright drives it over CDP.
+ */
+async function openPhoneWindow(app, url) {
+  const appeared = app.waitForEvent('window', { timeout: 15000 })
+  await app.evaluate(({ BrowserWindow }, target) => {
+    const w = new BrowserWindow({
+      width: 390,
+      height: 844,
+      show: false,
+      focusable: false,
+      skipTaskbar: true,
+      webPreferences: { sandbox: true }
+    })
+    w.setOpacity(0)
+    w.setPosition(-4000, -4000)
+    w.showInactive()
+    void w.loadURL(target)
+  }, url)
+  const page = await appeared
+  await page.waitForLoadState('domcontentloaded')
+  return page
+}
+
 async function mdScenario(fixtures) {
   console.log('markdown viewer');
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -4788,6 +4818,151 @@ async function dragScenario(fixtures) {
   await sleep(900)
 }
 
+/**
+ * Prism on your phone (2026-09-06, #104): the server comes up on the switch,
+ * a phone pairs with the tab's code, browses the folder and plays a picture
+ * and a film over the LAN routes, and a phone the PC forgets is back on the
+ * pairing screen. Under --e2e the server binds loopback only, so the
+ * "phone" is a second window of the app's own Chromium on 127.0.0.1.
+ */
+async function phoneScenario(fixtures) {
+  console.log('phone: pair, browse, play over the LAN server')
+  const { app, win } = await launch(join(fixtures, 'one.png'))
+  let page = null
+  try {
+    // Switch the server on from the renderer, the way the dialog does. The
+    // active tab's title attribute IS its root (TabStrip's role="tab").
+    const state = await win.evaluate(() =>
+      window.prism.phoneSetOn(
+        true,
+        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
+      )
+    )
+    ok(state.on === true, 'the server reports on')
+    ok(typeof state.port === 'number', 'the server has a port')
+    ok(state.addresses[0] === '127.0.0.1', 'under --e2e it binds loopback only')
+    ok(
+      !!state.code && /^[A-Z2-9]{6}$/.test(state.code.code),
+      'a six-character code is issued for the tab'
+    )
+    ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
+    const base = `http://127.0.0.1:${state.port}`
+
+    // Pair the way the phone does.
+    const r = await fetch(`${base}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: state.code.code, name: 'e2e phone' })
+    })
+    ok(r.status === 200, 'pairing succeeds')
+    const { token, root } = await r.json()
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone is paired to the tab root')
+    ok((await fetch(`${base}/api/me`)).status === 401, 'no token, no answer')
+    const auth = { authorization: `Bearer ${token}` }
+    const dir = await (
+      await fetch(`${base}/api/dir?path=${encodeURIComponent(fixtures)}`, { headers: auth })
+    ).json()
+    ok(dir.files.some((f) => f.name === 'one.png'), 'the listing carries the fixture')
+    const outside = await fetch(`${base}/api/dir?path=${encodeURIComponent('C:\\Windows')}`, {
+      headers: auth
+    })
+    ok(outside.status === 403, 'a path outside the root is refused')
+    const ranged = await fetch(
+      `${base}/m/${encodeURIComponent(join(fixtures, 'ep1.mp4'))}?t=${token}`,
+      { headers: { range: 'bytes=0-99' } }
+    )
+    ok(
+      ranged.status === 206 && (ranged.headers.get('content-range') ?? '').startsWith('bytes 0-99/'),
+      'media answers a Range with 206'
+    )
+    await ranged.arrayBuffer()
+
+    // The dialog on the PC lists the phone.
+    await win.click('[aria-label="Tools"]')
+    await win.click('[role="menuitem"]:has-text("Phone")')
+    await win.waitForSelector('[data-phone-dialog]', { timeout: 5000 })
+    await win.waitForSelector('[data-phone-row]', { timeout: 5000 }).catch(() => {})
+    ok((await win.locator('[data-phone-row]').count()) === 1, 'the dialog lists the paired phone')
+    await win.screenshot({ path: join(SHOTS, 'phone-dialog.png') })
+    await win.keyboard.press('Escape')
+
+    // The phone page itself. A spent code lands on the pairing screen.
+    page = await openPhoneWindow(app, `${base}/?code=${state.code.code}`)
+    await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
+    ok(true, 'a spent code lands on the pairing screen')
+    // A second code for the same tab: the first was spent above.
+    const again = await win.evaluate(() =>
+      window.prism.phoneCode(
+        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+      )
+    )
+    ok(!!again.code && again.code.code !== state.code.code, 'a fresh code replaces the spent one')
+    await page.goto(`${base}/?code=${again.code.code}`)
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    ok(
+      (await page.locator('[data-phone-file][data-kind="image"]').count()) >= 1,
+      'the phone lists pictures'
+    )
+    await page.click('[data-phone-file]:has-text("one.png")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 10000 })
+    await page
+      .waitForFunction(
+        () => (document.querySelector('[data-phone-viewer] img')?.naturalWidth ?? 0) > 0,
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
+    const natural = await page
+      .locator('[data-phone-viewer] img')
+      .first()
+      .evaluate((el) => el.naturalWidth)
+    ok(natural > 0, 'the picture loads over the LAN route')
+    await page.screenshot({ path: join(SHOTS, 'phone-image.png') })
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-file]:has-text("ep1.mp4")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
+    let ready = true
+    await page
+      .waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1, null, {
+        timeout: 15000
+      })
+      .catch(() => {
+        ready = false
+      })
+    ok(ready, 'the video has metadata over the LAN route')
+    await page.screenshot({ path: join(SHOTS, 'phone-video.png') })
+
+    // The page paired with nothing in its storage, so it is a SECOND phone
+    // with a token of its own beside the one Node paired above.
+    const pageToken = await page.evaluate(() => localStorage.getItem('prism.phone.token'))
+    ok(
+      typeof pageToken === 'string' && pageToken.length > 0 && pageToken !== token,
+      'the page paired as its own phone'
+    )
+
+    // Forget both from the PC: the phone's next request is a 401 and it re-pairs.
+    const after = await win.evaluate(async (toks) => {
+      for (const t of toks) await window.prism.phoneForget(t, null)
+      return window.prism.phoneGet(null)
+    }, [token, pageToken])
+    ok(after.phones.length === 0, 'the dialog lists nobody once both are forgotten')
+    await page.click('[aria-label="Back to the folder"]')
+    await page.reload()
+    await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
+    ok(true, 'a forgotten phone lands on the pairing screen')
+    ok(
+      (await fetch(`${base}/api/me`, { headers: auth })).status === 401,
+      'the forgotten token is refused'
+    )
+  } finally {
+    await page?.close().catch(() => {})
+    // Off again, or the profile's phone.json carries the switch into every
+    // scenario after this one.
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism anything whenever someone picks it out of "More apps",
@@ -4897,6 +5072,7 @@ await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
+await run(phoneScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)
