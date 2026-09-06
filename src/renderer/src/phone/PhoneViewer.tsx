@@ -51,6 +51,31 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
         return
       }
       const h = new Hls({ enableWorker: true, lowLatencyMode: false })
+      // hls.js owns the source, so the element's own error event never
+      // fires for a stream that dies: without this the page went silent. A
+      // network failure is retried (a job the PC restarts after a pause
+      // answers within a second or two), a media failure gets the one
+      // recovery the library offers, and anything past that reaches the
+      // player as the element's own error, which is the overlay it already
+      // draws for a file it cannot play.
+      let networkRetries = 0
+      let mediaRetries = 0
+      h.on(Hls.Events.ERROR, (_e, data) => {
+        if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 4) {
+          networkRetries += 1
+          window.setTimeout(() => !dead && h.startLoad(), 500 * networkRetries)
+          return
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 2) {
+          mediaRetries += 1
+          h.recoverMediaError()
+          return
+        }
+        h.destroy()
+        hls = null
+        el.dispatchEvent(new Event('error'))
+      })
       h.loadSource(playlist)
       h.attachMedia(el)
       hls = h
@@ -106,9 +131,14 @@ export function PhoneViewer({
     else void document.exitFullscreen?.().catch(() => {})
   }, [])
 
-  const url = window.prism.mediaUrl(file.path)
   const answer = usePlayAnswer(file)
   const playlist = answer?.mode === 'hls' ? answer.url : null
+  // An HLS film is handed its PLAYLIST as the url from the start. The direct
+  // url used to go in and be swapped a moment later, which cost one aborted
+  // request per film and an ERR_ABORTED in the console; the playlist is the
+  // only src there is for such a file, and the shim's convertVideo answers
+  // the same string, so nothing swaps.
+  const url = playlist ?? window.prism.mediaUrl(file.path)
   const viaHlsJs = playlist !== null && hlsPlayerHere() === 'hlsjs'
   const attach = useMemo(() => (viaHlsJs && playlist ? attachHlsJs(playlist) : undefined), [viaHlsJs, playlist])
   let view: JSX.Element

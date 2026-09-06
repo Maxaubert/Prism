@@ -25,8 +25,14 @@ import { join } from 'path'
 import type { PlayPlan } from './decide'
 import { hlsArgs, jobId, looksLikeGpuFailure, nextAction, playlistText, segmentCount, segmentFile, type Encoder } from './hls'
 
-/** A job nobody has asked about for this long is over. */
-const IDLE_MS = 30_000
+/** A job nobody has asked about for this long has its ffmpeg KILLED, and
+ *  nothing else: the record and the segments stay, so a phone that was
+ *  paused (a player fetches nothing while paused) resumes with a restart at
+ *  the segment it asks for, about a second, rather than a 404 for a job that
+ *  no longer exists and a fatal error in its player. */
+const IDLE_KILL_MS = 30_000
+/** A job nobody has asked about for THIS long is over: record and directory go. */
+const IDLE_DROP_MS = 10 * 60_000
 /** How long a segment ask waits for its file before giving up. */
 const WAIT_MS = 30_000
 const POLL_MS = 100
@@ -296,14 +302,17 @@ export class HlsJobs {
     return null
   }
 
-  /** Kill jobs nobody asked about for 30s; called on a timer by the server. */
+  /** Kill the ffmpeg of jobs nobody asked about for 30s, and drop jobs
+   *  nobody asked about for ten minutes; called on a timer by the server. */
   async reap(): Promise<void> {
-    const cutoff = this.now() - IDLE_MS
+    const now = this.now()
     const gone: Job[] = []
     for (const [id, job] of this.jobs) {
-      if (job.asked < cutoff) {
+      if (job.asked < now - IDLE_DROP_MS) {
         this.jobs.delete(id)
         gone.push(job)
+      } else if (job.asked < now - IDLE_KILL_MS && job.proc) {
+        this.kill(job)
       }
     }
     await Promise.all(gone.map((job) => this.discard(job)))

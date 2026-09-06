@@ -139,16 +139,32 @@ describe('HlsJobs', () => {
     await jobs.stopAll()
   })
 
-  it('reaps a job nobody asked about for 30 seconds, and its directory', async () => {
+  it('kills the ffmpeg of a job idle for 30 seconds but keeps the job, so a paused phone resumes', async () => {
     let t = 0
-    const { jobs, spawned } = make({}, () => t)
-    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    const { jobs, spawned } = make({ segments: 100 }, () => t)
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 400, audioIndex: 1 })
     await jobs.segment(id, 0)
     expect(existsSync(join(base, id))).toBe(true)
     t = 20_000
     await jobs.reap()
-    expect(existsSync(join(base, id))).toBe(true) // asked about recently enough
+    expect(spawned[0].killed).toBe(false) // asked about recently enough
     t = 31_000
+    await jobs.reap()
+    expect(spawned[0].killed).toBe(true)
+    expect(existsSync(join(base, id))).toBe(true)
+    expect(jobs.owner(id)).toBe('t')
+    // The phone unpauses: the next segment ask restarts ffmpeg where it stands.
+    const p = await jobs.segment(id, 40)
+    expect(p?.endsWith('40.m4s')).toBe(true)
+    expect(spawned).toHaveLength(2)
+  })
+
+  it('drops a job nobody asked about for ten minutes, and its directory', async () => {
+    let t = 0
+    const { jobs, spawned } = make({}, () => t)
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    await jobs.segment(id, 0)
+    t = 10 * 60_000 + 1
     await jobs.reap()
     expect(existsSync(join(base, id))).toBe(false)
     expect(spawned[0].killed).toBe(true)
