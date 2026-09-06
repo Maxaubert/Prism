@@ -23,13 +23,27 @@ import {
   writeFileSync
 } from 'fs'
 import { copyFile, readFile, stat, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
-import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, onRootsChanged, validRoot } from './roots'
+import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import {
+  addRoot,
+  dropRoot,
+  insideAnyRoot,
+  isAnyRoot,
+  onRootsChanged,
+  openRoots,
+  validRoot
+} from './roots'
+import { DEFAULT_PORT, PhoneServer } from './phone/server'
+import { parseStore, serializeStore, type PhoneStore } from './phone/store'
+import { lanAddresses } from './phone/lan'
+import { pairLink } from './phone/routes'
+import { qrSvg } from './phone/qr'
+import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
@@ -102,6 +116,7 @@ import type {
   OpenPayload,
   OpenWithApp,
   MediaProbe,
+  PhoneState,
   RenameResult,
   TextRead,
   WriteResult
@@ -622,6 +637,8 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
 }
 
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
+/** The phone switch, its port and the paired phones (#104). */
+const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
 
 /**
  * The newest Claude session recorded for `root`, from claude's own store:
@@ -1305,6 +1322,128 @@ if (!app.requestSingleInstanceLock()) {
         appPath: app.getAppPath()
       })
     )
+
+    /**
+     * PRISM ON YOUR PHONE (2026-09-06, #104). The server lives for as long as
+     * the switch is on; the switch, the port it settled on and the paired
+     * phones persist in phone.json. Every change the dialog could care about
+     * is pushed as `phone:changed`, and the dialog re-reads with `phone:get`,
+     * which is what keeps the two from drifting: the switch reflects what the
+     * server IS, not what was clicked.
+     *
+     * Nothing here is synchronous: the file is read once with fs/promises
+     * (the handlers wait on that read), and every write goes through one
+     * chained async writer so two pairings a moment apart cannot interleave.
+     */
+    let phoneStore: PhoneStore = parseStore('')
+    let phoneWrite: Promise<void> = Promise.resolve()
+    const savePhone = (): void => {
+      const text = serializeStore(phoneStore)
+      phoneWrite = phoneWrite
+        .then(() => writeFile(PHONE_STATE(), text))
+        .catch(() => {
+          /* a failed write loses the pairing, not the session */
+        })
+    }
+    let phone: PhoneServer | null = null
+    let phoneError = ''
+    const phoneChanged = (): void => mainWindow?.webContents.send('phone:changed')
+    const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
+    const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
+      rendererDir: RENDERER_DIR,
+      devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
+      media: serveMedia,
+      listDir,
+      validRoot,
+      isRoot,
+      rootOpen: rootIsOpen,
+      subsFor: (p: string) => sidecarsFor(p).map((t) => ({ path: t.path, label: t.label })),
+      readSubs: (p: string) =>
+        readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
+      onChange: () => {
+        savePhone()
+        phoneChanged()
+      },
+      // A throwaway e2e build must never raise the firewall prompt.
+      loopbackOnly: E2E
+    })
+    const startPhone = async (): Promise<void> => {
+      if (phone) return
+      const s = new PhoneServer(phoneDeps(), phoneStore.pairing)
+      try {
+        phoneStore.port = await s.start(phoneStore.port ?? DEFAULT_PORT)
+        phone = s
+        phoneError = ''
+      } catch (err) {
+        phoneError = `Could not open a port: ${String((err as Error)?.message ?? err)}`
+        phoneStore.on = false
+      }
+      savePhone()
+      phoneChanged()
+    }
+    const stopPhone = async (): Promise<void> => {
+      const s = phone
+      phone = null
+      if (s) await s.stop()
+      phoneChanged()
+    }
+    // Read once; the switch that was on comes back on. The handlers wait on
+    // this so a dialog opened in the first moments sees the file, not the
+    // empty default.
+    const phoneReady: Promise<void> = readFile(PHONE_STATE(), 'utf8')
+      .catch(() => '')
+      .then((raw) => {
+        phoneStore = parseStore(raw)
+        if (phoneStore.on) void startPhone()
+      })
+    const phoneState = async (root: string | null): Promise<PhoneState> => {
+      await phoneReady
+      const state: PhoneState = {
+        on: !!phone,
+        port: phone?.port ?? null,
+        addresses: E2E ? ['127.0.0.1'] : lanAddresses(networkInterfaces()),
+        phones: phoneStore.pairing.phones.map((p) => ({ ...p })),
+        watching: phone?.watching() ?? [],
+        error: phoneError || undefined
+      }
+      // A code is for a root a tab holds: a phone paired to a closed folder
+      // would only ever see the "scan again" screen.
+      if (phone && root && rootIsOpen(root) && state.addresses[0]) {
+        const now = Date.now()
+        const live = phoneStore.pairing.codes.find((c) => c.root === root && c.expires > now)
+        const { code, expires } = live ?? phone.issue(root)
+        const link = pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
+        state.code = { code, link, svg: await qrSvg(link), expires }
+      }
+      return state
+    }
+    const rootArg = (root: unknown): string | null => (typeof root === 'string' ? root : null)
+    ipcMain.handle('phone:get', (_e, root: unknown) => phoneState(rootArg(root)))
+    ipcMain.handle('phone:set-on', async (_e, on: unknown, root: unknown) => {
+      await phoneReady
+      phoneStore.on = on === true
+      savePhone()
+      if (phoneStore.on) await startPhone()
+      else await stopPhone()
+      return phoneState(rootArg(root))
+    })
+    ipcMain.handle('phone:code', async (_e, root: unknown) => {
+      await phoneReady
+      const r = rootArg(root)
+      if (phone && r && rootIsOpen(r)) phone.issue(r)
+      return phoneState(r)
+    })
+    ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
+      await phoneReady
+      if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
+        savePhone()
+        phoneChanged()
+      }
+      return phoneState(rootArg(root))
+    })
+    app.on('will-quit', () => {
+      void phone?.stop()
+    })
 
     // The update check: watch GitHub Releases, remember the newest offer so a
     // renderer that loads after the tick still hears about it.
