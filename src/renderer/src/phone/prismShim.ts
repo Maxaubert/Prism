@@ -41,6 +41,15 @@ const implemented: Shim = {
     return r.ok ? r.text() : null
   },
   pickSubtitle: () => Promise.resolve(null),
+  // The PC's decoders: `probeMedia` above says nothing needs converting, so
+  // these are never asked for real work. They are named here anyway because
+  // `usePlayableVideo` returns `onConvertProgress`'s answer as an effect's
+  // cleanup, and the Proxy fallback's Promise there is a React error on
+  // every video. The waveform and MIDI say "nothing" (PR 2 streams them).
+  onConvertProgress: () => () => {},
+  cancelConvert: () => {},
+  mediaPeaks: () => Promise.resolve(null),
+  synthMidi: () => Promise.resolve(null),
   // The picture's copy and save verbs are the PC's clipboard and dialogs;
   // they answer "did not happen" here without a warning, since PR 3 hides
   // them behind `capabilities` and until then a tap must not crash.

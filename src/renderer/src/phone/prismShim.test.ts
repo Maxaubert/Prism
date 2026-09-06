@@ -38,6 +38,11 @@ describe('the phone shim', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })
+  it('hands the video hook an unsubscribe, not a promise', () => {
+    const off = window.prism.onConvertProgress(() => {})
+    expect(typeof off).toBe('function')
+    expect(() => window.prism.cancelConvert('x')).not.toThrow()
+  })
   it('is not a thenable, so nothing awaiting it hangs', () => {
     expect((window.prism as unknown as { then?: unknown }).then).toBeUndefined()
   })
