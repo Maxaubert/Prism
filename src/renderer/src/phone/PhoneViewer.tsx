@@ -4,7 +4,7 @@ import { ImageView } from '../components/ImageView'
 import { VideoView } from '../components/VideoView'
 import { AudioView } from '../components/AudioView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
-import { nativeHls } from './canPlay'
+import { hlsPlayerHere } from './canPlay'
 import { askPlay, type PlayAnswer } from './prismShim'
 
 /**
@@ -26,22 +26,30 @@ import { askPlay, type PlayAnswer } from './prismShim'
  * the answer decides whether the element gets a src at all. Mounted before
  * it, the player would start loading the file itself, and on an Android
  * with an MKV that is an error overlay a moment before the stream it should
- * have been given. Native HLS (iPhone, iPad) needs nothing more than the
- * playlist url, which the shim hands the players through the hooks they
- * already have; anywhere else hls.js feeds the element through MSE, loaded
- * on demand so an iPhone never downloads it, and it OWNS `src`, which is
- * what the players' `attach` prop is for.
+ * have been given. Wherever MSE can take the stream, hls.js feeds the
+ * element through it, loaded on demand, and it OWNS `src`, which is what
+ * the players' `attach` prop is for; where there is no MSE (an iPhone) the
+ * playlist url is the src, handed to the players through the hooks they
+ * already have, and hls.js is never downloaded. Which of the two is
+ * `hlsPlayer`'s call, and it is MSE-first on purpose: Chromium claims
+ * native HLS and cannot be trusted with it (see `canPlay.ts`).
  */
 
 /** hls.js on the element, for `attach`: the library is fetched on first use
  *  and torn down with the element. If the player left before the import
- *  landed, nothing is attached. */
+ *  landed, nothing is attached. Should the library decline a device whose
+ *  MSE said yes, the element gets the playlist as its own src: a player
+ *  that may work over one that certainly has nothing. */
 function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
   return (el) => {
     let hls: { destroy(): void } | null = null
     let dead = false
     void import('hls.js').then(({ default: Hls }) => {
-      if (dead || !Hls.isSupported()) return
+      if (dead) return
+      if (!Hls.isSupported()) {
+        el.src = playlist
+        return
+      }
       const h = new Hls({ enableWorker: true, lowLatencyMode: false })
       h.loadSource(playlist)
       h.attachMedia(el)
@@ -101,7 +109,7 @@ export function PhoneViewer({
   const url = window.prism.mediaUrl(file.path)
   const answer = usePlayAnswer(file)
   const playlist = answer?.mode === 'hls' ? answer.url : null
-  const viaHlsJs = playlist !== null && !nativeHls()
+  const viaHlsJs = playlist !== null && hlsPlayerHere() === 'hlsjs'
   const attach = useMemo(() => (viaHlsJs && playlist ? attachHlsJs(playlist) : undefined), [viaHlsJs, playlist])
   let view: JSX.Element
   switch (file.kind) {

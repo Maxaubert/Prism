@@ -246,8 +246,10 @@ describe('PhoneServer', () => {
     expect(pl.headers.get('content-type')).toBe('application/vnd.apple.mpegurl')
     expect(pl.headers.get('cache-control')).toBe('no-store')
     const text = await pl.text()
-    expect(text).toContain('#EXT-X-MAP:URI="init.mp4"')
-    expect(text).toContain('2.m4s')
+    // The player resolves each uri against the playlist's and drops its
+    // query, so the token has to be ON the uris or every segment is a 401.
+    expect(text).toContain(`#EXT-X-MAP:URI="init.mp4?t=${token}"`)
+    expect(text).toContain(`2.m4s?t=${token}`)
     expect(text).not.toContain('3.m4s') // ten seconds is three segments
 
     const seg = await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))

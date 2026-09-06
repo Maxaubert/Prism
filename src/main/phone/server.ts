@@ -394,7 +394,9 @@ export class PhoneServer {
     const jobs = this.deps.jobs
     if (!jobs || jobs.owner(route.job) !== token) return void json(res, 404, { error: 'no such stream' })
     if (route.file === 'index.m3u8') {
-      const text = jobs.playlist(route.job)
+      // The token rides on every uri the playlist names: the player resolves
+      // them against the playlist's url and keeps none of its query.
+      const text = jobs.playlist(route.job, `?t=${encodeURIComponent(token)}`)
       if (text === null) return void json(res, 404, { error: 'no such stream' })
       res.writeHead(200, { 'content-type': HLS_MIME['.m3u8'], 'cache-control': 'no-store' })
       return void res.end(text)

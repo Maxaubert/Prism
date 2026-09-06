@@ -36,8 +36,11 @@ export function segmentCount(duration: number): number {
 /** The whole film as a VOD playlist of fMP4 segments, written before a
  *  single one exists. The last segment carries the remainder; a film that
  *  ends on a boundary has no zero-length tail because `ceil` never makes
- *  one. */
-export function playlistText(duration: number): string {
+ *  one. `query` goes on EVERY uri (`0.m4s?t=...`): a player resolves each
+ *  one against the playlist's url and drops the playlist's own query on the
+ *  way, so a token carried only by the playlist reaches no segment at all -
+ *  measured as a 401 on init.mp4 from the first player that tried. */
+export function playlistText(duration: number, query = ''): string {
   const n = segmentCount(duration)
   const lines = [
     '#EXTM3U',
@@ -46,11 +49,11 @@ export function playlistText(duration: number): string {
     '#EXT-X-MEDIA-SEQUENCE:0',
     '#EXT-X-PLAYLIST-TYPE:VOD',
     '#EXT-X-INDEPENDENT-SEGMENTS',
-    '#EXT-X-MAP:URI="init.mp4"'
+    `#EXT-X-MAP:URI="init.mp4${query}"`
   ]
   for (let i = 0; i < n; i++) {
     const len = i === n - 1 ? Math.max(0.1, duration - i * SEGMENT_SECONDS) : SEGMENT_SECONDS
-    lines.push(`#EXTINF:${len.toFixed(6)},`, `${i}.m4s`)
+    lines.push(`#EXTINF:${len.toFixed(6)},`, `${i}.m4s${query}`)
   }
   lines.push('#EXT-X-ENDLIST')
   return lines.join('\n') + '\n'

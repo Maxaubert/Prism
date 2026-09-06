@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canTokens } from './canPlay'
+import { canTokens, hlsPlayer } from './canPlay'
 
 // Two devices, answered the way their `canPlayType` does: Safari on an
 // iPhone (HEVC, Dolby, native HLS, no VP9) and Chrome on an Android (VP9,
@@ -48,5 +48,21 @@ describe('canTokens', () => {
   })
   it('a device that plays nothing reports nothing rather than guessing', () => {
     expect(canTokens(() => '', false)).toEqual([])
+  })
+})
+
+describe('hlsPlayer', () => {
+  it('is hls.js wherever MSE takes the stream, whatever the element claims', () => {
+    // Chromium answers "maybe" to the HLS mime (its built-in player), and
+    // that player asked for the segments without the token: measured.
+    expect(hlsPlayer({ native: 'maybe', mse: true })).toBe('hlsjs')
+    expect(hlsPlayer({ native: '', mse: true })).toBe('hlsjs')
+  })
+  it('is the element itself only where there is no MSE, which is an iPhone', () => {
+    expect(hlsPlayer({ native: 'maybe', mse: false })).toBe('native')
+    expect(hlsPlayer({ native: 'probably', mse: false })).toBe('native')
+  })
+  it('is nobody when neither is there', () => {
+    expect(hlsPlayer({ native: '', mse: false })).toBe('none')
   })
 })

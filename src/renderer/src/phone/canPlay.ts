@@ -54,9 +54,30 @@ export function canCsv(): string {
   return cached
 }
 
-/** Whether a `<video src="x.m3u8">` plays here by itself (iPhone, iPad);
- *  anywhere else the playlist goes through hls.js. */
-export function nativeHls(): boolean {
-  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return false
-  return document.createElement('video').canPlayType(HLS_MIME) !== ''
+export type HlsPlayer = 'hlsjs' | 'native' | 'none'
+
+/**
+ * Who plays the playlist here (2026-09-06, #105, found by the e2e). The
+ * first rule was "the element, if it claims HLS; hls.js otherwise", and
+ * Chromium CLAIMS it: `canPlayType('application/vnd.apple.mpegurl')` answers
+ * "maybe" (Chrome 150, measured), because it has a built-in HLS player of
+ * its own - which then asked for `init.mp4` with no token and got a 401,
+ * and the film ended in DEMUXER_ERROR_COULD_NOT_PARSE. An Android would
+ * have done the same. So the question is not whether the element claims
+ * HLS but whether MSE can take the stream: where it can, hls.js is the
+ * player that is known to work (hls.js's own recommended order); where it
+ * cannot, which is an iPhone, the element is the only player there is.
+ */
+export function hlsPlayer(o: { native: string; mse: boolean }): HlsPlayer {
+  if (o.mse) return 'hlsjs'
+  return o.native !== '' ? 'native' : 'none'
+}
+
+/** `hlsPlayer` asked of this device. */
+export function hlsPlayerHere(): HlsPlayer {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return 'none'
+  return hlsPlayer({
+    native: document.createElement('video').canPlayType(HLS_MIME),
+    mse: typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(HLS_MSE_MIME)
+  })
 }

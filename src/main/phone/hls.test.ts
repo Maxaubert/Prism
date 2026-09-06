@@ -15,6 +15,13 @@ describe('playlist', () => {
     expect(t).toContain('#EXTINF:2.000000,\n2.m4s')
     expect(t.trim().endsWith('#EXT-X-ENDLIST')).toBe(true)
   })
+  it('carries the query it is given on every uri, so the token rides with the segments', () => {
+    const t = playlistText(10, '?t=abc')
+    expect(t).toContain('#EXT-X-MAP:URI="init.mp4?t=abc"')
+    expect(t).toContain('#EXTINF:4.000000,\n0.m4s?t=abc')
+    expect(t).toContain('#EXTINF:2.000000,\n2.m4s?t=abc')
+    expect(playlistText(10)).not.toContain('?')
+  })
   it('a film that ends on a boundary has no zero-length tail', () => {
     const t = playlistText(8)
     expect(t).toContain('#EXTINF:4.000000,\n1.m4s')

@@ -31,6 +31,10 @@ const IDLE_MS = 30_000
 const WAIT_MS = 30_000
 const POLL_MS = 100
 const INIT_FILE = 'init.mp4'
+/** `PRISM_PHONE_DEBUG=1`: ffmpeg's own progress line (`-stats`, so it is
+ *  printed at `-loglevel error` too) and its last word on exit, per job, to
+ *  the console. Nothing else, and nothing without the variable. */
+const DEBUG = !!process.env.PRISM_PHONE_DEBUG
 
 export interface JobDeps {
   ffmpeg: string
@@ -122,12 +126,13 @@ export class HlsJobs {
   /** The job's playlist, as `open` wrote it, for the `/hls/<job>/index.m3u8`
    *  route: the duration it is written from lives here and nowhere else, so
    *  the server never keeps a second table that the reaper would leave
-   *  behind. Fetching it is an ask, and keeps the job alive. */
-  playlist(id: string): string | null {
+   *  behind. Fetching it is an ask, and keeps the job alive. `query` is
+   *  what the route wants on every segment uri (the phone's `?t=`). */
+  playlist(id: string, query = ''): string | null {
     const job = this.jobs.get(id)
     if (!job) return null
     job.asked = this.now()
-    return playlistText(job.duration)
+    return playlistText(job.duration, query)
   }
 
   /** What the job's directory holds: the segment numbers and whether the
@@ -180,11 +185,17 @@ export class HlsJobs {
         encoder: this.encoder,
         audioIndex: job.audioIndex
       })
+      if (DEBUG) args.splice(args.indexOf('-nostdin'), 0, '-stats')
       const proc = this.spawn(this.deps.ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
       job.proc = proc
       proc.stderr?.on('data', (c: Buffer) => {
         job.stderr = (job.stderr + c.toString()).slice(-4000)
       })
+      if (DEBUG) {
+        const said = (): string => job.stderr.trim().split(/\r?\n|\r/).filter(Boolean).pop() ?? ''
+        console.log(`[phone hls] ${job.id} start at segment ${at} (${this.encoder.video})`)
+        proc.on('exit', (code) => console.log(`[phone hls] ${job.id} exit ${code}: ${said()}`))
+      }
       proc.on('error', (err) => {
         if (job.proc !== proc) return
         job.proc = null
