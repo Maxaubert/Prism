@@ -69,7 +69,8 @@ export function VideoView({
   transportBg,
   background = false,
   volumeKey,
-  fullscreen = false
+  fullscreen = false,
+  attach
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -96,8 +97,19 @@ export function VideoView({
    *  light theme's paper-white bars, or an accent-tinted ground, are the
    *  app leaking into the film. Windowed, the theme is the theme. */
   fullscreen?: boolean
+  /** The phone's hls.js hook (2026-09-06, #105): a device with no native HLS
+   *  needs a library to feed the element through MSE, and that library owns
+   *  `src`. When given, the element is rendered WITHOUT src and `attach` is
+   *  called with it; its return detaches. Nothing else in the viewer changes:
+   *  `url` is still the key everything else turns on. */
+  attach?: (el: HTMLMediaElement) => () => void
 }): JSX.Element {
   const video = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    const el = video.current
+    if (!attach || !el) return
+    return attach(el)
+  }, [attach, url])
   // A file Chromium cannot open at all is converted first, and what plays is
   // the copy. Everything downstream (subtitles, waveform, the audio decoder)
   // then deals with an ordinary mp4.
@@ -553,7 +565,7 @@ export function VideoView({
       )}
       <video
         ref={video}
-        src={src}
+        src={attach ? undefined : src}
         // Volume over 100% routes this element through Web Audio, and a source
         // that is not CORS-clean feeds the graph SILENCE rather than sound -
         // permanently, since the routing outlives the setting that asked for

@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ImageView } from '../components/ImageView'
 import { VideoView } from '../components/VideoView'
 import { AudioView } from '../components/AudioView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
+import { nativeHls } from './canPlay'
+import { askPlay, type PlayAnswer } from './prismShim'
 
 /**
  * The reused viewers on a phone (2026-09-06, #104). Video, audio and
@@ -19,7 +21,58 @@ import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
  * has no Settings to choose another. The viewers are keyed by path, as the
  * app keys them by kind, so a step is a fresh mount and nothing outlives the
  * file it belonged to.
+ *
+ * A film or a track is not mounted until `/api/play` has answered (#105):
+ * the answer decides whether the element gets a src at all. Mounted before
+ * it, the player would start loading the file itself, and on an Android
+ * with an MKV that is an error overlay a moment before the stream it should
+ * have been given. Native HLS (iPhone, iPad) needs nothing more than the
+ * playlist url, which the shim hands the players through the hooks they
+ * already have; anywhere else hls.js feeds the element through MSE, loaded
+ * on demand so an iPhone never downloads it, and it OWNS `src`, which is
+ * what the players' `attach` prop is for.
  */
+
+/** hls.js on the element, for `attach`: the library is fetched on first use
+ *  and torn down with the element. If the player left before the import
+ *  landed, nothing is attached. */
+function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
+  return (el) => {
+    let hls: { destroy(): void } | null = null
+    let dead = false
+    void import('hls.js').then(({ default: Hls }) => {
+      if (dead || !Hls.isSupported()) return
+      const h = new Hls({ enableWorker: true, lowLatencyMode: false })
+      h.loadSource(playlist)
+      h.attachMedia(el)
+      hls = h
+    })
+    return () => {
+      dead = true
+      hls?.destroy()
+    }
+  }
+}
+
+/** The verdict for the file on screen, or null while it is being asked. Kept
+ *  with its path, since the shell is not remounted on a step and the last
+ *  file's answer must not dress the next one. */
+function usePlayAnswer(file: ViewerFile): PlayAnswer | null {
+  const media = file.kind === 'video' || file.kind === 'audio'
+  const [answer, setAnswer] = useState<{ path: string; answer: PlayAnswer } | null>(null)
+  useEffect(() => {
+    if (!media) return
+    let live = true
+    void askPlay(file.path)
+      .catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message || 'Prism did not answer' }))
+      .then((a) => live && setAnswer({ path: file.path, answer: a }))
+    return () => {
+      live = false
+    }
+  }, [file.path, media])
+  return answer?.path === file.path ? answer.answer : null
+}
+
 export function PhoneViewer({
   file,
   onClose,
@@ -46,23 +99,60 @@ export function PhoneViewer({
   }, [])
 
   const url = window.prism.mediaUrl(file.path)
+  const answer = usePlayAnswer(file)
+  const playlist = answer?.mode === 'hls' ? answer.url : null
+  const viaHlsJs = playlist !== null && !nativeHls()
+  const attach = useMemo(() => (viaHlsJs && playlist ? attachHlsJs(playlist) : undefined), [viaHlsJs, playlist])
   let view: JSX.Element
   switch (file.kind) {
     case 'video':
-      view = (
-        <VideoView
-          key={file.path}
-          url={url}
-          path={file.path}
-          onToggleFullscreen={toggleFullscreen}
-          onAutoAdvance={() => onStep(1)}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={DEFAULT_TRANSPORT_STYLE}
-          transportBg={DEFAULT_TRANSPORT_BG}
-          fullscreen={fullscreen}
-        />
-      )
+    case 'audio':
+      if (!answer) {
+        view = (
+          <p className="p-6 text-center opacity-70" data-phone-preparing>
+            Preparing...
+          </p>
+        )
+        break
+      }
+      if (answer.mode === 'none') {
+        view = (
+          <p className="p-6 text-center opacity-70" data-phone-unplayable>
+            {file.name}: {answer.reason}
+          </p>
+        )
+        break
+      }
+      view =
+        file.kind === 'video' ? (
+          <VideoView
+            key={file.path}
+            url={url}
+            path={file.path}
+            onToggleFullscreen={toggleFullscreen}
+            onAutoAdvance={() => onStep(1)}
+            onStep={onStep}
+            canStep={canStep}
+            transportStyle={DEFAULT_TRANSPORT_STYLE}
+            transportBg={DEFAULT_TRANSPORT_BG}
+            fullscreen={fullscreen}
+            attach={attach}
+          />
+        ) : (
+          <AudioView
+            key={file.path}
+            url={url}
+            path={file.path}
+            name={file.name}
+            fullscreen={fullscreen}
+            onToggleFullscreen={toggleFullscreen}
+            onAutoAdvance={() => onStep(1)}
+            onStep={onStep}
+            canStep={canStep}
+            transportStyle={DEFAULT_TRANSPORT_STYLE}
+            attach={attach}
+          />
+        )
       break
     case 'image':
       view = (
@@ -75,22 +165,6 @@ export function PhoneViewer({
           onStep={onStep}
           canStep={canStep}
           fullscreen={fullscreen}
-        />
-      )
-      break
-    case 'audio':
-      view = (
-        <AudioView
-          key={file.path}
-          url={url}
-          path={file.path}
-          name={file.name}
-          fullscreen={fullscreen}
-          onToggleFullscreen={toggleFullscreen}
-          onAutoAdvance={() => onStep(1)}
-          onStep={onStep}
-          canStep={canStep}
-          transportStyle={DEFAULT_TRANSPORT_STYLE}
         />
       )
       break
