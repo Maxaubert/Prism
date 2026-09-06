@@ -634,8 +634,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   not take the picture down with it. The Tools button in the TITLE BAR is the home of the
   dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
   bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
-  every `phone:changed`, never what was clicked. NOT on the phone yet, each its own
-  decision: documents (#106), and the phone as a remote for the PC (#107).
+  every `phone:changed`, never what was clicked. Documents (#106) and the phone as a
+  remote for the PC (#107) each followed as their own decision, below.
 - **The phone plays what it cannot play** (2026-09-06, #105): an MKV, HEVC on an Android,
   Dolby audio anywhere, through a live transcode to HLS that SEEKS LIKE A FILE. THE PLAYLIST
   IS PRISM'S AND THE SEGMENTS ARE FFMPEG'S (`src/main/phone/hls.ts`, pure and tested):
@@ -715,6 +715,39 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
   phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
   wait for a real device; hex and the terminal are not offered.
+- **The phone as a remote** (2026-09-07, #107): a Watch | Remote switch in the phone page's
+  header (remembered in `prism.phone.mode`). In Remote mode the phone shows what the PC's
+  active tab is playing and drives it: play, pause, seek, ten seconds either way, next and
+  previous, volume to 200% and mute. ONE CLOCK ON SCREEN: the phone's own viewer is
+  UNMOUNTED in Remote mode and the folder list goes with it, so the scrubber is the PC's
+  clock (`shownClock` carries it forward between reports at the PC's rate and the next
+  report corrects it) and never a second player's. THE TARGET IS WHOEVER OWNS THE KEYBOARD:
+  `useMediaControls` registers itself in `lib/remoteTarget` while it has `keys`, by its own
+  id so a player unmounting after the next one registered cannot clear it, and App never
+  has to work out which of the deck's mounted players is in front. NOTHING IS SENT WHILE
+  NOBODY LISTENS, and that includes rendering: the target is a registry and never App
+  state (a player publishes a snapshot four times a second, and mirroring it into state
+  re-rendered the whole App at that rate for as long as anything played), App subscribes
+  only while main's listener count is above zero, and a report goes on `stateChanged` -
+  any field but the clock, the clock past 0.9s while playing and on ANY move while paused,
+  since a paused clock only moves on a seek. Main fans the state out as Server-Sent Events
+  (`GET /remote/state`, the last state at once so a fresh phone draws something, a `: ping`
+  every 15s that also keeps the phone in the dialog's watching list) and turns
+  `POST /remote/cmd` into `phone:cmd`: a command is VALIDATED IN A PURE FUNCTION
+  (`shared/remote.ts` `parseCmd`, only the fields it checked come out) before anything
+  reaches the renderer, 400 for a shape or range it refuses, 409 with a reason while
+  nothing is playing, 204 once App has it, and the effect shows on the stream rather than
+  in a body. The phone's client (`phone/remoteClient.ts`, tested under a fake EventSource)
+  does NOT trust the browser's reconnect, which retries at once for ever on a network
+  error and never on a refused connection, and neither is what a remote wants: an error
+  closes the source and it reopens on its own clock, 1s doubling to 15s. A seek is sent
+  ONCE, on release; volume goes live, throttled to two POSTs per 120ms. MEASURED in the
+  e2e (`phoneRemote`): 19ms from the POST to the PC's `<video>` playing, 21ms from a tap
+  on the phone's own Play, 20ms for the phone to hear it back over the stream. LOCKSTEP IS
+  DELIBERATELY NOT PROMISED: the phone's scrubber is the PC's last report plus arithmetic,
+  and a stall on the PC (a stream buffering) shows on the phone at the next report, not
+  the same frame. What a real phone still owes: the switch and the screen were driven
+  under CDP in the app's own Chromium, not on a device.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range
