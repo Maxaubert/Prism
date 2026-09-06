@@ -36,6 +36,9 @@ describe('HlsJobs', () => {
     expect(await jobs.init(id)).toContain('init.mp4')
     expect(jobs.owner(id)).toBe('t')
     expect(jobs.owner('nope')).toBeNull()
+    // The playlist for an open job is the one open returned; an unknown job has none.
+    expect(jobs.playlist(id)).toBe(playlist)
+    expect(jobs.playlist('nope')).toBeNull()
     await jobs.stopAll()
   })
 

@@ -119,6 +119,17 @@ export class HlsJobs {
     return this.jobs.get(id)?.failed ?? null
   }
 
+  /** The job's playlist, as `open` wrote it, for the `/hls/<job>/index.m3u8`
+   *  route: the duration it is written from lives here and nowhere else, so
+   *  the server never keeps a second table that the reaper would leave
+   *  behind. Fetching it is an ask, and keeps the job alive. */
+  playlist(id: string): string | null {
+    const job = this.jobs.get(id)
+    if (!job) return null
+    job.asked = this.now()
+    return playlistText(job.duration)
+  }
+
   /** What the job's directory holds: the segment numbers and whether the
    *  init file is there. One readdir per look, never a stat per segment. */
   private async onDisk(job: Job): Promise<{ segments: Set<number>; init: boolean }> {

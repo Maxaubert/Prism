@@ -17,8 +17,11 @@ import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
 import type { DirListing } from '@shared/types'
+import type { MediaInfo } from '../ffmpeg'
+import { decide, parseCan } from './decide'
+import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
-import { parseRoute, tokenOf } from './routes'
+import { parseRoute, tokenOf, type Route } from './routes'
 
 export const DEFAULT_PORT = 47320
 /** A phone counts as watching for this long after its last fetch. */
@@ -30,6 +33,16 @@ const PAIR_LIMIT = 5
 const PAIR_WINDOW_MS = 60_000
 /** How many ports above the preferred one are tried before giving up. */
 const PORT_TRIES = 10
+/** How often idle HLS jobs are looked for; a job is idle after 30s. */
+const REAP_MS = 10_000
+/** What the phone plays from a job directory, by file: the playlist Prism
+ *  wrote, ffmpeg's init segment and its media segments. Nothing else there
+ *  has a type because nothing else there is served. */
+const HLS_MIME: Record<string, string> = {
+  '.m3u8': 'application/vnd.apple.mpegurl',
+  '.mp4': 'video/mp4',
+  '.m4s': 'video/iso.segment'
+}
 
 export interface PhoneDeps {
   /** Where the built phone bundle lives (`out/renderer`). */
@@ -53,6 +66,12 @@ export interface PhoneDeps {
   subsFor: (p: string) => Array<{ path: string; label: string }>
   /** One sidecar as WebVTT; null when it cannot be read or converted. */
   readSubs: (p: string) => Promise<string | null>
+  /** Main's cached probe: what the file holds, or null when ffprobe could
+   *  not read it (or there is no ffprobe). `/api/play` decides from it. */
+  probe: (file: string) => Promise<MediaInfo | null>
+  /** The HLS jobs, one ffmpeg per phone and file; null when Prism found no
+   *  ffmpeg, in which case a file the phone cannot play directly is `none`. */
+  jobs: HlsJobs | null
   /** Pairing changed: persist and tell the dialog. */
   onChange: () => void
   loopbackOnly: boolean
@@ -118,6 +137,8 @@ export class PhoneServer {
   private seen = new Map<string, number>()
   /** Remote address -> the times it tried to pair inside the window. */
   private pairHits = new Map<string, number[]>()
+  /** Looks for idle HLS jobs while the server is up. */
+  private reaper: ReturnType<typeof setInterval> | null = null
   private readonly now: () => number
 
   constructor(
@@ -164,19 +185,32 @@ export class PhoneServer {
           this.server = s
           const addr = s.address()
           this.bound = typeof addr === 'object' && addr ? addr.port : port
+          // A job nobody asks about is an ffmpeg encoding for no one: the
+          // jobs class knows which, and this is the clock that asks it.
+          if (this.deps.jobs && !this.reaper) {
+            this.reaper = setInterval(() => void this.deps.jobs?.reap(), REAP_MS)
+            this.reaper.unref()
+          }
           resolve(this.bound)
         })
       })
     return tryPort(preferredPort, PORT_TRIES)
   }
 
-  /** Close, dropping open connections rather than waiting for a film to end. */
-  stop(): Promise<void> {
+  /** Close, dropping open connections rather than waiting for a film to
+   *  end, and every ffmpeg with them: a segment nobody can fetch is not
+   *  worth encoding. */
+  async stop(): Promise<void> {
     const s = this.server
     this.server = null
     this.bound = null
-    if (!s) return Promise.resolve()
-    return new Promise((resolve) => {
+    if (this.reaper) {
+      clearInterval(this.reaper)
+      this.reaper = null
+    }
+    await this.deps.jobs?.stopAll()
+    if (!s) return
+    await new Promise<void>((resolve) => {
       s.closeAllConnections()
       s.close(() => resolve())
     })
@@ -210,7 +244,8 @@ export class PhoneServer {
         if (!this.deps.validRoot(phone.root, route.path)) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
-      return await this.api(route.name, route.query, phone.root, phone.name, res)
+      if (route.kind === 'hls') return await this.hls(route, phone.token, res)
+      return await this.api(route.name, route.query, phone.root, phone.name, phone.token, res)
     } catch (err) {
       if (!res.headersSent) json(res, 500, { error: String((err as Error)?.message ?? err) })
       else res.end()
@@ -264,11 +299,47 @@ export class PhoneServer {
     q: URLSearchParams,
     root: string,
     phoneName: string,
+    token: string,
     res: ServerResponse
   ): Promise<void> {
     const path = q.get('path') ?? ''
     const inside = (): boolean => this.deps.validRoot(root, path) || this.deps.isRoot(root, path)
     switch (name) {
+      // Direct or HLS, per file and per DEVICE: the phone reports what it
+      // plays in `can` and `decide` is a lookup against it. The wall is
+      // here, once: a job is only ever opened on a path that passed it, and
+      // the job id is what the /hls routes are keyed by afterwards.
+      case 'play': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const info = await this.deps.probe(path)
+        const plan = decide(info, extname(path), parseCan(q.get('can')))
+        if (plan.mode === 'direct') {
+          return void json(res, 200, {
+            mode: 'direct',
+            url: `/m/${encodeURIComponent(path)}?t=${token}`,
+            fps: info?.fps ?? null,
+            duration: info?.duration ?? 0
+          })
+        }
+        if (plan.mode === 'none') return void json(res, 200, plan)
+        if (!this.deps.jobs || !info) {
+          return void json(res, 200, { mode: 'none', reason: 'Prism has no ffmpeg to convert with' })
+        }
+        const { id } = this.deps.jobs.open({
+          token,
+          file: path,
+          plan,
+          duration: info.duration,
+          audioIndex: info.audio?.index ?? null
+        })
+        return void json(res, 200, {
+          mode: 'hls',
+          url: `/hls/${id}/index.m3u8?t=${token}`,
+          copyVideo: plan.copyVideo,
+          fps: info.fps,
+          duration: info.duration
+        })
+      }
       case 'me':
         return void json(res, 200, { root, open: this.deps.rootOpen(root), name: phoneName })
       case 'dir': {
@@ -306,6 +377,47 @@ export class PhoneServer {
     node.on('error', () => res.destroy())
     res.on('close', () => node.destroy())
     node.pipe(res)
+  }
+
+  /**
+   * A job's playlist, init segment or media segment. The job must belong to
+   * THIS phone, and a mismatch is 404 rather than 403: another phone is not
+   * told the job exists. The playlist is Prism's own text; the two file
+   * shapes are waited for (a segment ffmpeg has not reached is produced on
+   * the ask, or the run restarted at it) and then streamed. Nothing is
+   * cacheable: a restart rewrites every file under the job directory.
+   */
+  private async hls(route: Extract<Route, { kind: 'hls' }>, token: string, res: ServerResponse): Promise<void> {
+    const jobs = this.deps.jobs
+    if (!jobs || jobs.owner(route.job) !== token) return void json(res, 404, { error: 'no such stream' })
+    if (route.file === 'index.m3u8') {
+      const text = jobs.playlist(route.job)
+      if (text === null) return void json(res, 404, { error: 'no such stream' })
+      res.writeHead(200, { 'content-type': HLS_MIME['.m3u8'], 'cache-control': 'no-store' })
+      return void res.end(text)
+    }
+    const file =
+      route.file === 'init.mp4' ? await jobs.init(route.job) : await jobs.segment(route.job, Number(route.file.split('.')[0]))
+    if (file === null) {
+      return void json(res, 404, { error: jobs.lastError(route.job) ?? 'no such segment' })
+    }
+    return await this.sendFile(file, HLS_MIME[extname(file)], res)
+  }
+
+  /** One whole file, streamed, with its length; 404 if it went away between
+   *  the ask and the read (a restart clears the directory). */
+  private async sendFile(full: string, type: string, res: ServerResponse): Promise<void> {
+    let st: Awaited<ReturnType<typeof fsp.stat>>
+    try {
+      st = await fsp.stat(full)
+    } catch {
+      return void json(res, 404, { error: 'not found' })
+    }
+    res.writeHead(200, { 'content-type': type, 'content-length': String(st.size), 'cache-control': 'no-store' })
+    const s = createReadStream(full)
+    s.on('error', () => res.destroy())
+    res.on('close', () => s.destroy())
+    s.pipe(res)
   }
 
   /** The phone bundle out of the renderer dir; in dev, out of vite's server. */
