@@ -672,8 +672,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   "maybe" to the HLS mime (its built-in player, measured on Chrome 150) and that player asks
   for segments without the token, so trusting the claim sent an Android to a player that
   could not work. hls.js is loaded on demand so an iPhone never downloads it, and it owns
-  `src` through the players' one new prop, `attach`. Jobs nobody asks about for 30s are
-  reaped with their directory, and `userData/phone/hls` is wiped at startup. Everything on
+  `src` through the players' one new prop, `attach`. A job nobody asks about for 30s has its
+  ffmpeg KILLED and nothing else: a paused player fetches nothing, and the first cut reaped
+  the whole job at 30s, so a phone paused longer than that resumed into a 404 and a fatal
+  hls.js error nobody handled (the element's own error event never fires when hls.js owns
+  the source, so the page simply went quiet). The record and its segments stay for ten
+  minutes and the next ask restarts ffmpeg where it stands; a fatal hls.js error now retries
+  the network, recovers the media once, and past that raises the element's own error so the
+  player draws the overlay it already has. `userData/phone/hls` is wiped at startup. An HLS
+  film is handed its playlist as the url from the start, never the direct bytes first (one
+  aborted request per film, measured in the console). Everything on
   the path is walled: a job is opened only on a path that passed the phone's own root, its id
   is what `/hls/` is keyed by, another phone's token gets 404 rather than 403, and only
   `index.m3u8`, `init.mp4` and `<n>.m4s` are served from a job directory.
