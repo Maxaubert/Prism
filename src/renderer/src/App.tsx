@@ -114,7 +114,7 @@ import { warmOf } from './lib/viewerCache'
 const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
 import { emptyState, stateChanged, type RemoteState } from '@shared/remote'
-import { getTarget, onTarget, type Target } from './lib/remoteTarget'
+import { getTarget, onTarget } from './lib/remoteTarget'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { JobChip } from './components/JobChip'
@@ -2502,57 +2502,85 @@ export default function App(): JSX.Element {
    * name and whether there is a next or previous of the same kind, which is
    * exactly what the video's own menu asks (`sameKindIndex`).
    *
-   * NOTHING IS SENT WHILE NO PHONE LISTENS: main says how many are, and at
-   * zero the last-sent memory is dropped, so the first phone to connect is
-   * sent the truth rather than a diff against something stale. Reported on
-   * a change (everything but the clock, and the clock past 0.9s) and once a
-   * second while playing, both through the same gate, so the clock goes out
-   * about once a second and a pause or a seek goes out at once.
+   * NOTHING HAPPENS WHILE NO PHONE LISTENS, and that includes rendering.
+   * The player publishes a fresh snapshot on every clock tick, four a
+   * second, and the first cut mirrored it into App state: the whole App,
+   * sidebar and tree rows included, re-rendered four times a second for as
+   * long as anything played, phone or no phone. So the target is never
+   * state here. App subscribes to the registry only while main says a phone
+   * is listening, and builds and sends the report from inside the callback,
+   * through refs, with no render at all; at zero listeners the subscription
+   * goes with the last-sent memory, so the first phone to connect is sent
+   * the truth rather than a diff against something stale.
+   *
+   * Reported on a change: everything but the clock, and the clock past
+   * 0.9s, which while playing already means about once a second since the
+   * clock ticks four times in it. The 1s interval is the BACKSTOP for a
+   * clock that has stalled (a stream buffering, an element that stopped
+   * firing timeupdate), not the clock itself; it sends nothing while nothing
+   * changed, and removing it costs a phone the truth only in those cases.
+   *
+   * Written down, not fixed (task 2 review): a PINNED pane's Viewer is
+   * mounted without `background`, so its player has the keys too and
+   * registers as well. Two playing videos flip the target between them on
+   * every tick, and the reported name is the active tab's. That is split
+   * view's pre-existing keyboard ambiguity (both players answer Space), not
+   * the remote's own; settling which pane owns the keys settles both, and
+   * `background` is not the lever, since it also takes a pane's chrome away.
    */
-  const [remoteTarget, setRemoteTarget] = useState<Target | null>(() => getTarget())
-  useEffect(() => onTarget(setRemoteTarget), [])
   const [phoneListeners, setPhoneListeners] = useState(0)
   useEffect(() => window.prism.onPhoneListeners(setPhoneListeners), [])
-  const remoteState = useMemo<RemoteState>(() => {
-    const t = remoteTarget
-    if (!t || !file) return emptyState()
-    const c = t.controls
-    return {
-      empty: false,
-      name: file.name,
-      kind: t.kind,
-      playing: c.playing,
-      // A stream with no end reports an infinite duration, which JSON
-      // cannot carry: the phone draws no scrubber for 0.
-      cur: Number.isFinite(c.cur) ? c.cur : 0,
-      dur: Number.isFinite(c.dur) ? c.dur : 0,
-      vol: c.vol,
-      muted: c.muted,
-      rate: c.rate,
-      canNext: sameKindIndex(1) >= 0,
-      canPrev: sameKindIndex(-1) >= 0
-    }
-  }, [remoteTarget, file, sameKindIndex])
+  const remoteFile = useRef(file)
+  const remoteSameKind = useRef(sameKindIndex)
   const remoteSent = useRef<RemoteState | null>(null)
-  const remoteLatest = useRef(remoteState)
-  const reportRemote = useCallback((s: RemoteState) => {
+  const reportRemote = useCallback(() => {
+    const t = getTarget()
+    const f = remoteFile.current
+    let s: RemoteState
+    if (!t || !f) {
+      s = emptyState()
+    } else {
+      const c = t.controls
+      s = {
+        empty: false,
+        name: f.name,
+        kind: t.kind,
+        playing: c.playing,
+        // A stream with no end reports an infinite duration, which JSON
+        // cannot carry: the phone draws no scrubber for 0.
+        cur: Number.isFinite(c.cur) ? c.cur : 0,
+        dur: Number.isFinite(c.dur) ? c.dur : 0,
+        vol: c.vol,
+        muted: c.muted,
+        rate: c.rate,
+        canNext: remoteSameKind.current(1) >= 0,
+        canPrev: remoteSameKind.current(-1) >= 0
+      }
+    }
     if (remoteSent.current && !stateChanged(remoteSent.current, s)) return
     remoteSent.current = s
     window.prism.phoneState(s)
   }, [])
+  // The file and the stepping rule reach the report through refs, refreshed
+  // here; a change of either is a change of what the phone should see.
   useEffect(() => {
-    remoteLatest.current = remoteState
+    remoteFile.current = file
+    remoteSameKind.current = sameKindIndex
+    if (phoneListeners > 0) reportRemote()
+  }, [file, sameKindIndex, phoneListeners, reportRemote])
+  useEffect(() => {
     if (phoneListeners <= 0) {
       remoteSent.current = null
       return
     }
-    reportRemote(remoteState)
-  }, [phoneListeners, remoteState, reportRemote])
-  useEffect(() => {
-    if (phoneListeners <= 0 || !remoteState.playing) return
-    const t = setInterval(() => reportRemote(remoteLatest.current), 1000)
-    return () => clearInterval(t)
-  }, [phoneListeners, remoteState.playing, reportRemote])
+    reportRemote()
+    const off = onTarget(reportRemote)
+    const backstop = setInterval(reportRemote, 1000)
+    return () => {
+      off()
+      clearInterval(backstop)
+    }
+  }, [phoneListeners, reportRemote])
   // A command goes to the target as it is NOW, not as it was when the
   // listener was made: the subscription is made once and reads through refs.
   const stepSameKindRef = useRef(stepSameKind)

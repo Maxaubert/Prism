@@ -3,7 +3,7 @@ import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
-import { getTarget, setTarget } from './remoteTarget'
+import { clearTarget, setTarget } from './remoteTarget'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -382,9 +382,12 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
    * every change of what the phone is shown (the fields below), never on
    * every render: `controls` is rebuilt each time, so the object itself
    * cannot be the dependency. The verbs read the element through the ref and
-   * stay valid however old the registered snapshot is. Losing the keys or
-   * unmounting takes the player out, checked by identity, because the next
-   * player registers in the same commit and its cleanup must not clear that.
+   * stay valid however old the registered snapshot is. A snapshot per clock
+   * tick is cheap because NOBODY SUBSCRIBES until a phone listens (App reads
+   * the registry from inside its subscription, never into state), so with no
+   * phone this is one small object four times a second and nothing else.
+   * Losing the keys or unmounting takes the player out, by id: the next
+   * player registers in the same commit and this cleanup must not clear that.
    */
   useEffect(() => {
     if (keys && kind) setTarget({ id: awakeKey, kind, controls })
@@ -396,9 +399,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   // App would have reported "nothing playing" four times a second.
   useEffect(() => {
     if (!keys || !kind) return
-    return () => {
-      if (getTarget()?.id === awakeKey) setTarget(null)
-    }
+    return () => clearTarget(awakeKey)
   }, [keys, kind, awakeKey])
 
   return controls

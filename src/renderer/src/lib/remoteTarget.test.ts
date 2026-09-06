@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getTarget, onTarget, setTarget, type Target } from './remoteTarget'
+import { clearTarget, getTarget, onTarget, setTarget, type Target } from './remoteTarget'
 import type { MediaControls } from './useMediaControls'
 
 // The registry never calls into the controls, so a bare cast is all a test
@@ -78,6 +78,47 @@ describe('the remote target registry', () => {
     const cb = vi.fn()
     onTarget(cb)
     expect(cb).not.toHaveBeenCalled()
+  })
+
+  describe('clearTarget, the identity-guarded unregister', () => {
+    it('clears the target that carries the id', () => {
+      const cb = vi.fn()
+      onTarget(cb)
+      setTarget(target('a'))
+      clearTarget('a')
+      expect(getTarget()).toBeNull()
+      expect(cb).toHaveBeenLastCalledWith(null)
+    })
+
+    it('a player unmounting after the next one registered leaves it alone', () => {
+      // The viewer swaps films in one commit: the new player registers, then
+      // the old one's cleanup runs. That cleanup must not clear the new one.
+      setTarget(target('old'))
+      const fresh = target('new')
+      setTarget(fresh)
+      const cb = vi.fn()
+      onTarget(cb)
+      clearTarget('old')
+      expect(getTarget()).toBe(fresh)
+      expect(cb).not.toHaveBeenCalled()
+    })
+
+    it('clears by id, however many snapshots that player published', () => {
+      // The hook re-registers a fresh snapshot on every clock tick; the id
+      // is the same across them, and it is the id that is checked.
+      setTarget(target('a'))
+      setTarget(target('a', true))
+      clearTarget('a')
+      expect(getTarget()).toBeNull()
+    })
+
+    it('is quiet when nothing is registered', () => {
+      const cb = vi.fn()
+      onTarget(cb)
+      clearTarget('a')
+      expect(getTarget()).toBeNull()
+      expect(cb).not.toHaveBeenCalled()
+    })
   })
 
   it('unsubscribing twice is harmless', () => {
