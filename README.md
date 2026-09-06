@@ -63,7 +63,9 @@ never shipped: one small app that opens everything and looks good doing it.
 - **On your phone**: Tools > Phone serves the folder you have open to phones on your own
   Wi-Fi. Scan the QR code once, then browse the folder on the phone and play video, audio
   and pictures straight from the PC. Plain HTTP on your own network, nothing leaves it; the
-  PC lists every paired phone and can forget one at any time.
+  PC lists every paired phone and can forget one at any time. What the phone cannot play as
+  it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
+  and the phone seeks through it like any other file.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 
