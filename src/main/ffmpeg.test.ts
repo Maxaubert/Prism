@@ -181,6 +181,18 @@ describe('reading a probe', () => {
     expect(r?.audio?.index).toBe(1)
   })
 
+  it('reads the picture shape and transfer, for the phone transcode', () => {
+    const r = readProbe(
+      probe([
+        { index: 0, codec_type: 'video', codec_name: 'hevc', width: 3840, height: 2160, pix_fmt: 'yuv420p10le', color_transfer: 'smpte2084' },
+        { index: 1, codec_type: 'audio', codec_name: 'eac3', channels: 8 }
+      ])
+    )
+    expect(r?.video).toEqual({ width: 3840, height: 2160, pixFmt: 'yuv420p10le', transfer: 'smpte2084' })
+    const none = readProbe(probe([{ index: 1, codec_type: 'audio', codec_name: 'aac' }]))
+    expect(none?.video).toBeNull()
+  })
+
   it('prefers the default track, which is the one Chromium would play', () => {
     const r = readProbe(
       probe([
