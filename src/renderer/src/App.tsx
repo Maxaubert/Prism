@@ -96,6 +96,7 @@ import {
   setTheme as setVizTheme
 } from './lib/vizStore'
 import { Dialog } from './components/Dialog'
+import { PhoneDialog } from './components/PhoneDialog'
 import {
   loadTransportBg,
   loadTransportStyle,
@@ -206,7 +207,8 @@ function TopBar({
   editable,
   editing,
   dirty,
-  onToggleEdit
+  onToggleEdit,
+  onTools
 }: {
   /** The open file's name - or '' while the sidebar is showing it, so the
    *  same fact isn't said twice on one screen. */
@@ -235,6 +237,8 @@ function TopBar({
   updatePhase: 'idle' | 'downloading' | 'installing'
   updatePct: number
   onInstallUpdate: () => void
+  /** The Tools menu, opened at the button's bottom-left corner. */
+  onTools: (x: number, y: number) => void
 }): JSX.Element {
   const w = window.prism
   return (
@@ -287,6 +291,37 @@ function TopBar({
         />
       )}
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
+      {/* Tools (2026-09-06, #104): a menu of things that are not about the
+          open file. One row today, Phone; the button exists so the next
+          one has a home. Left of the update chip, glyph only like its
+          neighbours. */}
+      {!setup && (
+        <button
+          className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            onTools(r.left, r.bottom + 2)
+          }}
+          title="Tools"
+          aria-label="Tools"
+          aria-haspopup="menu"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width={15}
+            height={15}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M14.7 6.3a4 4 0 0 0 5 5L13 18a2.1 2.1 0 0 1-3-3l6.7-6.7Z" />
+            <path d="M14.7 6.3 17 4l3 3-2.3 2.3M5 19l3-3" />
+          </svg>
+        </button>
+      )}
       {/* The update chip: quiet accent pill, present only while there is
           something to install. A mock (unpackaged builds) is inert - it
           exists so the chip can be seen before a real release carries it. */}
@@ -1284,6 +1319,11 @@ export default function App(): JSX.Element {
   )
   const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
   const [updatePct, setUpdatePct] = useState(0)
+  // Tools > Phone (#104): the menu under the title bar's Tools button and the
+  // dialog its one row opens. The dialog is handed the ACTIVE tab's root, so
+  // the QR it shows pairs a phone to the folder you are looking at.
+  const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null)
+  const [phoneOpen, setPhoneOpen] = useState(false)
   useEffect(() => window.prism.onUpdate(setUpdate), [])
   useEffect(
     () =>
@@ -3168,6 +3208,7 @@ export default function App(): JSX.Element {
           updatePhase={updatePhase}
           updatePct={updatePct}
           onInstallUpdate={installUpdate}
+          onTools={(x, y) => setToolsMenu({ x, y })}
         />
       )}
       {/* Under the bar, and only once there are two or more: one tab is exactly
@@ -3924,6 +3965,22 @@ export default function App(): JSX.Element {
           body={ask.message}
           onCancel={() => setAsk(null)}
           choices={[{ label: 'OK', primary: true, onPick: () => setAsk(null) }]}
+        />
+      )}
+      {toolsMenu && (
+        <ContextMenu
+          x={toolsMenu.x}
+          y={toolsMenu.y}
+          onClose={() => setToolsMenu(null)}
+          items={[{ label: 'Phone', onPick: () => setPhoneOpen(true) }]}
+        />
+      )}
+      {phoneOpen && (
+        <PhoneDialog
+          // The Settings tab owns no root; the dialog then says to open a
+          // folder rather than offering a code for nowhere.
+          root={active && active.kind !== 'settings' ? active.root : null}
+          onClose={() => setPhoneOpen(false)}
         />
       )}
       {setup && (
