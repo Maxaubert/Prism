@@ -144,6 +144,7 @@ export function AudioView({
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`,
     resumeKey: url,
     keys: !background,
+    kind: 'audio',
     volumeKey,
     onVolume: () => setVolFlash(Date.now())
   })

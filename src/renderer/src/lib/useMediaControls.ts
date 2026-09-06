@@ -3,6 +3,7 @@ import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
+import { getTarget, setTarget } from './remoteTarget'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
 // binds the media element's events + the keyboard. Video and audio use the same
@@ -79,6 +80,10 @@ interface Options {
   /** False for a player that is mounted but not on screen (another tab is in
    *  front): it keeps playing, but the keyboard belongs to what you can see. */
   keys?: boolean
+  /** Which player this is, for the phone's Remote mode (#107): the player
+   *  that owns the keyboard registers itself as the remote's target, and the
+   *  phone shows the kind. Omit and the player is never a target. */
+  kind?: 'video' | 'audio'
   /** The file's real frame rate, when it is known. Frame stepping without it
    *  is a guess: 1/30 on 24fps film moves 1.25 frames and lands between two.
    *  Omit for audio, and for a file whose rate the probe could not say. */
@@ -104,6 +109,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     errorMsg,
     resumeKey,
     keys = true,
+    kind,
     volumeKey = '',
     forceMute = false,
     fps = null
@@ -366,8 +372,34 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     onError: () => setError(errorMsg ?? 'This file can’t be played.')
   }
 
-  return {
+  const controls: MediaControls = {
     playing, cur, dur, buffered, vol, muted, rate, error,
     setVol, toggleMute, setRate, stepRate, togglePlay, seekTo, seekBy, bumpVol, bind
   }
+
+  /**
+   * The phone's remote drives whoever owns the keyboard (#107). Registered on
+   * every change of what the phone is shown (the fields below), never on
+   * every render: `controls` is rebuilt each time, so the object itself
+   * cannot be the dependency. The verbs read the element through the ref and
+   * stay valid however old the registered snapshot is. Losing the keys or
+   * unmounting takes the player out, checked by identity, because the next
+   * player registers in the same commit and its cleanup must not clear that.
+   */
+  useEffect(() => {
+    if (keys && kind) setTarget({ id: awakeKey, kind, controls })
+    // The registered snapshot is refreshed by the fields the phone draws.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keys, kind, awakeKey, playing, cur, dur, vol, muted, rate, togglePlay, seekTo, seekBy, setVol, toggleMute])
+  // The unregister is its OWN effect: had it been the cleanup of the one
+  // above, every clock tick would have cleared and re-set the target, and
+  // App would have reported "nothing playing" four times a second.
+  useEffect(() => {
+    if (!keys || !kind) return
+    return () => {
+      if (getTarget()?.id === awakeKey) setTarget(null)
+    }
+  }, [keys, kind, awakeKey])
+
+  return controls
 }

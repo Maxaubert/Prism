@@ -113,6 +113,8 @@ import { warmOf } from './lib/viewerCache'
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
 import { intendToPlay, wasPlaying } from './lib/playState'
+import { emptyState, stateChanged, type RemoteState } from '@shared/remote'
+import { getTarget, onTarget, type Target } from './lib/remoteTarget'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { JobChip } from './components/JobChip'
@@ -2489,6 +2491,114 @@ export default function App(): JSX.Element {
     [active, file, sameKindIndex, setRawIndex, view]
   )
   const advanceSameKind = useCallback(() => stepSameKind(1), [stepSameKind])
+
+  /**
+   * The phone as a remote (#107).
+   *
+   * The TARGET is whichever player owns the keyboard: `useMediaControls`
+   * registers it in `lib/remoteTarget` while it has the keys, so this never
+   * has to work out which of the deck's mounted players is in front. The
+   * state the phone sees is that player's fields plus the active tab's file
+   * name and whether there is a next or previous of the same kind, which is
+   * exactly what the video's own menu asks (`sameKindIndex`).
+   *
+   * NOTHING IS SENT WHILE NO PHONE LISTENS: main says how many are, and at
+   * zero the last-sent memory is dropped, so the first phone to connect is
+   * sent the truth rather than a diff against something stale. Reported on
+   * a change (everything but the clock, and the clock past 0.9s) and once a
+   * second while playing, both through the same gate, so the clock goes out
+   * about once a second and a pause or a seek goes out at once.
+   */
+  const [remoteTarget, setRemoteTarget] = useState<Target | null>(() => getTarget())
+  useEffect(() => onTarget(setRemoteTarget), [])
+  const [phoneListeners, setPhoneListeners] = useState(0)
+  useEffect(() => window.prism.onPhoneListeners(setPhoneListeners), [])
+  const remoteState = useMemo<RemoteState>(() => {
+    const t = remoteTarget
+    if (!t || !file) return emptyState()
+    const c = t.controls
+    return {
+      empty: false,
+      name: file.name,
+      kind: t.kind,
+      playing: c.playing,
+      // A stream with no end reports an infinite duration, which JSON
+      // cannot carry: the phone draws no scrubber for 0.
+      cur: Number.isFinite(c.cur) ? c.cur : 0,
+      dur: Number.isFinite(c.dur) ? c.dur : 0,
+      vol: c.vol,
+      muted: c.muted,
+      rate: c.rate,
+      canNext: sameKindIndex(1) >= 0,
+      canPrev: sameKindIndex(-1) >= 0
+    }
+  }, [remoteTarget, file, sameKindIndex])
+  const remoteSent = useRef<RemoteState | null>(null)
+  const remoteLatest = useRef(remoteState)
+  const reportRemote = useCallback((s: RemoteState) => {
+    if (remoteSent.current && !stateChanged(remoteSent.current, s)) return
+    remoteSent.current = s
+    window.prism.phoneState(s)
+  }, [])
+  useEffect(() => {
+    remoteLatest.current = remoteState
+    if (phoneListeners <= 0) {
+      remoteSent.current = null
+      return
+    }
+    reportRemote(remoteState)
+  }, [phoneListeners, remoteState, reportRemote])
+  useEffect(() => {
+    if (phoneListeners <= 0 || !remoteState.playing) return
+    const t = setInterval(() => reportRemote(remoteLatest.current), 1000)
+    return () => clearInterval(t)
+  }, [phoneListeners, remoteState.playing, reportRemote])
+  // A command goes to the target as it is NOW, not as it was when the
+  // listener was made: the subscription is made once and reads through refs.
+  const stepSameKindRef = useRef(stepSameKind)
+  useEffect(() => {
+    stepSameKindRef.current = stepSameKind
+  }, [stepSameKind])
+  useEffect(
+    () =>
+      window.prism.onPhoneCmd((cmd) => {
+        const t = getTarget()
+        // Main answers 409 from its own copy of the state when nothing is
+        // open; a command that slips through in between is simply dropped.
+        if (!t) return
+        const c = t.controls
+        switch (cmd.op) {
+          case 'play':
+            if (!c.playing) c.togglePlay()
+            break
+          case 'pause':
+            if (c.playing) c.togglePlay()
+            break
+          case 'toggle':
+            c.togglePlay()
+            break
+          case 'seek':
+            c.seekTo(cmd.to)
+            break
+          case 'step':
+            c.seekBy(cmd.by)
+            break
+          case 'next':
+            stepSameKindRef.current(1)
+            break
+          case 'prev':
+            stepSameKindRef.current(-1)
+            break
+          case 'volume':
+            c.setVol(cmd.to)
+            break
+          case 'mute':
+            c.toggleMute()
+            break
+        }
+      }),
+    []
+  )
 
   // A different file closes the editor (render-phase adjustment, the sidebar's
   // pattern): the pencil applies to what you were looking at, not what's next.

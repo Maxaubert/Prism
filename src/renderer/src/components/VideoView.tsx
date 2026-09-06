@@ -239,6 +239,7 @@ export function VideoView({
     errorMsg: 'This video can’t be played (unsupported codec or corrupt file).',
     resumeKey: url,
     keys: !background,
+    kind: 'video',
     volumeKey,
     // What a frame actually is, for the . and , keys.
     fps: playable.fps,
