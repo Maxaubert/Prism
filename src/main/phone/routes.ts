@@ -11,6 +11,7 @@ export type Route =
   | { kind: 'api'; name: string; query: URLSearchParams }
   | { kind: 'media'; path: string; query: URLSearchParams }
   | { kind: 'hls'; job: string; file: string; query: URLSearchParams }
+  | { kind: 'remote'; what: 'state' | 'cmd'; query: URLSearchParams }
   | { kind: 'none' }
 
 const NONE: Route = { kind: 'none' }
@@ -68,6 +69,13 @@ export function parseRoute(url: string): Route {
     if (!m) return NONE
     return { kind: 'hls', job: m[1], file: m[2], query: u.searchParams }
   }
+  // The remote (#107): the state stream and the command drop, exactly two
+  // names, and `/remote/` is a namespace rather than a static file that
+  // happens to be called that.
+  if (p === '/remote/state' || p === '/remote/cmd') {
+    return { kind: 'remote', what: p === '/remote/cmd' ? 'cmd' : 'state', query: u.searchParams }
+  }
+  if (p === '/remote' || p.startsWith('/remote/')) return NONE
   if (climbs(url.replace(/[?#][\s\S]*$/, ''))) return NONE
   let file: string
   try {

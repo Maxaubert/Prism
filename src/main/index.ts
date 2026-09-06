@@ -45,6 +45,7 @@ import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
 import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
+import type { RemoteState } from '@shared/remote'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
@@ -1463,6 +1464,20 @@ if (!app.requestSingleInstanceLock()) {
         savePhone()
         phoneChanged()
       },
+      // The remote (#107). A command reaches the renderer only after the
+      // server has validated it (`parseCmd`) and found something playing in
+      // its own copy of the state; here the one thing left to know is
+      // whether there is a window to send it to. The listener count is what
+      // tells App to report at all: with nobody listening it sends nothing.
+      remote: {
+        onCmd: async (_token, cmd) => {
+          const w = mainWindow
+          if (!w || w.isDestroyed()) return false
+          w.webContents.send('phone:cmd', cmd)
+          return true
+        },
+        onListeners: (n) => mainWindow?.webContents.send('phone:listeners', n)
+      },
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
     })
@@ -1541,6 +1556,14 @@ if (!app.requestSingleInstanceLock()) {
         phoneChanged()
       }
       return phoneState(rootArg(root))
+    })
+    // App's report of the foreground player (#107): the server keeps the
+    // last one for the next phone to connect and writes it down every open
+    // stream. `send`, not `invoke`: a report needs no answer, and a film
+    // reports once a second.
+    ipcMain.on('phone:state', (_e, s: unknown) => {
+      if (!phone || typeof s !== 'object' || s === null || typeof (s as RemoteState).empty !== 'boolean') return
+      phone.pushState(s as RemoteState)
     })
     app.on('will-quit', () => {
       void phone?.stop()
