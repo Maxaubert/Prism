@@ -5054,14 +5054,24 @@ async function phoneHlsScenario(fixtures) {
     await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
     await page.click('[data-phone-file]:has-text("dolby.mkv")')
     await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
-    ok(
-      (await page.evaluate(() => document.querySelector('video')?.getAttribute('src'))) === null,
-      'hls.js owns the element: no src of its own'
-    )
+    // hls.js owns the element in two states, both of them right: no src at
+    // all while the dynamic import is still in flight, and a blob: object
+    // URL once attachMedia has run (a warm chunk cache attaches before this
+    // evaluate does). Only a real url (http, fsmedia) would mean the page
+    // handed the playlist to the element itself.
+    const src = await page.evaluate(() => document.querySelector('video')?.getAttribute('src'))
+    ok(src === null || src.startsWith('blob:'), `hls.js owns the element: src is ${src ?? 'none'}`)
+    // play() is fired and NOT awaited: its promise settles only when playback
+    // starts or the element itself errors, and with hls.js owning the source
+    // a fatal hls.js error does neither, so an evaluate that returned the
+    // promise parked the whole suite (measured: half an hour, on a run whose
+    // job the 30s reaper had long since removed). The wait below is the
+    // assertion, and it has a timeout, so a stream that never plays is a
+    // recorded failure naming this step rather than a hang.
     await page.evaluate(() => {
       const v = document.querySelector('video')
       v.muted = true
-      return v.play().catch(() => {})
+      void v.play().catch(() => {})
     })
     let played = true
     await page

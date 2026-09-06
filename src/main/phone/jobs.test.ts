@@ -24,9 +24,12 @@ afterEach(() => rmSync(base, { recursive: true, force: true }))
 describe('HlsJobs', () => {
   it('starts ffmpeg on the first segment ask and serves as files complete', async () => {
     const { jobs, spawned } = make()
-    const { id, playlist } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
-    expect(playlist).toContain('24.m4s')
-    expect(spawned).toHaveLength(0) // opening is a playlist, not a process
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    expect(spawned).toHaveLength(0) // opening registers the job, no process
+    // The playlist is written from the duration open recorded, by the one
+    // producer; the route's query lands on every segment uri.
+    expect(jobs.playlist(id)).toContain('24.m4s')
+    expect(jobs.playlist(id, '?t=t')).toContain('24.m4s?t=t')
     const p0 = await jobs.segment(id, 0)
     expect(p0 && existsSync(p0)).toBe(true)
     expect(spawned).toHaveLength(1)
@@ -36,8 +39,7 @@ describe('HlsJobs', () => {
     expect(await jobs.init(id)).toContain('init.mp4')
     expect(jobs.owner(id)).toBe('t')
     expect(jobs.owner('nope')).toBeNull()
-    // The playlist for an open job is the one open returned; an unknown job has none.
-    expect(jobs.playlist(id)).toBe(playlist)
+    // An unknown job has no playlist.
     expect(jobs.playlist('nope')).toBeNull()
     await jobs.stopAll()
   })

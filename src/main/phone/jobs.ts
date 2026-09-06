@@ -86,14 +86,17 @@ export class HlsJobs {
   }
 
   /** Registers (or refreshes) the job for this phone and file; returns its
-   *  id and the playlist. No process starts here: the playlist is written
-   *  from the duration alone, and ffmpeg runs when a segment is asked for. */
-  open(a: StartArgs): { id: string; playlist: string } {
+   *  id. No process starts here, and no playlist is written here either:
+   *  `playlist` below is the ONE producer, because it is the one that
+   *  carries the phone's token onto every segment uri, and a second copy
+   *  without it is a playlist nothing can fetch. ffmpeg runs when a segment
+   *  is asked for. */
+  open(a: StartArgs): { id: string } {
     const id = jobId(a.token, a.file)
     const existing = this.jobs.get(id)
     if (existing) {
       existing.asked = this.now()
-      return { id, playlist: playlistText(existing.duration) }
+      return { id }
     }
     const job: Job = {
       ...a,
@@ -110,7 +113,7 @@ export class HlsJobs {
       failed: null
     }
     this.jobs.set(id, job)
-    return { id, playlist: playlistText(a.duration) }
+    return { id }
   }
 
   /** The phone a job belongs to, so a route can refuse another phone's
@@ -123,8 +126,8 @@ export class HlsJobs {
     return this.jobs.get(id)?.failed ?? null
   }
 
-  /** The job's playlist, as `open` wrote it, for the `/hls/<job>/index.m3u8`
-   *  route: the duration it is written from lives here and nowhere else, so
+  /** The job's playlist, for the `/hls/<job>/index.m3u8` route, written
+   *  from the duration `open` recorded: it lives here and nowhere else, so
    *  the server never keeps a second table that the reaper would leave
    *  behind. Fetching it is an ask, and keeps the job alive. `query` is
    *  what the route wants on every segment uri (the phone's `?t=`). */
