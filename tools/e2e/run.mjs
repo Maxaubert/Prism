@@ -239,6 +239,15 @@ async function openPhoneWindow(app, url) {
       show: false,
       focusable: false,
       skipTaskbar: true,
+      // A page that asks for fullscreen must not take the DISPLAY with it
+      // (2026-09-07): the phone scenario presses the player's own fullscreen
+      // button, and a parked window granted it moves to 0,0 at the size of
+      // the screen - invisible at opacity 0, and still an invisible sheet
+      // over whatever the owner is doing, which is the very thing parking
+      // exists to prevent. Blink enters fullscreen either way, which is what
+      // the assertion is about: `document.fullscreenElement` is the page's
+      // own state and the window is Electron's answer to it.
+      fullscreenable: false,
       webPreferences: { sandbox: true }
     })
     w.setOpacity(0)
@@ -4824,6 +4833,12 @@ async function dragScenario(fixtures) {
  * and a film over the LAN routes, and a phone the PC forgets is back on the
  * pairing screen. Under --e2e the server binds loopback only, so the
  * "phone" is a second window of the app's own Chromium on 127.0.0.1.
+ *
+ * The film's FULLSCREEN is proved here too (2026-09-07): the control is on
+ * the player, and the standard route still puts the PAGE fullscreen, header
+ * and all. Only that one route, on purpose - this host has the standard API,
+ * so the prefixed and the iOS branch belong to `fullscreen.test.ts`, which
+ * asks hosts written to have nothing else.
  */
 /**
  * Switch the phone server on from the renderer, the way the dialog does, and
@@ -4939,6 +4954,49 @@ async function phoneScenario(fixtures) {
       })
     ok(ready, 'the video has metadata over the LAN route')
     await page.screenshot({ path: join(SHOTS, 'phone-video.png') })
+
+    // Fullscreen, on the player that could not (2026-09-07, owner: "i cant go
+    // fullscreen in the player on mobile"). Two things only are asserted here,
+    // and the second one is why: the control IS on a film, and the STANDARD
+    // route still enters fullscreen and takes the phone's header with it, so
+    // the host that every desktop and Android has behaves exactly as it did.
+    // The other two routes cannot be reached from here at all - the app's own
+    // Chromium standing in for the phone HAS `requestFullscreen`, and a route
+    // is picked by what the host has - so the prefixed and the iOS branch are
+    // `fullscreen.test.ts`'s, against hosts written to have only those. A
+    // browser that has the standard API can prove nothing about an iPhone.
+    const fsButton = page.locator('[data-phone-viewer] button[title="Fullscreen (F)"]')
+    // The transport MOUNTS and UNMOUNTS rather than fading, so the button
+    // exists only while the chrome is awake; a move wakes it either way.
+    await page.mouse.move(195, 700)
+    await fsButton.first().waitFor({ timeout: 10000 })
+    ok(true, 'a film on the phone carries the fullscreen control')
+    await fsButton.first().click()
+    const wentFull = await page
+      .waitForFunction(() => document.fullscreenElement === document.documentElement, null, {
+        timeout: 5000
+      })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(wentFull, 'the standard route puts the page itself fullscreen')
+    // WAITED FOR, not counted: `fullscreenElement` is set the moment the host
+    // says yes and the header goes one render later, so a count taken on the
+    // same tick is a coin toss rather than a check.
+    const headerGone = await page
+      .waitForSelector('[data-phone-title]', { state: 'detached', timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(headerGone, 'and the header goes with it, which is what the page-first order buys')
+    // Left through the DOCUMENT, which is the API's one asymmetry, and the
+    // way back must come from the host rather than from the tap: a header
+    // that stayed hidden is a page with no way back to the folder.
+    await page.evaluate(() => document.exitFullscreen?.())
+    await page.waitForSelector('[data-phone-title]', { timeout: 5000 })
+    ok(true, 'leaving it again brings the header back, heard from the host')
 
     // The page paired with nothing in its storage, so it is a SECOND phone
     // with a token of its own beside the one Node paired above.
@@ -5122,6 +5180,12 @@ async function phoneHlsScenario(fixtures) {
  * 44px under a coarse pointer, which Chromium's touch emulation supplies.
  * The heavy chunks are watched too: nothing of pdf.js or CodeMirror is
  * fetched until the file that needs it is opened.
+ *
+ * SEARCH ends it (2026-09-07), and this is its home because this fixture
+ * tree has depth: `buried.py` is three folders down, which is the file a
+ * page browsing one level at a time never reaches by tapping, and `ext:py`
+ * is an operator the phone implements none of - it asks the PC, which
+ * answers with the sidebar's own `searchFiles`.
  */
 async function phoneDocsScenario(fixtures) {
   console.log('phone: documents, code, a pdf, a comic and an archive over the LAN server')
@@ -5279,6 +5343,67 @@ async function phoneDocsScenario(fixtures) {
       'a member viewed out of the zip decodes (the extract grant)'
     )
     await page.screenshot({ path: join(SHOTS, 'phone-archive.png') })
+
+    // Search (2026-09-07). The whole root from wherever you are standing, so
+    // this runs from the zips folder deliberately: the route names no path
+    // and the phone's own root is what is walked. `ext:py` is the proof that
+    // the GRAMMAR IS THE DESKTOP'S - no substring over a name answers it, and
+    // the phone implements none of it: the field asks the PC, which answers
+    // with the very `searchFiles` the sidebar's box gets. `buried.py` is why
+    // it is worth having at all: three folders down, which a page that
+    // browses one level at a time never reaches by tapping.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-search-open]')
+    await page.fill('[data-phone-search]', 'ext:py')
+    await page.waitForSelector('[data-phone-hit]', { timeout: 10000 })
+    await page
+      .waitForFunction(() => document.querySelectorAll('[data-phone-hit]').length === 2, null, {
+        timeout: 10000
+      })
+      .catch(() => {})
+    const pyHits = await page.locator('[data-phone-hit]').count()
+    ok(pyHits === 2, `ext:py answers the two python files and nothing else (${pyHits})`)
+    ok(
+      (await page.locator('[data-phone-hit]', { hasText: 'buried.py' }).count()) === 1 &&
+        (await page.locator('[data-phone-hit]', { hasText: 'main.py' }).count()) === 1,
+      'both, from two different folders'
+    )
+    ok((await page.locator('[data-phone-file]').count()) === 0, 'the results replace the folder')
+
+    await page.fill('[data-phone-search]', 'buried')
+    await page
+      .waitForFunction(() => document.querySelectorAll('[data-phone-hit]').length === 1, null, {
+        timeout: 10000
+      })
+      .catch(() => {})
+    const row = (await page.locator('[data-phone-hit]').first().textContent()) ?? ''
+    ok(/buried\.py/.test(row), `a word in the name finds it (${row.trim()})`)
+    ok(
+      /level-two/.test(row),
+      'and the row names the folder it is in, which is what tells two of a name apart'
+    )
+    await page.click('[data-phone-hit]:has-text("buried.py")')
+    await page.waitForSelector('[data-phone-viewer] .cm-content', { timeout: 15000 })
+    ok(
+      /VALUE = 42/.test((await page.textContent('.cm-content')) ?? ''),
+      'a hit opens exactly as a folder row does'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-search.png') })
+
+    // One X, two steps: it empties a field that holds something and closes an
+    // empty one, so clearing lands you back in the folder you were in rather
+    // than taking the field away mid-thought.
+    await page.click('[aria-label="Back to the folder"]')
+    ok((await page.locator('[data-phone-hit]').count()) === 1, 'closing the file keeps the hits')
+    await page.click('[data-phone-search-clear]')
+    await page.waitForSelector('[data-phone-file]', { timeout: 5000 })
+    ok(
+      (await page.locator('[data-phone-search]').count()) === 1,
+      'the first X empties the field and the folder is back under it'
+    )
+    await page.click('[data-phone-search-clear]')
+    await page.waitForSelector('[data-phone-search-open]', { timeout: 5000 })
+    ok((await page.locator('[data-phone-search]').count()) === 0, 'the second X closes it')
   } finally {
     await page?.close().catch(() => {})
     await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
