@@ -12,12 +12,21 @@ const VOL_THROTTLE_MS = 120
 const STEP_S = 10
 
 /**
- * The phone as a remote (2026-09-07, #107). This screen is the PC's state
+ * The phone as a remote (2026-09-07, #107). This panel is the PC's state
  * drawn on the phone and nothing else: the file the active tab is playing,
  * its clock, its volume, and the verbs that move them. There is no player
- * here at all (the Browser unmounts its viewer in this mode), so there is
- * ONE clock on screen, the PC's, carried forward between its reports by
- * `shownClock` and corrected by the next one.
+ * here at all (`PhoneViewer` unmounts its own while the target is the PC),
+ * so there is ONE clock on screen, the PC's, carried forward between its
+ * reports by `shownClock` and corrected by the next one.
+ *
+ * `openPath` is the target switch handing a film over. The panel is mounted
+ * keyed to the file on screen, so a mount IS the handover: it tells the PC
+ * what to open before it draws anything, because with play/pause alone the
+ * phone would be driving whatever the PC happens to be showing, which for a
+ * film just picked on the phone is either nothing (a 409) or the wrong
+ * film. The answer goes through the same one-line notice a refused command
+ * gets, since a handover the PC would not take is exactly the thing this
+ * screen must not be silent about.
  *
  * Every control is 48px tall, a thumb's target rather than a pointer's.
  * A seek is sent ONCE, on release: the scrubber follows the finger while it
@@ -27,7 +36,7 @@ const STEP_S = 10
  * heard moving. A refused command shows its one line for two seconds and
  * goes; a stream that has dropped says so until it is back.
  */
-export function Remote(): JSX.Element {
+export function Remote({ openPath }: { openPath?: string }): JSX.Element {
   // The state and when it arrived, together: the clock is drawn from both.
   const [got, setGot] = useState<{ s: RemoteState; at: number } | null>(null)
   const [down, setDown] = useState(false)
@@ -82,6 +91,15 @@ export function Remote(): JSX.Element {
     },
     [say]
   )
+
+  // The handover, once per file: sent on mount rather than on a tap, since
+  // the mount is what the flip to "This PC" produces and the key is the
+  // file. It does not wait for the stream to be up - the PC is told what to
+  // open whether or not this phone has heard from it yet.
+  useEffect(() => {
+    if (!openPath) return
+    void send({ op: 'open', path: openPath }).then((status) => say(noticeFor(status)))
+  }, [openPath, say])
 
   // The volume throttle: the first change goes at once, the rest wait for
   // the window, and the value at the window's end goes if it moved. The

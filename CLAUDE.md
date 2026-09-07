@@ -735,13 +735,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
   phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
   wait for a real device; hex and the terminal are not offered.
-- **The phone as a remote** (2026-09-07, #107): a Watch | Remote switch in the phone page's
-  header (remembered in `prism.phone.mode`). In Remote mode the phone shows what the PC's
-  active tab is playing and drives it: play, pause, seek, ten seconds either way, next and
-  previous, volume to 200% and mute. ONE CLOCK ON SCREEN: the phone's own viewer is
-  UNMOUNTED in Remote mode and the folder list goes with it, so the scrubber is the PC's
-  clock (`shownClock` carries it forward between reports at the PC's rate and the next
-  report corrects it) and never a second player's. THE TARGET IS WHOEVER OWNS THE KEYBOARD:
+- **The phone as a remote** (2026-09-07, #107): ONE SCREEN, the phone's own folder
+  explorer, always; opening a file opens it. Watch and Remote as two MODES are gone (owner,
+  2026-09-07): where a film plays is a question about the file you just picked, not a mode
+  to be in before you pick one. So the PLAYER carries a small TARGET reading "This phone"
+  or "This PC" (`phone/target.ts`, remembered in `prism.phone.target`), and only a film or
+  a track has one - there is no PC transport to hand a page of a PDF to. On the PC the
+  phone shows what the PC's active tab is playing and drives it: play, pause, seek, ten
+  seconds either way, next and previous, volume to 200% and mute. THE PC IS TOLD WHAT TO
+  OPEN, which is the whole reason the switch is not just a play button: `{op: 'open',
+  path}` carries the file on screen, walled against that phone's own root in main before it
+  is forwarded, and App opens it in the active tab exactly as a tree click does, marked to
+  play on arrival. With play/pause alone the phone would be driving whatever the PC happens
+  to be showing, which for a film just picked on the phone is either nothing (a 409) or the
+  wrong film. The panel is keyed to the file, so a mount IS the handover and stepping to the
+  next film hands that one over too. ONE CLOCK ON SCREEN: the phone's own player is
+  UNMOUNTED while the target is the PC (and `/api/play` is not even asked, since asking is
+  what opens a transcode job), so the scrubber is the PC's clock (`shownClock` carries it
+  forward between reports at the PC's rate and the next report corrects it) and never a
+  second player's. Flipping back mounts the phone's player again, which is nothing but a
+  state change: what plays where is decided by what is rendered.
+  WHICH PLAYER ON THE PC: WHICHEVER OWNS THE KEYBOARD.
   `useMediaControls` registers itself in `lib/remoteTarget` while it has `keys`, by its own
   id so a player unmounting after the next one registered cannot clear it, and App never
   has to work out which of the deck's mounted players is in front. NOTHING IS SENT WHILE
@@ -763,7 +777,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   closes the source and it reopens on its own clock, 1s doubling to 15s. A seek is sent
   ONCE, on release; volume goes live, throttled to two POSTs per 120ms. MEASURED in the
   e2e (`phoneRemote`): 19ms from the POST to the PC's `<video>` playing, 21ms from a tap
-  on the phone's own Play, 20ms for the phone to hear it back over the stream. LOCKSTEP IS
+  on the phone's own Play, 20ms for the phone to hear it back over the stream (measured
+  against the Watch | Remote switch these numbers were taken through; the routes they
+  measure are unchanged). LOCKSTEP IS
   DELIBERATELY NOT PROMISED: the phone's scrubber is the PC's last report plus arithmetic,
   and a stall on the PC (a stream buffering) shows on the phone at the next report, not
   the same frame. What a real phone still owes: the switch and the screen were driven

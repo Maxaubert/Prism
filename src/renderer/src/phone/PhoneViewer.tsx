@@ -8,6 +8,8 @@ import { UnsupportedView } from '../components/UnsupportedView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
 import { hlsPlayerHere } from './canPlay'
 import { askPlay, type PlayAnswer } from './prismShim'
+import { Remote } from './Remote'
+import { readTarget, writeTarget, type PhoneTarget } from './target'
 
 // Split out exactly as App splits them (#106): none of these is on the path
 // of playing a film, and a phone that only ever plays films must never
@@ -56,6 +58,17 @@ function ViewerLoading(): JSX.Element {
  * has no Settings to choose another. The viewers are keyed by path, as the
  * app keys them by kind, so a step is a fresh mount and nothing outlives the
  * file it belonged to.
+ *
+ * THE TARGET (2026-09-07, #107): a film or a track carries a small control
+ * reading "This phone" or "This PC". On the phone, everything below is
+ * exactly as it was. On the PC, the phone's own player is UNMOUNTED (one
+ * clock on screen, the spec's rule), the PC is told to open THIS file, and
+ * the `Remote` panel drives it - play, pause, seek, next, previous, volume,
+ * mute. Flipping back mounts the player again, which is why the flip is
+ * nothing but a state change here: what plays where is decided by what is
+ * rendered. The choice is remembered, so the next film goes the same way.
+ * A picture or a document shows no control at all: there is no PC transport
+ * to hand a page of a PDF to.
  *
  * A film or a track is not mounted until `/api/play` has answered (#105):
  * the answer decides whether the element gets a src at all. Mounted before
@@ -124,12 +137,14 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
 
 /** The verdict for the file on screen, or null while it is being asked. Kept
  *  with its path, since the shell is not remounted on a step and the last
- *  file's answer must not dress the next one. */
-function usePlayAnswer(file: ViewerFile): PlayAnswer | null {
-  const media = file.kind === 'video' || file.kind === 'audio'
+ *  file's answer must not dress the next one. Not asked at all unless the
+ *  phone is the one playing: `/api/play` is what OPENS a transcode job, so
+ *  a film handed to the PC must not start one for a player that will never
+ *  be mounted. */
+function usePlayAnswer(file: ViewerFile, want: boolean): PlayAnswer | null {
   const [answer, setAnswer] = useState<{ path: string; answer: PlayAnswer } | null>(null)
   useEffect(() => {
-    if (!media) return
+    if (!want) return
     let live = true
     void askPlay(file.path)
       .catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message || 'Prism did not answer' }))
@@ -137,7 +152,7 @@ function usePlayAnswer(file: ViewerFile): PlayAnswer | null {
     return () => {
       live = false
     }
-  }, [file.path, media])
+  }, [file.path, want])
   return answer?.path === file.path ? answer.answer : null
 }
 
@@ -169,7 +184,15 @@ export function PhoneViewer({
     else void document.exitFullscreen?.().catch(() => {})
   }, [])
 
-  const answer = usePlayAnswer(file)
+  const media = file.kind === 'video' || file.kind === 'audio'
+  const [target, setTarget] = useState<PhoneTarget>(() => readTarget(localStorage))
+  const pickTarget = (t: PhoneTarget): void => {
+    setTarget(t)
+    writeTarget(localStorage, t)
+  }
+  const onPc = media && target === 'pc'
+
+  const answer = usePlayAnswer(file, media && !onPc)
   const playlist = answer?.mode === 'hls' ? answer.url : null
   // An HLS film is handed its PLAYLIST as the url from the start. The direct
   // url used to go in and be swapped a moment later, which cost one aborted
@@ -183,6 +206,12 @@ export function PhoneViewer({
   switch (file.kind) {
     case 'video':
     case 'audio':
+      if (onPc) {
+        // Keyed to the file, so stepping to the next one is a fresh mount
+        // and a fresh handover: the PC is told about the file on screen.
+        view = <Remote key={file.path} openPath={file.path} />
+        break
+      }
       if (!answer) {
         view = (
           <p className="p-6 text-center opacity-70" data-phone-preparing>
@@ -311,6 +340,7 @@ export function PhoneViewer({
       className="flex h-dvh flex-col bg-[var(--p-bg)] text-[var(--p-text)]"
       data-phone-viewer
       data-kind={file.kind}
+      data-target={media ? target : undefined}
     >
       {!fullscreen && (
         <header className="flex h-11 shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)] text-sm">
@@ -378,7 +408,52 @@ export function PhoneViewer({
           </button>
         </header>
       )}
+      {media && !fullscreen && <TargetSwitch target={target} onPick={pickTarget} />}
       <div className="relative min-h-0 flex-1">{view}</div>
+    </div>
+  )
+}
+
+/**
+ * This phone | This PC. A radio group rather than two buttons: the two are
+ * one choice, and a screen reader says which is on. It sits under the title
+ * row rather than in it, because "This phone" and "This PC" are words and
+ * the row already carries back, the file name and both step verbs; and it
+ * goes with the header in fullscreen, where the phone is plainly the one
+ * playing.
+ */
+function TargetSwitch({
+  target,
+  onPick
+}: {
+  target: PhoneTarget
+  onPick: (t: PhoneTarget) => void
+}): JSX.Element {
+  const seg = (t: PhoneTarget, label: string): JSX.Element => {
+    const on = target === t
+    return (
+      <button
+        role="radio"
+        aria-checked={on}
+        data-phone-target={t}
+        className={`h-9 rounded-full px-3 text-sm ${on ? 'bg-[var(--p-accent)] text-white' : 'opacity-70'}`}
+        onClick={() => onPick(t)}
+      >
+        {label}
+      </button>
+    )
+  }
+  return (
+    <div className="flex shrink-0 items-center justify-end gap-2 px-3 pb-1">
+      <span className="text-xs opacity-50">Play on</span>
+      <div
+        role="radiogroup"
+        aria-label="Play on"
+        className="flex items-center rounded-full border border-[color:var(--p-line)] p-0.5"
+      >
+        {seg('phone', 'This phone')}
+        {seg('pc', 'This PC')}
+      </div>
     </div>
   )
 }
