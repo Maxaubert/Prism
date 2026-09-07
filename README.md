@@ -67,8 +67,12 @@ never shipped: one small app that opens everything and looks good doing it.
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
   and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
   documents, comics and archives open on the phone too, read-only: nothing on the phone can
-  change a file on the PC. Flip the phone to **Remote** and it drives what the PC is
-  playing instead: play, pause, seek, next, previous and volume, from the sofa.
+  change a file on the PC. There is one screen, the folder, and every film and track opens
+  with a **Play on** switch reading *This phone* or *This PC*: flip it and the film you just
+  picked plays on the PC instead, with the phone as its remote - play, pause, seek, next,
+  previous and volume, from the sofa. The phone tells the PC which file to open, so the
+  remote is never driving whatever the PC happened to be showing, and it remembers where you
+  chose to play so the next film goes the same way.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 

@@ -776,16 +776,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   error and never on a refused connection, and neither is what a remote wants: an error
   closes the source and it reopens on its own clock, 1s doubling to 15s. A seek is sent
   ONCE, on release; volume goes live, throttled to two POSTs per 120ms. MEASURED in the
-  e2e (`phoneRemote`): 19ms from the POST to the PC's `<video>` playing, 21ms from a tap
-  on the phone's own Play, 20ms for the phone to hear it back over the stream (measured
-  against the Watch | Remote switch these numbers were taken through; the routes they
-  measure are unchanged, and the scenario is being reworked onto the target control,
-  which nothing drives until it is). LOCKSTEP IS
+  e2e (`phoneRemote`, which drives the target control itself): 37ms from the FLIP to the
+  PC's `<video>` playing THAT film - the open, the load and the play, not just a
+  keypress - 16ms from a tap on the phone's own Play, and 2ms for the phone to hear a
+  state back over the stream. The scenario opens the PC on a PICTURE, so the PC has no
+  player at all until the flip: a handover that only pressed play could not pass it.
+  LOCKSTEP IS
   DELIBERATELY NOT PROMISED: the phone's scrubber is the PC's last report plus arithmetic,
   and a stall on the PC (a stream buffering) shows on the phone at the next report, not
-  the same frame. What a real phone still owes: the routes and the panel were driven
-  under CDP in the app's own Chromium, not on a device, and the target control itself is
-  driven by nothing until the scenario is reworked onto it.
+  the same frame. Two things the scenario had to learn: `page.click` is NOT strict, and
+  the viewer's own header carries Next and Previous for paging the FOLDER, so an unscoped
+  `[aria-label="Next"]` clicks the header's and steps the PHONE - passing as "Next" while
+  proving nothing about the PC; every transport verb is scoped to `[data-phone-remote]`.
+  And the fixture films are 1.5s, so the pause is taken the instant the PC is seen
+  playing and nothing after it reads a clock that is still moving. What a real phone
+  still owes: the routes, the panel and the target control were driven under CDP in the
+  app's own Chromium, not on a device.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

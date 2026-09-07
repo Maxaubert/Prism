@@ -6,7 +6,8 @@ Design, 2026-09-06. Owner decisions from the brainstorm are marked **(owner)**.
 
 Watch what Prism has open on a phone or tablet on the same network. Prism on the PC is the
 server; the phone runs a web page Prism serves, with no app to install. The phone can either
-WATCH on its own clock, or act as a REMOTE for the PC's player. Both **(owner)**.
+WATCH on its own clock, or act as a REMOTE for the PC's player. Both **(owner)**, and since
+2026-09-07 they are one screen with a switch in the player rather than two modes (below).
 
 Out of scope, said plainly: anything off the LAN (no relay, no accounts), HTTPS (a self-signed
 certificate on a phone is a worse experience than the risk it removes on a home network),
@@ -15,10 +16,23 @@ reached by reusing its viewers instead).
 
 ## Decisions
 
-- **The phone plays independently, and can also drive the PC** as two switchable modes on the
-  phone page: Watch and Remote **(owner)**. In Remote mode the phone's own player is unmounted,
-  so there is one clock on screen; lockstep between the two screens is not promised, because a
-  live transcode runs seconds behind.
+- **The phone plays independently, and can also drive the PC**. Written first as two
+  switchable modes on the phone page, Watch and Remote **(owner)**; REPLACED by ONE SCREEN
+  and a TARGET IN THE PLAYER **(owner, 2026-09-07, while PR4 was green)**. The phone's folder
+  explorer is the only shell, opening a file opens it, and a film or a track carries a small
+  control reading "This phone" or "This PC" - where it plays is a question about the file you
+  just picked, not a mode to be in before you pick one. On "This PC" the phone's own player is
+  unmounted, so there is one clock on screen; lockstep between the two screens is not
+  promised, because a live transcode runs seconds behind. Flipping mid-film hands the film
+  over in that direction, and the choice is remembered (localStorage), so a phone left on
+  "This PC" opens the next film there too. Only a film or a track has the control: there is no
+  PC transport to hand a picture or a page of a PDF to.
+- **The phone tells the PC WHAT TO OPEN**, not just to press play **(owner, 2026-09-07)**. The
+  target switch sends the file on screen (`{op: 'open', path}`, walled against that phone's
+  own root like every other path it names) and the PC opens it in the active tab, marked to
+  play on arrival. With play/pause alone the phone would be driving whatever the PC happens to
+  be showing, which for a film just picked on the phone is either nothing (a 409) or the wrong
+  film.
 - **The phone sees ONE tab's folder** **(owner)**: the tab the QR was shown from. Same root
   wall as the tab. Not every open tab.
 - **Pair once, remembered** **(owner)**. The QR carries a one-time code; the phone exchanges it
@@ -133,7 +147,8 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   `window.prism.capabilities` says so (`{write: false, clipboard: false, explorer: false,
   drag: false}`); the viewers and `fileVerbs` consult it to hide verbs. `nativeDrag` is false.
   `mediaUrl(path)` returns the `/m/` URL with the token.
-- Shell: a top bar (folder name, back, Watch / Remote toggle, a menu with "Forget this PC"),
+- Shell: a top bar (folder name, back, a menu with "Forget this PC"; the Watch / Remote toggle
+  planned here is gone, replaced by the player's own target, 2026-09-07),
   a folder list rooted at the phone's root (Explorer-shaped, one level at a time, folders
   first, the same sort as the tab's default), and the viewer area. Tapping a file opens it;
   swiping or the next/previous buttons page the folder's viewable files as Up/Down do on the
@@ -147,17 +162,22 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 - The phone keeps its token and root in `localStorage`; a 401 clears them and shows the
   pairing screen (paste the code or scan again).
 
-### Remote mode (`src/main/phone/remote.ts`, PR4)
+### Playing on the PC (PR4; the "Remote mode" of the first draft)
 
 - The renderer reports the active tab's player state to main (`phone:state`: file, kind,
   playing, position, duration, volume, muted, speed) on every change and once a second while
-  playing; main fans it out over SSE to phones in Remote mode. Nothing is sent while no phone
-  listens.
+  playing; main fans it out over SSE to every phone holding a state stream. Nothing is sent
+  while no phone listens.
 - Commands (`play`, `pause`, `toggle`, `seek {to}`, `step {by}`, `next`, `prev`, `volume
   {to}`, `mute`) go POST -> main -> `phone:cmd` -> App, which routes them into the active tab's
   `MediaControls`. A command with no player open is answered 409 and the phone says so.
-- The phone's Remote screen: the file name, a scrubber, the transport verbs, volume. It is
-  the PC's state drawn on the phone; the phone's own `<video>` is unmounted in this mode.
+- `open {path}` is the one command that carries a path and the one that means something with
+  nothing playing, because it is what starts something playing: the target switch sends it for
+  the file on screen, main walls it against that phone's own root before forwarding, and App
+  opens it in the active tab exactly as a tree click does.
+- The panel the phone shows while the target is the PC: the file name, a scrubber, the
+  transport verbs, volume. It is the PC's state drawn on the phone, keyed to the file on
+  screen so a mount IS the handover; the phone's own `<video>` is unmounted behind it.
 
 ### In Prism (renderer, PR1)
 
