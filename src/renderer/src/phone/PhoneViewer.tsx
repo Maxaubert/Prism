@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { ViewerFile } from '@shared/types'
 import { ImageView } from '../components/ImageView'
 import { VideoView } from '../components/VideoView'
@@ -6,6 +6,12 @@ import { AudioView } from '../components/AudioView'
 import { ArchiveView } from '../components/ArchiveView'
 import { UnsupportedView } from '../components/UnsupportedView'
 import { DEFAULT_TRANSPORT_BG, DEFAULT_TRANSPORT_STYLE } from '../lib/transport'
+import {
+  enterFullscreen,
+  exitFullscreen,
+  isFullscreen,
+  onFullscreenChange
+} from '../lib/fullscreen'
 import { hlsPlayerHere } from './canPlay'
 import { askPlay, type PlayAnswer } from './prismShim'
 import { Remote } from './Remote'
@@ -47,11 +53,22 @@ function ViewerLoading(): JSX.Element {
  * editor is `readOnly`, the archive panel reads `capabilities` and offers
  * View and the folders, a markdown's local link opens only a file the
  * folder lists. A slim bar on
- * top carries back and next/previous; it goes with fullscreen, which is the
- * browser's own (`requestFullscreen` on the document), and the flag follows
- * `fullscreenchange` rather than the tap, because the phone can leave
- * fullscreen on its own (a swipe, the back gesture) and a bar that then
- * stays hidden is a page with no way back.
+ * top carries back and next/previous; it goes with fullscreen, and the flag
+ * follows the HOST rather than the tap, because the phone can leave
+ * fullscreen on its own (a swipe, the back gesture, the OS player's Done)
+ * and a bar that then stays hidden is a page with no way back.
+ *
+ * FULLSCREEN IS THE HOST'S, WHICHEVER ONE IT HAS (2026-09-07, owner: "i
+ * cant go fullscreen in the player on mobile"). This asked for
+ * `requestFullscreen` on the document element and nothing else, which an
+ * iPhone does not have in any spelling: there the only fullscreen is the
+ * media element's own native player. `lib/fullscreen` picks the route;
+ * the STAGE is held by a ref so the element a viewer mounted can be found
+ * for that route, while the request itself still goes to the document
+ * element, so a host with the standard API behaves exactly as it did and
+ * the header is inside what goes fullscreen. Both signals are heard, the
+ * document's `fullscreenchange` and the video's own begin/end, since on the
+ * iOS route the document never says anything at all.
  *
  * The transport is the DEFAULT style at the default band: the PC's choice
  * lives in its own localStorage and the phone has none of it, and a phone
@@ -170,19 +187,37 @@ export function PhoneViewer({
   /** A markdown link to a local file; the browser decides whether it opens. */
   onOpenLocal: (path: string) => void
 }): JSX.Element {
-  const [fullscreen, setFullscreen] = useState(() => !!document.fullscreenElement)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  // The element a viewer mounted, found after the commit that mounted it: a
+  // film's <video> does not exist until `/api/play` has answered, so this
+  // cannot be read once. `video` before `audio`, since VideoView also
+  // carries a hidden sidecar <audio> and it is the picture that has the iOS
+  // native player.
+  const [mediaEl, setMediaEl] = useState<HTMLMediaElement | null>(null)
+  // No dep list on purpose: the element arrives in a commit this component cannot name (the
+  // play answer, a step, the flip back from the PC), and the updater returns the SAME element
+  // when nothing changed, which React bails out on without a re-render. No chain of updates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const sync = (): void => setFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', sync)
-    return () => document.removeEventListener('fullscreenchange', sync)
-  }, [])
+    const stage = stageRef.current
+    const found =
+      stage?.querySelector<HTMLMediaElement>('video') ??
+      stage?.querySelector<HTMLMediaElement>('audio') ??
+      null
+    setMediaEl((was) => (was === found ? was : found))
+  })
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    const root = document.documentElement
+    const sync = (): void => setFullscreen(isFullscreen(root, mediaEl))
+    sync()
+    return onFullscreenChange(root, mediaEl, sync)
+  }, [mediaEl])
   const toggleFullscreen = useCallback((): void => {
-    const el = document.documentElement
-    // iOS Safari has no document fullscreen at all; the video's own native
-    // fullscreen is what a phone there gets, and a tap here does nothing.
-    if (!document.fullscreenElement) void el.requestFullscreen?.().catch(() => {})
-    else void document.exitFullscreen?.().catch(() => {})
-  }, [])
+    const root = document.documentElement
+    if (isFullscreen(root, mediaEl)) exitFullscreen(root, mediaEl)
+    else enterFullscreen(root, mediaEl)
+  }, [mediaEl])
 
   const media = file.kind === 'video' || file.kind === 'audio'
   const [target, setTarget] = useState<PhoneTarget>(() => readTarget(localStorage))
@@ -409,7 +444,9 @@ export function PhoneViewer({
         </header>
       )}
       {media && !fullscreen && <TargetSwitch target={target} onPick={pickTarget} />}
-      <div className="relative min-h-0 flex-1">{view}</div>
+      <div ref={stageRef} className="relative min-h-0 flex-1">
+        {view}
+      </div>
     </div>
   )
 }
