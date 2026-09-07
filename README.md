@@ -67,7 +67,11 @@ never shipped: one small app that opens everything and looks good doing it.
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
   and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
   documents, comics and archives open on the phone too, read-only: nothing on the phone can
-  change a file on the PC. There is one screen, the folder, and every film and track opens
+  change a file on the PC. Search from the phone with the same box the sidebar has - a couple
+  of words in any order, `"a phrase"`, `*.mp4`, `ext:pdf`, `-drafts` - and a file three
+  folders down is one tap away instead of unreachable. Films go fullscreen by whatever route
+  the phone actually has, the page itself on Android and an iPhone's own player on iOS.
+  There is one screen, the folder, and every film and track opens
   with a **Play on** switch reading *This phone* or *This PC*: flip it and the film you just
   picked plays on the PC instead, with the phone as its remote - play, pause, seek, next,
   previous and volume, from the sofa. The phone tells the PC which file to open, so the

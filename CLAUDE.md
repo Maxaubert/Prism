@@ -792,6 +792,55 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   playing and nothing after it reads a clock that is still moving. What a real phone
   still owes: the routes, the panel and the target control were driven under CDP in the
   app's own Chromium, not on a device.
+- **The phone searches, and the PC does the searching** (2026-09-07, #107). A page that
+  browses one level at a time cannot reach a file three folders down, so a magnifier over
+  the crumb row opens a field, and while it holds a query the RESULTS ARE THE LIST. The
+  GRAMMAR IS THE DESKTOP'S AND SO IS THE READER: `GET /api/search?q=` answers the same
+  `SearchResult` the sidebar's box gets, out of the same `searchFiles`, so every word in any
+  order, "a phrase", `*.mp4`, `ext:py` and `-exclusions` are taught in ONE place
+  (`shared/searchQuery`) and the phone implements not a line of it. It asks. The route NAMES
+  NO PATH, which is what makes its wall the root's own - `validRoot(root, root)`, the check
+  the `search:files` IPC handler makes and also the check that a tab still holds the folder -
+  since the phone's own root is what is walked and there is nothing in a query that could
+  name another; the shim's member is `searchTree` and it DROPS the root argument for the same
+  reason, a root a page could name being a root it could ask to have searched. A hit is the
+  name over the folder it is in, which is the only thing telling two files of one name apart;
+  a folder walks there, a file opens. The debounce is the sidebar's own 180ms, so a phone
+  typing at the same speed costs the PC the same walks. Next and previous page THE LIST THE
+  FILE WAS OPENED FROM (`fileFromHit`, pure and tested): a hit lives anywhere under the root,
+  so paging the folder's own files would step to something you were not looking at, and from
+  another folder to nothing at all. One X, two steps, as every phone's search field behaves:
+  it empties a field that holds something and closes an empty one, so clearing lands you back
+  in the folder you were in. Proved end to end in `phoneDocs`, which is where the fixture tree
+  has depth: `ext:py` answers the two python files in two different folders (no substring over
+  a name can), and `buried.py`, three folders down, opens from its row.
+- **Fullscreen is the host's, whichever one it has** (2026-09-07, #107, owner: "i cant go
+  fullscreen in the player on mobile"). The phone page asked for `requestFullscreen` on the
+  document element and nothing else, and WEBKIT ON AN IPHONE HAS NO ELEMENT AND NO DOCUMENT
+  FULLSCREEN API AT ALL - not prefixed, not disabled, absent - so the button was dead on the
+  device most likely to press it. `lib/fullscreen` (pure, tested) knows THREE ROUTES and
+  takes the one this host has: the standard API on an element, the older prefixed
+  `webkitRequestFullscreen` (an iPad, and WebKit builds that never took the unprefixed name),
+  and the iOS-only `webkitEnterFullscreen` on the MEDIA element, whose state is
+  `webkitDisplayingFullscreen` because there is no fullscreen element to read. THE PAGE'S OWN
+  FULLSCREEN WINS wherever it exists, and that is a decision rather than an ordering accident:
+  the OS player draws its own transport over everything, so on a host that can fullscreen the
+  PAGE it would hide Prism's transport, the target control and the way back to the folder.
+  Which is why the request still goes to the document element and a standard host behaves
+  exactly as it did; the stage is held by a ref only so the element a viewer mounted can be
+  FOUND for the iOS route, and it is looked for after every commit rather than once, since a
+  film's `<video>` does not exist until `/api/play` has answered. BOTH SIGNALS ARE HEARD, the
+  document's `fullscreenchange` and the video's own `webkitbegin`/`webkitendfullscreen`: on
+  the iOS route the document never says anything at all, and a header that stayed hidden
+  after the OS player's Done is a page with no way back. Everything there takes its elements
+  as ARGUMENTS and reaches for no global (the document comes from `container.ownerDocument`),
+  which is what lets all three branches be tested under node against hosts written to have
+  one each, rather than eyeballed on one device. The e2e can prove only the STANDARD route,
+  since the app's own Chromium has it: the `phone` scenario asserts the control is on a film
+  and that the page goes fullscreen with its header. That press is also why the e2e's phone
+  window is `fullscreenable: false` - granted its fullscreen, a parked window moves to 0,0 at
+  the size of the screen, invisible at opacity 0 and still a sheet over whatever the owner is
+  doing, which is the thing parking exists to prevent. Blink enters fullscreen either way.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

@@ -43,6 +43,18 @@ reached by reusing its viewers instead).
 - **Most kinds Prism opens** **(owner)**: video, audio, pictures, PDF, markdown, code and text
   (read-only), office and ebook documents, comics, archives (listing and viewing members; no
   writes). Hex and the terminal are not offered.
+- **And it searches the whole folder** **(owner ask, 2026-09-07)**: a page that browses one
+  level at a time cannot reach a file three folders down, so the crumb row carries a
+  magnifier and a query REPLACES the list with its hits, each the name over the folder it is
+  in. The grammar and the reader are the desktop's - `shared/searchQuery` and `searchFiles`,
+  through `GET /api/search?q=` - so the phone implements none of it and none of it can drift.
+  The route names no path: what is searched is the root that phone paired to.
+- **Fullscreen by whichever route the host has** **(2026-09-07)**: an iPhone has no element
+  and no document Fullscreen API at all, so a page that knew only `requestFullscreen` had a
+  dead button on the device most likely to press it. `lib/fullscreen` picks between the
+  standard API, the older prefixed `webkitRequestFullscreen` and the iOS-only
+  `webkitEnterFullscreen` on the media element, and prefers the PAGE wherever it can go:
+  the OS player draws over Prism's transport, the target control and the way back.
 - **Reuse Prism's own viewers** (approach A): a second renderer entry mounts the existing
   viewer components behind a network shim of `window.prism`. This is `prism-core`'s second
   consumer, without extracting the package yet.
@@ -89,6 +101,8 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   - `GET /api/me` -> `{root, open: boolean, name}`. `open` false is the "scan again" screen.
   - `GET /api/dir?path=` -> the same `DirListing` `dir:list` returns, filtered by the phone's
     root with the strict per-root check (`validRoot`).
+  - `GET /api/search?q=` -> the `SearchResult` the sidebar's box gets, from `searchFiles`
+    over the phone's own root. It names no path, so its wall is `validRoot(root, root)`.
   - `GET /api/stat?path=`, `GET /api/text?path=` (PR3), `GET /api/doc?path=` (PR3),
     `GET /api/comic?path=` (PR3), `GET /api/archive?path=` (PR3), `GET /api/subs?path=`
     (sidecar tracks as WebVTT).
@@ -150,7 +164,8 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 - Shell: a top bar (folder name, back, a menu with "Forget this PC"; the Watch / Remote toggle
   planned here is gone, replaced by the player's own target, 2026-09-07),
   a folder list rooted at the phone's root (Explorer-shaped, one level at a time, folders
-  first, the same sort as the tab's default), and the viewer area. Tapping a file opens it;
+  first, the same sort as the tab's default), a search field over the crumb row whose hits
+  replace that list while it holds a query, and the viewer area. Tapping a file opens it;
   swiping or the next/previous buttons page the folder's viewable files as Up/Down do on the
   PC. Landscape on a phone hides the bar while a video plays.
 - Touch pass per viewer, measured on the devices: pinch and double-tap on pictures, swipe on
@@ -211,12 +226,17 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   round-trip), `routes.test.ts` (auth, per-root wall, path decoding), `decide.test.ts`
   (direct/hls per container, codec and `can` list), `hls.test.ts` (segment time math,
   restart-at-segment, playlist text), `remote.test.ts` (state reducer, command validation),
-  `prismShim.test.ts` (URL building, capabilities).
+  `prismShim.test.ts` (URL building, capabilities), `fullscreen.test.ts` (which of the three
+  routes a host gets, entering and leaving on each, and the signals each one gives back -
+  the iOS branch lives here because no browser the e2e can drive has it).
 - E2E (`tools/e2e/run.mjs`, scenario `phone`): launch with `--e2e`, turn the server on over
   IPC, issue a code, pair over HTTP, `GET /api/dir`, fetch a fixture with a Range header and
   assert 206, open the phone page in a phone-sized Playwright page with the token, tap a
   fixture and assert the viewer mounts. PR2 adds an HLS fixture play; PR4 drives the PC's
-  player from the phone page and asserts its state.
+  player from the phone page and asserts its state. `phone` also presses the film's
+  fullscreen control and asserts the standard route takes the page (and its header) with it;
+  `phoneDocs` searches, because that is the fixture tree with depth - `ext:py` answers two
+  files in two folders, and one three folders down opens from its row.
 - Hands-on on iPhone, iPad and Android before each PR asks "merge?", with the measurements
   above written into CLAUDE.md.
 
