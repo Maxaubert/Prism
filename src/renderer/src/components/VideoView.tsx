@@ -584,6 +584,10 @@ export function VideoView({
         // it. fsmedia:// answers with ACAO '*' and is registered corsEnabled,
         // so asking for the CORS fetch is all that was missing (2026-08-27).
         crossOrigin="anonymous"
+        // iOS plays a <video> FULLSCREEN in its own native player unless it
+        // is told otherwise, which on the phone page took the whole app off
+        // screen the moment a film started. Inert everywhere else.
+        playsInline
         // Play only what was ALREADY playing (2026-08-28, owner decision):
         // opening a file does not start it, and neither does restoring a
         // window full of tabs. A file whose player is being rebuilt mid-play

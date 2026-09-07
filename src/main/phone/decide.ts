@@ -27,6 +27,10 @@ export type PlayPlan =
       height: number | null
       /** No picture at all: an audio playlist. */
       audioOnly: boolean
+      /** The picture being COPIED is HEVC, which an mp4 muxer tags `hev1`
+       *  by default and Safari then refuses: the stream has to be tagged
+       *  `hvc1`, which is the same bytes under the name Apple accepts. */
+      hevcCopy: boolean
     }
   | { mode: 'none'; reason: string }
 
@@ -100,6 +104,7 @@ export function decide(info: MediaInfo | null, ext: string, can: Can): PlayPlan 
   return {
     mode: 'hls',
     copyVideo,
+    hevcCopy: copyVideo && vcodec === 'hevc',
     copyAudio: acodec === 'aac' || (acodec !== null && HLS_COPY_AUDIO.has(acodec) && can.has(acodec)),
     tonemap: encodeVideo && hdr,
     height,

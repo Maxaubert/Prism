@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fwd, hlsArgs, jobId, looksLikeGpuFailure, nextAction, playlistText, segmentCount, segmentFile } from './hls'
 
-const plan = { mode: 'hls' as const, copyVideo: false, copyAudio: false, tonemap: false, height: 1080, audioOnly: false }
+const plan = { mode: 'hls' as const, copyVideo: false, copyAudio: false, tonemap: false, height: 1080, audioOnly: false, hevcCopy: false }
 
 describe('playlist', () => {
   it('lists every segment up front, VOD, ending', () => {

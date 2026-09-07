@@ -1,0 +1,28 @@
+/*
+ * What the phone page needs and the app window does not (2026-09-07, #106).
+ * The shared stylesheet is written for a frameless desktop window: the body
+ * never scrolls there (every panel scrolls inside itself) and paints no
+ * ground of its own (the window's material shows through). On a phone both
+ * are wrong: a folder of thirty files could not be scrolled at all, and the
+ * pairing and connecting screens were light text on the browser's own white
+ * canvas. So the page scrolls, and it paints.
+ */
+html,
+body {
+  overflow: auto;
+  background: var(--p-bg);
+  /* No rubber-band past the ends: the page IS the app here. */
+  overscroll-behavior-y: none;
+}
+
+body {
+  /* Safari grows text in landscape unless it is told not to. */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* A tap should not select the label under it, and a double tap should not
+   zoom the page: the viewers do their own zooming. */
+#root {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}

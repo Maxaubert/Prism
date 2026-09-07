@@ -23,7 +23,16 @@ import { spawn as nodeSpawn, type ChildProcess } from 'child_process'
 import { promises as fsp } from 'fs'
 import { join } from 'path'
 import type { PlayPlan } from './decide'
-import { hlsArgs, jobId, looksLikeGpuFailure, nextAction, playlistText, segmentCount, segmentFile, type Encoder } from './hls'
+import {
+  hlsArgs,
+  jobId,
+  looksLikeGpuFailure,
+  nextAction,
+  playlistText,
+  segmentCount,
+  segmentFile,
+  type Encoder
+} from './hls'
 
 /** A job nobody has asked about for this long has its ffmpeg KILLED, and
  *  nothing else: the record and the segments stay, so a phone that was
@@ -73,6 +82,11 @@ interface Job extends StartArgs {
    *  is everything it will ever make. */
   ended: boolean
   asked: number
+  /** The segment of the LATEST ask. Only that ask may restart the run:
+   *  two asks far apart (a prefetch and a seek) each restarted ffmpeg at
+   *  their own segment and killed each other's run until both timed out,
+   *  so the newest wins and the older one waits out its deadline. */
+  lastWanted: number
   stderr: string
   failed: string | null
 }
@@ -102,6 +116,10 @@ export class HlsJobs {
     const existing = this.jobs.get(id)
     if (existing) {
       existing.asked = this.now()
+      // A fresh ask is a fresh chance: one ffmpeg that fell over used to be
+      // a 404 for that film until the job was dropped ten minutes later,
+      // however many times the phone reloaded the page.
+      existing.failed = null
       return { id }
     }
     const job: Job = {
@@ -115,6 +133,7 @@ export class HlsJobs {
       startSegment: 0,
       ended: false,
       asked: this.now(),
+      lastWanted: 0,
       stderr: '',
       failed: null
     }
@@ -126,6 +145,26 @@ export class HlsJobs {
    *  token without confirming the job exists. */
   owner(id: string): string | null {
     return this.jobs.get(id)?.token ?? null
+  }
+
+  /** The file a job streams, so a route can re-check it against the
+   *  phone's root as it is NOW: a job is walled when it is opened, and a
+   *  tab can be closed, or the phone moved to another tab, while it runs. */
+  file(id: string): string | null {
+    return this.jobs.get(id)?.file ?? null
+  }
+
+  /** Stop and discard every job of one phone: it was forgotten, or it moved
+   *  to another folder, and a stream it can no longer open must not carry on. */
+  async stopFor(token: string): Promise<void> {
+    const gone: Job[] = []
+    for (const [id, job] of this.jobs) {
+      if (job.token === token) {
+        this.jobs.delete(id)
+        gone.push(job)
+      }
+    }
+    await Promise.all(gone.map((job) => this.discard(job)))
   }
 
   lastError(id: string): string | null {
@@ -195,13 +234,21 @@ export class HlsJobs {
         audioIndex: job.audioIndex
       })
       if (DEBUG) args.splice(args.indexOf('-nostdin'), 0, '-stats')
-      const proc = this.spawn(this.deps.ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
+      const proc = this.spawn(this.deps.ffmpeg, args, {
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', 'pipe']
+      })
       job.proc = proc
       proc.stderr?.on('data', (c: Buffer) => {
         job.stderr = (job.stderr + c.toString()).slice(-4000)
       })
       if (DEBUG) {
-        const said = (): string => job.stderr.trim().split(/\r?\n|\r/).filter(Boolean).pop() ?? ''
+        const said = (): string =>
+          job.stderr
+            .trim()
+            .split(/\r?\n|\r/)
+            .filter(Boolean)
+            .pop() ?? ''
         console.log(`[phone hls] ${job.id} start at segment ${at} (${this.encoder.video})`)
         proc.on('exit', (code) => console.log(`[phone hls] ${job.id} exit ${code}: ${said()}`))
       }
@@ -210,7 +257,12 @@ export class HlsJobs {
         job.proc = null
         job.failed = err.message
       })
-      proc.on('exit', (code) => {
+      // CLOSE, not exit: `exit` fires when the process is gone, which can be
+      // BEFORE its stderr has drained, and everything decided here is decided
+      // from stderr - whether the GPU refused, and what to tell the phone. On
+      // `exit` a fast NVENC refusal read as an empty reason and never fell
+      // back to software.
+      proc.on('close', (code) => {
         // A run this job already replaced (or killed) has nothing to say.
         if (job.proc !== proc) return
         job.proc = null
@@ -248,6 +300,7 @@ export class HlsJobs {
     const job = this.jobs.get(id)
     if (!job || !Number.isInteger(n) || n < 0 || n >= job.total) return null
     job.asked = this.now()
+    job.lastWanted = n
     const deadline = this.now() + WAIT_MS
     while (this.now() < deadline && this.jobs.get(id) === job) {
       if (job.starting) {
@@ -260,14 +313,29 @@ export class HlsJobs {
       if (job.failed) return null
       if (segments.has(n)) return segmentFile(job.dir, n)
       const produced = this.produced(job, segments)
+      // Only the NEWEST ask moves the run. Two asks far apart (hls.js
+      // prefetching while the user seeks) each used to restart ffmpeg at
+      // their own segment and kill the other's run, so neither was ever
+      // served. An older ask waits only while the run is heading towards
+      // it, and otherwise gives up at once: the player has moved on, and a
+      // 404 it retries beats a connection held for thirty seconds.
+      const mine = job.lastWanted === n
+      const want = nextAction({
+        startSegment: job.startSegment,
+        produced,
+        wanted: n,
+        total: job.total
+      })
       if (!job.proc) {
         // Nothing running. A run that exited at exactly this segment and
         // made nothing of it is the film ending early: not worth 30s.
         if (job.ended && job.startSegment === n) return null
+        if (!mine) return null
         void this.start(job, n)
         continue
       }
-      if (nextAction({ startSegment: job.startSegment, produced, wanted: n, total: job.total }) === 'restart') {
+      if (want === 'restart') {
+        if (!mine) return null
         void this.start(job, n)
         continue
       }

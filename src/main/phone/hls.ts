@@ -116,7 +116,10 @@ export function hlsArgs(o: {
   const video: string[] = plan.audioOnly
     ? ['-vn']
     : plan.copyVideo
-      ? ['-map', '0:v:0', '-c:v', 'copy']
+      ? // `hvc1`, not the muxer's default `hev1`: same bytes, and Safari
+        // plays one and refuses the other, which on an iPhone is the whole
+        // copy path (an HEVC film it can play natively) with no picture.
+        ['-map', '0:v:0', '-c:v', 'copy', ...(plan.hevcCopy ? ['-tag:v', 'hvc1'] : [])]
       : [
           '-map',
           '0:v:0',

@@ -21,13 +21,18 @@ import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
 import type { ArchiveListing, DirListing, FileKind, TextRead } from '@shared/types'
-import { emptyState as emptyRemote, parseCmd, type RemoteCmd, type RemoteState } from '@shared/remote'
+import {
+  emptyState as emptyRemote,
+  parseCmd,
+  type RemoteCmd,
+  type RemoteState
+} from '@shared/remote'
 import type { ComicOpen } from '../comic'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
 import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
-import { forget, issueCode, phoneFor, redeem, touch, type PairState } from './pairing'
+import { forget, issueCode, phoneFor, redeem, touch, type PairState, type Phone } from './pairing'
 import { parseRoute, tokenOf, type Route } from './routes'
 
 export const DEFAULT_PORT = 47320
@@ -153,7 +158,10 @@ const MIME: Record<string, string> = {
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body)
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store'
+  })
   res.end(text)
 }
 
@@ -248,6 +256,21 @@ export class PhoneServer {
    *  never hears about it otherwise. */
   dropGrants(token: string): void {
     this.grants.drop(token)
+    void this.deps.jobs?.stopFor(token)
+    this.dropStreams(token)
+  }
+
+  /** Close one phone's state stream: forgotten, or moved to another folder.
+   *  Its own reconnect meets the 401 wall, which is the phone's cue to ask
+   *  to be paired again; leaving the stream open sent the PC's every move
+   *  to a phone the dialog says is gone. */
+  private dropStreams(token: string): void {
+    for (const [res, owner] of this.streams) {
+      if (owner !== token) continue
+      this.streams.delete(res)
+      res.end()
+    }
+    this.listenersChanged()
   }
 
   /** What the renderer last reported (#107); empty when nothing has been
@@ -286,7 +309,8 @@ export class PhoneServer {
       new Promise((resolve, reject) => {
         const s = createServer((req, res) => void this.handle(req, res))
         s.once('error', (err: NodeJS.ErrnoException) => {
-          if (err.code === 'EADDRINUSE' && left > 0 && port !== 0) resolve(tryPort(port + 1, left - 1))
+          if (err.code === 'EADDRINUSE' && left > 0 && port !== 0)
+            resolve(tryPort(port + 1, left - 1))
           else reject(err)
         })
         s.listen(port, host, () => {
@@ -354,11 +378,12 @@ export class PhoneServer {
 
       if (route.kind === 'media') {
         // The root, or a file one of THIS phone's own answers granted it.
-        const allowed = this.deps.validRoot(phone.root, route.path) || this.grants.has(phone.token, route.path)
+        const allowed =
+          this.deps.validRoot(phone.root, route.path) || this.grants.has(phone.token, route.path)
         if (!allowed) return void json(res, 403, { error: 'outside the folder' })
         return await this.serveMedia(route.path, req, res)
       }
-      if (route.kind === 'hls') return await this.hls(route, phone.token, res)
+      if (route.kind === 'hls') return await this.hls(route, phone, res)
       if (route.kind === 'remote') {
         if (route.what === 'state') return this.stream(req, phone.token, res)
         return await this.command(req, phone.token, res)
@@ -375,7 +400,8 @@ export class PhoneServer {
     const from = req.socket.remoteAddress ?? '?'
     const now = this.now()
     const hits = (this.pairHits.get(from) ?? []).filter((t) => t > now - PAIR_WINDOW_MS)
-    if (hits.length >= PAIR_LIMIT) return void json(res, 429, { error: 'too many attempts, wait a minute' })
+    if (hits.length >= PAIR_LIMIT)
+      return void json(res, 429, { error: 'too many attempts, wait a minute' })
     hits.push(now)
     this.pairHits.set(from, hits)
     let raw: string
@@ -394,13 +420,26 @@ export class PhoneServer {
     if (!body || typeof body !== 'object' || typeof body.code !== 'string') {
       return void json(res, 400, { error: 'no code' })
     }
-    const phone = redeem(this.state, body.code, typeof body.name === 'string' ? body.name : 'Phone', now)
+    const phone = redeem(
+      this.state,
+      body.code,
+      typeof body.name === 'string' ? body.name : 'Phone',
+      now
+    )
     if (!phone) return void json(res, 403, { error: 'that code is not valid any more; scan again' })
     // A phone that is ALREADY paired and scans a code from another tab MOVES
     // to that root (spec): it keeps its token and the list does not grow a
     // second entry for the same phone.
     const existing = phoneFor(this.state, typeof body.token === 'string' ? body.token : null)
     if (existing) {
+      // The phone is somewhere else now: what the OLD folder handed it goes
+      // with the move. Its grants (a markdown's pictures, a comic's pages, an
+      // extracted member) and its running streams belong to a root it is no
+      // longer paired to, and the wall is the tab's, not the token's.
+      if (existing.root !== phone.root) {
+        this.grants.drop(existing.token)
+        void this.deps.jobs?.stopFor(existing.token)
+      }
       existing.root = phone.root
       existing.name = phone.name
       existing.seen = now
@@ -421,7 +460,15 @@ export class PhoneServer {
     res: ServerResponse
   ): Promise<void> {
     const path = q.get('path') ?? ''
-    const inside = (): boolean => this.deps.validRoot(root, path) || this.deps.isRoot(root, path)
+    // What this phone may name. `validRoot` carries the open-root check;
+    // `isRoot` is a plain path comparison, so it needs `rootOpen` beside it
+    // or a closed tab's own folder stays listable. A GRANT counts too: a
+    // member extracted out of an archive lives in temp, outside every root,
+    // and reading it is exactly what the phone asked for.
+    const inside = (): boolean =>
+      this.deps.validRoot(root, path) ||
+      (this.deps.isRoot(root, path) && this.deps.rootOpen(root)) ||
+      this.grants.has(token, path)
     switch (name) {
       // Direct or HLS, per file and per DEVICE: the phone reports what it
       // plays in `can` and `decide` is a lookup against it. The wall is
@@ -441,7 +488,10 @@ export class PhoneServer {
         }
         if (plan.mode === 'none') return void json(res, 200, plan)
         if (!this.deps.jobs || !info) {
-          return void json(res, 200, { mode: 'none', reason: 'Prism has no ffmpeg to convert with' })
+          return void json(res, 200, {
+            mode: 'none',
+            reason: 'Prism has no ffmpeg to convert with'
+          })
         }
         const { id } = this.deps.jobs.open({
           token,
@@ -474,7 +524,11 @@ export class PhoneServer {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         try {
           const st = await fsp.stat(path)
-          return void json(res, 200, { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() })
+          return void json(res, 200, {
+            size: st.size,
+            mtimeMs: st.mtimeMs,
+            isFolder: st.isDirectory()
+          })
         } catch {
           return void json(res, 404, { error: 'no such file' })
         }
@@ -487,7 +541,10 @@ export class PhoneServer {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const vtt = await this.deps.readSubs(path)
         if (vtt === null) return void json(res, 404, { error: 'no subtitles' })
-        res.writeHead(200, { 'content-type': 'text/vtt; charset=utf-8', 'cache-control': 'no-store' })
+        res.writeHead(200, {
+          'content-type': 'text/vtt; charset=utf-8',
+          'cache-control': 'no-store'
+        })
         return void res.end(vtt)
       }
       // A text file, read-only: the phone has no route to write one back.
@@ -509,7 +566,8 @@ export class PhoneServer {
       case 'doc': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         const html = await this.deps.docHtml(path)
-        if (html === null) return void json(res, 404, { error: 'Prism could not convert this document' })
+        if (html === null)
+          return void json(res, 404, { error: 'Prism could not convert this document' })
         return void json(res, 200, { html })
       }
       // A comic book, read-only: unpacked once under userData by main, and
@@ -626,7 +684,8 @@ export class PhoneServer {
     }
     const cmd = parseCmd(body)
     if (!cmd) return void json(res, 400, { error: 'bad command' })
-    if (this.remoteState.empty) return void json(res, 409, { error: 'nothing is playing on the PC' })
+    if (this.remoteState.empty)
+      return void json(res, 409, { error: 'nothing is playing on the PC' })
     const took = await this.deps.remote.onCmd(token, cmd)
     if (!took) return void json(res, 409, { error: 'nothing is playing on the PC' })
     res.writeHead(204, { 'cache-control': 'no-store' })
@@ -637,7 +696,9 @@ export class PhoneServer {
   private async serveMedia(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const headers: Record<string, string> = {}
     if (req.headers.range) headers.range = String(req.headers.range)
-    const r = await this.deps.media(new Request(`fsmedia://local/${encodeURIComponent(path)}`, { headers }))
+    const r = await this.deps.media(
+      new Request(`fsmedia://local/${encodeURIComponent(path)}`, { headers })
+    )
     const out: Record<string, string> = { 'cache-control': 'no-store' }
     r.headers.forEach((v, k) => {
       if (k.toLowerCase() !== 'access-control-allow-origin') out[k] = v
@@ -658,9 +719,25 @@ export class PhoneServer {
    * the ask, or the run restarted at it) and then streamed. Nothing is
    * cacheable: a restart rewrites every file under the job directory.
    */
-  private async hls(route: Extract<Route, { kind: 'hls' }>, token: string, res: ServerResponse): Promise<void> {
+  private async hls(
+    route: Extract<Route, { kind: 'hls' }>,
+    phone: Phone,
+    res: ServerResponse
+  ): Promise<void> {
+    const token = phone.token
     const jobs = this.deps.jobs
-    if (!jobs || jobs.owner(route.job) !== token) return void json(res, 404, { error: 'no such stream' })
+    if (!jobs || jobs.owner(route.job) !== token)
+      return void json(res, 404, { error: 'no such stream' })
+    // The job was walled when it was opened, and a wall can MOVE under it:
+    // the tab can be closed, or this phone can scan another tab's code. So a
+    // stream is checked against the phone's root as it is NOW, every time,
+    // like every other route, and a stream that fails it is stopped rather
+    // than left running against a folder Prism no longer has open.
+    const job = jobs.file(route.job)
+    if (!job || !this.deps.validRoot(phone.root, job)) {
+      void jobs.stopFor(token)
+      return void json(res, 404, { error: 'no such stream' })
+    }
     if (route.file === 'index.m3u8') {
       // The token rides on every uri the playlist names: the player resolves
       // them against the playlist's url and keeps none of its query.
@@ -670,7 +747,9 @@ export class PhoneServer {
       return void res.end(text)
     }
     const file =
-      route.file === 'init.mp4' ? await jobs.init(route.job) : await jobs.segment(route.job, Number(route.file.split('.')[0]))
+      route.file === 'init.mp4'
+        ? await jobs.init(route.job)
+        : await jobs.segment(route.job, Number(route.file.split('.')[0]))
     if (file === null) {
       return void json(res, 404, { error: jobs.lastError(route.job) ?? 'no such segment' })
     }
@@ -686,7 +765,11 @@ export class PhoneServer {
     } catch {
       return void json(res, 404, { error: 'not found' })
     }
-    res.writeHead(200, { 'content-type': type, 'content-length': String(st.size), 'cache-control': 'no-store' })
+    res.writeHead(200, {
+      'content-type': type,
+      'content-length': String(st.size),
+      'cache-control': 'no-store'
+    })
     const s = createReadStream(full)
     s.on('error', () => res.destroy())
     res.on('close', () => s.destroy())
@@ -694,7 +777,11 @@ export class PhoneServer {
   }
 
   /** The phone bundle out of the renderer dir; in dev, out of vite's server. */
-  private async serveStatic(file: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async serveStatic(
+    file: string,
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<void> {
     if (this.deps.devUrl) {
       // The QUERY rides along: vite tells a module from a file by it
       // (`?import`, `?v=`, `?t=`), and the parser dropped it for static
@@ -704,7 +791,9 @@ export class PhoneServer {
       const raw = new URL(req.url ?? '/', this.deps.devUrl)
       const target = new URL((file ? `/${file}` : '/phone.html') + raw.search, this.deps.devUrl)
       const r = await fetch(target, { headers: { accept: String(req.headers.accept ?? '*/*') } })
-      res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'application/octet-stream' })
+      res.writeHead(r.status, {
+        'content-type': r.headers.get('content-type') ?? 'application/octet-stream'
+      })
       if (!r.body) return void res.end()
       Readable.fromWeb(r.body as never).pipe(res)
       return
@@ -713,7 +802,8 @@ export class PhoneServer {
     const base = normalize(this.deps.rendererDir)
     const full = normalize(join(base, rel))
     // The parser already refused a climb; this is the belt to that brace.
-    if (!full.toLowerCase().startsWith(base.toLowerCase())) return void json(res, 404, { error: 'not found' })
+    if (!full.toLowerCase().startsWith(base.toLowerCase()))
+      return void json(res, 404, { error: 'not found' })
     let st: Awaited<ReturnType<typeof fsp.stat>>
     try {
       st = await fsp.stat(full)
@@ -726,7 +816,9 @@ export class PhoneServer {
       'content-length': String(st.size),
       // Vite hashes its asset names, so those can be cached forever; the page
       // itself is re-validated so a new build shows up on the next open.
-      'cache-control': rel.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'
+      'cache-control': rel.startsWith('assets/')
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache'
     })
     const s = createReadStream(full)
     s.on('error', () => res.destroy())

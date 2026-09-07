@@ -24,6 +24,7 @@ let renderer: string
 let picOutside: string
 /** What the text route handed main's own servable set. */
 let servable: string[]
+let rootOpen = true
 /** Where the fake comic opener unpacks and the fake extractor writes: OUTSIDE
  *  the root, the way userData and temp are, so only a grant lets them through. */
 let cache: string
@@ -83,6 +84,7 @@ beforeEach(async () => {
   picOutside = join(outside, 'pic.png')
   writeFileSync(picOutside, 'png')
   servable = []
+  rootOpen = true
   cache = mkdtempSync(join(tmpdir(), 'prism-phone-cache-'))
   lastPw = undefined
   listeners = []
@@ -101,9 +103,11 @@ beforeEach(async () => {
       return new Response(ok ? 'abcd' : null, { status: ok ? 200 : 404 })
     },
     listDir: async () => listing(['clip.mp4']),
-    validRoot: (root, p) => root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
-    isRoot: (root, p) => root === dir && p === dir,
-    rootOpen: (root) => root === dir,
+    // The real wall refuses everything once the tab is closed (validRoot
+    // needs the root OPEN), so the fake carries that flag too.
+    validRoot: (root, p) => rootOpen && root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
+    isRoot: (root, p) => rootOpen && root === dir && p === dir,
+    rootOpen: (root) => rootOpen && root === dir,
     subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
     probe: async (p) => probeOf(p),
@@ -548,6 +552,48 @@ describe('PhoneServer', () => {
     expect((await fetch(url(playlistUrl.replace(/\?t=.*$/, '')))).status).toBe(401)
     // A job id nobody opened, from a paired phone: the same 404.
     expect((await fetch(url(`/hls/0123456789abcdef/index.m3u8?t=${a}`))).status).toBe(404)
+  })
+
+  it('a stream stops when its tab closes: the wall is re-checked on every ask', async () => {
+    const token = await pair()
+    const hls = await play(token, 'clip.mkv')
+    const playlistUrl = String(hls.url)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '0.m4s')))).status).toBe(200)
+    const jobDir = join(dir, 'hls', playlistUrl.split('/')[2])
+    // The tab is closed on the PC. Every other route already refuses; the
+    // stream used to carry on, and to restart ffmpeg on a seek.
+    rootOpen = false
+    expect((await fetch(url(playlistUrl))).status).toBe(404)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))).status).toBe(404)
+    expect((await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
+    await new Promise((r) => setTimeout(r, 60))
+    expect(existsSync(jobDir)).toBe(false)
+  })
+
+  it('a phone that moves to another tab loses the old root grants and streams', async () => {
+    const token = await pair()
+    // A markdown in this root grants a picture outside it, and a film is
+    // streaming.
+    await fetch(url(`/api/text?path=${encodeURIComponent(join(dir, 'readme.md'))}`), {
+      headers: { authorization: `Bearer ${token}` }
+    })
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${token}`))).status).toBe(200)
+    const hls = await play(token, 'clip.mkv')
+    const playlistUrl = String(hls.url)
+    expect((await fetch(url(playlistUrl))).status).toBe(200)
+
+    // The same phone scans a code shown from another tab. It keeps its token
+    // and moves; what the old folder handed it does not come along.
+    const other = mkdtempSync(join(tmpdir(), 'prism-phone-other-'))
+    const { code } = server.issue(other)
+    const moved = await fetch(url('/pair'), {
+      method: 'POST',
+      body: JSON.stringify({ code, name: 'Test phone', token })
+    })
+    expect(moved.status).toBe(200)
+    expect(((await moved.json()) as { root: string }).root).toBe(other)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${token}`))).status).toBe(403)
+    expect((await fetch(url(playlistUrl))).status).toBe(404)
   })
 
   it('stopping the server stops every hls job and removes its directory', async () => {

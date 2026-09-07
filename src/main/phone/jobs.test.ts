@@ -6,7 +6,7 @@ import { HlsJobs } from './jobs'
 import { fakeFfmpeg, type FakeFfmpegOptions } from './testing/fakeFfmpeg'
 
 let base: string
-const plan = { mode: 'hls' as const, copyVideo: false, copyAudio: false, tonemap: false, height: null, audioOnly: false }
+const plan = { mode: 'hls' as const, copyVideo: false, copyAudio: false, tonemap: false, height: null, audioOnly: false, hevcCopy: false }
 
 function make(opts: FakeFfmpegOptions = {}, now?: () => number): { jobs: HlsJobs; spawned: ReturnType<typeof fakeFfmpeg>['spawned'] } {
   const fake = fakeFfmpeg(opts)
@@ -136,6 +136,40 @@ describe('HlsJobs', () => {
     expect(spawned).toHaveLength(1)
     expect(jobs.lastError(id)).toContain('Invalid data')
     expect(jobs.encoder.video).toBe('nvenc')
+    await jobs.stopAll()
+  })
+
+  it('a fresh ask after a failure tries again: one bad run is not a ten-minute 404', async () => {
+    const { jobs, spawned } = make({ failFirst: 'C:\\a.mkv: Invalid data found when processing input' })
+    const a = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    expect(await jobs.segment(a.id, 0)).toBeNull()
+    expect(jobs.lastError(a.id)).toContain('Invalid data')
+    // The phone reloads and asks again: /api/play opens the same job, which
+    // is the moment the last failure stops counting.
+    const b = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    expect(b.id).toBe(a.id)
+    expect(jobs.lastError(b.id)).toBeNull()
+    const p = await jobs.segment(b.id, 0)
+    expect(p?.endsWith('0.m4s')).toBe(true)
+    expect(spawned).toHaveLength(2)
+    await jobs.stopAll()
+  })
+
+  it('two asks far apart do not restart each other: the newest wins', async () => {
+    const { jobs, spawned } = make({ segments: 100, intervalMs: 10 })
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 4000, audioIndex: 1 })
+    // A prefetch of segment 5 and a seek to 500 in the same breath. Each ask
+    // used to restart ffmpeg at its own segment and kill the other's run, so
+    // neither was ever served and both waited out the full deadline.
+    const early = jobs.segment(id, 5)
+    const late = jobs.segment(id, 500)
+    const [e, l] = await Promise.all([early, late])
+    expect(l?.endsWith('500.m4s')).toBe(true)
+    // The older ask gave up at once rather than fighting: the player has
+    // moved, and a 404 it retries beats a held connection.
+    expect(e).toBeNull()
+    expect(spawned.length).toBeLessThanOrEqual(2)
+    expect(startOf(spawned[spawned.length - 1].args)).toBe('500')
     await jobs.stopAll()
   })
 

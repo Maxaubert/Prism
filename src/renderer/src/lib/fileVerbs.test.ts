@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fileVerbs } from './fileVerbs'
 
 // The unit tests run under node, where `window` does not exist; in a browser
@@ -15,6 +15,20 @@ const install = (explorer: boolean): { showInExplorer: ReturnType<typeof vi.fn> 
   return { showInExplorer }
 }
 
+// Copying text needs a clipboard, and which one differs by host: the app
+// window has `navigator.clipboard` (a secure context), the phone page has
+// only `document.execCommand`, and this test host has neither until it is
+// given one. A row that cannot copy is not offered at all, so the test says
+// which host it is standing in.
+let writeText: ReturnType<typeof vi.fn>
+beforeEach(() => {
+  writeText = vi.fn(() => Promise.resolve())
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText } },
+    configurable: true
+  })
+})
+
 describe('fileVerbs', () => {
   afterEach(() => {
     delete (globalThis as unknown as { prism?: unknown }).prism
@@ -28,7 +42,14 @@ describe('fileVerbs', () => {
   })
   it('keeps only Copy path where there is no Explorer to show a file in', () => {
     install(false)
-    // The clipboard here is the browser's own writeText, which a phone has.
-    expect(fileVerbs('C:\\a\\b.txt').map((v) => v.label)).toEqual(['Copy path'])
+    const verbs = fileVerbs('C:\\a\\b.txt')
+    expect(verbs.map((v) => v.label)).toEqual(['Copy path'])
+    verbs[0].onPick?.()
+    expect(writeText).toHaveBeenCalledWith('C:\\a\\b.txt')
+  })
+  it('offers no row at all where nothing can copy: it would do nothing', () => {
+    install(false)
+    Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true })
+    expect(fileVerbs('C:\\a\\b.txt')).toEqual([])
   })
 })

@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { MenuItem } from '../components/ContextMenu'
+import { canCopyText, clipboardText } from './clipboardText'
 
 /**
  * The file verbs every surface shares.
@@ -61,14 +62,17 @@ export const tickIf = (on: boolean): JSX.Element =>
  * and a row that does nothing when tapped is worse than no row.
  */
 export function fileVerbs(path: string): MenuItem[] {
-  const copyPath: MenuItem = {
-    label: 'Copy path',
-    onPick: () => void navigator.clipboard.writeText(path)
-  }
-  if (!window.prism.capabilities.explorer) return [copyPath]
+  // `navigator.clipboard` is a SECURE-CONTEXT api and the phone page is
+  // plain http by design, so on a phone it is simply not there: the row
+  // threw rather than copying. The old execCommand path still works in that
+  // context, and a host with neither does not offer the row at all.
+  const copyPath: MenuItem | null = canCopyText()
+    ? { label: 'Copy path', onPick: () => void clipboardText(path) }
+    : null
+  if (!window.prism.capabilities.explorer) return copyPath ? [copyPath] : []
   return [
     { label: 'Show in File Explorer', onPick: () => window.prism.showInExplorer(path) },
-    copyPath
+    ...(copyPath ? [copyPath] : [])
   ]
 }
 

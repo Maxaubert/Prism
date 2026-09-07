@@ -621,9 +621,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `handle`: every route but the page and `/pair` needs a paired phone, and every path is
   checked against THAT phone's own root with `validRoot` before anything reads it; media
   bytes then go through `serveMedia` itself, so `/m/` inherits `fsmedia://`'s rules on top.
+  EVERY ASK, not just the first (2026-09-07): a wall can move under a stream. Closing the
+  tab, or the phone scanning another tab's code, used to leave an HLS job serving the old
+  folder for as long as the phone kept asking, because `/hls/` was keyed by the job's id
+  and checked only that the token owned it. The job's own file is re-checked against the
+  phone's root on every ask now, a phone that MOVES loses the old root's grants and streams
+  in the same breath, and a phone that is FORGOTTEN loses its state stream too, rather than
+  hearing what the PC plays until it happens to reconnect.
   The token rides as a Bearer header for fetches and as `?t=` for `<video src>`, which can
   carry no header. Nothing on the phone path is synchronous on main's thread: the page
   streams, the listing is the bounded async `listDir` the sidebar uses, pairing is a Map.
+  One honest exception, and it is the PC's too: an archive listed or extracted for the phone
+  goes through main's own reader, and for a zip under the cap that is adm-zip, which is
+  synchronous by construction (a big zip takes the 7-Zip path, which is not). The phone
+  changed nothing there; it is the same call the panel makes.
   Under `--e2e` it binds `127.0.0.1` ONLY, so a throwaway build never raises the firewall
   prompt; the e2e's "phone" is a second sandboxed window of the app's own Chromium, since
   the harness ships no browser binary. The phone page is a SECOND VITE ENTRY
@@ -685,7 +696,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the path is walled: a job is opened only on a path that passed the phone's own root, its id
   is what `/hls/` is keyed by, another phone's token gets 404 rather than 403, and only
   `index.m3u8`, `init.mp4` and `<n>.m4s` are served from a job directory.
-  `PRISM_PHONE_DEBUG=1` logs ffmpeg's own progress line and exit per job.
+  `PRISM_PHONE_DEBUG=1` logs ffmpeg's own progress line and exit per job. Three things a
+  live transcode taught us on the way (2026-09-07): a job's ffmpeg is decided on `close`,
+  never `exit`, because everything decided there is read from stderr and `exit` can arrive
+  before it has drained, so a fast NVENC refusal read as an empty reason and never fell
+  back to software; a failure is forgotten the moment `/api/play` asks again, or one bad
+  run was a ten-minute 404 for that film however often the phone reloaded; and only the
+  NEWEST ask may move the run, because a prefetch and a seek arriving together each
+  restarted ffmpeg at their own segment and killed the other's, so neither was ever served.
+  An ask the player has moved past gives up at once with a 404 it retries, rather than
+  holding a connection for thirty seconds.
 - **Documents on the phone** (2026-09-07, #106): PDFs, markdown, code and text, office and
   ebook documents, comics and archive listings, through the SAME viewers the PC mounts
   (`PhoneViewer`, lazy-loaded exactly as App loads them, so a phone that only plays films

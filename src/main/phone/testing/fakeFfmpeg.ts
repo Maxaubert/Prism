@@ -64,7 +64,12 @@ export function fakeFfmpeg(opts: FakeFfmpegOptions = {}): FakeFfmpeg {
       run.killed = true
       if (timer) clearInterval(timer)
       // A real process exits on the next tick, never inside kill().
-      setImmediate(() => child.emit('exit', null, 'SIGTERM'))
+      // A real child emits BOTH, exit first and close once stdio has
+      // drained; jobs.ts decides on close, so the fake must say both.
+      setImmediate(() => {
+        child.emit('exit', null, 'SIGTERM')
+        child.emit('close', null, 'SIGTERM')
+      })
       return true
     }
     if (opts.failFirst && spawned.length === 1) {
@@ -74,6 +79,7 @@ export function fakeFfmpeg(opts: FakeFfmpegOptions = {}): FakeFfmpeg {
         alive = false
         child.stderr.emit('data', Buffer.from(line + '\n'))
         child.emit('exit', 1, null)
+        child.emit('close', 1, null)
       })
       return child as never
     }
@@ -84,6 +90,7 @@ export function fakeFfmpeg(opts: FakeFfmpegOptions = {}): FakeFfmpeg {
       alive = false
       if (timer) clearInterval(timer)
       child.emit('exit', code, null)
+      child.emit('close', code, null)
     }
     timer = setInterval(() => {
       if (!alive) return
