@@ -44,6 +44,9 @@ const IDLE_KILL_MS = 30_000
 const IDLE_DROP_MS = 10 * 60_000
 /** How long a segment ask waits for its file before giving up. */
 const WAIT_MS = 30_000
+/** How far behind the newest ask a segment can be and still be wanted. A
+ *  player fetching ahead is a segment or two apart; a seek is hundreds. */
+const BEHIND_IS_GONE = 4
 const POLL_MS = 100
 const INIT_FILE = 'init.mp4'
 /** `PRISM_PHONE_DEBUG=1`: ffmpeg's own progress line (`-stats`, so it is
@@ -82,10 +85,9 @@ interface Job extends StartArgs {
    *  is everything it will ever make. */
   ended: boolean
   asked: number
-  /** The segment of the LATEST ask. Only that ask may restart the run:
-   *  two asks far apart (a prefetch and a seek) each restarted ffmpeg at
-   *  their own segment and killed each other's run until both timed out,
-   *  so the newest wins and the older one waits out its deadline. */
+  /** The segment of the LATEST ask, which is how an ask knows it has been
+   *  left behind: two asks far apart each restarted ffmpeg at their own
+   *  segment and killed the other's run, so neither was ever served. */
   lastWanted: number
   stderr: string
   failed: string | null
@@ -313,13 +315,15 @@ export class HlsJobs {
       if (job.failed) return null
       if (segments.has(n)) return segmentFile(job.dir, n)
       const produced = this.produced(job, segments)
-      // Only the NEWEST ask moves the run. Two asks far apart (hls.js
-      // prefetching while the user seeks) each used to restart ffmpeg at
-      // their own segment and kill the other's run, so neither was ever
-      // served. An older ask waits only while the run is heading towards
-      // it, and otherwise gives up at once: the player has moved on, and a
-      // 404 it retries beats a connection held for thirty seconds.
-      const mine = job.lastWanted === n
+      // AN ASK THE PLAYER HAS LEFT BEHIND STOPS ASKING. Two asks far apart
+      // (a prefetch and a seek arriving together) each restarted ffmpeg at
+      // their own segment and killed the other's run, so neither was ever
+      // served. The test is DISTANCE, not order: a player asking for two
+      // adjacent segments at once wants both, and one run serves them, while
+      // an ask left far behind the newest is a position nobody is watching
+      // any more. It gives up at once, and the 404 its player retries beats
+      // a connection held for thirty seconds.
+      if (n + BEHIND_IS_GONE < job.lastWanted) return null
       const want = nextAction({
         startSegment: job.startSegment,
         produced,
@@ -330,12 +334,10 @@ export class HlsJobs {
         // Nothing running. A run that exited at exactly this segment and
         // made nothing of it is the film ending early: not worth 30s.
         if (job.ended && job.startSegment === n) return null
-        if (!mine) return null
         void this.start(job, n)
         continue
       }
       if (want === 'restart') {
-        if (!mine) return null
         void this.start(job, n)
         continue
       }
