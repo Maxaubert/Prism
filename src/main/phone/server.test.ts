@@ -6,6 +6,7 @@ import { join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
 import type { ArchiveListing, TextRead } from '@shared/types'
 import { emptyState as emptyRemote, type RemoteCmd, type RemoteState } from '@shared/remote'
+import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import type { ComicOpen } from '../comic'
 import { HlsJobs } from './jobs'
 import { emptyState, forget } from './pairing'
@@ -103,6 +104,19 @@ beforeEach(async () => {
       return new Response(ok ? 'abcd' : null, { status: ok ? 200 : 404 })
     },
     listDir: async () => listing(['clip.mp4']),
+    // The app hands the route main's own `searchFiles`; here it is that
+    // function's grammar over the folder's two files, so what the test is
+    // about is the route and its wall rather than the walk.
+    search: async (root, query) => {
+      const terms = parseQuery(query)
+      if (!terms.length) return { hits: [], truncated: false }
+      return {
+        hits: ['clip.mp4', 'clip.mkv']
+          .filter((n) => matchesQuery(n, terms))
+          .map((n) => ({ path: join(root, n), name: n, kind: 'video' as const, dir: '' })),
+        truncated: false
+      }
+    },
     // The real wall refuses everything once the tab is closed (validRoot
     // needs the root OPEN), so the fake carries that flag too.
     validRoot: (root, p) => rootOpen && root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
@@ -462,6 +476,24 @@ describe('PhoneServer', () => {
     expect(await (await stat(dir)).json()).toMatchObject({ isFolder: true })
     expect((await stat(join(dir, 'gone.txt'))).status).toBe(404)
     expect((await stat('C:\\Windows\\notepad.exe')).status).toBe(403)
+  })
+
+  it('searches the phone own root, and an empty query answers nothing rather than everything', async () => {
+    expect((await fetch(url('/api/search?q=clip'))).status).toBe(401)
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const search = (q: string): Promise<Response> =>
+      fetch(url(`/api/search?q=${encodeURIComponent(q)}`), { headers: auth })
+    const hit = (await (await search('clip mp4')).json()) as { hits: Array<{ path: string }> }
+    expect(hit.hits).toEqual([
+      { path: join(dir, 'clip.mp4'), name: 'clip.mp4', kind: 'video', dir: '' }
+    ])
+    // A folder listing with a hole in it is not a search: no query, no hits.
+    expect(await (await search('')).json()).toEqual({ hits: [], truncated: false })
+    // The route names no path, so the wall is the root's own: a tab that has
+    // closed leaves its folder unsearchable like everything else.
+    rootOpen = false
+    expect((await search('clip')).status).toBe(403)
   })
 
   it('refuses a path outside the phone root, even for a paired phone', async () => {

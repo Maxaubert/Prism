@@ -14,7 +14,7 @@
  * on import and asks the bridge for the window material as it does.
  */
 import type { PrismApi } from '../../../preload/index'
-import type { ArchiveListing, DirListing, FileKind, MediaProbe, TextRead } from '@shared/types'
+import type { ArchiveListing, DirListing, FileKind, MediaProbe, SearchResult, TextRead } from '@shared/types'
 import { apiUrl, getJson, mediaUrl } from './api'
 import { canCsv } from './canPlay'
 
@@ -80,6 +80,15 @@ const implemented: Shim = {
   forceSetup: false,
   listDir: (_root: string, path: string): Promise<DirListing | null> =>
     getJson<DirListing>('/api/dir', { path }).catch(() => null),
+  /**
+   * The sidebar's search, named the same so the field is the desktop's own
+   * call (Task 2). The ROOT is dropped on purpose: the phone's is the one it
+   * paired to and the server knows it, and a root a page could name is a root
+   * it could ask to have searched. A refused or failed ask reads as no hits,
+   * which is what the field already draws while nothing matches.
+   */
+  searchTree: (_root: string, query: string): Promise<SearchResult> =>
+    getJson<SearchResult>('/api/search', { q: query }).catch(() => ({ hits: [], truncated: false })),
   /**
    * The read-only document routes (#106). Each answers in the shape its IPC
    * does, so the viewers are not told the difference, and a refused or

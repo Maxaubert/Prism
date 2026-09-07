@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crumbs, parentOf, stepFile } from './browse'
+import { crumbs, fileFromHit, parentOf, stepFile } from './browse'
 
 const f = (name: string) => ({
   path: `C:\\r\\${name}`,
@@ -39,5 +39,16 @@ describe('browse', () => {
     expect(stepFile(files, 'C:\\r\\c', 1)).toBeNull()
     expect(stepFile(files, 'C:\\r\\a', -1)).toBeNull()
     expect(stepFile(files, 'C:\\r\\zz', 1)).toBeNull()
+  })
+  it('turns a search hit into the file a row hands the viewer', () => {
+    expect(fileFromHit({ path: 'C:\\r\\a\\Holiday.MP4', name: 'Holiday.MP4', kind: 'video', dir: 'a' })).toEqual({
+      path: 'C:\\r\\a\\Holiday.MP4',
+      name: 'Holiday.MP4',
+      ext: '.mp4',
+      kind: 'video',
+      size: 0,
+      mtimeMs: 0
+    })
+    expect(fileFromHit({ path: 'C:\\r\\Dockerfile', name: 'Dockerfile', kind: 'text', dir: '' }).ext).toBe('')
   })
 })

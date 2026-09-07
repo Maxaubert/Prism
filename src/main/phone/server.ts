@@ -20,7 +20,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, promises as fsp } from 'fs'
 import { join, extname, normalize } from 'path'
 import { Readable } from 'stream'
-import type { ArchiveListing, DirListing, FileKind, TextRead } from '@shared/types'
+import type { ArchiveListing, DirListing, FileKind, SearchResult, TextRead } from '@shared/types'
 import {
   emptyState as emptyRemote,
   parseCmd,
@@ -74,6 +74,10 @@ export interface PhoneDeps {
   media: (req: Request) => Promise<Response>
   /** The bounded async listing the sidebar uses. */
   listDir: (dir: string) => Promise<DirListing>
+  /** The sidebar's own `searchFiles`, over the ROOT rather than over a path
+   *  the phone names: the operator grammar (`shared/searchQuery`) is the
+   *  desktop's, so it is taught in one place and answers the same rows. */
+  search: (root: string, query: string) => Promise<SearchResult>
   /** The strict per-root check: is `p` inside `root`? */
   validRoot: (root: string, p: string) => boolean
   /** Is `p` the root itself? The real `validRoot` already says yes to that
@@ -513,6 +517,15 @@ export class PhoneServer {
       }
       case 'me':
         return void json(res, 200, { root, open: this.deps.rootOpen(root), name: phoneName })
+      // The tab's whole folder, bounded, and never a path from the query:
+      // what is searched is the root THIS phone paired to, so the wall is the
+      // IPC handler's own (`validRoot(root, root)`, which is also the check
+      // that a tab still holds it) and there is nothing else here to refuse.
+      case 'search': {
+        if (!this.deps.validRoot(root, root))
+          return void json(res, 403, { error: 'outside the folder' })
+        return void json(res, 200, await this.deps.search(root, q.get('q') ?? ''))
+      }
       case 'dir': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         return void json(res, 200, await this.deps.listDir(path))

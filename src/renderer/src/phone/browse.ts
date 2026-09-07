@@ -4,7 +4,7 @@
  * handed over by the PC, compared without case, and the root is a wall here
  * as it is in main: nothing walks above it.
  */
-import type { ViewerFile } from '@shared/types'
+import type { SearchHit, ViewerFile } from '@shared/types'
 
 const trim = (p: string): string => p.replace(/[\\/]+$/, '')
 const same = (a: string, b: string): boolean => trim(a).toLowerCase() === trim(b).toLowerCase()
@@ -31,6 +31,26 @@ export function crumbs(root: string, dir: string): Array<{ name: string; path: s
     at = parentOf(root, at)
   }
   return out
+}
+
+/**
+ * A search hit as the file a row hands the viewer. A hit carries a path, a
+ * name and a kind, which is everything the viewers read; the SIZE it does not
+ * carry is left at 0 rather than fetched, because the one place a size shows
+ * is the archive header's "N compressed", which omits the clause when there
+ * is none. The extension is lower-cased, as `toViewerFile` does, so the
+ * icon's chip and the kind tests read the same on both hosts.
+ */
+export function fileFromHit(hit: SearchHit): ViewerFile {
+  const dot = hit.name.lastIndexOf('.')
+  return {
+    path: hit.path,
+    name: hit.name,
+    ext: dot > 0 ? hit.name.slice(dot).toLowerCase() : '',
+    kind: hit.kind,
+    size: 0,
+    mtimeMs: 0
+  }
 }
 
 /** The file after (or before) `current` in the folder's own order; null at

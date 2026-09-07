@@ -1432,6 +1432,9 @@ if (!app.requestSingleInstanceLock()) {
       devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
       media: serveMedia,
       listDir,
+      // The very function `search:files` answers the sidebar with, so the
+      // phone's field and the PC's box find the same files by the same rules.
+      search: (root: string, query: string) => searchFiles(root, query),
       validRoot,
       isRoot,
       rootOpen: rootIsOpen,

@@ -110,6 +110,18 @@ describe('the phone shim', () => {
       await expect(window.prism.archiveList('C:\\z.zip')).resolves.toEqual({ ok: false, reason: 'failed' })
       await expect(window.prism.archiveExtract('C:\\z.zip', 'x')).resolves.toEqual({ ok: false, reason: 'failed' })
     })
+    it('searchTree hits /api/search with the query, and a refusal is no hits rather than a throw', async () => {
+      const hits = [{ path: 'C:\\r\\a.mp4', name: 'a.mp4', kind: 'video', dir: 'films' }]
+      const f = answer('/api/search', { hits, truncated: false })
+      await expect(window.prism.searchTree('C:\\r', 'a mp4')).resolves.toEqual({ hits, truncated: false })
+      // The ROOT is the server's own, not the renderer's: the phone names a
+      // query and nothing else.
+      expect(asked(f).searchParams.get('q')).toBe('a mp4')
+      expect(asked(f).searchParams.get('path')).toBeNull()
+      expect(asked(f).searchParams.get('t')).toBe('tok')
+      answer('/api/search', { error: 'no' }, 403)
+      await expect(window.prism.searchTree('C:\\r', 'a')).resolves.toEqual({ hits: [], truncated: false })
+    })
     it('statFile hits /api/stat and answers null for a file that is not there', async () => {
       answer('/api/stat', { size: 4, mtimeMs: 1, isFolder: false })
       await expect(window.prism.statFile('C:\\a.txt')).resolves.toEqual({ size: 4, mtimeMs: 1, isFolder: false })
