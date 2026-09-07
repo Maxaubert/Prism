@@ -33,6 +33,15 @@ export type RemoteCmd =
   | { op: 'prev' }
   | { op: 'volume'; to: number }
   | { op: 'mute' }
+  /**
+   * Play THIS file on the PC (2026-09-07). The phone's target switch has to
+   * tell the PC what to open, not only to press play: with play/pause alone
+   * the phone would be driving whatever the PC happens to be showing, which
+   * for a film just picked on the phone is either nothing or the wrong film.
+   * The path is the phone's own, so it is walled against THAT phone's root
+   * in the server before it is forwarded.
+   */
+  | { op: 'open'; path: string }
 
 /** A step further than ten minutes either way is a seek, not a step. */
 const STEP_MAX = 600
@@ -88,6 +97,8 @@ export function parseCmd(raw: unknown): RemoteCmd | null {
       const to = num(r.to, 0, VOL_MAX)
       return to === null ? null : { op: 'volume', to }
     }
+    case 'open':
+      return typeof r.path === 'string' && r.path !== '' ? { op: 'open', path: r.path } : null
     default:
       return null
   }

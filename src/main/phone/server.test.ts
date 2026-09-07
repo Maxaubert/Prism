@@ -833,6 +833,33 @@ describe('PhoneServer', () => {
     expect(await lost.json()).toEqual({ error: 'nothing is playing on the PC' })
   })
 
+  it('walls an open against the root that phone paired to, and never forwards the one it refuses', async () => {
+    const token = await pair()
+    const outside = join(picOutside, 'elsewhere.mp4')
+    const r = await cmd(token, JSON.stringify({ op: 'open', path: outside }))
+    expect(r.status).toBe(403)
+    expect(await r.json()).toEqual({ error: 'outside the folder' })
+    expect(cmds).toEqual([])
+    // A climb that lands outside is the same answer, since validRoot is what
+    // decides and not the shape of the string.
+    const climb = await cmd(token, JSON.stringify({ op: 'open', path: join(dir, '..', 'x.mp4') }))
+    expect(climb.status).toBe(403)
+    expect(cmds).toEqual([])
+  })
+
+  it('lets an open through with nothing playing, since that is the point of it', async () => {
+    const token = await pair()
+    // Every other command is refused here: the PC has no player open.
+    expect((await cmd(token, '{"op":"toggle"}')).status).toBe(409)
+    const path = join(dir, 'clip.mp4')
+    const r = await cmd(token, JSON.stringify({ op: 'open', path }))
+    expect(r.status).toBe(204)
+    expect(cmds).toEqual([{ token, cmd: { op: 'open', path } }])
+    // And no window to take it is still the same 409 every command gets.
+    takeCmd = false
+    expect((await cmd(token, JSON.stringify({ op: 'open', path }))).status).toBe(409)
+  })
+
   it('forgets the state once the last listener has gone, since nobody is keeping it true', async () => {
     const token = await pair()
     server.pushState(playing)

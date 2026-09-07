@@ -1465,10 +1465,13 @@ if (!app.requestSingleInstanceLock()) {
         phoneChanged()
       },
       // The remote (#107). A command reaches the renderer only after the
-      // server has validated it (`parseCmd`) and found something playing in
-      // its own copy of the state; here the one thing left to know is
-      // whether there is a window to send it to. The listener count is what
-      // tells App to report at all: with nobody listening it sends nothing.
+      // server has validated it (`parseCmd`), walled the one path a command
+      // can carry (`open`) against that phone's own root, and found
+      // something playing in its own copy of the state - except for `open`,
+      // which is what STARTS something playing. Here the one thing left to
+      // know is whether there is a window to send it to. The listener count
+      // is what tells App to report at all: with nobody listening it sends
+      // nothing.
       remote: {
         onCmd: async (_token, cmd) => {
           const w = mainWindow

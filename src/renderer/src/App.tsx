@@ -2587,9 +2587,35 @@ export default function App(): JSX.Element {
   useEffect(() => {
     stepSameKindRef.current = stepSameKind
   }, [stepSameKind])
+  /**
+   * `open` is the phone's target switch handing a film to the PC
+   * (2026-09-07). It is the one command that carries a path, and the one
+   * that means something with NOTHING playing here: with play/pause alone
+   * the phone would be driving whatever the PC happens to be showing, which
+   * for a film just picked on the phone is either nothing or the wrong film.
+   * The path was walled against that phone's own root in main; here it opens
+   * in the ACTIVE tab exactly as a tree click does. It is marked to PLAY on
+   * arrival the way the playlist marks the file a finished video hands over
+   * to: nothing autoplays on open any more, so a film sent to the PC would
+   * otherwise land there paused.
+   */
+  const openFromPhone = useCallback(
+    (path: string) => {
+      if (!active) return
+      intendToPlay(window.prism.mediaUrl(path))
+      void window.prism.openWithin(active.root, path).then((p) => p && open(p))
+    },
+    [active, open]
+  )
+  const openFromPhoneRef = useRef(openFromPhone)
+  useEffect(() => {
+    openFromPhoneRef.current = openFromPhone
+  }, [openFromPhone])
   useEffect(
     () =>
       window.prism.onPhoneCmd((cmd) => {
+        // The one command that needs no player, because it is what makes one.
+        if (cmd.op === 'open') return openFromPhoneRef.current(cmd.path)
         const t = getTarget()
         // Main answers 409 from its own copy of the state when nothing is
         // open; a command that slips through in between is simply dropped.

@@ -38,6 +38,25 @@ describe('parseCmd', () => {
     expect(parseCmd({ op: 'volume', to: 0.5, extra: 'x' })).toEqual({ op: 'volume', to: 0.5 })
   })
 
+  it('accepts an open with a path, and keeps only the path', () => {
+    expect(parseCmd({ op: 'open', path: 'C:\\films\\ep1.mkv' })).toEqual({
+      op: 'open',
+      path: 'C:\\films\\ep1.mkv'
+    })
+    expect(parseCmd({ op: 'open', path: 'C:\\a.mp4', to: 5 })).toEqual({
+      op: 'open',
+      path: 'C:\\a.mp4'
+    })
+  })
+
+  it('refuses an open whose path is missing, empty or not a string', () => {
+    expect(parseCmd({ op: 'open' })).toBeNull()
+    expect(parseCmd({ op: 'open', path: '' })).toBeNull()
+    expect(parseCmd({ op: 'open', path: 5 })).toBeNull()
+    expect(parseCmd({ op: 'open', path: null })).toBeNull()
+    expect(parseCmd({ op: 'open', path: ['C:\\a.mp4'] })).toBeNull()
+  })
+
   it('refuses unknown ops and anything that is not an object', () => {
     expect(parseCmd({ op: 'stop' })).toBeNull()
     expect(parseCmd({ op: 'PLAY' })).toBeNull()

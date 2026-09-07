@@ -386,7 +386,7 @@ export class PhoneServer {
       if (route.kind === 'hls') return await this.hls(route, phone, res)
       if (route.kind === 'remote') {
         if (route.what === 'state') return this.stream(req, phone.token, res)
-        return await this.command(req, phone.token, res)
+        return await this.command(req, phone, res)
       }
       return await this.api(route.name, route.query, phone.root, phone.name, phone.token, res)
     } catch (err) {
@@ -666,8 +666,15 @@ export class PhoneServer {
    * 409 with a reason while nothing is playing on the PC or no window can
    * take it, and 204 once the renderer has it. No body comes back for a
    * command that went through: the state stream is where its effect shows.
+   *
+   * `open` (2026-09-07) is the one command carrying a PATH, so it is walled
+   * here like every other path the phone names: against THAT phone's root,
+   * before anything is forwarded. It is also the one command that means
+   * something with nothing playing - it is what STARTS something playing,
+   * which is how the phone's target switch hands a film to the PC - so the
+   * "nothing is playing" refusal is not its.
    */
-  private async command(req: IncomingMessage, token: string, res: ServerResponse): Promise<void> {
+  private async command(req: IncomingMessage, phone: Phone, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
     let raw: string
     try {
@@ -684,9 +691,11 @@ export class PhoneServer {
     }
     const cmd = parseCmd(body)
     if (!cmd) return void json(res, 400, { error: 'bad command' })
-    if (this.remoteState.empty)
+    if (cmd.op === 'open' && !this.deps.validRoot(phone.root, cmd.path))
+      return void json(res, 403, { error: 'outside the folder' })
+    if (cmd.op !== 'open' && this.remoteState.empty)
       return void json(res, 409, { error: 'nothing is playing on the PC' })
-    const took = await this.deps.remote.onCmd(token, cmd)
+    const took = await this.deps.remote.onCmd(phone.token, cmd)
     if (!took) return void json(res, 409, { error: 'nothing is playing on the PC' })
     res.writeHead(204, { 'cache-control': 'no-store' })
     res.end()
