@@ -99,7 +99,6 @@ export function Browser({ root }: { root: string }): JSX.Element {
         <nav
           className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm"
           aria-label="Folder"
-          data-phone-root
         >
           {trail.map((c, i) => {
             const last = i === trail.length - 1
@@ -108,6 +107,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
                 <button
                   className={`rounded px-1 py-1 ${last ? 'font-semibold' : 'opacity-70'}`}
                   aria-current={last ? 'location' : undefined}
+                  data-phone-root={i === 0 ? '' : undefined}
                   onClick={() => setDir(c.path)}
                 >
                   {c.name}

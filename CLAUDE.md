@@ -779,11 +779,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   e2e (`phoneRemote`): 19ms from the POST to the PC's `<video>` playing, 21ms from a tap
   on the phone's own Play, 20ms for the phone to hear it back over the stream (measured
   against the Watch | Remote switch these numbers were taken through; the routes they
-  measure are unchanged). LOCKSTEP IS
+  measure are unchanged, and the scenario is being reworked onto the target control,
+  which nothing drives until it is). LOCKSTEP IS
   DELIBERATELY NOT PROMISED: the phone's scrubber is the PC's last report plus arithmetic,
   and a stall on the PC (a stream buffering) shows on the phone at the next report, not
-  the same frame. What a real phone still owes: the switch and the screen were driven
-  under CDP in the app's own Chromium, not on a device.
+  the same frame. What a real phone still owes: the routes and the panel were driven
+  under CDP in the app's own Chromium, not on a device, and the target control itself is
+  driven by nothing until the scenario is reworked onto it.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

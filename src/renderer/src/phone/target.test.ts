@@ -15,6 +15,16 @@ const memory = (): Storage & { data: Map<string, string> } => {
 }
 
 describe('the phone target', () => {
+  it('is stored under its own key', () => {
+    // Pinned as a LITERAL, since every other assertion here reads the key
+    // through the constant and would pass under any name: the key is what a
+    // phone's remembered choice is written against, and the e2e reads it by
+    // hand, so a rename is a phone that forgets rather than a test failure.
+    expect(TARGET_KEY).toBe('prism.phone.target')
+    const s = memory()
+    writeTarget(s, 'pc')
+    expect(s.data.get('prism.phone.target')).toBe('pc')
+  })
   it('starts on the phone itself', () => {
     expect(readTarget(memory())).toBe('phone')
   })

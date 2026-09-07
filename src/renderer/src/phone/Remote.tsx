@@ -137,8 +137,15 @@ export function Remote({ openPath }: { openPath?: string }): JSX.Element {
   const name = !s ? 'Connecting...' : s.empty ? 'Nothing is playing on the PC' : s.name
 
   return (
+    // `h-full`, not `flex-1`: the panel is mounted into PhoneViewer's viewer
+    // wrapper, which is a BLOCK box, so `flex: 1 1 0%` there is inert and the
+    // height falls back to auto - the name, the scrubber and the transport
+    // all bunching at the top with the safe-area padding nowhere near the
+    // bottom edge, which for 48px thumb targets puts Play under the file
+    // name instead of under the thumb. Every other viewer in that wrapper is
+    // `h-full w-full` for the same reason.
     <div
-      className="flex min-h-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]"
+      className="flex h-full w-full min-h-0 flex-col pb-[env(safe-area-inset-bottom)]"
       data-phone-remote
       data-remote-playing={playing ? 'true' : 'false'}
       data-remote-empty={empty ? 'true' : 'false'}
