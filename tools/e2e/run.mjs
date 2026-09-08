@@ -4911,6 +4911,14 @@ async function phoneScenario(fixtures) {
 
     // The phone page itself. A spent code lands on the pairing screen.
     page = await openPhoneWindow(app, `${base}/?code=${state.code.code}`)
+    // A FINGER rather than a pointer (2026-09-08, #107): Chromium's touch
+    // emulation is what flips `(pointer: coarse)` and what makes a dispatched
+    // touch arrive as a touch pointer, which is the whole difference between
+    // this page and the app window. Set before the page is loaded again, so
+    // everything below is laid out and pressed the way a phone lays it out
+    // and presses it.
+    const cdp = await app.context().newCDPSession(page)
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
     await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
     ok(true, 'a spent code lands on the pairing screen')
     // A second code for the same tab: the first was spent above.
@@ -4926,6 +4934,23 @@ async function phoneScenario(fixtures) {
       (await page.locator('[data-phone-file][data-kind="image"]').count()) >= 1,
       'the phone lists pictures'
     )
+
+    // SIZED FOR A THUMB (2026-09-08, owner, after an iPad: the rows in the
+    // file explorer are too small). 44px is the platform floor rather than a
+    // taste - Apple asks for 44pt, Google for 48dp - and the ROW is deliberately
+    // taller again, because a list is scrolled past as well as tapped. Measured
+    // rather than read off the stylesheet: the row's height is a Tailwind class
+    // reading a token in another file, and a measurement is the only thing that
+    // proves the two still meet.
+    ok(
+      await page.evaluate(() => matchMedia('(pointer: coarse)').matches),
+      'the emulated phone reports a coarse pointer'
+    )
+    const rowH = await page
+      .locator('[data-phone-file]')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().height)
+    ok(rowH >= 44, `an explorer row is at least a finger tall (${rowH}px)`)
     await page.click('[data-phone-file]:has-text("one.png")')
     await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 10000 })
     await page
@@ -4954,6 +4979,80 @@ async function phoneScenario(fixtures) {
       })
     ok(ready, 'the video has metadata over the LAN route')
     await page.screenshot({ path: join(SHOTS, 'phone-video.png') })
+
+    /*
+     * A TAP ASKS FOR THE CONTROLS, AND THE NEXT ONE PAUSES (2026-09-08,
+     * owner, after an iPad). A mouse has a pointer on screen, so a click on a
+     * bare picture pausing is what the desktop has always done and still
+     * does; a finger has none, so the first tap after the chrome hid was a
+     * pause nobody asked for. Three things are asserted, and the middle one
+     * is the whole point: the film is STILL PLAYING after the tap that
+     * brought the controls back.
+     *
+     * The taps are dispatched as touches rather than clicked, because the
+     * rule is the POINTER TYPE (`lib/tapChrome`): a click here would be a
+     * mouse and would prove the desktop's behaviour instead.
+     */
+    const tapAt = async (x, y) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    }
+    // Out of the transport's way first: hiding is decided from what is TRUE
+    // when the clock fires, the bar's own `:hover` included, and the pointer
+    // was last left on the row that opened the file.
+    await page.mouse.move(5, 5)
+    await page.evaluate(() => {
+      const v = document.querySelector('video')
+      v.muted = true
+      // LOOPED, because the fixture film is 1.5 seconds and the chrome hides
+      // after 2.6: a film that ends is a film that is paused, and the clock
+      // never hides the controls over a paused picture. Measured the hard way
+      // - the first run of this asserted a hide that could not happen.
+      v.loop = true
+      void v.play().catch(() => {})
+    })
+    await page.waitForSelector('[data-transport-row] button', { timeout: 10000 })
+    const btnH = await page
+      .locator('[data-transport-row] button')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().height)
+    ok(btnH >= 44, `a transport button is at least a finger tall (${btnH}px)`)
+    // The transport MOUNTS and UNMOUNTS rather than fading, so its absence is
+    // the chrome being down. It only hides while the film is PLAYING.
+    const hid = await page
+      .waitForSelector('[data-transport-row]', { state: 'detached', timeout: 10000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(hid, 'the chrome hides itself while the film plays')
+    const stage = await page.locator('[data-phone-stage]').boundingBox()
+    await tapAt(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    const backUp = await page
+      .waitForSelector('[data-transport-row]', { timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(backUp, 'a tap with the chrome hidden brings the controls back')
+    ok(
+      await page.evaluate(() => document.querySelector('video')?.paused === false),
+      'and the film is still playing, which is what a phone means by that tap'
+    )
+    // Clear of the double-tap window (which goes fullscreen) and well inside
+    // the chrome's own 2.6s clock, so the second tap is one with the controls
+    // showing rather than a second reveal.
+    await sleep(700)
+    await tapAt(stage.x + stage.width / 2 + 40, stage.y + stage.height / 2)
+    const paused = await page
+      .waitForFunction(() => document.querySelector('video')?.paused === true, null, {
+        timeout: 5000
+      })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(paused, 'and a second tap, with them showing, pauses')
 
     // Fullscreen, on the player that could not (2026-09-07, owner: "i cant go
     // fullscreen in the player on mobile"). Two things only are asserted here,
@@ -5369,6 +5468,62 @@ async function phoneDocsScenario(fixtures) {
       'both, from two different folders'
     )
     ok((await page.locator('[data-phone-file]').count()) === 0, 'the results replace the folder')
+
+    /*
+     * AND THE ROWS STAY WHILE THE NEXT ANSWER IS IN FLIGHT (2026-09-08,
+     * owner: "search on mobile is very slow"). The walk itself answers in
+     * tens of milliseconds; what was slow was the 180ms debounce plus a
+     * Wi-Fi round trip with the list BLANK for all of it. So a keystroke
+     * narrows the answer already on screen, locally, with the desktop's own
+     * matcher, and the walk's reply replaces it whole.
+     *
+     * SAMPLED rather than asked once: a single count taken after typing is a
+     * race against the very round trip this is about, and the failure being
+     * checked for is a blank list that lasts a couple of hundred milliseconds
+     * and then fills again. A frame-by-frame minimum cannot miss it.
+     */
+    await page.evaluate(() => {
+      const w = window
+      w.__phone = { min: Infinity, minPending: Infinity, pendingSeen: false }
+      const tick = () => {
+        const n = document.querySelectorAll('[data-phone-hit]').length
+        w.__phone.min = Math.min(w.__phone.min, n)
+        if (document.querySelector('[data-phone-searching]')) {
+          w.__phone.pendingSeen = true
+          w.__phone.minPending = Math.min(w.__phone.minPending, n)
+        }
+        w.__phoneRaf = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    // Typed rather than filled, so it GROWS the query: only a query that
+    // contains the last one can be a narrowing of it, which is the test that
+    // makes the local filter sound rather than lucky.
+    await page.locator('[data-phone-search]').pressSequentially(' b')
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelectorAll('[data-phone-hit]').length === 1 &&
+          !document.querySelector('[data-phone-searching]'),
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
+    const sampled = await page.evaluate(() => {
+      cancelAnimationFrame(window.__phoneRaf)
+      return window.__phone
+    })
+    ok(sampled.pendingSeen, 'the header says a search is running')
+    ok(
+      sampled.minPending >= 1,
+      `the rows stay on screen while it runs (fewest ${sampled.minPending})`
+    )
+    ok(sampled.min === 1, `and the list never went blank (fewest ${sampled.min} rows)`)
+    ok(
+      (await page.locator('[data-phone-hit]', { hasText: 'buried.py' }).count()) === 1 &&
+        (await page.locator('[data-phone-hit]').count()) === 1,
+      'the narrowing kept exactly the row the PC then agreed with'
+    )
 
     await page.fill('[data-phone-search]', 'buried')
     await page
