@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import { crumbs, fileFromHit, parentOf, stepFile } from './browse'
+import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
- *  same speed costs the PC the same number of walks. */
+ *  same speed costs the PC the same number of walks. KEPT at 180ms rather
+ *  than lowered (2026-09-08): what was slow was the blank list, not the walk
+ *  - the rows narrow locally on the keystroke itself now, so the wait is
+ *  confirmation rather than the first thing you see, and the PC pays for
+ *  exactly the walks it paid for before. */
 const DEBOUNCE_MS = 180
+
+/** How long a superseded walk is left alone before asking again, and how many
+ *  times. A walk is superseded when somebody else's search bumped the ticket
+ *  (the PC's own sidebar, or a second phone), so its empty answer is not
+ *  "nothing matches" and must not be drawn as one. Asking again is right;
+ *  asking for ever is two clients cancelling each other, so it gives up and
+ *  leaves the rows it has rather than emptying the screen. */
+const RETRY_MS = 200
+const RETRIES = 3
 
 /**
  * One folder at a time, Explorer-shaped (2026-09-06, #104): folders first,
@@ -47,6 +61,21 @@ export function Browser({ root }: { root: string }): JSX.Element {
   const [found, setFound] = useState<{ q: string; hits: SearchHit[]; truncated: boolean } | null>(
     null
   )
+  /** The query whose ask has FINISHED, which is not the same as the query
+   *  that has an answer: a walk superseded past its retries finishes without
+   *  one, and an indicator that never stops is a page that looks stuck. It is
+   *  written only when an ask lands, so nothing here sets state while an
+   *  effect runs. */
+  const [settled, setSettled] = useState<string | null>(null)
+  // Cleared on the way IN to a new query rather than in an effect (the shape
+  // the players use for a new file): backspacing to a query that was answered
+  // a moment ago starts a fresh walk, and comparing to the query alone would
+  // call that walk finished before it had been made.
+  const [askFor, setAskFor] = useState(query)
+  if (askFor !== query) {
+    setAskFor(query)
+    setSettled(null)
+  }
 
   useEffect(() => {
     let live = true
@@ -61,35 +90,61 @@ export function Browser({ root }: { root: string }): JSX.Element {
   // An emptied field leaves the last answer where it is rather than clearing
   // it: what is DRAWN is keyed by the query, so an old answer is already
   // invisible, and clearing it here would be a setState inside an effect for
-  // no one's benefit.
+  // no one's benefit. It is also what the next keystroke narrows from.
   useEffect(() => {
+    if (!query) return
     let alive = true
-    const t = query
-      ? setTimeout(() => {
-          void window.prism.searchTree(root, query).then((r) => {
-            if (alive) setFound({ q: query, ...r })
-          })
-        }, DEBOUNCE_MS)
-      : null
+    let tries = 0
+    let t: ReturnType<typeof setTimeout>
+    const ask = (): void => {
+      void window.prism.searchTree(root, query).then((r) => {
+        if (!alive) return
+        // A SUPERSEDED walk is not an answer (2026-09-08): main stops a
+        // cancelled walk where it stands and answers with no hits, which is
+        // the same shape as "nothing matches" - and drawn as one it empties a
+        // list that was right. Ask again instead, and past a few tries leave
+        // the rows where they are rather than swapping them for a hole.
+        if (r.superseded) {
+          if (tries++ < RETRIES) {
+            t = setTimeout(ask, RETRY_MS)
+            return
+          }
+        } else {
+          setFound({ q: query, hits: r.hits, truncated: r.truncated })
+        }
+        setSettled(query)
+      })
+    }
+    t = setTimeout(ask, DEBOUNCE_MS)
     return () => {
       alive = false
-      if (t) clearTimeout(t)
+      clearTimeout(t)
     }
   }, [root, query])
 
   const listing = loaded?.dir === dir ? loaded.listing : undefined
   const error = listing === null ? 'Prism could not read this folder' : null
-  const hits = found?.q === query ? found : null
+  const answer = found?.q === query ? found : null
+  /** Whether a walk is still out for what the field holds. */
+  const pending = !!query && settled !== query
+  /**
+   * The rows on screen: the PC's answer once it lands, and until then the
+   * last answer NARROWED locally (see ./narrow). The list used to go blank
+   * for the debounce plus a Wi-Fi round trip on every single keystroke, which
+   * is what made a 73-357ms search feel slow (owner, 2026-09-08).
+   */
+  const rows = useMemo(
+    () => (answer ? answer.hits : narrowHits(found, query)),
+    [answer, found, query]
+  )
   // What next/previous page while a file is open: the list it was opened
   // FROM. A hit lives anywhere under the root, so paging the folder's own
   // files would step to something you were not looking at, and for a hit
   // from another folder it would step to nothing at all.
   const files = useMemo(
     () =>
-      query
-        ? (hits?.hits ?? []).filter((h) => !h.isFolder).map(fileFromHit)
-        : (listing?.files ?? []),
-    [query, hits, listing]
+      query ? (rows ?? []).filter((h) => !h.isFolder).map(fileFromHit) : (listing?.files ?? []),
+    [query, rows, listing]
   )
   const step = (d: 1 | -1): void => {
     if (!open) return
@@ -252,10 +307,32 @@ export function Browser({ root }: { root: string }): JSX.Element {
             </button>
           </>
         )}
+        {/* A search is still running. It sits on the header's own bottom edge
+            rather than in the list, because the list is showing rows - the
+            last answer, narrowed - and a line that pushed them down would be
+            the layout shift the narrowing exists to avoid. The keyframe is in
+            phone.css and applied inline, so no selector here can go stale. */}
+        {pending && (
+          <span
+            className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden"
+            data-phone-searching
+            aria-hidden
+          >
+            <span
+              className="absolute inset-y-0 w-2/5 bg-[var(--color-accent-hi)]"
+              style={{ animation: 'phone-searching 1.1s ease-in-out infinite' }}
+            />
+          </span>
+        )}
       </header>
       {query ? (
         <Results
-          hits={hits}
+          hits={rows}
+          // The count belongs to the ANSWER: "more than 200 matches" under a
+          // locally narrowed list would be a number about a search that has
+          // not happened yet.
+          truncated={!!answer?.truncated}
+          pending={pending}
           rowClass={rowClass}
           onOpen={(h) => (h.isFolder ? walkTo(h.path) : setOpen(fileFromHit(h)))}
         />
@@ -308,21 +385,32 @@ export function Browser({ root }: { root: string }): JSX.Element {
 
 /** What the sidebar's panel draws, phone-sized: the name, and under it the
  *  folder the file is in, which is the only thing telling two files of the
- *  same name apart. A hit that is a FOLDER walks there instead of opening. */
+ *  same name apart. A hit that is a FOLDER walks there instead of opening.
+ *
+ *  The rows may be a PREVIEW while `pending` is set (the last answer, narrowed
+ *  locally): they are drawn exactly the same, because they are the same rows
+ *  and tapping one does the same thing. What says a search is running is the
+ *  line on the header, not a different-looking list. */
 function Results({
   hits,
+  truncated,
+  pending,
   rowClass,
   onOpen
 }: {
-  hits: { hits: SearchHit[]; truncated: boolean } | null
+  hits: SearchHit[] | null
+  truncated: boolean
+  pending: boolean
   rowClass: string
   onOpen: (hit: SearchHit) => void
 }): JSX.Element {
+  // Nothing to preview and nothing answered: the first query of a session,
+  // which is the only time the phone has no rows of its own to narrow.
   if (!hits) return <p className="p-4 opacity-70">Searching...</p>
-  if (!hits.hits.length) return <p className="p-4 opacity-70">Nothing matches.</p>
+  if (!hits.length) return <p className="p-4 opacity-70">Nothing matches.</p>
   return (
-    <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list">
-      {hits.hits.map((h) => (
+    <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list" aria-busy={pending}>
+      {hits.map((h) => (
         <li key={h.path}>
           <button
             className={rowClass}
@@ -338,9 +426,9 @@ function Results({
           </button>
         </li>
       ))}
-      {hits.truncated && (
+      {truncated && (
         <li className="p-4 text-[13px] opacity-60">
-          more than {hits.hits.length} matches; keep typing
+          more than {hits.length} matches; keep typing
         </li>
       )}
     </ul>

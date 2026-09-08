@@ -64,6 +64,12 @@ export interface SearchResult {
   hits: SearchHit[]
   /** True when a cap stopped the walk: there may be more than what came back. */
   truncated: boolean
+  /** This walk was SUPERSEDED and stopped where it was, so the empty hits are
+   *  not an answer (2026-09-08). A cancelled walk reads exactly like "nothing
+   *  matches" to whoever asked, and on the phone that emptied a list which had
+   *  the right rows in it. Absent on a real answer, so nothing has to test it
+   *  to believe one. */
+  superseded?: true
 }
 
 /** One directory's listable contents: subfolders, then viewable files.

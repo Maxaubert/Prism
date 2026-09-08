@@ -100,6 +100,10 @@ beforeEach(async () => {
     search: async (root, query) => {
       const terms = parseQuery(query)
       if (!terms.length) return { hits: [], truncated: false }
+      // A walk somebody else's search cancelled. Main answers those with no
+      // hits AND a flag, and the flag is the only thing telling the phone
+      // that this is not "nothing matches" - so the route has to carry it.
+      if (query === 'cancelled') return { hits: [], truncated: false, superseded: true }
       return {
         hits: ['clip.mp4', 'clip.mkv']
           .filter((n) => matchesQuery(n, terms))
@@ -469,6 +473,13 @@ describe('PhoneServer', () => {
     ])
     // A folder listing with a hole in it is not a search: no query, no hits.
     expect(await (await search('')).json()).toEqual({ hits: [], truncated: false })
+    // And a superseded walk arrives saying so, rather than as an empty answer
+    // the phone would draw over rows that were right.
+    expect(await (await search('cancelled')).json()).toEqual({
+      hits: [],
+      truncated: false,
+      superseded: true
+    })
     // The route names no path, so the wall is the root's own: a tab that has
     // closed leaves its folder unsearchable like everything else.
     rootOpen = false
