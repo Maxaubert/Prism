@@ -69,8 +69,11 @@ never shipped: one small app that opens everything and looks good doing it.
   documents, comics and archives open on the phone too, read-only: nothing on the phone can
   change a file on the PC. Search from the phone with the same box the sidebar has - a couple
   of words in any order, `"a phrase"`, `*.mp4`, `ext:pdf`, `-drafts` - and a file three
-  folders down is one tap away instead of unreachable. Films go fullscreen by whatever route
+  folders down is one tap away instead of unreachable, and the list narrows as you type
+  rather than going blank while the PC answers. Films go fullscreen by whatever route
   the phone actually has, the page itself on Android and an iPhone's own player on iOS.
+  Everything is sized for a thumb, and while a film is playing a tap brings the controls
+  back instead of pausing; the tap after that pauses, the way every phone player behaves.
   There is one screen, the folder: the phone plays what it opens, and never drives the PC.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.

@@ -30,6 +30,22 @@ reached by reusing its viewers instead).
   lockstep was never promised for, are what a remote costs, and neither is worth what it
   bought. What remains is the one-screen explorer, the phone's own player, search and the
   fullscreen routes.
+- **SIZED FOR A THUMB** **(owner, 2026-09-08, from the same session: the video controls and
+  the rows in the file explorer are too small)**. 44px is the platform floor rather than a
+  taste (Apple asks 44pt, Google 48dp) and a row is taller again at 56px, because a list is
+  scrolled past as well as tapped. The players are the desktop's own components, so the
+  sizing is a stylesheet the app window never loads (`phone.css`, hanging off the phone's
+  own viewer stage) rather than a `touch` prop threaded through three of them: the desktop's
+  sizes cannot move by accident, and there is no second set of numbers to keep in step.
+- **A TAP ASKS FOR THE CONTROLS** **(owner, same session)**. With the chrome hidden, a tap
+  on the picture brings it back and does not pause; the next tap plays or pauses. Touch
+  only: a mouse has a pointer on screen and keeps the desktop's click-to-pause exactly as it
+  always was, so the rule is the pointer type rather than the page.
+- **SEARCH ANSWERS ON THE KEYSTROKE** **(owner, same session: "search on mobile is very
+  slow")**. The walk was never the slow part (73ms to 357ms measured through the real route);
+  the blank list during the debounce and the round trip was. The phone narrows the answer it
+  already has with the desktop's own matcher while the ask is out, so the rows stay under the
+  finger and the walk's reply replaces them whole.
 - **The phone sees ONE tab's folder** **(owner)**: the tab the QR was shown from. Same root
   wall as the tab. Not every open tab.
 - **Pair once, remembered** **(owner)**. The QR carries a one-time code; the phone exchanges it
@@ -205,7 +221,12 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   (direct/hls per container, codec and `can` list), `hls.test.ts` (segment time math,
   restart-at-segment, playlist text), `prismShim.test.ts` (URL building, capabilities), `fullscreen.test.ts` (which of the three
   routes a host gets, entering and leaving on each, and the signals each one gives back -
-  the iOS branch lives here because no browser the e2e can drive has it).
+  the iOS branch lives here because no browser the e2e can drive has it),
+  `tapChrome.test.ts` (which pointer reveals and which toggles, pen as a finger, an unknown
+  pointer as a mouse), `touch.test.ts` (the deal `phone.css` makes: the floor is declared
+  once, the phone's own components size from the token, and every marker the stylesheet
+  reaches for is still rendered by the component that owns it), `narrow.test.ts` (a growth
+  narrows, a shorter query does not, an emptied narrowing keeps the last answer).
 - E2E (`tools/e2e/run.mjs`, scenario `phone`): launch with `--e2e`, turn the server on over
   IPC, issue a code, pair over HTTP, `GET /api/dir`, fetch a fixture with a Range header and
   assert 206, open the phone page in a phone-sized Playwright page with the token, tap a
@@ -214,6 +235,15 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   fullscreen control and asserts the standard route takes the page (and its header) with it;
   `phoneDocs` searches, because that is the fixture tree with depth - `ext:py` answers two
   files in two folders, and one three folders down opens from its row.
+  The TOUCH decisions are measured in the same two scenarios, under Chromium's touch
+  emulation, because they are the difference between the phone page and the app window: the
+  `phone` scenario measures an explorer row and a transport button against the 44px floor,
+  and taps a PLAYING film whose controls have hidden themselves - the controls come back and
+  the film is still playing, then the next tap pauses. That middle assertion is the one that
+  carries the rule: with `tapVerb` returning `toggle` the same tap pauses, which is how it
+  was checked. `phoneDocs` samples the hit count frame by frame across a keystroke rather
+  than counting once, since the failure being guarded against is a list that goes blank for
+  a couple of hundred milliseconds and then fills again.
 - Hands-on on iPhone, iPad and Android before each PR asks "merge?", with the measurements
   above written into CLAUDE.md.
 

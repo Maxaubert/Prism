@@ -748,6 +748,45 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   matters, which is that the simplest possible answer to "where does this play" is "here".
   What survives is the one-screen explorer, the player, the search, the fullscreen routes and
   every fix that landed beside them.
+- **SIZED FOR A THUMB** (owner, 2026-09-08, after the same iPad session: the video controls
+  and the rows in the file explorer are too small; #107). 44px is the PLATFORM FLOOR rather
+  than a taste - Apple asks for 44pt and Google for 48dp - and a ROW is taller again (56px),
+  because a list is scrolled past as well as tapped and a list of 44px rows under a moving
+  thumb is a list you mis-hit. The hard part is the PLAYERS, which are the desktop's own:
+  the sizing lives in `phone.css` under the marker on the phone's viewer stage
+  (`[data-phone-stage]`) rather than in VideoView, AudioView and Transport, because a rule
+  in a stylesheet the app window never loads cannot reach the app window by accident, where
+  a `touch` prop threaded through three components is a second set of sizes to keep in step
+  for ever and one default away from changing the desktop. NOT ONE SIZE IN THOSE FILES
+  MOVED; they gained NAMES only (`data-transport-row`, `data-time`, `data-scrub`,
+  `data-scrub-track`, `data-scrub-thumb`, `data-vol-readout`, `data-vol-pct`), because a
+  stylesheet has to name what it scales and naming it by Tailwind class breaks the next time
+  a class is edited for a reason that has nothing to do with the phone. That deal is what
+  `touch.test.ts` checks, the way the installer's extensions are checked against
+  `fileKind.ts`: every marker the stylesheet reaches for must still be rendered by the
+  component that owns it, since a stale selector quietly returns the phone to desktop-sized
+  controls with nothing red anywhere. The scrub THUMB is always drawn here, having appeared
+  on hover, which is a state a touch screen never enters, so the one mark saying where the
+  film had got to was invisible on the device that most needs it. Measured in the `phone`
+  e2e under touch emulation rather than read off the stylesheet, since the numbers meet
+  across three files: an explorer row at 56px and a transport button at 44px.
+- **A TAP IS HOW A PHONE ASKS TO SEE THE CONTROLS** (owner, same session, #107). A MOUSE has
+  a pointer on screen: you can see the transport has gone, you click to pause, and that is
+  what the desktop has done since the beginning and still does. A FINGER has none, so with
+  the chrome down on its 2.6s clock the first tap was always a pause nobody asked for - the
+  tap every phone player on earth spends on bringing the controls back. So a tap with the
+  chrome HIDDEN reveals it and the next one plays or pauses. The rule is the POINTER TYPE
+  and not the page (`lib/tapChrome`, pure and tested), so a touchscreen laptop gets the
+  phone's behaviour from its finger and the desktop's from its mouse, which is what each of
+  them means; a pen counts as a finger, the reading the comic's page turn already makes, and
+  an UNKNOWN pointer reads as a mouse, so a click carrying no pointerdown at all (Enter on a
+  focused element, a synthetic click) does what it always did. Read at POINTERDOWN rather
+  than at click, because between the finger landing and the click there is room for
+  something else to wake the chrome and a click-time reading would then call a tap aimed at
+  a bare picture a tap on the controls. Nothing swallows the click, so a double tap still
+  goes fullscreen. The e2e taps a PLAYING film whose controls have hidden themselves and
+  asserts the film is still playing, which is the assertion that fails the moment the rule
+  goes: with `tapVerb` returning `toggle` the same tap pauses.
 - **The phone searches, and the PC does the searching** (2026-09-07, #107). A page that
   browses one level at a time cannot reach a file three folders down, so a magnifier over
   the crumb row opens a field, and while it holds a query the RESULTS ARE THE LIST. The
@@ -770,6 +809,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   in the folder you were in. Proved end to end in `phoneDocs`, which is where the fixture tree
   has depth: `ext:py` answers the two python files in two different folders (no substring over
   a name can), and `buried.py`, three folders down, opens from its row.
+  AND IT ANSWERS ON THE KEYSTROKE (owner, 2026-09-08: "search on mobile is very slow").
+  MEASURED through the real route against a Downloads root the walk takes 73ms to 357ms, so
+  the server was never the slow part: what was slow was the WAIT MADE VISIBLE, 180ms of
+  debounce plus a Wi-Fi round trip with the list BLANK for all of it, every keystroke
+  emptying the screen and filling it again. So the rows NARROW LOCALLY while the ask is out
+  (`phone/narrow.ts`, pure and tested), with the desktop's own matcher rather than a second
+  reading of the grammar, since a phone guessing at what `ext:` or a glob means would show
+  rows the PC is about to disagree with. It is a preview and never an answer: only a query
+  that CONTAINS the last one can narrow it, a narrowing that empties the list is treated as
+  the guess it is (`*.mp` to `*.mp4` matches a different set entirely) and the last answer
+  stays up, and the walk's reply replaces the lot. What says a search is running is an
+  indeterminate line on the header's own bottom edge, which cannot move the rows underneath
+  it. The debounce is still 180ms, so the PC pays for exactly the walks it paid for before.
+  A SUPERSEDED WALK SAYS SO NOW (`SearchResult.superseded`): `dirList` stops a cancelled walk
+  where it stands and answered with no hits, which is the same shape as "nothing matches", so
+  the PC's own sidebar bumping the ticket while a phone was asking drew an empty list over
+  rows that were right; the phone asks again and past a few tries leaves the rows it has.
+  The e2e samples the hit count frame by frame across a keystroke rather than counting once,
+  because the failure is a list that goes blank for a couple of hundred milliseconds and then
+  fills again, which a single count taken afterwards is a race against.
 - **Fullscreen is the host's, whichever one it has** (2026-09-07, #107, owner: "i cant go
   fullscreen in the player on mobile"). The phone page asked for `requestFullscreen` on the
   document element and nothing else, and WEBKIT ON AN IPHONE HAS NO ELEMENT AND NO DOCUMENT
