@@ -249,6 +249,18 @@ export interface PhoneInfo {
   seen: number
 }
 
+/**
+ * One tab a phone may switch to (2026-09-08, #107): a root the PC has open
+ * RIGHT NOW, the folder name to show for it, and whether it is the one this
+ * phone is on. The list is whatever the PC holds, read fresh; it is not a
+ * thing anybody curates.
+ */
+export interface PhoneTab {
+  root: string
+  name: string
+  current: boolean
+}
+
 /** What the Tools > Phone dialog shows: main's answer to `phone:get`. */
 export interface PhoneState {
   on: boolean

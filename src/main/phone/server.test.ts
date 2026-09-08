@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { request } from 'http'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
 import type { MediaInfo } from '../ffmpeg'
-import type { ArchiveListing, TextRead } from '@shared/types'
+import type { ArchiveListing, PhoneTab, TextRead } from '@shared/types'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import type { ComicOpen } from '../comic'
 import { HlsJobs } from './jobs'
@@ -24,7 +24,11 @@ let renderer: string
 let picOutside: string
 /** What the text route handed main's own servable set. */
 let servable: string[]
-let rootOpen = true
+/** The roots the PC has open. One at first; a test that closes the tab
+ *  empties it, and the tab routes read the list itself. */
+let open: string[] = []
+/** A second folder the PC also has open, which the tab routes move between. */
+let otherRoot: string
 /** Where the fake comic opener unpacks and the fake extractor writes: OUTSIDE
  *  the root, the way userData and temp are, so only a grant lets them through. */
 let cache: string
@@ -53,6 +57,11 @@ const probeOf = (p: string): MediaInfo | null => {
   }
 }
 
+/** What main's `isRoot` does: case and a trailing separator do not make a
+ *  second folder. */
+const sameRoot = (a: string, b: string): boolean =>
+  a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
+
 const listing = (files: string[]) => ({
   folders: [],
   files: files.map((f) => ({
@@ -78,7 +87,9 @@ beforeEach(async () => {
   picOutside = join(outside, 'pic.png')
   writeFileSync(picOutside, 'png')
   servable = []
-  rootOpen = true
+  otherRoot = mkdtempSync(join(tmpdir(), 'prism-phone-other-'))
+  writeFileSync(join(otherRoot, 'clip.mp4'), 'abcd')
+  open = [dir, otherRoot]
   cache = mkdtempSync(join(tmpdir(), 'prism-phone-cache-'))
   lastPw = undefined
   deps = {
@@ -112,10 +123,14 @@ beforeEach(async () => {
       }
     },
     // The real wall refuses everything once the tab is closed (validRoot
-    // needs the root OPEN), so the fake carries that flag too.
-    validRoot: (root, p) => rootOpen && root === dir && p.toLowerCase().startsWith(dir.toLowerCase()),
-    isRoot: (root, p) => rootOpen && root === dir && p === dir,
-    rootOpen: (root) => rootOpen && root === dir,
+    // needs the root OPEN), so the fake reads the open list the same way.
+    // `isRoot` is main's own: a plain path comparison, openness not its
+    // business, which is why `inside()` puts `rootOpen` beside it.
+    validRoot: (root, p) =>
+      open.some((r) => sameRoot(r, root)) && p.toLowerCase().startsWith(root.toLowerCase()),
+    isRoot: sameRoot,
+    rootOpen: (root) => open.some((r) => sameRoot(r, root)),
+    openRoots: () => open,
     subsFor: () => [{ path: join(dir, 'clip.srt'), label: 'English' }],
     readSubs: async () => 'WEBVTT\n',
     probe: async (p) => probeOf(p),
@@ -178,6 +193,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true })
   rmSync(join(picOutside, '..'), { recursive: true, force: true })
   rmSync(cache, { recursive: true, force: true })
+  rmSync(otherRoot, { recursive: true, force: true })
 })
 
 const url = (p: string) => `http://127.0.0.1:${port}${p}`
@@ -280,8 +296,12 @@ describe('PhoneServer', () => {
       root: string
       open: boolean
       name: string
+      folder: string
     }
-    expect(me).toEqual({ root: dir, open: true, name: 'Test phone' })
+    // `name` is the PHONE's, `folder` the tab's: the header names the tab you
+    // are on, and it is main that names it, so the header and the tab list
+    // cannot spell the same folder two ways.
+    expect(me).toEqual({ root: dir, open: true, name: 'Test phone', folder: basename(dir) })
     const d = (await (
       await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`), { headers: auth })
     ).json()) as { files: unknown[] }
@@ -482,7 +502,7 @@ describe('PhoneServer', () => {
     })
     // The route names no path, so the wall is the root's own: a tab that has
     // closed leaves its folder unsearchable like everything else.
-    rootOpen = false
+    open = []
     expect((await search('clip')).status).toBe(403)
   })
 
@@ -584,7 +604,7 @@ describe('PhoneServer', () => {
     const jobDir = join(dir, 'hls', playlistUrl.split('/')[2])
     // The tab is closed on the PC. Every other route already refuses; the
     // stream used to carry on, and to restart ffmpeg on a seek.
-    rootOpen = false
+    open = []
     expect((await fetch(url(playlistUrl))).status).toBe(404)
     expect((await fetch(url(playlistUrl.replace('index.m3u8', '1.m4s')))).status).toBe(404)
     expect((await fetch(url(playlistUrl.replace('index.m3u8', 'init.mp4')))).status).toBe(404)
@@ -614,6 +634,95 @@ describe('PhoneServer', () => {
     })
     expect(moved.status).toBe(200)
     expect(((await moved.json()) as { root: string }).root).toBe(other)
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${token}`))).status).toBe(403)
+    expect((await fetch(url(playlistUrl))).status).toBe(404)
+  })
+
+  /**
+   * The tab routes (2026-09-08, owner: a phone should see the open tabs and
+   * switch between them without a new QR). The list is the PC's open set read
+   * fresh, and the move is walled by that same set.
+   */
+  const tabs = (token: string): Promise<PhoneTab[]> =>
+    fetch(url('/api/tabs'), { headers: { authorization: `Bearer ${token}` } })
+      .then((r) => r.json() as Promise<{ tabs: PhoneTab[] }>)
+      .then((j) => j.tabs)
+
+  const moveTo = (token: string, root: string): Promise<Response> =>
+    fetch(url('/api/tab'), {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ root })
+    })
+
+  it('lists the roots the PC has open, and says which one this phone is on', async () => {
+    expect((await fetch(url('/api/tabs'))).status).toBe(401)
+    const token = await pair()
+    expect(await tabs(token)).toEqual([
+      { root: dir, name: basename(dir), current: true },
+      { root: otherRoot, name: basename(otherRoot), current: false }
+    ])
+    // A tab closed on the PC leaves the list, and the phone that was on it is
+    // told there is nothing current rather than shown a folder that is gone.
+    open = [otherRoot]
+    expect(await tabs(token)).toEqual([
+      { root: otherRoot, name: basename(otherRoot), current: false }
+    ])
+    open = []
+    expect(await tabs(token)).toEqual([])
+  })
+
+  it('moves this phone to another open tab, and refuses a folder the PC does not hold', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const before = changes
+    const moved = await moveTo(token, otherRoot)
+    expect(moved.status).toBe(200)
+    expect(await moved.json()).toEqual({ root: otherRoot, name: basename(otherRoot) })
+    expect(changes).toBeGreaterThan(before)
+    // Everything the phone asks follows it, with no new code scanned: this is
+    // what a re-scan used to be the only way to do.
+    expect(await (await fetch(url('/api/me'), { headers: auth })).json()).toEqual({
+      root: otherRoot,
+      open: true,
+      name: 'Test phone',
+      folder: basename(otherRoot)
+    })
+    expect(
+      (await fetch(url(`/api/dir?path=${encodeURIComponent(otherRoot)}`), { headers: auth })).status
+    ).toBe(200)
+    // And the folder it came FROM is outside its wall now, like any other.
+    expect(
+      (await fetch(url(`/api/dir?path=${encodeURIComponent(dir)}`), { headers: auth })).status
+    ).toBe(403)
+    expect((await tabs(token)).find((t) => t.current)?.root).toBe(otherRoot)
+
+    // A root the PC does not hold is refused WITH A REASON: a phone left
+    // pointing at nothing is the dead end this route exists to remove.
+    const gone = await moveTo(token, join(tmpdir(), 'prism-phone-not-open'))
+    expect(gone.status).toBe(403)
+    expect(((await gone.json()) as { error: string }).error).toMatch(/not open/i)
+    expect(await (await fetch(url('/api/me'), { headers: auth })).json()).toMatchObject({
+      root: otherRoot
+    })
+    // The move is a POST, and the list is not a way to make one.
+    expect((await fetch(url('/api/tab'), { headers: auth })).status).toBe(405)
+    expect((await moveTo(token, '')).status).toBe(400)
+  })
+
+  it('a move takes the old root grants and streams with it, as a re-scan does', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    await fetch(url(`/api/text?path=${encodeURIComponent(join(dir, 'readme.md'))}`), {
+      headers: auth
+    })
+    expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${token}`))).status).toBe(200)
+    const playlistUrl = String((await play(token, 'clip.mkv')).url)
+    expect((await fetch(url(playlistUrl))).status).toBe(200)
+
+    expect((await moveTo(token, otherRoot)).status).toBe(200)
+    // The picture a markdown in the OLD folder granted, and the film that was
+    // transcoding out of it: both belong to a root this phone has left.
     expect((await fetch(url(`/m/${encodeURIComponent(picOutside)}?t=${token}`))).status).toBe(403)
     expect((await fetch(url(playlistUrl))).status).toBe(404)
   })

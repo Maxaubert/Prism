@@ -1437,6 +1437,9 @@ if (!app.requestSingleInstanceLock()) {
       validRoot,
       isRoot,
       rootOpen: rootIsOpen,
+      // The tabs a phone may switch to: main's own open set, read on the ask
+      // rather than pushed, since a tab closes without telling the phone.
+      openRoots,
       subsFor: (p: string) => sidecarsFor(p).map((t) => ({ path: t.path, label: t.label })),
       readSubs: (p: string) =>
         readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),

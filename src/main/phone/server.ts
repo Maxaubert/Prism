@@ -11,6 +11,13 @@
  * fetched by this phone and by no other, and it is gone when the phone is
  * forgotten.
  *
+ * The wall WIDENED once (2026-09-08, #107, owner: a phone should see the
+ * open tabs and switch between them without scanning a new code). A phone is
+ * still on ONE root at a time and every path is still checked against that
+ * one; what it may now do is MOVE, to any root the PC has open at that
+ * moment and to nothing else (`/api/tabs`, `/api/tab`). The move is the same
+ * path a re-scan takes, so the old root's grants and streams go with it.
+ *
  * Nothing here is synchronous on main's thread: static files stream, the
  * listing is the bounded async one the sidebar uses, and pairing is a list
  * in memory. Under `--e2e` it binds loopback only, so a throwaway build
@@ -28,6 +35,7 @@ import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState, type Phone } from './pairing'
 import { parseRoute, tokenOf, type Route } from './routes'
+import { rootName, tabList } from './tabs'
 
 export const DEFAULT_PORT = 47320
 /** A phone counts as watching for this long after its last fetch. */
@@ -75,8 +83,14 @@ export interface PhoneDeps {
    *  belt to that brace: the phone lists the root FIRST, and a check that
    *  stopped counting the root as inside would leave it with an empty page. */
   isRoot: (root: string, p: string) => boolean
-  /** Does a tab still hold this root? False is the phone's "scan again" screen. */
+  /** Does a tab still hold this root? False is the phone's "the tab closed"
+   *  screen, which offers the list below rather than a dead end. */
   rootOpen: (root: string) => boolean
+  /** Every root the PC has open RIGHT NOW, in the order it opened them
+   *  (`roots.openRoots`). What `/api/tabs` lists and what `/api/tab` is
+   *  walled by: a phone may move to a folder the user has open and to
+   *  nothing else. */
+  openRoots: () => readonly string[]
   /** Sidecar subtitle tracks beside a media file. */
   subsFor: (p: string) => Array<{ path: string; label: string }>
   /** One sidecar as WebVTT; null when it cannot be read or converted. */
@@ -313,7 +327,7 @@ export class PhoneServer {
         return await this.serveMedia(route.path, req, res)
       }
       if (route.kind === 'hls') return await this.hls(route, phone, res)
-      return await this.api(route.name, route.query, phone.root, phone.name, phone.token, res)
+      return await this.api(route.name, route.query, phone, req, res)
     } catch (err) {
       if (!res.headersSent) json(res, 500, { error: String((err as Error)?.message ?? err) })
       else res.end()
@@ -357,33 +371,44 @@ export class PhoneServer {
     // second entry for the same phone.
     const existing = phoneFor(this.state, typeof body.token === 'string' ? body.token : null)
     if (existing) {
-      // The phone is somewhere else now: what the OLD folder handed it goes
-      // with the move. Its grants (a markdown's pictures, a comic's pages, an
-      // extracted member) and its running HLS job belong to a root it is no
-      // longer paired to, and the wall is the tab's, not the token's.
-      if (existing.root !== phone.root) {
-        this.grants.drop(existing.token)
-        void this.deps.jobs?.stopFor(existing.token)
-      }
-      existing.root = phone.root
       existing.name = phone.name
-      existing.seen = now
+      // The code made a second phone for what is one device; the one that
+      // already has a token is the one that stays.
       forget(this.state, phone.token)
-      this.deps.onChange()
+      this.move(existing, phone.root, now)
       return void json(res, 200, { token: existing.token, root: existing.root })
     }
     this.deps.onChange()
     json(res, 200, { token: phone.token, root: phone.root })
   }
 
+  /**
+   * A phone moves to another root: the ONE path a move takes, whether it came
+   * from a code scanned in another tab or from the phone's own tab list
+   * (2026-09-08). What the OLD folder handed it does not come along - its
+   * grants (a markdown's pictures, a comic's pages, an extracted member) and
+   * its running HLS job belong to a root it is no longer on, and the wall is
+   * the tab's, not the token's. The caller has already decided the root is
+   * one the phone may have; this is what happens next.
+   */
+  private move(phone: Phone, root: string, now: number): void {
+    if (phone.root !== root) {
+      this.grants.drop(phone.token)
+      void this.deps.jobs?.stopFor(phone.token)
+    }
+    phone.root = root
+    phone.seen = now
+    this.deps.onChange()
+  }
+
   private async api(
     name: string,
     q: URLSearchParams,
-    root: string,
-    phoneName: string,
-    token: string,
+    phone: Phone,
+    req: IncomingMessage,
     res: ServerResponse
   ): Promise<void> {
+    const { root, token } = phone
     const path = q.get('path') ?? ''
     // What this phone may name. `validRoot` carries the open-root check;
     // `isRoot` is a plain path comparison, so it needs `rootOpen` beside it
@@ -436,8 +461,53 @@ export class PhoneServer {
           duration: info.duration
         })
       }
+      // `name` is the PHONE's, as the PC lists it; `folder` is the TAB's, and
+      // it is named here rather than on the phone so the header and the tab
+      // list cannot spell one folder two ways.
       case 'me':
-        return void json(res, 200, { root, open: this.deps.rootOpen(root), name: phoneName })
+        return void json(res, 200, {
+          root,
+          open: this.deps.rootOpen(root),
+          name: phone.name,
+          folder: rootName(root)
+        })
+      /**
+       * THE TABS THE PC HAS OPEN (2026-09-08, owner: "i should be able to
+       * switch tabs without scanning a new qr code"). This WIDENS the wall
+       * from the one root the phone paired to, to every root the PC holds
+       * right now - said plainly, because it is the whole point and because
+       * a widening that passes silently is one nobody can weigh. It names no
+       * path and lists no file: what it answers is the folders the user has
+       * open on their own screen, which is what a paired phone may reach.
+       * Read fresh on every ask, since a tab closes without telling anyone.
+       */
+      case 'tabs':
+        return void json(res, 200, {
+          tabs: tabList(this.deps.openRoots(), root, this.deps.isRoot)
+        })
+      /**
+       * And the move itself. Walled by the OPEN SET rather than by anything
+       * the phone sent: a root the PC does not hold is refused with a reason,
+       * because the failure this route exists to remove is a phone pointing
+       * at a folder that is gone. The root that is stored is the PC's own
+       * spelling of it, never the phone's, so the wall compares what it wrote.
+       */
+      case 'tab': {
+        if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
+        let want: unknown
+        try {
+          want = (JSON.parse(await readBody(req)) as { root?: unknown }).root
+        } catch (err) {
+          if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
+          return void json(res, 400, { error: 'bad request' })
+        }
+        if (typeof want !== 'string' || !want) return void json(res, 400, { error: 'no folder' })
+        const open = this.deps.openRoots().find((r) => this.deps.isRoot(r, want as string))
+        if (!open)
+          return void json(res, 403, { error: 'that folder is not open in Prism any more' })
+        this.move(phone, open, this.now())
+        return void json(res, 200, { root: open, name: rootName(open) })
+      }
       // The tab's whole folder, bounded, and never a path from the query:
       // what is searched is the root THIS phone paired to, so the wall is the
       // IPC handler's own (`validRoot(root, root)`, which is also the check
