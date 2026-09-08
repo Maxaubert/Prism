@@ -5349,6 +5349,16 @@ async function phoneDocsScenario(fixtures) {
       (await page.locator('.cm-content[contenteditable="false"]').count()) === 1,
       'the editor is read-only'
     )
+    // WAITED for, not read once: the editor mounts empty and the text arrives
+    // over the wire a moment later, so a same-tick read is a coin toss (it
+    // failed one full run and passed the two after it).
+    await page
+      .waitForFunction(
+        () => /class Greeter/.test(document.querySelector('.cm-content')?.textContent ?? ''),
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
     ok(
       /class Greeter/.test((await page.textContent('.cm-content')) ?? ''),
       'the source is on screen'
@@ -5385,6 +5395,14 @@ async function phoneDocsScenario(fixtures) {
     const shownPage = () => page.getAttribute('[data-phone-viewer] img[alt]', 'alt')
     ok((await shownPage()) === 'page1.png', `the comic opens on page one (${await shownPage()})`)
     ok(await page.locator('[data-phone-viewer] img').first().evaluate(decodes), 'the first page decodes (the comic directory grant)')
+    // The chrome wakes on mount and settles a moment later, so this WAITS for
+    // it to go rather than counting on the same tick, which caught it still up
+    // on one cold run.
+    await page
+      .waitForFunction(() => !document.body.textContent?.includes('Page 1 of 3'), null, {
+        timeout: 8000
+      })
+      .catch(() => {})
     ok(
       (await page.locator('text=Page 1 of 3').count()) === 0,
       'with nothing touched, the chrome is down'
