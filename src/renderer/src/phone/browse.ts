@@ -9,6 +9,24 @@ import type { SearchHit, ViewerFile } from '@shared/types'
 const trim = (p: string): string => p.replace(/[\\/]+$/, '')
 const same = (a: string, b: string): boolean => trim(a).toLowerCase() === trim(b).toLowerCase()
 
+/** One folder, however the two were spelled: case and a trailing separator do
+ *  not make two folders, on Windows or in the wall main keeps. */
+export const samePath = same
+
+/**
+ * True when `p` is the root or sits under it - the renderer's reading of the
+ * check main makes on every phone route (`isInsideRoot`), for the one thing
+ * the page decides for itself: whether a place it has been handed belongs to
+ * the root it is on. The separator matters and is why this is not a
+ * `startsWith`: "C:\roots" is not inside "C:\r".
+ */
+export function insideRoot(root: string, p: string): boolean {
+  if (!root || !p) return false
+  const r = trim(root).toLowerCase()
+  const t = trim(p).toLowerCase()
+  return t === r || t.startsWith(`${r}\\`)
+}
+
 /** The folder above `dir`, or null at the root. Returns `root` itself, as
  *  spelled, when the parent IS the root, so the caller's state stays equal to
  *  what it was given. */

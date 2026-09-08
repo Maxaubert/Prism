@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crumbs, fileFromHit, parentOf, stepFile } from './browse'
+import { crumbs, fileFromHit, insideRoot, parentOf, samePath, stepFile } from './browse'
 
 const f = (name: string) => ({
   path: `C:\\r\\${name}`,
@@ -31,6 +31,18 @@ describe('browse', () => {
   })
   it('names a drive root by its letter', () => {
     expect(crumbs('D:\\', 'D:\\')).toEqual([{ name: 'D:', path: 'D:' }])
+  })
+  it('holds a path inside the root, and a near miss outside it', () => {
+    expect(insideRoot('C:\\r', 'C:\\r')).toBe(true)
+    expect(insideRoot('C:\\r\\', 'c:\\R\\a\\b.mkv')).toBe(true)
+    expect(insideRoot('C:\\r', 'C:\\roots\\a')).toBe(false)
+    expect(insideRoot('C:\\r', 'D:\\r\\a')).toBe(false)
+    expect(insideRoot('', 'C:\\r')).toBe(false)
+    expect(insideRoot('C:\\r', '')).toBe(false)
+  })
+  it('calls two spellings of one folder the same folder', () => {
+    expect(samePath('C:\\r', 'c:\\R\\')).toBe(true)
+    expect(samePath('C:\\r', 'C:\\r\\a')).toBe(false)
   })
   it('steps through the files and stops at the ends', () => {
     const files = [f('a'), f('b'), f('c')]

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
-import { crumbs, fileFromHit, parentOf, stepFile } from './browse'
+import { crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
+import { placeUrl, readPlace } from './place'
 import { ROW_CLASS } from './rows'
 import { TabList } from './TabList'
 
@@ -60,12 +61,21 @@ export function Browser({
    *  own reason when it does not hold that folder any more. */
   onSwitch: (root: string) => Promise<void>
 }): JSX.Element {
-  const [dir, setDir] = useState(root)
+  // WHERE THIS PHONE LEFT OFF (2026-09-08, owner: "when i refresh a page it
+  // should reload me on that file"). Read ONCE, on mount: the URL is written
+  // from this component's own state from here on, so reading it again would
+  // be reading back what it had just said. `./place` has already checked it
+  // against the root, so a place from another tab is the root by the time it
+  // arrives here.
+  const [start] = useState(() => readPlace(window.location.search, root))
+  const [dir, setDir] = useState(start.dir)
   // Tagged with the folder it answers for, so walking into another folder
   // shows "Loading..." rather than the old rows, and an answer that arrives
   // late for a folder already left is ignored rather than shown.
   const [loaded, setLoaded] = useState<{ dir: string; listing: DirListing | null } | null>(null)
   const [open, setOpen] = useState<ViewerFile | null>(null)
+  /** The file the URL named, until the folder holding it has listed. */
+  const [want, setWant] = useState<string | null>(start.file)
   /** Whether the field is showing; the query is what decides what is listed. */
   const [searching, setSearching] = useState(false)
   /** Whether the tab list is showing over the folder. */
@@ -101,6 +111,18 @@ export function Browser({
       live = false
     }
   }, [root, dir])
+
+  // The place, written as it changes (see ./place). A phone reloads for
+  // reasons nobody chose - a background tab dropped, the Wi-Fi gone, the
+  // screen locked - so where it comes back is worth a `replaceState` per tap.
+  useEffect(() => {
+    // Nothing is written while a restored file is still waiting for its folder
+    // to list: for those few hundred milliseconds the URL would name the
+    // folder, and a reload in that moment would lose the very file it is on
+    // its way back to.
+    if (want) return
+    window.history.replaceState(null, '', placeUrl(root, { dir, file: open?.path ?? null }))
+  }, [root, dir, open, want])
 
   // An emptied field leaves the last answer where it is rather than clearing
   // it: what is DRAWN is keyed by the query, so an old answer is already
@@ -139,6 +161,20 @@ export function Browser({
 
   const listing = loaded?.dir === dir ? loaded.listing : undefined
   const error = listing === null ? 'Prism could not read this folder' : null
+
+  // THE FILE THE URL NAMED opens as soon as its folder has listed, and it is
+  // resolved from that listing rather than from a route of its own: the
+  // listing already carries the name, kind and size a viewer reads, and a file
+  // that has been deleted or renamed is simply not in it - which IS the
+  // fallback (the folder, showing) with no second way to fail. Done while
+  // RENDERING, the shape the search's `askFor` uses: by the time an effect
+  // ran, the folder would have had a frame of its own on screen first.
+  if (want && listing !== undefined) {
+    const f = listing?.files.find((x) => samePath(x.path, want)) ?? null
+    setWant(null)
+    if (f) setOpen(f)
+  }
+
   const answer = found?.q === query ? found : null
   /** Whether a walk is still out for what the field holds. */
   const pending = !!query && settled !== query
