@@ -2607,6 +2607,31 @@ async function formatsScenario(fixtures) {
       await app.close()
     }
   }
+  {
+    // ARROWING ONTO A TRACK PLAYS IT, exactly as clicking the row does
+    // (2026-09-08, owner: arrowing through an album left every track sitting
+    // at 0:00). The click recorded the intent to play and the keyboard's own
+    // landing did not, so the two hands disagreed about what a pick means.
+    // Opened on a PICTURE so the arrows belong to the tree from the first
+    // press: a freshly opened track keeps them for its own volume.
+    const { app, win } = await launch(join(fixtures, 'av', 'photo.cr2'))
+    try {
+      await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+      await sleep(600)
+      // av/ sorts arpeggio.mid, dolby.mkv, lossless.m4a, nopicture.mkv,
+      // photo.cr2: two steps up from the picture is the track.
+      await win.keyboard.press('ArrowUp')
+      await sleep(700)
+      await win.keyboard.press('ArrowUp')
+      await win.waitForSelector('audio', { state: 'attached', timeout: 15000 })
+      await win.waitForFunction(() => !document.querySelector('audio')?.paused, undefined, {
+        timeout: 10000
+      })
+      ok(true, 'arrowing onto a track starts it, as clicking the row does')
+    } finally {
+      await app.close()
+    }
+  }
   await sleep(700)
   {
     // MPEG-2 has no decoder in Chromium either, and unlike the audio case it
