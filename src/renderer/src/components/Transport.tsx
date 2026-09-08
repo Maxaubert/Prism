@@ -24,6 +24,16 @@ import { paletteAt } from '../lib/viz/core'
 // same colour system as the visualizer but picked independently; the controls use
 // --color-accent-hi.
 
+// THE PARTS ARE NAMED SO THE PHONE CAN SIZE THEM (2026-09-08, #107).
+// `data-scrub`, `data-scrub-track`, `data-scrub-thumb`, `data-time` and
+// `data-transport-row` are inert here: nothing in the app reads them and no
+// size in this file changed. They exist because the phone page needs a
+// thumb-sized transport and the desktop must keep the one it has, so the
+// sizing lives in `phone/phone.css` under the phone's own stage marker. A
+// stylesheet has to name what it is scaling, and naming it by Tailwind class
+// would break the next time a class here is edited for a reason that has
+// nothing to do with the phone.
+
 /** The progress bar's colour scheme + effect toggles (picked in Settings). */
 export interface BarFx {
   palette: string[]
@@ -97,6 +107,7 @@ function Scrubber({
   return (
     <div
       ref={barRef}
+      data-scrub
       className={`group/bar relative cursor-pointer ${className}`}
       onPointerDown={onDown}
       onMouseMove={(e) => setHoverX(frac(e.clientX))}
@@ -105,6 +116,7 @@ function Scrubber({
       {look.kind === 'line' && (
         <>
           <div
+            data-scrub-track
             className="absolute inset-x-0 rounded-full bg-[var(--p-divider)] transition-[height]"
             style={look.top ? { top: 0, height: look.h } : { top: '50%', height: look.h, transform: 'translateY(-50%)' }}
           >
@@ -121,6 +133,7 @@ function Scrubber({
             />
           </div>
           <div
+            data-scrub-thumb
             className={`absolute h-3 w-3 -translate-x-1/2 rounded-full bg-white opacity-0 shadow transition-opacity group-hover/bar:opacity-100 ${
               look.ballAbove ? '' : '-translate-y-1/2'
             }`}
@@ -328,7 +341,7 @@ function VolHover({ c, bare }: { c: MediaControls; bare?: boolean }): JSX.Elemen
 
 function Time({ c, big }: { c: MediaControls; big?: boolean }): JSX.Element {
   return (
-    <span className={`tabular-nums ${big ? 'text-[15px] font-semibold' : 'text-[13px]'} text-[#d7dae1]`}>
+    <span data-time className={`tabular-nums ${big ? 'text-[15px] font-semibold' : 'text-[13px]'} text-[#d7dae1]`}>
       {formatTime(c.cur)} <span className="text-[var(--p-text)]/40">/ {formatTime(c.dur)}</span>
     </span>
   )
@@ -358,7 +371,7 @@ export function Transport({
 }): JSX.Element {
   // The standard control row shared by most styles.
   const stdRow = (
-    <div className="flex items-center gap-3 text-[var(--p-text)]">
+    <div data-transport-row className="flex items-center gap-3 text-[var(--p-text)]">
       <PlayBtn c={c} />
       <VolHover c={c} bare={bare} />
       <Time c={c} />
@@ -368,7 +381,7 @@ export function Transport({
     </div>
   )
   const boldRow = (
-    <div className="flex items-center gap-4 text-[var(--p-text)]">
+    <div data-transport-row className="flex items-center gap-4 text-[var(--p-text)]">
       <PlayBtn c={c} square />
       <Time c={c} big />
       <div className="flex-1" />
@@ -397,11 +410,14 @@ export function Transport({
 
     case 'inline':
       return (
-        <div className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-[var(--p-text)]">
+        <div
+          data-transport-row
+          className="pointer-events-auto flex w-full items-center gap-3 px-4 py-2.5 text-[var(--p-text)]"
+        >
           <PlayBtn c={c} />
-          <span className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
+          <span data-time className="tabular-nums text-[12.5px] text-[#d7dae1]">{formatTime(c.cur)}</span>
           <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3.5 flex-1" />
-          <span className="tabular-nums text-[12.5px] text-[var(--p-text)]/50">{formatTime(c.dur)}</span>
+          <span data-time className="tabular-nums text-[12.5px] text-[var(--p-text)]/50">{formatTime(c.dur)}</span>
           <VolHover c={c} bare={bare} />
           {settings}
           {extra}
@@ -411,7 +427,10 @@ export function Transport({
     case 'island':
       return (
         <div className="pointer-events-none flex w-full justify-center pb-4">
-          <div className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-[color:var(--p-divider)] bg-[#14161e]/75 px-4 py-2.5 text-[var(--p-text)] shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md">
+          <div
+            data-transport-row
+            className="pointer-events-auto flex items-center gap-3.5 rounded-full border border-[color:var(--p-divider)] bg-[#14161e]/75 px-4 py-2.5 text-[var(--p-text)] shadow-[0_12px_34px_rgba(0,0,0,.5)] backdrop-blur-md"
+          >
             <PlayBtn c={c} />
             <Scrubber c={c} look={{ kind: 'line', h: 4 }} peaks={peaks} bar={bar} className="h-3 w-40" />
             <Time c={c} />
@@ -466,7 +485,10 @@ export function Transport({
       return (
         <div className="pointer-events-auto w-full">
           <Scrubber c={c} look={{ kind: 'line', h: 3, top: true }} peaks={peaks} bar={bar} className="h-2.5" />
-          <div className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-[var(--p-text)]">
+          <div
+            data-transport-row
+            className="flex items-center gap-3 px-4 pb-2.5 pt-1.5 text-[var(--p-text)]"
+          >
             <PlayBtn c={c} />
             <VolHover c={c} bare={bare} />
             <Time c={c} />

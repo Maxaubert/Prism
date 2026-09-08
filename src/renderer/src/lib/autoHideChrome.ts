@@ -135,12 +135,22 @@ export function useAutoHideChrome(
     // change under a STATIONARY cursor, which a page turn is.
     window.addEventListener('pointermove', on, { capture: true, passive: true })
     window.addEventListener('keydown', onKey, true)
+    // A TAP is activity too (2026-09-07, #106, the phone). A finger that
+    // touches and lifts fires no pointermove at all, so on a phone the chrome
+    // never came back once it had gone: no page counter on a comic, no
+    // transport on a film. Touch and pen only, so the mouse rule above stands
+    // exactly as it was measured.
+    const onDown = (e: PointerEvent): void => {
+      if (e.pointerType !== 'mouse') wake()
+    }
+    window.addEventListener('pointerdown', onDown, { capture: true, passive: true })
     // Entering or leaving fullscreen relays out the whole stage, and the chrome
     // has to be visible on the other side of it.
     document.addEventListener('fullscreenchange', on)
     return () => {
       window.removeEventListener('pointermove', on, true)
       window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onDown, true)
       document.removeEventListener('fullscreenchange', on)
     }
   }, [wake])

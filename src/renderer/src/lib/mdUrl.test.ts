@@ -63,6 +63,23 @@ describe('resolveMdUrl', () => {
     expect(resolveMdUrl('', BASE)).toBe('')
     expect(resolveMdUrl('?only=query', BASE)).toBe('')
   })
+
+  it('builds a local url through the injected scheme, so the phone gets its own', () => {
+    // The phone's bridge answers `/m/<path>?t=<token>` where the PC's answers
+    // fsmedia://; the policy is the same, only the last step differs.
+    const phone = (p: string): string => `/m/${encodeURIComponent(p)}?t=tok`
+    expect(resolveMdUrl('docs/pic.png', BASE, phone)).toBe(phone('C:\\Repo\\Prism\\docs\\pic.png'))
+    // What is not local never reaches it.
+    const seen: string[] = []
+    const spy = (p: string): string => {
+      seen.push(p)
+      return p
+    }
+    expect(resolveMdUrl('https://x.example/a.png', BASE, spy)).toBe('https://x.example/a.png')
+    expect(resolveMdUrl('javascript:alert(1)', BASE, spy)).toBe('')
+    expect(resolveMdUrl('#top', BASE, spy)).toBe('#top')
+    expect(seen).toEqual([])
+  })
 })
 
 describe('classifiers', () => {

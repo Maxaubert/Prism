@@ -221,6 +221,45 @@ async function launchOnce(file, keepTabs = false) {
   return { app, win }
 }
 
+/**
+ * A second window of the app's own Chromium standing in for the phone
+ * (2026-09-06, #104). The harness ships playwright-core and no browser
+ * binary, so the phone page is loaded into a plain sandboxed BrowserWindow
+ * with no preload, which is what a phone's browser is to the server: a
+ * remote page and a fetch. Parked like the main window (opacity 0, off the
+ * desktop, no taskbar entry) rather than hidden, for the same reason: a
+ * hidden window stops answering clicks. Playwright drives it over CDP.
+ */
+async function openPhoneWindow(app, url) {
+  const appeared = app.waitForEvent('window', { timeout: 15000 })
+  await app.evaluate(({ BrowserWindow }, target) => {
+    const w = new BrowserWindow({
+      width: 390,
+      height: 844,
+      show: false,
+      focusable: false,
+      skipTaskbar: true,
+      // A page that asks for fullscreen must not take the DISPLAY with it
+      // (2026-09-07): the phone scenario presses the player's own fullscreen
+      // button, and a parked window granted it moves to 0,0 at the size of
+      // the screen - invisible at opacity 0, and still an invisible sheet
+      // over whatever the owner is doing, which is the very thing parking
+      // exists to prevent. Blink enters fullscreen either way, which is what
+      // the assertion is about: `document.fullscreenElement` is the page's
+      // own state and the window is Electron's answer to it.
+      fullscreenable: false,
+      webPreferences: { sandbox: true }
+    })
+    w.setOpacity(0)
+    w.setPosition(-4000, -4000)
+    w.showInactive()
+    void w.loadURL(target)
+  }, url)
+  const page = await appeared
+  await page.waitForLoadState('domcontentloaded')
+  return page
+}
+
 async function mdScenario(fixtures) {
   console.log('markdown viewer');
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -2555,6 +2594,40 @@ async function formatsScenario(fixtures) {
         (await win.evaluate(() => document.querySelector('audio')?.error?.code ?? null)) === null,
         'with no error left on the element'
       )
+      // A track that IS open must not be told there is nothing open. Media
+      // lives in the player deck, so the warm deck is empty for it by design,
+      // and the empty-state notice used to be drawn underneath: invisible
+      // behind a film's picture, and written across the middle of the audio
+      // visualizer, which is a transparent ring (2026-09-08).
+      ok(
+        await win.evaluate(() => !document.body.textContent?.includes('No file selected')),
+        'and the stage does not claim there is no file open'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  {
+    // ARROWING ONTO A TRACK PLAYS IT, exactly as clicking the row does
+    // (2026-09-08, owner: arrowing through an album left every track sitting
+    // at 0:00). The click recorded the intent to play and the keyboard's own
+    // landing did not, so the two hands disagreed about what a pick means.
+    // Opened on a PICTURE so the arrows belong to the tree from the first
+    // press: a freshly opened track keeps them for its own volume.
+    const { app, win } = await launch(join(fixtures, 'av', 'photo.cr2'))
+    try {
+      await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+      await sleep(600)
+      // av/ sorts arpeggio.mid, dolby.mkv, lossless.m4a, nopicture.mkv,
+      // photo.cr2: two steps up from the picture is the track.
+      await win.keyboard.press('ArrowUp')
+      await sleep(700)
+      await win.keyboard.press('ArrowUp')
+      await win.waitForSelector('audio', { state: 'attached', timeout: 15000 })
+      await win.waitForFunction(() => !document.querySelector('audio')?.paused, undefined, {
+        timeout: 10000
+      })
+      ok(true, 'arrowing onto a track starts it, as clicking the row does')
     } finally {
       await app.close()
     }
@@ -4788,6 +4861,947 @@ async function dragScenario(fixtures) {
   await sleep(900)
 }
 
+/**
+ * Prism on your phone (2026-09-06, #104): the server comes up on the switch,
+ * a phone pairs with the tab's code, browses the folder and plays a picture
+ * and a film over the LAN routes, and a phone the PC forgets is back on the
+ * pairing screen. Under --e2e the server binds loopback only, so the
+ * "phone" is a second window of the app's own Chromium on 127.0.0.1.
+ *
+ * The film's FULLSCREEN is proved here too (2026-09-07): the control is on
+ * the player, and the standard route still puts the PAGE fullscreen, header
+ * and all. Only that one route, on purpose - this host has the standard API,
+ * so the prefixed and the iOS branch belong to `fullscreen.test.ts`, which
+ * asks hosts written to have nothing else.
+ */
+/**
+ * Switch the phone server on from the renderer, the way the dialog does, and
+ * pair one phone over HTTP the way the phone does (2026-09-06, #105: shared
+ * by the pairing scenario and the HLS one). The active tab's title attribute
+ * IS its root (TabStrip's role="tab"). Returns the server's state as
+ * reported, the pairing response status, and what the phone was handed.
+ */
+async function pairPhone(win) {
+  const state = await win.evaluate(() =>
+    window.prism.phoneSetOn(
+      true,
+      document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
+    )
+  )
+  const base = `http://127.0.0.1:${state.port}`
+  const r = await fetch(`${base}/pair`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ code: state.code?.code ?? '', name: 'e2e phone' })
+  })
+  const { token, root } = r.status === 200 ? await r.json() : { token: '', root: '' }
+  return { base, token, root, state, status: r.status }
+}
+
+async function phoneScenario(fixtures) {
+  console.log('phone: pair, browse, play over the LAN server')
+  const { app, win } = await launch(join(fixtures, 'one.png'))
+  let page = null
+  try {
+    const { base, token, root, state, status } = await pairPhone(win)
+    ok(state.on === true, 'the server reports on')
+    ok(typeof state.port === 'number', 'the server has a port')
+    ok(state.addresses[0] === '127.0.0.1', 'under --e2e it binds loopback only')
+    ok(
+      !!state.code && /^[A-Z2-9]{6}$/.test(state.code.code),
+      'a six-character code is issued for the tab'
+    )
+    ok(!!state.code && state.code.svg.startsWith('<svg'), 'the QR renders as SVG')
+    ok(status === 200, 'pairing succeeds')
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'the phone is paired to the tab root')
+    ok((await fetch(`${base}/api/me`)).status === 401, 'no token, no answer')
+    const auth = { authorization: `Bearer ${token}` }
+    const dir = await (
+      await fetch(`${base}/api/dir?path=${encodeURIComponent(fixtures)}`, { headers: auth })
+    ).json()
+    ok(dir.files.some((f) => f.name === 'one.png'), 'the listing carries the fixture')
+    const outside = await fetch(`${base}/api/dir?path=${encodeURIComponent('C:\\Windows')}`, {
+      headers: auth
+    })
+    ok(outside.status === 403, 'a path outside the root is refused')
+    const ranged = await fetch(
+      `${base}/m/${encodeURIComponent(join(fixtures, 'ep1.mp4'))}?t=${token}`,
+      { headers: { range: 'bytes=0-99' } }
+    )
+    ok(
+      ranged.status === 206 && (ranged.headers.get('content-range') ?? '').startsWith('bytes 0-99/'),
+      'media answers a Range with 206'
+    )
+    await ranged.arrayBuffer()
+
+    // The dialog on the PC lists the phone.
+    await win.click('[aria-label="Tools"]')
+    await win.click('[role="menuitem"]:has-text("Phone")')
+    await win.waitForSelector('[data-phone-dialog]', { timeout: 5000 })
+    await win.waitForSelector('[data-phone-row]', { timeout: 5000 }).catch(() => {})
+    ok((await win.locator('[data-phone-row]').count()) === 1, 'the dialog lists the paired phone')
+    await win.screenshot({ path: join(SHOTS, 'phone-dialog.png') })
+    await win.keyboard.press('Escape')
+
+    // The phone page itself. A spent code lands on the pairing screen.
+    page = await openPhoneWindow(app, `${base}/?code=${state.code.code}`)
+    // A FINGER rather than a pointer (2026-09-08, #107): Chromium's touch
+    // emulation is what flips `(pointer: coarse)` and what makes a dispatched
+    // touch arrive as a touch pointer, which is the whole difference between
+    // this page and the app window. Set before the page is loaded again, so
+    // everything below is laid out and pressed the way a phone lays it out
+    // and presses it.
+    const cdp = await app.context().newCDPSession(page)
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
+    await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
+    ok(true, 'a spent code lands on the pairing screen')
+    // A second code for the same tab: the first was spent above.
+    const again = await win.evaluate(() =>
+      window.prism.phoneCode(
+        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+      )
+    )
+    ok(!!again.code && again.code.code !== state.code.code, 'a fresh code replaces the spent one')
+    await page.goto(`${base}/?code=${again.code.code}`)
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    ok(
+      (await page.locator('[data-phone-file][data-kind="image"]').count()) >= 1,
+      'the phone lists pictures'
+    )
+
+    // SIZED FOR A THUMB (2026-09-08, owner, after an iPad: the rows in the
+    // file explorer are too small). 44px is the platform floor rather than a
+    // taste - Apple asks for 44pt, Google for 48dp - and the ROW is deliberately
+    // taller again, because a list is scrolled past as well as tapped. Measured
+    // rather than read off the stylesheet: the row's height is a Tailwind class
+    // reading a token in another file, and a measurement is the only thing that
+    // proves the two still meet.
+    ok(
+      await page.evaluate(() => matchMedia('(pointer: coarse)').matches),
+      'the emulated phone reports a coarse pointer'
+    )
+    const rowH = await page
+      .locator('[data-phone-file]')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().height)
+    ok(rowH >= 44, `an explorer row is at least a finger tall (${rowH}px)`)
+    await page.click('[data-phone-file]:has-text("one.png")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 10000 })
+    await page
+      .waitForFunction(
+        () => (document.querySelector('[data-phone-viewer] img')?.naturalWidth ?? 0) > 0,
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
+    const natural = await page
+      .locator('[data-phone-viewer] img')
+      .first()
+      .evaluate((el) => el.naturalWidth)
+    ok(natural > 0, 'the picture loads over the LAN route')
+    await page.screenshot({ path: join(SHOTS, 'phone-image.png') })
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-file]:has-text("ep1.mp4")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
+    let ready = true
+    await page
+      .waitForFunction(() => (document.querySelector('video')?.readyState ?? 0) >= 1, null, {
+        timeout: 15000
+      })
+      .catch(() => {
+        ready = false
+      })
+    ok(ready, 'the video has metadata over the LAN route')
+    await page.screenshot({ path: join(SHOTS, 'phone-video.png') })
+
+    /*
+     * A TAP ASKS FOR THE CONTROLS, AND THE NEXT ONE PAUSES (2026-09-08,
+     * owner, after an iPad). A mouse has a pointer on screen, so a click on a
+     * bare picture pausing is what the desktop has always done and still
+     * does; a finger has none, so the first tap after the chrome hid was a
+     * pause nobody asked for. Three things are asserted, and the middle one
+     * is the whole point: the film is STILL PLAYING after the tap that
+     * brought the controls back.
+     *
+     * The taps are dispatched as touches rather than clicked, because the
+     * rule is the POINTER TYPE (`lib/tapChrome`): a click here would be a
+     * mouse and would prove the desktop's behaviour instead.
+     */
+    const tapAt = async (x, y) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    }
+    // Out of the transport's way first: hiding is decided from what is TRUE
+    // when the clock fires, the bar's own `:hover` included, and the pointer
+    // was last left on the row that opened the file.
+    await page.mouse.move(5, 5)
+    await page.evaluate(() => {
+      const v = document.querySelector('video')
+      v.muted = true
+      // LOOPED, because the fixture film is 1.5 seconds and the chrome hides
+      // after 2.6: a film that ends is a film that is paused, and the clock
+      // never hides the controls over a paused picture. Measured the hard way
+      // - the first run of this asserted a hide that could not happen.
+      v.loop = true
+      void v.play().catch(() => {})
+    })
+    await page.waitForSelector('[data-transport-row] button', { timeout: 10000 })
+    const btnH = await page
+      .locator('[data-transport-row] button')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().height)
+    ok(btnH >= 44, `a transport button is at least a finger tall (${btnH}px)`)
+    // The transport MOUNTS and UNMOUNTS rather than fading, so its absence is
+    // the chrome being down. It only hides while the film is PLAYING.
+    const hid = await page
+      .waitForSelector('[data-transport-row]', { state: 'detached', timeout: 10000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(hid, 'the chrome hides itself while the film plays')
+    const stage = await page.locator('[data-phone-stage]').boundingBox()
+    await tapAt(stage.x + stage.width / 2, stage.y + stage.height / 2)
+    const backUp = await page
+      .waitForSelector('[data-transport-row]', { timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(backUp, 'a tap with the chrome hidden brings the controls back')
+    ok(
+      await page.evaluate(() => document.querySelector('video')?.paused === false),
+      'and the film is still playing, which is what a phone means by that tap'
+    )
+    // Clear of the double-tap window (which goes fullscreen) and well inside
+    // the chrome's own 2.6s clock, so the second tap is one with the controls
+    // showing rather than a second reveal.
+    await sleep(700)
+    await tapAt(stage.x + stage.width / 2 + 40, stage.y + stage.height / 2)
+    const paused = await page
+      .waitForFunction(() => document.querySelector('video')?.paused === true, null, {
+        timeout: 5000
+      })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(paused, 'and a second tap, with them showing, pauses')
+
+    // Fullscreen, on the player that could not (2026-09-07, owner: "i cant go
+    // fullscreen in the player on mobile"). Two things only are asserted here,
+    // and the second one is why: the control IS on a film, and the STANDARD
+    // route still enters fullscreen and takes the phone's header with it, so
+    // the host that every desktop and Android has behaves exactly as it did.
+    // The other two routes cannot be reached from here at all - the app's own
+    // Chromium standing in for the phone HAS `requestFullscreen`, and a route
+    // is picked by what the host has - so the prefixed and the iOS branch are
+    // `fullscreen.test.ts`'s, against hosts written to have only those. A
+    // browser that has the standard API can prove nothing about an iPhone.
+    const fsButton = page.locator('[data-phone-viewer] button[title="Fullscreen (F)"]')
+    // The transport MOUNTS and UNMOUNTS rather than fading, so the button
+    // exists only while the chrome is awake; a move wakes it either way.
+    await page.mouse.move(195, 700)
+    await fsButton.first().waitFor({ timeout: 10000 })
+    ok(true, 'a film on the phone carries the fullscreen control')
+    await fsButton.first().click()
+    const wentFull = await page
+      .waitForFunction(() => document.fullscreenElement === document.documentElement, null, {
+        timeout: 5000
+      })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(wentFull, 'the standard route puts the page itself fullscreen')
+    // WAITED FOR, not counted: `fullscreenElement` is set the moment the host
+    // says yes and the header goes one render later, so a count taken on the
+    // same tick is a coin toss rather than a check.
+    const headerGone = await page
+      .waitForSelector('[data-phone-title]', { state: 'detached', timeout: 5000 })
+      .then(
+        () => true,
+        () => false
+      )
+    ok(headerGone, 'and the header goes with it, which is what the page-first order buys')
+    // Left through the DOCUMENT, which is the API's one asymmetry, and the
+    // way back must come from the host rather than from the tap: a header
+    // that stayed hidden is a page with no way back to the folder.
+    await page.evaluate(() => document.exitFullscreen?.())
+    await page.waitForSelector('[data-phone-title]', { timeout: 5000 })
+    ok(true, 'leaving it again brings the header back, heard from the host')
+
+    // The page paired with nothing in its storage, so it is a SECOND phone
+    // with a token of its own beside the one Node paired above.
+    const pageToken = await page.evaluate(() => localStorage.getItem('prism.phone.token'))
+    ok(
+      typeof pageToken === 'string' && pageToken.length > 0 && pageToken !== token,
+      'the page paired as its own phone'
+    )
+
+    // Forget both from the PC: the phone's next request is a 401 and it re-pairs.
+    const after = await win.evaluate(async (toks) => {
+      for (const t of toks) await window.prism.phoneForget(t, null)
+      return window.prism.phoneGet(null)
+    }, [token, pageToken])
+    ok(after.phones.length === 0, 'the dialog lists nobody once both are forgotten')
+    await page.click('[aria-label="Back to the folder"]')
+    await page.reload()
+    await page.waitForSelector('[data-phone-pairing]', { timeout: 10000 })
+    ok(true, 'a forgotten phone lands on the pairing screen')
+    ok(
+      (await fetch(`${base}/api/me`, { headers: auth })).status === 401,
+      'the forgotten token is refused'
+    )
+  } finally {
+    await page?.close().catch(() => {})
+    // Off again, or the profile's phone.json carries the switch into every
+    // scenario after this one.
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * The phone's transcode (2026-09-06, #105). The route first, from Node, with
+ * a `can` list a phone without Dolby or MKV would send: the answer, the
+ * playlist Prism writes up front, the first segment timed, init.mp4, the
+ * last segment, and a picture that has to be re-encoded (Xvid). Then the
+ * stream is PLAYED, in the app's own Chromium standing in for an Android:
+ * it has no native HLS, so hls.js feeds the element through MSE, and a seek
+ * has to land where the playlist says, which is what `-copyts` is for.
+ */
+async function phoneHlsScenario(fixtures) {
+  console.log('phone: an mkv with Dolby audio plays over HLS, and seeks')
+  const dolby = join(fixtures, 'av', 'dolby.mkv')
+  const { app, win } = await launch(dolby)
+  let page = null
+  try {
+    const { base, token, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    const auth = { authorization: `Bearer ${token}` }
+    const can = 'h264,aac,mp4,mse'
+    const play = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(dolby)}&can=${can}`, { headers: auth })
+    ).json()
+    ok(play.mode === 'hls' && play.copyVideo === true, 'an h264 mkv with ac3 is HLS with the picture copied')
+    ok(Math.abs(play.duration - 6) < 1, `the answer carries the duration (${play.duration}s)`)
+    ok(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/.test(play.url ?? ''), 'the stream url names a job and carries the token')
+    const at = (name) => `${base}${play.url.replace('index.m3u8', name)}`
+    const pl = await (await fetch(at('index.m3u8'))).text()
+    ok(
+      pl.includes('#EXT-X-PLAYLIST-TYPE:VOD') && pl.includes('1.m4s') && pl.trim().endsWith('#EXT-X-ENDLIST'),
+      'the playlist lists every segment up front, and ends'
+    )
+    const t0 = Date.now()
+    const seg0 = await fetch(at('0.m4s'))
+    const seg0Bytes = seg0.status === 200 ? (await seg0.arrayBuffer()).byteLength : 0
+    ok(seg0.status === 200 && seg0Bytes > 1000, `segment 0 arrives (${Date.now() - t0}ms, ${seg0Bytes} bytes)`)
+    const init = await fetch(at('init.mp4'))
+    ok(init.status === 200 && (await init.arrayBuffer()).byteLength > 0, 'init.mp4 arrives')
+    const seg1 = await fetch(at('1.m4s'))
+    ok(seg1.status === 200 && (await seg1.arrayBuffer()).byteLength > 0, 'the last segment arrives')
+    ok((await fetch(at('9.m4s'))).status === 404, 'a segment past the film is refused')
+    // A second phone, paired on a fresh code for the same tab: the job is
+    // the first phone's, and the answer is 404 rather than 403, which would
+    // confirm that a stream exists.
+    const again = await win.evaluate(() =>
+      window.prism.phoneCode(
+        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+      )
+    )
+    const other = await fetch(`${base}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: again.code?.code ?? '', name: 'e2e phone two' })
+    })
+    const otherToken = other.status === 200 ? (await other.json()).token : ''
+    ok(
+      !!otherToken && (await fetch(`${base}${play.url.replace(/t=.*$/, `t=${otherToken}`)}`)).status === 404,
+      'another phone gets no stream'
+    )
+
+    const xvidFile = join(fixtures, 'av', 'xvid.avi')
+    const xvid = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(xvidFile)}&can=${can}`, { headers: auth })
+    ).json()
+    ok(xvid.mode === 'hls' && xvid.copyVideo === false, 'xvid is re-encoded')
+    const tx = Date.now()
+    const xseg = await fetch(`${base}${xvid.url.replace('index.m3u8', '0.m4s')}`)
+    const xBytes = xseg.status === 200 ? (await xseg.arrayBuffer()).byteLength : 0
+    ok(
+      xseg.status === 200 && xBytes > 1000,
+      `a re-encoded segment arrives (${Date.now() - tx}ms, nvenc or openh264 if the GPU refused)`
+    )
+
+    // Playback through hls.js in the app's Chromium, which has no native
+    // HLS. The page is handed Node's token, so it is the same phone and the
+    // same job as above.
+    page = await openPhoneWindow(app, `${base}/`)
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await page.reload()
+    // The tab is rooted at the film's own folder, so the file is on the
+    // first screen.
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("dolby.mkv")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 10000 })
+    // hls.js owns the element in two states, both of them right: no src at
+    // all while the dynamic import is still in flight, and a blob: object
+    // URL once attachMedia has run (a warm chunk cache attaches before this
+    // evaluate does). Only a real url (http, fsmedia) would mean the page
+    // handed the playlist to the element itself.
+    const src = await page.evaluate(() => document.querySelector('video')?.getAttribute('src'))
+    ok(src === null || src.startsWith('blob:'), `hls.js owns the element: src is ${src ?? 'none'}`)
+    // play() is fired and NOT awaited: its promise settles only when playback
+    // starts or the element itself errors, and with hls.js owning the source
+    // a fatal hls.js error does neither, so an evaluate that returned the
+    // promise parked the whole suite (measured: half an hour, on a run whose
+    // job the 30s reaper had long since removed). The wait below is the
+    // assertion, and it has a timeout, so a stream that never plays is a
+    // recorded failure naming this step rather than a hang.
+    await page.evaluate(() => {
+      const v = document.querySelector('video')
+      v.muted = true
+      void v.play().catch(() => {})
+    })
+    let played = true
+    await page
+      .waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 0.5, null, {
+        timeout: 20000
+      })
+      .catch(() => {
+        played = false
+      })
+    ok(played, 'hls.js plays the stream')
+    await page.screenshot({ path: join(SHOTS, 'phone-hls.png') })
+    await page.evaluate(() => {
+      document.querySelector('video').currentTime = 4.2
+    })
+    let landed = true
+    await page
+      .waitForFunction(
+        () => {
+          const v = document.querySelector('video')
+          return !!v && v.currentTime > 4.3 && v.currentTime < 6 && !v.paused
+        },
+        null,
+        { timeout: 20000 }
+      )
+      .catch(() => {
+        landed = false
+      })
+    ok(landed, 'a seek into the second segment lands where the playlist says (copyts)')
+    ok(
+      await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
+      'frames decode'
+    )
+  } finally {
+    await page?.close().catch(() => {})
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * Documents on the phone (2026-09-07, #106): markdown, code, a pdf, a comic
+ * and an archive, each through the SAME viewer the PC mounts, over the
+ * read-only routes. Three things are measured here that the unit tests
+ * cannot: a markdown's own picture arrives (the per-phone grant, end to
+ * end through the media route), a member viewed out of a zip arrives (the
+ * extract grant, the same way), and the touch pass: a tap on the comic's
+ * right third turns the page, and the archive's rows grow to a finger's
+ * 44px under a coarse pointer, which Chromium's touch emulation supplies.
+ * The heavy chunks are watched too: nothing of pdf.js or CodeMirror is
+ * fetched until the file that needs it is opened.
+ *
+ * SEARCH ends it (2026-09-07), and this is its home because this fixture
+ * tree has depth: `buried.py` is three folders down, which is the file a
+ * page browsing one level at a time never reaches by tapping, and `ext:py`
+ * is an operator the phone implements none of - it asks the PC, which
+ * answers with the sidebar's own `searchFiles`.
+ */
+async function phoneDocsScenario(fixtures) {
+  console.log('phone: documents, code, a pdf, a comic and an archive over the LAN server')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let page = null
+  try {
+    const { base, token, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    page = await openPhoneWindow(app, `${base}/`)
+    // The phone page's own errors, printed as they happen: a viewer that
+    // fails to mount over the wire otherwise reads as a bare timeout.
+    page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
+    page.on('console', (m) => {
+      if (m.type() === 'error') console.warn('  phone console:', m.text())
+    })
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    // A finger rather than a pointer: Chromium's touch emulation is what
+    // flips `(pointer: coarse)` and what makes a dispatched touch arrive as
+    // a touch pointer. Set before the reload so the page is laid out for it.
+    const cdp = await app.context().newCDPSession(page)
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+    const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches)
+    ok(coarse, 'the emulated phone reports a coarse pointer')
+    const loadedChunks = () =>
+      page.evaluate(() =>
+        performance.getEntriesByType('resource').map((e) => e.name.split('/').pop() ?? '')
+      )
+    const before = await loadedChunks()
+    ok(
+      !before.some((n) => /pdf|CodeView|codemirror/i.test(n)),
+      'neither pdf.js nor CodeMirror is fetched for the folder listing'
+    )
+    const decodes = (el) =>
+      el.complete && el.naturalWidth > 0
+        ? true
+        : new Promise((r) => {
+            el.addEventListener('load', () => r(true), { once: true })
+            el.addEventListener('error', () => r(false), { once: true })
+            setTimeout(() => r(false), 8000)
+          })
+
+    // Markdown, formatted, with its own picture granted to this phone.
+    await page.click('[data-phone-file]:has-text("README.md")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="text"] .p-md h1', { timeout: 15000 })
+    ok((await page.textContent('.p-md h1')) === 'Prism', 'markdown renders formatted (h1)')
+    ok((await page.locator('[aria-label="Edit"]').count()) === 0, 'no pencil on the phone')
+    const local = page.locator('.p-md img[src^="/m/"]').first()
+    await local.waitFor({ timeout: 10000 }).catch(() => {})
+    ok((await local.count()) === 1, 'a local image resolves to the /m/ route, not fsmedia://')
+    ok(await local.evaluate(decodes), 'the markdown\'s own picture decodes (the per-phone grant)')
+    await page.screenshot({ path: join(SHOTS, 'phone-md.png') })
+
+    // Code, read-only, wrapped by the phone's default.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-folder]:has-text("code")')
+    await page.waitForSelector('[data-phone-file]:has-text("main.py")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("main.py")')
+    await page.waitForSelector('[data-phone-viewer] .cm-content', { timeout: 15000 })
+    ok(
+      (await page.locator('.cm-content[contenteditable="false"]').count()) === 1,
+      'the editor is read-only'
+    )
+    // WAITED for, not read once: the editor mounts empty and the text arrives
+    // over the wire a moment later, so a same-tick read is a coin toss (it
+    // failed one full run and passed the two after it).
+    await page
+      .waitForFunction(
+        () => /class Greeter/.test(document.querySelector('.cm-content')?.textContent ?? ''),
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
+    ok(
+      /class Greeter/.test((await page.textContent('.cm-content')) ?? ''),
+      'the source is on screen'
+    )
+    ok((await page.locator('.cm-lineWrapping').count()) >= 1, 'code wraps by default on the phone')
+    ok(
+      (await page.evaluate(() => localStorage.getItem('prism.code.wrap'))) === 'on',
+      'the wrap default was written once into the preference'
+    )
+    const withCode = await loadedChunks()
+    ok(
+      withCode.some((n) => /CodeView/i.test(n)),
+      'the editor chunk was fetched for the code file and not before'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-code.png') })
+
+    // A pdf: pdf.js pages, its worker and side data over the static route.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[aria-label="Up"]')
+    await page.waitForSelector('[data-phone-file]:has-text("sample.pdf")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("sample.pdf")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="pdf"] canvas', { timeout: 20000 })
+    ok((await page.locator('[data-phone-viewer] canvas').count()) >= 1, 'a pdf page canvas renders')
+    await page.screenshot({ path: join(SHOTS, 'phone-pdf.png') })
+
+    // A comic: the page list around the picture viewer, turned by a tap.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-folder]:has-text("comics")')
+    await page.waitForSelector('[data-phone-file]:has-text("story.cbz")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("story.cbz")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="comic"] img[alt]', { timeout: 15000 })
+    // The page is read off the picture's alt, as the PC scenario reads it:
+    // the counter lives in the chrome, which nothing has woken yet.
+    const shownPage = () => page.getAttribute('[data-phone-viewer] img[alt]', 'alt')
+    ok((await shownPage()) === 'page1.png', `the comic opens on page one (${await shownPage()})`)
+    ok(await page.locator('[data-phone-viewer] img').first().evaluate(decodes), 'the first page decodes (the comic directory grant)')
+    // The chrome wakes on mount and settles a moment later, so this WAITS for
+    // it to go rather than counting on the same tick, which caught it still up
+    // on one cold run.
+    await page
+      .waitForFunction(() => !document.body.textContent?.includes('Page 1 of 3'), null, {
+        timeout: 8000
+      })
+      .catch(() => {})
+    ok(
+      (await page.locator('text=Page 1 of 3').count()) === 0,
+      'with nothing touched, the chrome is down'
+    )
+    const stage = await page.locator('[data-owns-arrows]').boundingBox()
+    const tapAt = async (x, y) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    }
+    const pageBecomes = async (alt) => {
+      let got = true
+      await page
+        .waitForFunction((a) => document.querySelector('[data-phone-viewer] img[alt]')?.getAttribute('alt') === a, alt, {
+          timeout: 5000
+        })
+        .catch(() => {
+          got = false
+        })
+      return got
+    }
+    await tapAt(stage.x + stage.width * 0.9, stage.y + stage.height / 2)
+    ok(await pageBecomes('page2.png'), 'a tap on the right third turns the page')
+    ok(
+      (await page.locator('text=Page 2 of 3').count()) === 1,
+      'and the tap wakes the chrome, so the counter says where you are'
+    )
+    await tapAt(stage.x + stage.width * 0.1, stage.y + stage.height / 2)
+    ok(await pageBecomes('page1.png'), 'a tap on the left third turns it back')
+    await tapAt(stage.x + stage.width * 0.5, stage.y + stage.height / 2)
+    await sleep(300)
+    ok((await shownPage()) === 'page1.png', 'a tap in the middle turns nothing')
+    await page.screenshot({ path: join(SHOTS, 'phone-comic.png') })
+
+    // An archive: listed, no write verbs, a member viewed through its grant.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[aria-label="Up"]')
+    await page.click('[data-phone-folder]:has-text("zips")')
+    await page.waitForSelector('[data-phone-file]:has-text("phone.zip")', { timeout: 10000 })
+    await page.click('[data-phone-file]:has-text("phone.zip")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="archive"] [data-arc-row]', {
+      timeout: 15000
+    })
+    ok((await page.locator('[data-arc-row]').count()) === 2, 'the archive lists its members')
+    const rowH = await page.locator('[data-arc-row]').first().evaluate((el) => el.getBoundingClientRect().height)
+    ok(rowH >= 44, `a row is a finger tall under a coarse pointer (${rowH}px)`)
+    const verbs = (await page.locator('[data-phone-viewer] button').allTextContents()).join(' | ')
+    ok(
+      !/Extract|Add files|Rename|Delete|Copy/.test(verbs),
+      `no write or clipboard verb is offered (${verbs || 'no buttons'})`
+    )
+    await page.locator('[data-arc-row]', { hasText: 'pic.png' }).first().dblclick()
+    await page.waitForSelector('[data-phone-viewer] img', { timeout: 15000 })
+    ok(
+      await page.locator('[data-phone-viewer] img').first().evaluate(decodes),
+      'a member viewed out of the zip decodes (the extract grant)'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-archive.png') })
+
+    // Search (2026-09-07). The whole root from wherever you are standing, so
+    // this runs from the zips folder deliberately: the route names no path
+    // and the phone's own root is what is walked. `ext:py` is the proof that
+    // the GRAMMAR IS THE DESKTOP'S - no substring over a name answers it, and
+    // the phone implements none of it: the field asks the PC, which answers
+    // with the very `searchFiles` the sidebar's box gets. `buried.py` is why
+    // it is worth having at all: three folders down, which a page that
+    // browses one level at a time never reaches by tapping.
+    await page.click('[aria-label="Back to the folder"]')
+    await page.click('[data-phone-search-open]')
+    await page.fill('[data-phone-search]', 'ext:py')
+    await page.waitForSelector('[data-phone-hit]', { timeout: 10000 })
+    await page
+      .waitForFunction(() => document.querySelectorAll('[data-phone-hit]').length === 2, null, {
+        timeout: 10000
+      })
+      .catch(() => {})
+    const pyHits = await page.locator('[data-phone-hit]').count()
+    ok(pyHits === 2, `ext:py answers the two python files and nothing else (${pyHits})`)
+    ok(
+      (await page.locator('[data-phone-hit]', { hasText: 'buried.py' }).count()) === 1 &&
+        (await page.locator('[data-phone-hit]', { hasText: 'main.py' }).count()) === 1,
+      'both, from two different folders'
+    )
+    ok((await page.locator('[data-phone-file]').count()) === 0, 'the results replace the folder')
+
+    /*
+     * AND THE ROWS STAY WHILE THE NEXT ANSWER IS IN FLIGHT (2026-09-08,
+     * owner: "search on mobile is very slow"). The walk itself answers in
+     * tens of milliseconds; what was slow was the 180ms debounce plus a
+     * Wi-Fi round trip with the list BLANK for all of it. So a keystroke
+     * narrows the answer already on screen, locally, with the desktop's own
+     * matcher, and the walk's reply replaces it whole.
+     *
+     * SAMPLED rather than asked once: a single count taken after typing is a
+     * race against the very round trip this is about, and the failure being
+     * checked for is a blank list that lasts a couple of hundred milliseconds
+     * and then fills again. A frame-by-frame minimum cannot miss it.
+     */
+    await page.evaluate(() => {
+      const w = window
+      w.__phone = { min: Infinity, minPending: Infinity, pendingSeen: false }
+      const tick = () => {
+        const n = document.querySelectorAll('[data-phone-hit]').length
+        w.__phone.min = Math.min(w.__phone.min, n)
+        if (document.querySelector('[data-phone-searching]')) {
+          w.__phone.pendingSeen = true
+          w.__phone.minPending = Math.min(w.__phone.minPending, n)
+        }
+        w.__phoneRaf = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    // Typed rather than filled, so it GROWS the query: only a query that
+    // contains the last one can be a narrowing of it, which is the test that
+    // makes the local filter sound rather than lucky.
+    await page.locator('[data-phone-search]').pressSequentially(' b')
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelectorAll('[data-phone-hit]').length === 1 &&
+          !document.querySelector('[data-phone-searching]'),
+        null,
+        { timeout: 10000 }
+      )
+      .catch(() => {})
+    const sampled = await page.evaluate(() => {
+      cancelAnimationFrame(window.__phoneRaf)
+      return window.__phone
+    })
+    ok(sampled.pendingSeen, 'the header says a search is running')
+    ok(
+      sampled.minPending >= 1,
+      `the rows stay on screen while it runs (fewest ${sampled.minPending})`
+    )
+    ok(sampled.min === 1, `and the list never went blank (fewest ${sampled.min} rows)`)
+    ok(
+      (await page.locator('[data-phone-hit]', { hasText: 'buried.py' }).count()) === 1 &&
+        (await page.locator('[data-phone-hit]').count()) === 1,
+      'the narrowing kept exactly the row the PC then agreed with'
+    )
+
+    await page.fill('[data-phone-search]', 'buried')
+    await page
+      .waitForFunction(() => document.querySelectorAll('[data-phone-hit]').length === 1, null, {
+        timeout: 10000
+      })
+      .catch(() => {})
+    const row = (await page.locator('[data-phone-hit]').first().textContent()) ?? ''
+    ok(/buried\.py/.test(row), `a word in the name finds it (${row.trim()})`)
+    ok(
+      /level-two/.test(row),
+      'and the row names the folder it is in, which is what tells two of a name apart'
+    )
+    await page.click('[data-phone-hit]:has-text("buried.py")')
+    await page.waitForSelector('[data-phone-viewer] .cm-content', { timeout: 15000 })
+    ok(
+      /VALUE = 42/.test((await page.textContent('.cm-content')) ?? ''),
+      'a hit opens exactly as a folder row does'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-search.png') })
+
+    // One X, two steps: it empties a field that holds something and closes an
+    // empty one, so clearing lands you back in the folder you were in rather
+    // than taking the field away mid-thought.
+    await page.click('[aria-label="Back to the folder"]')
+    ok((await page.locator('[data-phone-hit]').count()) === 1, 'closing the file keeps the hits')
+    await page.click('[data-phone-search-clear]')
+    await page.waitForSelector('[data-phone-file]', { timeout: 5000 })
+    ok(
+      (await page.locator('[data-phone-search]').count()) === 1,
+      'the first X empties the field and the folder is back under it'
+    )
+    await page.click('[data-phone-search-clear]')
+    await page.waitForSelector('[data-phone-search-open]', { timeout: 5000 })
+    ok((await page.locator('[data-phone-search]').count()) === 0, 'the second X closes it')
+  } finally {
+    await page?.close().catch(() => {})
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * The phone's TABS, its PLACE, and the two rows around them (2026-09-08,
+ * #107, all four from one hands-on session). Each is something only a live PC
+ * can answer, which is why they are here rather than in a unit test.
+ *
+ * THE TABS THE PC HAS OPEN ("i should be able to switch tabs without scanning
+ * a new qr code. i should be able to see the available tabs and switch"). The
+ * app is launched with a SECOND ROOT open, the way the tab scenario opens one,
+ * because a list of one proves nothing about a list and a switch needs
+ * somewhere to go. What is asserted after the pick is not the header's text
+ * but what the LISTING answers: the phone is on the other root and the first
+ * root's files are not there, which is the widened wall doing exactly the one
+ * thing it widened to do.
+ *
+ * A RELOAD COMES BACK WHERE YOU WERE ("if im in a subfolder and reload i
+ * should be there, or a movie i should be on the movie"). Both halves, since
+ * they are two different reads of the same URL: a folder two levels down, and
+ * then a file in it, which comes back from that folder's own listing.
+ *
+ * THE CRUMB ROW'S SEPARATORS GO BETWEEN THE NAMES: counted rather than
+ * eyeballed, at a depth where "one fewer than the levels" is more than one
+ * chevron. A trailing chevron beside the Up chevron reads as a back and a
+ * forward button, one of which does nothing.
+ *
+ * AND A FILE ROW SAYS HOW BIG IT IS, in the desktop's own units.
+ */
+async function phoneTabsScenario(fixtures) {
+  console.log('phone: the open tabs, a reload, the crumb row and a size')
+  const { app, win } = await launch(join(fixtures, 'one.png'))
+  let page = null
+  try {
+    // A SECOND ROOT, handed over from outside the way the tab scenario opens
+    // one: a genuine sibling folder, since a subfolder of an open root is no
+    // longer a second root at all.
+    await handoff(join(OTHER_ROOT, 'bad.json'))
+    const tabs = win.locator('[role="tablist"] [role="tab"]')
+    ok((await tabs.count()) === 2, 'the PC has two roots open')
+    // Back to the fixtures tab before pairing: the code is issued for the tab
+    // that is CURRENT, so this is what decides which root the phone starts on.
+    await tabs.first().click()
+    await sleep(400)
+    const { base, token, root, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'with the tab that was current')
+
+    page = await openPhoneWindow(app, `${base}/`)
+    page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+
+    // The list is READ FRESH every time it is opened, so it is opened rather
+    // than assumed: a tab closes on the PC without telling the phone.
+    await page.click('[data-phone-tab]')
+    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    const rows = page.locator('[data-phone-tab-row]')
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-phone-tab-row]').length === 2,
+      null,
+      { timeout: 10000 }
+    )
+    const rowText = await rows.allTextContents()
+    ok(rowText.length === 2, `the list names both open roots (${rowText.length})`)
+    ok(
+      rowText.some((t) => /fixtures/i.test(t)) && rowText.some((t) => /other/i.test(t)),
+      `and names them: ${rowText.map((t) => t.trim()).join(' | ')}`
+    )
+    const ticked = page.locator('[data-phone-tab-row][aria-current="true"]')
+    ok((await ticked.count()) === 1, 'with exactly one of them ticked')
+    ok(
+      /fixtures/i.test((await ticked.first().textContent()) ?? ''),
+      'and it is the root the phone paired to'
+    )
+    // Picked by index off the text, not by a selector carrying a Windows path:
+    // a backslash in a `:has-text()` is one more thing to escape wrongly.
+    const otherIdx = rowText.findIndex((t) => /other/i.test(t))
+    await rows.nth(otherIdx).click()
+    await page.waitForSelector('[data-phone-sheet]', { state: 'detached', timeout: 10000 })
+    await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
+    ok(true, 'picking the other tab lists the other root')
+    ok(
+      (await page.locator('[data-phone-file]:has-text("README.md")').count()) === 0,
+      'and the first root is not what the listing answers any more'
+    )
+    ok(
+      /other/i.test((await page.textContent('[data-phone-tab]')) ?? ''),
+      'the header names the tab it moved to'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-tabs.png') })
+
+    // And back, without a code anywhere in it.
+    await page.click('[data-phone-tab]')
+    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    const back = await page.locator('[data-phone-tab-row]').allTextContents()
+    await page
+      .locator('[data-phone-tab-row]')
+      .nth(back.findIndex((t) => /fixtures/i.test(t)))
+      .click()
+    await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
+    ok(true, 'and back again, with no code scanned either way')
+
+    // Two levels down, which is the depth that makes the chevron count worth
+    // taking: at one level "one fewer" and "none at all" are the same number.
+    await page
+      .locator('[data-phone-folder]')
+      .filter({ hasText: /^\s*docs\s*$/ })
+      .click()
+    await page.waitForSelector('[data-phone-folder]', { timeout: 10000 })
+    await page
+      .locator('[data-phone-folder]')
+      .filter({ hasText: /^\s*media\s*$/ })
+      .click()
+    await page.waitForSelector('[data-phone-file]:has-text("prism.webp")', { timeout: 10000 })
+    const trail = () =>
+      page.evaluate(() => {
+        const nav = document.querySelector('nav[aria-label="Folder"]')
+        const chevrons = [...(nav?.querySelectorAll('span[aria-hidden="true"]') ?? [])].filter(
+          (s) => (s.textContent ?? '').trim() === '›'
+        )
+        return {
+          levels: nav?.querySelectorAll('[data-phone-crumb]').length ?? 0,
+          chevrons: chevrons.length
+        }
+      })
+    const crumbs = await trail()
+    ok(crumbs.levels === 3, `the crumb row has a level per folder (${crumbs.levels})`)
+    ok(
+      crumbs.chevrons === crumbs.levels - 1,
+      `and one fewer chevron than levels (${crumbs.chevrons} for ${crumbs.levels})`
+    )
+
+    // HOW BIG IT IS, in the desktop's own units: a size that reads differently
+    // on the phone is a second formatter nobody asked for.
+    const size = (
+      (await page.textContent('[data-phone-file]:has-text("prism.webp") [data-phone-size]')) ?? ''
+    ).trim()
+    ok(/^\d+(\.\d+)? (B|KB|MB|GB|TB)$/.test(size), `a file row says how big it is (${size})`)
+
+    // THE RELOAD, first half: the folder. The URL is checked as well as the
+    // screen, because a page that came back to the right folder by remembering
+    // it somewhere else would pass the screen half and lose the file half.
+    ok(
+      /[\\/]docs[\\/]media$/i.test(new URL(page.url()).searchParams.get('at') ?? ''),
+      'the folder is in the URL'
+    )
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]:has-text("prism.webp")', { timeout: 15000 })
+    const afterReload = await trail()
+    ok(
+      afterReload.levels === 3,
+      `a reload comes back to the folder it was in (${afterReload.levels} levels)`
+    )
+
+    // Second half: the file. It is restored from the folder's OWN LISTING, so
+    // what is waited for is the viewer, not a route of its own.
+    await page.click('[data-phone-file]:has-text("prism.webp")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 15000 })
+    const url = new URL(page.url())
+    ok(/prism\.webp$/i.test(url.searchParams.get('open') ?? ''), 'the open file is in the URL')
+    ok(url.searchParams.get('at') === null, 'and the folder is not, since one place is never two')
+    await page.reload()
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 15000 })
+    ok(true, 'a reload with a file open comes back on that file')
+    await page
+      .waitForFunction(
+        () => (document.querySelector('[data-phone-viewer] img')?.naturalWidth ?? 0) > 0,
+        null,
+        { timeout: 15000 }
+      )
+      .catch(() => {})
+    ok(
+      (await page.locator('[data-phone-viewer] img').first().evaluate((el) => el.naturalWidth)) > 0,
+      'and the picture is on screen, not a folder with a viewer over it'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-place.png') })
+  } finally {
+    await page?.close().catch(() => {})
+    // Off again, or the profile's phone.json carries the switch into every
+    // scenario after this one.
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism anything whenever someone picks it out of "More apps",
@@ -4897,6 +5911,10 @@ await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
 await run(dragScenario)
+await run(phoneScenario)
+await run(phoneHlsScenario)
+await run(phoneDocsScenario)
+await run(phoneTabsScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)

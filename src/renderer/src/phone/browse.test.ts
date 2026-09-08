@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest'
+import { crumbs, fileFromHit, insideRoot, parentOf, samePath, stepFile } from './browse'
+
+const f = (name: string) => ({
+  path: `C:\\r\\${name}`,
+  name,
+  ext: '.mp4',
+  kind: 'video' as const,
+  size: 0,
+  mtimeMs: 0
+})
+
+describe('browse', () => {
+  it('walks up to the root and no further', () => {
+    expect(parentOf('C:\\r', 'C:\\r\\a\\b')).toBe('C:\\r\\a')
+    expect(parentOf('C:\\r', 'C:\\r\\a')).toBe('C:\\r')
+    expect(parentOf('C:\\r', 'C:\\r')).toBeNull()
+    expect(parentOf('C:\\r\\', 'C:\\r\\a')).toBe('C:\\r\\')
+  })
+  it('never climbs above the root, whatever the case of the path', () => {
+    expect(parentOf('c:\\R', 'C:\\r\\a')).toBe('c:\\R')
+    expect(parentOf('C:\\r', 'C:\\r\\')).toBeNull()
+  })
+  it('crumbs from the root folder name down', () => {
+    expect(crumbs('C:\\films\\r', 'C:\\films\\r\\a\\b')).toEqual([
+      { name: 'r', path: 'C:\\films\\r' },
+      { name: 'a', path: 'C:\\films\\r\\a' },
+      { name: 'b', path: 'C:\\films\\r\\a\\b' }
+    ])
+    expect(crumbs('C:\\films\\r', 'C:\\films\\r')).toEqual([{ name: 'r', path: 'C:\\films\\r' }])
+  })
+  it('names a drive root by its letter', () => {
+    expect(crumbs('D:\\', 'D:\\')).toEqual([{ name: 'D:', path: 'D:' }])
+  })
+  it('holds a path inside the root, and a near miss outside it', () => {
+    expect(insideRoot('C:\\r', 'C:\\r')).toBe(true)
+    expect(insideRoot('C:\\r\\', 'c:\\R\\a\\b.mkv')).toBe(true)
+    expect(insideRoot('C:\\r', 'C:\\roots\\a')).toBe(false)
+    expect(insideRoot('C:\\r', 'D:\\r\\a')).toBe(false)
+    expect(insideRoot('', 'C:\\r')).toBe(false)
+    expect(insideRoot('C:\\r', '')).toBe(false)
+  })
+  it('calls two spellings of one folder the same folder', () => {
+    expect(samePath('C:\\r', 'c:\\R\\')).toBe(true)
+    expect(samePath('C:\\r', 'C:\\r\\a')).toBe(false)
+  })
+  it('steps through the files and stops at the ends', () => {
+    const files = [f('a'), f('b'), f('c')]
+    expect(stepFile(files, 'C:\\r\\b', 1)?.name).toBe('c')
+    expect(stepFile(files, 'C:\\r\\b', -1)?.name).toBe('a')
+    expect(stepFile(files, 'C:\\r\\c', 1)).toBeNull()
+    expect(stepFile(files, 'C:\\r\\a', -1)).toBeNull()
+    expect(stepFile(files, 'C:\\r\\zz', 1)).toBeNull()
+  })
+  it('turns a search hit into the file a row hands the viewer', () => {
+    expect(fileFromHit({ path: 'C:\\r\\a\\Holiday.MP4', name: 'Holiday.MP4', kind: 'video', dir: 'a' })).toEqual({
+      path: 'C:\\r\\a\\Holiday.MP4',
+      name: 'Holiday.MP4',
+      ext: '.mp4',
+      kind: 'video',
+      size: 0,
+      mtimeMs: 0
+    })
+    expect(fileFromHit({ path: 'C:\\r\\Dockerfile', name: 'Dockerfile', kind: 'text', dir: '' }).ext).toBe('')
+  })
+})

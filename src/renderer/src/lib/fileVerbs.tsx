@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { MenuItem } from '../components/ContextMenu'
+import { canCopyText, clipboardText } from './clipboardText'
 
 /**
  * The file verbs every surface shares.
@@ -55,11 +56,23 @@ export const tickIf = (on: boolean): JSX.Element =>
  * on it for whatever you are pasting into. Copying a file as a file is what
  * the sidebar is for, where it stands among the other file operations and
  * nothing is competing with it.
+ *
+ * On a host with no Explorer (the phone page, #106) only Copy path is
+ * offered: the path is the browser's own clipboard, which every host has,
+ * and a row that does nothing when tapped is worse than no row.
  */
 export function fileVerbs(path: string): MenuItem[] {
+  // `navigator.clipboard` is a SECURE-CONTEXT api and the phone page is
+  // plain http by design, so on a phone it is simply not there: the row
+  // threw rather than copying. The old execCommand path still works in that
+  // context, and a host with neither does not offer the row at all.
+  const copyPath: MenuItem | null = canCopyText()
+    ? { label: 'Copy path', onPick: () => void clipboardText(path) }
+    : null
+  if (!window.prism.capabilities.explorer) return copyPath ? [copyPath] : []
   return [
     { label: 'Show in File Explorer', onPick: () => window.prism.showInExplorer(path) },
-    { label: 'Copy path', onPick: () => void navigator.clipboard.writeText(path) }
+    ...(copyPath ? [copyPath] : [])
   ]
 }
 

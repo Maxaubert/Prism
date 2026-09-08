@@ -109,6 +109,13 @@ const byName = (a: { name: string }, b: { name: string }): number =>
  * each competing for the same threadpool the media handler reads through.
  * Each call takes a ticket; a walk whose ticket is stale stops where it is.
  * The same reasoning that cancels a conversion nobody is waiting for.
+ *
+ * AND IT SAYS SO (2026-09-08, the phone). Stopping where it is means answering
+ * with no hits, which is indistinguishable from "nothing matches" to whoever
+ * asked - so a client that draws the answer empties a list that was right.
+ * `superseded` is how the answer tells them apart; the desktop's panel keys
+ * its rows by the query and never needed it, a second client asking over the
+ * wire does.
  */
 let searchGeneration = 0
 
@@ -138,13 +145,13 @@ export async function searchFiles(
   // machine without it, a service that is down, and an index that has not
   // yet seen a file made a second ago, which is why an EMPTY answer walks.
   const indexed = await searchEverything(root, terms, maxHits)
-  if (mine !== searchGeneration) return { hits: [], truncated: false }
+  if (mine !== searchGeneration) return { hits: [], truncated: false, superseded: true }
   if (indexed && indexed.hits.length) return indexed
   let scanned = 0
   const queue: string[] = [root]
   while (queue.length) {
     // A newer keystroke has started its own walk: this one has no reader.
-    if (mine !== searchGeneration) return { hits: [], truncated: false }
+    if (mine !== searchGeneration) return { hits: [], truncated: false, superseded: true }
     // A whole LEVEL at a time, bounded: breadth-first is the point (shallow
     // matches first), and reading the level's directories concurrently is
     // what makes it worth being async at all.

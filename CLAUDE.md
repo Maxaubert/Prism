@@ -606,6 +606,329 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   a bright white (numbers, members) at 1.0:1. Only a colour that fails moves, and only to
   the floor, so a scheme that reads keeps its exact colours; `termTheme.legible.test.ts`
   asserts it for every preset.
+- **Prism on your phone** (2026-09-06, #104). A plain Node `http` server in
+  `src/main/phone/` serves a phone-sized page on the LAN, and the phone browses a folder
+  the PC has open and plays what it can play natively. WHICH folder is the phone's own to
+  choose since 2026-09-08 (the tab-switching decision below, which reversed the design's
+  first one): the code it scanned decides only where it STARTS. PLAIN HTTP, deliberately: a
+  self-signed certificate is a warning page on every phone and a trust prompt nobody can act
+  on, and the bytes never leave the user's own network. The DIALOG says so, and says BEFORE the switch
+  goes on that Windows will ask about the firewall, because a per-user installer cannot add
+  the rule and a declined prompt is a phone that cannot connect with no error anywhere.
+  Pairing is a six-character SINGLE-USE code (no 0/O/1/I, since it is typed as well as
+  scanned), two minutes long, never persisted; the phone trades it for a token it keeps, and
+  the token remembers the ROOT it is on, which is the tab the code was shown from until the
+  phone moves itself. A paired phone scanning another tab's code MOVES to that root and keeps
+  its token, so the list never grows a second row for one phone; `POST /api/tab` is the same
+  move by another door, and the door that is actually used. The wall is written ONCE at the
+  top of `handle`: every route but the page and `/pair` needs a paired phone, and every path is
+  checked against THAT phone's own root with `validRoot` before anything reads it; media
+  bytes then go through `serveMedia` itself, so `/m/` inherits `fsmedia://`'s rules on top.
+  EVERY ASK, not just the first (2026-09-07): a wall can move under a stream. Closing the
+  tab, or the phone scanning another tab's code, used to leave an HLS job serving the old
+  folder for as long as the phone kept asking, because `/hls/` was keyed by the job's id
+  and checked only that the token owned it. The job's own file is re-checked against the
+  phone's root on every ask now, and a phone that MOVES loses the old root's grants and its
+  running job in the same breath.
+  The token rides as a Bearer header for fetches and as `?t=` for `<video src>`, which can
+  carry no header. Nothing on the phone path is synchronous on main's thread: the page
+  streams, the listing is the bounded async `listDir` the sidebar uses, pairing is a Map.
+  One honest exception, and it is the PC's too: an archive listed or extracted for the phone
+  goes through main's own reader, and for a zip under the cap that is adm-zip, which is
+  synchronous by construction (a big zip takes the 7-Zip path, which is not). The phone
+  changed nothing there; it is the same call the panel makes.
+  Under `--e2e` it binds `127.0.0.1` ONLY, so a throwaway build never raises the firewall
+  prompt; the e2e's "phone" is a second sandboxed window of the app's own Chromium, since
+  the harness ships no browser binary. The phone page is a SECOND VITE ENTRY
+  (`src/renderer/phone.html`, `src/renderer/src/phone/`) mounting the SAME `ImageView`,
+  `VideoView` and `AudioView` behind `prismShim.ts`, a Proxy standing in for `window.prism`:
+  the handful of calls the viewers make are answered over the wire, and anything else WARNS
+  rather than throws, because a viewer's optional call (position memory, settings) must
+  not take the picture down with it. The Tools button in the TITLE BAR is the home of the
+  dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
+  bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
+  every `phone:changed`, never what was clicked. Documents (#106) followed as their own
+  decision, below.
+- **The phone plays what it cannot play** (2026-09-06, #105): an MKV, HEVC on an Android,
+  Dolby audio anywhere, through a live transcode to HLS that SEEKS LIKE A FILE. THE PLAYLIST
+  IS PRISM'S AND THE SEGMENTS ARE FFMPEG'S (`src/main/phone/hls.ts`, pure and tested):
+  `/api/play` writes every four-second segment of the whole film up front, VOD, so the
+  scrubber knows the duration from the first byte and can ask for segment 400 before
+  segment 2 exists; one ffmpeg per phone-and-file (`jobs.ts`) makes the files, from
+  whatever segment it was started at, and a request past its head by more than three
+  segments kills it and restarts it there (`nextAction`). That works only because of
+  `-copyts`: a segment's own timestamps say where in the film it is, or a run restarted at
+  minute 30 would hand over a segment claiming to be minute 0. Keyframes are FORCED on the
+  boundary with the start time in the expression, and NVENC NEEDS `-forced-idr 1` TO OBEY:
+  measured through the real route, `-force_key_frames` alone still gave 10.5s segments
+  (the forced frames come out as plain I-frames, which the HLS muxer does not cut on), so
+  every segment after the first sat 6.5s later than the playlist said and nothing errored.
+  Paths go to ffmpeg with FORWARD slashes, or its HLS muxer writes `init.mp4` into the
+  current directory. The token rides on EVERY URI in the playlist (`0.m4s?t=`): a player
+  resolves them against the playlist's url and drops its query, so a token on the playlist
+  alone reached no segment at all (401 on init.mp4, found by the e2e). The decision is PER
+  DEVICE, never from a user agent (`decide.ts`, pure): the phone reports what its own
+  `canPlayType` answers as tokens (`canPlay.ts`, `can=h264,aac,mp4,mse`), a container the
+  phone cannot demux is HLS whatever the codecs, a codec the phone plays is COPIED into the
+  segments and one it does not is encoded - so an iPhone gets its HEVC and Dolby copied
+  while an Android gets both re-encoded. Encodes are capped at 1080p, audio is always AAC
+  stereo 192k. HDR is tone-mapped through libplacebo on Vulkan (the plan's bench: 7.5x
+  realtime with the colours right; `tonemap_opencl` 0.7x, unusable; without a tone-map the
+  picture is flat grey), and the encoder flips to libopenh264 after ONE GPU refusal and
+  stays there for the session. MEASURED THROUGH THE ROUTE (2026-09-06, RTX 5090, the built
+  app under `--e2e`, `can` forcing an encode): the 4K SDR HEVC Zoolander answers `/api/play`
+  in 48ms (cold probe), its first segment in 560ms, holds 17.6-18.4x realtime on disk and
+  lands a ten-minute seek in 1.2s; the 4K HDR10 Hellboy II remux answers in 74ms, first
+  segment 1.5s, 8-10.4x with the tone-map, a ten-minute seek in 2.2s. On the PHONE the
+  playlist goes through hls.js wherever MSE can take it and is the element's own `src` only
+  where there is none (an iPhone), MSE-FIRST ON PURPOSE (`hlsPlayer`, pure): Chromium answers
+  "maybe" to the HLS mime (its built-in player, measured on Chrome 150) and that player asks
+  for segments without the token, so trusting the claim sent an Android to a player that
+  could not work. hls.js is loaded on demand so an iPhone never downloads it, and it owns
+  `src` through the players' one new prop, `attach`. A job nobody asks about for 30s has its
+  ffmpeg KILLED and nothing else: a paused player fetches nothing, and the first cut reaped
+  the whole job at 30s, so a phone paused longer than that resumed into a 404 and a fatal
+  hls.js error nobody handled (the element's own error event never fires when hls.js owns
+  the source, so the page simply went quiet). The record and its segments stay for ten
+  minutes and the next ask restarts ffmpeg where it stands; a fatal hls.js error now retries
+  the network, recovers the media once, and past that raises the element's own error so the
+  player draws the overlay it already has. `userData/phone/hls` is wiped at startup. An HLS
+  film is handed its playlist as the url from the start, never the direct bytes first (one
+  aborted request per film, measured in the console). Everything on
+  the path is walled: a job is opened only on a path that passed the phone's own root, its id
+  is what `/hls/` is keyed by, another phone's token gets 404 rather than 403, and only
+  `index.m3u8`, `init.mp4` and `<n>.m4s` are served from a job directory.
+  `PRISM_PHONE_DEBUG=1` logs ffmpeg's own progress line and exit per job. Three things a
+  live transcode taught us on the way (2026-09-07): a job's ffmpeg is decided on `close`,
+  never `exit`, because everything decided there is read from stderr and `exit` can arrive
+  before it has drained, so a fast NVENC refusal read as an empty reason and never fell
+  back to software; a failure is forgotten the moment `/api/play` asks again, or one bad
+  run was a ten-minute 404 for that film however often the phone reloaded; and only the
+  NEWEST ask may move the run, because a prefetch and a seek arriving together each
+  restarted ffmpeg at their own segment and killed the other's, so neither was ever served.
+  An ask the player has moved past gives up at once with a 404 it retries, rather than
+  holding a connection for thirty seconds.
+- **Documents on the phone** (2026-09-07, #106): PDFs, markdown, code and text, office and
+  ebook documents, comics and archive listings, through the SAME viewers the PC mounts
+  (`PhoneViewer`, lazy-loaded exactly as App loads them, so a phone that only plays films
+  never downloads pdf.js or CodeMirror; measured in the e2e from the page's own resource
+  timing). Five read-only routes (`/api/text`, `/api/doc`, `/api/comic`, `/api/archive`,
+  `/api/archive/extract`) call the converters main already has, and the WALL'S ONE
+  SOFTENING ON THE PHONE is a grant set (`grants.ts`) that is per PHONE and per ANSWER: a
+  markdown's own pictures, a comic's unpacked page directory, one extracted member, each
+  allowed to the token that asked and to nobody else, consulted by the media route beside
+  `validRoot`. NOTHING WRITES: the shim has no `writeText`, no rename, no delete and no
+  archive verb, and the server has no route for any of them. `window.prism.capabilities`
+  (`write`, `clipboard`, `explorer`, `drag`; all true in preload, all false in the shim) is
+  how ONE viewer serves TWO hosts - `fileVerbs` answers only Copy path without `explorer`,
+  the picture, the video, the archive panel and the editor each hide what they cannot
+  honour, and `CodeView` is `readOnly` STRUCTURALLY (no `saved.current`, so `save()` has
+  nothing to write). `resolveMdUrl` takes the url builder as an argument instead of
+  hard-coding `fsmedia://`, which is what lets a README's picture arrive over `/m/`.
+  THE TOUCH PASS, the parts a real device is not needed for, MEASURED in the app's own
+  Chromium under CDP touch emulation: a tap on a comic's outer thirds turns the page (touch
+  pointers only, so a click on the desktop does what it always did), a TAP WAKES THE CHROME
+  (`autoHideChrome` heard only `pointermove`, and a finger that touches and lifts fires none,
+  so a phone could never bring the page counter or the transport back), the archive's rows
+  are 44px under `(pointer: coarse)`, and code WRAPS by default - written ONCE into
+  `prism.code.wrap` if the phone has not chosen (`phoneWrapDefault`, pure), never forced
+  over a choice. Two things found on the way: pdf.js's worker is an `.mjs` and the server's
+  MIME table did not know it, so a module worker got `application/octet-stream` and refused
+  it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
+  phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
+  wait for a real device; hex and the terminal are not offered.
+- **THE REMOTE WAS BUILT AND REMOVED** (owner, 2026-09-08, after using it on an iPad;
+  #107). For a day the phone could drive the PC: a state stream (`GET /remote/state`,
+  Server-Sent Events), a validated command drop (`POST /remote/cmd`), a registry naming
+  whichever PC player owned the keyboard (`lib/remoteTarget`), and a "Play on: This phone /
+  This PC" control in the phone's player that handed the film on screen over with
+  `{op: 'open', path}`. It went ENTIRELY, root and branch: the routes, the IPC channels
+  (`phone:state`, `phone:cmd`, `phone:listeners`), `shared/remote.ts`, the phone's panel and
+  client, and the `phoneRemote` e2e. Written down so nobody rebuilds it by reading the older
+  decision: the phone PLAYS WHAT IT OPENS and never drives the PC. Two things the shape
+  wanted that a phone in the hand does not - a mode to be in before you pick a file, and a
+  second clock that lockstep was never promised for - and the thing it cost was the one that
+  matters, which is that the simplest possible answer to "where does this play" is "here".
+  What survives is the one-screen explorer, the player, the search, the fullscreen routes and
+  every fix that landed beside them.
+- **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (owner, 2026-09-08, from the
+  same session: "i should be able to switch tabs without scanning a new qr code. i should be
+  able to see the available tabs and switch"; #107). This REVERSES the design's own first
+  decision - that a phone sees ONE tab's folder, the tab the QR was shown from, and reaches
+  another only by scanning its code - and it WIDENS THE WALL, which is written down here
+  rather than left to be discovered, because a widening nobody wrote down is one nobody can
+  weigh: a paired phone may now reach ANY root the PC currently has OPEN. What did NOT
+  change is the shape of that wall. The phone is on ONE root at a time, every path it names
+  is still checked against that one with `validRoot`, and the set it may move within is the
+  folders the user has open on their own screen (`roots.openRoots()`), read ON THE ASK since
+  a tab closes without telling anybody. Nothing the phone sends widens anything: `POST
+  /api/tab` is walled by that set and stores the PC's OWN SPELLING of the root, so the wall
+  compares what it wrote, and a folder the PC does not hold is refused WITH A REASON,
+  because the failure being removed is a phone pointing at a folder that is gone. The MOVE
+  itself is the path a re-scan already took, factored out of `/pair` rather than written a
+  second time (`move()`): the old root's grants and its running HLS job go with it, both
+  belonging to a folder the phone has left. On the phone the TAB'S NAME is a row of its own
+  above the crumbs, because the two say different things - which folder the PC has open, and
+  where in that folder you are - and the list under it is READ FRESH every time it is
+  opened, with a refused pick re-reading rather than only complaining, since "that folder is
+  not open in Prism any more" is a list that has moved on. A tab that CLOSES is therefore no
+  longer a dead end: that screen offers the list, and the scan-again screen is now what a
+  phone whose token the PC has FORGOTTEN sees, and nothing else. Proved in the `phoneTabs`
+  e2e, the one phone scenario launched with TWO roots open: what it asserts after a pick is
+  not the header's text but what the LISTING answers, since a header that moved over an
+  unchanged listing would be a lie nobody would catch.
+- **SIZED FOR A THUMB** (owner, 2026-09-08, after the same iPad session: the video controls
+  and the rows in the file explorer are too small; #107). 44px is the PLATFORM FLOOR rather
+  than a taste - Apple asks for 44pt and Google for 48dp - and a ROW is taller again (56px),
+  because a list is scrolled past as well as tapped and a list of 44px rows under a moving
+  thumb is a list you mis-hit. The hard part is the PLAYERS, which are the desktop's own:
+  the sizing lives in `phone.css` under the marker on the phone's viewer stage
+  (`[data-phone-stage]`) rather than in VideoView, AudioView and Transport, because a rule
+  in a stylesheet the app window never loads cannot reach the app window by accident, where
+  a `touch` prop threaded through three components is a second set of sizes to keep in step
+  for ever and one default away from changing the desktop. NOT ONE SIZE IN THOSE FILES
+  MOVED; they gained NAMES only (`data-transport-row`, `data-time`, `data-scrub`,
+  `data-scrub-track`, `data-scrub-thumb`, `data-vol-readout`, `data-vol-pct`), because a
+  stylesheet has to name what it scales and naming it by Tailwind class breaks the next time
+  a class is edited for a reason that has nothing to do with the phone. That deal is what
+  `touch.test.ts` checks, the way the installer's extensions are checked against
+  `fileKind.ts`: every marker the stylesheet reaches for must still be rendered by the
+  component that owns it, since a stale selector quietly returns the phone to desktop-sized
+  controls with nothing red anywhere. The scrub THUMB is always drawn here, having appeared
+  on hover, which is a state a touch screen never enters, so the one mark saying where the
+  film had got to was invisible on the device that most needs it. Measured in the `phone`
+  e2e under touch emulation rather than read off the stylesheet, since the numbers meet
+  across three files: an explorer row at 56px and a transport button at 44px.
+- **A TAP IS HOW A PHONE ASKS TO SEE THE CONTROLS** (owner, same session, #107). A MOUSE has
+  a pointer on screen: you can see the transport has gone, you click to pause, and that is
+  what the desktop has done since the beginning and still does. A FINGER has none, so with
+  the chrome down on its 2.6s clock the first tap was always a pause nobody asked for - the
+  tap every phone player on earth spends on bringing the controls back. So a tap with the
+  chrome HIDDEN reveals it and the next one plays or pauses. The rule is the POINTER TYPE
+  and not the page (`lib/tapChrome`, pure and tested), so a touchscreen laptop gets the
+  phone's behaviour from its finger and the desktop's from its mouse, which is what each of
+  them means; a pen counts as a finger, the reading the comic's page turn already makes, and
+  an UNKNOWN pointer reads as a mouse, so a click carrying no pointerdown at all (Enter on a
+  focused element, a synthetic click) does what it always did. Read at POINTERDOWN rather
+  than at click, because between the finger landing and the click there is room for
+  something else to wake the chrome and a click-time reading would then call a tap aimed at
+  a bare picture a tap on the controls. Nothing swallows the click, so a double tap still
+  goes fullscreen. The e2e taps a PLAYING film whose controls have hidden themselves and
+  asserts the film is still playing, which is the assertion that fails the moment the rule
+  goes: with `tapVerb` returning `toggle` the same tap pauses.
+- **The phone searches, and the PC does the searching** (2026-09-07, #107). A page that
+  browses one level at a time cannot reach a file three folders down, so a magnifier over
+  the crumb row opens a field, and while it holds a query the RESULTS ARE THE LIST. The
+  GRAMMAR IS THE DESKTOP'S AND SO IS THE READER: `GET /api/search?q=` answers the same
+  `SearchResult` the sidebar's box gets, out of the same `searchFiles`, so every word in any
+  order, "a phrase", `*.mp4`, `ext:py` and `-exclusions` are taught in ONE place
+  (`shared/searchQuery`) and the phone implements not a line of it. It asks. The route NAMES
+  NO PATH, which is what makes its wall the root's own - `validRoot(root, root)`, the check
+  the `search:files` IPC handler makes and also the check that a tab still holds the folder -
+  since the phone's own root is what is walked and there is nothing in a query that could
+  name another; the shim's member is `searchTree` and it DROPS the root argument for the same
+  reason, a root a page could name being a root it could ask to have searched. A hit is the
+  name over the folder it is in, which is the only thing telling two files of one name apart;
+  a folder walks there, a file opens. The debounce is the sidebar's own 180ms, so a phone
+  typing at the same speed costs the PC the same walks. Next and previous page THE LIST THE
+  FILE WAS OPENED FROM (`fileFromHit`, pure and tested): a hit lives anywhere under the root,
+  so paging the folder's own files would step to something you were not looking at, and from
+  another folder to nothing at all. One X, two steps, as every phone's search field behaves:
+  it empties a field that holds something and closes an empty one, so clearing lands you back
+  in the folder you were in. Proved end to end in `phoneDocs`, which is where the fixture tree
+  has depth: `ext:py` answers the two python files in two different folders (no substring over
+  a name can), and `buried.py`, three folders down, opens from its row.
+  AND IT ANSWERS ON THE KEYSTROKE (owner, 2026-09-08: "search on mobile is very slow").
+  MEASURED through the real route against a Downloads root the walk takes 73ms to 357ms, so
+  the server was never the slow part: what was slow was the WAIT MADE VISIBLE, 180ms of
+  debounce plus a Wi-Fi round trip with the list BLANK for all of it, every keystroke
+  emptying the screen and filling it again. So the rows NARROW LOCALLY while the ask is out
+  (`phone/narrow.ts`, pure and tested), with the desktop's own matcher rather than a second
+  reading of the grammar, since a phone guessing at what `ext:` or a glob means would show
+  rows the PC is about to disagree with. It is a preview and never an answer: only a query
+  that CONTAINS the last one can narrow it, a narrowing that empties the list is treated as
+  the guess it is (`*.mp` to `*.mp4` matches a different set entirely) and the last answer
+  stays up, and the walk's reply replaces the lot. What says a search is running is an
+  indeterminate line on the header's own bottom edge, which cannot move the rows underneath
+  it. The debounce is still 180ms, so the PC pays for exactly the walks it paid for before.
+  A SUPERSEDED WALK SAYS SO NOW (`SearchResult.superseded`): `dirList` stops a cancelled walk
+  where it stands and answered with no hits, which is the same shape as "nothing matches", so
+  the PC's own sidebar bumping the ticket while a phone was asking drew an empty list over
+  rows that were right; the phone asks again and past a few tries leaves the rows it has.
+  The e2e samples the hit count frame by frame across a keystroke rather than counting once,
+  because the failure is a list that goes blank for a couple of hundred milliseconds and then
+  fills again, which a single count taken afterwards is a race against.
+- **Fullscreen is the host's, whichever one it has** (2026-09-07, #107, owner: "i cant go
+  fullscreen in the player on mobile"). The phone page asked for `requestFullscreen` on the
+  document element and nothing else, and WEBKIT ON AN IPHONE HAS NO ELEMENT AND NO DOCUMENT
+  FULLSCREEN API AT ALL - not prefixed, not disabled, absent - so the button was dead on the
+  device most likely to press it. `lib/fullscreen` (pure, tested) knows THREE ROUTES and
+  takes the one this host has: the standard API on an element, the older prefixed
+  `webkitRequestFullscreen` (an iPad, and WebKit builds that never took the unprefixed name),
+  and the iOS-only `webkitEnterFullscreen` on the MEDIA element, whose state is
+  `webkitDisplayingFullscreen` because there is no fullscreen element to read. THE PAGE'S OWN
+  FULLSCREEN WINS wherever it exists, and that is a decision rather than an ordering accident:
+  the OS player draws its own transport over everything, so on a host that can fullscreen the
+  PAGE it would hide Prism's transport and the way back to the folder.
+  Which is why the request still goes to the document element and a standard host behaves
+  exactly as it did; the stage is held by a ref only so the element a viewer mounted can be
+  FOUND for the iOS route, and it is looked for after every commit rather than once, since a
+  film's `<video>` does not exist until `/api/play` has answered. BOTH SIGNALS ARE HEARD, the
+  document's `fullscreenchange` and the video's own `webkitbegin`/`webkitendfullscreen`: on
+  the iOS route the document never says anything at all, and a header that stayed hidden
+  after the OS player's Done is a page with no way back. Everything there takes its elements
+  as ARGUMENTS and reaches for no global (the document comes from `container.ownerDocument`),
+  which is what lets all three branches be tested under node against hosts written to have
+  one each, rather than eyeballed on one device. The e2e can prove only the STANDARD route,
+  since the app's own Chromium has it: the `phone` scenario asserts the control is on a film
+  and that the page goes fullscreen with its header. That press is also why the e2e's phone
+  window is `fullscreenable: false` - granted its fullscreen, a parked window moves to 0,0 at
+  the size of the screen, invisible at opacity 0 and still a sheet over whatever the owner is
+  doing, which is the thing parking exists to prevent. Blink enters fullscreen either way.
+- **A RELOAD COMES BACK WHERE YOU WERE** (owner, 2026-09-08, #107: "when i refresh a page it
+  should reload me on that file, so if im in a subfolder and reload i should be there, or a
+  movie i should be on the movie"). A phone reloads for reasons nobody chose - a background
+  tab dropped, the Wi-Fi gone, the screen locked long enough - and every one of those landed
+  back at the paired root with nothing open, which on a film four folders down is the whole
+  walk again. The place is IN THE URL now (`phone/place.ts`, pure and tested), written with
+  `history.replaceState` as it changes. ONE PLACE, NEVER TWO: either the folder being
+  browsed (`?at=`) or the file being viewed (`?open=`), and the folder of an open file is
+  the one HOLDING it, so writing both would leave a folder in the URL that reading it back
+  can never use. REPLACE rather than push, deliberately: an entry per tap turns a folder
+  walk into a stack the phone's own back button pops one step at a time, and a mis-tap then
+  costs several presses to leave, where what was asked for is a reload that lands where you
+  were. A PLACE BELONGS TO A ROOT, and the root moves now that the phone switches tabs, so
+  it is checked against the root the phone is on NOW and dropped to that root when it is
+  outside - the same fallback that covers a file since deleted and a folder since renamed,
+  neither of them a screen worth meeting after a reload. The file is resolved from the
+  FOLDER'S OWN LISTING rather than from a route of its own: the listing already carries the
+  name, kind and size a viewer reads, and a file that has gone is simply not in it, which is
+  the fallback with no second way to fail. It is done while RENDERING, the shape the
+  search's `askFor` uses, since by the time an effect ran the folder would have had a frame
+  of its own on screen first. The pairing code is still spent on arrival and never written
+  back. `phoneTabs` reloads twice, once in a folder two levels down and once with a file open
+  in it, and reads the URL as well as the screen: a page that remembered its folder somewhere
+  else would pass the folder half and lose the file half.
+- **THE CRUMB ROW'S LAST CHEVRON IS A BUTTON THAT DOES NOTHING** (owner, same day). The
+  phone's crumbs copied the archive panel's trailing chevron, which is a deliberate decision
+  there (2026-08-31) and wrong here: the phone's row sits immediately right of the UP
+  chevron, so a chevron pointing back beside a chevron pointing on reads as a back and a
+  forward button, one of which is inert. A separator belongs BETWEEN names, so the phone
+  draws it between them and the desktop panel is left exactly as it is. The names themselves
+  are drawn as things to press now - the accent on every folder above this one, full
+  contrast on the one you are in - where dimming them all read as a caption rather than as
+  the way back up. COUNTED in the e2e at three levels deep, which is where "one fewer than
+  the levels" is more than one chevron: at one level it and "none at all" are the same
+  number.
+- **AND A FILE ROW SAYS HOW BIG IT IS** (owner, same day: a 126MB sample clip opened in the
+  belief it was the 8.9GB film, and the row said nothing that would have told them apart).
+  `formatBytes`, the desktop's own, so a size reads the same in both places rather than
+  through a second formatter that rounds differently. A size of 0 draws NOTHING rather than
+  "0 B": 0 is also what a file that could not be stat'ed carries, and a number nobody
+  measured is worse than no number. Search hits carry no size at all (`SearchHit` has no
+  such field), so their rows keep the folder they are in as their second line. The e2e matches
+  a row's size against the desktop formatter's own shape, so a second formatter rounding
+  differently would show up there.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

@@ -66,12 +66,20 @@ export function UnsupportedView({ file }: { file: ViewerFile }): JSX.Element {
         {file.name}
         {size && ` · ${size}`}
       </div>
-      <button
-        className="rounded-full border border-[color:var(--p-line)] px-4 py-1.5 text-[12.5px] font-semibold text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
-        onClick={() => setHex(true)}
-      >
-        Show the bytes
-      </button>
+      {/* Desktop only (#106). `explorer` is the flag that means "there is a
+          Windows around this window": the tree hides unviewable files, so the
+          only route to this screen is Windows handing one over, and the bytes
+          are the desktop's answer to that. On the phone the screen names the
+          file and stops. Not `write`, which is about changing files and
+          would read as if the hex view edited. */}
+      {window.prism.capabilities.explorer && (
+        <button
+          className="rounded-full border border-[color:var(--p-line)] px-4 py-1.5 text-[12.5px] font-semibold text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]"
+          onClick={() => setHex(true)}
+        >
+          Show the bytes
+        </button>
+      )}
     </div>
   )
 }
