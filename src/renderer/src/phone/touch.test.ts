@@ -51,7 +51,9 @@ describe('the phone sizes itself from one stylesheet', () => {
       // the floor does.
       expect(/\[[^\]]*44px/.test(src)).toBe(false)
     }
-    expect(readFileSync('src/renderer/src/phone/Browser.tsx', 'utf8')).toContain(
+    // The row class moved into `rows.ts` when the tab list started wearing it
+    // too (2026-09-08): one class in one place, sized from the same token.
+    expect(readFileSync('src/renderer/src/phone/rows.ts', 'utf8')).toContain(
       'min-h-[var(--phone-row)]'
     )
   })

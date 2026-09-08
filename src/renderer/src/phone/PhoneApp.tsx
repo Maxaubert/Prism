@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState, type JSX } from 'react'
 import { codeFromLocation, getJson, PhoneError, readToken, writeToken } from './api'
 import { Pairing } from './Pairing'
 import { Browser } from './Browser'
+import { TabList } from './TabList'
+import { switchTab } from './tabs'
 
-type Me = { root: string; open: boolean; name: string }
+/** `name` is this PHONE's, as the PC lists it; `folder` is the name of the
+ *  TAB it is on, which main spells so the header and the tab list agree. */
+type Me = { root: string; open: boolean; name: string; folder: string }
 
 /** The phone's own name, as the PC lists it: the device out of the UA's
  *  parenthesis ("iPhone", "iPad", "Linux; Android 14; Pixel 8"). */
@@ -14,8 +18,11 @@ function deviceName(): string {
 
 /**
  * The phone shell (2026-09-06, #104). Three states: no token (pair), a
- * token whose root is no longer open (scan again), and a root to browse.
- * A 401 anywhere drops the token: the PC forgot this phone.
+ * token whose root is no longer open (pick another tab), and a root to
+ * browse. A 401 anywhere drops the token: the PC forgot this phone, and
+ * SCANNING AGAIN is that phone's screen alone now (2026-09-08). A tab that
+ * merely CLOSED is not a dead end any more: the PC has other folders open
+ * and the phone can move to one of them without a code (owner).
  */
 export function PhoneApp(): JSX.Element {
   const [me, setMe] = useState<Me | null>(null)
@@ -40,6 +47,21 @@ export function PhoneApp(): JSX.Element {
       }
     )
   }, [])
+
+  /**
+   * Move to another of the PC's open tabs, which is what a re-scan used to be
+   * the only way to do. The reason a refusal carries is left to reject so the
+   * LIST can show it beside the rows it has just re-read: a folder that has
+   * closed is a list that has moved on, not a message on its own.
+   */
+  const switchTo = useCallback(
+    (root: string): Promise<void> =>
+      switchTab(root).then(() => {
+        setError(null)
+        return load()
+      }),
+    [load]
+  )
 
   const pair = useCallback(
     (code: string): Promise<void> =>
@@ -87,19 +109,21 @@ export function PhoneApp(): JSX.Element {
     )
   if (!me.open)
     return (
-      <div
-        className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center"
-        data-phone-closed
-      >
+      <div className="flex min-h-dvh flex-col gap-3 p-6" data-phone-closed>
         <p>That folder is no longer open in Prism.</p>
-        <p className="opacity-70">Open it there, or scan a new code from another tab.</p>
+        <p className="opacity-70">Pick one of the folders it does have open:</p>
+        {/* The list, not a scan-again screen: the phone is still paired and
+            the PC still has folders open, so a code buys nothing here. */}
+        <TabList onPick={switchTo} />
         <button
-          className="rounded border border-[color:var(--p-line)] px-4 py-1"
+          className="self-start rounded border border-[color:var(--p-line)] px-4 py-1"
           onClick={() => void load()}
         >
           Try again
         </button>
       </div>
     )
-  return <Browser root={me.root} />
+  // Keyed by the ROOT: moving to another tab starts in that folder with
+  // nothing open, rather than in a folder the new root does not contain.
+  return <Browser key={me.root} root={me.root} tab={me.folder} onSwitch={switchTo} />
 }

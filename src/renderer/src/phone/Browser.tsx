@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import { crumbs, fileFromHit, parentOf, stepFile } from './browse'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
+import { ROW_CLASS } from './rows'
+import { TabList } from './TabList'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
  *  same speed costs the PC the same number of walks. KEPT at 180ms rather
@@ -46,7 +48,18 @@ const RETRIES = 3
  * taught in one place (`shared/searchQuery`) and there is nothing here that
  * could teach it differently.
  */
-export function Browser({ root }: { root: string }): JSX.Element {
+export function Browser({
+  root,
+  tab,
+  onSwitch
+}: {
+  root: string
+  /** The name of the tab this phone is on, as the PC spells it. */
+  tab: string
+  /** Move this phone to another of the PC's open tabs. Rejects with the PC's
+   *  own reason when it does not hold that folder any more. */
+  onSwitch: (root: string) => Promise<void>
+}): JSX.Element {
   const [dir, setDir] = useState(root)
   // Tagged with the folder it answers for, so walking into another folder
   // shows "Loading..." rather than the old rows, and an answer that arrives
@@ -55,6 +68,8 @@ export function Browser({ root }: { root: string }): JSX.Element {
   const [open, setOpen] = useState<ViewerFile | null>(null)
   /** Whether the field is showing; the query is what decides what is listed. */
   const [searching, setSearching] = useState(false)
+  /** Whether the tab list is showing over the folder. */
+  const [tabsOpen, setTabsOpen] = useState(false)
   const [query, setQuery] = useState('')
   // Keyed by the query it answers, exactly as the sidebar's panel keys its
   // own, so a slow walk never draws under a newer search.
@@ -184,147 +199,164 @@ export function Browser({ root }: { root: string }): JSX.Element {
 
   const up = parentOf(root, dir)
   const trail = crumbs(root, dir)
-  /**
-   * The rows every list here wears (2026-09-08, owner, after an iPad: "the
-   * rows in the file explorer are too small"). They are the thing being
-   * pointed at all day, so they are the thing to size first: taller than the
-   * 44px floor a button needs, because a LIST is scrolled past as well as
-   * tapped, and the name is set at 17px, which is the size a phone's own
-   * file list uses. The numbers live in phone.css, so the floor is one
-   * number in one place rather than a Tailwind size per row.
-   */
-  const rowClass =
-    'flex min-h-[var(--phone-row)] w-full items-center gap-3 px-4 py-2.5 text-left text-[17px] active:bg-[var(--p-hover)]'
   return (
     <div
       className="flex min-h-dvh flex-col bg-[var(--p-bg)] text-[var(--p-text)]"
       data-phone-browser
     >
-      <header className="sticky top-0 z-10 flex items-center gap-1 border-b border-[color:var(--p-line)] bg-[var(--p-bg)] px-2 pt-[env(safe-area-inset-top)]">
-        {searching ? (
-          <>
-            <span className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center opacity-60" aria-hidden>
-              <MagnifierIcon />
-            </span>
-            <input
-              className="min-h-[var(--phone-touch)] min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:opacity-50"
-              // The phone's own keyboard is the thing to get right here: a
-              // search field spells its return key "Search" and neither
-              // corrects nor capitalises what is typed into it, because a
-              // file name is not prose.
-              type="search"
-              inputMode="search"
-              enterKeyHint="search"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              autoFocus
-              aria-label="Search this folder"
-              placeholder="Search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              data-phone-search
-            />
-            <button
-              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
-              // One X, two steps, which is how a phone's search field behaves
-              // everywhere: it empties a field that holds something, and
-              // closes an empty one, so clearing lands you back in the folder
-              // you were in rather than taking the field away mid-thought.
-              aria-label={query ? 'Clear search' : 'Close search'}
-              onClick={() => (query ? setQuery('') : setSearching(false))}
-              data-phone-search-clear
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width={22}
-                height={22}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
+      <header className="sticky top-0 z-10 flex flex-col border-b border-[color:var(--p-line)] bg-[var(--p-bg)] pt-[env(safe-area-inset-top)]">
+        {/* WHICH TAB, on its own row above where-you-are (2026-09-08, owner:
+            "i should be able to see the available tabs and switch"). Its own
+            row rather than another control squeezed in beside the crumbs,
+            because the two say different things: this one is the folder the
+            PC has open, the row under it is where in that folder you are. */}
+        <button
+          className="flex min-h-[var(--phone-touch)] w-full items-center gap-2 px-3 text-left text-[15px] font-semibold active:bg-[var(--p-hover)]"
+          onClick={() => setTabsOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={tabsOpen}
+          data-phone-tab
+        >
+          <TabsIcon />
+          <span className="min-w-0 flex-1 truncate">{tab}</span>
+          <ChevronDown />
+        </button>
+        <div className="flex items-center gap-1 px-2">
+          {searching ? (
+            <>
+              <span
+                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center opacity-60"
                 aria-hidden
               >
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
-              aria-label="Up"
-              disabled={up === null}
-              onClick={() => up !== null && setDir(up)}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width={22}
-                height={22}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+                <MagnifierIcon />
+              </span>
+              <input
+                className="min-h-[var(--phone-touch)] min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:opacity-50"
+                // The phone's own keyboard is the thing to get right here: a
+                // search field spells its return key "Search" and neither
+                // corrects nor capitalises what is typed into it, because a
+                // file name is not prose.
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+                aria-label="Search this folder"
+                placeholder="Search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                data-phone-search
+              />
+              <button
+                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
+                // One X, two steps, which is how a phone's search field behaves
+                // everywhere: it empties a field that holds something, and
+                // closes an empty one, so clearing lands you back in the folder
+                // you were in rather than taking the field away mid-thought.
+                aria-label={query ? 'Clear search' : 'Close search'}
+                onClick={() => (query ? setQuery('') : setSearching(false))}
+                data-phone-search-clear
               >
-                <path d="M15 6l-6 6 6 6" />
-              </svg>
-            </button>
-            <nav
-              className="flex min-h-[var(--phone-touch)] min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-[15px]"
-              aria-label="Folder"
-            >
-              {trail.map((c, i) => {
-                const last = i === trail.length - 1
-                return (
-                  <span key={c.path} className="flex shrink-0 items-center gap-1">
-                    <button
-                      className={`rounded px-2 py-2 ${last ? 'font-semibold' : 'opacity-70'}`}
-                      aria-current={last ? 'location' : undefined}
-                      data-phone-root={i === 0 ? '' : undefined}
-                      onClick={() => setDir(c.path)}
-                    >
-                      {c.name}
-                    </button>
-                    {/* A chevron at EVERY level, the current one included: that is
+                <svg
+                  viewBox="0 0 24 24"
+                  width={22}
+                  height={22}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
+                aria-label="Up"
+                disabled={up === null}
+                onClick={() => up !== null && setDir(up)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={22}
+                  height={22}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M15 6l-6 6 6 6" />
+                </svg>
+              </button>
+              <nav
+                className="flex min-h-[var(--phone-touch)] min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-[15px]"
+                aria-label="Folder"
+              >
+                {trail.map((c, i) => {
+                  const last = i === trail.length - 1
+                  return (
+                    <span key={c.path} className="flex shrink-0 items-center gap-1">
+                      <button
+                        className={`rounded px-2 py-2 ${last ? 'font-semibold' : 'opacity-70'}`}
+                        aria-current={last ? 'location' : undefined}
+                        data-phone-root={i === 0 ? '' : undefined}
+                        onClick={() => setDir(c.path)}
+                      >
+                        {c.name}
+                      </button>
+                      {/* A chevron at EVERY level, the current one included: that is
                         what makes the row read as a path rather than a sentence
                         (the archive's crumb row, 2026-08-31). */}
-                    <span className="opacity-40" aria-hidden>
-                      &rsaquo;
+                      <span className="opacity-40" aria-hidden>
+                        &rsaquo;
+                      </span>
                     </span>
-                  </span>
-                )
-              })}
-            </nav>
-            <button
-              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
-              aria-label="Search"
-              onClick={() => setSearching(true)}
-              data-phone-search-open
-            >
-              <MagnifierIcon />
-            </button>
-          </>
-        )}
-        {/* A search is still running. It sits on the header's own bottom edge
+                  )
+                })}
+              </nav>
+              <button
+                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
+                aria-label="Search"
+                onClick={() => setSearching(true)}
+                data-phone-search-open
+              >
+                <MagnifierIcon />
+              </button>
+            </>
+          )}
+          {/* A search is still running. It sits on the header's own bottom edge
             rather than in the list, because the list is showing rows - the
             last answer, narrowed - and a line that pushed them down would be
             the layout shift the narrowing exists to avoid. The keyframe is in
             phone.css and applied inline, so no selector here can go stale. */}
-        {pending && (
-          <span
-            className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden"
-            data-phone-searching
-            aria-hidden
-          >
+          {pending && (
             <span
-              className="absolute inset-y-0 w-2/5 bg-[var(--color-accent-hi)]"
-              style={{ animation: 'phone-searching 1.1s ease-in-out infinite' }}
-            />
-          </span>
-        )}
+              className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden"
+              data-phone-searching
+              aria-hidden
+            >
+              <span
+                className="absolute inset-y-0 w-2/5 bg-[var(--color-accent-hi)]"
+                style={{ animation: 'phone-searching 1.1s ease-in-out infinite' }}
+              />
+            </span>
+          )}
+        </div>
       </header>
+      {tabsOpen && (
+        <Sheet title="Open tabs" onClose={() => setTabsOpen(false)}>
+          {/* The sheet closes on a pick that WORKED; a refused one leaves it
+              open with the reason and a list that has been read again. */}
+          <TabList onPick={(r) => onSwitch(r).then(() => setTabsOpen(false))} />
+        </Sheet>
+      )}
       {query ? (
         <Results
           hits={rows}
@@ -333,7 +365,6 @@ export function Browser({ root }: { root: string }): JSX.Element {
           // not happened yet.
           truncated={!!answer?.truncated}
           pending={pending}
-          rowClass={rowClass}
           onOpen={(h) => (h.isFolder ? walkTo(h.path) : setOpen(fileFromHit(h)))}
         />
       ) : (
@@ -348,7 +379,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
             <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list">
               {listing.folders.map((f) => (
                 <li key={f.path}>
-                  <button className={rowClass} onClick={() => setDir(f.path)} data-phone-folder>
+                  <button className={ROW_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
                     <FolderGlyph />
                     <span className="truncate">{f.name}</span>
                   </button>
@@ -357,7 +388,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
               {listing.files.map((f) => (
                 <li key={f.path}>
                   <button
-                    className={rowClass}
+                    className={ROW_CLASS}
                     onClick={() => setOpen(f)}
                     data-phone-file
                     data-kind={f.kind}
@@ -395,13 +426,11 @@ function Results({
   hits,
   truncated,
   pending,
-  rowClass,
   onOpen
 }: {
   hits: SearchHit[] | null
   truncated: boolean
   pending: boolean
-  rowClass: string
   onOpen: (hit: SearchHit) => void
 }): JSX.Element {
   // Nothing to preview and nothing answered: the first query of a session,
@@ -413,7 +442,7 @@ function Results({
       {hits.map((h) => (
         <li key={h.path}>
           <button
-            className={rowClass}
+            className={ROW_CLASS}
             onClick={() => onOpen(h)}
             data-phone-hit
             data-kind={h.isFolder ? 'folder' : h.kind}
@@ -427,11 +456,58 @@ function Results({
         </li>
       ))}
       {truncated && (
-        <li className="p-4 text-[13px] opacity-60">
-          more than {hits.length} matches; keep typing
-        </li>
+        <li className="p-4 text-[13px] opacity-60">more than {hits.length} matches; keep typing</li>
       )}
     </ul>
+  )
+}
+
+/**
+ * A screen over the folder, which on a phone is what a menu is: a list read
+ * with a thumb needs the width and the room, and a popover anchored to a
+ * header button on a 390px screen is neither.
+ */
+function Sheet({
+  title,
+  onClose,
+  children
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+}): JSX.Element {
+  return (
+    <div
+      className="fixed inset-0 z-20 flex flex-col bg-[var(--p-bg)] pt-[env(safe-area-inset-top)] text-[var(--p-text)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      data-phone-sheet
+    >
+      <div className="flex items-center gap-1 border-b border-[color:var(--p-line)] px-2">
+        <h2 className="min-w-0 flex-1 truncate px-2 text-[15px] font-semibold">{title}</h2>
+        <button
+          className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
+          aria-label="Close"
+          onClick={onClose}
+          data-phone-sheet-close
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width={22}
+            height={22}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
+    </div>
   )
 }
 
@@ -464,6 +540,46 @@ function ExtChip({ ext }: { ext: string }): JSX.Element {
     >
       {ext.slice(1, 5)}
     </span>
+  )
+}
+
+/** Two folders one behind the other: what the PC has open, which is what a
+ *  tab is here. */
+function TabsIcon(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={20}
+      height={20}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+      className="shrink-0 opacity-70"
+      aria-hidden
+    >
+      <path d="M7 4.5h4l1.4 1.8H20v9.2H7z" />
+      <path d="M4 7.5v12h13" />
+    </svg>
+  )
+}
+
+function ChevronDown(): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 opacity-60"
+      aria-hidden
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
   )
 }
 
