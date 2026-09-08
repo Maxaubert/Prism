@@ -5584,6 +5584,190 @@ async function phoneDocsScenario(fixtures) {
   }
 }
 
+/**
+ * The phone's TABS, its PLACE, and the two rows around them (2026-09-08,
+ * #107, all four from one hands-on session). Each is something only a live PC
+ * can answer, which is why they are here rather than in a unit test.
+ *
+ * THE TABS THE PC HAS OPEN ("i should be able to switch tabs without scanning
+ * a new qr code. i should be able to see the available tabs and switch"). The
+ * app is launched with a SECOND ROOT open, the way the tab scenario opens one,
+ * because a list of one proves nothing about a list and a switch needs
+ * somewhere to go. What is asserted after the pick is not the header's text
+ * but what the LISTING answers: the phone is on the other root and the first
+ * root's files are not there, which is the widened wall doing exactly the one
+ * thing it widened to do.
+ *
+ * A RELOAD COMES BACK WHERE YOU WERE ("if im in a subfolder and reload i
+ * should be there, or a movie i should be on the movie"). Both halves, since
+ * they are two different reads of the same URL: a folder two levels down, and
+ * then a file in it, which comes back from that folder's own listing.
+ *
+ * THE CRUMB ROW'S SEPARATORS GO BETWEEN THE NAMES: counted rather than
+ * eyeballed, at a depth where "one fewer than the levels" is more than one
+ * chevron. A trailing chevron beside the Up chevron reads as a back and a
+ * forward button, one of which does nothing.
+ *
+ * AND A FILE ROW SAYS HOW BIG IT IS, in the desktop's own units.
+ */
+async function phoneTabsScenario(fixtures) {
+  console.log('phone: the open tabs, a reload, the crumb row and a size')
+  const { app, win } = await launch(join(fixtures, 'one.png'))
+  let page = null
+  try {
+    // A SECOND ROOT, handed over from outside the way the tab scenario opens
+    // one: a genuine sibling folder, since a subfolder of an open root is no
+    // longer a second root at all.
+    await handoff(join(OTHER_ROOT, 'bad.json'))
+    const tabs = win.locator('[role="tablist"] [role="tab"]')
+    ok((await tabs.count()) === 2, 'the PC has two roots open')
+    // Back to the fixtures tab before pairing: the code is issued for the tab
+    // that is CURRENT, so this is what decides which root the phone starts on.
+    await tabs.first().click()
+    await sleep(400)
+    const { base, token, root, status } = await pairPhone(win)
+    ok(status === 200, 'the phone pairs')
+    ok(root.toLowerCase() === fixtures.toLowerCase(), 'with the tab that was current')
+
+    page = await openPhoneWindow(app, `${base}/`)
+    page.on('pageerror', (e) => console.warn('  phone page error:', e.message))
+    await page.evaluate((t) => localStorage.setItem('prism.phone.token', t), token)
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]', { timeout: 10000 })
+
+    // The list is READ FRESH every time it is opened, so it is opened rather
+    // than assumed: a tab closes on the PC without telling the phone.
+    await page.click('[data-phone-tab]')
+    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    const rows = page.locator('[data-phone-tab-row]')
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-phone-tab-row]').length === 2,
+      null,
+      { timeout: 10000 }
+    )
+    const rowText = await rows.allTextContents()
+    ok(rowText.length === 2, `the list names both open roots (${rowText.length})`)
+    ok(
+      rowText.some((t) => /fixtures/i.test(t)) && rowText.some((t) => /other/i.test(t)),
+      `and names them: ${rowText.map((t) => t.trim()).join(' | ')}`
+    )
+    const ticked = page.locator('[data-phone-tab-row][aria-current="true"]')
+    ok((await ticked.count()) === 1, 'with exactly one of them ticked')
+    ok(
+      /fixtures/i.test((await ticked.first().textContent()) ?? ''),
+      'and it is the root the phone paired to'
+    )
+    // Picked by index off the text, not by a selector carrying a Windows path:
+    // a backslash in a `:has-text()` is one more thing to escape wrongly.
+    const otherIdx = rowText.findIndex((t) => /other/i.test(t))
+    await rows.nth(otherIdx).click()
+    await page.waitForSelector('[data-phone-sheet]', { state: 'detached', timeout: 10000 })
+    await page.waitForSelector('[data-phone-file]:has-text("bad.json")', { timeout: 10000 })
+    ok(true, 'picking the other tab lists the other root')
+    ok(
+      (await page.locator('[data-phone-file]:has-text("README.md")').count()) === 0,
+      'and the first root is not what the listing answers any more'
+    )
+    ok(
+      /other/i.test((await page.textContent('[data-phone-tab]')) ?? ''),
+      'the header names the tab it moved to'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-tabs.png') })
+
+    // And back, without a code anywhere in it.
+    await page.click('[data-phone-tab]')
+    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    const back = await page.locator('[data-phone-tab-row]').allTextContents()
+    await page
+      .locator('[data-phone-tab-row]')
+      .nth(back.findIndex((t) => /fixtures/i.test(t)))
+      .click()
+    await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
+    ok(true, 'and back again, with no code scanned either way')
+
+    // Two levels down, which is the depth that makes the chevron count worth
+    // taking: at one level "one fewer" and "none at all" are the same number.
+    await page
+      .locator('[data-phone-folder]')
+      .filter({ hasText: /^\s*docs\s*$/ })
+      .click()
+    await page.waitForSelector('[data-phone-folder]', { timeout: 10000 })
+    await page
+      .locator('[data-phone-folder]')
+      .filter({ hasText: /^\s*media\s*$/ })
+      .click()
+    await page.waitForSelector('[data-phone-file]:has-text("prism.webp")', { timeout: 10000 })
+    const trail = () =>
+      page.evaluate(() => {
+        const nav = document.querySelector('nav[aria-label="Folder"]')
+        const chevrons = [...(nav?.querySelectorAll('span[aria-hidden="true"]') ?? [])].filter(
+          (s) => (s.textContent ?? '').trim() === '›'
+        )
+        return {
+          levels: nav?.querySelectorAll('[data-phone-crumb]').length ?? 0,
+          chevrons: chevrons.length
+        }
+      })
+    const crumbs = await trail()
+    ok(crumbs.levels === 3, `the crumb row has a level per folder (${crumbs.levels})`)
+    ok(
+      crumbs.chevrons === crumbs.levels - 1,
+      `and one fewer chevron than levels (${crumbs.chevrons} for ${crumbs.levels})`
+    )
+
+    // HOW BIG IT IS, in the desktop's own units: a size that reads differently
+    // on the phone is a second formatter nobody asked for.
+    const size = (
+      (await page.textContent('[data-phone-file]:has-text("prism.webp") [data-phone-size]')) ?? ''
+    ).trim()
+    ok(/^\d+(\.\d+)? (B|KB|MB|GB|TB)$/.test(size), `a file row says how big it is (${size})`)
+
+    // THE RELOAD, first half: the folder. The URL is checked as well as the
+    // screen, because a page that came back to the right folder by remembering
+    // it somewhere else would pass the screen half and lose the file half.
+    ok(
+      /[\\/]docs[\\/]media$/i.test(new URL(page.url()).searchParams.get('at') ?? ''),
+      'the folder is in the URL'
+    )
+    await page.reload()
+    await page.waitForSelector('[data-phone-file]:has-text("prism.webp")', { timeout: 15000 })
+    const afterReload = await trail()
+    ok(
+      afterReload.levels === 3,
+      `a reload comes back to the folder it was in (${afterReload.levels} levels)`
+    )
+
+    // Second half: the file. It is restored from the folder's OWN LISTING, so
+    // what is waited for is the viewer, not a route of its own.
+    await page.click('[data-phone-file]:has-text("prism.webp")')
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 15000 })
+    const url = new URL(page.url())
+    ok(/prism\.webp$/i.test(url.searchParams.get('open') ?? ''), 'the open file is in the URL')
+    ok(url.searchParams.get('at') === null, 'and the folder is not, since one place is never two')
+    await page.reload()
+    await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 15000 })
+    ok(true, 'a reload with a file open comes back on that file')
+    await page
+      .waitForFunction(
+        () => (document.querySelector('[data-phone-viewer] img')?.naturalWidth ?? 0) > 0,
+        null,
+        { timeout: 15000 }
+      )
+      .catch(() => {})
+    ok(
+      (await page.locator('[data-phone-viewer] img').first().evaluate((el) => el.naturalWidth)) > 0,
+      'and the picture is on screen, not a folder with a viewer over it'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-place.png') })
+  } finally {
+    await page?.close().catch(() => {})
+    // Off again, or the profile's phone.json carries the switch into every
+    // scenario after this one.
+    await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})
+    await app.close()
+  }
+}
+
 async function unsupportedScenario(fixtures) {
   console.log('unsupported file')
   // Windows hands Prism anything whenever someone picks it out of "More apps",
@@ -5696,6 +5880,7 @@ await run(dragScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)
+await run(phoneTabsScenario)
 await run(iconSchemeScenario)
 await run(comicIconScenario)
 await run(treeVerbsScenario)
