@@ -71,12 +71,7 @@ never shipped: one small app that opens everything and looks good doing it.
   of words in any order, `"a phrase"`, `*.mp4`, `ext:pdf`, `-drafts` - and a file three
   folders down is one tap away instead of unreachable. Films go fullscreen by whatever route
   the phone actually has, the page itself on Android and an iPhone's own player on iOS.
-  There is one screen, the folder, and every film and track opens
-  with a **Play on** switch reading *This phone* or *This PC*: flip it and the film you just
-  picked plays on the PC instead, with the phone as its remote - play, pause, seek, next,
-  previous and volume, from the sofa. The phone tells the PC which file to open, so the
-  remote is never driving whatever the PC happened to be showing, and it remembers where you
-  chose to play so the next film goes the same way.
+  There is one screen, the folder: the phone plays what it opens, and never drives the PC.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 

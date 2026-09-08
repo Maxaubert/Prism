@@ -5,9 +5,9 @@ Design, 2026-09-06. Owner decisions from the brainstorm are marked **(owner)**.
 ## What it is
 
 Watch what Prism has open on a phone or tablet on the same network. Prism on the PC is the
-server; the phone runs a web page Prism serves, with no app to install. The phone can either
-WATCH on its own clock, or act as a REMOTE for the PC's player. Both **(owner)**, and since
-2026-09-07 they are one screen with a switch in the player rather than two modes (below).
+server; the phone runs a web page Prism serves, with no app to install. The phone WATCHES on
+its own clock. It does not drive the PC: a remote was built and then REMOVED after hands-on
+use (see the first decision below), so nothing here promises one.
 
 Out of scope, said plainly: anything off the LAN (no relay, no accounts), HTTPS (a self-signed
 certificate on a phone is a worse experience than the risk it removes on a home network),
@@ -16,23 +16,20 @@ reached by reusing its viewers instead).
 
 ## Decisions
 
-- **The phone plays independently, and can also drive the PC**. Written first as two
-  switchable modes on the phone page, Watch and Remote **(owner)**; REPLACED by ONE SCREEN
-  and a TARGET IN THE PLAYER **(owner, 2026-09-07, while PR4 was green)**. The phone's folder
-  explorer is the only shell, opening a file opens it, and a film or a track carries a small
-  control reading "This phone" or "This PC" - where it plays is a question about the file you
-  just picked, not a mode to be in before you pick one. On "This PC" the phone's own player is
-  unmounted, so there is one clock on screen; lockstep between the two screens is not
-  promised, because a live transcode runs seconds behind. Flipping mid-film hands the film
-  over in that direction, and the choice is remembered (localStorage), so a phone left on
-  "This PC" opens the next film there too. Only a film or a track has the control: there is no
-  PC transport to hand a picture or a page of a PDF to.
-- **The phone tells the PC WHAT TO OPEN**, not just to press play **(owner, 2026-09-07)**. The
-  target switch sends the file on screen (`{op: 'open', path}`, walled against that phone's
-  own root like every other path it names) and the PC opens it in the active tab, marked to
-  play on arrival. With play/pause alone the phone would be driving whatever the PC happens to
-  be showing, which for a film just picked on the phone is either nothing (a 409) or the wrong
-  film.
+- **THE PHONE PLAYS WHAT IT OPENS AND NEVER DRIVES THE PC** **(owner, 2026-09-08, after
+  using it on an iPad: "remove the this pc button", and when asked, remove it entirely)**.
+  This is the decision that stands, and it REPLACES two earlier ones written here: Watch and
+  Remote as two switchable modes on the phone page, and then (2026-09-07, while PR4 was
+  green) one screen with a "This phone / This PC" target in the player that handed the film
+  on screen to the PC with `{op: 'open', path}`. Both were built and both are GONE, root and
+  branch: the `/remote/state` stream, the `/remote/cmd` drop, the `phone:state` /
+  `phone:cmd` / `phone:listeners` IPC, `shared/remote.ts`, the renderer's target registry,
+  the phone's remote panel and client, and the `phoneRemote` e2e. Nobody should rebuild any
+  of it by reading the older decision above it, which is why the older wording is not kept:
+  a mode to be in before you pick a file, and a second clock on a second screen that
+  lockstep was never promised for, are what a remote costs, and neither is worth what it
+  bought. What remains is the one-screen explorer, the phone's own player, search and the
+  fullscreen routes.
 - **The phone sees ONE tab's folder** **(owner)**: the tab the QR was shown from. Same root
   wall as the tab. Not every open tab.
 - **Pair once, remembered** **(owner)**. The QR carries a one-time code; the phone exchanges it
@@ -54,7 +51,7 @@ reached by reusing its viewers instead).
   dead button on the device most likely to press it. `lib/fullscreen` picks between the
   standard API, the older prefixed `webkitRequestFullscreen` and the iOS-only
   `webkitEnterFullscreen` on the media element, and prefers the PAGE wherever it can go:
-  the OS player draws over Prism's transport, the target control and the way back.
+  the OS player draws over Prism's transport and the way back.
 - **Reuse Prism's own viewers** (approach A): a second renderer entry mounts the existing
   viewer components behind a network shim of `window.prism`. This is `prism-core`'s second
   consumer, without extracting the package yet.
@@ -68,25 +65,25 @@ reached by reusing its viewers instead).
   reported by the phone itself (`canPlayType`), never assumed from the user agent.
 - **Four PRs, stacked** **(owner)**: (1) server, pairing, Tools menu, phone shell, direct play
   of video, audio and pictures; (2) the transcode; (3) the document kinds on the phone;
-  (4) Remote mode. Each installable and hand-tested on the phone. One spec (this one), a plan
-  per PR.
+  (4) Remote mode, since REMOVED (see the first decision). Each installable and hand-tested
+  on the phone. One spec (this one), a plan per PR.
 
 ## Architecture
 
 ```
 phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer (App)
    phone.html                        server.ts  routes      phone:*      Tools > Phone dialog
-   src/renderer/src/phone/           pairing.ts             channel      remote commands in
-   prismShim -> fetch/SSE            stream.ts (PR2)                     the active tab's player
-   reused viewers                    remote.ts (PR4)
+   src/renderer/src/phone/           pairing.ts             channel
+   prismShim -> fetch                stream.ts (PR2)
+   reused viewers
 ```
 
 ### Server (`src/main/phone/`, PR1)
 
 - Node `http` server, one per app, bound on all interfaces, port chosen once (first free from a
   fixed default) and remembered in `userData/phone.json`. Started when the switch is on, stopped
-  when off; the switch persists. No WebSocket dependency: the phone receives state over
-  Server-Sent Events and sends commands with POST.
+  when off; the switch persists. No WebSocket dependency, and since the remote went there is
+  nothing to push either: every route is a plain request the phone makes.
 - Advertised address: the first non-internal IPv4 of the machine; the dialog shows every
   candidate when there is more than one, the QR encodes the first.
 - The first `listen` raises Windows Firewall's prompt for Prism. The dialog says so BEFORE the
@@ -112,7 +109,6 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
     `fsmedia://` and this route call one function; the wall is written once, and the phone
     route adds its own root check on top.
   - `GET /hls/<job>/index.m3u8`, `GET /hls/<job>/<n>.m4s` (PR2).
-  - `GET /remote/state` (SSE), `POST /remote/cmd` (PR4).
 - The phone's root is checked on EVERY route with `validRoot(root, path)`; a path outside it is
   403 even if another tab holds it. Archive members and comic pages come through the same
   grants main already keeps (`extractedPaths`, `comicsDir`).
@@ -161,8 +157,8 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   `window.prism.capabilities` says so (`{write: false, clipboard: false, explorer: false,
   drag: false}`); the viewers and `fileVerbs` consult it to hide verbs. `nativeDrag` is false.
   `mediaUrl(path)` returns the `/m/` URL with the token.
-- Shell: a top bar (folder name, back, a menu with "Forget this PC"; the Watch / Remote toggle
-  planned here is gone, replaced by the player's own target, 2026-09-07),
+- Shell: a top bar (folder name, back, a menu with "Forget this PC"; the Watch / Remote
+  toggle planned here is gone with the remote itself, 2026-09-08),
   a folder list rooted at the phone's root (Explorer-shaped, one level at a time, folders
   first, the same sort as the tab's default), a search field over the crumb row whose hits
   replace that list while it holds a query, and the viewer area. Tapping a file opens it;
@@ -177,23 +173,6 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 - The phone keeps its token and root in `localStorage`; a 401 clears them and shows the
   pairing screen (paste the code or scan again).
 
-### Playing on the PC (PR4; the "Remote mode" of the first draft)
-
-- The renderer reports the active tab's player state to main (`phone:state`: file, kind,
-  playing, position, duration, volume, muted, speed) on every change and once a second while
-  playing; main fans it out over SSE to every phone holding a state stream. Nothing is sent
-  while no phone listens.
-- Commands (`play`, `pause`, `toggle`, `seek {to}`, `step {by}`, `next`, `prev`, `volume
-  {to}`, `mute`) go POST -> main -> `phone:cmd` -> App, which routes them into the active tab's
-  `MediaControls`. A command with no player open is answered 409 and the phone says so.
-- `open {path}` is the one command that carries a path and the one that means something with
-  nothing playing, because it is what starts something playing: the target switch sends it for
-  the file on screen, main walls it against that phone's own root before forwarding, and App
-  opens it in the active tab exactly as a tree click does.
-- The panel the phone shows while the target is the PC: the file name, a scrubber, the
-  transport verbs, volume. It is the PC's state drawn on the phone, keyed to the file on
-  screen so a mount IS the handover; the phone's own `<video>` is unmounted behind it.
-
 ### In Prism (renderer, PR1)
 
 - **Tools** button in the title bar, left of the update chip, glyph only like the others,
@@ -204,8 +183,7 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   watching" from the server's live connections. A new tab as current makes a new code; the
   code is shown for its two minutes and re-issued on demand.
 - `phone:*` IPC: `phone:get` (state for the dialog), `phone:set-on`, `phone:code(root)`,
-  `phone:forget(token)`, `phone:changed` (push to the dialog), `phone:state` / `phone:cmd`
-  (PR4).
+  `phone:forget(token)`, `phone:changed` (push to the dialog).
 
 ## Error handling
 
@@ -225,15 +203,14 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 - Unit: `pairing.test.ts` (issue, redeem once, expiry, forget, root update, persistence
   round-trip), `routes.test.ts` (auth, per-root wall, path decoding), `decide.test.ts`
   (direct/hls per container, codec and `can` list), `hls.test.ts` (segment time math,
-  restart-at-segment, playlist text), `remote.test.ts` (state reducer, command validation),
-  `prismShim.test.ts` (URL building, capabilities), `fullscreen.test.ts` (which of the three
+  restart-at-segment, playlist text), `prismShim.test.ts` (URL building, capabilities), `fullscreen.test.ts` (which of the three
   routes a host gets, entering and leaving on each, and the signals each one gives back -
   the iOS branch lives here because no browser the e2e can drive has it).
 - E2E (`tools/e2e/run.mjs`, scenario `phone`): launch with `--e2e`, turn the server on over
   IPC, issue a code, pair over HTTP, `GET /api/dir`, fetch a fixture with a Range header and
   assert 206, open the phone page in a phone-sized Playwright page with the token, tap a
-  fixture and assert the viewer mounts. PR2 adds an HLS fixture play; PR4 drives the PC's
-  player from the phone page and asserts its state. `phone` also presses the film's
+  fixture and assert the viewer mounts. PR2 adds an HLS fixture play. `phone` also presses
+  the film's
   fullscreen control and asserts the standard route takes the page (and its header) with it;
   `phoneDocs` searches, because that is the fixture tree with depth - `ext:py` answers two
   files in two folders, and one three folders down opens from its row.

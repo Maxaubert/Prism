@@ -625,9 +625,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   tab, or the phone scanning another tab's code, used to leave an HLS job serving the old
   folder for as long as the phone kept asking, because `/hls/` was keyed by the job's id
   and checked only that the token owned it. The job's own file is re-checked against the
-  phone's root on every ask now, a phone that MOVES loses the old root's grants and streams
-  in the same breath, and a phone that is FORGOTTEN loses its state stream too, rather than
-  hearing what the PC plays until it happens to reconnect.
+  phone's root on every ask now, and a phone that MOVES loses the old root's grants and its
+  running job in the same breath.
   The token rides as a Bearer header for fetches and as `?t=` for `<video src>`, which can
   carry no header. Nothing on the phone path is synchronous on main's thread: the page
   streams, the listing is the bounded async `listDir` the sidebar uses, pairing is a Map.
@@ -645,8 +644,8 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   not take the picture down with it. The Tools button in the TITLE BAR is the home of the
   dialog (switch, QR, address, paired phones, who is watching now), and it is in the title
   bar because the sidebar can be hidden. The dialog shows what the server IS, re-read on
-  every `phone:changed`, never what was clicked. Documents (#106) and the phone as a
-  remote for the PC (#107) each followed as their own decision, below.
+  every `phone:changed`, never what was clicked. Documents (#106) followed as their own
+  decision, below.
 - **The phone plays what it cannot play** (2026-09-06, #105): an MKV, HEVC on an Android,
   Dolby audio anywhere, through a live transcode to HLS that SEEKS LIKE A FILE. THE PLAYLIST
   IS PRISM'S AND THE SEGMENTS ARE FFMPEG'S (`src/main/phone/hls.ts`, pure and tested):
@@ -735,63 +734,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
   phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
   wait for a real device; hex and the terminal are not offered.
-- **The phone as a remote** (2026-09-07, #107): ONE SCREEN, the phone's own folder
-  explorer, always; opening a file opens it. Watch and Remote as two MODES are gone (owner,
-  2026-09-07): where a film plays is a question about the file you just picked, not a mode
-  to be in before you pick one. So the PLAYER carries a small TARGET reading "This phone"
-  or "This PC" (`phone/target.ts`, remembered in `prism.phone.target`), and only a film or
-  a track has one - there is no PC transport to hand a page of a PDF to. On the PC the
-  phone shows what the PC's active tab is playing and drives it: play, pause, seek, ten
-  seconds either way, next and previous, volume to 200% and mute. THE PC IS TOLD WHAT TO
-  OPEN, which is the whole reason the switch is not just a play button: `{op: 'open',
-  path}` carries the file on screen, walled against that phone's own root in main before it
-  is forwarded, and App opens it in the active tab exactly as a tree click does, marked to
-  play on arrival. With play/pause alone the phone would be driving whatever the PC happens
-  to be showing, which for a film just picked on the phone is either nothing (a 409) or the
-  wrong film. The panel is keyed to the file, so a mount IS the handover and stepping to the
-  next film hands that one over too. ONE CLOCK ON SCREEN: the phone's own player is
-  UNMOUNTED while the target is the PC (and `/api/play` is not even asked, since asking is
-  what opens a transcode job), so the scrubber is the PC's clock (`shownClock` carries it
-  forward between reports at the PC's rate and the next report corrects it) and never a
-  second player's. Flipping back mounts the phone's player again, which is nothing but a
-  state change: what plays where is decided by what is rendered.
-  WHICH PLAYER ON THE PC: WHICHEVER OWNS THE KEYBOARD.
-  `useMediaControls` registers itself in `lib/remoteTarget` while it has `keys`, by its own
-  id so a player unmounting after the next one registered cannot clear it, and App never
-  has to work out which of the deck's mounted players is in front. NOTHING IS SENT WHILE
-  NOBODY LISTENS, and that includes rendering: the target is a registry and never App
-  state (a player publishes a snapshot four times a second, and mirroring it into state
-  re-rendered the whole App at that rate for as long as anything played), App subscribes
-  only while main's listener count is above zero, and a report goes on `stateChanged` -
-  any field but the clock, the clock past 0.9s while playing and on ANY move while paused,
-  since a paused clock only moves on a seek. Main fans the state out as Server-Sent Events
-  (`GET /remote/state`, the last state at once so a fresh phone draws something, a `: ping`
-  every 15s that also keeps the phone in the dialog's watching list) and turns
-  `POST /remote/cmd` into `phone:cmd`: a command is VALIDATED IN A PURE FUNCTION
-  (`shared/remote.ts` `parseCmd`, only the fields it checked come out) before anything
-  reaches the renderer, 400 for a shape or range it refuses, 409 with a reason while
-  nothing is playing, 204 once App has it, and the effect shows on the stream rather than
-  in a body. The phone's client (`phone/remoteClient.ts`, tested under a fake EventSource)
-  does NOT trust the browser's reconnect, which retries at once for ever on a network
-  error and never on a refused connection, and neither is what a remote wants: an error
-  closes the source and it reopens on its own clock, 1s doubling to 15s. A seek is sent
-  ONCE, on release; volume goes live, throttled to two POSTs per 120ms. MEASURED in the
-  e2e (`phoneRemote`, which drives the target control itself): 37ms from the FLIP to the
-  PC's `<video>` playing THAT film - the open, the load and the play, not just a
-  keypress - 16ms from a tap on the phone's own Play, and 2ms for the phone to hear a
-  state back over the stream. The scenario opens the PC on a PICTURE, so the PC has no
-  player at all until the flip: a handover that only pressed play could not pass it.
-  LOCKSTEP IS
-  DELIBERATELY NOT PROMISED: the phone's scrubber is the PC's last report plus arithmetic,
-  and a stall on the PC (a stream buffering) shows on the phone at the next report, not
-  the same frame. Two things the scenario had to learn: `page.click` is NOT strict, and
-  the viewer's own header carries Next and Previous for paging the FOLDER, so an unscoped
-  `[aria-label="Next"]` clicks the header's and steps the PHONE - passing as "Next" while
-  proving nothing about the PC; every transport verb is scoped to `[data-phone-remote]`.
-  And the fixture films are 1.5s, so the pause is taken the instant the PC is seen
-  playing and nothing after it reads a clock that is still moving. What a real phone
-  still owes: the routes, the panel and the target control were driven under CDP in the
-  app's own Chromium, not on a device.
+- **THE REMOTE WAS BUILT AND REMOVED** (owner, 2026-09-08, after using it on an iPad;
+  #107). For a day the phone could drive the PC: a state stream (`GET /remote/state`,
+  Server-Sent Events), a validated command drop (`POST /remote/cmd`), a registry naming
+  whichever PC player owned the keyboard (`lib/remoteTarget`), and a "Play on: This phone /
+  This PC" control in the phone's player that handed the film on screen over with
+  `{op: 'open', path}`. It went ENTIRELY, root and branch: the routes, the IPC channels
+  (`phone:state`, `phone:cmd`, `phone:listeners`), `shared/remote.ts`, the phone's panel and
+  client, and the `phoneRemote` e2e. Written down so nobody rebuilds it by reading the older
+  decision: the phone PLAYS WHAT IT OPENS and never drives the PC. Two things the shape
+  wanted that a phone in the hand does not - a mode to be in before you pick a file, and a
+  second clock that lockstep was never promised for - and the thing it cost was the one that
+  matters, which is that the simplest possible answer to "where does this play" is "here".
+  What survives is the one-screen explorer, the player, the search, the fullscreen routes and
+  every fix that landed beside them.
 - **The phone searches, and the PC does the searching** (2026-09-07, #107). A page that
   browses one level at a time cannot reach a file three folders down, so a magnifier over
   the crumb row opens a field, and while it holds a query the RESULTS ARE THE LIST. The
@@ -825,7 +781,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   `webkitDisplayingFullscreen` because there is no fullscreen element to read. THE PAGE'S OWN
   FULLSCREEN WINS wherever it exists, and that is a decision rather than an ordering accident:
   the OS player draws its own transport over everything, so on a host that can fullscreen the
-  PAGE it would hide Prism's transport, the target control and the way back to the folder.
+  PAGE it would hide Prism's transport and the way back to the folder.
   Which is why the request still goes to the document element and a standard host behaves
   exactly as it did; the stage is held by a ref only so the element a viewer mounted can be
   FOUND for the iOS route, and it is looked for after every commit rather than once, since a

@@ -15,13 +15,12 @@ const DEBOUNCE_MS = 180
  * The viewer takes the whole screen and pages the folder's files with its
  * own next/previous, the way Up/Down page the folder on the PC.
  *
- * ONE SCREEN (2026-09-07, #107): this is it. The Watch / Remote segmented
- * control that used to sit in the header is gone, and with it the idea that
- * the phone has two jobs: the explorer is always the shell, a file always
- * opens into `PhoneViewer`, and driving the PC is a TARGET the player
- * offers for a film or a track ("This phone" / "This PC"). Where it plays
- * is a question about the file you just picked, not a mode to be in before
- * you pick one.
+ * ONE SCREEN (2026-09-07, #107): this is it. The explorer is always the
+ * shell and a file always opens into `PhoneViewer`. What the phone does NOT
+ * do is drive the PC (owner, 2026-09-08, after using it): a Watch / Remote
+ * pair of modes was built, then reworked into a per-film "This phone / This
+ * PC" target, and then removed root and branch. The phone plays what it
+ * opens, and that is the whole shape of it.
  *
  * AND IT SEARCHES (2026-09-07, owner ask). The magnifier opens a field over
  * the crumb row, and while it holds a query the results ARE the list: the
