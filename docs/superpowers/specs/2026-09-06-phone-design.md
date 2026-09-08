@@ -60,8 +60,11 @@ reached by reusing its viewers instead).
   it, read FRESH on every ask since a tab closes without telling the phone; `POST /api/tab`
   moves this phone to one of them and refuses, with a reason, a folder the PC does not hold.
   The move is the very path a re-scan takes (one `move()`, shared with `/pair`), so the old
-  root's grants and its running HLS job go with it. On the phone the header names the tab on
-  its own row and taps to the list. A tab that CLOSES is therefore not a dead end any more:
+  root's grants and its running HLS job go with it. On the phone the tabs are behind a HAMBURGER at the
+  head of the crumb row, opening a sidebar over the folder (owner, 2026-09-09, #112, replacing
+  the tab-name row this shipped with); it is present in every directory and absent while a
+  file is open. The Up chevron is not drawn at the root at all now, rather than drawn greyed:
+  a control a phone can see is one it expects to be able to press. A tab that CLOSES is therefore not a dead end any more:
   that screen offers the list, and "scan again" is what a phone whose token the PC has
   forgotten sees, and nothing else.
 - **A RELOAD COMES BACK WHERE YOU WERE** **(owner, 2026-09-08: "when i refresh a page it

@@ -767,9 +767,17 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   because the failure being removed is a phone pointing at a folder that is gone. The MOVE
   itself is the path a re-scan already took, factored out of `/pair` rather than written a
   second time (`move()`): the old root's grants and its running HLS job go with it, both
-  belonging to a folder the phone has left. On the phone the TAB'S NAME is a row of its own
-  above the crumbs, because the two say different things - which folder the PC has open, and
-  where in that folder you are - and the list under it is READ FRESH every time it is
+  belonging to a folder the phone has left. On the phone the tabs live behind a
+  HAMBURGER at the head of the crumb row (owner, 2026-09-09, #112). The tab's name had a row
+  of its own there first, which spent a whole row of a phone screen saying what the first
+  crumb already says; three lines say "everything else is over here" in a language every
+  phone speaks, and the drawer behind them is titled. It opens a SIDEBAR rather than a page:
+  it comes in over the folder, the ground behind it stays visible and dismisses it when
+  tapped, and it is capped at 320px so a tablet keeps the folder beside it, which is the
+  whole point of a drawer. The panel is painted in `--p-side-flat`, the flat surface the
+  context menus use, NOT `--p-bg`: several styles are translucent and a drawer you can read
+  the folder through is a smear rather than a layer. The hamburger is in every directory and
+  in none of the files: a file's screen is the file's. The list is READ FRESH every time it is
   opened, with a refused pick re-reading rather than only complaining, since "that folder is
   not open in Prism any more" is a list that has moved on. A tab that CLOSES is therefore no
   longer a dead end: that screen offers the list, and the scan-again screen is now what a
