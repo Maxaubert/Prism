@@ -21,9 +21,9 @@ import AdmZip from 'adm-zip'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'vendor', 'ffmpeg')
 
-const TAG = 'autobuild-2026-08-23-13-03'
-const ASSET = 'ffmpeg-n9.0.1-6-g9d4ca21220-win64-lgpl-shared-9.0.zip'
-const SHA256 = '433401e47fcadabffc0214af9bcd86c748a1f98619a7a6a3af799feb36f12fc4'
+const TAG = 'autobuild-2026-09-07-15-39'
+const ASSET = 'ffmpeg-n9.0.1-27-g9b0578816c-win64-lgpl-shared-9.0.zip'
+const SHA256 = '8418fb932d233da1b889a193deff053e9b90e954425a0d3d197c5a72bff12ff8'
 const URL = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${TAG}/${ASSET}`
 
 // ffmpeg.exe imports all of these at load time, so "only what we use" is not a
@@ -51,6 +51,16 @@ console.log('ffmpeg: downloading ' + ASSET + ' (67 MB)')
 const res = await fetch(URL)
 if (!res.ok) {
   console.error(`ffmpeg: download failed (${res.status} ${res.statusText})\n  ${URL}`)
+  // A 404 here is almost never a broken machine: BtbN's autobuild releases
+  // are ROTATED, and a tag that existed when this was pinned is deleted a few
+  // weeks later (measured: the 2026-08-23 build was gone by 2026-09-08, and
+  // took a release build down with it). The pin is deliberate, so the fix is
+  // to re-pin rather than to follow `latest` and lose the checksum.
+  if (res.status === 404)
+    console.error(
+      'ffmpeg: that build has been rotated away upstream. Re-pin TAG, ASSET and SHA256 above from\n' +
+        '  https://github.com/BtbN/FFmpeg-Builds/releases (the win64-lgpl-shared zip of the same 9.0 line)'
+    )
   process.exit(1)
 }
 const buf = Buffer.from(await res.arrayBuffer())
