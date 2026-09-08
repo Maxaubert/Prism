@@ -18,6 +18,7 @@ import type { AudioTrackOffer } from '@shared/types'
 import { VIDEO_FITS, fitStyle, type VideoFit } from '../lib/videoFit'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
 import { resolveVizTheme } from '../lib/theme'
+import { tapVerb } from '../lib/tapChrome'
 
 /** What a track is called in the picker: its own name if it has one, then the
  *  language, then what it actually is - "English - AC-3 5.1". A file that says
@@ -412,9 +413,31 @@ export function VideoView({
   }
 
 
+  /**
+   * What the pointer was when it landed, and what the screen was showing then
+   * (owner, 2026-09-08, after an iPad: a tap while the chrome is hidden must
+   * bring it up, not pause).
+   *
+   * Read at POINTERDOWN rather than at click, because between the finger
+   * landing and the click there is room for something else to wake the chrome
+   * (the window hears pointer moves, and a touch can fire one) - and a
+   * click-time reading would then decide "the controls are showing" about a
+   * tap the user aimed at a bare picture.
+   * The default is a mouse with the chrome up, which is what a click carrying
+   * no pointerdown at all (Enter on a focused element) has always done.
+   */
+  const tapDown = useRef({ type: 'mouse', chromeShown: true })
+
   // Click toggles play quietly - no centre icon at all (owner decision,
-  // 2026-08-22): the transport says the state, the picture stays clean.
-  const clickToggle = (): void => c.togglePlay()
+  // 2026-08-22): the transport says the state, the picture stays clean. A
+  // FINGER gets one step more: see lib/tapChrome. The mouse is untouched.
+  const clickToggle = (): void => {
+    if (tapVerb(tapDown.current.type, tapDown.current.chromeShown) === 'reveal') {
+      showChrome()
+      return
+    }
+    c.togglePlay()
+  }
 
   // Sound for tracks Chromium refuses to decode (Dolby Digital, DTS, TrueHD):
   // main decodes them and this plays the result beside the picture. The video
@@ -602,7 +625,12 @@ export function VideoView({
         // window (e.g. a 720p file fullscreened) sat boxed in on all four sides.
         className={fitStyle(fit).className}
         style={fitStyle(fit).style}
+        onPointerDown={(e) => {
+          tapDown.current = { type: e.pointerType, chromeShown: chromeOn }
+        }}
         onClick={clickToggle}
+        // A double tap still goes fullscreen: nothing above preventDefaults or
+        // swallows the click, so the second tap's dblclick arrives as it did.
         onDoubleClick={onToggleFullscreen}
         {...c.bind}
       >
