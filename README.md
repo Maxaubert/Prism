@@ -60,6 +60,23 @@ never shipped: one small app that opens everything and looks good doing it.
   another file and your edits wait for you: unsaved files are starred in the tree, and nothing
   closes Prism out from under them.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
+- **On your phone**: Tools > Phone serves the folder you have open to phones on your own
+  Wi-Fi. Scan the QR code once, then browse the folder on the phone and play video, audio
+  and pictures straight from the PC. The code decides only where you start: the phone lists
+  every folder Prism has open and switches between them without another scan, and a reload
+  comes back to the folder you were in, or the film you were watching. Plain HTTP on your own
+  network, nothing leaves it; the PC lists every paired phone and can forget one at any time. What the phone cannot play as
+  it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
+  and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
+  documents, comics and archives open on the phone too, read-only: nothing on the phone can
+  change a file on the PC. Search from the phone with the same box the sidebar has - a couple
+  of words in any order, `"a phrase"`, `*.mp4`, `ext:pdf`, `-drafts` - and a file three
+  folders down is one tap away instead of unreachable, and the list narrows as you type
+  rather than going blank while the PC answers. Films go fullscreen by whatever route
+  the phone actually has, the page itself on Android and an iPhone's own player on iOS.
+  Everything is sized for a thumb, and while a film is playing a tap brings the controls
+  back instead of pausing; the tap after that pauses, the way every phone player behaves.
+  There is one screen, the folder: the phone plays what it opens, and never drives the PC.
 
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 

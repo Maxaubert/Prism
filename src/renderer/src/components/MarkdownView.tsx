@@ -86,13 +86,17 @@ const textOf = (node: unknown): string => {
 
 /** Resolve every candidate in a srcset (sanitize saw it whole; the entries
  *  inside still need the same per-URL policy as src). */
-function fixSrcSet(srcSet: string | undefined, baseDir: string): string | undefined {
+function fixSrcSet(
+  srcSet: string | undefined,
+  baseDir: string,
+  toUrl: (path: string) => string
+): string | undefined {
   if (!srcSet) return undefined
   const fixed = srcSet
     .split(',')
     .map((part) => {
       const [url, ...desc] = part.trim().split(/\s+/)
-      const r = resolveMdUrl(url, baseDir)
+      const r = resolveMdUrl(url, baseDir, toUrl)
       return r ? [r, ...desc].join(' ') : ''
     })
     .filter(Boolean)
@@ -130,6 +134,25 @@ export function MarkdownView({
   // The folder the document lives in, which its relative paths resolve against.
   const baseDir = useMemo(() => path.replace(/[\\/][^\\/]*$/, ''), [path])
   const text = loaded?.path === path ? loaded.text : null
+  /**
+   * The local files this document's links name, by the url each became
+   * (#106). `resolveMdUrl` builds a local url through the bridge's own
+   * `mediaUrl` now, which on the phone is `/m/<path>?t=<token>` and cannot be
+   * read back by prefix the way fsmedia:// could, so the mapping is kept as
+   * the links are resolved. A ref, because it is written from inside the
+   * render that resolves them; emptied when the path changes, which lands
+   * before the new document's text has arrived and so before any of its
+   * links are resolved.
+   */
+  const localHrefs = useRef(new Map<string, string>())
+  useEffect(() => {
+    localHrefs.current.clear()
+  }, [path])
+  const toUrl = useCallback((p: string): string => {
+    const u = window.prism.mediaUrl(p)
+    localHrefs.current.set(u, p)
+    return u
+  }, [])
 
   /** Reads in flight, so a slow one landing late never overwrites a newer
    *  document with an older one. */
@@ -196,9 +219,16 @@ export function MarkdownView({
       window.open(href) // main's window-open handler routes this to the browser
     } else if (isAnchor(href)) {
       followAnchor(href.slice(1))
-    } else if (href.startsWith('fsmedia://local/')) {
+    } else {
       // A relative link, already resolved by urlTransform: back to its path.
-      onOpenLocal(decodeURIComponent(href.slice('fsmedia://local/'.length)))
+      // The prefix is the fallback for an fsmedia:// link written into the
+      // document itself, which passes through the transform untouched.
+      const local =
+        localHrefs.current.get(href) ??
+        (href.startsWith('fsmedia://local/')
+          ? decodeURIComponent(href.slice('fsmedia://local/'.length))
+          : null)
+      if (local !== null) onOpenLocal(local)
     }
   }
 
@@ -224,10 +254,12 @@ export function MarkdownView({
       h4: heading('h4'),
       h5: heading('h5'),
       h6: heading('h6'),
-      img: ({ srcSet, ...rest }) => <img {...rest} srcSet={fixSrcSet(srcSet, baseDir)} />,
-      source: ({ srcSet, ...rest }) => <source {...rest} srcSet={fixSrcSet(srcSet, baseDir)} />
+      img: ({ srcSet, ...rest }) => <img {...rest} srcSet={fixSrcSet(srcSet, baseDir, toUrl)} />,
+      source: ({ srcSet, ...rest }) => (
+        <source {...rest} srcSet={fixSrcSet(srcSet, baseDir, toUrl)} />
+      )
     }
-  }, [baseDir])
+  }, [baseDir, toUrl])
 
   /**
    * Open where you left off, and Ctrl+F.
@@ -336,7 +368,7 @@ export function MarkdownView({
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, SCHEMA]]}
-              urlTransform={(url) => resolveMdUrl(url, baseDir)}
+              urlTransform={(url) => resolveMdUrl(url, baseDir, toUrl)}
               components={components}
             >
               {text}

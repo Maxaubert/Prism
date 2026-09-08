@@ -92,7 +92,8 @@ export function CodeView({
   getPending,
   onExternalChange,
   answer,
-  fullscreen = false
+  fullscreen = false,
+  readOnly = false
 }: {
   path: string
   name: string
@@ -118,6 +119,12 @@ export function CodeView({
   /** A dialog in fullscreen is composited outside the fullscreen element and
    *  nobody sees it, so the question waits. A clean swap does not. */
   fullscreen?: boolean
+  /** A reader, not an editor (#106, the phone): the document cannot be
+   *  typed into, so nothing is ever dirty, no save is offered or bound, and
+   *  the follow toggle is not shown. Following and the tail are the other
+   *  read-only states and stay their own thing: they are per file, this is
+   *  per host. */
+  readOnly?: boolean
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -484,19 +491,28 @@ export function CodeView({
   }, [following, checkDisk, report])
 
   // Read-only while following, and while showing a tail. Reconfigured rather
-  // than rebuilt, like every other per-file thing here.
+  // than rebuilt, like every other per-file thing here. A read-only HOST goes
+  // one further and takes the contenteditable away: following keeps a caret
+  // because the file may come back as a file, a reader never does.
   useEffect(() => {
     const v = view.current
     if (!v) return
-    const ro = following || !!tailed
-    v.dispatch({ effects: roComp.reconfigure(ro ? [EditorState.readOnly.of(true)] : []) })
-  }, [following, tailed])
+    const ro = following || !!tailed || readOnly
+    v.dispatch({
+      effects: roComp.reconfigure(
+        ro
+          ? [EditorState.readOnly.of(true), ...(readOnly ? [EditorView.editable.of(false)] : [])]
+          : []
+      )
+    })
+  }, [following, tailed, readOnly])
 
   const save = useCallback(async (): Promise<boolean> => {
     const v = view.current
     // `saved.current` is null for a file that never loaded, and that is the
     // guard: nothing may be written over a file whose contents we never had.
-    if (!v || !saved.current) return false
+    // A reader has nothing to write with either, whatever the bridge says.
+    if (readOnly || !v || !saved.current) return false
     const text = v.state.doc.toString()
     const r = await window.prism.writeText(path, text)
     if (!r.ok) {
@@ -515,7 +531,7 @@ export function CodeView({
     setFailed(null)
     onSaved()
     return true
-  }, [path, report, onSaved])
+  }, [path, report, onSaved, readOnly])
 
   // The wrap preference is live: changing it in Settings or the menu must
   // reach the editor that is already open, not just the next file.
@@ -538,6 +554,9 @@ export function CodeView({
       const ours = !!target && !!host.current?.contains(target)
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && !ours) return
       if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+        // Not bound for a reader: the browser's own Ctrl+S (save the page)
+        // is what the key means there, and it is left to it.
+        if (readOnly) return
         e.preventDefault()
         e.stopPropagation()
         void save()
@@ -566,7 +585,7 @@ export function CodeView({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [save])
+  }, [save, readOnly])
 
   // The menu's verbs, as callbacks: a ref may not be read while rendering, and
   // menuItems() runs in the render pass that draws the menu.
@@ -605,6 +624,21 @@ export function CodeView({
    * document APIs rather than by dispatching keystrokes.
    */
   const menuItems = (hasSel: boolean): MenuItem[] => {
+    // A reader's menu (#106) has no Cut, Paste, Follow or Save: those change
+    // the document or the file, and it can do neither.
+    if (readOnly)
+      return [
+        { label: 'Copy', disabled: !hasSel, onPick: () => void document.execCommand('copy') },
+        { label: 'Select all', onPick: selectAll },
+        { label: 'Find', hint: 'Ctrl+F', onPick: findHere },
+        { label: 'Go to line', hint: 'Ctrl+G', onPick: gotoHere },
+        {
+          label: 'Word wrap',
+          icon: tickIf(wrapsFor(wrap, isProse(name))),
+          onPick: () => setWrapPref(wrapsFor(wrap, isProse(name)) ? 'off' : 'on')
+        },
+        ...fileVerbs(path)
+      ]
     return [
       // No shortcut hints on the clipboard verbs: Ctrl+X/C/V are the three
       // keys nobody has ever needed a menu to teach them. Find and Save keep
@@ -703,7 +737,7 @@ export function CodeView({
           {caret.sel > 0 && ` (${caret.sel} selected)`}
         </div>
       )}
-      {(dirty || onClose) && (
+      {!readOnly && (dirty || onClose) && (
         <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)]">
           {failed && (
             <span className="px-2 text-[11.5px] text-[#d97b84]">

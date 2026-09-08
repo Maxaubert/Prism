@@ -366,8 +366,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
     onError: () => setError(errorMsg ?? 'This file can’t be played.')
   }
 
-  return {
+  const controls: MediaControls = {
     playing, cur, dur, buffered, vol, muted, rate, error,
     setVol, toggleMute, setRate, stepRate, togglePlay, seekTo, seekBy, bumpVol, bind
   }
+
+  return controls
 }

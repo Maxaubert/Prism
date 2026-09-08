@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useState, type JSX } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import { ImageView } from './ImageView'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
@@ -13,7 +20,9 @@ import { preloadImage } from '../lib/imageLoader'
  *
  * Left and Right turn the page (owner decision), which is the one place in
  * Prism where those keys do not page the folder. Ctrl+Left and Ctrl+Right
- * keep the folder, so the next comic is still one keystroke away. The
+ * keep the folder, so the next comic is still one keystroke away. On a
+ * touch screen a tap on the left or right third of the page turns it too
+ * (#106, the phone). The
  * position is remembered the way a PDF's is: a book you put down opens where
  * you left it.
  *
@@ -117,6 +126,39 @@ export function ComicView({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [go, total])
 
+  /**
+   * A TAP on the outer thirds turns the page (2026-09-07, #106, the phone).
+   * TOUCH pointers only: a mouse click on the left third of a comic turning
+   * the page would be a change to the desktop nobody asked for, where the
+   * keys and the wheel already do it. A tap is a touch that ends within a
+   * few pixels of where it began with no second finger meanwhile - a drag
+   * pans, a pinch zooms, and both go to ImageView untouched. The middle
+   * third is left to the picture (its double-tap toggles actual size).
+   */
+  const tap = useRef<{ id: number; x: number; y: number; alone: boolean } | null>(null)
+  const onTapDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (e.pointerType !== 'touch') return
+    if (tap.current) {
+      // A second finger: whatever this is, it is not a tap.
+      tap.current.alone = false
+      return
+    }
+    tap.current = { id: e.pointerId, x: e.clientX, y: e.clientY, alone: true }
+  }
+  const onTapEnd = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (tap.current?.id === e.pointerId) tap.current = null
+  }
+  const onTapUp = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    const t = tap.current
+    if (!t || t.id !== e.pointerId) return
+    tap.current = null
+    if (!t.alone || Math.hypot(e.clientX - t.x, e.clientY - t.y) > 12) return
+    const box = e.currentTarget.getBoundingClientRect()
+    const third = (e.clientX - box.left) / Math.max(1, box.width)
+    if (third < 1 / 3) go(-1)
+    else if (third > 2 / 3) go(1)
+  }
+
   if (loaded && 'error' in loaded) {
     return (
       <div className="grid h-full place-items-center px-8 text-center">
@@ -141,7 +183,13 @@ export function ComicView({
   const pageName = pages[at]?.split(/[\\/]/).pop() ?? name
 
   return (
-    <div data-owns-arrows className="relative h-full w-full">
+    <div
+      data-owns-arrows
+      className="relative h-full w-full"
+      onPointerDown={onTapDown}
+      onPointerUp={onTapUp}
+      onPointerCancel={onTapEnd}
+    >
       <ImageView
         // Keyed by page, so each one mounts fresh: zoom and rotation belong to
         // the page you are looking at, exactly as they do in a folder.

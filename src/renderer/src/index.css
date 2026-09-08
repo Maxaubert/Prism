@@ -525,3 +525,17 @@ input[type='color']::-webkit-color-swatch {
 :fullscreen::backdrop {
   background-color: #000;
 }
+
+/* A FINGER NEEDS 44 PIXELS (2026-09-07, #106, the phone).
+
+   The archive panel's rows are 28px, which is right for a pointer and is the
+   height Explorer's details view uses; on a touch screen it is a row and a
+   half under a fingertip, and a tap lands on the neighbour as often as not.
+   Keyed on the pointer rather than on the phone page, because a Windows
+   tablet running the desktop app has the same finger. `min-height` wins over
+   the row's own `height`, so the desktop's 28px class stays as it is. */
+@media (pointer: coarse) {
+  [data-arc-row] {
+    min-height: 44px;
+  }
+}

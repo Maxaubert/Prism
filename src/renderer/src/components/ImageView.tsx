@@ -469,15 +469,24 @@ export function ImageView({
    */
   const menuItems = (): MenuItem[] => [
     { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
-    { label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() },
-    {
-      label: 'Save a copy',
-      disabled: !img,
-      children: [
-        { label: 'PNG', onPick: () => void saveCopy('png') },
-        { label: 'JPEG', onPick: () => void saveCopy('jpeg') }
-      ]
-    },
+    // The pixels go to the OS clipboard and the copy through main's save
+    // dialog: neither exists on the phone (#106), so the rows are left out
+    // rather than offered and refused.
+    ...(window.prism.capabilities.clipboard
+      ? [{ label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() }]
+      : []),
+    ...(window.prism.capabilities.write
+      ? [
+          {
+            label: 'Save a copy',
+            disabled: !img,
+            children: [
+              { label: 'PNG', onPick: () => void saveCopy('png') },
+              { label: 'JPEG', onPick: () => void saveCopy('jpeg') }
+            ]
+          }
+        ]
+      : []),
     ...(onStep && canStep
       ? [
           {

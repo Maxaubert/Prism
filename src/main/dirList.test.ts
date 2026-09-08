@@ -148,6 +148,18 @@ describe('searchFiles', () => {
     expect(hits[0].dir).toBe(join('season1', 'extras'))
   })
 
+  // A cancelled walk answers with no hits, which reads exactly like "nothing
+  // matches" unless it says otherwise - and a client that draws that empties
+  // a list that had the right rows in it (2026-09-08, the phone).
+  it('says a walk was superseded rather than answering an empty one', async () => {
+    const older = searchFiles(root, 'ep1')
+    const newer = searchFiles(root, 'ep2')
+    const [stale, fresh] = await Promise.all([older, newer])
+    expect(stale.superseded).toBe(true)
+    expect(fresh.superseded).toBeUndefined()
+    expect(fresh.hits.map((h) => h.name)).toEqual(['ep2.mp4'])
+  })
+
   it('is case-insensitive and skips noise, junk and non-viewables', async () => {
     const names = (await searchFiles(root, 'EP')).hits.map((h) => h.name)
     expect(names).toContain('ep1.mp4')

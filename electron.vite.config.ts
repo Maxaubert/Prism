@@ -72,6 +72,15 @@ export default defineConfig({
       }
     },
     plugins: [react(), tailwindcss(), pdfSideData()],
-    build: { rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } } }
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          // The phone page (#104): served over the LAN by src/main/phone, out
+          // of the same renderer dir, sharing the viewers and the style tokens.
+          phone: resolve(__dirname, 'src/renderer/phone.html')
+        }
+      }
+    }
   }
 })

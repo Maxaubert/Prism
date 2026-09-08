@@ -11,6 +11,7 @@ import type {
   SearchResult,
   ShellDef,
   MediaProbe,
+  PhoneState,
   TailEvent,
   TailRead,
   TextRead,
@@ -21,6 +22,23 @@ import type {
 // `mediaUrl` + the open payload, nothing app-specific.
 
 const api = {
+  /**
+   * What this host can do (#106). The viewers serve two hosts, the desktop
+   * app and the phone page, and the phone's bridge (`phone/prismShim.ts`)
+   * answers the same shape with every flag false. A viewer consults it to
+   * leave a verb OUT rather than to offer one that answers "did not happen":
+   * `write` is anything that changes a file (save, rename, extract, delete),
+   * `clipboard` is the OS clipboard (files, pixels; the browser's own
+   * writeText is not it), `explorer` is the desktop around the window (Show
+   * in File Explorer, and the hex view a file handed over by Windows lands
+   * in), `drag` is dragging out to other windows. The desktop has all four.
+   */
+  capabilities: { write: true, clipboard: true, explorer: true, drag: true } as {
+    write: boolean
+    clipboard: boolean
+    explorer: boolean
+    drag: boolean
+  },
   /** fsmedia:// URL for a local path, so <img>/<video>/<audio>/<embed> can load it. */
   mediaUrl: (path: string): string => `fsmedia://local/${encodeURIComponent(path)}`,
 
@@ -55,6 +73,25 @@ const api = {
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
   dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
+  // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
+  // Every verb answers with the whole state for `root` (the current tab), so
+  // the dialog never has to guess what a click did.
+  /** The dialog's state: switch, port, addresses, phones, and a code for `root`. */
+  phoneGet: (root: string | null): Promise<PhoneState> => ipcRenderer.invoke('phone:get', root),
+  /** Turn the server on or off. The answer says what the server IS. */
+  phoneSetOn: (on: boolean, root: string | null): Promise<PhoneState> =>
+    ipcRenderer.invoke('phone:set-on', on, root),
+  /** A fresh code for `root`, replacing the one it had. */
+  phoneCode: (root: string): Promise<PhoneState> => ipcRenderer.invoke('phone:code', root),
+  /** Forget a paired phone by token. */
+  phoneForget: (token: string, root: string | null): Promise<PhoneState> =>
+    ipcRenderer.invoke('phone:forget', token, root),
+  /** Pairing, watchers or the switch changed: re-read with phoneGet. */
+  onPhoneChanged: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('phone:changed', listener)
+    return () => ipcRenderer.removeListener('phone:changed', listener)
+  },
   // The three navigation calls name the root they act in. They are per-tab
   // operations, the caller always knows which tab is asking, and main refuses a
   // root that is not open as well as a path from a different one.

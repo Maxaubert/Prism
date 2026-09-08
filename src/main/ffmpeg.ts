@@ -160,6 +160,11 @@ export interface MediaInfo {
    *  video, so this exists to NAME what it cannot show rather than leave a
    *  black window with no explanation. */
   videoCodec: string | null
+  /** The picture's shape, when the file has one (2026-09-06, #105). The
+   *  phone transcode needs the height for its 1080p ceiling and the transfer
+   *  to tell HDR from SDR: an HDR picture scaled without a tone-map comes out
+   *  flat grey, and only the transfer says which one a file is. */
+  video: { width: number; height: number; pixFmt: string; transfer: string } | null
   /** Frames per second, when the file has a video stream that says. Frame
    *  stepping is a lie without it: a step of 1/30 on 24fps film moves most of
    *  a frame and lands between two of them. */
@@ -190,6 +195,11 @@ interface ProbeStream {
   r_frame_rate?: string
   channels?: number
   channel_layout?: string
+  width?: number
+  height?: number
+  pix_fmt?: string
+  /** "smpte2084" (HDR10), "arib-std-b67" (HLG), "bt709" (SDR). */
+  color_transfer?: string
   disposition?: { default?: number }
   tags?: { language?: string; title?: string }
 }
@@ -230,6 +240,10 @@ export function readProbe(json: string): MediaInfo | null {
     audio,
     tracks,
     videoCodec: video?.codec_name ?? null,
+    video:
+      video && typeof video.width === 'number' && typeof video.height === 'number'
+        ? { width: video.width, height: video.height, pixFmt: video.pix_fmt ?? '', transfer: video.color_transfer ?? '' }
+        : null,
     fps: frameRate(video),
     duration
   }
@@ -296,7 +310,7 @@ const PROBE_ARGS = [
   '-v', 'error',
   '-print_format', 'json',
   '-show_entries',
-  'stream=index,codec_type,codec_name,channels,channel_layout,disposition,avg_frame_rate,r_frame_rate:stream_tags=language,title:format=duration'
+  'stream=index,codec_type,codec_name,channels,channel_layout,disposition,avg_frame_rate,r_frame_rate,width,height,pix_fmt,color_transfer:stream_tags=language,title:format=duration'
 ]
 
 /**

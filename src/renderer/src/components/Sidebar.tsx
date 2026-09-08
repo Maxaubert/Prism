@@ -712,6 +712,29 @@ export function Sidebar({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [order])
+  /**
+   * OPENING A FILE THE USER POINTED AT, by whichever hand.
+   *
+   * A film or a track PLAYS when it is picked (owner, 2026-09-03). That
+   * narrows the 2026-08-28 rule rather than reversing it: nothing autoplays
+   * on launch, on a restore, or on a file Windows hands over, because none of
+   * those was asked for. The pick IS the intent, recorded the way the playlist
+   * records its own, so the player that mounts starts rather than waits.
+   *
+   * It lives here because the ARROW KEYS are the same intent as the click and
+   * used to be a different one (2026-09-08, owner: arrowing onto a track left
+   * it sitting at 0:00 while clicking the same row played it). Two callers,
+   * one rule.
+   */
+  const openPicked = useCallback(
+    (path: string): void => {
+      const kind = fileKind(extOf(path))
+      // Keyed by the media URL, which is what the players ask wasPlaying for.
+      if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(path))
+      onOpenFile(path)
+    },
+    [onOpenFile]
+  )
   const onRowClick = useCallback(
     (e: MouseEvent, path: string, isFolder: boolean): void => {
       // Was this row ALREADY the whole selection before this click? Read
@@ -730,21 +753,11 @@ export function Sidebar({
       // Shift and ctrl select WITHOUT opening or expanding either way - that
       // is what makes select-then-right-click and multi-select work.
       if (!e.shiftKey && !e.ctrlKey) {
-        if (!isFolder) {
-          // A CLICK on a film or a track PLAYS it (owner, 2026-09-03). This
-          // narrows the 2026-08-28 rule rather than reversing it: nothing
-          // autoplays on launch, on a restore, or on a file Windows hands
-          // over - those arrive without a click. The click is the intent, and
-          // it is recorded the way the playlist records its own, so the
-          // player that mounts for it starts rather than waits.
-          const kind = fileKind(extOf(path))
-          // Keyed by the media URL, which is what the players ask wasPlaying for.
-          if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(path))
-          onOpenFile(path)
-        } else if (wasOnlySelection) toggle(path)
+        if (!isFolder) openPicked(path)
+        else if (wasOnlySelection) toggle(path)
       }
     },
-    [order, toggle, onOpenFile, sel]
+    [order, toggle, openPicked, sel]
   )
   const selJoin = useCallback(
     (path: string): { top: boolean; bottom: boolean } => {
@@ -1026,7 +1039,10 @@ export function Sidebar({
     (row: { path: string; isFolder: boolean }, keepFocus = false): void => {
       setCursor(row.path)
       setSel({ anchor: row.path, items: new Set([row.path]) })
-      if (!row.isFolder) onOpenFile(row.path)
+      // The same rule the click follows: landing on a film or a track with the
+      // arrows is the same intent as pointing at it, so it plays rather than
+      // sitting at 0:00 (2026-09-08).
+      if (!row.isFolder) openPicked(row.path)
       // Arrowing from inside the SEARCH BOX must not take the caret out of it
       // (2026-08-30): one press moved focus to the row, and the letters that
       // followed reached the viewer's own shortcuts instead of the query.
@@ -1042,7 +1058,7 @@ export function Sidebar({
         el?.scrollIntoView({ block: 'nearest' })
       })
     },
-    [onOpenFile]
+    [openPicked]
   )
 
   // The shell walked into a folder (#99): show it and mark it, WITHOUT taking

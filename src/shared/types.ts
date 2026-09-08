@@ -64,6 +64,12 @@ export interface SearchResult {
   hits: SearchHit[]
   /** True when a cap stopped the walk: there may be more than what came back. */
   truncated: boolean
+  /** This walk was SUPERSEDED and stopped where it was, so the empty hits are
+   *  not an answer (2026-09-08). A cancelled walk reads exactly like "nothing
+   *  matches" to whoever asked, and on the phone that emptied a list which had
+   *  the right rows in it. Absent on a real answer, so nothing has to test it
+   *  to believe one. */
+  superseded?: true
 }
 
 /** One directory's listable contents: subfolders, then viewable files.
@@ -231,4 +237,39 @@ export interface TailEvent {
   path: string
   text: string
   reset: boolean
+}
+
+/** A phone paired to this PC (2026-09-06, #104): its token, the name it gave,
+ *  and the ROOT it was paired to, which is the tab the QR was shown from. */
+export interface PhoneInfo {
+  token: string
+  name: string
+  root: string
+  paired: number
+  seen: number
+}
+
+/**
+ * One tab a phone may switch to (2026-09-08, #107): a root the PC has open
+ * RIGHT NOW, the folder name to show for it, and whether it is the one this
+ * phone is on. The list is whatever the PC holds, read fresh; it is not a
+ * thing anybody curates.
+ */
+export interface PhoneTab {
+  root: string
+  name: string
+  current: boolean
+}
+
+/** What the Tools > Phone dialog shows: main's answer to `phone:get`. */
+export interface PhoneState {
+  on: boolean
+  port: number | null
+  addresses: string[]
+  phones: PhoneInfo[]
+  /** Phones that fetched something in the last 30 seconds, by token. */
+  watching: string[]
+  /** The current tab's pairing: link and QR (SVG) for it, when the server is up. */
+  code?: { code: string; link: string; svg: string; expires: number }
+  error?: string
 }

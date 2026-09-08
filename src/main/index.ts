@@ -22,14 +22,29 @@ import {
   statSync,
   writeFileSync
 } from 'fs'
-import { copyFile, readFile, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
+import { networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
-import { isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
-import { addRoot, dropRoot, insideAnyRoot, isAnyRoot, onRootsChanged, validRoot } from './roots'
+import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import {
+  addRoot,
+  dropRoot,
+  insideAnyRoot,
+  isAnyRoot,
+  onRootsChanged,
+  openRoots,
+  validRoot
+} from './roots'
+import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
+import { HlsJobs } from './phone/jobs'
+import { parseStore, serializeStore, type PhoneStore } from './phone/store'
+import { lanAddresses } from './phone/lan'
+import { pairLink } from './phone/routes'
+import { qrSvg } from './phone/qr'
+import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
@@ -74,7 +89,7 @@ import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
 import { encodeText, shapeOf, type TextShape } from './textFile'
 import { readTail, startTail, stopAllTails, stopTail } from './fileTail'
-import { openComic } from './comic'
+import { openComic, type ComicOpen } from './comic'
 import { renameFile, uniqueName } from './fileOps'
 import { appsForExt, argsFor, type AppCandidate } from './openWith'
 import { readAsVtt, sidecarsFor, type SubTrack } from './subtitles'
@@ -97,11 +112,11 @@ import { fileKind } from '@shared/fileKind'
 import type {
   ArchiveListing,
   DirListing,
-  FileKind,
   OnClash,
   OpenPayload,
   OpenWithApp,
   MediaProbe,
+  PhoneState,
   RenameResult,
   TextRead,
   WriteResult
@@ -427,9 +442,12 @@ async function serveMedia(request: Request): Promise<Response> {
     return new Response(null, { status: 400 })
   }
   if (!mediaAllowed(filePath)) return new Response(null, { status: 403 })
-  let st: ReturnType<typeof statSync>
+  // Async since the phone server (2026-09-06) started answering a LAN's
+  // worth of Range requests through here: a sync stat on main's one thread
+  // was cheap for one window and is the wrong shape for many phones.
+  let st: Awaited<ReturnType<typeof stat>>
   try {
-    st = statSync(filePath)
+    st = await stat(filePath)
   } catch {
     return new Response(null, { status: 404 })
   }
@@ -619,6 +637,8 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
 }
 
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
+/** The phone switch, its port and the paired phones (#104). */
+const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
 
 /**
  * The newest Claude session recorded for `root`, from claude's own store:
@@ -1303,6 +1323,238 @@ if (!app.requestSingleInstanceLock()) {
       })
     )
 
+    /**
+     * PRISM ON YOUR PHONE (2026-09-06, #104). The server lives for as long as
+     * the switch is on; the switch, the port it settled on and the paired
+     * phones persist in phone.json. Every change the dialog could care about
+     * is pushed as `phone:changed`, and the dialog re-reads with `phone:get`,
+     * which is what keeps the two from drifting: the switch reflects what the
+     * server IS, not what was clicked.
+     *
+     * Nothing here is synchronous: the file is read once with fs/promises
+     * (the handlers wait on that read), and every write goes through one
+     * chained async writer so two pairings a moment apart cannot interleave.
+     */
+    let phoneStore: PhoneStore = parseStore('')
+    let phoneWrite: Promise<void> = Promise.resolve()
+    const savePhone = (): void => {
+      const text = serializeStore(phoneStore)
+      phoneWrite = phoneWrite
+        .then(() => writeFile(PHONE_STATE(), text))
+        .catch(() => {
+          /* a failed write loses the pairing, not the session */
+        })
+    }
+    let phone: PhoneServer | null = null
+    let phoneError = ''
+    const phoneChanged = (): void => mainWindow?.webContents.send('phone:changed')
+    const rootIsOpen = (root: string): boolean => openRoots().some((r) => isRoot(r, root))
+
+    // One probe per file, kept for as long as the file has not changed: the
+    // audio player, the video player, the no-picture note and the phone's
+    // /api/play all ask. Null is "ffprobe could not read it" AND "there is
+    // no ffprobe": the callers that tell those apart ask findFfmpeg first.
+    const probeCache = new Map<string, MediaInfo | null>()
+    const probeCached = async (p: string): Promise<MediaInfo | null> => {
+      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+      if (!tools?.ffprobe) return null
+      let key: string
+      try {
+        key = `${p}|${(await stat(p)).mtimeMs}`
+      } catch {
+        return null
+      }
+      let info = probeCache.get(key)
+      if (info === undefined) {
+        info = await probeMedia(tools.ffprobe, p)
+        if (probeCache.size > 40) probeCache.clear()
+        probeCache.set(key, info)
+      }
+      return info
+    }
+
+    // The phone's HLS jobs (#105): one ffmpeg per phone and file, under
+    // userData. Made once, and the directory is wiped at startup: segments
+    // of a previous run belong to jobs nothing remembers.
+    const HLS_DIR = join(app.getPath('userData'), 'phone', 'hls')
+    const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+    const hlsJobs = hlsTools ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR }) : null
+    void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
+
+    /**
+     * `file:text`'s body, factored (#106) so the phone's `/api/text` reads
+     * the same way: capped, decoded by its own byte-order mark, the shape
+     * remembered for a save. The WALL is not in here: the IPC handler checks
+     * the root set and the extracted grants, the phone route checks its own
+     * phone's root, and each grants what the answer names on its own side.
+     */
+    const readTextWalled = async (p: string): Promise<TextRead> => {
+      try {
+        const fs = await import('fs/promises')
+        // AWAITED, so a read error is caught here rather than escaping as a
+        // rejected invoke; and capped, because the contract is small text
+        // files and CodeMirror is handed one string (2026-08-28).
+        const st = await fs.stat(p)
+        // Too big to hand over as one string. Answered as a REASON rather than
+        // as null: the editor used to seed itself with a placeholder and could
+        // then save that placeholder over the file (2026-08-28).
+        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
+        // Decoded by its own byte-order mark rather than assumed utf-8: a
+        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
+        // anything PowerShell 5.1 redirected to a file. Those used to open as
+        // mojibake, which Prism would then offer to save back over them. The
+        // file's SHAPE is remembered so the save can reproduce it, line
+        // endings included (see textFile.ts).
+        const buf = await fs.readFile(p)
+        const { text, encoding, eol } = shapeOf(buf)
+        textShape.set(p.toLowerCase(), { encoding, eol })
+        return { text }
+      } catch {
+        return { error: 'unreadable' }
+      }
+    }
+    /** `doc:html`'s body, factored the same way (#106): converted AND
+     *  sanitised in main, null for anything that is not a document or
+     *  would not convert. No wall in here either. */
+    const docHtmlOf = async (p: string): Promise<string | null> => {
+      if (!docKind(extname(p))) return null
+      try {
+        const html = await convertDoc(p)
+        return html === null ? null : await sanitizeDoc(html)
+      } catch {
+        return null
+      }
+    }
+
+    const phoneDeps = (): ConstructorParameters<typeof PhoneServer>[0] => ({
+      rendererDir: RENDERER_DIR,
+      devUrl: !app.isPackaged ? process.env.ELECTRON_RENDERER_URL : undefined,
+      media: serveMedia,
+      listDir,
+      // The very function `search:files` answers the sidebar with, so the
+      // phone's field and the PC's box find the same files by the same rules.
+      search: (root: string, query: string) => searchFiles(root, query),
+      validRoot,
+      isRoot,
+      rootOpen: rootIsOpen,
+      // The tabs a phone may switch to: main's own open set, read on the ask
+      // rather than pushed, since a tab closes without telling the phone.
+      openRoots,
+      subsFor: (p: string) => sidecarsFor(p).map((t) => ({ path: t.path, label: t.label })),
+      readSubs: (p: string) =>
+        readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg),
+      probe: probeCached,
+      jobs: hlsJobs,
+      readText: readTextWalled,
+      docHtml: docHtmlOf,
+      docImages: documentImages,
+      isMarkdown: isMarkdownPath,
+      // `/m/` passes through serveMedia, whose wall is `mediaAllowed`; the
+      // phone's grant on its side is not enough on its own.
+      grantServable: (paths) => {
+        for (const img of paths) servable.add(img)
+      },
+      // The comic and archive bodies are declared further down this block,
+      // beside their IPC handlers and the gates they share. That is fine:
+      // `phoneDeps()` is only ever called from `startPhone`, which runs after
+      // the block has finished, so nothing here is read before it exists.
+      comicOpen: (p, password) => openComicWalled(p, password),
+      archiveList: (p, password) => listArchiveWalled(p, password),
+      archiveExtract: (p, entry, password) => extractMemberWalled(p, entry, password),
+      // The IPC's own kind gates, minus their root half (the route walls
+      // with the phone's root instead): a .txt is never handed to 7-Zip.
+      isArchive: (p) => fileKind(extname(p)) === 'archive',
+      isComic: (p) => fileKind(extname(p)) === 'comic',
+      onChange: () => {
+        savePhone()
+        phoneChanged()
+      },
+      // A throwaway e2e build must never raise the firewall prompt.
+      loopbackOnly: E2E
+    })
+    const startPhone = async (): Promise<void> => {
+      if (phone) return
+      const s = new PhoneServer(phoneDeps(), phoneStore.pairing)
+      try {
+        phoneStore.port = await s.start(phoneStore.port ?? DEFAULT_PORT)
+        phone = s
+        phoneError = ''
+      } catch (err) {
+        phoneError = `Could not open a port: ${String((err as Error)?.message ?? err)}`
+        phoneStore.on = false
+      }
+      savePhone()
+      phoneChanged()
+    }
+    const stopPhone = async (): Promise<void> => {
+      const s = phone
+      phone = null
+      if (s) await s.stop()
+      phoneChanged()
+    }
+    // Read once; the switch that was on comes back on. The handlers wait on
+    // this so a dialog opened in the first moments sees the file, not the
+    // empty default.
+    const phoneReady: Promise<void> = readFile(PHONE_STATE(), 'utf8')
+      .catch(() => '')
+      .then((raw) => {
+        phoneStore = parseStore(raw)
+        if (phoneStore.on) void startPhone()
+      })
+    const phoneState = async (root: string | null): Promise<PhoneState> => {
+      await phoneReady
+      const state: PhoneState = {
+        on: !!phone,
+        port: phone?.port ?? null,
+        addresses: E2E ? ['127.0.0.1'] : lanAddresses(networkInterfaces()),
+        phones: phoneStore.pairing.phones.map((p) => ({ ...p })),
+        watching: phone?.watching() ?? [],
+        error: phoneError || undefined
+      }
+      // A code is for a root a tab holds: a phone paired to a closed folder
+      // would only ever see the "scan again" screen.
+      if (phone && root && rootIsOpen(root) && state.addresses[0]) {
+        const now = Date.now()
+        const live = phoneStore.pairing.codes.find((c) => c.root === root && c.expires > now)
+        const { code, expires } = live ?? phone.issue(root)
+        const link = pairLink(state.addresses[0], phone.port ?? DEFAULT_PORT, code)
+        state.code = { code, link, svg: await qrSvg(link), expires }
+      }
+      return state
+    }
+    const rootArg = (root: unknown): string | null => (typeof root === 'string' ? root : null)
+    ipcMain.handle('phone:get', (_e, root: unknown) => phoneState(rootArg(root)))
+    ipcMain.handle('phone:set-on', async (_e, on: unknown, root: unknown) => {
+      await phoneReady
+      phoneStore.on = on === true
+      savePhone()
+      if (phoneStore.on) await startPhone()
+      else await stopPhone()
+      return phoneState(rootArg(root))
+    })
+    ipcMain.handle('phone:code', async (_e, root: unknown) => {
+      await phoneReady
+      const r = rootArg(root)
+      if (phone && r && rootIsOpen(r)) phone.issue(r)
+      return phoneState(r)
+    })
+    ipcMain.handle('phone:forget', async (_e, token: unknown, root: unknown) => {
+      await phoneReady
+      if (typeof token === 'string' && forgetPhone(phoneStore.pairing, token)) {
+        // Its grants go with it (#106): a forgotten phone keeps nothing.
+        phone?.dropGrants(token)
+        savePhone()
+        phoneChanged()
+      }
+      return phoneState(rootArg(root))
+    })
+    app.on('will-quit', () => {
+      void phone?.stop()
+      // The server's stop kills them too; this covers jobs left by a server
+      // that was already off, and an ffmpeg with no app is an orphan.
+      void hlsJobs?.stopAll()
+    })
+
     // The update check: watch GitHub Releases, remember the newest offer so a
     // renderer that loads after the tick still hears about it.
     let pendingUpdate: UpdateInfo | null = null
@@ -1630,34 +1882,13 @@ if (!app.requestSingleInstanceLock()) {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
       if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
-      try {
-        const fs = await import('fs/promises')
-        // AWAITED, so a read error is caught here rather than escaping as a
-        // rejected invoke; and capped, because the contract is small text
-        // files and CodeMirror is handed one string (2026-08-28).
-        const st = await fs.stat(p)
-        // Too big to hand over as one string. Answered as a REASON rather than
-        // as null: the editor used to seed itself with a placeholder and could
-        // then save that placeholder over the file (2026-08-28).
-        if (st.size > TEXT_MAX_BYTES) return { error: 'too-large' }
-        // Decoded by its own byte-order mark rather than assumed utf-8: a
-        // .reg is UTF-16LE by definition and Prism claims .reg, and so is
-        // anything PowerShell 5.1 redirected to a file. Those used to open as
-        // mojibake, which Prism would then offer to save back over them. The
-        // file's SHAPE is remembered so the save can reproduce it, line
-        // endings included (see textFile.ts).
-        const buf = await fs.readFile(p)
-        const { text, encoding, eol } = shapeOf(buf)
-        textShape.set(p.toLowerCase(), { encoding, eol })
-        // A markdown document may point at pictures OUTSIDE the folder Prism
-        // opened in ("../assets/logo.png" from a doc in docs/), which the
-        // media wall would otherwise refuse. Main grants exactly the files
-        // this document names, having read it (see docImages.ts).
-        if (isMarkdownPath(p)) for (const img of documentImages(p, text)) servable.add(img)
-        return { text }
-      } catch {
-        return { error: 'unreadable' }
-      }
+      const r = await readTextWalled(p)
+      // A markdown document may point at pictures OUTSIDE the folder Prism
+      // opened in ("../assets/logo.png" from a doc in docs/), which the
+      // media wall would otherwise refuse. Main grants exactly the files
+      // this document names, having read it (see docImages.ts).
+      if ('text' in r && isMarkdownPath(p)) for (const img of documentImages(p, r.text)) servable.add(img)
+      return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
     // the third thing Prism writes (after rename and bin), and the narrowest.
@@ -1769,10 +2000,6 @@ if (!app.requestSingleInstanceLock()) {
     const sidecarUrl = (p: string, stream: number, duration: number): string =>
       `${AUDIO_SCHEME}://track/${encodeURIComponent(p)}?s=${stream}&d=${duration}`
 
-    // One probe per file, kept for as long as the file has not changed: the
-    // audio player, the video player and the no-picture note all ask.
-    const probeCache = new Map<string, MediaInfo | null>()
-
     // Ask before playing: what does this file hold, does its audio need Prism's
     // own decoder, and is there one? The renderer plays the answer's url beside
     // the video (which stays silent by itself, having no decoder for the track
@@ -1806,20 +2033,8 @@ if (!app.requestSingleInstanceLock()) {
         const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
         return { ffmpeg: !!fluid, needed: true, synth: true, codec: 'midi' }
       }
-      const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
-      if (!tools) return none
-      let key: string
-      try {
-        key = `${p}|${statSync(p).mtimeMs}`
-      } catch {
-        return none
-      }
-      let info = probeCache.get(key)
-      if (info === undefined) {
-        info = tools.ffprobe ? await probeMedia(tools.ffprobe, p) : null
-        if (probeCache.size > 40) probeCache.clear()
-        probeCache.set(key, info)
-      }
+      if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return none
+      const info = await probeCached(p)
       // No ffprobe, or a container it could not read: the renderer still has a
       // second way in (its decoder byte counter), so offer the first track
       // blind rather than nothing.
@@ -1942,13 +2157,7 @@ if (!app.requestSingleInstanceLock()) {
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
       if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
-      if (!docKind(extname(p))) return null
-      try {
-        const html = await convertDoc(p)
-        return html === null ? null : await sanitizeDoc(html)
-      } catch {
-        return null
-      }
+      return docHtmlOf(p)
     })
 
     // "Open in Prism" in File Explorer's own context menu (HKCU only).
@@ -2405,16 +2614,32 @@ if (!app.requestSingleInstanceLock()) {
     const comicOk = (p: unknown): p is string =>
       typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'comic'
 
-    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
-      if (!comicOk(p)) return { error: 'failed' as const }
+    /**
+     * `comic:open`'s body, factored (#106) so the phone's `/api/comic` opens
+     * a book the same way: unpacked once under `comicsDir`, the password
+     * remembered when it worked. No wall in here; the IPC handler checks
+     * `comicOk` and the phone route checks its own root and kind. The answer
+     * keeps the DIRECTORY, which the phone server grants to the phone that
+     * asked; the IPC drops it, since the media wall already allows
+     * `comicsDir` as a whole.
+     */
+    const openComicWalled = async (
+      p: string,
+      password: string
+    ): Promise<ComicOpen | { error: 'password' | 'failed' | 'empty' }> => {
       comicsDir = join(app.getPath('userData'), 'comics')
-      const pw =
-        typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
+      const pw = password || (archivePasswords.get(p) ?? '')
       const exe = bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!exe) return { error: 'failed' as const }
       const got = await openComic(exe, p, comicsDir, pw)
       if ('error' in got) return got
       if (pw) archivePasswords.set(p, pw)
+      return got
+    }
+    ipcMain.handle('comic:open', async (_e, p: string, password?: string) => {
+      if (!comicOk(p)) return { error: 'failed' as const }
+      const got = await openComicWalled(p, typeof password === 'string' ? password : '')
+      if ('error' in got) return got
       // No per-page grant: the pages live under `comicsDir`, which the media
       // wall allows as a directory.
       return { pages: got.pages }
@@ -2547,60 +2772,68 @@ if (!app.requestSingleInstanceLock()) {
     // good archive read as broken, with nowhere to type what it was asking
     // for. A password that works is remembered here too, so the member verbs
     // and the drag-out do not ask again.
+    /** `archive:list`'s body, factored (#106) for the phone's `/api/archive`.
+     *  No wall in here: the IPC handler checks `archiveReadOk`, the phone
+     *  route its own root and kind. */
+    const listArchiveWalled = async (p: string, password?: string): Promise<ArchiveListing> => {
+      try {
+        const exe = seven(p)
+        if (!exe) {
+          const entries = listArchive(p)
+          return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
+        }
+        const pw = password || (archivePasswords.get(p) ?? '')
+        const listed = await listSeven(exe, p, pw)
+        if (listed.ok && pw) archivePasswords.set(p, pw)
+        return listed
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    }
     ipcMain.handle(
       'archive:list',
       async (_e, p: string, password?: string): Promise<ArchiveListing> => {
         if (!archiveReadOk(p)) return { ok: false, reason: 'failed' }
-        try {
-          const exe = seven(p)
-          if (!exe) {
-            const entries = listArchive(p)
-            return entries ? { ok: true, entries } : { ok: false, reason: 'failed' }
-          }
-          const pw =
-            typeof password === 'string' && password ? password : (archivePasswords.get(p) ?? '')
-          const listed = await listSeven(exe, p, pw)
-          if (listed.ok && pw) archivePasswords.set(p, pw)
-          return listed
-        } catch {
-          return { ok: false, reason: 'failed' }
-        }
+        return listArchiveWalled(p, typeof password === 'string' ? password : undefined)
       }
     )
-    type ExtractResult =
-      | { ok: true; path: string; kind: FileKind }
-      | { ok: false; reason: 'password' | 'aes' | 'failed' }
+    /** `archive:extract`'s body, factored the same way (#106): one member to
+     *  a temp file, which joins `extractedPaths` so the media wall serves it.
+     *  The phone server adds its own per-phone grant on top. */
+    const extractMemberWalled = async (
+      p: string,
+      entry: string,
+      password?: string
+    ): Promise<ExtractResult> => {
+      try {
+        const exe = seven(p)
+        // The cap is ADM-ZIP's - it reads the whole container into memory.
+        // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
+        // by a check that ran before the branch (2026-08-28).
+        if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
+        if (exe) {
+          const pw = password ?? ''
+          const s7 = await extractSeven(exe, p, entry, pw)
+          if (!s7.ok) return s7
+          if (pw) archivePasswords.set(p, pw)
+          extractedPaths.add(s7.path)
+          return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
+        }
+        const r = await extractMember(p, entry, password)
+        if (!r.ok) return r
+        extractedPaths.add(r.path)
+        return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
+      } catch {
+        return { ok: false, reason: 'failed' }
+      }
+    }
     ipcMain.handle(
       'archive:extract',
       async (_e, p: string, entry: string, password?: string): Promise<ExtractResult> => {
         // The READ gate: extracting a member to view it is a read, and the
         // container may itself be a member Prism extracted a moment ago.
         if (!archiveReadOk(p) || typeof entry !== 'string') return { ok: false, reason: 'failed' }
-        try {
-          const exe = seven(p)
-          // The cap is ADM-ZIP's - it reads the whole container into memory.
-          // 7-Zip streams, so a 3GB .7z is fine and used to be refused here
-          // by a check that ran before the branch (2026-08-28).
-          if (!exe && archiveTooLarge(statSync(p).size)) return { ok: false, reason: 'failed' }
-          if (exe) {
-            const pw = typeof password === 'string' ? password : ''
-            const s7 = await extractSeven(exe, p, entry, pw)
-            if (!s7.ok) return s7
-            if (pw) archivePasswords.set(p, pw)
-            extractedPaths.add(s7.path)
-            return { ok: true, path: s7.path, kind: fileKind(extname(s7.path), basename(s7.path)) }
-          }
-          const r = await extractMember(
-            p,
-            entry,
-            typeof password === 'string' ? password : undefined
-          )
-          if (!r.ok) return r
-          extractedPaths.add(r.path)
-          return { ok: true, path: r.path, kind: fileKind(extname(r.path), basename(r.path)) }
-        } catch {
-          return { ok: false, reason: 'failed' }
-        }
+        return extractMemberWalled(p, entry, typeof password === 'string' ? password : undefined)
       }
     )
     /**
