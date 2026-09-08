@@ -46,12 +46,29 @@ reached by reusing its viewers instead).
   the blank list during the debounce and the round trip was. The phone narrows the answer it
   already has with the desktop's own matcher while the ask is out, so the rows stay under the
   finger and the walk's reply replaces them whole.
-- **The phone sees ONE tab's folder** **(owner)**: the tab the QR was shown from. Same root
-  wall as the tab. Not every open tab.
+- **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** **(owner, 2026-09-08, from
+  hands-on use: "i should be able to switch tabs without scanning a new qr code. i should be
+  able to see the available tabs and switch")**. This REVERSES the decision written here
+  first, which was that a phone sees ONE tab's folder - the tab the QR was shown from - and
+  that reaching another one means scanning again. It is written out rather than quietly
+  replaced because it WIDENS THE WALL: a paired phone may now reach any root the PC has OPEN
+  at that moment, where before it could reach exactly one. What has NOT changed is that the
+  phone is on ONE root at a time and every path it names is checked against that one, and
+  that the set it may move within is the folders the user has open on their own screen -
+  nothing the phone sends widens anything.
+  `GET /api/tabs` lists those roots, each with the name to show and whether this phone is on
+  it, read FRESH on every ask since a tab closes without telling the phone; `POST /api/tab`
+  moves this phone to one of them and refuses, with a reason, a folder the PC does not hold.
+  The move is the very path a re-scan takes (one `move()`, shared with `/pair`), so the old
+  root's grants and its running HLS job go with it. On the phone the header names the tab on
+  its own row and taps to the list. A tab that CLOSES is therefore not a dead end any more:
+  that screen offers the list, and "scan again" is what a phone whose token the PC has
+  forgotten sees, and nothing else.
 - **Pair once, remembered** **(owner)**. The QR carries a one-time code; the phone exchanges it
   for a long-lived token kept in its browser. The token remembers the ROOT it was paired to. A
-  returning phone opens that root if a tab still holds it; otherwise it gets "that folder is
-  no longer open in Prism, scan again". Scanning from another tab moves the phone to that root.
+  returning phone opens that root if a tab still holds it; otherwise it is offered the tabs
+  the PC does have open (the decision above; before 2026-09-08 it was "scan again"). Scanning
+  from another tab moves the phone to that root.
   Paired phones are listed and can be forgotten from Prism.
 - **Most kinds Prism opens** **(owner)**: video, audio, pictures, PDF, markdown, code and text
   (read-only), office and ebook documents, comics, archives (listing and viewing members; no
@@ -111,7 +128,12 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   - `GET /` and static assets: the phone bundle, read from the app's `out/renderer` (asar is
     readable through `fs`). In dev, non-API paths are proxied to electron-vite's dev server.
   - `POST /pair {code, name}` -> `{token, root}`.
-  - `GET /api/me` -> `{root, open: boolean, name}`. `open` false is the "scan again" screen.
+  - `GET /api/me` -> `{root, open: boolean, name, folder}`. `name` is the phone's, `folder`
+    the tab's name (main names it, so the phone's header and its tab list cannot spell one
+    folder two ways). `open` false is the "pick another tab" screen.
+  - `GET /api/tabs` -> `{tabs: [{root, name, current}]}`: the roots the PC has open right
+    now. `POST /api/tab {root}` moves this phone to one of them, walled by that same open
+    set (2026-09-08).
   - `GET /api/dir?path=` -> the same `DirListing` `dir:list` returns, filtered by the phone's
     root with the strict per-root check (`validRoot`).
   - `GET /api/search?q=` -> the `SearchResult` the sidebar's box gets, from `searchFiles`
@@ -173,8 +195,9 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   `window.prism.capabilities` says so (`{write: false, clipboard: false, explorer: false,
   drag: false}`); the viewers and `fileVerbs` consult it to hide verbs. `nativeDrag` is false.
   `mediaUrl(path)` returns the `/m/` URL with the token.
-- Shell: a top bar (folder name, back, a menu with "Forget this PC"; the Watch / Remote
-  toggle planned here is gone with the remote itself, 2026-09-08),
+- Shell: a top bar (the TAB's name on its own row, tapping to the list of the PC's open tabs
+  (2026-09-08), then folder name, back; the Watch / Remote toggle planned here is gone with
+  the remote itself, 2026-09-08),
   a folder list rooted at the phone's root (Explorer-shaped, one level at a time, folders
   first, the same sort as the tab's default), a search field over the crumb row whose hits
   replace that list while it holds a query, and the viewer area. Tapping a file opens it;
@@ -217,7 +240,11 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
 ## Testing
 
 - Unit: `pairing.test.ts` (issue, redeem once, expiry, forget, root update, persistence
-  round-trip), `routes.test.ts` (auth, per-root wall, path decoding), `decide.test.ts`
+  round-trip), `routes.test.ts` (auth, per-root wall, path decoding), `tabs.test.ts` (main's:
+  what a root is called and which is current; and the phone's: the two calls and the reason a
+  refusal carries), the loopback tests for both tab routes in `server.test.ts` (the list names
+  the open roots, a move changes what `/api/me` and `/api/dir` answer, a root the PC does not
+  hold is refused, and a move drops the old root's grants and streams), `decide.test.ts`
   (direct/hls per container, codec and `can` list), `hls.test.ts` (segment time math,
   restart-at-segment, playlist text), `prismShim.test.ts` (URL building, capabilities), `fullscreen.test.ts` (which of the three
   routes a host gets, entering and leaving on each, and the signals each one gives back -

@@ -748,6 +748,29 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   matters, which is that the simplest possible answer to "where does this play" is "here".
   What survives is the one-screen explorer, the player, the search, the fullscreen routes and
   every fix that landed beside them.
+- **THE PHONE SEES THE OPEN TABS AND SWITCHES BETWEEN THEM** (owner, 2026-09-08, from the
+  same session: "i should be able to switch tabs without scanning a new qr code. i should be
+  able to see the available tabs and switch"; #107). This REVERSES the design's own first
+  decision - that a phone sees ONE tab's folder, the tab the QR was shown from, and reaches
+  another only by scanning its code - and it WIDENS THE WALL, which is written down here
+  rather than left to be discovered, because a widening nobody wrote down is one nobody can
+  weigh: a paired phone may now reach ANY root the PC currently has OPEN. What did NOT
+  change is the shape of that wall. The phone is on ONE root at a time, every path it names
+  is still checked against that one with `validRoot`, and the set it may move within is the
+  folders the user has open on their own screen (`roots.openRoots()`), read ON THE ASK since
+  a tab closes without telling anybody. Nothing the phone sends widens anything: `POST
+  /api/tab` is walled by that set and stores the PC's OWN SPELLING of the root, so the wall
+  compares what it wrote, and a folder the PC does not hold is refused WITH A REASON,
+  because the failure being removed is a phone pointing at a folder that is gone. The MOVE
+  itself is the path a re-scan already took, factored out of `/pair` rather than written a
+  second time (`move()`): the old root's grants and its running HLS job go with it, both
+  belonging to a folder the phone has left. On the phone the TAB'S NAME is a row of its own
+  above the crumbs, because the two say different things - which folder the PC has open, and
+  where in that folder you are - and the list under it is READ FRESH every time it is
+  opened, with a refused pick re-reading rather than only complaining, since "that folder is
+  not open in Prism any more" is a list that has moved on. A tab that CLOSES is therefore no
+  longer a dead end: that screen offers the list, and the scan-again screen is now what a
+  phone whose token the PC has FORGOTTEN sees, and nothing else.
 - **SIZED FOR A THUMB** (owner, 2026-09-08, after the same iPad session: the video controls
   and the rows in the file explorer are too small; #107). 44px is the PLATFORM FLOOR rather
   than a taste - Apple asks for 44pt and Google for 48dp - and a ROW is taller again (56px),
