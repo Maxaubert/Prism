@@ -879,6 +879,44 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   window is `fullscreenable: false` - granted its fullscreen, a parked window moves to 0,0 at
   the size of the screen, invisible at opacity 0 and still a sheet over whatever the owner is
   doing, which is the thing parking exists to prevent. Blink enters fullscreen either way.
+- **A RELOAD COMES BACK WHERE YOU WERE** (owner, 2026-09-08, #107: "when i refresh a page it
+  should reload me on that file, so if im in a subfolder and reload i should be there, or a
+  movie i should be on the movie"). A phone reloads for reasons nobody chose - a background
+  tab dropped, the Wi-Fi gone, the screen locked long enough - and every one of those landed
+  back at the paired root with nothing open, which on a film four folders down is the whole
+  walk again. The place is IN THE URL now (`phone/place.ts`, pure and tested), written with
+  `history.replaceState` as it changes. ONE PLACE, NEVER TWO: either the folder being
+  browsed (`?at=`) or the file being viewed (`?open=`), and the folder of an open file is
+  the one HOLDING it, so writing both would leave a folder in the URL that reading it back
+  can never use. REPLACE rather than push, deliberately: an entry per tap turns a folder
+  walk into a stack the phone's own back button pops one step at a time, and a mis-tap then
+  costs several presses to leave, where what was asked for is a reload that lands where you
+  were. A PLACE BELONGS TO A ROOT, and the root moves now that the phone switches tabs, so
+  it is checked against the root the phone is on NOW and dropped to that root when it is
+  outside - the same fallback that covers a file since deleted and a folder since renamed,
+  neither of them a screen worth meeting after a reload. The file is resolved from the
+  FOLDER'S OWN LISTING rather than from a route of its own: the listing already carries the
+  name, kind and size a viewer reads, and a file that has gone is simply not in it, which is
+  the fallback with no second way to fail. It is done while RENDERING, the shape the
+  search's `askFor` uses, since by the time an effect ran the folder would have had a frame
+  of its own on screen first. The pairing code is still spent on arrival and never written
+  back.
+- **THE CRUMB ROW'S LAST CHEVRON IS A BUTTON THAT DOES NOTHING** (owner, same day). The
+  phone's crumbs copied the archive panel's trailing chevron, which is a deliberate decision
+  there (2026-08-31) and wrong here: the phone's row sits immediately right of the UP
+  chevron, so a chevron pointing back beside a chevron pointing on reads as a back and a
+  forward button, one of which is inert. A separator belongs BETWEEN names, so the phone
+  draws it between them and the desktop panel is left exactly as it is. The names themselves
+  are drawn as things to press now - the accent on every folder above this one, full
+  contrast on the one you are in - where dimming them all read as a caption rather than as
+  the way back up.
+- **AND A FILE ROW SAYS HOW BIG IT IS** (owner, same day: a 126MB sample clip opened in the
+  belief it was the 8.9GB film, and the row said nothing that would have told them apart).
+  `formatBytes`, the desktop's own, so a size reads the same in both places rather than
+  through a second formatter that rounds differently. A size of 0 draws NOTHING rather than
+  "0 B": 0 is also what a file that could not be stat'ed carries, and a number nobody
+  measured is worse than no number. Search hits carry no size at all (`SearchHit` has no
+  such field), so their rows keep the folder they are in as their second line.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

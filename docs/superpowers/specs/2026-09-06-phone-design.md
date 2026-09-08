@@ -64,6 +64,28 @@ reached by reusing its viewers instead).
   its own row and taps to the list. A tab that CLOSES is therefore not a dead end any more:
   that screen offers the list, and "scan again" is what a phone whose token the PC has
   forgotten sees, and nothing else.
+- **A RELOAD COMES BACK WHERE YOU WERE** **(owner, 2026-09-08: "when i refresh a page it
+  should reload me on that file, so if im in a subfolder and reload i should be there, or a
+  movie i should be on the movie")**. The place lives in the URL (`phone/place.ts`, pure and
+  tested), written with `history.replaceState` as it changes: `?at=` the folder being
+  browsed, or `?open=` the file being viewed, one or the other and never both, since the
+  folder of an open file is the one holding it. Replace rather than push, because an entry
+  per tap turns a folder walk into a stack the phone's back button pops one step at a time.
+  A place belongs to a ROOT and the root moves now that the phone switches tabs, so it is
+  checked against the root the phone is on at the time and falls back to that root when it
+  is outside - the same fallback that covers a file since deleted and a folder since
+  renamed. The file is resolved from its folder's own listing, so there is no route to add
+  and no second way to fail. The pairing code is still spent on arrival and never written
+  back.
+- **The crumb row's separators go BETWEEN the names** **(owner, same day)**. The phone
+  copied the archive panel's chevron-at-every-level (2026-08-31), which beside the phone's
+  Up chevron reads as a back and a forward button, one of them inert. The trailing one goes
+  on the phone only; the desktop panel keeps its decision. The names are drawn as tappable,
+  which they already were: the accent on the folders above, full contrast on the one you
+  are in.
+- **A file row shows its size** **(owner, same day: a 126MB sample clip opened in the belief
+  it was the 8.9GB film)**. `formatBytes`, the desktop's own formatter, and a size of 0 is
+  drawn as nothing, since 0 is also what a file that could not be stat'ed carries.
 - **Pair once, remembered** **(owner)**. The QR carries a one-time code; the phone exchanges it
   for a long-lived token kept in its browser. The token remembers the ROOT it was paired to. A
   returning phone opens that root if a tab still holds it; otherwise it is offered the tabs
@@ -253,7 +275,9 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   pointer as a mouse), `touch.test.ts` (the deal `phone.css` makes: the floor is declared
   once, the phone's own components size from the token, and every marker the stylesheet
   reaches for is still rendered by the component that owns it), `narrow.test.ts` (a growth
-  narrows, a shorter query does not, an emptied narrowing keeps the last answer).
+  narrows, a shorter query does not, an emptied narrowing keeps the last answer),
+  `place.test.ts` (what the URL holds and what it leaves out, a place outside the root
+  falling back to the root, and a read of what was written).
 - E2E (`tools/e2e/run.mjs`, scenario `phone`): launch with `--e2e`, turn the server on over
   IPC, issue a code, pair over HTTP, `GET /api/dir`, fetch a fixture with a Range header and
   assert 206, open the phone page in a phone-sized Playwright page with the token, tap a
