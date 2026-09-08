@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 import type { DirListing, SearchHit, ViewerFile } from '@shared/types'
 import { crumbs, fileFromHit, parentOf, samePath, stepFile } from './browse'
+import { formatBytes } from '../lib/format'
 import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
 import { placeUrl, readPlace } from './place'
@@ -444,7 +445,23 @@ export function Browser({
                     data-kind={f.kind}
                   >
                     <ExtChip ext={f.ext} />
-                    <span className="truncate">{f.name}</span>
+                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                    {/* HOW BIG IT IS (2026-09-08, owner: a 126MB sample clip
+                        opened in the belief it was the 8.9GB film, and the row
+                        said nothing that would have told them apart). The
+                        desktop's own formatter, so a size reads the same in
+                        both places. A size of 0 is drawn as NOTHING rather
+                        than as "0 B": it is also what a file that could not be
+                        stat'ed carries, and a number nobody measured is worse
+                        than no number. */}
+                    {f.size > 0 && (
+                      <span
+                        className="shrink-0 text-[13px] tabular-nums opacity-60"
+                        data-phone-size
+                      >
+                        {formatBytes(f.size)}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
