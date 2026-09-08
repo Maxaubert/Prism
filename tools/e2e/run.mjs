@@ -5702,10 +5702,28 @@ async function phoneTabsScenario(fixtures) {
       (await page.locator('[data-phone-file]:has-text("README.md")').count()) === 0,
       'and the first root is not what the listing answers any more'
     )
+    // The hamburger names nothing (2026-09-09): the tab it moved to is proved
+    // by the drawer's own tick, and by the crumb row, whose first name IS the
+    // root the phone is on.
     ok(
-      /other/i.test((await page.textContent('[data-phone-tab]')) ?? ''),
-      'the header names the tab it moved to'
+      /other/i.test((await page.textContent('[aria-label="Folder"]')) ?? ''),
+      'the crumb row names the tab it moved to'
     )
+    await page.click('[data-phone-tab]')
+    await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    ok(
+      /other/i.test(
+        (await page.textContent('[data-phone-tab-row][aria-current="true"]')) ?? ''
+      ),
+      'and the drawer ticks it'
+    )
+    await page.screenshot({ path: join(SHOTS, 'phone-drawer.png') })
+    // The scrim is the drawer's own dismissal: a tap beside it puts it away.
+    // BESIDE the panel, which is where a thumb lands: the scrim spans the
+    // screen and the drawer sits on its left, so its centre is covered.
+    await page.click('[data-phone-drawer-scrim]', { position: { x: 360, y: 400 } })
+    await page.waitForSelector('[data-phone-sheet]', { state: 'detached', timeout: 5000 })
+    ok(true, 'a tap on the ground beside the drawer closes it')
     await page.screenshot({ path: join(SHOTS, 'phone-tabs.png') })
 
     // And back, without a code anywhere in it.
@@ -5718,6 +5736,11 @@ async function phoneTabsScenario(fixtures) {
       .click()
     await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
     ok(true, 'and back again, with no code scanned either way')
+
+    ok(
+      (await page.locator('[aria-label="Up"]').count()) === 0,
+      'at the root there is no Up arrow to press at all'
+    )
 
     // Two levels down, which is the depth that makes the chevron count worth
     // taking: at one level "one fewer" and "none at all" are the same number.
