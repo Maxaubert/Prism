@@ -2594,6 +2594,15 @@ async function formatsScenario(fixtures) {
         (await win.evaluate(() => document.querySelector('audio')?.error?.code ?? null)) === null,
         'with no error left on the element'
       )
+      // A track that IS open must not be told there is nothing open. Media
+      // lives in the player deck, so the warm deck is empty for it by design,
+      // and the empty-state notice used to be drawn underneath: invisible
+      // behind a film's picture, and written across the middle of the audio
+      // visualizer, which is a transparent ring (2026-09-08).
+      ok(
+        await win.evaluate(() => !document.body.textContent?.includes('No file selected')),
+        'and the stage does not claim there is no file open'
+      )
     } finally {
       await app.close()
     }

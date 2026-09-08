@@ -3429,6 +3429,17 @@ export default function App(): JSX.Element {
                       </div>
                     ))}
                   </>
+                ) : file ? (
+                  // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
+                  // FLAC opened with "No file selected" written across it).
+                  // Media lives in the PLAYER deck, so `warm` is empty for it
+                  // BY DESIGN, and this branch used to answer that emptiness
+                  // with the nothing-open notice. It was drawn under the
+                  // player either way: a film's picture covers it, which is
+                  // why it went unseen for months, and the audio visualizer is
+                  // a transparent ring, which is where it showed through.
+                  // There IS a file here; the player above is drawing it.
+                  null
                 ) : active ? (
                   <NoFileState />
                 ) : (
