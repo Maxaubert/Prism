@@ -242,22 +242,6 @@ export function Browser({
       data-phone-browser
     >
       <header className="sticky top-0 z-10 flex flex-col border-b border-[color:var(--p-line)] bg-[var(--p-bg)] pt-[env(safe-area-inset-top)]">
-        {/* WHICH TAB, on its own row above where-you-are (2026-09-08, owner:
-            "i should be able to see the available tabs and switch"). Its own
-            row rather than another control squeezed in beside the crumbs,
-            because the two say different things: this one is the folder the
-            PC has open, the row under it is where in that folder you are. */}
-        <button
-          className="flex min-h-[var(--phone-touch)] w-full items-center gap-2 px-3 text-left text-[15px] font-semibold active:bg-[var(--p-hover)]"
-          onClick={() => setTabsOpen(true)}
-          aria-haspopup="dialog"
-          aria-expanded={tabsOpen}
-          data-phone-tab
-        >
-          <TabsIcon />
-          <span className="min-w-0 flex-1 truncate">{tab}</span>
-          <ChevronDown />
-        </button>
         <div className="flex items-center gap-1 px-2">
           {searching ? (
             <>
@@ -312,26 +296,44 @@ export function Browser({
             </>
           ) : (
             <>
+              {/* THE WAY OUT OF THIS FOLDER ALTOGETHER (2026-09-09, owner).
+                  The tabs used to name themselves on a row of their own above
+                  the crumbs, which spent a whole row of a phone screen saying
+                  something the first crumb already says. A hamburger is what a
+                  phone means by "everything else is over here", it is present
+                  in every directory, and it is absent while a file is open
+                  because that screen is the file's. */}
               <button
-                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
-                aria-label="Up"
-                disabled={up === null}
-                onClick={() => up !== null && setDir(up)}
+                className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded active:bg-[var(--p-hover)]"
+                onClick={() => setTabsOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={tabsOpen}
+                aria-label="Open tabs"
+                data-phone-tab
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  width={22}
-                  height={22}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                >
-                  <path d="M15 6l-6 6 6 6" />
-                </svg>
+                <HamburgerIcon />
               </button>
+              {up !== null && (
+                <button
+                  className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded active:bg-[var(--p-hover)]"
+                  aria-label="Up"
+                  onClick={() => setDir(up)}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={22}
+                    height={22}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M15 6l-6 6 6 6" />
+                  </svg>
+                </button>
+              )}
               <nav
                 className="flex min-h-[var(--phone-touch)] min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-[15px]"
                 aria-label="Folder"
@@ -402,11 +404,11 @@ export function Browser({
         </div>
       </header>
       {tabsOpen && (
-        <Sheet title="Open tabs" onClose={() => setTabsOpen(false)}>
-          {/* The sheet closes on a pick that WORKED; a refused one leaves it
+        <Drawer title="Open tabs" subtitle={tab} onClose={() => setTabsOpen(false)}>
+          {/* The drawer closes on a pick that WORKED; a refused one leaves it
               open with the reason and a list that has been read again. */}
           <TabList onPick={(r) => onSwitch(r).then(() => setTabsOpen(false))} />
-        </Sheet>
+        </Drawer>
       )}
       {query ? (
         <Results
@@ -534,46 +536,75 @@ function Results({
  * with a thumb needs the width and the room, and a popover anchored to a
  * header button on a 390px screen is neither.
  */
-function Sheet({
+/**
+ * A SIDEBAR, not a page (2026-09-09, owner: "clicking it opens a sidebar with
+ * tabs"). It comes in from the left, over the folder rather than instead of
+ * it: the ground behind stays visible and dismisses the drawer when tapped,
+ * which is how a phone says "that was a detour". Capped at 320px so it never
+ * becomes a full-screen page on a tablet, where the folder beside it is the
+ * whole point of a drawer.
+ */
+function Drawer({
   title,
+  subtitle,
   onClose,
   children
 }: {
   title: string
+  /** The tab you are on, which the hamburger no longer says on the header. */
+  subtitle?: string
   onClose: () => void
   children: ReactNode
 }): JSX.Element {
   return (
-    <div
-      className="fixed inset-0 z-20 flex flex-col bg-[var(--p-bg)] pt-[env(safe-area-inset-top)] text-[var(--p-text)]"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      data-phone-sheet
-    >
-      <div className="flex items-center gap-1 border-b border-[color:var(--p-line)] px-2">
-        <h2 className="min-w-0 flex-1 truncate px-2 text-[15px] font-semibold">{title}</h2>
-        <button
-          className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
-          aria-label="Close"
-          onClick={onClose}
-          data-phone-sheet-close
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width={22}
-            height={22}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            aria-hidden
+    <div className="fixed inset-0 z-20 flex" data-phone-drawer>
+      {/* The ground. It dismisses, and it is what makes this read as a layer
+          over the folder rather than a screen that replaced it. */}
+      <button
+        className="absolute inset-0 bg-black/50"
+        aria-label="Close"
+        onClick={onClose}
+        data-phone-drawer-scrim
+      />
+      <div
+        // The FLAT surface, not --p-bg: several styles are translucent, and a
+        // drawer you can read the folder through is a smear rather than a
+        // layer. It is the token the context menus use, for the same reason.
+        className="relative flex h-full w-[82%] max-w-[320px] flex-col border-r border-[color:var(--p-line)] bg-[var(--p-side-flat)] pt-[env(safe-area-inset-top)] text-[var(--p-text)] shadow-[0_0_40px_rgba(0,0,0,.5)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-phone-sheet
+      >
+        <div className="flex items-center gap-1 border-b border-[color:var(--p-line)] px-2">
+          <h2 className="min-w-0 flex-1 truncate px-2 text-[15px] font-semibold">
+            {title}
+            {subtitle ? (
+              <span className="block truncate text-[13px] font-normal opacity-60">{subtitle}</span>
+            ) : null}
+          </h2>
+          <button
+            className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
+            aria-label="Close"
+            onClick={onClose}
+            data-phone-sheet-close
           >
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
-        </button>
+            <svg
+              viewBox="0 0 24 24"
+              width={22}
+              height={22}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
       </div>
-      <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
     </div>
   )
 }
@@ -612,43 +643,26 @@ function ExtChip({ ext }: { ext: string }): JSX.Element {
 
 /** Two folders one behind the other: what the PC has open, which is what a
  *  tab is here. */
-function TabsIcon(): JSX.Element {
+/** Three lines. Every phone means the same thing by them, which is the point:
+ *  it needs no label to be understood, and the drawer behind it is titled. */
+function HamburgerIcon(): JSX.Element {
   return (
     <svg
       viewBox="0 0 24 24"
-      width={20}
-      height={20}
+      width={22}
+      height={22}
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinejoin="round"
-      className="shrink-0 opacity-70"
+      strokeWidth="2.1"
+      strokeLinecap="round"
       aria-hidden
     >
-      <path d="M7 4.5h4l1.4 1.8H20v9.2H7z" />
-      <path d="M4 7.5v12h13" />
+      <path d="M4 7h16M4 12h16M4 17h16" />
     </svg>
   )
 }
 
-function ChevronDown(): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={18}
-      height={18}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="shrink-0 opacity-60"
-      aria-hidden
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
-}
+
 
 function MagnifierIcon(): JSX.Element {
   return (
