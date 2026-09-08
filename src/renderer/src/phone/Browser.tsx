@@ -129,9 +129,17 @@ export function Browser({ root }: { root: string }): JSX.Element {
 
   const up = parentOf(root, dir)
   const trail = crumbs(root, dir)
-  /** The rows every list here wears: 44px of touch, the name truncated. */
+  /**
+   * The rows every list here wears (2026-09-08, owner, after an iPad: "the
+   * rows in the file explorer are too small"). They are the thing being
+   * pointed at all day, so they are the thing to size first: taller than the
+   * 44px floor a button needs, because a LIST is scrolled past as well as
+   * tapped, and the name is set at 17px, which is the size a phone's own
+   * file list uses. The numbers live in phone.css, so the floor is one
+   * number in one place rather than a Tailwind size per row.
+   */
   const rowClass =
-    'flex w-full items-center gap-3 px-4 py-3 text-left active:bg-[var(--p-hover)]'
+    'flex min-h-[var(--phone-row)] w-full items-center gap-3 px-4 py-2.5 text-left text-[17px] active:bg-[var(--p-hover)]'
   return (
     <div
       className="flex min-h-dvh flex-col bg-[var(--p-bg)] text-[var(--p-text)]"
@@ -140,11 +148,11 @@ export function Browser({ root }: { root: string }): JSX.Element {
       <header className="sticky top-0 z-10 flex items-center gap-1 border-b border-[color:var(--p-line)] bg-[var(--p-bg)] px-2 pt-[env(safe-area-inset-top)]">
         {searching ? (
           <>
-            <span className="grid h-11 w-10 shrink-0 place-items-center opacity-60" aria-hidden>
+            <span className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center opacity-60" aria-hidden>
               <MagnifierIcon />
             </span>
             <input
-              className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-50"
+              className="min-h-[var(--phone-touch)] min-w-0 flex-1 bg-transparent text-[17px] outline-none placeholder:opacity-50"
               // The phone's own keyboard is the thing to get right here: a
               // search field spells its return key "Search" and neither
               // corrects nor capitalises what is typed into it, because a
@@ -163,7 +171,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
               data-phone-search
             />
             <button
-              className="grid h-11 w-10 shrink-0 place-items-center rounded"
+              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
               // One X, two steps, which is how a phone's search field behaves
               // everywhere: it empties a field that holds something, and
               // closes an empty one, so clearing lands you back in the folder
@@ -174,8 +182,8 @@ export function Browser({ root }: { root: string }): JSX.Element {
             >
               <svg
                 viewBox="0 0 24 24"
-                width={18}
-                height={18}
+                width={22}
+                height={22}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.2"
@@ -189,15 +197,15 @@ export function Browser({ root }: { root: string }): JSX.Element {
         ) : (
           <>
             <button
-              className="grid h-11 w-10 shrink-0 place-items-center rounded disabled:opacity-30"
+              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
               aria-label="Up"
               disabled={up === null}
               onClick={() => up !== null && setDir(up)}
             >
               <svg
                 viewBox="0 0 24 24"
-                width={18}
-                height={18}
+                width={22}
+                height={22}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.2"
@@ -209,7 +217,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
               </svg>
             </button>
             <nav
-              className="flex h-11 min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm"
+              className="flex min-h-[var(--phone-touch)] min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-[15px]"
               aria-label="Folder"
             >
               {trail.map((c, i) => {
@@ -217,7 +225,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
                 return (
                   <span key={c.path} className="flex shrink-0 items-center gap-1">
                     <button
-                      className={`rounded px-1 py-1 ${last ? 'font-semibold' : 'opacity-70'}`}
+                      className={`rounded px-2 py-2 ${last ? 'font-semibold' : 'opacity-70'}`}
                       aria-current={last ? 'location' : undefined}
                       data-phone-root={i === 0 ? '' : undefined}
                       onClick={() => setDir(c.path)}
@@ -235,7 +243,7 @@ export function Browser({ root }: { root: string }): JSX.Element {
               })}
             </nav>
             <button
-              className="grid h-11 w-10 shrink-0 place-items-center rounded"
+              className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
               aria-label="Search"
               onClick={() => setSearching(true)}
               data-phone-search-open
@@ -325,7 +333,7 @@ function Results({
             {h.isFolder ? <FolderGlyph /> : <ExtChip ext={extOf(h.name)} />}
             <span className="min-w-0">
               <span className="block truncate">{h.name}</span>
-              {h.dir && <span className="block truncate text-[11px] opacity-60">{h.dir}</span>}
+              {h.dir && <span className="block truncate text-[13px] opacity-60">{h.dir}</span>}
             </span>
           </button>
         </li>
@@ -349,8 +357,8 @@ function FolderGlyph(): JSX.Element {
   return (
     <svg
       viewBox="0 0 24 24"
-      width={18}
-      height={18}
+      width={22}
+      height={22}
       fill="var(--p-tree-folder)"
       className="shrink-0"
       aria-hidden
@@ -363,7 +371,7 @@ function FolderGlyph(): JSX.Element {
 function ExtChip({ ext }: { ext: string }): JSX.Element {
   return (
     <span
-      className="w-9 shrink-0 text-center text-[10px] uppercase tracking-wide opacity-60"
+      className="w-11 shrink-0 text-center text-[11px] uppercase tracking-wide opacity-60"
       aria-hidden
     >
       {ext.slice(1, 5)}
@@ -375,8 +383,8 @@ function MagnifierIcon(): JSX.Element {
   return (
     <svg
       viewBox="0 0 24 24"
-      width={18}
-      height={18}
+      width={22}
+      height={22}
       fill="none"
       stroke="currentColor"
       strokeWidth="2.2"

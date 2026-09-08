@@ -26,3 +26,108 @@ body {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
+
+/*
+ * SIZED FOR A THUMB (2026-09-08, #107, owner after an iPad: the video
+ * controls and the explorer rows are too small).
+ *
+ * 44px is the PLATFORM FLOOR, not a preference: Apple asks for 44pt and
+ * Google for 48dp, and a control under that is one a thumb misses rather
+ * than one that looks tight. It is written here once, and the phone's own
+ * components size from the token rather than restating the number, so there
+ * is one place to change and nothing that can drift from it.
+ *
+ * A ROW IS TALLER THAN A BUTTON because it is scrolled past as well as
+ * tapped: a list of 44px rows under a moving thumb is a list you mis-hit.
+ */
+:root {
+  --phone-touch: 44px;
+  --phone-row: 56px;
+}
+
+/*
+ * THE PLAYERS ARE THE DESKTOP'S, AND SO ARE THEIR SIZES.
+ *
+ * VideoView, AudioView, Transport and the volume readout are one set of
+ * components serving two very different pointers. The sizing lives HERE
+ * rather than in them for two reasons. The desktop must measure exactly as
+ * it does today, and a rule in a stylesheet the desktop never loads cannot
+ * reach it by accident, where a `touch` prop threaded through three
+ * components is a second set of sizes to keep in step for ever and one
+ * default away from changing the app. And what a phone needs is not a
+ * variant of the transport, it is the same transport with bigger targets:
+ * that is a size pass, which is what a stylesheet is for.
+ *
+ * Everything below hangs under `[data-phone-stage]`, which is the phone's own
+ * viewer stage (PhoneViewer), and names the parts by the markers Transport
+ * carries rather than by Tailwind classes, which are edited for reasons that
+ * have nothing to do with the phone.
+ */
+
+/* The bar is never thinner than a row, whatever it is holding. */
+[data-phone-stage] [data-transport-row] {
+  min-height: var(--phone-row);
+}
+
+/*
+ * Play, volume, the settings cog and fullscreen. Two selectors, one level
+ * apart, because the volume and the cog wrap their button in a positioning
+ * div while play and fullscreen sit in the row: the depth is what keeps the
+ * cog's MENU rows, which are one level deeper again, out of this rule. A
+ * minimum rather than a size, so a control that is already bigger (the bold
+ * style's square play button) keeps what it has.
+ */
+[data-phone-stage] [data-transport-row] > button,
+[data-phone-stage] [data-transport-row] > div > button {
+  min-width: var(--phone-touch);
+  min-height: var(--phone-touch);
+}
+
+/* The glyphs grow with the buttons: a 22px icon centred in a 44px target
+   reads as a big empty box with a small mark in it. */
+[data-phone-stage] [data-transport-row] > button > svg,
+[data-phone-stage] [data-transport-row] > div > button > svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* The clock, at the size the rest of the phone's chrome is set in. */
+[data-phone-stage] [data-time] {
+  font-size: 15px;
+}
+
+/*
+ * The scrubber. The hit area is what matters most here: a 14px strip is a
+ * seek that lands wherever the thumb happened to be. The TRACK's height is
+ * an inline style on the desktop (it is part of which transport style was
+ * picked, so it cannot be a class), and an inline style is only reachable
+ * with `!important` - which is why this one rule carries it and nothing else
+ * does.
+ */
+[data-phone-stage] [data-scrub] {
+  height: 28px;
+}
+
+[data-phone-stage] [data-scrub-track] {
+  height: 6px !important;
+}
+
+/* And the thumb is always there. On the desktop it appears on hover, which
+   is a state a touch screen never enters, so the one mark saying where the
+   film has got to was invisible on the device that most needs it. */
+[data-phone-stage] [data-scrub-thumb] {
+  width: 16px;
+  height: 16px;
+  opacity: 1;
+}
+
+/* The on-picture volume readout belongs to the same player and is read at
+   arm's length, so it scales with it. */
+[data-phone-stage] [data-vol-readout] > svg {
+  width: 26px;
+  height: 26px;
+}
+
+[data-phone-stage] [data-vol-pct] {
+  font-size: 15px;
+}

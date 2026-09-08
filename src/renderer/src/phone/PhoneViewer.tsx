@@ -356,16 +356,16 @@ export function PhoneViewer({
       data-kind={file.kind}
     >
       {!fullscreen && (
-        <header className="flex h-11 shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)] text-sm">
+        <header className="flex min-h-[var(--phone-touch)] shrink-0 items-center gap-1 px-2 pt-[env(safe-area-inset-top)] text-[15px]">
           <button
-            className="grid h-9 w-10 shrink-0 place-items-center rounded"
+            className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
             aria-label="Back to the folder"
             onClick={onClose}
           >
             <svg
               viewBox="0 0 24 24"
-              width={18}
-              height={18}
+              width={22}
+              height={22}
               fill="none"
               stroke="currentColor"
               strokeWidth="2.2"
@@ -380,15 +380,15 @@ export function PhoneViewer({
             {file.name}
           </span>
           <button
-            className="grid h-9 w-10 shrink-0 place-items-center rounded disabled:opacity-30"
+            className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
             aria-label="Previous"
             disabled={!canStep(-1)}
             onClick={() => onStep(-1)}
           >
             <svg
               viewBox="0 0 24 24"
-              width={18}
-              height={18}
+              width={22}
+              height={22}
               fill="none"
               stroke="currentColor"
               strokeWidth="2.2"
@@ -400,15 +400,15 @@ export function PhoneViewer({
             </svg>
           </button>
           <button
-            className="grid h-9 w-10 shrink-0 place-items-center rounded disabled:opacity-30"
+            className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded disabled:opacity-30"
             aria-label="Next"
             disabled={!canStep(1)}
             onClick={() => onStep(1)}
           >
             <svg
               viewBox="0 0 24 24"
-              width={18}
-              height={18}
+              width={22}
+              height={22}
               fill="none"
               stroke="currentColor"
               strokeWidth="2.2"
@@ -421,7 +421,14 @@ export function PhoneViewer({
           </button>
         </header>
       )}
-      <div ref={stageRef} className="relative min-h-0 flex-1">
+      {/* THE STAGE IS THE MARKER (2026-09-08, #107). The players under it are
+          the desktop's, at the desktop's sizes; a thumb needs bigger. Rather
+          than a phone prop threaded through VideoView, AudioView and Transport
+          - which is a second set of sizes to keep in step for ever - the phone
+          names its stage and `phone.css` scales what hangs under it. The
+          desktop never loads that stylesheet, so it cannot be reached from
+          there by accident. */}
+      <div ref={stageRef} data-phone-stage className="relative min-h-0 flex-1">
         {view}
       </div>
     </div>
