@@ -339,20 +339,34 @@ export function Browser({
                   const last = i === trail.length - 1
                   return (
                     <span key={c.path} className="flex shrink-0 items-center gap-1">
+                      {/* A separator BETWEEN names, so there is none after the
+                          last one (2026-09-08, owner). The desktop archive
+                          panel keeps its trailing chevron on purpose
+                          (2026-08-31) and is left exactly as it is: there the
+                          row stands alone, while here it sits beside the Up
+                          chevron, and a chevron pointing back next to a
+                          chevron pointing on reads as a back and a forward
+                          button - two controls, one of which does nothing. */}
+                      {i > 0 && (
+                        <span className="opacity-40" aria-hidden>
+                          &rsaquo;
+                        </span>
+                      )}
                       <button
-                        className={`rounded px-2 py-2 ${last ? 'font-semibold' : 'opacity-70'}`}
+                        // The names ARE the way back up, so they are drawn as
+                        // things to press: the accent on every folder above
+                        // this one, and full contrast on the one you are in,
+                        // where dimming them all read as a caption.
+                        className={`rounded px-2 py-2 active:bg-[var(--p-hover)] ${
+                          last ? 'font-semibold' : 'text-[var(--color-accent-hi)]'
+                        }`}
                         aria-current={last ? 'location' : undefined}
                         data-phone-root={i === 0 ? '' : undefined}
+                        data-phone-crumb
                         onClick={() => setDir(c.path)}
                       >
                         {c.name}
                       </button>
-                      {/* A chevron at EVERY level, the current one included: that is
-                        what makes the row read as a path rather than a sentence
-                        (the archive's crumb row, 2026-08-31). */}
-                      <span className="opacity-40" aria-hidden>
-                        &rsaquo;
-                      </span>
                     </span>
                   )
                 })}
