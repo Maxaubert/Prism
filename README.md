@@ -62,8 +62,10 @@ never shipped: one small app that opens everything and looks good doing it.
 - **Opens from Explorer**: opt in to make Prism the default viewer for the file types you choose.
 - **On your phone**: Tools > Phone serves the folder you have open to phones on your own
   Wi-Fi. Scan the QR code once, then browse the folder on the phone and play video, audio
-  and pictures straight from the PC. Plain HTTP on your own network, nothing leaves it; the
-  PC lists every paired phone and can forget one at any time. What the phone cannot play as
+  and pictures straight from the PC. The code decides only where you start: the phone lists
+  every folder Prism has open and switches between them without another scan, and a reload
+  comes back to the folder you were in, or the film you were watching. Plain HTTP on your own
+  network, nothing leaves it; the PC lists every paired phone and can forget one at any time. What the phone cannot play as
   it is (an MKV, HEVC on an Android, Dolby audio) the PC's GPU converts live, HDR tone-mapped,
   and the phone seeks through it like any other file. PDFs, markdown, code, office and ebook
   documents, comics and archives open on the phone too, read-only: nothing on the phone can

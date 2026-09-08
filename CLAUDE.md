@@ -607,18 +607,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the floor, so a scheme that reads keeps its exact colours; `termTheme.legible.test.ts`
   asserts it for every preset.
 - **Prism on your phone** (2026-09-06, #104). A plain Node `http` server in
-  `src/main/phone/` serves a phone-sized page on the LAN, and the phone browses the tab's
-  folder and plays what it can play natively. PLAIN HTTP, deliberately: a self-signed
-  certificate is a warning page on every phone and a trust prompt nobody can act on, and the
-  bytes never leave the user's own network. The DIALOG says so, and says BEFORE the switch
+  `src/main/phone/` serves a phone-sized page on the LAN, and the phone browses a folder
+  the PC has open and plays what it can play natively. WHICH folder is the phone's own to
+  choose since 2026-09-08 (the tab-switching decision below, which reversed the design's
+  first one): the code it scanned decides only where it STARTS. PLAIN HTTP, deliberately: a
+  self-signed certificate is a warning page on every phone and a trust prompt nobody can act
+  on, and the bytes never leave the user's own network. The DIALOG says so, and says BEFORE the switch
   goes on that Windows will ask about the firewall, because a per-user installer cannot add
   the rule and a declined prompt is a phone that cannot connect with no error anywhere.
   Pairing is a six-character SINGLE-USE code (no 0/O/1/I, since it is typed as well as
   scanned), two minutes long, never persisted; the phone trades it for a token it keeps, and
-  the token remembers the ROOT it was paired to, which is the tab the code was shown from. A
-  paired phone scanning another tab's code MOVES to that root and keeps its token, so the
-  list never grows a second row for one phone. The wall is written ONCE at the top of
-  `handle`: every route but the page and `/pair` needs a paired phone, and every path is
+  the token remembers the ROOT it is on, which is the tab the code was shown from until the
+  phone moves itself. A paired phone scanning another tab's code MOVES to that root and keeps
+  its token, so the list never grows a second row for one phone; `POST /api/tab` is the same
+  move by another door, and the door that is actually used. The wall is written ONCE at the
+  top of `handle`: every route but the page and `/pair` needs a paired phone, and every path is
   checked against THAT phone's own root with `validRoot` before anything reads it; media
   bytes then go through `serveMedia` itself, so `/m/` inherits `fsmedia://`'s rules on top.
   EVERY ASK, not just the first (2026-09-07): a wall can move under a stream. Closing the
@@ -770,7 +773,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   opened, with a refused pick re-reading rather than only complaining, since "that folder is
   not open in Prism any more" is a list that has moved on. A tab that CLOSES is therefore no
   longer a dead end: that screen offers the list, and the scan-again screen is now what a
-  phone whose token the PC has FORGOTTEN sees, and nothing else.
+  phone whose token the PC has FORGOTTEN sees, and nothing else. Proved in the `phoneTabs`
+  e2e, the one phone scenario launched with TWO roots open: what it asserts after a pick is
+  not the header's text but what the LISTING answers, since a header that moved over an
+  unchanged listing would be a lie nobody would catch.
 - **SIZED FOR A THUMB** (owner, 2026-09-08, after the same iPad session: the video controls
   and the rows in the file explorer are too small; #107). 44px is the PLATFORM FLOOR rather
   than a taste - Apple asks for 44pt and Google for 48dp - and a ROW is taller again (56px),
@@ -900,7 +906,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the fallback with no second way to fail. It is done while RENDERING, the shape the
   search's `askFor` uses, since by the time an effect ran the folder would have had a frame
   of its own on screen first. The pairing code is still spent on arrival and never written
-  back.
+  back. `phoneTabs` reloads twice, once in a folder two levels down and once with a file open
+  in it, and reads the URL as well as the screen: a page that remembered its folder somewhere
+  else would pass the folder half and lose the file half.
 - **THE CRUMB ROW'S LAST CHEVRON IS A BUTTON THAT DOES NOTHING** (owner, same day). The
   phone's crumbs copied the archive panel's trailing chevron, which is a deliberate decision
   there (2026-08-31) and wrong here: the phone's row sits immediately right of the UP
@@ -909,14 +917,18 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   draws it between them and the desktop panel is left exactly as it is. The names themselves
   are drawn as things to press now - the accent on every folder above this one, full
   contrast on the one you are in - where dimming them all read as a caption rather than as
-  the way back up.
+  the way back up. COUNTED in the e2e at three levels deep, which is where "one fewer than
+  the levels" is more than one chevron: at one level it and "none at all" are the same
+  number.
 - **AND A FILE ROW SAYS HOW BIG IT IS** (owner, same day: a 126MB sample clip opened in the
   belief it was the 8.9GB film, and the row said nothing that would have told them apart).
   `formatBytes`, the desktop's own, so a size reads the same in both places rather than
   through a second formatter that rounds differently. A size of 0 draws NOTHING rather than
   "0 B": 0 is also what a file that could not be stat'ed carries, and a number nobody
   measured is worse than no number. Search hits carry no size at all (`SearchHit` has no
-  such field), so their rows keep the folder they are in as their second line.
+  such field), so their rows keep the folder they are in as their second line. The e2e matches
+  a row's size against the desktop formatter's own shape, so a second formatter rounding
+  differently would show up there.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range

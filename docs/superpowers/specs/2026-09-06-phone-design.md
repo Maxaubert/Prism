@@ -170,8 +170,11 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
     route adds its own root check on top.
   - `GET /hls/<job>/index.m3u8`, `GET /hls/<job>/<n>.m4s` (PR2).
 - The phone's root is checked on EVERY route with `validRoot(root, path)`; a path outside it is
-  403 even if another tab holds it. Archive members and comic pages come through the same
-  grants main already keeps (`extractedPaths`, `comicsDir`).
+  403 even if another tab holds it. The root itself can MOVE (`POST /api/tab`, 2026-09-08), and
+  that changes which root is checked, never the check: the phone is on one root at a time, and
+  the set it may move within is the roots the PC has open, read on the ask. Archive members
+  and comic pages come through the same grants main already keeps (`extractedPaths`,
+  `comicsDir`).
 
 ### Pairing (`src/main/phone/pairing.ts`, pure and tested, PR1)
 
@@ -295,6 +298,15 @@ phone browser  <-- HTTP (LAN) -->  main: src/main/phone/  <-- IPC -->  renderer 
   was checked. `phoneDocs` samples the hit count frame by frame across a keystroke rather
   than counting once, since the failure being guarded against is a list that goes blank for
   a couple of hundred milliseconds and then fills again.
+  `phoneTabs` (2026-09-08) is the one launched with TWO roots open, since a list of one proves
+  nothing about a list and a switch needs somewhere to go: the tab list names both open roots
+  with the phone's own ticked, and a pick is judged by WHAT THE LISTING ANSWERS afterwards -
+  the other root's file there, the first root's gone - rather than by the header's text, a
+  header moving over an unchanged listing being a lie nobody would catch. It then reloads
+  twice, in a folder two levels down and with a file open in it, reading the URL as well as
+  the screen; counts the crumb row's chevrons at three levels, where one fewer than the levels
+  is more than one chevron; and matches a file row's size against the desktop formatter's own
+  shape.
 - Hands-on on iPhone, iPad and Android before each PR asks "merge?", with the measurements
   above written into CLAUDE.md.
 
