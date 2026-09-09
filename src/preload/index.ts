@@ -66,6 +66,8 @@ const api = {
       file?: string
       term?: 'full' | 'split'
       terms?: number
+      /** The folder that shell was standing in, when it is not the root. */
+      cwd?: string
       agent?: 'claude' | 'codex'
       open?: string[]
     }>,

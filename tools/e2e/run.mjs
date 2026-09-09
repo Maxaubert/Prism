@@ -3299,7 +3299,8 @@ async function pinRecentScenario(fixtures) {
 async function termCwdScenario(fixtures) {
   console.log('terminal cwd')
   const root = join(fixtures, 'code')
-  const { app, win } = await launch(join(root, 'bad.json'))
+  // Reassigned: this scenario relaunches to prove the shell's folder survives.
+  let { app, win } = await launch(join(root, 'bad.json'))
   const rowFor = (folder) =>
     win.evaluate(
       (f) => {
@@ -3394,6 +3395,63 @@ async function termCwdScenario(fixtures) {
       'and the tree is the new root'
     )
     ok((await win.locator('.xterm').count()) === 1, 'the shell survived the reroot')
+  } finally {
+    await app.close()
+  }
+
+  /**
+   * ...AND THE SHELL COMES BACK WHERE IT WAS (2026-09-09). The tab's root is
+   * not where the shell was standing: a cd inside the root moves the shell
+   * and deliberately leaves the root alone, and so does "Open terminal here"
+   * on a folder row. Restore spawned at the ROOT, so the folder you had
+   * walked to was gone every launch - and the agent resume, which looks a
+   * conversation up by the folder it was held in, went to the root's newest
+   * session instead of the one down there.
+   *
+   * A fresh strip first: the round above ends rerooted onto another folder,
+   * where the shell's cwd and the tab's root are the same thing and there is
+   * nothing to prove.
+   */
+  await sleep(900)
+  ;({ app, win } = await launch(join(root, 'bad.json')))
+  const promptText = () =>
+    win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500)
+    await win.keyboard.type('cd nested')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(
+      () => !![...document.querySelectorAll('[role="treeitem"][data-selected]')].find((e) => /nested$/i.test(e.getAttribute('data-row') ?? '')),
+      null,
+      { timeout: 10000 }
+    )
+    await sleep(900) // the strip is saved on a 400ms debounce
+  } finally {
+    await app.close()
+  }
+  await sleep(900)
+  ;({ app, win } = await launch(join(root, 'bad.json'), true))
+  try {
+    // The launch hands a FILE over, and a file arriving means "show me this
+    // file" (2026-09-04) - it hides the shell it lands over. The shell is
+    // spawned all the same; this only brings the panel back on screen.
+    await win.waitForSelector('aside [aria-label="Terminal"]', { timeout: 15000 })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    const deadline = Date.now() + 20000
+    let back = false
+    while (Date.now() < deadline && !back) {
+      back = /nested>\s*$/.test((await promptText()).trimEnd())
+      if (!back) await sleep(300)
+    }
+    ok(back, `the restored shell stands in the folder it was left in${back ? '' : ` (saw: ...${(await promptText()).trimEnd().slice(-200)})`}`)
+    ok(
+      /(^|\W)code(\W|$)/i.test((await win.locator('[role="tab"]').first().textContent()) ?? ''),
+      'and the tab is still rooted where it was, not moved down with the shell'
+    )
   } finally {
     await app.close()
   }

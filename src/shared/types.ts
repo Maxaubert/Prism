@@ -134,6 +134,13 @@ export interface OpenPayload {
   /** Restore only: how many shells the tab held (2026-09-03). The current one
    *  is spawned at once; the others get their slots and spawn when picked. */
   terms?: number
+  /** Restore only: the FOLDER that shell was standing in (2026-09-09), which
+   *  is not always the tab's root - "Open terminal here" and a cd inside the
+   *  root both move it, and the root deliberately does not follow. The fresh
+   *  shell starts there, and an agent resumes the conversation recorded for
+   *  THAT folder rather than the root's newest one. Only ever the tab's root
+   *  or somewhere inside it. */
+  termCwd?: string
   /** Restore only: the SESSION ID of the Claude conversation the terminal
    *  hosted at close. The fresh shell launches `claude --resume <id>` as its
    *  startup command - the ONE command Prism ever writes itself (owner
