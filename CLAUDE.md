@@ -457,7 +457,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   terminal button offers split view and Clear terminal. The agent indicator has two
   volumes (owner picks, 2026-08-23): MINIMAL runs an indeterminate line along the tab's
   bottom edge while an agent works and says nothing else - no finished state, that is
-  full's alone; FULL fills the tab with the working colour, and holds the finished colour
+  full's alone, and NO BRAIN ICON either (owner, 2026-09-09): the bar and the icon were
+  two marks for the one thing minimal has to say, and the icon is the louder of them, so
+  the quiet volume read nearly as loud as the other one. The icon's permanent slot goes
+  with it - a mode that can never fill the slot does not reserve its width - which is why
+  the tabs settle a little narrower when the setting is changed. FULL fills the tab with
+  the working colour, keeps the icon, and holds the finished colour
   until the tab is visited. Syntax highlighting and history
   ghost-suggestions (RightArrow accepts, Up/Down recalls) are PSReadLine's, forced on at
   spawn - including `-EnableScreenReaderMode:$false`, because automation tooling
@@ -504,7 +509,21 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the reroot policy verbatim: an UNTOUCHED shell is replaced by one spawned in that
   folder, a TOUCHED one is somebody's work and is never taken away - that folder gets a
   terminal in a NEW TAB instead. The tab's own root does not move; the sidebar's folder
-  button is the verb for that. And the close question now NAMES what it interrupts:
+  button is the verb for that. **AND THE SHELL COMES BACK WHERE IT WAS** (2026-09-09):
+  the tab remembers its shell's FOLDER (`cwd` in tabs.json), which is not its root - both
+  "Open terminal here" and a plain `cd` inside the root move the shell and deliberately
+  leave the root alone, and restore spawned at the root, so the folder you had walked to
+  was thrown away every launch. It compounded, which is what made it worth fixing rather
+  than living with: claude records a conversation under the folder it was launched in, so
+  the resume looked up the ROOT's newest session and a tab came back holding the wrong
+  conversation - worse than coming back with none. The lookup follows the shell's folder
+  now. What is saved is its own report (#99's OSC 9;9, the truth) and the folder it was
+  spawned in as the fallback for a shell that has not reported yet or never will (WSL,
+  bash); it is dropped on the way back in unless it still exists and is still the root or
+  inside it, so a folder renamed since is a spawn that never happens rather than one that
+  fails. Extra shells in the same tab still come back at the root - they are slots that
+  spawn when picked, and only the one that was showing has a folder worth keeping. And the
+  close question now NAMES what it interrupts:
   `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
   cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
   'Off' still means off: a confirmation that appears anyway is a setting that lies.

@@ -356,9 +356,17 @@ export function TabStrip({
               </span>
             )}
             {/* A permanent icon slot: the brain appears in it while the
-                agent works or waits unseen (tinted in minimal, on-colour in
-                full) and it is transparent otherwise - so the tab NEVER
-                changes width. */}
+                agent works or waits unseen, and it is transparent otherwise -
+                so the tab NEVER changes width while an agent runs.
+                FULL ALONE (owner, 2026-09-09). Minimal is the animated bar and
+                nothing else: it was the bar AND the brain, which is two marks
+                for the one thing minimal says, and the louder of the two is
+                the icon - so the quiet volume read almost as loud as the other
+                one. A mode that can never fill the slot does not reserve it
+                either, which is why the slot itself goes with the icon; the
+                widths only settle differently, and only when the setting is
+                deliberately changed. */}
+            {indicator === 'full' && (
             <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!tint}>
               {tint && (
                 <svg
@@ -367,7 +375,7 @@ export function TabStrip({
                   width={13}
                   height={13}
                   fill="none"
-                  stroke={indicator === 'full' ? 'currentColor' : tint}
+                  stroke="currentColor"
                   strokeWidth="1.9"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -377,6 +385,7 @@ export function TabStrip({
                 </svg>
               )}
             </span>
+            )}
             <button
               role="tab"
               aria-selected={on}

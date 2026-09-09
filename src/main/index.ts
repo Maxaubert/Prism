@@ -699,12 +699,22 @@ async function restoreTabs(): Promise<OpenPayload[]> {
       // Codex needs no lookup at all: `codex resume --last` continues the
       // most recent session FOR THIS FOLDER (its picker filters by cwd), so
       // the marker is enough and the shell starts in the tab's root anyway.
+      //
+      // THE FOLDER THE SHELL WAS IN, not the tab's root (2026-09-09): "Open
+      // terminal here" and a cd inside the root both move the shell without
+      // moving the tab, and claude records its conversation under the cwd it
+      // was launched in. Looking the resume up by root therefore handed a
+      // subfolder's tab the ROOT's newest conversation - a resume of the
+      // wrong session, which is worse than none - and the shell came back in
+      // the wrong folder to boot. `cwd` is already checked to be the root or
+      // inside it, so this narrows the lookup and never widens it.
+      const termCwd = t.term ? (t.cwd ?? t.root) : t.root
       let resume: string | null = null
       if (t.agent === 'codex' && t.term) resume = CODEX_RESUME
       else if (t.agent && t.term) {
-        const key = t.root.toLowerCase()
+        const key = termCwd.toLowerCase()
         const n = taken.get(key) ?? 0
-        resume = claudeSessions(t.root)[n] ?? null
+        resume = claudeSessions(termCwd)[n] ?? null
         if (resume) taken.set(key, n + 1)
       }
       // SAVED order, exactly: the old active-goes-last splice scrambled the
@@ -715,6 +725,7 @@ async function restoreTabs(): Promise<OpenPayload[]> {
         restore: true,
         ...(i === saved.active ? { restoreActive: true } : {}),
         ...(t.term ? { term: t.term } : {}),
+        ...(t.term && t.cwd ? { termCwd: t.cwd } : {}),
         ...(t.terms && t.terms > 1 ? { terms: t.terms } : {}),
         ...(t.open?.length ? { open: t.open } : {}),
         ...(resume ? { agentResume: resume } : {})

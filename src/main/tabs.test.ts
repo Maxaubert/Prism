@@ -106,6 +106,38 @@ describe('parseTabs', () => {
     ])
   })
 
+  it("keeps the shell's own folder when it is inside the root", () => {
+    const a = folder('project')
+    const sub = folder(join('project', 'src'))
+    const saved = { tabs: [{ root: a, term: 'full', cwd: sub }], active: 0 }
+    expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a, term: 'full', cwd: sub }])
+  })
+
+  it('matches the root case-insensitively, since two spellings are one folder', () => {
+    const a = folder('project')
+    const sub = folder(join('project', 'src'))
+    const saved = { tabs: [{ root: a.toUpperCase(), term: 'full', cwd: sub }], active: 0 }
+    expect(parseTabs(JSON.stringify(saved)).tabs[0]?.cwd).toBe(sub)
+  })
+
+  it('drops a shell folder that is gone, outside the root, or has no terminal', () => {
+    const a = folder('project')
+    const away = folder('elsewhere')
+    const saved = {
+      tabs: [
+        { root: a, term: 'full', cwd: join(a, 'deleted') },
+        { root: a, term: 'full', cwd: away },
+        { root: a, cwd: a }
+      ],
+      active: 0
+    }
+    expect(parseTabs(JSON.stringify(saved)).tabs.map((t) => t.cwd)).toEqual([
+      undefined,
+      undefined,
+      undefined
+    ])
+  })
+
   it('restores the SECOND of two tabs on the same folder as active (field bug)', () => {
     const a = folder('shoot')
     const saved: SavedTabs = {
