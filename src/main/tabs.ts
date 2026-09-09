@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { isAbsolute, relative, resolve } from 'path'
 
 /**
  * The tab strip, across restarts.
@@ -24,6 +25,21 @@ export interface SavedTab {
    *  with three slots, the current one spawned and the rest spawned when
    *  picked. Absent or 1 means the one `term` describes. */
   terms?: number
+  /**
+   * WHERE that shell was standing (2026-09-09).
+   *
+   * A tab is a root and a current file, and this is not a second root: it is
+   * the shell's own folder, which "Open terminal here" and a plain `cd` inside
+   * the root both move without moving the tab. Restoring the shell at the root
+   * instead put it somewhere the user had deliberately left - and, worse, sent
+   * the agent resume to look up the ROOT's newest session, so a conversation
+   * held in a subfolder came back as the wrong conversation.
+   *
+   * Kept only when it is the root or inside it, checked on the way out of the
+   * file as well as on the way in: it is a spawn folder, and the wall's own
+   * `term:spawn` check would refuse anything else anyway.
+   */
+  cwd?: string
   /** The shell hosted a CLAUDE session when the strip was saved: restore may
    *  resume it (`claude --continue` rebuilds the conversation per folder). */
   /** Which agent the shell hosted at quit, so the right resume runs. The
@@ -52,6 +68,14 @@ export interface SavedTabs {
 }
 
 const NONE: SavedTabs = { tabs: [], active: 0 }
+
+/** Is `p` the folder `root` or somewhere inside it? Lower-cased first, since
+ *  these are Windows paths and two spellings are one folder; `relative` is a
+ *  plain string comparison and would call C:\Foo and C:\foo strangers. */
+const inside = (root: string, p: string): boolean => {
+  const rel = relative(resolve(root.toLowerCase()), resolve(p.toLowerCase()))
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
 
 const isFolder = (p: string): boolean => {
   try {
@@ -93,11 +117,12 @@ export function parseTabs(raw: string): SavedTabs {
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    const { root, file, term, agent } = entry as {
+    const { root, file, term, agent, cwd } = entry as {
       root?: unknown
       file?: unknown
       term?: unknown
       agent?: unknown
+      cwd?: unknown
     }
     if (typeof root !== 'string' || !isFolder(root)) return
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
@@ -106,6 +131,10 @@ export function parseTabs(raw: string): SavedTabs {
       // Only meaningful with a terminal. `true` is the old spelling of claude.
       if (agent === true || agent === 'claude') tab.agent = 'claude'
       else if (agent === 'codex') tab.agent = 'codex'
+      // The shell's own folder, kept only while it still exists and is still
+      // inside the root: a folder renamed since is not a shell's cwd, it is a
+      // spawn that fails, and the root is the honest fallback.
+      if (typeof cwd === 'string' && inside(root, cwd) && isFolder(cwd)) tab.cwd = cwd
     }
     if (i === wasActive) active = tabs.length
     tabs.push(tab)

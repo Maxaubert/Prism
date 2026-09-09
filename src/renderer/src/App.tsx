@@ -1120,18 +1120,22 @@ export default function App(): JSX.Element {
           : st.tabs.find((t) => t.id === st.activeId)
         let tabs = st.tabs
         // A restored tab that was showing its terminal comes back AS a terminal:
-        // a fresh shell at the root (sessions die with the app), same view.
+        // a fresh shell where the old one stood (sessions die with the app),
+        // same view.
         if (p.term && target && !target.term) {
           const termId = nextTermId()
-          termRoots.current.set(termId, target.root)
+          // Where that shell WAS, which is the root unless "Open terminal
+          // here" or a cd moved it (2026-09-09). Main has already checked it
+          // is the root or inside it, so the wall's spawn check passes.
+          const spawnAt = p.termCwd ?? target.root
+          termRoots.current.set(termId, spawnAt)
           // The shell hosted a Claude session at close: the fresh one launches
           // straight into it (spawn carries the id; see TerminalPanel). The
           // session spawns NOW, tab in front or not - every tab's conversation
           // resumes at launch, not when its tab is first visited.
           if (p.agentResume) markResume(termId, p.agentResume)
-          const root = target.root
           void import('./components/TerminalPanel').then((m) =>
-            m.ensureTermSession(termId, root, savedShellId())
+            m.ensureTermSession(termId, spawnAt, savedShellId())
           )
           tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
           // The other shells the tab held get their SLOTS now and spawn when
@@ -1613,6 +1617,13 @@ export default function App(): JSX.Element {
    *  shell whose folder no longer matches its tab gets replaced; Clear also
    *  re-syncs a stale one. */
   const termRoots = useRef(new Map<string, string>())
+  /** The folder a shell is standing in: its own report if it has made one,
+   *  else where it was spawned. Used for persistence, so a shell comes back
+   *  where it was and its agent resumes THAT folder's conversation. */
+  const termFolder = useCallback(
+    (id: string): string | undefined => termCwd.current.get(id) ?? termRoots.current.get(id),
+    []
+  )
   const applyTermView = useCallback(
     (fn: typeof toggleTermView) =>
       setTabState((s) => {
@@ -1780,6 +1791,15 @@ export default function App(): JSX.Element {
         term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
         // How many shells, so a tab with three comes back with three slots.
         terms: t.terms.length > 1 ? t.terms.length : undefined,
+        // WHERE that shell was standing (2026-09-09). The tab's root is not
+        // the answer: "Open terminal here" spawns a shell in a subfolder and
+        // deliberately leaves the root alone, and so does a cd inside it, so
+        // restoring at the root put the shell somewhere the user had left -
+        // and sent the agent resume to the root's newest conversation rather
+        // than the one held down there. The shell's OWN report first (#99's
+        // OSC 9;9, the truth), the folder it was spawned in as the fallback
+        // for a shell that has not reported yet or never will (WSL, bash).
+        cwd: t.term ? termFolder(t.term.id) : undefined,
         // Where you had got to in the tree. Not a per-tab setting - the tab is
         // still a root and a file - but closing Prism used to collapse
         // everything, so a file six folders down came back unmarked in a
