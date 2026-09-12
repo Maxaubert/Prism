@@ -5353,6 +5353,15 @@ async function phoneHlsScenario(fixtures) {
       await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
       'frames decode'
     )
+    // The phone log (2026-09-12, #116): one timeline, the server's asks and
+    // the page's own player events, in userData/phone/phone.log. The page
+    // posts in five-second batches, so the wait is the batch.
+    await sleep(5500)
+    const log = readFileSync(join(PROFILE, 'phone', 'phone.log'), 'utf8')
+    ok(/ play "e2e phone" dolby\.mkv -> job [0-9a-f]{16} \(copy h264 video/.test(log), 'the log has the play answer')
+    ok(/ ask [0-9a-f]{16} #0 served/.test(log), 'and the segment asks')
+    ok(/ phone "e2e phone" [\d.]+ hls\.js \S+ attached/.test(log), 'and the page reports hls.js attaching')
+    ok(/ phone "e2e phone" [\d.]+ (playing|sample|seeking) t=/.test(log), 'and what its player saw')
   } finally {
     await page?.close().catch(() => {})
     await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})

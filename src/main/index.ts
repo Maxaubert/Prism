@@ -40,6 +40,7 @@ import {
 } from './roots'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
+import { PhoneLog } from './phone/diag'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
@@ -1388,8 +1389,14 @@ if (!app.requestSingleInstanceLock()) {
     // userData. Made once, and the directory is wiped at startup: segments
     // of a previous run belong to jobs nothing remembers.
     const HLS_DIR = join(app.getPath('userData'), 'phone', 'hls')
+    // The phone diagnostics log (2026-09-12): one timeline for the server's
+    // asks and restarts and the phone player's own stalls, beside the jobs.
+    const phoneLog = new PhoneLog(join(app.getPath('userData'), 'phone', 'phone.log'))
+    const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
-    const hlsJobs = hlsTools ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR }) : null
+    const hlsJobs = hlsTools
+      ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
+      : null
     void rm(HLS_DIR, { recursive: true, force: true }).catch(() => undefined)
 
     /**
@@ -1480,6 +1487,7 @@ if (!app.requestSingleInstanceLock()) {
         savePhone()
         phoneChanged()
       },
+      log: logPhone,
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
     })

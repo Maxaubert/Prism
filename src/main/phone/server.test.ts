@@ -37,6 +37,7 @@ let lastPw: string | undefined
 let server: PhoneServer
 let port: number
 let changes = 0
+let logged: string[] = []
 /** The server holds this object, so a test can swap one dep for a failing one. */
 let deps: PhoneDeps
 
@@ -75,6 +76,7 @@ const listing = (files: string[]) => ({
 })
 
 beforeEach(async () => {
+  logged = []
   dir = mkdtempSync(join(tmpdir(), 'prism-phone-'))
   renderer = join(dir, 'renderer')
   mkdirSync(join(renderer, 'assets'), { recursive: true })
@@ -181,6 +183,7 @@ beforeEach(async () => {
     onChange: () => {
       changes += 1
     },
+    log: (l) => logged.push(l),
     loopbackOnly: true,
     now: () => 1000
   }
@@ -654,6 +657,26 @@ describe('PhoneServer', () => {
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({ root })
     })
+
+  it('POST /api/diag writes the phone lines to the log, capped, under its name', async () => {
+    expect((await fetch(url('/api/diag'), { method: 'POST', body: '{}' })).status).toBe(401)
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    expect((await fetch(url('/api/diag'), { headers: auth })).status).toBe(405)
+    const r = await fetch(url('/api/diag'), {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ lines: ['1.20 waiting t=12.50', 'x\ny', 3, ''] })
+    })
+    expect(r.status).toBe(200)
+    expect(logged).toEqual(['phone "Test phone" 1.20 waiting t=12.50', 'phone "Test phone" x y'])
+    const big = await fetch(url('/api/diag'), {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ lines: ['z'.repeat(40 * 1024)] })
+    })
+    expect(big.status).toBe(413)
+  })
 
   it('lists the roots the PC has open, and says which one this phone is on', async () => {
     expect((await fetch(url('/api/tabs'))).status).toBe(401)

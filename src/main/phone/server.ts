@@ -25,7 +25,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
 import { createReadStream, promises as fsp } from 'fs'
-import { join, extname, normalize } from 'path'
+import { basename, join, extname, normalize } from 'path'
 import { Readable } from 'stream'
 import type { ArchiveListing, DirListing, FileKind, SearchResult, TextRead } from '@shared/types'
 import type { ComicOpen } from '../comic'
@@ -34,6 +34,7 @@ import { decide, parseCan } from './decide'
 import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState, type Phone } from './pairing'
+import { diagLines } from './diag'
 import { parseRoute, tokenOf, type Route } from './routes'
 import { rootName, tabList } from './tabs'
 
@@ -134,6 +135,10 @@ export interface PhoneDeps {
   isComic: (p: string) => boolean
   /** Pairing changed: persist and tell the dialog. */
   onChange: () => void
+  /** The phone log (`diag.ts`): the server's own timeline (play answers,
+   *  refused streams) and, through `/api/diag`, what the phone's player
+   *  saw. Optional so a test server without one logs nowhere. */
+  log?: (line: string) => void
   loopbackOnly: boolean
   now?: () => number
 }
@@ -450,6 +455,9 @@ export class PhoneServer {
           duration: info.duration,
           audioIndex: info.audio?.index ?? null
         })
+        this.deps.log?.(
+          `play "${phone.name}" ${basename(path)} -> job ${id} (${plan.copyVideo ? 'copy' : 'encode'} ${info.videoCodec ?? 'no'} video, ${plan.copyAudio ? 'copy' : 'encode'} ${info.audio?.codec ?? 'no'} audio, ${Math.round(info.duration)}s, can=${q.get('can') ?? ''})`
+        )
         return void json(res, 200, {
           mode: 'hls',
           url: `/hls/${id}/index.m3u8?t=${token}`,
@@ -492,6 +500,22 @@ export class PhoneServer {
        * at a folder that is gone. The root that is stored is the PC's own
        * spelling of it, never the phone's, so the wall compares what it wrote.
        */
+      // The phone's half of the diagnostics log (2026-09-12): a handful of
+      // short lines from its player, written beside the server's own
+      // timeline under the phone's name. Capped by `diagLines`, and the
+      // body by `readBody`; a phone cannot fill the disk with it.
+      case 'diag': {
+        if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
+        let lines: string[]
+        try {
+          lines = diagLines(JSON.parse(await readBody(req, 32 * 1024)))
+        } catch (err) {
+          if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
+          return void json(res, 400, { error: 'bad request' })
+        }
+        for (const l of lines) this.deps.log?.(`phone "${phone.name}" ${l}`)
+        return void json(res, 200, { ok: true, lines: lines.length })
+      }
       case 'tab': {
         if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
         let want: unknown
@@ -672,6 +696,7 @@ export class PhoneServer {
         ? await jobs.init(route.job)
         : await jobs.segment(route.job, Number(route.file.split('.')[0]))
     if (file === null) {
+      this.deps.log?.(`hls ${route.job}/${route.file} 404 (${jobs.lastError(route.job) ?? 'no such segment'})`)
       return void json(res, 404, { error: jobs.lastError(route.job) ?? 'no such segment' })
     }
     return await this.sendFile(file, HLS_MIME[extname(file)], res)

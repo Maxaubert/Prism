@@ -84,7 +84,12 @@ export function fakeFfmpeg(opts: FakeFfmpegOptions = {}): FakeFfmpeg {
       return child as never
     }
     mkdirSync(outDir, { recursive: true })
-    writeFileSync(join(outDir, 'init.mp4'), 'init')
+    // The way the real muxer does it (measured 2026-09-12): init.mp4 is
+    // CREATED EMPTY when the run opens its output and gets its moov only as
+    // the first segment is flushed, so for the first few tens of ms the
+    // file exists and holds nothing. A job that serves it the moment the
+    // name appears hands the player 0 bytes, which hls.js cannot parse.
+    writeFileSync(join(outDir, 'init.mp4'), '')
     let n = start
     const done = (code: number | null): void => {
       alive = false
@@ -96,6 +101,7 @@ export function fakeFfmpeg(opts: FakeFfmpegOptions = {}): FakeFfmpeg {
       if (!alive) return
       if (n >= start + segments) return done(0)
       try {
+        if (n === start) writeFileSync(join(outDir, 'init.mp4'), 'init')
         writeFileSync(join(outDir, `${n}.m4s`), `seg${n}`)
       } catch {
         // The directory went away under the run (a test tearing down

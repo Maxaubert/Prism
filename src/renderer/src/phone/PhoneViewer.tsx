@@ -13,6 +13,7 @@ import {
   onFullscreenChange
 } from '../lib/fullscreen'
 import { hlsPlayerHere } from './canPlay'
+import { diag, watchMedia } from './diag'
 import { askPlay, type PlayAnswer } from './prismShim'
 
 // Split out exactly as App splits them (#106): none of these is on the path
@@ -118,7 +119,20 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
       // draws for a file it cannot play.
       let networkRetries = 0
       let mediaRetries = 0
+      diag(`hls.js ${Hls.version} attached`)
+      // A fragment that lands after a retry means the network is back: the
+      // retry budget starts over. It used to count for the whole film, so
+      // four blips across two hours made the fifth fatal, which is a player
+      // that "just stops" (owner, 2026-09-12).
+      h.on(Hls.Events.FRAG_BUFFERED, () => {
+        networkRetries = 0
+      })
       h.on(Hls.Events.ERROR, (_e, data) => {
+        // Every error, fatal or not, to the phone log: a buffer-full, a
+        // stall, a nudge over a hole, each says what hls.js was fighting.
+        diag(
+          `hls ${data.fatal ? 'FATAL ' : ''}${data.type} ${data.details}${data.reason ? ` (${data.reason})` : ''}${data.error?.message ? ` ${data.error.message}` : ''}`
+        )
         if (!data.fatal) return
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 4) {
           networkRetries += 1
@@ -198,6 +212,9 @@ export function PhoneViewer({
       null
     setMediaEl((was) => (was === found ? was : found))
   })
+  // The diagnostics log's eye on the player (2026-09-12): stalls, seeks
+  // and a buffer sample every ten seconds, for whichever host plays it.
+  useEffect(() => (mediaEl ? watchMedia(mediaEl) : undefined), [mediaEl])
   const [fullscreen, setFullscreen] = useState(false)
   useEffect(() => {
     const root = document.documentElement

@@ -7,8 +7,9 @@
  * second at 7-15x realtime), or kill the run and restart it at that
  * segment. A run that has EXITED short of what is asked for is restarted
  * as well, never reported as a failure: ffmpeg finishing is not ffmpeg
- * refusing. A job nobody asks about for 30s is reaped, and its directory
- * with it. The encoder flips to software after ONE GPU refusal and stays
+ * refusing. A job nobody asks about for 30s has its ffmpeg killed, one
+ * idle for ten minutes loses its segments, and the RECORD stays for as long
+ * as the phone does. The encoder flips to software after ONE GPU refusal and stays
  * there for the session: a machine without NVENC would otherwise pay the
  * refusal on every seek.
  *
@@ -40,7 +41,14 @@ import {
  *  the segment it asks for, about a second, rather than a 404 for a job that
  *  no longer exists and a fatal error in its player. */
 const IDLE_KILL_MS = 30_000
-/** A job nobody has asked about for THIS long is over: record and directory go. */
+/** A job nobody has asked about for THIS long loses its SEGMENTS - the
+ *  directory, which is what a job costs - and nothing else. The record used
+ *  to go with it (2026-09-12), and a phone paused longer than ten minutes -
+ *  the owner's iPad, asleep for the night - came back to a 404 on every
+ *  segment and a player that had given up, where a refresh (a fresh
+ *  `/api/play`) worked. A record is a few hundred bytes; it is the phone's
+ *  stream for as long as the phone is paired, and the next ask restarts
+ *  ffmpeg where it stands, exactly as after the 30s kill. */
 const IDLE_DROP_MS = 10 * 60_000
 /** How long a segment ask waits for its file before giving up. */
 const WAIT_MS = 30_000
@@ -61,6 +69,10 @@ export interface JobDeps {
   /** Injectable for tests (`testing/fakeFfmpeg.ts`). */
   spawn?: typeof nodeSpawn
   now?: () => number
+  /** The phone log (`diag.ts`): every ask, start, exit, kill and reap,
+   *  one line each, so a hitch on the phone can be laid against what the
+   *  PC was doing at that second. */
+  log?: (line: string) => void
 }
 
 export interface StartArgs {
@@ -85,6 +97,10 @@ interface Job extends StartArgs {
    *  is everything it will ever make. */
   ended: boolean
   asked: number
+  /** The reaper removed this job's directory; the next start makes it again.
+   *  Only so the ten-minute sweep does not rm an already-empty job every
+   *  tick for as long as the phone stays paired. */
+  emptied: boolean
   /** The segment of the LATEST ask, which is how an ask knows it has been
    *  left behind: two asks far apart each restarted ffmpeg at their own
    *  segment and killed the other's run, so neither was ever served. */
@@ -101,10 +117,12 @@ export class HlsJobs {
   encoder: Encoder = { video: 'nvenc' }
   private readonly spawn: typeof nodeSpawn
   private readonly now: () => number
+  private readonly log: (line: string) => void
 
   constructor(private readonly deps: JobDeps) {
     this.spawn = deps.spawn ?? nodeSpawn
     this.now = deps.now ?? Date.now
+    this.log = deps.log ?? (() => undefined)
   }
 
   /** Registers (or refreshes) the job for this phone and file; returns its
@@ -135,6 +153,7 @@ export class HlsJobs {
       startSegment: 0,
       ended: false,
       asked: this.now(),
+      emptied: false,
       lastWanted: 0,
       stderr: '',
       failed: null
@@ -218,6 +237,7 @@ export class HlsJobs {
     this.kill(job)
     job.startSegment = at
     job.ended = false
+    job.emptied = false
     job.failed = null
     job.stderr = ''
     const run = (async (): Promise<void> => {
@@ -244,13 +264,16 @@ export class HlsJobs {
       proc.stderr?.on('data', (c: Buffer) => {
         job.stderr = (job.stderr + c.toString()).slice(-4000)
       })
+      const said = (): string =>
+        job.stderr
+          .trim()
+          .split(/\r?\n|\r/)
+          .filter(Boolean)
+          .pop() ?? ''
+      this.log(
+        `job ${job.id} start at segment ${at} (${this.encoder.video}, ${job.plan.copyVideo ? 'copy' : 'encode'} video, ${job.plan.copyAudio ? 'copy' : 'encode'} audio)`
+      )
       if (DEBUG) {
-        const said = (): string =>
-          job.stderr
-            .trim()
-            .split(/\r?\n|\r/)
-            .filter(Boolean)
-            .pop() ?? ''
         console.log(`[phone hls] ${job.id} start at segment ${at} (${this.encoder.video})`)
         proc.on('exit', (code) => console.log(`[phone hls] ${job.id} exit ${code}: ${said()}`))
       }
@@ -268,6 +291,7 @@ export class HlsJobs {
         // A run this job already replaced (or killed) has nothing to say.
         if (job.proc !== proc) return
         job.proc = null
+        this.log(`job ${job.id} exit ${code}${code === 0 ? '' : `: ${said()}`}`)
         if (code === 0 || code === null) {
           job.ended = true
           return
@@ -292,7 +316,10 @@ export class HlsJobs {
   private kill(job: Job): void {
     const p = job.proc
     job.proc = null
-    if (p) p.kill()
+    if (p) {
+      this.log(`job ${job.id} kill (run from segment ${job.startSegment})`)
+      p.kill()
+    }
   }
 
   /** The path of a COMPLETE segment file, starting or restarting ffmpeg as
@@ -301,6 +328,18 @@ export class HlsJobs {
   async segment(id: string, n: number): Promise<string | null> {
     const job = this.jobs.get(id)
     if (!job || !Number.isInteger(n) || n < 0 || n >= job.total) return null
+    const from = this.now()
+    const answer = await this.segmentInner(job, id, n)
+    const took = this.now() - from
+    // Every ask, with what it cost: a served segment that WAITED is a run
+    // behind the player, and a null is the 404 the phone is about to get.
+    this.log(
+      `ask ${job.id} #${n} ${answer ? 'served' : `404 (${job.failed ?? 'not produced'})`}${took > 0 ? ` after ${took}ms` : ''}`
+    )
+    return answer
+  }
+
+  private async segmentInner(job: Job, id: string, n: number): Promise<string | null> {
     job.asked = this.now()
     job.lastWanted = n
     const deadline = this.now() + WAIT_MS
@@ -323,7 +362,10 @@ export class HlsJobs {
       // an ask left far behind the newest is a position nobody is watching
       // any more. It gives up at once, and the 404 its player retries beats
       // a connection held for thirty seconds.
-      if (n + BEHIND_IS_GONE < job.lastWanted) return null
+      if (n + BEHIND_IS_GONE < job.lastWanted) {
+        this.log(`ask ${job.id} #${n} left behind (newest ask #${job.lastWanted})`)
+        return null
+      }
       const want = nextAction({
         startSegment: job.startSegment,
         produced,
@@ -338,6 +380,9 @@ export class HlsJobs {
         continue
       }
       if (want === 'restart') {
+        this.log(
+          `ask ${job.id} #${n} restarts the run (head at #${produced}, started at #${job.startSegment})`
+        )
         void this.start(job, n)
         continue
       }
@@ -347,7 +392,19 @@ export class HlsJobs {
   }
 
   /** init.mp4 for the job, once ffmpeg has written it. Every run writes one
-   *  first thing, so a job with nothing running is started where it stands. */
+   *  first thing, so a job with nothing running is started where it stands.
+   *
+   *  COMPLETE, not merely present (2026-09-12). The muxer CREATES the init
+   *  file empty when the run opens its output and writes the moov into it
+   *  only as the first segment is flushed - measured at 0 bytes 100ms into a
+   *  copy run and 1457 bytes at 150ms, beside the first three segments. The
+   *  player asks for init.mp4 FIRST, before any segment, so it is the ask
+   *  that starts the run and it landed inside that window every time: hls.js
+   *  got 0 bytes, "initSegment does not contain moov or trak boxes", six
+   *  parse retries and a stop. The signal is the run's FIRST SEGMENT on
+   *  disk: ffmpeg closes the init file before it finalises any segment, so
+   *  a segment under its final name means the moov is written and flushed.
+   *  A size check would do for the empty case and not for a partial one. */
   async init(id: string): Promise<string | null> {
     const job = this.jobs.get(id)
     if (!job) return null
@@ -358,10 +415,10 @@ export class HlsJobs {
         await job.starting
         continue
       }
-      const { init } = await this.onDisk(job)
+      const { init, segments } = await this.onDisk(job)
       if (job.starting) continue
       if (job.failed) return null
-      if (init) return join(job.dir, INIT_FILE)
+      if (init && segments.has(job.startSegment)) return join(job.dir, INIT_FILE)
       if (!job.proc) {
         if (job.ended) return null
         void this.start(job, job.startSegment)
@@ -372,20 +429,29 @@ export class HlsJobs {
     return null
   }
 
-  /** Kill the ffmpeg of jobs nobody asked about for 30s, and drop jobs
-   *  nobody asked about for ten minutes; called on a timer by the server. */
+  /** Kill the ffmpeg of jobs nobody asked about for 30s, and remove the
+   *  segments of jobs nobody asked about for ten minutes; called on a timer
+   *  by the server. The record outlives both: a job leaves only with its
+   *  phone (`stopFor`) or the server (`stopAll`). */
   async reap(): Promise<void> {
     const now = this.now()
-    const gone: Job[] = []
-    for (const [id, job] of this.jobs) {
-      if (job.asked < now - IDLE_DROP_MS) {
-        this.jobs.delete(id)
-        gone.push(job)
+    const emptied: Job[] = []
+    for (const job of this.jobs.values()) {
+      if (job.asked < now - IDLE_DROP_MS && !job.emptied) {
+        this.kill(job)
+        // Whatever the run had produced is gone, so a run that ENDED must
+        // not be believed on the next ask: `ended` at the asked segment is
+        // read as "the film is shorter than its probe said", and that would
+        // be a 404 for a film whose files were simply reaped.
+        job.ended = false
+        job.emptied = true
+        this.log(`job ${job.id} idle ten minutes: segments removed, record kept`)
+        emptied.push(job)
       } else if (job.asked < now - IDLE_KILL_MS && job.proc) {
         this.kill(job)
       }
     }
-    await Promise.all(gone.map((job) => this.discard(job)))
+    await Promise.all(emptied.map((job) => fsp.rm(job.dir, { recursive: true, force: true })))
   }
 
   async stopAll(): Promise<void> {
