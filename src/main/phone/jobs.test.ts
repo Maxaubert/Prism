@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, rmSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -41,6 +41,19 @@ describe('HlsJobs', () => {
     expect(jobs.owner('nope')).toBeNull()
     // An unknown job has no playlist.
     expect(jobs.playlist('nope')).toBeNull()
+    await jobs.stopAll()
+  })
+
+  it('serves init.mp4 only once it is complete, which is when the first segment has landed', async () => {
+    const { jobs } = make({ intervalMs: 40 })
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    // The player asks for init.mp4 FIRST, before any segment, which is what
+    // starts the run: the file exists empty for a moment before ffmpeg
+    // writes the moov, and an empty init segment is a stream that never
+    // starts (measured through hls.js: six parse failures, then a stop).
+    const p = await jobs.init(id)
+    expect(p).toContain('init.mp4')
+    expect(statSync(p as string).size).toBeGreaterThan(0)
     await jobs.stopAll()
   })
 
@@ -193,7 +206,7 @@ describe('HlsJobs', () => {
     expect(spawned).toHaveLength(2)
   })
 
-  it('drops a job nobody asked about for ten minutes, and its directory', async () => {
+  it('removes the segments of a job idle for ten minutes but KEEPS the job, so a long pause resumes', async () => {
     let t = 0
     const { jobs, spawned } = make({}, () => t)
     const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
@@ -202,8 +215,42 @@ describe('HlsJobs', () => {
     await jobs.reap()
     expect(existsSync(join(base, id))).toBe(false)
     expect(spawned[0].killed).toBe(true)
-    expect(await jobs.segment(id, 1)).toBeNull()
-    expect(jobs.owner(id)).toBeNull()
+    // The phone slept through the night (owner, 2026-09-12: "woke up, tried
+    // to watch more but couldn't unpause"). The job used to be gone, so every
+    // ask was a 404 and the player gave up; it is the phone's stream for as
+    // long as the phone is paired, and the ask restarts ffmpeg where it is.
+    expect(jobs.owner(id)).toBe('t')
+    const p = await jobs.segment(id, 1)
+    expect(p?.endsWith('1.m4s')).toBe(true)
+    expect(spawned).toHaveLength(2)
+    expect(startOf(spawned[1].args)).toBe('1')
+    // ...and the same for a job whose run had ENDED before the pause: the
+    // film was fully produced, the files went, and it is asked for again.
+    await settle(300)
+    t += 11 * 60_000
+    await jobs.reap()
+    expect(existsSync(join(base, id))).toBe(false)
+    expect((await jobs.segment(id, 0))?.endsWith('0.m4s')).toBe(true)
+    expect(spawned).toHaveLength(3)
+    await jobs.stopAll()
+  })
+
+  it('writes the timeline to the phone log: start, asks, restarts, kills', async () => {
+    const lines: string[] = []
+    let t = 0
+    const fake = fakeFfmpeg({ segments: 3 })
+    const jobs = new HlsJobs({ ffmpeg: 'f', baseDir: base, spawn: fake.spawn, now: () => t, log: (l) => lines.push(l) })
+    const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
+    await jobs.segment(id, 0)
+    await jobs.segment(id, 20)
+    await settle(150)
+    t = 31_000
+    await jobs.reap()
+    expect(lines).toContain(`job ${id} start at segment 0 (nvenc, encode video, encode audio)`)
+    expect(lines.some((l) => l.startsWith(`ask ${id} #0 served`))).toBe(true)
+    expect(lines.some((l) => l.startsWith(`ask ${id} #20 restarts the run`))).toBe(true)
+    expect(lines.some((l) => l.startsWith(`job ${id} kill`))).toBe(true)
+    await jobs.stopAll()
   })
 
   it('stopAll kills every run and removes every directory', async () => {
