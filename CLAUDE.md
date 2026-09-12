@@ -727,6 +727,42 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   restarted ffmpeg at their own segment and killed the other's, so neither was ever served.
   An ask the player has moved past gives up at once with a 404 it retries, rather than
   holding a connection for thirty seconds.
+- **THE STREAM SURVIVES THE NIGHT, AND SAYS WHAT IT SAW** (2026-09-12, #116; owner, after a
+  film on the iPad: twenty hitches in two hours, and no way to unpause after sleeping).
+  Three things found by measurement, one still open. (1) `init.mp4` WAS SERVED EMPTY: the
+  muxer creates the init file at 0 bytes when the run opens its output and writes the moov
+  only as the first segment is flushed - MEASURED at 0 bytes 100ms into a copy run, 1457
+  bytes at 150ms - and the player asks for init.mp4 FIRST, which is the ask that starts the
+  run, so hls.js got nothing, "initSegment does not contain moov or trak boxes", six parse
+  retries and a stop. `init()` now waits for the run's FIRST SEGMENT on disk, because
+  ffmpeg closes the init file before it finalises any segment; the fake ffmpeg writes the
+  file empty and fills it with the first segment, so the test fails the old way. (2) A JOB
+  IDLE TEN MINUTES lost its RECORD along with its segments, so a phone paused longer than
+  that - asleep for the night - got 404 on every segment and a player that had given up,
+  where a refresh worked because it is a fresh `/api/play`. The record is a few hundred
+  bytes and is the phone's stream for as long as the phone is paired: the sweep removes the
+  DIRECTORY and keeps the job, `ended` reset so the next ask restarts ffmpeg where it
+  stands. And hls.js's network-retry budget on the phone RESETS when a fragment lands: it
+  counted for the whole film, so four blips across two hours made the fifth fatal, which is
+  a player that "just stops". (3) COPY MODE'S PLAYLIST LIES: a copied stream can only be cut
+  at the film's own keyframes, and Prism's playlist says every segment is 4.000s. MEASURED
+  on the owner's HEVC film (keyframes 1-4s apart): segments of 1.9-6.7s; on an x264 rip
+  with 10s keyframes: 10s segments. ffmpeg's rule is exact and deterministic - segment N
+  runs from the first keyframe at or after 4N to the first at or after 4(N+1), measured
+  against the RUN's first packet, so a restart moves the grid. hls.js on the PC survives
+  it (4 minutes of the HEVC copy at 1x and 16 minutes of the x264 copy at 4x through the
+  app's own Chromium: no backward jump, no skip, one stall), so it is NOT proven to be the
+  iPad's hitching, and it is not fixed here; it is written down so the next person does not
+  rediscover it. What decides it is the PHONE LOG: `userData/phone/phone.log`
+  (`src/main/phone/diag.ts`) is ONE timeline - the server's every segment ask with how long
+  it waited, every start, kill, exit and reap of a job, every play answer and refused
+  stream - and the phone's own player, posted in batches to `/api/diag` (walled like every
+  route, capped by `diagLines`): hls.js's error events fatal or not, waiting/stalled/seek
+  events, a buffer sample every ten seconds (`phone/diag.ts`). An iPad has no Web Inspector
+  without a Mac; this is the substitute, always on, a few dozen bytes a line, rotated at 2MB.
+  The open hypothesis is iPadOS WebKit's MediaSource quota against a 4K HEVC copy with 30s
+  buffered ahead: a buffer-full error, a flush, and a resume from the last keyframe, which
+  is the 1-2s replay the owner described. The log says.
 - **Documents on the phone** (2026-09-07, #106): PDFs, markdown, code and text, office and
   ebook documents, comics and archive listings, through the SAME viewers the PC mounts
   (`PhoneViewer`, lazy-loaded exactly as App loads them, so a phone that only plays films
