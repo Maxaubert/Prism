@@ -143,6 +143,7 @@ export function AudioView({
     onActivity: showChrome,
     errorMsg: `“${name}” can’t be played (unsupported codec or corrupt file).`,
     resumeKey: url,
+    resumePath: path,
     keys: !background,
     volumeKey,
     onVolume: () => setVolFlash(Date.now())

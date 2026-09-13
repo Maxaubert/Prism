@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 import { rememberPaused, rememberTime, sessionTime } from './playState'
+import { positionToSave, resumeAt, RESUME_SAVE_STEP } from './resumePoint'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
 import { setTabVolume, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
@@ -12,12 +13,18 @@ import { forgetPlayer, reportPlaying } from './awake'
 export const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]
 
 // Resume-position: long media reopens where you left off; short clips (music
-// videos, songs) always restart so you hear them whole. Position is saved per
-// file url and cleared once you reach the end.
+// videos, songs) always restart so you hear them whole. The rules are
+// `lib/resumePoint`'s; the place itself is kept ONCE, on the PC, by FILE
+// PATH (#118, `window.prism.positionGet/Set`), so the phone and the window
+// open a film at the same minute. It used to be this renderer's own
+// localStorage keyed by the media URL, which on the phone changed with every
+// job and token - so the phone never saw the PC's place, nor its own.
+// The old key is still READ, once, so nobody loses their place at upgrade.
 const RESUME_PREFIX = 'prism.resume.'
-const RESUME_MIN_DURATION = 600 // seconds (10 minutes)
-const RESUME_END_PAD = 5 // don't resume/save within this many seconds of the end
-const RESUME_SAVE_STEP = 5 // save at most once per this many seconds of movement
+/** A stored place is applied only while the element is still at the start:
+ *  the answer comes back over IPC (or the wire), and a user who has already
+ *  pressed play and scrubbed is not to be yanked back. */
+const RESUME_APPLY_BEFORE = 1
 const SESSION_END_PAD = 0.5 // a file that ran to its end restarts, however short it is
 
 // Player identities for the keep-awake count. A counter, not the path: the
@@ -83,10 +90,13 @@ interface Options {
    *  is a guess: 1/30 on 24fps film moves 1.25 frames and lands between two.
    *  Omit for audio, and for a file whose rate the probe could not say. */
   fps?: number | null
-  /** Stable per-file key (the media url). Enables resume-position for media
-   *  longer than RESUME_MIN_DURATION - which is why a 5-second clip is never
-   *  remembered, and a film is. Both players pass it. Omit to disable. */
+  /** Stable per-file key (the media url) for the SESSION marks (paused or
+   *  not, and where, while you look away). Both players pass it. */
   resumeKey?: string
+  /** The file's PATH, for the place kept across sessions and across hosts
+   *  (#118): media longer than ten minutes reopens where it was left, which
+   *  is why a 5-second clip never is and a film is. Omit to disable. */
+  resumePath?: string
 }
 
 /** Volume runs to 200%, as VLC's does; past 100% it is a gain (see lib/audio).
@@ -97,6 +107,7 @@ const clampVol = (v: number): number => Math.max(0, Math.min(MAX_VOL, v))
 
 export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: Options = {}): MediaControls {
   const {
+    resumePath,
     onFullscreen,
     onPlayChange,
     onActivity,
@@ -324,13 +335,10 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       // Persist position for long media, throttled; clear it near the end so the
       // file restarts next time instead of resuming at ~100%.
       if (resumeKey) rememberTime(resumeKey, m.currentTime)
-      if (resumeKey && Number.isFinite(m.duration) && m.duration > RESUME_MIN_DURATION) {
-        if (m.currentTime > m.duration - RESUME_END_PAD) {
-          localStorage.removeItem(RESUME_PREFIX + resumeKey)
-        } else if (Math.abs(m.currentTime - lastSavedRef.current) >= RESUME_SAVE_STEP) {
-          lastSavedRef.current = m.currentTime
-          localStorage.setItem(RESUME_PREFIX + resumeKey, String(Math.floor(m.currentTime)))
-        }
+      if (resumePath && Math.abs(m.currentTime - lastSavedRef.current) >= RESUME_SAVE_STEP) {
+        lastSavedRef.current = m.currentTime
+        const save = positionToSave(m.currentTime, m.duration)
+        if (save !== undefined) window.prism.positionSet(resumePath, save)
       }
     },
     onDurationChange: (e) => {
@@ -340,17 +348,36 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
       // Two sources, and the session one wins: it is exact, it covers files of
       // any length, and it is what "I only switched tabs for a second" means.
       // The stored position is the older, cross-session rule, films only.
-      if (!resumedRef.current && resumeKey && Number.isFinite(m.duration)) {
+      if (!resumedRef.current && (resumeKey || resumePath) && Number.isFinite(m.duration)) {
         resumedRef.current = true
-        const here = sessionTime(resumeKey)
-        const stored =
-          m.duration > RESUME_MIN_DURATION ? Number(localStorage.getItem(RESUME_PREFIX + resumeKey)) : 0
-        const at = here > 0 ? here : stored
-        const limit = here > 0 ? m.duration - SESSION_END_PAD : m.duration - RESUME_END_PAD
-        if (at > 0 && at < limit) {
-          m.currentTime = at
-          setCur(at)
+        const here = resumeKey ? sessionTime(resumeKey) : 0
+        if (here > 0 && here < m.duration - SESSION_END_PAD) {
+          m.currentTime = here
+          setCur(here)
+          return
         }
+        if (!resumePath) return
+        // The stored place is asked of the PC (its own store over IPC, the
+        // phone's over the wire) and applied when it comes back, unless the
+        // element has moved on by then. The old localStorage key is the
+        // fallback, read once and written through so it need not be again.
+        const duration = m.duration
+        const legacy = resumeKey ? Number(localStorage.getItem(RESUME_PREFIX + resumeKey)) : 0
+        void window.prism
+          .positionGet(resumePath)
+          .catch(() => null)
+          .then((stored) => {
+            let place = stored
+            if (place === null && legacy > 0) {
+              place = legacy
+              window.prism.positionSet(resumePath, legacy)
+              if (resumeKey) localStorage.removeItem(RESUME_PREFIX + resumeKey)
+            }
+            const at = resumeAt(place, duration)
+            if (at === null || m.currentTime > RESUME_APPLY_BEFORE) return
+            m.currentTime = at
+            setCur(at)
+          })
       }
     },
     onProgress: (e) => {
