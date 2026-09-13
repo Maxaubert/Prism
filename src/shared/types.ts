@@ -163,6 +163,17 @@ export interface OpenPayload {
   restoreActive?: boolean
 }
 
+/** What the PC remembers about a file (#118, #124): where you had got to and
+ *  what you chose for it. `null` in a field is a choice ("off", "default");
+ *  an absent field is no memory of it. */
+export interface FileMemory {
+  t?: number
+  audio?: number | null
+  subs?: string | null
+  fit?: string
+}
+export type FileMemoryPatch = { t?: number | null; audio?: number | null; subs?: string | null; fit?: string | null }
+
 /** A shell main detected on this machine; the only things term:spawn launches. */
 export interface ShellDef {
   id: string

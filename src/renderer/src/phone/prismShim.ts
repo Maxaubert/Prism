@@ -14,7 +14,16 @@
  * on import and asks the bridge for the window material as it does.
  */
 import type { PrismApi } from '../../../preload/index'
-import type { ArchiveListing, DirListing, FileKind, MediaProbe, SearchResult, TextRead } from '@shared/types'
+import type {
+  ArchiveListing,
+  DirListing,
+  FileKind,
+  FileMemory,
+  FileMemoryPatch,
+  MediaProbe,
+  SearchResult,
+  TextRead
+} from '@shared/types'
 import { apiUrl, getJson, mediaUrl } from './api'
 import { canCsv } from './canPlay'
 
@@ -180,6 +189,22 @@ const implemented: Shim = {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ t }),
+      keepalive: true
+    }).catch(() => undefined)
+  },
+  // ...and the choices beside the place (#124): the same route, a patch.
+  memoryGet: (path: string): Promise<FileMemory | null> =>
+    getJson<FileMemory & { t: number | null }>('/api/pos', { path })
+      .then((r) => {
+        const { t, ...rest } = r
+        return t === null ? rest : { ...rest, t }
+      })
+      .catch(() => null),
+  memorySet: (path: string, patch: FileMemoryPatch): void => {
+    void fetch(apiUrl('/api/pos', { path }), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
       keepalive: true
     }).catch(() => undefined)
   },

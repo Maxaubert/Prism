@@ -262,6 +262,27 @@ export function PhoneViewer({
   // seeded for the new url the moment the answer lands (below). Per file.
   const [audioFor, setAudioFor] = useState(file.path)
   const [audio, setAudio] = useState<number | null>(null)
+  // The track the PC remembers for this file (#124), read before the stream
+  // is asked for, so the film opens with it rather than swapping to it.
+  const [remembered, setRemembered] = useState<{ path: string; audio: number | null } | null>(null)
+  useEffect(() => {
+    if (!media) return
+    let live = true
+    void window.prism
+      .memoryGet(file.path)
+      .catch(() => null)
+      .then((m) => {
+        if (!live) return
+        const a = m?.audio ?? null
+        chooseAudio(file.path, a)
+        setRemembered({ path: file.path, audio: a })
+        setAudio(a)
+      })
+    return () => {
+      live = false
+    }
+  }, [file.path, media])
+  const rememberedReady = !media || remembered?.path === file.path
   // The place the old stream was at when the pick was made, carried to the
   // new url. State rather than a ref: it is read while rendering (below).
   const [seed, setSeed] = useState<{ t: number; paused: boolean; from: string | null } | null>(null)
@@ -281,7 +302,7 @@ export function PhoneViewer({
     },
     [file.path, mediaEl]
   )
-  const answer = usePlayAnswer(file, media, audio)
+  const answer = usePlayAnswer(file, media && rememberedReady, audio)
   const answerUrl = answer && answer.mode !== 'none' ? answer.url : null
   if (answerUrl && seed && seededFor !== answerUrl) {
     // Rendering-time, like the file's own reset: the new url's session mark

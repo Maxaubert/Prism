@@ -27,7 +27,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, promises as fsp } from 'fs'
 import { basename, join, extname, normalize } from 'path'
 import { Readable } from 'stream'
-import type { ArchiveListing, DirListing, FileKind, SearchResult, TextRead } from '@shared/types'
+import type {
+  ArchiveListing,
+  DirListing,
+  FileKind,
+  FileMemory,
+  FileMemoryPatch,
+  SearchResult,
+  TextRead
+} from '@shared/types'
 import type { ComicOpen } from '../comic'
 import type { MediaInfo } from '../ffmpeg'
 import { decide, parseCan } from './decide'
@@ -35,6 +43,7 @@ import { Grants } from './grants'
 import type { HlsJobs } from './jobs'
 import { forget, issueCode, phoneFor, redeem, touch, type PairState, type Phone } from './pairing'
 import { diagLines } from './diag'
+import { memoryPatch } from './memory'
 import { parseRoute, tokenOf, type Route } from './routes'
 import { rootName, tabList } from './tabs'
 
@@ -143,8 +152,8 @@ export interface PhoneDeps {
    *  one thing a phone WRITES, and it writes a number into main's store,
    *  never the filesystem. Walled like every path the phone names. */
   positions: {
-    get: (path: string) => Promise<number | null>
-    set: (path: string, t: number | null) => void
+    get: (path: string) => Promise<FileMemory | null>
+    set: (path: string, patch: FileMemoryPatch) => void
   }
   loopbackOnly: boolean
   now?: () => number
@@ -538,19 +547,19 @@ export class PhoneServer {
       case 'pos': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         if (req.method === 'POST') {
-          let t: unknown
+          let body: unknown
           try {
-            t = (JSON.parse(await readBody(req)) as { t?: unknown }).t
+            body = JSON.parse(await readBody(req))
           } catch (err) {
             if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
             return void json(res, 400, { error: 'bad request' })
           }
-          if (t !== null && (typeof t !== 'number' || !Number.isFinite(t) || t < 0))
-            return void json(res, 400, { error: 'bad position' })
-          this.deps.positions.set(path, t as number | null)
+          const patch = memoryPatch(body)
+          if (!patch) return void json(res, 400, { error: 'bad memory' })
+          this.deps.positions.set(path, patch)
           return void json(res, 200, { ok: true })
         }
-        return void json(res, 200, { t: await this.deps.positions.get(path) })
+        return void json(res, 200, { t: null, ...((await this.deps.positions.get(path)) ?? {}) })
       }
       case 'diag': {
         if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })

@@ -15,7 +15,9 @@ import type {
   TailEvent,
   TailRead,
   TextRead,
-  WriteResult
+  WriteResult,
+  FileMemory,
+  FileMemoryPatch
 } from '@shared/types'
 
 // The typed bridge the renderer uses. Kept small and stable; prism-core consumes
@@ -78,8 +80,14 @@ const api = {
   /** Where you had got to in a film, kept ONCE on the PC by file path
    *  (#118): the phone reads and writes the same store over /api/pos, so a
    *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */
-  positionGet: (path: string): Promise<number | null> => ipcRenderer.invoke('pos:get', path),
-  positionSet: (path: string, t: number | null): void => ipcRenderer.send('pos:set', path, t),
+  positionGet: (path: string): Promise<number | null> =>
+    ipcRenderer.invoke('pos:get', path).then((m: FileMemory | null) => m?.t ?? null),
+  positionSet: (path: string, t: number | null): void => ipcRenderer.send('pos:set', path, { t }),
+  /** The whole of what the PC remembers about a file (#124): the place, and
+   *  the audio track, subtitle track and aspect ratio picked for it. A patch
+   *  merges; null clears a field. */
+  memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke('pos:get', path),
+  memorySet: (path: string, patch: FileMemoryPatch): void => ipcRenderer.send('pos:set', path, patch),
   // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.

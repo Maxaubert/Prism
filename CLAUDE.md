@@ -781,6 +781,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   back. The old localStorage key is read ONCE and written through, so nobody loses their
   place at upgrade. Proved in `phoneHls`: the window writes 2400, the phone reads it, the
   phone writes 3000, the window reads it, and positions.json holds it.
+  **AND THE CHOICES BESIDE THE PLACE** (2026-09-13, #124; owner: "if I set the audio track
+  to English and later come back to it in a new tab, it should still be in English"). The
+  same record holds the audio track, the subtitle track and the aspect ratio picked for the
+  file (`FileMemory`); `set` MERGES a patch and null CLEARS a field, which is itself a
+  memory: a film whose subtitles you turned off opens with them off whatever the global
+  "subtitles wanted" says, and a remembered track that is no longer beside the file falls
+  back to that rule. Read with the tracks, in ONE `Promise.all`, so the auto-pick and the
+  memory cannot race. The phone reads its remembered track BEFORE it asks for the stream,
+  so the film opens on it rather than swapping to it, and the phone's own picks are
+  written through the same route (`memoryPatch`, pure, is the wire's validator). The
+  record FOLLOWS Prism's own renames and moves (`Positions.rename`, called from the IPC
+  handlers with the from and to they already have), so a film tidied into a folder keeps
+  its place and its choices. And the video player's per-file resets (ratio, track) are
+  keyed by PATH now, not url: the phone's audio pick swaps the url for the same film, and
+  the ratio you chose must not reset on it. Proved in `player` (the subtitle pick and 16:9
+  survive stepping to ep2 and back, and sit in the store by path) and in `phoneHls` (a
+  reload of the film comes back on the Commentary track).
   **AND COMING BACK REFRESHES THE STREAM ITSELF** (same day, owner: leaving the page and
   coming back left a player that would not go on "until a site refresh"). What WebKit does
   to a backgrounded media element and its MediaSource buffers is written nowhere Prism can

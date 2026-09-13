@@ -121,7 +121,8 @@ import type {
   PhoneState,
   RenameResult,
   TextRead,
-  WriteResult
+  WriteResult,
+  FileMemoryPatch
 } from '@shared/types'
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
@@ -1397,9 +1398,9 @@ if (!app.requestSingleInstanceLock()) {
     // that the window reaches over IPC and the phone over /api/pos.
     const positions = new Positions(join(app.getPath('userData'), 'positions.json'))
     ipcMain.handle('pos:get', (_e, path: string) => positions.get(String(path)))
-    ipcMain.on('pos:set', (_e, path: string, t: number | null) =>
-      positions.set(String(path), typeof t === 'number' ? t : null)
-    )
+    ipcMain.on('pos:set', (_e, path: string, patch: unknown) => {
+      if (patch && typeof patch === 'object') positions.set(String(path), patch as FileMemoryPatch)
+    })
     const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
     const hlsJobs = hlsTools
@@ -1862,12 +1863,14 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle(
       'file:rename',
-      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => (
-        ownWrite(p),
-        editable(p)
-          ? renameFile(p, name, onClash, (t) => shell.trashItem(t))
-          : { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
-      )
+      async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
+        ownWrite(p)
+        if (!editable(p)) return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+        const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
+        // The file's memory follows it (#124): its place and its choices.
+        if (r.ok) void positions.rename(p, r.path)
+        return r
+      }
     )
     ipcMain.handle('file:trash', async (_e, p: string): Promise<boolean> => {
       ownWrite(p)
@@ -2545,9 +2548,12 @@ if (!app.requestSingleInstanceLock()) {
             replaced: [],
             refused: true
           }
-        return moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
+        const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
         )
+        // Each file's memory follows it (#124).
+        for (const m of r.moved) void positions.rename(m.from, m.to)
+        return r
       }
     )
     ipcMain.handle(
