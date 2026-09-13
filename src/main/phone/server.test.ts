@@ -38,6 +38,7 @@ let server: PhoneServer
 let port: number
 let changes = 0
 let logged: string[] = []
+let positions = new Map<string, number>()
 /** The server holds this object, so a test can swap one dep for a failing one. */
 let deps: PhoneDeps
 
@@ -77,6 +78,7 @@ const listing = (files: string[]) => ({
 
 beforeEach(async () => {
   logged = []
+  positions = new Map()
   dir = mkdtempSync(join(tmpdir(), 'prism-phone-'))
   renderer = join(dir, 'renderer')
   mkdirSync(join(renderer, 'assets'), { recursive: true })
@@ -184,6 +186,13 @@ beforeEach(async () => {
       changes += 1
     },
     log: (l) => logged.push(l),
+    positions: {
+      get: async (p) => positions.get(p.toLowerCase()) ?? null,
+      set: (p, t) => {
+        if (t === null) positions.delete(p.toLowerCase())
+        else positions.set(p.toLowerCase(), t)
+      }
+    },
     loopbackOnly: true,
     now: () => 1000
   }
@@ -657,6 +666,25 @@ describe('PhoneServer', () => {
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({ root })
     })
+
+  it('/api/pos reads and writes the film position by path, inside the wall', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const film = join(dir, 'film.mkv')
+    const pos = (p: string) => `/api/pos?path=${encodeURIComponent(p)}`
+    expect((await fetch(url(pos(film)))).status).toBe(401)
+    expect(await (await fetch(url(pos(film)), { headers: auth })).json()).toEqual({ t: null })
+    positions.set(film.toLowerCase(), 2400)
+    expect(await (await fetch(url(pos(film)), { headers: auth })).json()).toEqual({ t: 2400 })
+    const put = await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: 2460 }) })
+    expect(put.status).toBe(200)
+    expect(positions.get(film.toLowerCase())).toBe(2460)
+    // null forgets; nonsense is refused; a path outside the phone's root is walled.
+    await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: null }) })
+    expect(positions.has(film.toLowerCase())).toBe(false)
+    expect((await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: 'x' }) })).status).toBe(400)
+    expect((await fetch(url(pos(picOutside)), { headers: auth })).status).toBe(403)
+  })
 
   it('POST /api/diag writes the phone lines to the log, capped, under its name', async () => {
     expect((await fetch(url('/api/diag'), { method: 'POST', body: '{}' })).status).toBe(401)

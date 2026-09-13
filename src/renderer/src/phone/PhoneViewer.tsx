@@ -14,6 +14,7 @@ import {
 } from '../lib/fullscreen'
 import { hlsPlayerHere } from './canPlay'
 import { diag, watchMedia } from './diag'
+import { watchReturn } from './returning'
 import { askPlay, type PlayAnswer } from './prismShim'
 
 // Split out exactly as App splits them (#106): none of these is on the path
@@ -103,6 +104,7 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
   return (el) => {
     let hls: { destroy(): void } | null = null
     let dead = false
+    let unwatch: (() => void) | null = null
     void import('hls.js').then(({ default: Hls }) => {
       if (dead) return
       if (!Hls.isSupported()) {
@@ -151,9 +153,22 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
       h.loadSource(playlist)
       h.attachMedia(el)
       hls = h
+      // Coming back after a long absence to a player that is the worse for
+      // it (#118, `returning.ts`): what a refresh did, without losing the
+      // place. `recoverMediaError` is hls.js's own detach-and-reattach.
+      unwatch = watchReturn(
+        el,
+        (t, wasPlaying) => {
+          h.recoverMediaError()
+          h.startLoad(t)
+          if (wasPlaying) void el.play().catch(() => undefined)
+        },
+        diag
+      )
     })
     return () => {
       dead = true
+      unwatch?.()
       hls?.destroy()
     }
   }
@@ -215,6 +230,7 @@ export function PhoneViewer({
   // The diagnostics log's eye on the player (2026-09-12): stalls, seeks
   // and a buffer sample every ten seconds, for whichever host plays it.
   useEffect(() => (mediaEl ? watchMedia(mediaEl) : undefined), [mediaEl])
+
   const [fullscreen, setFullscreen] = useState(false)
   useEffect(() => {
     const root = document.documentElement
@@ -238,6 +254,21 @@ export function PhoneViewer({
   // the same string, so nothing swaps.
   const url = playlist ?? window.prism.mediaUrl(file.path)
   const viaHlsJs = playlist !== null && hlsPlayerHere() === 'hlsjs'
+  // The native path's return rule (an iPhone, where the element owns the
+  // playlist): reload the element and seek back. hls.js hosts get theirs
+  // inside `attachHlsJs`, where the instance is.
+  useEffect(() => {
+    if (!mediaEl || viaHlsJs) return
+    return watchReturn(
+      mediaEl,
+      (t, wasPlaying) => {
+        mediaEl.load()
+        mediaEl.currentTime = t
+        if (wasPlaying) void mediaEl.play().catch(() => undefined)
+      },
+      diag
+    )
+  }, [mediaEl, viaHlsJs])
   const attach = useMemo(() => (viaHlsJs && playlist ? attachHlsJs(playlist) : undefined), [viaHlsJs, playlist])
   let view: JSX.Element
   switch (file.kind) {

@@ -5362,6 +5362,19 @@ async function phoneHlsScenario(fixtures) {
     ok(/ ask [0-9a-f]{16} #0 served/.test(log), 'and the segment asks')
     ok(/ phone "e2e phone" [\d.]+ hls\.js \S+ attached/.test(log), 'and the page reports hls.js attaching')
     ok(/ phone "e2e phone" [\d.]+ (playing|sample|seeking) t=/.test(log), 'and what its player saw')
+    // ONE position store (#118): what the PC's window writes for a film is
+    // what the phone reads over /api/pos, by path, and the other way round.
+    await win.evaluate((p) => window.prism.positionSet(p, 2400), dolby)
+    await sleep(600) // the store saves on a 400ms debounce
+    const posUrl = `${base}/api/pos?path=${encodeURIComponent(dolby)}`
+    ok((await (await fetch(posUrl, { headers: auth })).json()).t === 2400, 'the phone reads the place the PC left a film at')
+    await fetch(posUrl, { method: 'POST', headers: auth, body: JSON.stringify({ t: 3000 }) })
+    ok((await win.evaluate((p) => window.prism.positionGet(p), dolby)) === 3000, 'and the PC reads the place the phone reached')
+    await sleep(600) // the debounce again, before the file is read
+    ok(
+      JSON.parse(readFileSync(join(PROFILE, 'positions.json'), 'utf8'))[dolby.toLowerCase()]?.t === 3000,
+      'kept in positions.json by lower-cased path'
+    )
   } finally {
     await page?.close().catch(() => {})
     await win.evaluate(() => window.prism.phoneSetOn(false, null)).catch(() => {})

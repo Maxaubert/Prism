@@ -41,6 +41,7 @@ import {
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
+import { Positions } from './positions'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
@@ -1392,6 +1393,13 @@ if (!app.requestSingleInstanceLock()) {
     // The phone diagnostics log (2026-09-12): one timeline for the server's
     // asks and restarts and the phone player's own stalls, beside the jobs.
     const phoneLog = new PhoneLog(join(app.getPath('userData'), 'phone', 'phone.log'))
+    // Where you had got to in each film (#118): one store, by file path,
+    // that the window reaches over IPC and the phone over /api/pos.
+    const positions = new Positions(join(app.getPath('userData'), 'positions.json'))
+    ipcMain.handle('pos:get', (_e, path: string) => positions.get(String(path)))
+    ipcMain.on('pos:set', (_e, path: string, t: number | null) =>
+      positions.set(String(path), typeof t === 'number' ? t : null)
+    )
     const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
     const hlsJobs = hlsTools
@@ -1488,6 +1496,10 @@ if (!app.requestSingleInstanceLock()) {
         phoneChanged()
       },
       log: logPhone,
+      positions: {
+        get: (p) => positions.get(p),
+        set: (p, t) => positions.set(p, t)
+      },
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
     })

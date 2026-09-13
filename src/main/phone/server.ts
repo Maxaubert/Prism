@@ -139,6 +139,13 @@ export interface PhoneDeps {
    *  refused streams) and, through `/api/diag`, what the phone's player
    *  saw. Optional so a test server without one logs nowhere. */
   log?: (line: string) => void
+  /** The PC's own position store (#118): seconds into a film by path. The
+   *  one thing a phone WRITES, and it writes a number into main's store,
+   *  never the filesystem. Walled like every path the phone names. */
+  positions: {
+    get: (path: string) => Promise<number | null>
+    set: (path: string, t: number | null) => void
+  }
   loopbackOnly: boolean
   now?: () => number
 }
@@ -504,6 +511,26 @@ export class PhoneServer {
       // short lines from its player, written beside the server's own
       // timeline under the phone's name. Capped by `diagLines`, and the
       // body by `readBody`; a phone cannot fill the disk with it.
+      // Where the film had got to (#118), read and written by path: a film
+      // left at minute 40 on the PC opens at minute 40 on the phone, and the
+      // place the phone reaches is what the PC opens at next.
+      case 'pos': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        if (req.method === 'POST') {
+          let t: unknown
+          try {
+            t = (JSON.parse(await readBody(req)) as { t?: unknown }).t
+          } catch (err) {
+            if (err instanceof TooLarge) return void json(res, 413, { error: 'too large' })
+            return void json(res, 400, { error: 'bad request' })
+          }
+          if (t !== null && (typeof t !== 'number' || !Number.isFinite(t) || t < 0))
+            return void json(res, 400, { error: 'bad position' })
+          this.deps.positions.set(path, t as number | null)
+          return void json(res, 200, { ok: true })
+        }
+        return void json(res, 200, { t: await this.deps.positions.get(path) })
+      }
       case 'diag': {
         if (req.method !== 'POST') return void json(res, 405, { error: 'POST' })
         let lines: string[]
