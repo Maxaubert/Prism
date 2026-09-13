@@ -2499,6 +2499,16 @@ async function playerScenario(fixtures) {
     ok((await win.locator('[data-menu-value="picture"]').textContent()) === '16:9', 'and so is the aspect ratio')
     const mem = await win.evaluate((p) => window.prism.memoryGet(p), join(fixtures, 'ep1.mp4'))
     ok(mem?.fit === '16:9' && typeof mem?.subs === 'string' && mem.subs.endsWith('ep1.en.srt'), `kept in the PC's store by path (${JSON.stringify(mem)})`)
+    // The memory is the app's and the profile is shared across scenarios:
+    // put ep1 back the way the others expect it, a fitted picture and the
+    // global subtitle rule.
+    // `undefined` CLEARS a field (no memory), where null would be a remembered "off".
+    await win.evaluate((p) => window.prism.memorySet(p, { fit: null, subs: undefined, audio: undefined }), join(fixtures, 'ep1.mp4'))
+    await sleep(600)
+    ok(
+      (await win.evaluate((p) => window.prism.memoryGet(p), join(fixtures, 'ep1.mp4')))?.fit === undefined,
+      'and a field can be cleared to no memory at all'
+    )
     await win.waitForFunction(
       () => {
         const t = document.querySelector('video')?.textTracks
