@@ -4813,6 +4813,33 @@ async function dragScenario(fixtures) {
     try {
       await win.waitForSelector('[role="treeitem"]:has-text("movable.txt")', { timeout: 10000 })
       await sleep(500)
+      // THE DROP LINE (#126): a drag over a file row in the ROOT draws a line
+      // under that row, since the root has no row to light; the space under
+      // the list draws it under the last row. Synthetic dragover events, so
+      // the mid-drag state can be read - a real drop is what dragTo below does.
+      const lineUnder = () =>
+        win.evaluate(() => {
+          const line = document.querySelector('aside [data-drop-line]')
+          const li = line?.closest('li')
+          return line ? (li?.querySelector('[data-row]')?.getAttribute('data-row') ?? 'end') : null
+        })
+      await win.evaluate(() => {
+        const row = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) => (r.textContent ?? '').includes('anchor.txt'))
+        row?.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))
+      })
+      ok(/anchor\.txt$/.test((await lineUnder()) ?? ''), `a drag over a file in the root draws the line under that row (${await lineUnder()})`)
+      await win.evaluate(() => {
+        const scroller = document.querySelector('aside [role="tree"]')?.parentElement ?? document.querySelector('aside')
+        const rows = [...document.querySelectorAll('aside [data-dropdir]')]
+        const last = rows[rows.length - 1]?.getBoundingClientRect()
+        scroller?.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY: (last?.bottom ?? 0) + 40, dataTransfer: new DataTransfer() }))
+      })
+      ok((await lineUnder()) === 'end', `and beneath the list it draws under the last row (${await lineUnder()})`)
+      await win.evaluate(() => {
+        const scroller = document.querySelector('aside [role="tree"]')?.parentElement ?? document.querySelector('aside')
+        scroller?.dispatchEvent(new DragEvent('dragleave', { bubbles: true }))
+      })
+      ok((await lineUnder()) === null, 'and leaving takes the line away')
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())

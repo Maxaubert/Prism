@@ -399,6 +399,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
   one).
+- **A LINE SAYS WHERE A DROP LANDS** (2026-09-13, #126; owner: dragging to the root should
+  be easier - at the bottom of the list, or over a file in the root, a blue line should say
+  it will drop here). Dropping on a FILE row has meant "into that file's folder" since
+  2026-09-01 and the space beneath the list has meant the root, but only a FOLDER's own row
+  lit up, and the root has no row: the two drops that land in the root were the two with
+  no cue at all. An accent hairline under the hovered file row (`data-drop-line`), or under
+  the LAST row when the pointer is beneath the list, is that cue. The tree context carries
+  the hovered ROW beside the target folder (`dropRow`, with `'end'` for the space beneath),
+  and the sidebar's gutter resolver hands back the row it matched as well as its folder.
+  Drawn for a file row whenever its folder is the target - which lights a subfolder's
+  files too, beside their folder's own ring, and reads as the same promise twice rather
+  than as noise. Proved in `drag` with synthetic dragover events, since a real drag ends in
+  a drop and the line is a mid-drag state.
 - **The empty window offers a TAB, not a file** (2026-08-31). With nothing open at all the
   first button was "Open file...", which is the narrowest way into an app whose whole model is
   a tab rooted at a FOLDER you then browse: it left you holding one file with no obvious next

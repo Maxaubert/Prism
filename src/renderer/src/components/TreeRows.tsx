@@ -642,8 +642,20 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
         const onSel = onCursor || t.selected.has(f.path)
         // The right-clicked row keeps its hover look while its menu is up.
         const onMenuHl = !!t.menuPath && f.path.toLowerCase() === t.menuPath.toLowerCase()
+        // The drop line (#126): a drag over this row lands in its folder, and
+        // when that folder is the root there is no row to light, so the line
+        // under the hovered row is the only cue. Drawn for every folder
+        // whose row is not on screen, which is the root and nothing else.
+        const dropLine = t.dropRow === f.path && t.dropTarget === dirOf(f.path)
         return (
-          <li key={f.path} role="none">
+          <li key={f.path} role="none" className="relative">
+            {dropLine && (
+              <span
+                data-drop-line
+                aria-hidden
+                className="pointer-events-none absolute inset-x-1 bottom-0 z-10 h-[2px] rounded-full bg-[var(--p-accent-hi)]"
+              />
+            )}
             <button
               role="treeitem"
               aria-selected={on}
@@ -658,8 +670,10 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
                 e.stopPropagation()
                 e.dataTransfer.dropEffect = 'move'
                 // The FOLDER lights up, not the file: the file is where the
-                // pointer is, its folder is where the thing will land.
-                t.onDropHover(dirOf(f.path))
+                // pointer is, its folder is where the thing will land - and
+                // when that folder has no row to light (the root), a line
+                // under THIS row says so (#126).
+                t.onDropHover(dirOf(f.path), f.path)
               }}
               onDragLeave={() => t.onDropHover(null)}
               onDrop={(e) => {
@@ -732,6 +746,17 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
           </li>
         )
       })}
+      {/* The space beneath the list means the root (#126): the line goes
+          under the last row, since the root has no row of its own. */}
+      {depth === 0 && t.dropRow === 'end' && (
+        <li role="none" className="relative h-0">
+          <span
+            data-drop-line
+            aria-hidden
+            className="pointer-events-none absolute inset-x-1 -top-[1px] z-10 h-[2px] rounded-full bg-[var(--p-accent-hi)]"
+          />
+        </li>
+      )}
     </ul>
   )
 }

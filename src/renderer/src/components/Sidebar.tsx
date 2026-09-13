@@ -773,6 +773,13 @@ export function Sidebar({
 
   /* Drag and drop (#70): rows are cargo, folder rows are destinations. */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  /** The row under a drag, for the drop line (#126): a file row, or 'end'
+   *  for the space beneath the list, which means the root. */
+  const [dropRow, setDropRow] = useState<string | null>(null)
+  const hoverDrop = useCallback((dir: string | null, row: string | null = null): void => {
+    setDropTarget(dir)
+    setDropRow(dir === null ? null : row)
+  }, [])
   const onRowDragStart = useCallback((e: DragEvent, path: string): void => {
     // Dragging a row that is part of a multi-selection takes all of it.
     const items = selRef.current.items
@@ -967,19 +974,23 @@ export function Sidebar({
 
   /** The landing dir for a point in the panel: the row whose strip spans
    *  that height (rows annotate their own with data-dropdir), else the root. */
-  const dropDirAt = (clientY: number): string => {
+  const dropAt = (clientY: number): { dir: string; row: string | null } => {
     const rows = scroller.current?.querySelectorAll<HTMLElement>('[data-dropdir]')
     if (rows)
       for (const el of rows) {
         const r = el.getBoundingClientRect()
-        if (clientY >= r.top && clientY < r.bottom) return el.dataset.dropdir ?? root
+        if (clientY >= r.top && clientY < r.bottom)
+          return { dir: el.dataset.dropdir ?? root, row: el.dataset.row ?? null }
       }
-    return root
+    // Beneath every row: the root, and the line goes under the last row.
+    return { dir: root, row: 'end' }
   }
+  const dropDirAt = (clientY: number): string => dropAt(clientY).dir
 
   const onDropOn = useCallback(
     (e: DragEvent, folderPath: string): void => {
       setDropTarget(null)
+      setDropRow(null)
       const payload = dragPayload(e.dataTransfer)
       setDrag(null)
       // The DROPPED FILES become the marked rows (2026-09-03, owner -
@@ -1273,9 +1284,10 @@ export function Sidebar({
             if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
             e.preventDefault()
             e.dataTransfer.dropEffect = 'move'
-            setDropTarget(dropDirAt(e.clientY))
+            const at = dropAt(e.clientY)
+            hoverDrop(at.dir, at.row)
           }}
-          onDragLeave={() => setDropTarget(null)}
+          onDragLeave={() => hoverDrop(null)}
           onDrop={(e) => {
             if ((e.target as HTMLElement | null)?.closest('[data-row]')) return
             e.preventDefault()
@@ -1324,9 +1336,10 @@ export function Sidebar({
                 selJoin,
                 onRowDragStart,
                 dropTarget,
-                onDropHover: setDropTarget,
+                dropRow,
+                onDropHover: hoverDrop,
                 onDragDone: () => {
-                  setDropTarget(null)
+                  hoverDrop(null)
                   setDrag(null)
                 },
                 onDropOn,
