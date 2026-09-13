@@ -38,12 +38,25 @@ export function useSubtitles(videoPath: string): Subtitles {
 
   useEffect(() => {
     let alive = true
-    void window.prism.subsFor(videoPath).then((t) => {
-      if (!alive) return
-      setFound({ path: videoPath, tracks: t })
-      // Subtitles are wanted: the new file starts with its first track on.
-      setChosen({ path: videoPath, track: subs && t.length ? t[0].path : null })
-    })
+    // The tracks beside the file, and what the PC remembers for it (#124).
+    // A remembered track that is still there wins; a remembered OFF is off;
+    // no memory falls to the global rule, the first track when wanted.
+    void Promise.all([window.prism.subsFor(videoPath), window.prism.memoryGet(videoPath).catch(() => null)]).then(
+      ([t, m]) => {
+        if (!alive) return
+        setFound({ path: videoPath, tracks: t })
+        const remembered = m?.subs
+        const track =
+          remembered === null
+            ? null
+            : remembered && t.some((x) => x.path === remembered)
+              ? remembered
+              : subs && t.length
+                ? t[0].path
+                : null
+        setChosen({ path: videoPath, track })
+      }
+    )
     return () => {
       alive = false
     }
@@ -85,6 +98,7 @@ export function useSubtitles(videoPath: string): Subtitles {
     (path: string | null) => {
       setChosen({ path: videoPath, track: path })
       setPlayerPref('subs', path !== null) // remembered for the next file
+      window.prism.memorySet(videoPath, { subs: path }) // ...and for THIS one (#124)
     },
     [videoPath]
   )
@@ -102,6 +116,7 @@ export function useSubtitles(videoPath: string): Subtitles {
       })
       setChosen({ path: videoPath, track: track.path })
       setPlayerPref('subs', true)
+      window.prism.memorySet(videoPath, { subs: track.path })
     })
   }, [videoPath])
 
