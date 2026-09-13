@@ -41,7 +41,12 @@ export interface TreeApi {
   onRowDragStart: (e: DragEvent, path: string) => void
   /** The folder row a drag is hovering, so it can light up. */
   dropTarget: string | null
-  onDropHover: (path: string | null) => void
+  /** The ROW under the pointer when the target folder has no row of its own
+   *  to light (#126): a file row, whose folder is the target, draws a line
+   *  under itself; 'end' is the space beneath the list, which means the
+   *  root, and draws the line under the last row. */
+  dropRow: string | null
+  onDropHover: (path: string | null, row?: string | null) => void
   /** The drag is over, dropped or not: forget what it carried. */
   onDragDone: () => void
   onDropOn: (e: DragEvent, folderPath: string) => void
