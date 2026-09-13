@@ -295,6 +295,9 @@ const api = {
     moved: Array<{ from: string; to: string }>
     clashes: Array<{ path: string; name: string }>
     failed: string[]
+    /** The ones among `failed` that something holds open (#127): Prism lets
+     *  go of its own hold and tries these again. */
+    busy: string[]
     /** What 'replace' binned, so undo can bring it back. */
     replaced: string[]
     /** True when the ROOT WALL refused, which is a different message. */

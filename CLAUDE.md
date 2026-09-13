@@ -399,6 +399,23 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
   one).
+- **MOVING THE FILE YOU ARE WATCHING** (2026-09-13, #127; owner: dragging the film I was
+  watching into a subfolder did not work, nor after opening another file, then it did).
+  MEASURED: a rename of a file Prism is streaming fails with EBUSY, from Node's own read
+  stream on it and from ffmpeg reading it alike - so the file is locked by Prism's own
+  handles for as long as a player holds it, and switching files only helped once the old
+  element had let go. DELETE learned this on 2026-08-22 (`releaseFiles` + `trashWithRetry`)
+  and MOVE never did. `runMove` does the same now: the tab steps off the file (the element
+  unmounts, the stream closes), a moment passes, the move runs, and what Windows still
+  calls busy (`MoveResult.busy`, EBUSY or EPERM, kept beside `failed`) is tried again three
+  times while the handles drain. Then it FOLLOWS the file: reopened at its new path, at the
+  second it was at and playing if it was - the session mark is keyed by url and the url
+  changed with the path, so the old url's mark is copied onto the new one before the
+  reopen. A move that did not happen (a clash to answer, still busy) puts the file back on
+  screen, and a file still busy after the retries says "in use by another program" rather
+  than the bare "could not be moved", because that sentence is the one thing left to act
+  on. Proved in `drag`: a playing film is dragged into a folder, really moves, and the
+  viewer follows it there, playing, at or after the second it was at.
 - **A LINE SAYS WHERE A DROP LANDS** (2026-09-13, #126; owner: dragging to the root should
   be easier - at the bottom of the list, or over a file in the root, a blue line should say
   it will drop here). Dropping on a FILE row has meant "into that file's folder" since

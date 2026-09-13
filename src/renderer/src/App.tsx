@@ -112,7 +112,7 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import { intendToPlay, wasPlaying } from './lib/playState'
+import { intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { JobChip } from './components/JobChip'
@@ -2684,10 +2684,41 @@ export default function App(): JSX.Element {
       mode: 'ask' | 'keep-both' | 'replace',
       track = true
     ): Promise<Array<{ from: string; to: string }>> => {
-      const r = await window.prism.moveEntries(paths, dest, mode)
+      // MOVING THE FILE YOU ARE WATCHING (#127). Windows refuses to move a
+      // file something holds open, and that something is Prism's own player
+      // as often as not (MEASURED: EBUSY from the media stream, and from
+      // ffmpeg decoding beside it). Delete learned this on 2026-08-22; move
+      // never did. So Prism lets go FIRST - the tab steps off the file, the
+      // element unmounts and its stream closes - moves, retries what Windows
+      // still calls busy while the handles drain, and then FOLLOWS the file
+      // to where it landed, at the second it was at, playing if it was.
+      const cur = file?.path
+      const heldPath = cur && paths.some((p) => within(cur, p)) ? cur : null
+      const oldUrl = heldPath ? window.prism.mediaUrl(heldPath) : null
+      const mark = oldUrl ? { t: sessionTime(oldUrl), paused: wasPaused(oldUrl) } : null
+      const held = releaseFiles(paths)
+      if (held) await new Promise((res) => setTimeout(res, 350))
+      let r = await window.prism.moveEntries(paths, dest, mode)
       if (mode === 'ask' && r.clashes.length) {
         setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
+        if (heldPath) reopen(heldPath) // nothing moved: put it back on screen
         return []
+      }
+      for (let i = 0; i < 3 && r.busy.length; i += 1) {
+        await new Promise((res) => setTimeout(res, 300))
+        const again = await window.prism.moveEntries(r.busy, dest, mode)
+        const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
+        r = {
+          ...r,
+          moved: [...r.moved, ...again.moved],
+          failed: [
+            ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
+            ...again.failed.filter((p) => !r.failed.includes(p))
+          ],
+          busy: again.busy,
+          replaced: [...r.replaced, ...again.replaced],
+          refused: r.refused || again.refused
+        }
       }
       setAsk(null)
       setRefreshKey((n) => n + 1)
@@ -2699,21 +2730,32 @@ export default function App(): JSX.Element {
         })
       // Follow the open file FIRST, whatever else failed: it may have been
       // inside a folder that moved, in which case only its prefix changed.
-      const cur = file?.path
+      // It comes back at the second it was at (the session mark is keyed by
+      // url, and the url has changed with the path), playing if it was.
       if (cur) {
         const landed = r.moved.find((m) => within(cur, m.from))
-        if (landed) reopen(landed.to + cur.slice(landed.from.length))
+        if (landed) {
+          const to = landed.to + cur.slice(landed.from.length)
+          if (mark) {
+            const url = window.prism.mediaUrl(to)
+            if (mark.t > 0) rememberTime(url, mark.t)
+            rememberPaused(url, mark.paused)
+          }
+          reopen(to)
+        } else if (heldPath) reopen(heldPath) // it did not move: put it back
       }
       if (r.failed.length)
         setAsk({
           kind: 'failed',
           message: r.refused
             ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
-            : `${r.failed.length} of ${paths.length} could not be moved.`
+            : r.busy.length
+              ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
+              : `${r.failed.length} of ${paths.length} could not be moved.`
         })
       return r.moved
     },
-    [file, noteUndo, reopen]
+    [file, noteUndo, reopen, releaseFiles]
   )
 
   /** Reverse one action. Undo never asks: it puts things back beside whatever

@@ -546,6 +546,10 @@ export function buildFixtures() {
   mkdirSync(join(FIXTURES, 'dragbox', 'into'), { recursive: true })
   writeFileSync(join(FIXTURES, 'dragbox', 'movable.txt'), 'drag me')
   writeFileSync(join(FIXTURES, 'dragbox', 'anchor.txt'), 'stay')
+  // A film to be WATCHING while it is dragged (#127): a copy of ep1, made
+  // above. Put back at the top of the box if a previous run left it inside.
+  rmSync(join(FIXTURES, 'dragbox', 'into', 'watching.mp4'), { force: true })
+  cpSync(join(FIXTURES, 'ep1.mp4'), join(FIXTURES, 'dragbox', 'watching.mp4'))
 
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),

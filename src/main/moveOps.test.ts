@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'fs'
+import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -70,18 +71,18 @@ describe('moveEntries', () => {
   it('a folder dropped on itself does nothing, and says nothing', async () => {
     // The gesture asks for nothing; a dialog about it would be noise.
     const onto = await moveEntries([join(root, 'stuff')], join(root, 'stuff'), 'ask', trash)
-    expect(onto).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
+    expect(onto).toEqual({ moved: [], clashes: [], failed: [], replaced: [], busy: [] })
     const into = await moveEntries(
       [join(root, 'stuff')],
       join(root, 'stuff', 'inner'),
       'ask',
       trash
     )
-    expect(into).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
+    expect(into).toEqual({ moved: [], clashes: [], failed: [], replaced: [], busy: [] })
     expect(existsSync(join(root, 'stuff', 'inner'))).toBe(true)
     // Dropping something where it already lives is a no-op, not a failure.
     const same = await moveEntries([join(root, 'a.txt')], root, 'ask', trash)
-    expect(same).toEqual({ moved: [], clashes: [], failed: [], replaced: [] })
+    expect(same).toEqual({ moved: [], clashes: [], failed: [], replaced: [], busy: [] })
   })
 
   it('a folder and a file inside it: the folder carries the child, no failure', async () => {
@@ -137,6 +138,47 @@ describe('moveEntries', () => {
     const r = await moveEntries([join(root, 'a.txt')], join(root, 'nope'), 'ask', trash)
     expect(r.failed).toEqual([join(root, 'a.txt')])
   })
+})
+
+describe('a file something holds open', () => {
+  it('is reported busy as well as failed, and moves once let go', async () => {
+    // Held the way ffmpeg holds a film: another process, the CRT's default
+    // share mode, which grants read and write and NOT delete - so a rename is
+    // refused for as long as it lives. (A Node stream in THIS process shares
+    // delete and moves fine until a read is in flight, which is why the lock
+    // here is a second process and not a stream.)
+    const dir = mkdtempSync(join(tmpdir(), 'prism-busy-'))
+    mkdirSync(join(dir, 'into'))
+    const film = join(dir, 'film.bin')
+    writeFileSync(film, 'x'.repeat(4096))
+    const holder = spawn(
+      'powershell',
+      ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${film}', 'Open', 'Read', 'Read'); Start-Sleep -Seconds 60`],
+      { windowsHide: true, stdio: 'ignore' }
+    )
+    // Wait until the lock is really on: a write-open fails while it is.
+    for (let i = 0; i < 100; i += 1) {
+      try {
+        closeSync(openSync(film, 'r+'))
+        await new Promise((r) => setTimeout(r, 100))
+      } catch {
+        break
+      }
+    }
+    const trash = vi.fn(async () => {})
+    try {
+      const r = await moveEntries([film], join(dir, 'into'), 'ask', trash)
+      expect(r.moved).toEqual([])
+      expect(r.failed).toEqual([film])
+      expect(r.busy).toEqual([film])
+    } finally {
+      holder.kill()
+      await new Promise((r) => holder.once('exit', r))
+    }
+    const again = await moveEntries([film], join(dir, 'into'), 'ask', trash)
+    expect(again.busy).toEqual([])
+    expect(again.moved).toEqual([{ from: film, to: join(dir, 'into', 'film.bin') }])
+  }, 30000)
 })
 
 describe('two folders of the same name merge', () => {

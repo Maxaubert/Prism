@@ -16,11 +16,22 @@ export type MoveResult = {
   clashes: MoveClash[]
   /** Paths that could not be moved at all (gone, locked, into themselves). */
   failed: string[]
+  /** The ones among `failed` that Windows refused because something holds
+   *  the file open (EBUSY, EPERM) - which is Prism's own player as often as
+   *  not (#127), so the renderer lets go and tries these again. */
+  busy: string[]
   /** What 'replace' sent to the bin, so undo can bring it back. */
   replaced: string[]
 }
 
 const lower = (p: string): string => resolve(p).toLowerCase()
+
+/** Windows' "another process has this open" (MEASURED 2026-09-13: EBUSY
+ *  from a Node read stream on the file, and from ffmpeg reading it). */
+const isBusy = (e: unknown): boolean => {
+  const code = (e as NodeJS.ErrnoException)?.code
+  return code === 'EBUSY' || code === 'EPERM'
+}
 
 /** True when `dest` is `src` itself or lives inside it: moving a folder into
  *  its own subtree would eat it, and the OS error for it is inscrutable. */
@@ -118,8 +129,9 @@ async function mergeInto(
       }
       await moveOne(from, to)
       out.moved.push({ from, to })
-    } catch {
+    } catch (e) {
       out.failed.push(from)
+      if (isBusy(e)) out.busy.push(from)
     }
   }
   // Empty now, unless something above failed - in which case it stays, with
@@ -142,9 +154,9 @@ export async function moveEntries(
   onClash: 'ask' | 'keep-both' | 'replace',
   trash: (p: string) => Promise<void>
 ): Promise<MoveResult> {
-  const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [] }
+  const out: MoveResult = { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
   if (!existsSync(destDir) || !statSync(destDir).isDirectory()) {
-    return { moved: [], clashes: [], failed: [...paths], replaced: [] }
+    return { moved: [], clashes: [], failed: [...paths], replaced: [], busy: [] }
   }
   const usable: string[] = []
   for (const p of paths) {
@@ -205,8 +217,9 @@ export async function moveEntries(
       }
       await moveOne(p, target)
       out.moved.push({ from: p, to: target })
-    } catch {
+    } catch (e) {
       out.failed.push(p)
+      if (isBusy(e)) out.busy.push(p)
     }
   }
   return out
