@@ -15,7 +15,8 @@ import {
 import { hlsPlayerHere } from './canPlay'
 import { diag, watchMedia } from './diag'
 import { watchReturn } from './returning'
-import { askPlay, type PlayAnswer } from './prismShim'
+import { askPlay, chooseAudio, type PlayAnswer } from './prismShim'
+import { rememberPaused, rememberTime } from '../lib/playState'
 
 // Split out exactly as App splits them (#106): none of these is on the path
 // of playing a film, and a phone that only ever plays films must never
@@ -100,7 +101,7 @@ function ViewerLoading(): JSX.Element {
  *  landed, nothing is attached. Should the library decline a device whose
  *  MSE said yes, the element gets the playlist as its own src: a player
  *  that may work over one that certainly has nothing. */
-function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
+function attachHlsJs(playlist: string, startAt: number | null = null): (el: HTMLMediaElement) => () => void {
   return (el) => {
     let hls: { destroy(): void } | null = null
     let dead = false
@@ -111,7 +112,15 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
         el.src = playlist
         return
       }
-      const h = new Hls({ enableWorker: true, lowLatencyMode: false })
+      // `startPosition` is where a SWAPPED stream begins (#120, an audio
+      // pick): hls.js seeks there itself once the playlist is parsed, where
+      // a seek made from outside before that was overridden by its own
+      // start-at-zero (measured in the e2e: the pick landed at 0.5s).
+      const h = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        ...(startAt !== null && startAt > 0 ? { startPosition: startAt } : {})
+      })
       // hls.js owns the source, so the element's own error event never
       // fires for a stream that dies: without this the page went silent. A
       // network failure is retried (a job the PC restarts after a pause
@@ -179,18 +188,20 @@ function attachHlsJs(playlist: string): (el: HTMLMediaElement) => () => void {
  *  file's answer must not dress the next one. Asked only for a film or a
  *  track: `/api/play` is what OPENS a transcode job, and a picture needs
  *  none. */
-function usePlayAnswer(file: ViewerFile, want: boolean): PlayAnswer | null {
-  const [answer, setAnswer] = useState<{ path: string; answer: PlayAnswer } | null>(null)
+function usePlayAnswer(file: ViewerFile, want: boolean, audio: number | null): PlayAnswer | null {
+  const [answer, setAnswer] = useState<{ path: string; audio: number | null; answer: PlayAnswer } | null>(null)
   useEffect(() => {
     if (!want) return
     let live = true
-    void askPlay(file.path)
+    void askPlay(file.path, audio)
       .catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message || 'Prism did not answer' }))
-      .then((a) => live && setAnswer({ path: file.path, answer: a }))
+      .then((a) => live && setAnswer({ path: file.path, audio, answer: a }))
     return () => {
       live = false
     }
-  }, [file.path, want])
+  }, [file.path, want, audio])
+  // A pick keeps the LAST answer up until the new one lands: the player
+  // stays mounted at its place rather than dropping to "Preparing...".
   return answer?.path === file.path ? answer.answer : null
 }
 
@@ -245,7 +256,42 @@ export function PhoneViewer({
   }, [mediaEl])
 
   const media = file.kind === 'video' || file.kind === 'audio'
-  const answer = usePlayAnswer(file, media)
+  // The audio track this phone chose for the file (#120): the phone has no
+  // sidecar, so a pick is a NEW STREAM from the PC, and the player is
+  // handed a new playlist. Its place survives through the session mark,
+  // seeded for the new url the moment the answer lands (below). Per file.
+  const [audioFor, setAudioFor] = useState(file.path)
+  const [audio, setAudio] = useState<number | null>(null)
+  // The place the old stream was at when the pick was made, carried to the
+  // new url. State rather than a ref: it is read while rendering (below).
+  const [seed, setSeed] = useState<{ t: number; paused: boolean; from: string | null } | null>(null)
+  const [seededFor, setSeededFor] = useState<string | null>(null)
+  if (audioFor !== file.path) {
+    setAudioFor(file.path)
+    setAudio(null)
+    setSeed(null)
+    setSeededFor(null)
+  }
+  const pickAudio = useCallback(
+    (index: number | null) => {
+      const el = mediaEl
+      setSeed(el ? { t: el.currentTime, paused: el.paused, from: el.currentSrc || null } : null)
+      chooseAudio(file.path, index)
+      setAudio(index)
+    },
+    [file.path, mediaEl]
+  )
+  const answer = usePlayAnswer(file, media, audio)
+  const answerUrl = answer && answer.mode !== 'none' ? answer.url : null
+  if (answerUrl && seed && seededFor !== answerUrl) {
+    // Rendering-time, like the file's own reset: the new url's session mark
+    // must exist BEFORE the element loads it, or the player starts at 0.
+    // ONCE per url (`seededFor`), and the seed itself stays, because the
+    // hls.js attach below reads it in the render React keeps.
+    rememberTime(answerUrl, seed.t)
+    rememberPaused(answerUrl, seed.paused)
+    setSeededFor(answerUrl)
+  }
   const playlist = answer?.mode === 'hls' ? answer.url : null
   // An HLS film is handed its PLAYLIST as the url from the start. The direct
   // url used to go in and be swapped a moment later, which cost one aborted
@@ -269,7 +315,14 @@ export function PhoneViewer({
       diag
     )
   }, [mediaEl, viaHlsJs])
-  const attach = useMemo(() => (viaHlsJs && playlist ? attachHlsJs(playlist) : undefined), [viaHlsJs, playlist])
+  const startAt = seed?.t ?? null
+  const attach = useMemo(
+    () => (viaHlsJs && playlist ? attachHlsJs(playlist, startAt) : undefined),
+    // The seed is read for the render that brings a NEW playlist and not
+    // re-read after: a later seed belongs to a later playlist.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viaHlsJs, playlist]
+  )
   let view: JSX.Element
   switch (file.kind) {
     case 'video':
@@ -304,6 +357,8 @@ export function PhoneViewer({
             transportBg={DEFAULT_TRANSPORT_BG}
             fullscreen={fullscreen}
             attach={attach}
+            audioTrack={audio}
+            onAudioTrack={pickAudio}
           />
         ) : (
           <AudioView

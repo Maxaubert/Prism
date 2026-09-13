@@ -1116,6 +1116,28 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   SHORTCUT column - a sentence in it is a wall of text down the right-hand side.
   The COG still hides its subtitles section when there are no tracks: it is a
   list, while the menu is the one place that can add one.
+- **THE COG CARRIES PICTURE, AUDIO TRACK AND SUBTITLES** (2026-09-13, #120; owner: on the
+  phone there is no right-click menu on a film, so the pickers were out of reach). The cog
+  is the one control both hosts share, so it gained the three things the menu had alone:
+  Picture (fit, fill, stretch, 16:9, 4:3), Audio track (Default plus each track, only when
+  the file has more than one - a list of one is chrome) and Subtitles, which is ALWAYS
+  there for a video now, "Off" alone meaning none found: it used to hide itself when
+  nothing was found, which on a phone with no menu to fall back on read as "not offered".
+  "Add subtitle file…" is the PC's, being a file dialog. Next and Previous stay out, the
+  audio player's cog is unchanged, and the right-click menu is exactly as it was. THE
+  PHONE SWITCHES AUDIO BY STREAM, NOT BY SIDECAR: it has no fsaudio://, so a pick goes UP
+  through VideoView's `onAudioTrack` to the phone shell, which asks `/api/play?audio=N`
+  again - a track the file does not have is refused with 400, never handed to ffmpeg as
+  an index - and the PC opens a job of its own for it (`jobId` includes the track). The
+  player is handed the new playlist and KEEPS ITS PLACE through the session mark, seeded
+  for the new url at render time the moment the answer lands, before the element loads
+  it; the last answer stays up until then, so the picture never drops to "Preparing…".
+  The shim remembers the chosen track per file (`chooseAudio`) so the players' own probes,
+  which take a path and nothing else, ask for the same stream the shell did, and the
+  probe's `tracks` carry no url on the phone because a track there is not a stream to
+  attach but a playlist to swap. The Dolby fixture grew a second track (AAC, "Commentary",
+  880Hz) and `phoneHls` picks it from the cog and asserts the src changed, the film plays,
+  and it resumed at or after where it was.
 - **Fullscreen is black, and read-only** (2026-08-28). The stage behind a
   fullscreen film paints `#000` whatever the theme says: the letterbox is part
   of the picture, so a light theme's paper-white bars or an accent-tinted

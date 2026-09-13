@@ -238,7 +238,10 @@ describe('HlsJobs', () => {
   it('writes the timeline to the phone log: start, asks, restarts, kills', async () => {
     const lines: string[] = []
     let t = 0
-    const fake = fakeFfmpeg({ segments: 3 })
+    // A LONG run, so it is still alive when the reaper looks: with a few
+    // segments it exited on its own before the 30s sweep, and the kill line
+    // came and went with the timing of the fake.
+    const fake = fakeFfmpeg({ segments: 100 })
     const jobs = new HlsJobs({ ffmpeg: 'f', baseDir: base, spawn: fake.spawn, now: () => t, log: (l) => lines.push(l) })
     const { id } = jobs.open({ token: 't', file: 'C:\\a.mkv', plan, duration: 100, audioIndex: 1 })
     await jobs.segment(id, 0)

@@ -132,7 +132,7 @@ export class HlsJobs {
    *  without it is a playlist nothing can fetch. ffmpeg runs when a segment
    *  is asked for. */
   open(a: StartArgs): { id: string } {
-    const id = jobId(a.token, a.file)
+    const id = jobId(a.token, a.file, a.audioIndex)
     const existing = this.jobs.get(id)
     if (existing) {
       existing.asked = this.now()

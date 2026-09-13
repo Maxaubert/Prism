@@ -55,16 +55,36 @@ export function PlayerMenu({
   c,
   autoplayHint,
   subtitles,
+  picture,
+  audio,
   onOpenChange
 }: {
   c: MediaControls
   /** What autoplay means for this player ("video" / "track"). */
   autoplayHint: string
-  /** The video player's tracks; audio passes nothing and shows no section. */
+  /** The video player's tracks; audio passes nothing and shows no section.
+   *  ALWAYS shown for a video since #120, found or not: on the phone there
+   *  is no right-click menu, so a section that hid itself when nothing was
+   *  found left no way to tell "none found" from "not offered". `onAdd` is
+   *  the PC's file dialog and is absent on the phone. */
   subtitles?: {
     tracks: SubTrackInfo[]
     active: string | null
     onPick: (path: string | null) => void
+    onAdd?: () => void
+  }
+  /** The picture modes (#120): fit, fill, stretch, 16:9, 4:3. Video only. */
+  picture?: {
+    options: ReadonlyArray<{ id: string; label: string }>
+    active: string
+    onPick: (id: string) => void
+  }
+  /** The file's audio tracks, when it has more than one (#120). Video only;
+   *  a list of one is chrome, so the caller passes nothing then. */
+  audio?: {
+    tracks: ReadonlyArray<{ index: number; label: string }>
+    active: number | null
+    onPick: (index: number | null) => void
   }
   /** The player pins its auto-hiding chrome while the menu is open: an
    *  invisible-but-interactive menu would eat clicks and the first Escape. */
@@ -172,26 +192,52 @@ export function PlayerMenu({
             on={prefs.background}
             onChange={(v) => setPlayerPref('background', v)}
           />
-          {/* Only when there ARE some (2026-08-27): a section whose whole
-              content is "nothing here" is chrome telling you about a thing you
-              do not have. */}
-          {subtitles && subtitles.tracks.length > 0 && (
+          {picture && (
+            <>
+              <Rule />
+              <Label text="Picture" />
+              <div data-menu-section="picture">
+                {picture.options.map((o) => (
+                  <SubRow key={o.id} label={o.label} active={picture.active === o.id} onPick={() => picture.onPick(o.id)} />
+                ))}
+              </div>
+            </>
+          )}
+          {audio && (
+            <>
+              <Rule />
+              <Label text="Audio track" />
+              <div data-menu-section="audio">
+                <SubRow label="Default" active={audio.active === null} onPick={() => audio.onPick(null)} />
+                {audio.tracks.map((t) => (
+                  <SubRow key={t.index} label={t.label} active={audio.active === t.index} onPick={() => audio.onPick(t.index)} />
+                ))}
+              </div>
+            </>
+          )}
+          {/* For a video, always (#120): it used to show only when tracks had
+              been found, which read as "not offered" on a phone with no menu
+              to fall back on. "Off" alone says "none found" honestly. */}
+          {subtitles && (
             <>
               <Rule />
               <Label text="Subtitles" />
-              <SubRow
-                label="Off"
-                active={subtitles.active === null}
-                onPick={() => subtitles.onPick(null)}
-              />
-              {subtitles.tracks.map((t) => (
+              <div data-menu-section="subtitles">
                 <SubRow
-                  key={t.path}
-                  label={t.label}
-                  active={subtitles.active === t.path}
-                  onPick={() => subtitles.onPick(t.path)}
+                  label="Off"
+                  active={subtitles.active === null}
+                  onPick={() => subtitles.onPick(null)}
                 />
-              ))}
+                {subtitles.tracks.map((t) => (
+                  <SubRow
+                    key={t.path}
+                    label={t.label}
+                    active={subtitles.active === t.path}
+                    onPick={() => subtitles.onPick(t.path)}
+                  />
+                ))}
+                {subtitles.onAdd && <SubRow label="Add subtitle file…" active={false} onPick={subtitles.onAdd} />}
+              </div>
             </>
           )}
         </div>

@@ -37,9 +37,28 @@ type Shim = Partial<PrismApi> & { capabilities: typeof capabilities; nativeDrag:
  * live transcode, none is a reason. `audioOnly` is what tells the shim
  * which reused hook the playlist belongs to (see `probeMedia` below).
  */
+/** A track the PC's probe found, as `/api/play` lists them (#120). */
+export interface PlayTrack {
+  index: number
+  codec: string
+  channels: number
+  language: string
+  title: string
+}
+
 export type PlayAnswer =
   | { mode: 'direct'; url: string; fps: number | null; duration: number }
-  | { mode: 'hls'; url: string; copyVideo: boolean; audioOnly: boolean; fps: number | null; duration: number }
+  | {
+      mode: 'hls'
+      url: string
+      copyVideo: boolean
+      audioOnly: boolean
+      fps: number | null
+      duration: number
+      /** Every audio track the file holds, and which one this stream carries. */
+      tracks?: PlayTrack[]
+      audio?: number | null
+    }
   | { mode: 'none'; reason: string }
 
 /**
@@ -54,18 +73,35 @@ const plays = new Map<string, { at: number; answer: Promise<PlayAnswer> }>()
 
 /** Direct or HLS for this file, on THIS device. Exported for the phone shell,
  *  which reads the answer to decide whether hls.js has to be loaded. */
-export function askPlay(path: string): Promise<PlayAnswer> {
+export function askPlay(path: string, audio: number | null = null): Promise<PlayAnswer> {
   const now = Date.now()
-  const held = plays.get(path)
+  // The cache is keyed by file AND track (#120): a pick is a different
+  // stream, and the players' probes must see the one the shell chose.
+  const key = audio === null ? path : `${path}#${audio}`
+  const held = plays.get(key)
   if (held && now - held.at < PLAY_TTL_MS) return held.answer
-  const answer = getJson<PlayAnswer>('/api/play', { path, can: canCsv() })
-  plays.set(path, { at: now, answer })
+  const answer = getJson<PlayAnswer>('/api/play', {
+    path,
+    can: canCsv(),
+    ...(audio === null ? {} : { audio: String(audio) })
+  })
+  plays.set(key, { at: now, answer })
   // A refused or failed ask is not an answer to keep: the next one tries again.
   answer.catch(() => {
-    if (plays.get(path)?.answer === answer) plays.delete(path)
+    if (plays.get(key)?.answer === answer) plays.delete(key)
   })
   return answer
 }
+
+/** The track the shell has chosen for a file, so the players' own probes
+ *  (`probeMedia`, `convertVideo`, which take a path and nothing else) ask
+ *  for the same stream the shell did. */
+const chosenAudio = new Map<string, number | null>()
+export function chooseAudio(path: string, audio: number | null): void {
+  if (audio === null) chosenAudio.delete(path)
+  else chosenAudio.set(path, audio)
+}
+const askPlayChosen = (path: string): Promise<PlayAnswer> => askPlay(path, chosenAudio.get(path) ?? null)
 
 /** `pw` rides only when there is one: the server reads an absent one as
  *  "no password", and an empty one would be a password of nothing. */
@@ -166,14 +202,24 @@ const implemented: Shim = {
    * tries the file itself and reports what happens.
    */
   probeMedia: async (path: string): Promise<MediaProbe> => {
-    const a = await askPlay(path).catch((): PlayAnswer => ({ mode: 'none', reason: '' }))
+    const a = await askPlayChosen(path).catch((): PlayAnswer => ({ mode: 'none', reason: '' }))
     if (a.mode === 'none') return { ffmpeg: false, needed: false }
     if (a.mode === 'direct') return { ffmpeg: true, needed: false, fps: a.fps ?? undefined }
     if (a.audioOnly) return { ffmpeg: true, needed: true, url: a.url }
-    return { ffmpeg: true, needed: false, fps: a.fps ?? undefined, convert: { reason: 'container', quick: a.copyVideo } }
+    // The file's tracks, so the picker has rows (#120). No url: on the phone
+    // a track is not a sidecar stream but a different playlist, and the
+    // pick goes up to the shell (`onAudioTrack`), never to the sidecar.
+    const tracks = (a.tracks ?? []).map((t) => ({ ...t, url: '' }))
+    return {
+      ffmpeg: true,
+      needed: false,
+      fps: a.fps ?? undefined,
+      tracks,
+      convert: { reason: 'container', quick: a.copyVideo }
+    }
   },
   convertVideo: async (path: string): Promise<{ url?: string; error?: string }> => {
-    const a = await askPlay(path).catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message }))
+    const a = await askPlayChosen(path).catch((e: Error): PlayAnswer => ({ mode: 'none', reason: e.message }))
     if (a.mode === 'hls') return { url: a.url }
     return { error: a.mode === 'none' && a.reason ? a.reason : 'Prism could not prepare this file' }
   },

@@ -244,6 +244,26 @@ export function buildFixtures() {
   if (ac3.status !== 0)
     throw new Error(`ffmpeg could not build the Dolby fixture (tried ${FFMPEG}): ${ac3.stderr}`)
 
+  // A film with TWO audio tracks (#120): the Dolby one and a commentary at
+  // 880Hz in AAC, named and tagged the way a real film's are, so the track
+  // picker has something to pick and the phone's audio switch a stream to
+  // switch to. Its own file, because dolby.mkv's whole point is a track the
+  // element cannot play, and a second, playable track would make it hear.
+  const two = spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=6:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6:sample_rate=48000',
+     '-f', 'lavfi', '-i', 'sine=frequency=880:duration=6:sample_rate=48000',
+     '-map', '0:v', '-map', '1:a', '-map', '2:a',
+     '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k',
+     '-c:a:0', 'ac3', '-ac:a:0', '6', '-b:a:0', '384k', '-metadata:s:a:0', 'language=eng',
+     '-c:a:1', 'aac', '-ac:a:1', '2', '-b:a:1', '96k', '-metadata:s:a:1', 'language=eng', '-metadata:s:a:1', 'title=Commentary',
+     '-shortest', join(FIXTURES, 'av', 'tracks.mkv')],
+    { windowsHide: true }
+  )
+  if (two.status !== 0)
+    throw new Error(`ffmpeg could not build the two-track fixture (tried ${FFMPEG}): ${two.stderr}`)
+
   // Apple Lossless in an m4a: Chromium cannot decode ALAC, and an audio file
   // has no picture to fall back on, so before the decoder reached the audio
   // player this was a dead file with an error message.
