@@ -1138,6 +1138,16 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   attach but a playlist to swap. The Dolby fixture grew a second track (AAC, "Commentary",
   880Hz) and `phoneHls` picks it from the cog and asserts the src changed, the film plays,
   and it resumed at or after where it was.
+  **AND IT IS SUBMENUS** (owner, same day, #122: "split into sub menus, not all in one big
+  menu"). The top level is one row per setting - Speed, Audio track, Subtitles, Aspect ratio
+  (the name the owner used; the menu's "Picture" is the same list) - each showing its CURRENT
+  VALUE and a chevron, and opening its own list under a back row, YouTube's settings shape;
+  a pick returns to the top, where the row now reads what was chosen. The three toggles
+  stay top-level, being one tap each. Escape climbs a level and closes only from the top;
+  closing forgets the level, so the menu reopens at the top. Speed's list is the presets
+  with the slider under them for anything in between. The e2e reads the row values
+  (`data-menu-value`) as well as the lists, since a row that said "Off" over a picked track
+  would be the lie nobody caught.
 - **Fullscreen is black, and read-only** (2026-08-28). The stage behind a
   fullscreen film paints `#000` whatever the theme says: the letterbox is part
   of the picture, so a light theme's paper-white bars or an accent-tinted
