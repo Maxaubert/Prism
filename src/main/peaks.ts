@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { holders } from './holders'
 import { statSync } from 'fs'
 
 /**
@@ -108,6 +109,7 @@ export function loadPeaks(ffmpeg: string, file: string, duration: number): Promi
       odd: null as number | null
     }
     const proc = spawn(ffmpeg, peaksArgs(file), { windowsHide: true })
+    holders.add(proc, file) // a move of the file kills this first (#127)
     // A file with no audio, or one ffmpeg cannot open, simply produces nothing.
     let any = false
     proc.stdout.on('data', (chunk: Buffer) => {

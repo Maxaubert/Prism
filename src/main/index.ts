@@ -42,6 +42,7 @@ import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
+import { holders } from './holders'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
@@ -1866,6 +1867,7 @@ if (!app.requestSingleInstanceLock()) {
       async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
         ownWrite(p)
         if (!editable(p)) return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+        await holders.release([p]) // a rename is refused for the same reason a move is (#127)
         const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
         // The file's memory follows it (#124): its place and its choices.
         if (r.ok) void positions.rename(p, r.path)
@@ -2549,6 +2551,10 @@ if (!app.requestSingleInstanceLock()) {
             busy: [],
             refused: true
           }
+        // Prism's own decoders on these files go first (#127): the audio
+        // sidecar, the waveform, a conversion. MEASURED: two sidecar ffmpegs
+        // outlived the player and held the film past every retry.
+        await holders.release(wanted)
         const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
         )
