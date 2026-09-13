@@ -2447,6 +2447,12 @@ async function playerScenario(fixtures) {
     await cog.click()
     await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
 
+    // SUBMENUS (#122): the top level is one row per setting with its value,
+    // and the slider lives under Speed.
+    ok((await win.locator('[data-menu-row]').count()) === 3, 'the top level is Speed, Subtitles and Aspect ratio for a one-track film')
+    ok((await win.locator('[data-menu-value="subtitles"]').textContent()) === 'Off', 'and Subtitles reads Off before a pick')
+    await win.click('[data-menu-row="speed"]')
+    await win.waitForSelector('[data-menu-section="speed"]', { timeout: 5000 })
     await win.locator('input[aria-label="Playback speed"]').evaluate((el) => {
       const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
       set.call(el, '2')
@@ -2454,6 +2460,8 @@ async function playerScenario(fixtures) {
       el.dispatchEvent(new Event('change', { bubbles: true }))
     })
     ok(await win.evaluate(() => document.querySelector('video').playbackRate === 2), 'speed slider sets playbackRate')
+    await win.click('[data-menu-back]')
+    ok((await win.locator('[data-menu-value="speed"]').textContent()) === '2.00×', 'and the Speed row reads the new rate')
 
     await win.click('[role="menuitemcheckbox"]:has-text("Loop")')
     ok(await win.evaluate(() => document.querySelector('video').loop), 'loop toggle sets the element')
@@ -2467,8 +2475,13 @@ async function playerScenario(fixtures) {
     await win.click('[role="menuitemcheckbox"]:has-text("Autoplay")') // off again; subtitles next
 
     // Subtitles: the sidecar ep1.en.srt shows up as English; picking it loads cues.
+    await win.click('[data-menu-row="subtitles"]')
+    await win.waitForSelector('[data-menu-section="subtitles"]', { timeout: 5000 })
     ok((await win.locator('[role="menuitemradio"]:has-text("English")').count()) === 1, 'sidecar srt listed as English')
     await win.click('[role="menuitemradio"]:has-text("English")')
+    // A pick returns to the top, where the row now says what was chosen.
+    await win.waitForSelector('[data-menu-row="subtitles"]', { timeout: 5000 })
+    ok((await win.locator('[data-menu-value="subtitles"]').textContent()) === 'English', 'the Subtitles row reads the pick')
     await win.waitForFunction(
       () => {
         const t = document.querySelector('video')?.textTracks
@@ -2855,6 +2868,8 @@ async function stillsAndSubsScenario(fixtures) {
       await win.hover('video')
       await win.click('[aria-label="Player settings"]')
       await win.waitForSelector('[role="menu"][aria-label="Player settings"]', { timeout: 5000 })
+      await win.click('[data-menu-row="subtitles"]')
+      await win.waitForSelector('[data-menu-section="subtitles"]', { timeout: 5000 })
       ok(
         (await win.locator('[role="menuitemradio"]:has-text("Subtitles")').count()) > 0,
         'an .ass sidecar is offered as a track'
@@ -5376,9 +5391,15 @@ async function phoneHlsScenario(fixtures) {
     await page.waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 1.5, null, { timeout: 20000 })
     await page.mouse.move(120, 200) // wake the chrome: the transport unmounts on its idle clock
     await page.click('[aria-label="Player settings"]')
+    await page.waitForSelector('[data-menu-row="audio"]', { timeout: 5000 })
+    await page.click('[data-menu-row="picture"]')
+    ok((await page.locator('[data-menu-section="picture"] [role="menuitemradio"]').count()) === 5, 'the cog offers the five aspect ratios')
+    await page.click('[data-menu-back]')
+    await page.click('[data-menu-row="subtitles"]')
+    ok((await page.locator('[data-menu-section="subtitles"] [role="menuitemradio"]').count()) === 1, 'and Subtitles with Off alone, nothing found and no Add on the phone')
+    await page.click('[data-menu-back]')
+    await page.click('[data-menu-row="audio"]')
     await page.waitForSelector('[data-menu-section="audio"]', { timeout: 5000 })
-    ok((await page.locator('[data-menu-section="picture"] button').count()) === 5, 'the cog offers the five picture modes')
-    ok((await page.locator('[data-menu-section="subtitles"] button').count()) === 1, 'and Subtitles with Off alone, nothing found and no Add on the phone')
     const before = await page.evaluate(() => {
       const v = document.querySelector('video')
       return { t: v.currentTime, src: v.getAttribute('src') }
