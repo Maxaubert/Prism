@@ -2546,6 +2546,7 @@ if (!app.requestSingleInstanceLock()) {
             clashes: [],
             failed: wanted,
             replaced: [],
+            busy: [],
             refused: true
           }
         const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
