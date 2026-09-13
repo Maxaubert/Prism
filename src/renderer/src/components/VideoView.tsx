@@ -164,11 +164,21 @@ export function VideoView({
   // Reset on the way IN to a new file rather than in an effect: a ratio forced
   // on one video means nothing for the next, and the same shape the sidebar
   // uses for its selection (an effect here cascades a second render).
-  const [fitFor, setFitFor] = useState(url)
-  if (fitFor !== url) {
-    setFitFor(url)
+  // Keyed by PATH, not url (#124): the phone's audio pick swaps the url for
+  // the same film, and the ratio you chose must not reset on it.
+  const [fitFor, setFitFor] = useState(path)
+  if (fitFor !== path) {
+    setFitFor(path)
     setFit('fit')
   }
+  /** A pick is remembered for this file (#124); the reset above is not. */
+  const pickFit = useCallback(
+    (id: VideoFit) => {
+      setFit(id)
+      window.prism.memorySet(path, { fit: id })
+    },
+    [path]
+  )
 
   const [chromeOn, setChromeOn] = useState(true)
   /**
@@ -228,16 +238,42 @@ export function VideoView({
    * on a <video> - so the picture is muted and the chosen track plays beside
    * it, on the same clock the Dolby sidecar already runs on. Per file: the
    * commentary you chose on one film means nothing about the next. */
-  const [trackFor, setTrackFor] = useState(url)
+  const [trackFor, setTrackFor] = useState(path)
   const [ownTrack, setOwnTrack] = useState<number | null>(null)
-  if (trackFor !== url) {
-    setTrackFor(url)
+  if (trackFor !== path) {
+    setTrackFor(path)
     setOwnTrack(null)
   }
   // On a stream-switching host the track is the host's (a new playlist);
   // here it is the sidecar's. One pair of names for the pickers either way.
   const track = onAudioTrack ? (audioTrack ?? null) : ownTrack
-  const setTrack = onAudioTrack ?? setOwnTrack
+  const setTrack = useCallback(
+    (index: number | null) => {
+      if (onAudioTrack) onAudioTrack(index)
+      else setOwnTrack(index)
+      window.prism.memorySet(path, { audio: index }) // remembered for this file (#124)
+    },
+    [onAudioTrack, path]
+  )
+  // What the PC remembers for this file (#124): the ratio and, on the
+  // sidecar host, the track. The phone applies its own remembered track
+  // before it asks for the stream, so it is not applied twice here.
+  useEffect(() => {
+    let live = true
+    void window.prism
+      .memoryGet(path)
+      .catch(() => null)
+      .then((m) => {
+        if (!live || !m) return
+        if (m.fit && VIDEO_FITS.some((f) => f.id === m.fit)) setFit(m.fit as VideoFit)
+        if (m.audio !== undefined && !onAudioTrack) setOwnTrack(m.audio)
+      })
+    return () => {
+      live = false
+    }
+    // Once per file: the host flag does not change while a file is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -326,7 +362,7 @@ export function VideoView({
         children: VIDEO_FITS.map((f) => ({
           label: f.label,
           icon: tickIf(fit === f.id),
-          onPick: () => setFit(f.id)
+          onPick: () => pickFit(f.id)
         }))
       },
       {
@@ -724,7 +760,7 @@ export function VideoView({
                 // The cog is the one control both hosts share (#120): the
                 // picture modes and the audio tracks the right-click menu
                 // offers live here too, since the phone has no such menu.
-                picture={{ options: VIDEO_FITS, active: fit, onPick: (id) => setFit(id as VideoFit) }}
+                picture={{ options: VIDEO_FITS, active: fit, onPick: (id) => pickFit(id as VideoFit) }}
                 audio={
                   audioTracks.length > 1
                     ? {
