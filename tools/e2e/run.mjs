@@ -2482,6 +2482,33 @@ async function playerScenario(fixtures) {
     // A pick returns to the top, where the row now says what was chosen.
     await win.waitForSelector('[data-menu-row="subtitles"]', { timeout: 5000 })
     ok((await win.locator('[data-menu-value="subtitles"]').textContent()) === 'English', 'the Subtitles row reads the pick')
+    // REMEMBERED PER FILE (#124): the pick and the ratio survive leaving the
+    // file and coming back, and live in the PC's store by path.
+    await win.click('[data-menu-row="picture"]')
+    await win.click('[data-menu-section="picture"] [role="menuitemradio"]:has-text("16:9")')
+    await win.keyboard.press('Escape')
+    await win.click('[role="treeitem"]:has-text("ep2.mp4")')
+    await win.waitForFunction(() => (document.querySelector('video')?.currentSrc ?? '').includes('ep2'), null, { timeout: 8000 })
+    await win.click('[role="treeitem"]:has-text("ep1.mp4")')
+    await win.waitForFunction(() => (document.querySelector('video')?.currentSrc ?? '').includes('ep1'), null, { timeout: 8000 })
+    await sleep(600)
+    await win.hover('video')
+    await win.click('[aria-label="Player settings"]')
+    await win.waitForSelector('[data-menu-row="subtitles"]', { timeout: 5000 })
+    ok((await win.locator('[data-menu-value="subtitles"]').textContent()) === 'English', 'coming back to the file, the subtitle pick is remembered')
+    ok((await win.locator('[data-menu-value="picture"]').textContent()) === '16:9', 'and so is the aspect ratio')
+    const mem = await win.evaluate((p) => window.prism.memoryGet(p), join(fixtures, 'ep1.mp4'))
+    ok(mem?.fit === '16:9' && typeof mem?.subs === 'string' && mem.subs.endsWith('ep1.en.srt'), `kept in the PC's store by path (${JSON.stringify(mem)})`)
+    // The memory is the app's and the profile is shared across scenarios:
+    // put ep1 back the way the others expect it, a fitted picture and the
+    // global subtitle rule.
+    // `undefined` CLEARS a field (no memory), where null would be a remembered "off".
+    await win.evaluate((p) => window.prism.memorySet(p, { fit: null, subs: undefined, audio: undefined }), join(fixtures, 'ep1.mp4'))
+    await sleep(600)
+    ok(
+      (await win.evaluate((p) => window.prism.memoryGet(p), join(fixtures, 'ep1.mp4')))?.fit === undefined,
+      'and a field can be cleared to no memory at all'
+    )
     await win.waitForFunction(
       () => {
         const t = document.querySelector('video')?.textTracks
@@ -5377,6 +5404,10 @@ async function phoneHlsScenario(fixtures) {
         landed = false
       })
     ok(landed, 'a seek into the second segment lands where the playlist says (copyts)')
+    ok(
+      await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
+      'frames decode'
+    )
     // THE COG CARRIES THE TRACKS (#120): on the phone there is no right-click
     // menu, so the audio pick lives in the settings cog, and a pick is a new
     // stream from the PC that resumes where the old one was. The two-track
@@ -5422,10 +5453,17 @@ async function phoneHlsScenario(fixtures) {
     ok(switched, `the pick swaps the stream and it plays (src changed, t=${after.toFixed(2)})`)
     ok(after >= before.t - 0.5, `and it resumes where the old stream was (was ${before.t.toFixed(2)}, now ${after.toFixed(2)})`)
     await page.keyboard.press('Escape')
-    ok(
-      await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
-      'frames decode'
-    )
+    // REMEMBERED (#124): a reload of the film asks for the picked track from
+    // the start, and the cog's row says so.
+    await sleep(600)
+    await page.goto(`${base}/?open=${encodeURIComponent(tracksFile)}`)
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 15000 })
+    await page.waitForFunction(() => !!document.querySelector('video')?.getAttribute('src'), null, { timeout: 20000 })
+    await page.mouse.move(120, 200)
+    await page.click('[aria-label="Player settings"]')
+    await page.waitForSelector('[data-menu-row="audio"]', { timeout: 5000 })
+    ok(((await page.locator('[data-menu-value="audio"]').textContent()) ?? '').includes('Commentary'), 'reopened on the phone, the film comes back on the picked track')
+    await page.keyboard.press('Escape')
     // The phone log (2026-09-12, #116): one timeline, the server's asks and
     // the page's own player events, in userData/phone/phone.log. The page
     // posts in five-second batches, so the wait is the batch.

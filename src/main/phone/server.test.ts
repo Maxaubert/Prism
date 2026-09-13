@@ -38,7 +38,7 @@ let server: PhoneServer
 let port: number
 let changes = 0
 let logged: string[] = []
-let positions = new Map<string, number>()
+let positions = new Map<string, Record<string, unknown>>()
 /** The server holds this object, so a test can swap one dep for a failing one. */
 let deps: PhoneDeps
 
@@ -190,9 +190,12 @@ beforeEach(async () => {
     log: (l) => logged.push(l),
     positions: {
       get: async (p) => positions.get(p.toLowerCase()) ?? null,
-      set: (p, t) => {
-        if (t === null) positions.delete(p.toLowerCase())
-        else positions.set(p.toLowerCase(), t)
+      set: (p, patch) => {
+        const key = p.toLowerCase()
+        const next = { ...(positions.get(key) ?? {}), ...patch } as Record<string, unknown>
+        if (next.t === null) delete next.t
+        if (Object.keys(next).length) positions.set(key, next)
+        else positions.delete(key)
       }
     },
     loopbackOnly: true,
@@ -692,14 +695,17 @@ describe('PhoneServer', () => {
     const pos = (p: string) => `/api/pos?path=${encodeURIComponent(p)}`
     expect((await fetch(url(pos(film)))).status).toBe(401)
     expect(await (await fetch(url(pos(film)), { headers: auth })).json()).toEqual({ t: null })
-    positions.set(film.toLowerCase(), 2400)
+    positions.set(film.toLowerCase(), { t: 2400 })
     expect(await (await fetch(url(pos(film)), { headers: auth })).json()).toEqual({ t: 2400 })
     const put = await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: 2460 }) })
     expect(put.status).toBe(200)
-    expect(positions.get(film.toLowerCase())).toBe(2460)
-    // null forgets; nonsense is refused; a path outside the phone's root is walled.
+    expect(positions.get(film.toLowerCase())).toEqual({ t: 2460 })
+    // The choices ride the same route (#124), each on its own, null clearing.
+    await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ audio: 2, subs: null }) })
+    expect(await (await fetch(url(pos(film)), { headers: auth })).json()).toEqual({ t: 2460, audio: 2, subs: null })
+    // null forgets the place; nonsense is refused; a path outside the phone's root is walled.
     await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: null }) })
-    expect(positions.has(film.toLowerCase())).toBe(false)
+    expect(positions.get(film.toLowerCase())).toEqual({ audio: 2, subs: null })
     expect((await fetch(url(pos(film)), { method: 'POST', headers: auth, body: JSON.stringify({ t: 'x' }) })).status).toBe(400)
     expect((await fetch(url(pos(picOutside)), { headers: auth })).status).toBe(403)
   })
