@@ -188,6 +188,15 @@ beforeEach(async () => {
       changes += 1
     },
     log: (l) => logged.push(l),
+    // A thumbnail for the png fixture and nothing else: the route is under
+    // test, not ffmpeg.
+    thumb: async (p) => {
+      if (!p.toLowerCase().endsWith('.png')) return null
+      const out = join(cache, 'thumb.jpg')
+      mkdirSync(cache, { recursive: true })
+      writeFileSync(out, 'jpegbytes')
+      return out
+    },
     positions: {
       get: async (p) => positions.get(p.toLowerCase()) ?? null,
       set: (p, patch) => {
@@ -687,6 +696,21 @@ describe('PhoneServer', () => {
       headers: { authorization: `Bearer ${token}` },
       body: JSON.stringify({ root })
     })
+
+  it('/api/thumb answers the picture main made, walled, and 404 for a file with none', async () => {
+    const pic = join(dir, 'pic.png')
+    writeFileSync(pic, 'png')
+    expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(pic)}`))).status).toBe(401)
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const r = await fetch(url(`/api/thumb?path=${encodeURIComponent(pic)}`), { headers: auth })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('image/jpeg')
+    expect(r.headers.get('cache-control')).toContain('max-age')
+    expect(await r.text()).toBe('jpegbytes')
+    expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(join(dir, 'clip.mp4'))}`), { headers: auth })).status).toBe(404)
+    expect((await fetch(url(`/api/thumb?path=${encodeURIComponent(picOutside)}`), { headers: auth })).status).toBe(403)
+  })
 
   it('/api/pos reads and writes the film position by path, inside the wall', async () => {
     const token = await pair()

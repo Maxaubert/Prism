@@ -5195,6 +5195,24 @@ async function phoneScenario(fixtures) {
       .first()
       .evaluate((el) => el.getBoundingClientRect().height)
     ok(rowH >= 44, `an explorer row is at least a finger tall (${rowH}px)`)
+
+    // LIST OR GRID (#135): the header's pair switches the folder to tiles,
+    // a picture tile's thumbnail arrives from the PC over /api/thumb, and
+    // the choice survives a reload.
+    ok((await page.locator('[data-phone-view="list"][aria-pressed="true"]').count()) === 1, 'the list is the view to begin with')
+    await page.click('[data-phone-view="grid"]')
+    await page.waitForSelector('[data-phone-grid]', { timeout: 5000 })
+    ok((await page.locator('[data-phone-grid] [data-phone-file]').count()) >= 1, 'the grid shows the files as tiles')
+    await page
+      .waitForFunction(() => [...document.querySelectorAll('[data-phone-thumb]')].some((i) => i.naturalWidth > 0), null, { timeout: 15000 })
+      .catch(() => {})
+    const thumbW = await page.evaluate(() => Math.max(0, ...[...document.querySelectorAll('[data-phone-thumb]')].map((i) => i.naturalWidth)))
+    ok(thumbW > 0 && thumbW <= 320, `a picture tile's thumbnail arrives from the PC (${thumbW}px wide)`)
+    await page.reload()
+    await page.waitForSelector('[data-phone-grid]', { timeout: 10000 })
+    ok((await page.locator('[data-phone-view="grid"][aria-pressed="true"]').count()) === 1, 'and the grid is still the view after a reload')
+    await page.click('[data-phone-view="list"]')
+    await page.waitForSelector('[data-phone-file]:not([data-phone-grid] *)', { timeout: 5000 })
     await page.click('[data-phone-file]:has-text("one.png")')
     await page.waitForSelector('[data-phone-viewer][data-kind="image"] img', { timeout: 10000 })
     await page

@@ -148,6 +148,10 @@ export interface PhoneDeps {
    *  refused streams) and, through `/api/diag`, what the phone's player
    *  saw. Optional so a test server without one logs nowhere. */
   log?: (line: string) => void
+  /** A thumbnail for the phone's grid (#135): the JPEG main made, or null
+   *  when the file cannot be thumbnailed. Main decides the kind and the
+   *  cache; the route decides the wall. */
+  thumb: (path: string) => Promise<string | null>
   /** The PC's own position store (#118): seconds into a film by path. The
    *  one thing a phone WRITES, and it writes a number into main's store,
    *  never the filesystem. Walled like every path the phone names. */
@@ -605,6 +609,15 @@ export class PhoneServer {
       // What `file:stat` answers the editor and the Properties popup: size,
       // modified time and folder-ness. Async where the IPC is `statSync`,
       // because the phone path shares main's one thread with a playing film.
+      // The grid's pictures (#135): walled like every path, cached by the
+      // phone for a day since a key changes with the file, and 404 for a
+      // file with no picture in it, which the tile draws as its icon.
+      case 'thumb': {
+        if (!inside()) return void json(res, 403, { error: 'outside the folder' })
+        const jpg = await this.deps.thumb(path)
+        if (!jpg) return void json(res, 404, { error: 'no thumbnail' })
+        return await this.sendFile(jpg, 'image/jpeg', res, 'private, max-age=86400')
+      }
       case 'stat': {
         if (!inside()) return void json(res, 403, { error: 'outside the folder' })
         try {
@@ -761,7 +774,12 @@ export class PhoneServer {
 
   /** One whole file, streamed, with its length; 404 if it went away between
    *  the ask and the read (a restart clears the directory). */
-  private async sendFile(full: string, type: string, res: ServerResponse): Promise<void> {
+  private async sendFile(
+    full: string,
+    type: string,
+    res: ServerResponse,
+    cache = 'no-store'
+  ): Promise<void> {
     let st: Awaited<ReturnType<typeof fsp.stat>>
     try {
       st = await fsp.stat(full)
@@ -771,7 +789,7 @@ export class PhoneServer {
     res.writeHead(200, {
       'content-type': type,
       'content-length': String(st.size),
-      'cache-control': 'no-store'
+      'cache-control': cache
     })
     const s = createReadStream(full)
     s.on('error', () => res.destroy())
