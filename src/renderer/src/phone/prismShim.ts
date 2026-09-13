@@ -132,6 +132,21 @@ const implemented: Shim = {
     Promise.resolve({ files: 0, folders: 0, uncompressed: 0, encryption: 'none' as const, readOnly: true }),
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     getJson<{ size: number; mtimeMs: number; isFolder: boolean }>('/api/stat', { path }).catch(() => null),
+  // The PC's own position store (#118), the one thing a phone WRITES: a
+  // number per film, into main's store and never the filesystem. A film left
+  // at minute 40 on the PC opens at minute 40 here, and the other way round.
+  positionGet: (path: string): Promise<number | null> =>
+    getJson<{ t: number | null }>('/api/pos', { path })
+      .then((r) => r.t)
+      .catch(() => null),
+  positionSet: (path: string, t: number | null): void => {
+    void fetch(apiUrl('/api/pos', { path }), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ t }),
+      keepalive: true
+    }).catch(() => undefined)
+  },
   // A file too big to hand over whole has no tail on the phone, and nothing
   // is followed: the editor shows its "too large" note and leaves it there.
   tailBytes: () => Promise.resolve(null),

@@ -763,6 +763,35 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   The open hypothesis is iPadOS WebKit's MediaSource quota against a 4K HEVC copy with 30s
   buffered ahead: a buffer-full error, a flush, and a resume from the last keyframe, which
   is the 1-2s replay the owner described. The log says.
+- **ONE PLACE PER FILM, ON THE PC** (2026-09-13, #118; owner: some way into a film on the
+  PC, opened it on the iPad, and it began at the beginning). The position lived in each
+  renderer's own localStorage keyed by the media URL - `fsmedia://` on the PC,
+  `/hls/<job>/index.m3u8?t=<token>` on the phone, which changes with every job and token -
+  so the phone never saw the PC's place and could not even find its own from one evening to
+  the next. `src/main/positions.ts` is the store now (`userData/positions.json`, tabs.json's
+  shape: debounced, capped at 500 newest, a suggestion), keyed by FILE PATH lower-cased,
+  reached over IPC from the window (`positionGet/Set`) and over `/api/pos` from the phone,
+  walled like every path a phone names. THAT IS THE ONE THING A PHONE WRITES, and it writes
+  a number into main's own store, never the filesystem the wall protects; the "nothing
+  writes" rule of #106 stands for files. The RULES stayed with the players and moved into
+  `lib/resumePoint.ts` (pure, tested): over ten minutes, cleared in the last seconds, whole
+  seconds every five. The session mark (`playState`, per host) still wins; the stored place
+  is asked for and applied only while the element is still at its start, since the answer
+  comes back over IPC or the wire and a user who has already scrubbed is not to be yanked
+  back. The old localStorage key is read ONCE and written through, so nobody loses their
+  place at upgrade. Proved in `phoneHls`: the window writes 2400, the phone reads it, the
+  phone writes 3000, the window reads it, and positions.json holds it.
+  **AND COMING BACK REFRESHES THE STREAM ITSELF** (same day, owner: leaving the page and
+  coming back left a player that would not go on "until a site refresh"). What WebKit does
+  to a backgrounded media element and its MediaSource buffers is written nowhere Prism can
+  read, so `phone/returning.ts` (pure decision, tested) does what the refresh did and only
+  when the player is visibly the worse for it: after more than 20s hidden, an element with
+  an error, with no data ready, or that claims to play while its clock stands still over
+  1.5s, is re-attached at its own position - hls.js's own `recoverMediaError` plus
+  `startLoad(t)`, or `load()` and a seek on the native path. A short absence or a working
+  player is left alone, since re-attaching a working stream is itself a hitch. Every return
+  writes one line to the phone log saying what was seen and what was done, so the next
+  report says whether the rule fired.
 - **Documents on the phone** (2026-09-07, #106): PDFs, markdown, code and text, office and
   ebook documents, comics and archive listings, through the SAME viewers the PC mounts
   (`PhoneViewer`, lazy-loaded exactly as App loads them, so a phone that only plays films
@@ -772,8 +801,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   SOFTENING ON THE PHONE is a grant set (`grants.ts`) that is per PHONE and per ANSWER: a
   markdown's own pictures, a comic's unpacked page directory, one extracted member, each
   allowed to the token that asked and to nobody else, consulted by the media route beside
-  `validRoot`. NOTHING WRITES: the shim has no `writeText`, no rename, no delete and no
-  archive verb, and the server has no route for any of them. `window.prism.capabilities`
+  `validRoot`. NOTHING WRITES A FILE: the shim has no `writeText`, no rename, no delete and
+  no archive verb, and the server has no route for any of them (the one thing a phone
+  records since #118 is a playback position, into main's own store). `window.prism.capabilities`
   (`write`, `clipboard`, `explorer`, `drag`; all true in preload, all false in the shim) is
   how ONE viewer serves TWO hosts - `fileVerbs` answers only Copy path without `explorer`,
   the picture, the video, the archive panel and the editor each hide what they cannot

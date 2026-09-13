@@ -75,6 +75,11 @@ const api = {
   ): void => ipcRenderer.send('tabs:changed', { tabs, active }),
   /** A root no longer held by any tab. The one way the wall shrinks. */
   dropRoot: (root: string): void => ipcRenderer.send('roots:drop', root),
+  /** Where you had got to in a film, kept ONCE on the PC by file path
+   *  (#118): the phone reads and writes the same store over /api/pos, so a
+   *  film left at minute 40 here opens at minute 40 there. Seconds, or null. */
+  positionGet: (path: string): Promise<number | null> => ipcRenderer.invoke('pos:get', path),
+  positionSet: (path: string, t: number | null): void => ipcRenderer.send('pos:set', path, t),
   // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.
