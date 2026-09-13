@@ -4931,6 +4931,51 @@ async function dragScenario(fixtures) {
     }
   }
   await sleep(900)
+  // MOVING THE FILE YOU ARE WATCHING (#127). A film being played is a file
+  // Prism holds open, and Windows refuses to move a file anything holds
+  // (MEASURED: EBUSY). Prism lets go first, moves, and follows the film to
+  // where it landed at the second it was at, still playing.
+  {
+    const film = join(box, 'watching.mp4')
+    const { app, win } = await launch(film)
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.evaluate(() => {
+        const v = document.querySelector('video')
+        v.muted = true
+        void v.play().catch(() => {})
+      })
+      await win.waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 0.6, null, { timeout: 10000 })
+      const before = await win.evaluate(() => document.querySelector('video')?.currentTime ?? 0)
+      await win
+        .locator('[role="treeitem"]:has-text("watching.mp4")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      let followed = true
+      await win
+        .waitForFunction(
+          () => {
+            const v = document.querySelector('video')
+            return !!v && /into/i.test(decodeURIComponent(v.currentSrc || '')) && v.currentTime > 0.3 && !v.paused
+          },
+          null,
+          { timeout: 12000 }
+        )
+        .catch(() => {
+          followed = false
+        })
+      const after = await win.evaluate(() => {
+        const v = document.querySelector('video')
+        return { t: v?.currentTime ?? -1, src: decodeURIComponent(v?.currentSrc ?? '') }
+      })
+      ok(existsSync(join(box, 'into', 'watching.mp4')) && !existsSync(film), 'the film you are watching really moved into the folder')
+      ok(followed, `and the viewer followed it there, playing (${after.src.split(/[\\/]/).slice(-2).join('/')})`)
+      ok(after.t >= before - 0.5, `at the second it was at (was ${before.toFixed(2)}, now ${after.t.toFixed(2)})`)
+      ok(!/could not be moved/.test((await win.locator('body').textContent()) ?? ''), 'and nothing complained')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
   // Out of the archive, onto a folder in the sidebar.
   const out = join(fixtures, 'zips', 'out')
   rmSync(join(out, 'carry.txt'), { force: true })
