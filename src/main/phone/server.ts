@@ -455,12 +455,23 @@ export class PhoneServer {
             reason: 'Prism has no ffmpeg to convert with'
           })
         }
+        // A track the phone PICKED (#120): the phone has no sidecar decoder,
+        // so a pick is a stream with that audio, which is a job of its own.
+        // Only one of the file's own tracks is accepted; anything else is
+        // refused rather than handed to ffmpeg as a stream index.
+        const wantAudio = q.get('audio')
+        let audioIndex = info.audio?.index ?? null
+        if (wantAudio !== null && wantAudio !== '') {
+          const picked = info.tracks.find((t) => String(t.index) === wantAudio)
+          if (!picked) return void json(res, 400, { error: 'no such audio track' })
+          audioIndex = picked.index
+        }
         const { id } = this.deps.jobs.open({
           token,
           file: path,
-          plan,
+          plan: audioIndex !== null && audioIndex !== (info.audio?.index ?? null) ? { ...plan, copyAudio: false } : plan,
           duration: info.duration,
-          audioIndex: info.audio?.index ?? null
+          audioIndex
         })
         this.deps.log?.(
           `play "${phone.name}" ${basename(path)} -> job ${id} (${plan.copyVideo ? 'copy' : 'encode'} ${info.videoCodec ?? 'no'} video, ${plan.copyAudio ? 'copy' : 'encode'} ${info.audio?.codec ?? 'no'} audio, ${Math.round(info.duration)}s, can=${q.get('can') ?? ''})`
@@ -473,7 +484,17 @@ export class PhoneServer {
           // source and a film to the video's convert path (Task 6).
           audioOnly: plan.audioOnly,
           fps: info.fps,
-          duration: info.duration
+          duration: info.duration,
+          // Every track the file holds and which one this stream carries,
+          // so the phone's picker can offer the rest.
+          tracks: info.tracks.map((t) => ({
+            index: t.index,
+            codec: t.codec,
+            channels: t.channels,
+            language: t.language,
+            title: t.title
+          })),
+          audio: audioIndex
         })
       }
       // `name` is the PHONE's, as the PC lists it; `folder` is the TAB's, and
