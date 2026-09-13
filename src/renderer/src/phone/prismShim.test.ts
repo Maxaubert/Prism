@@ -173,6 +173,7 @@ describe('the phone shim', () => {
         ffmpeg: true,
         needed: false,
         fps: 23.976,
+        tracks: [],
         convert: { reason: 'container', quick: true }
       })
       await expect(window.prism.probeMedia('C:\\encode.mkv')).resolves.toMatchObject({

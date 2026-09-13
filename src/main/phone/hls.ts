@@ -65,10 +65,14 @@ export function playlistText(duration: number, query = ''): string {
   return lines.join('\n') + '\n'
 }
 
-/** One job per phone and file: the same phone asking for the same file
- *  lands on the same job, however the path was cased. */
-export function jobId(token: string, file: string): string {
-  return createHash('sha256').update(`${token}|${file.toLowerCase()}`).digest('hex').slice(0, 16)
+/** One job per phone, file and AUDIO TRACK (#120): the same phone asking
+ *  for the same file lands on the same job, however the path was cased,
+ *  and a different track is a different stream, so a different job. */
+export function jobId(token: string, file: string, audioIndex: number | null = null): string {
+  return createHash('sha256')
+    .update(`${token}|${file.toLowerCase()}|${audioIndex ?? ''}`)
+    .digest('hex')
+    .slice(0, 16)
 }
 
 export function segmentFile(outDir: string, n: number): string {

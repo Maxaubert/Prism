@@ -49,9 +49,11 @@ const probeOf = (p: string): MediaInfo | null => {
   if (!name.endsWith('clip.mp4') && !name.endsWith('clip.mkv')) return null
   const codec = name.endsWith('.mkv') ? 'ac3' : 'aac'
   const audio = { index: 1, title: '', codec, channels: 2, layout: 'stereo', language: 'eng', duration: 10 }
+  // The mkv carries a second track (#120), so a pick has something to pick.
+  const commentary = { index: 2, title: 'Commentary', codec: 'aac', channels: 2, layout: 'stereo', language: 'eng', duration: 10 }
   return {
     audio,
-    tracks: [audio],
+    tracks: name.endsWith('.mkv') ? [audio, commentary] : [audio],
     videoCodec: 'h264',
     video: { width: 1920, height: 1080, pixFmt: 'yuv420p', transfer: 'bt709' },
     fps: 24,
@@ -572,6 +574,22 @@ describe('PhoneServer', () => {
 
     // Asking again for the same file is the same job, not a second ffmpeg.
     expect((await play(token, 'clip.mkv')).url).toBe(playlistUrl)
+  })
+
+  it('/api/play lists the tracks, takes a pick as its own job, and refuses a track the file has not', async () => {
+    const token = await pair()
+    const auth = { authorization: `Bearer ${token}` }
+    const ask = (extra: string) =>
+      fetch(url(`/api/play?path=${encodeURIComponent(join(dir, 'clip.mkv'))}&can=h264,aac,mse${extra}`), { headers: auth })
+    const plain = (await (await ask('')).json()) as { url: string; tracks: Array<{ index: number; title: string }>; audio: number }
+    expect(plain.tracks.map((t) => t.index)).toEqual([1, 2])
+    expect(plain.tracks[1].title).toBe('Commentary')
+    expect(plain.audio).toBe(1)
+    const picked = (await (await ask('&audio=2')).json()) as { url: string; audio: number }
+    expect(picked.audio).toBe(2)
+    expect(picked.url).not.toBe(plain.url) // a different stream is a different job
+    expect((await ask('&audio=7')).status).toBe(400)
+    expect((await ask('&audio=x')).status).toBe(400)
   })
 
   it('/api/play is walled and needs a probe', async () => {

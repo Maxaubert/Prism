@@ -71,7 +71,9 @@ export function VideoView({
   background = false,
   volumeKey,
   fullscreen = false,
-  attach
+  attach,
+  audioTrack,
+  onAudioTrack
 }: {
   url: string
   /** The file's real path, for finding sidecar subtitles next to it. */
@@ -98,6 +100,11 @@ export function VideoView({
    *  light theme's paper-white bars, or an accent-tinted ground, are the
    *  app leaking into the film. Windowed, the theme is the theme. */
   fullscreen?: boolean
+  /** A host that switches audio by STREAM rather than by sidecar (#120): the
+   *  phone, where a pick is a new playlist from the PC. When given, the
+   *  pickers call it and tick `audioTrack`, and the sidecar is never asked. */
+  audioTrack?: number | null
+  onAudioTrack?: (index: number | null) => void
   /** The phone's hls.js hook (2026-09-06, #105): a device with no native HLS
    *  needs a library to feed the element through MSE, and that library owns
    *  `src`. When given, the element is rendered WITHOUT src and `attach` is
@@ -222,11 +229,15 @@ export function VideoView({
    * it, on the same clock the Dolby sidecar already runs on. Per file: the
    * commentary you chose on one film means nothing about the next. */
   const [trackFor, setTrackFor] = useState(url)
-  const [track, setTrack] = useState<number | null>(null)
+  const [ownTrack, setOwnTrack] = useState<number | null>(null)
   if (trackFor !== url) {
     setTrackFor(url)
-    setTrack(null)
+    setOwnTrack(null)
   }
+  // On a stream-switching host the track is the host's (a new playlist);
+  // here it is the sidecar's. One pair of names for the pickers either way.
+  const track = onAudioTrack ? (audioTrack ?? null) : ownTrack
+  const setTrack = onAudioTrack ?? setOwnTrack
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,
@@ -450,7 +461,7 @@ export function VideoView({
     ref: sidecarRef,
     videoCodec,
     tracks: audioTracks
-  } = useSidecarAudio(path, video, c.vol, c.muted, track)
+  } = useSidecarAudio(path, video, c.vol, c.muted, onAudioTrack ? null : track)
   const [hushedUrl, setHushedUrl] = useState<string | null>(null)
   const silent = sidecarState === 'unavailable' && hushedUrl !== url
 
@@ -706,8 +717,23 @@ export function VideoView({
                 subtitles={{
                   tracks: subtitles.tracks,
                   active: subtitles.active,
-                  onPick: subtitles.pick
+                  onPick: subtitles.pick,
+                  // The file dialog is the PC's; the phone has no way to add one.
+                  onAdd: window.prism.capabilities.explorer ? () => subtitles.add() : undefined
                 }}
+                // The cog is the one control both hosts share (#120): the
+                // picture modes and the audio tracks the right-click menu
+                // offers live here too, since the phone has no such menu.
+                picture={{ options: VIDEO_FITS, active: fit, onPick: (id) => setFit(id as VideoFit) }}
+                audio={
+                  audioTracks.length > 1
+                    ? {
+                        tracks: audioTracks.map((t, i) => ({ index: t.index, label: trackLabel(t, i) })),
+                        active: track,
+                        onPick: setTrack
+                      }
+                    : undefined
+                }
                 onOpenChange={onMenuOpen}
               />
             }

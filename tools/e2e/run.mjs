@@ -5243,6 +5243,19 @@ async function phoneHlsScenario(fixtures) {
       await fetch(`${base}/api/play?path=${encodeURIComponent(dolby)}&can=${can}`, { headers: auth })
     ).json()
     ok(play.mode === 'hls' && play.copyVideo === true, 'an h264 mkv with ac3 is HLS with the picture copied')
+    // A file's tracks ride on the answer (#120), and a pick is its own job.
+    // tracks.mkv, not dolby.mkv: the Dolby fixture's whole point is a track
+    // the element cannot play, and a second, playable one would make it hear.
+    const tracksFile = join(fixtures, 'av', 'tracks.mkv')
+    const two = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(tracksFile)}&can=${can}`, { headers: auth })
+    ).json()
+    ok(Array.isArray(two.tracks) && two.tracks.length === 2 && two.tracks[1].title === 'Commentary', `the answer lists both audio tracks (${JSON.stringify(two.tracks)})`)
+    const commentary = two.tracks?.[1]?.index
+    const picked = await (
+      await fetch(`${base}/api/play?path=${encodeURIComponent(tracksFile)}&can=${can}&audio=${commentary}`, { headers: auth })
+    ).json()
+    ok(picked.mode === 'hls' && picked.audio === commentary && picked.url !== two.url, 'a picked track is a different stream')
     ok(Math.abs(play.duration - 6) < 1, `the answer carries the duration (${play.duration}s)`)
     ok(/^\/hls\/[0-9a-f]{16}\/index\.m3u8\?t=/.test(play.url ?? ''), 'the stream url names a job and carries the token')
     const at = (name) => `${base}${play.url.replace('index.m3u8', name)}`
@@ -5349,6 +5362,45 @@ async function phoneHlsScenario(fixtures) {
         landed = false
       })
     ok(landed, 'a seek into the second segment lands where the playlist says (copyts)')
+    // THE COG CARRIES THE TRACKS (#120): on the phone there is no right-click
+    // menu, so the audio pick lives in the settings cog, and a pick is a new
+    // stream from the PC that resumes where the old one was. The two-track
+    // file, opened by its place in the URL (a reload lands where it says).
+    await page.goto(`${base}/?open=${encodeURIComponent(tracksFile)}`)
+    await page.waitForSelector('[data-phone-viewer][data-kind="video"] video', { timeout: 15000 })
+    await page.evaluate(() => {
+      const v = document.querySelector('video')
+      v.muted = true
+      void v.play().catch(() => {})
+    })
+    await page.waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 1.5, null, { timeout: 20000 })
+    await page.mouse.move(120, 200) // wake the chrome: the transport unmounts on its idle clock
+    await page.click('[aria-label="Player settings"]')
+    await page.waitForSelector('[data-menu-section="audio"]', { timeout: 5000 })
+    ok((await page.locator('[data-menu-section="picture"] button').count()) === 5, 'the cog offers the five picture modes')
+    ok((await page.locator('[data-menu-section="subtitles"] button').count()) === 1, 'and Subtitles with Off alone, nothing found and no Add on the phone')
+    const before = await page.evaluate(() => {
+      const v = document.querySelector('video')
+      return { t: v.currentTime, src: v.getAttribute('src') }
+    })
+    await page.click('[data-menu-section="audio"] button:has-text("Commentary")')
+    let switched = true
+    await page
+      .waitForFunction(
+        (was) => {
+          const v = document.querySelector('video')
+          return !!v && v.getAttribute('src') !== was && v.currentTime > 0.5 && !v.paused
+        },
+        before.src,
+        { timeout: 20000 }
+      )
+      .catch(() => {
+        switched = false
+      })
+    const after = await page.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
+    ok(switched, `the pick swaps the stream and it plays (src changed, t=${after.toFixed(2)})`)
+    ok(after >= before.t - 0.5, `and it resumes where the old stream was (was ${before.t.toFixed(2)}, now ${after.toFixed(2)})`)
+    await page.keyboard.press('Escape')
     ok(
       await page.evaluate(() => (document.querySelector('video')?.webkitDecodedFrameCount ?? 1) > 0),
       'frames decode'

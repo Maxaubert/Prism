@@ -31,6 +31,10 @@ describe('playlist', () => {
     expect(jobId('t', 'C:\\a.mkv')).toBe(jobId('t', 'c:\\A.MKV'))
     expect(jobId('t', 'C:\\a.mkv')).not.toBe(jobId('u', 'C:\\a.mkv'))
     expect(jobId('t', 'C:\\a.mkv')).toMatch(/^[0-9a-f]{16}$/)
+    // A different audio track is a different stream, so a different job.
+    expect(jobId('t', 'C:\\a.mkv', 1)).toBe(jobId('t', 'C:\\a.mkv', 1))
+    expect(jobId('t', 'C:\\a.mkv', 2)).not.toBe(jobId('t', 'C:\\a.mkv', 1))
+    expect(jobId('t', 'C:\\a.mkv', null)).toBe(jobId('t', 'C:\\a.mkv'))
   })
 })
 
