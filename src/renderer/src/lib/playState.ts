@@ -53,10 +53,26 @@ export function wasPlaying(key: string): boolean {
 }
 
 /** "Play this one when it arrives": the playlist's own intent, recorded for a
- *  file that has never been seen. */
+ *  file that has never been seen. A player ALREADY holding the file hears it
+ *  too (#139): picking the row of the film on screen, paused or finished, is
+ *  the same intent, and there is no element about to appear to read it. */
 export function intendToPlay(key: string): void {
   if (!key) return
   mark(key).paused = false
+  for (const fn of intents.get(key) ?? []) fn()
+}
+
+const intents = new Map<string, Set<() => void>>()
+
+/** Hear every pick of `key` while mounted. Returns the unsubscribe. */
+export function whenIntended(key: string, fn: () => void): () => void {
+  const set = intents.get(key) ?? new Set()
+  set.add(fn)
+  intents.set(key, set)
+  return () => {
+    set.delete(fn)
+    if (!set.size) intents.delete(key)
+  }
 }
 
 /** Where it had got to, whatever its length. */

@@ -1307,6 +1307,22 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   That covers a genuine remount
   (a new file, a split view opening); the tab switch itself no longer is one,
   see below.
+- **A PICK PLAYS, A RESTORE DOES NOT** (2026-09-14, #139; owner: "when you click on a
+  video or audio file it starts immediately; the only time it shouldn't is when you open
+  up Prism"). The tree's click and the arrows have played since 2026-09-03; what still
+  arrived paused was a file WINDOWS hands over - Explorer's double-click, the argv
+  launch - because it came through the same door a restore does (`onOpenFile`), and the
+  phone, where a tap opened the film and waited. Both are picks now: `arrive` in App
+  records the intent for an arrival that is not a restore and not a folder, and the
+  phone's Browser tells the viewer which file it was TAPPED onto (`picked`), against the
+  one a reload put back, which lands paused as it always did. On the phone the intent is
+  recorded at render time on the STREAM'S url - the playlist, which does not exist until
+  `/api/play` has answered - and once per file, because a later url for the same film is
+  an audio pick and the seed already carries whether it was playing. The 2026-08-28 rule
+  stands where it matters: a restored tab's film sits paused, proved by `playOnOpen`,
+  which relaunches with the film in a background tab and visits it. Whether a real
+  iPad honours the attribute after a row tap is the device's own autoplay policy; the
+  e2e proves it in Chromium.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried

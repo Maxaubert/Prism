@@ -1180,7 +1180,25 @@ export default function App(): JSX.Element {
     return () => clearTimeout(t)
   }, [])
 
-  useEffect(() => window.prism.onOpenFile(open), [open])
+  // A FILE WINDOWS HANDS OVER PLAYS (2026-09-14, #139, owner: "if you click a
+  // video file and that video file opens in Prism, it should autoplay").
+  // Explorer's double-click is a pick, exactly as a tree click is, and the
+  // tree's pick has played since 2026-09-03; this one arrived paused because
+  // it came through the same door a RESTORE does. The restore still does not
+  // play - a window full of restored tabs starting every film at once is the
+  // 2026-08-28 rule, and it stands - so the intent is recorded here, on the
+  // way in, for an arrival that is not a restore and not a folder.
+  const arrive = useCallback(
+    (p: OpenPayload | null) => {
+      if (p && !p.restore && !p.folder) {
+        const f = p.index >= 0 ? p.files[p.index] : undefined
+        if (f && (f.kind === 'video' || f.kind === 'audio')) intendToPlay(window.prism.mediaUrl(f.path))
+      }
+      open(p)
+    },
+    [open]
+  )
+  useEffect(() => window.prism.onOpenFile(arrive), [arrive])
 
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
