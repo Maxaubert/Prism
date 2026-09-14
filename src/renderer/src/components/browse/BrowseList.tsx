@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { formatBytes, formatWhen } from '../../lib/format'
 import { typeLabel } from '../../lib/typeLabel'
+import { browseParent } from '../../lib/browse'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
 import { BrowseIcon } from './BrowseIcon'
+import { BrowseSearchStatus } from './BrowseSearchStatus'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 
-const ROW_HEIGHT = 40
 const OVERSCAN = 12
 const columns: Array<{ key: BrowseSort['key']; label: string }> = [
   { key: 'name', label: 'Name' },
@@ -27,6 +28,9 @@ type Props = Pick<
   | 'onContextMenu'
   | 'onRename'
   | 'onCopy'
+  | 'query'
+  | 'searchState'
+  | 'onCancelSearch'
 > & {
   entries: BrowseEntry[]
   onActivate: (entry: BrowseEntry) => void
@@ -35,6 +39,8 @@ type Props = Pick<
 }
 
 export function BrowseList(props: Props): JSX.Element {
+  const searching = !!props.query.trim()
+  const rowHeight = searching ? 60 : 40
   const scroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
   const typed = useRef({ text: '', at: 0 })
@@ -50,10 +56,10 @@ export function BrowseList(props: Props): JSX.Element {
   }, [props.directory, props.scrollTop, props.loading])
 
   const selectedIndex = props.entries.findIndex((entry) => entry.path === props.selectedPath)
-  const first = Math.max(0, Math.floor(props.scrollTop / ROW_HEIGHT) - OVERSCAN)
+  const first = Math.max(0, Math.floor(props.scrollTop / rowHeight) - OVERSCAN)
   const end = Math.min(
     props.entries.length,
-    Math.ceil((props.scrollTop + height) / ROW_HEIGHT) + OVERSCAN
+    Math.ceil((props.scrollTop + height) / rowHeight) + OVERSCAN
   )
   const rendered = props.entries.slice(first, end)
   const focusRow = (index: number): void => {
@@ -61,10 +67,10 @@ export function BrowseList(props: Props): JSX.Element {
     const node = scroller.current
     if (!entry || !node) return
     props.onSelect(entry.path)
-    const top = index * ROW_HEIGHT
+    const top = index * rowHeight
     if (top < node.scrollTop) node.scrollTop = top
-    else if (top + ROW_HEIGHT > node.scrollTop + node.clientHeight)
-      node.scrollTop = top + ROW_HEIGHT - node.clientHeight
+    else if (top + rowHeight > node.scrollTop + node.clientHeight)
+      node.scrollTop = top + rowHeight - node.clientHeight
     props.onScroll(node.scrollTop)
     requestAnimationFrame(() =>
       node
@@ -76,7 +82,7 @@ export function BrowseList(props: Props): JSX.Element {
     if (e.altKey || e.ctrlKey || e.metaKey) return
     const count = props.entries.length
     if (!count) return
-    const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1)
+    const page = Math.max(1, Math.floor(height / rowHeight) - 1)
     let next: number
     if (e.key === 'ArrowDown') next = Math.min(count - 1, selectedIndex + 1)
     else if (e.key === 'ArrowUp') next = Math.max(0, selectedIndex - 1)
@@ -110,7 +116,10 @@ export function BrowseList(props: Props): JSX.Element {
   }
 
   return (
-    <div className="browse-list-area">
+    <div className="browse-list-area" data-searching={searching || undefined}>
+      {searching && (
+        <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
+      )}
       <div className="browse-columns">
         {columns.map(({ key, label }) => (
           <button
@@ -138,8 +147,12 @@ export function BrowseList(props: Props): JSX.Element {
         ref={scroller}
         className="browse-list"
         role="listbox"
-        aria-label={`Files in ${props.directory}`}
-        aria-busy={props.loading}
+        aria-label={
+          searching
+            ? `Search results in ${props.directory} and subfolders`
+            : `Files in ${props.directory}`
+        }
+        aria-busy={props.loading || !!props.searchState?.running}
         tabIndex={selectedIndex < first || selectedIndex >= end ? 0 : -1}
         data-testid="browse-list"
         onKeyDown={onKeyDown}
@@ -157,12 +170,12 @@ export function BrowseList(props: Props): JSX.Element {
         ) : (
           <div
             className="browse-row-space"
-            style={{ height: props.entries.length * ROW_HEIGHT }}
+            style={{ height: props.entries.length * rowHeight }}
             onClick={(e) => {
               if (e.target === e.currentTarget) props.onSelect(null)
             }}
           >
-            <div style={{ transform: `translateY(${first * ROW_HEIGHT}px)` }}>
+            <div style={{ transform: `translateY(${first * rowHeight}px)` }}>
               {rendered.map((entry, offset) => {
                 const selected = entry.path === props.selectedPath
                 return (
@@ -179,7 +192,7 @@ export function BrowseList(props: Props): JSX.Element {
                     data-selected={selected || undefined}
                     data-menu={entry.path === props.menuPath || undefined}
                     data-striped={(first + offset) % 2 === 1 || undefined}
-                    title={entry.name}
+                    title={searching ? entry.path : entry.name}
                     onClick={() => props.onSelect(entry.path)}
                     onDoubleClick={() => props.onActivate(entry)}
                     onContextMenu={(e) => {
@@ -206,7 +219,14 @@ export function BrowseList(props: Props): JSX.Element {
                           />
                         )
                       )}
-                      <span>{entry.name}</span>
+                      <span className="browse-name-text">
+                        <span>{entry.name}</span>
+                        {searching && (
+                          <span className="browse-result-location">
+                            {browseParent(entry.path) ?? entry.path}
+                          </span>
+                        )}
+                      </span>
                     </span>
                     <span className="browse-column-type">
                       {typeLabel(entry.name, entry.isFolder)}

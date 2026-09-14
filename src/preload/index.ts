@@ -1,4 +1,11 @@
-import type { BrowseDirectory, BrowseShortcut, SavedBrowse, SavedPane } from '@shared/browse'
+import type {
+  BrowseDirectory,
+  BrowseSearchProgress,
+  BrowseSearchResult,
+  BrowseShortcut,
+  SavedBrowse,
+  SavedPane
+} from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type {
   ArchiveListing,
@@ -27,6 +34,20 @@ import type {
 const api = {
   browseDirectory: (tabId: string, path: string): Promise<BrowseDirectory | null> =>
     ipcRenderer.invoke('browse:directory', tabId, path),
+  browseSearch: (
+    tabId: string,
+    path: string,
+    query: string,
+    requestId: string
+  ): Promise<BrowseSearchResult> =>
+    ipcRenderer.invoke('browse:search', tabId, path, query, requestId),
+  browseSearchCancel: (tabId: string, requestId: string): void =>
+    ipcRenderer.send('browse:search-cancel', tabId, requestId),
+  onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {
+    const listener = (_: unknown, progress: BrowseSearchProgress): void => cb(progress)
+    ipcRenderer.on('browse:search-progress', listener)
+    return () => ipcRenderer.removeListener('browse:search-progress', listener)
+  },
   browseWatch: (tabId: string, path: string | null): Promise<boolean> =>
     ipcRenderer.invoke('browse:watch', tabId, path),
   browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke('browse:locations'),
@@ -72,6 +93,8 @@ const api = {
   tabsChanged: (
     tabs: Array<{
       root: string
+      role?: 'explorer' | 'project'
+      pinned?: boolean
       id?: string
       browse?: SavedBrowse
       panes?: SavedPane[]

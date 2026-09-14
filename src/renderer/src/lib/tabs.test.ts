@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { OpenPayload, ViewerFile } from '@shared/types'
 import {
   addTab,
+  addExplorerTab,
+  ensurePinnedExplorer,
   ancestorsWithin,
   closeTab,
   emptyTree,
@@ -47,6 +49,75 @@ const DOCS = 'D:\\docs'
 
 const tabOf = (root: string, files: string[], index = 0): Tab =>
   newTab(payload(root, files, index), `t-${root}`)
+
+describe('Explorer and project tabs', () => {
+  it('does not select or mount a file when Explorer opens a nonempty folder', () => {
+    const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], -1)
+    const pinned = addExplorerTab([], p, 'explorer', true).tabs[0]
+    const ordinary = addExplorerTab([], p, 'ordinary').tabs[0]
+    expect(pinned.files).toHaveLength(1)
+    expect(pinned.index).toBe(-1)
+    expect(ordinary.index).toBe(-1)
+    expect(newTab({ ...p, role: 'explorer', restore: true }, 'restored').index).toBe(-1)
+    expect(newTab({ ...p, role: 'explorer', index: 0 }, 'opened-file').index).toBe(0)
+    expect(newTab(p, 'legacy-project').index).toBe(0)
+  })
+
+  it('restores the pinned Explorer without resetting its location or duplicating owners', () => {
+    const p = payload(SHOOT, [])
+    const browser = addExplorerTab([], p, 'explorer', true).tabs[0]
+    browser.browse = newBrowse(DOCS)
+    const project = { ...tabOf(SHOOT, []), term: { id: 'shell', view: 'hidden' as const }, terms: ['shell'] }
+    const extra = { ...browser, id: 'extra', panes: [{ id: 'dirty', path: 'C:\\notes.txt', dir: 'right' as const }] }
+    const restored = ensurePinnedExplorer([project, browser, extra], p, 'unused')
+    expect(restored.map((tab) => tab.id)).toEqual(['explorer', project.id, 'extra'])
+    expect(restored[0]).toBe(browser)
+    expect(restored[0].browse.path).toBe(DOCS)
+    expect(restored[1]).toBe(project)
+    expect(restored[2].panes).toBe(extra.panes)
+    expect(restored[2].pinned).toBe(false)
+    expect(ensurePinnedExplorer(restored, p, 'unused')).toEqual(restored)
+  })
+
+  it('adds closable Explorer tabs beside the permanent one without absorbing a project', () => {
+    const p = payload(SHOOT, [])
+    const pinned = addExplorerTab([], p, 'explorer', true)
+    const extra = addExplorerTab(pinned.tabs, p, 'extra')
+    expect(extra.activeId).toBe('extra')
+    expect(extra.tabs.map((tab) => tab.role)).toEqual(['explorer', 'explorer'])
+    expect(closeTab(extra.tabs, 'extra', 'extra').activeId).toBe('explorer')
+    expect(closeTab(extra.tabs, 'explorer', 'extra').tabs).toEqual(extra.tabs)
+    const file = receiveFile(extra.tabs, payload(SHOOT, ['C:\\shoot\\a.jpg']), 'project')
+    expect(file.tabs).toHaveLength(3)
+    expect(file.tabs[0]).toBe(extra.tabs[0])
+    expect(file.tabs[2].role).toBe('project')
+  })
+
+  it('keeps the permanent Explorer first when other tabs reorder', () => {
+    const first = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
+    const a = tabOf(SHOOT, [])
+    const b = tabOf(DOCS, [])
+    expect(reorderTabs([first, a, b], first.id, 3)).toEqual([first, a, b])
+    expect(reorderTabs([first, a, b], b.id, 0)).toEqual([first, b, a])
+  })
+
+  it('opens a separate project when a folder action originates in Explorer', () => {
+    const browser = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
+    const result = rerootTab([browser], browser.id, payload(SHOOT, []), 'project')
+    expect(result.activeId).toBe('project')
+    expect(result.tabs).toHaveLength(2)
+    expect(result.tabs[0]).toBe(browser)
+    expect(result.tabs[1].role).toBe('project')
+    expect(result.tabs[1].pinned).toBeUndefined()
+  })
+
+  it('labels project roots independently of browsing and names the permanent Explorer', () => {
+    const first = addExplorerTab([], payload(SHOOT, []), 'explorer', true).tabs[0]
+    const extra = addExplorerTab([], payload(DOCS, []), 'extra').tabs[0]
+    const project = { ...tabOf(SHOOT, []), browse: newBrowse(DOCS) }
+    expect(tabLabels([first, extra, project])).toEqual(['Explorer', 'docs', 'shoot'])
+  })
+})
 
 describe('receiveFile', () => {
   it('fills the empty window when nothing is open', () => {

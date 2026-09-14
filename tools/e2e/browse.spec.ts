@@ -12,11 +12,12 @@ const MAIN = join(ROOT, 'out/main/index.js')
 const quotePS = (value: string): string => `'${value.replace(/'/g, "''")}'`
 
 /** The app writes on a debounce; a poll may land while Windows holds the file open. */
-function savedTabs(
-  path: string
-): {
+function savedTabs(path: string): {
   active: number
   tabs: Array<{
+    root?: string
+    role?: 'explorer' | 'project'
+    pinned?: boolean
     term?: string
     browse?: { path: string; surface: string }
     panes?: { path: string }[]
@@ -82,6 +83,11 @@ async function stop(app: ElectronApplication): Promise<void> {
       /* exited meanwhile */
     }
   }
+  // Windows descendants can retain the dead Electron process's pipe handles.
+  // Release only this harness's streams after exit so Playwright receives close.
+  if (child.exitCode !== null) {
+    for (const stream of child.stdio) stream?.destroy()
+  }
 }
 
 async function setup(): Promise<Harness> {
@@ -100,24 +106,30 @@ async function setup(): Promise<Harness> {
   writeFileSync(join(movies, 'readme.txt'), 'A different browsing location.\n')
   const profile = join(tmpdir(), `prism-browse-e2e-${key}`)
   const { app, page } = await start(profile)
-  await page.evaluate((folder) => {
-    localStorage.setItem('prism.onboarded', '1')
-    localStorage.setItem('prism.sidebar', '1')
-    localStorage.setItem('prism.tabs.confirmClose', '0')
-    localStorage.setItem('prism.newtab.mode', 'folder')
-    localStorage.setItem('prism.newtab.folder', folder)
-    localStorage.setItem('prism.newtab.show', 'none')
-  }, project)
-  await page.reload()
-  const payload = await page.evaluate((folder) => window.prism.openRoot(folder), project)
-  expect(payload).toBeTruthy()
-  await app.evaluate(({ BrowserWindow }, opened) => {
-    BrowserWindow.getAllWindows()[0].webContents.send('open:file', { ...opened, folder: true })
-  }, payload)
-  await expect(page.getByTestId('browse-list')).toBeVisible()
-  await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
-  await park(app)
-  return { app, page, profile, home, project, movies, nested }
+  try {
+    await page.evaluate((folder) => {
+      localStorage.setItem('prism.onboarded', '1')
+      localStorage.setItem('prism.sidebar', '1')
+      localStorage.setItem('prism.tabs.confirmClose', '0')
+      localStorage.setItem('prism.newtab.mode', 'folder')
+      localStorage.setItem('prism.newtab.folder', folder)
+      localStorage.setItem('prism.newtab.show', 'none')
+    }, project)
+    await page.reload()
+    await expect(page.locator('[data-pinned] > [role="tab"]')).toHaveCount(1)
+    const payload = await page.evaluate((folder) => window.prism.openRoot(folder), project)
+    expect(payload).toBeTruthy()
+    await app.evaluate(({ BrowserWindow }, opened) => {
+      BrowserWindow.getAllWindows()[0].webContents.send('open:file', { ...opened, folder: true })
+    }, payload)
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await park(app)
+    return { app, page, profile, home, project, movies, nested }
+  } catch (error) {
+    await stop(app)
+    throw error
+  }
 }
 
 async function go(page: Page, path: string): Promise<void> {
@@ -137,10 +149,23 @@ function row(page: Page, filename: string) {
     .getByTestId('browse-list')
     .locator('[role="option"]')
     .filter({
-      has: page.locator('.browse-column-name > span', {
+      has: page.locator('.browse-name-text > span:first-child', {
         hasText: new RegExp(`^${filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
       })
     })
+}
+
+function ordinaryTabs(page: Page) {
+  return page.locator('[data-tab-role]:not([data-pinned]) > [role="tab"]')
+}
+
+async function search(page: Page, query: string): Promise<void> {
+  await page
+    .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    .fill(query)
+  if (query) await expect(page.getByTestId('browse-search-status')).toContainText('Search results')
+  else await expect(page.getByTestId('browse-search-status')).toHaveCount(0)
+  await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
 }
 
 async function shellLine(page: Page, line: string): Promise<void> {
@@ -166,16 +191,7 @@ async function shot(
   app: ElectronApplication
 ): Promise<void> {
   const path = info.outputPath(name)
-  if (await page.getByTestId('folder-browser').isVisible()) {
-    await expect
-      .poll(() =>
-        page
-          .locator('aside[aria-hidden="true"]')
-          .first()
-          .evaluate((el) => el.getBoundingClientRect().width)
-      )
-      .toBe(0)
-  } else if (await page.locator('aside[aria-hidden="false"]').count()) {
+  if (await page.locator('aside[aria-hidden="false"]').count()) {
     await expect
       .poll(() =>
         page
@@ -244,7 +260,7 @@ test('folder navigation retains history state and lists dotfiles and unsupported
     await page.getByRole('button', { name: 'Browse files', exact: true }).click()
     await expect(page.getByRole('searchbox', { name: 'Search this folder' })).toHaveValue('unknown')
 
-    await page.getByRole('searchbox', { name: 'Search this folder' }).fill('entry')
+    await search(page, 'entry')
     await page.getByRole('button', { name: 'Sort by name, ascending', exact: true }).click()
     const list = page.getByTestId('browse-list')
     await list.focus()
@@ -276,7 +292,7 @@ test('folder navigation retains history state and lists dotfiles and unsupported
     await row(page, 'Prism Project').dblclick()
     await expect(page.getByRole('searchbox', { name: 'Search this folder' })).toHaveValue('entry')
     await shot(page, info, 'folder-history.png', h.app)
-    await page.getByRole('searchbox', { name: 'Search this folder' }).fill('')
+    await search(page, '')
     await page.getByTestId('browse-list').focus()
     await page.keyboard.press('Home')
     await shot(page, info, 'desktop.png', h.app)
@@ -296,12 +312,257 @@ test('folder navigation retains history state and lists dotfiles and unsupported
   }
 })
 
+test('Explorer stays pinned, new tabs browse immediately, and places and path controls work', async () => {
+  const h = await setup()
+  const { page } = h
+  try {
+    const pinned = page.locator('[data-pinned]')
+    await pinned.getByRole('tab').click()
+    await expect(pinned.locator('[data-tab-close]')).toHaveCount(0)
+    const before = await page.getByRole('tab').count()
+    await page.keyboard.press('Control+w')
+    await expect(page.getByRole('tab')).toHaveCount(before)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const pathBar = page.getByRole('navigation', { name: 'Folder path', exact: true })
+    const blank = page.locator('.browse-edit-path')
+    await blank.click({ position: { x: 3, y: 18 } })
+    await expect(page.getByRole('textbox', { name: 'Folder path', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    const driveRoot = (await pathBar.getAttribute('title'))!.slice(0, 3)
+    const ancestor = pathBar.locator('.browse-crumb button').first()
+    await ancestor.click()
+    await expect(page.getByRole('textbox', { name: 'Folder path', exact: true })).toHaveCount(0)
+    await expect(pathBar).toHaveAttribute('title', driveRoot)
+
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(pathBar).toHaveAttribute('title', h.project)
+    await expect(page.getByRole('complementary', { name: 'Locations', exact: true })).toBeVisible()
+    await expect(page.getByRole('tree')).toHaveCount(0)
+    await page.keyboard.press('Control+b')
+    await expect(page.getByRole('complementary', { name: 'Locations', exact: true })).toHaveCount(0)
+    await expect(page.getByTestId('folder-browser')).toHaveAttribute('data-places-hidden', 'true')
+    await page.keyboard.press('Control+b')
+    await expect(page.getByRole('complementary', { name: 'Locations', exact: true })).toBeVisible()
+
+    await page.evaluate(() => localStorage.removeItem('prism.tabs.confirmClose'))
+    await page.keyboard.press('Control+w')
+    await expect(ordinaryTabs(page)).toHaveCount(1)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(pinned).toHaveCount(1)
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('recursive Explorer search finds AppData and opens files and folders as separate persistent projects', async ({}, info) => {
+  const h = await setup()
+  let { app, page } = h
+  try {
+    const appData = join(h.home, 'AppData', 'Local', 'Playnite')
+    mkdirSync(appData, { recursive: true })
+    const settings = join(appData, 'Playnite-settings.txt')
+    writeFileSync(settings, 'AppData settings fixture\n')
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await go(page, h.home)
+    await search(page, 'Playnite')
+    await expect(row(page, 'Playnite')).toBeVisible()
+    await expect(row(page, 'Playnite-settings.txt')).toBeVisible()
+    await expect(row(page, 'Playnite-settings.txt').locator('.browse-result-location')).toHaveText(
+      appData
+    )
+    await expect(page.getByTestId('browse-search-status')).toContainText(
+      'This folder and subfolders'
+    )
+    await shot(page, info, 'recursive-appdata-search.png', app)
+
+    const explorer = ordinaryTabs(page).nth(1)
+    await row(page, 'Playnite-settings.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(3)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'project'
+    )
+    await expect(ordinaryTabs(page).last()).toHaveAttribute('title', appData)
+    await expect(
+      page.getByRole('textbox').filter({ hasText: 'AppData settings fixture' })
+    ).toBeVisible()
+    await expect(page.getByRole('tree')).toBeVisible()
+    // The Explorer remains where the result was found, independent of the new project root.
+    await explorer.click()
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.home)
+    await search(page, 'Prism Project')
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', h.project)
+    await expect(page.getByRole('tree')).toBeVisible()
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.project)
+
+    const saved = join(h.profile, 'tabs.json')
+    await expect.poll(() => savedTabs(saved)?.tabs.filter((tab) => tab.pinned).length).toBe(1)
+    await expect
+      .poll(() =>
+        savedTabs(saved)?.tabs.some(
+          (tab) => tab.role === 'explorer' && !tab.pinned && tab.browse?.path === h.home
+        )
+      )
+      .toBe(true)
+    await expect
+      .poll(() =>
+        savedTabs(saved)?.tabs.some((tab) => tab.role === 'project' && tab.root === appData)
+      )
+      .toBe(true)
+    const count = await page.getByRole('tab').count()
+    await expect.poll(() => savedTabs(saved)?.tabs.length).toBe(count)
+    await stop(app)
+    ;({ app, page } = await start(h.profile))
+    await expect(page.getByRole('tab')).toHaveCount(count)
+    await expect(page.locator('[data-pinned]')).toHaveCount(1)
+    const restoredExplorer = page.locator(
+      '[data-tab-role="explorer"]:not([data-pinned]) > [role="tab"]'
+    )
+    await restoredExplorer.click()
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.home)
+    await expect(
+      page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    ).toHaveValue('Prism Project')
+    await expect(row(page, 'Prism Project')).toBeVisible()
+    await shot(page, info, 'explorer-projects.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await expect(
+      page.getByRole('button', { name: 'Edit folder path', exact: true })
+    ).toBeInViewport()
+    await expect(
+      page.getByRole('button', { name: 'Open as project', exact: true })
+    ).toBeInViewport()
+    await expect(
+      page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    ).toBeInViewport()
+    await shot(page, info, 'explorer-projects-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)
+    )
+    const phone = await page.evaluate((root) => window.prism.phoneSetOn(true, root), h.project)
+    const base = `http://127.0.0.1:${phone.port}`
+    const paired = await fetch(`${base}/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: phone.code?.code, name: 'restored Explorer scope test' })
+    })
+    expect(paired.status).toBe(200)
+    const { token } = await paired.json()
+    const outsideProject = await fetch(`${base}/api/dir?path=${encodeURIComponent(h.home)}`, {
+      headers: { authorization: `Bearer ${token}` }
+    })
+    expect(outsideProject.status).toBe(403)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('renaming an Explorer preview keeps the same tab and role', async () => {
+  const h = await setup()
+  const { page } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await search(page, 'notes')
+    await row(page, 'notes.txt').click()
+    await page.getByRole('button', { name: 'Preview pane', exact: true }).click()
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+    const count = await page.getByRole('tab').count()
+    await page.getByRole('button', { name: 'Rename', exact: true }).click()
+    await page.getByRole('textbox', { name: 'New name', exact: true }).fill('notes-renamed.txt')
+    await page.getByRole('textbox', { name: 'New name', exact: true }).press('Enter')
+    await expect.poll(() => existsSync(join(h.project, 'notes-renamed.txt'))).toBe(true)
+    expect(existsSync(join(h.project, 'notes.txt'))).toBe(false)
+    await expect(page.getByRole('tab')).toHaveCount(count)
+    await expect(page.getByRole('tab', { selected: true }).locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('cancel search reaches the matching request and a fresh query can run afterward', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    // Hold one request at the IPC boundary so Cancel remains actionable on fast disks.
+    // The real traversal and cancellation ownership are verified by browseSearch unit tests.
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
+        ._invokeHandlers
+      const original = handlers.get('browse:search')!
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', (...args: unknown[]) => {
+        if (args[3] !== 'held-search') return original(...args)
+        const [, tabId, path, , requestId] = args
+        return new Promise((resolveResult) => {
+          const cancelled = (_event: unknown, owner: string, request: string): void => {
+            if (owner !== tabId || request !== requestId) return
+            ipcMain.removeListener('browse:search-cancel', cancelled)
+            resolveResult({
+              path,
+              listing: { folders: [], files: [] },
+              scanned: 17,
+              unreadable: 0,
+              skippedLinks: 0,
+              truncated: false,
+              cancelled: true
+            })
+          }
+          ipcMain.on('browse:search-cancel', cancelled)
+          ;(globalThis as unknown as { __prismSearchHeld: boolean }).__prismSearchHeld = true
+        })
+      })
+    })
+    await page
+      .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+      .fill('held-search')
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () => (globalThis as unknown as { __prismSearchHeld?: boolean }).__prismSearchHeld
+        )
+      )
+      .toBe(true)
+    await page.getByRole('button', { name: 'Cancel search', exact: true }).click()
+    await expect(page.getByTestId('browse-search-status')).toContainText('Search stopped')
+    await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(page.getByRole('button', { name: 'Cancel search', exact: true })).toHaveCount(0)
+    await search(page, 'inside.txt')
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await expect(row(page, 'inside.txt').locator('.browse-result-location')).toHaveText(h.nested)
+  } finally {
+    await stop(app)
+  }
+})
+
 test('two real shell tabs retain cwd and work while another tab browses and opens media', async ({}, info) => {
   const h = await setup()
   const { page } = h
   try {
     videoFixture(h.movies)
-    const tabs = page.getByRole('tab')
+    const tabs = ordinaryTabs(page)
     await page.getByRole('button', { name: 'New terminal here', exact: true }).click()
     await expect(tabs).toHaveCount(2)
     await shellReady(page, h.project)
@@ -398,8 +659,8 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     await page.getByRole('button', { name: 'Browse files', exact: true }).click()
     await go(page, h.movies)
     await page.getByRole('button', { name: 'New terminal here', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveCount(2)
-    await page.getByRole('tab').first().click()
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await ordinaryTabs(page).first().click()
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await row(page, 'notes.txt').dblclick()
     await expect(editor).toContainText('Unsaved browsing test')
@@ -476,7 +737,7 @@ test('desktop browsing leaves phone scope fixed and restores a hidden shell in i
       })
     await stop(app)
     ;({ app, page } = await start(h.profile))
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
     await expect(page.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute(
       'title',
       h.movies
@@ -505,8 +766,8 @@ test('pinned file panes survive browsing, terminal tabs and restart', async () =
     await page.getByRole('button', { name: 'Browse files', exact: true }).click()
     await go(page, h.movies)
     await page.getByRole('button', { name: 'New terminal here', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveCount(2)
-    await page.getByRole('tab').first().click()
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await ordinaryTabs(page).first().click()
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await row(page, 'notes.txt').dblclick()
     await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
@@ -514,15 +775,15 @@ test('pinned file panes survive browsing, terminal tabs and restart', async () =
     await expect
       .poll(() => {
         const snapshot = savedTabs(saved)
-        return snapshot ? { active: snapshot.active, tab: snapshot.tabs[0] } : null
+        return snapshot ? { active: snapshot.active, tab: snapshot.tabs[1] } : null
       })
       .toMatchObject({
-        active: 0,
+        active: 1,
         tab: { browse: { path: h.project, surface: 'viewer' }, panes: [{ path: pinPath }] }
       })
     await stop(app)
     ;({ app, page } = await start(h.profile))
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
     await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
     await expect(page.locator('[data-pane="pinned"] .cm-content')).toHaveText('0')
   } finally {
@@ -535,10 +796,10 @@ test('a late folder result stays with its initiating tab while another tab is br
   const { app, page } = h
   try {
     await page.keyboard.press('Control+t')
-    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
     await go(page, h.nested)
     await expect(row(page, 'inside.txt')).toBeVisible()
-    await page.getByRole('tab').first().click()
+    await ordinaryTabs(page).first().click()
     await app.evaluate(({ ipcMain }, target) => {
       type Handler = (...args: unknown[]) => unknown
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
@@ -580,21 +841,21 @@ test('a late folder result stays with its initiating tab while another tab is br
         )
       )
       .toBe(true)
-    await page.getByRole('tab').last().click()
+    await ordinaryTabs(page).last().click()
     await expect(row(page, 'inside.txt')).toBeVisible()
     await app.evaluate(() =>
       (
         globalThis as unknown as { __prismBrowseDelay: { release: () => void } }
       ).__prismBrowseDelay.release()
     )
-    await expect(page.getByRole('tab').first()).toHaveText('Movies')
+    await expect(ordinaryTabs(page).first()).toHaveText('Prism Project')
     await expect(page.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute(
       'title',
       h.nested
     )
     await expect(row(page, 'inside.txt')).toBeVisible()
     await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
-    await page.getByRole('tab').first().click()
+    await ordinaryTabs(page).first().click()
     await expect(page.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute(
       'title',
       h.movies

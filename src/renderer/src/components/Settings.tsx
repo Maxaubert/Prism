@@ -21,8 +21,40 @@ import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
 import { savedShellId, saveShellId } from '../lib/termPrefs'
 import { setConfirmCloseMode, useConfirmCloseMode, type ConfirmClose } from '../lib/tabPrefs'
-import { setNewTabMode, setNewTabShow, useNewTabFolder, useNewTabMode, useNewTabShow, type NewTabShow } from '../lib/newTabPrefs'
-import { FONT_PCTS, TERM_FONTS, TERM_EXTRA_DEFAULTS, applyCustomExtras, resetTermExtras, saveCustomTermTheme, setAgentColor, setAgentDoneColor, setAgentIndicator, setTermAcrylic, setTermFontId, setTermFontPct, setTermThemeId, termThemeId, useAgentColor, useAgentDoneColor, useAgentIndicator, useCustomTermTheme, useTermAcrylic, useTermFontId, useTermFontPct, useTermThemeId, type AgentIndicator, type CustomTermTheme } from '../lib/termLook'
+import {
+  setNewTabMode,
+  setNewTabShow,
+  useNewTabFolder,
+  useNewTabMode,
+  useNewTabShow,
+  type NewTabShow
+} from '../lib/newTabPrefs'
+import {
+  FONT_PCTS,
+  TERM_FONTS,
+  TERM_EXTRA_DEFAULTS,
+  applyCustomExtras,
+  resetTermExtras,
+  saveCustomTermTheme,
+  setAgentColor,
+  setAgentDoneColor,
+  setAgentIndicator,
+  setTermAcrylic,
+  setTermFontId,
+  setTermFontPct,
+  setTermThemeId,
+  termThemeId,
+  useAgentColor,
+  useAgentDoneColor,
+  useAgentIndicator,
+  useCustomTermTheme,
+  useTermAcrylic,
+  useTermFontId,
+  useTermFontPct,
+  useTermThemeId,
+  type AgentIndicator,
+  type CustomTermTheme
+} from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
 import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
 import {
@@ -462,7 +494,15 @@ const GRID_SM = 'grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-2.5 [&
  *  button so a card can carry its own controls (a preset's delete). */
 /** The one save button, worn identically by the style and terminal tabs:
  *  accent while there is something to save, quietly grey when there is not. */
-function SaveButton({ dirty, onClick, title }: { dirty: boolean; onClick: () => void; title: string }): JSX.Element {
+function SaveButton({
+  dirty,
+  onClick,
+  title
+}: {
+  dirty: boolean
+  onClick: () => void
+  title: string
+}): JSX.Element {
   return (
     <button
       onClick={onClick}
@@ -636,7 +676,6 @@ function PlayerTab({
 
 /* ---------- style ---------- */
 
-
 const CORNER_OPTIONS: Array<{ id: Style['corners']; name: string }> = [
   { id: '2', name: 'Square' },
   { id: '8', name: 'Soft' },
@@ -809,7 +848,11 @@ function StyleTab(): JSX.Element {
               they moved as three wells for an afternoon and are one again.
               The model still keeps them apart; the well writes all three.
               Unset, each keeps deriving from Background exactly as before. */}
-          <Pref id="c-chrome" label="Secondary colour" hint="The sidebar, the title bar and the tab bar, together.">
+          <Pref
+            id="c-chrome"
+            label="Secondary colour"
+            hint="The sidebar, the title bar and the tab bar, together."
+          >
             <ColourWell
               id="c-chrome"
               value={sideOf(style)}
@@ -966,7 +1009,18 @@ function Select({
         <span className="truncate" style={cur?.style}>
           {cur?.name ?? value}
         </span>
-        <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-[var(--p-dim)] transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden>
+        <svg
+          viewBox="0 0 24 24"
+          width={12}
+          height={12}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 text-[var(--p-dim)] transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
           <path d="M6 9l6 6 6-6" />
         </svg>
       </button>
@@ -988,13 +1042,25 @@ function Select({
                   setOpen(false)
                 }}
                 className={`flex h-[28px] w-full items-center justify-between gap-4 whitespace-nowrap px-[11px] text-left text-[12px] transition-colors hover:bg-[var(--p-hover)] ${
-                  on ? 'text-[var(--p-accent-hi)]' : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
+                  on
+                    ? 'text-[var(--p-accent-hi)]'
+                    : 'text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
                 }`}
                 style={o.style}
               >
                 {o.name}
                 {on && (
-                  <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg
+                    viewBox="0 0 24 24"
+                    width={12}
+                    height={12}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
                     <path d="M4.5 12.5l5 5 10-11" />
                   </svg>
                 )}
@@ -1053,20 +1119,28 @@ function TermThemeCard({
           <span style={{ color: fg }}>:</span>
           <span style={{ color: ansi.blue }}>~/app</span>
           <span style={{ color: ansi.red }}>$</span> ls
-          <span className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]" style={{ background: cursor }} />
+          <span
+            className="ml-[1px] inline-block h-[11px] w-[6px] translate-y-[2px]"
+            style={{ background: cursor }}
+          />
         </div>
         <div>
-          <span style={{ color: ansi.blue }}>src</span>  <span style={{ color: ansi.blue }}>docs</span>{'  '}
+          <span style={{ color: ansi.blue }}>src</span>{' '}
+          <span style={{ color: ansi.blue }}>docs</span>
+          {'  '}
           <span style={{ color: ansi.green }}>run.sh</span>
         </div>
         <div>
-          <span style={{ color: ansi.yellow }}>notes.md</span>  <span style={{ color: ansi.cyan }}>a.link</span>
+          <span style={{ color: ansi.yellow }}>notes.md</span>{' '}
+          <span style={{ color: ansi.cyan }}>a.link</span>
         </div>
         <div style={{ color: fg }}>12 files</div>
       </div>
       <div
         className={`flex items-center justify-between border-t px-2.5 py-1.5 text-[11.5px] font-semibold ${
-          on ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]' : 'border-[color:var(--p-line)] text-[var(--p-text)]'
+          on
+            ? 'border-[color:var(--p-accent-hi)]/40 text-[var(--p-accent-hi)]'
+            : 'border-[color:var(--p-line)] text-[var(--p-text)]'
         }`}
       >
         <span>{name}</span>
@@ -1092,7 +1166,17 @@ function TermThemeCard({
               }
             }}
           >
-            <svg viewBox="0 0 24 24" width={11} height={11} fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={11}
+              height={11}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
               <path d="M15 5l4 4L8 20H4v-4z" />
             </svg>
           </span>
@@ -1103,8 +1187,22 @@ function TermThemeCard({
 }
 
 const ANSI_KEYS = [
-  'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
-  'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite'
+  'black',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'brightBlack',
+  'brightRed',
+  'brightGreen',
+  'brightYellow',
+  'brightBlue',
+  'brightMagenta',
+  'brightCyan',
+  'brightWhite'
 ] as const
 
 /** The Tabby-style editor: every colour of a theme, individually, with the
@@ -1126,7 +1224,10 @@ function TermThemeEditor({
         : { ...d, ansi: { ...d.ansi, [k]: v } }
     )
   const well = (label: string, key: string, value: string): JSX.Element => (
-    <label key={key} className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]">
+    <label
+      key={key}
+      className="flex items-center justify-between gap-2 text-[11px] text-[var(--p-dim)]"
+    >
       <span className="w-[86px] truncate">{label}</span>
       <HexSwatch label={label} value={value} onChange={(v) => set(key, v)} />
     </label>
@@ -1152,45 +1253,45 @@ function TermThemeEditor({
       aria-label="Edit terminal colours"
     >
       <div className="max-h-[85vh] overflow-y-auto rounded-lg border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_18px_48px_rgba(0,0,0,.55)]">
-      <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
-      <div className="flex flex-wrap items-start gap-6">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-          {well('Background', 'bg', draft.bg)}
-          {well('Foreground', 'fg', draft.fg)}
-          {well('Cursor', 'cursor', draft.cursor)}
-          {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
+        <div className="mb-3 text-[13px] font-bold text-[var(--p-text)]">Edit colours</div>
+        <div className="flex flex-wrap items-start gap-6">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+            {well('Background', 'bg', draft.bg)}
+            {well('Foreground', 'fg', draft.fg)}
+            {well('Cursor', 'cursor', draft.cursor)}
+            {ANSI_KEYS.map((k) => well(k, k, draft.ansi[k] ?? '#888888'))}
+          </div>
+          <TermThemeCard
+            id="custom-preview"
+            name="Custom"
+            on
+            bg={draft.bg}
+            fg={draft.fg}
+            cursor={draft.cursor}
+            ansi={{
+              green: draft.ansi.green ?? '#8cc265',
+              yellow: draft.ansi.yellow ?? '#d1a54b',
+              blue: draft.ansi.blue ?? '#4aa5f0',
+              cyan: draft.ansi.cyan ?? '#42b3c2',
+              red: draft.ansi.red ?? '#e05561'
+            }}
+            onPick={() => {}}
+          />
         </div>
-        <TermThemeCard
-          id="custom-preview"
-          name="Custom"
-          on
-          bg={draft.bg}
-          fg={draft.fg}
-          cursor={draft.cursor}
-          ansi={{
-            green: draft.ansi.green ?? '#8cc265',
-            yellow: draft.ansi.yellow ?? '#d1a54b',
-            blue: draft.ansi.blue ?? '#4aa5f0',
-            cyan: draft.ansi.cyan ?? '#42b3c2',
-            red: draft.ansi.red ?? '#e05561'
-          }}
-          onPick={() => {}}
-        />
-      </div>
-      <div className="mt-4 flex gap-2">
-        <button
-          className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
-          onClick={() => onSave(draft)}
-        >
-          Save as Custom
-        </button>
-        <button
-          className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-      </div>
+        <div className="mt-4 flex gap-2">
+          <button
+            className="h-8 rounded-lg bg-[var(--p-accent)] px-4 text-[12px] font-semibold text-[var(--p-on-accent)] hover:brightness-110"
+            onClick={() => onSave(draft)}
+          >
+            Save as Custom
+          </button>
+          <button
+            className="h-8 rounded-lg border border-[color:var(--p-line)] px-4 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-divider)]"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1259,7 +1360,14 @@ function TerminalTab(): JSX.Element {
   // Dirty = the SETTINGS deviate from the selected theme's stock: any theme
   // arrives with the defaults, a Custom arrives with what it saved. Comparing
   // whole palettes kept the button lit forever - the palette IS the selection.
-  const extras = { font: fontId, fontPct, indicator: agentInd, indicatorColor: agentCol, doneColor: doneCol, acrylic: acrylicOn }
+  const extras = {
+    font: fontId,
+    fontPct,
+    indicator: agentInd,
+    indicatorColor: agentCol,
+    doneColor: doneCol,
+    acrylic: acrylicOn
+  }
   const baseline =
     themeId === 'custom' && custom
       ? {
@@ -1335,88 +1443,105 @@ function TerminalTab(): JSX.Element {
           // Ease OPEN only: the transition class is present exactly when the
           // expanded height applies, so collapsing snaps shut instantly.
           className={`relative mt-3 overflow-hidden ${
-            allThemes ? 'transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]' : ''
+            allThemes
+              ? 'transition-[max-height] duration-[240ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)]'
+              : ''
           }`}
           // Two card rows by default: 39 themes as one wall buried the font
           // row below them. The snap-open eased in 240ms rather than jumping.
           style={{ maxHeight: wallHeight }}
         >
-        <div className="flex flex-wrap gap-3">
-          <TermThemeCard
-            id="style"
-            name="Follow style"
-            on={themeId === 'style'}
-            bg={styleTheme.background}
-            fg={styleTheme.foreground}
-            cursor={styleTheme.cursor}
-            ansi={styleAnsi}
-            onPick={() => {
-              setTermThemeId('style')
-              resetTermExtras() // the theme is the whole setup
-            }}
-            onEdit={() => editFrom('style')}
-          />
-          {custom && (
+          <div className="flex flex-wrap gap-3">
             <TermThemeCard
-              id="custom"
-              name="Custom"
-              on={themeId === 'custom'}
-              bg={custom.bg}
-              fg={custom.fg}
-              cursor={custom.cursor}
-              ansi={{
-                green: custom.ansi.green ?? '#8cc265',
-                yellow: custom.ansi.yellow ?? '#d1a54b',
-                blue: custom.ansi.blue ?? '#4aa5f0',
-                cyan: custom.ansi.cyan ?? '#42b3c2',
-                red: custom.ansi.red ?? '#e05561'
-              }}
+              id="style"
+              name="Follow style"
+              on={themeId === 'style'}
+              bg={styleTheme.background}
+              fg={styleTheme.foreground}
+              cursor={styleTheme.cursor}
+              ansi={styleAnsi}
               onPick={() => {
-                setTermThemeId('custom')
-                // The saved setup is more than the palette: font, indicator,
-                // acrylic come back with it when the save captured them.
-                applyCustomExtras(custom)
+                setTermThemeId('style')
+                resetTermExtras() // the theme is the whole setup
               }}
-              onEdit={() => editFrom('custom')}
+              onEdit={() => editFrom('style')}
             />
-          )}
-          {sortedPresets.map((p) => {
-            const t = resolveTermTheme(p.id)
-            return (
+            {custom && (
               <TermThemeCard
-                key={p.id}
-                id={p.id}
-                name={p.name}
-                on={themeId === p.id}
-                bg={t.background}
-                fg={t.foreground}
-                cursor={t.cursor}
+                id="custom"
+                name="Custom"
+                on={themeId === 'custom'}
+                bg={custom.bg}
+                fg={custom.fg}
+                cursor={custom.cursor}
                 ansi={{
-                  green: t.green ?? '',
-                  yellow: t.yellow ?? '',
-                  blue: t.blue ?? '',
-                  cyan: t.cyan ?? '',
-                  red: t.red ?? ''
+                  green: custom.ansi.green ?? '#8cc265',
+                  yellow: custom.ansi.yellow ?? '#d1a54b',
+                  blue: custom.ansi.blue ?? '#4aa5f0',
+                  cyan: custom.ansi.cyan ?? '#42b3c2',
+                  red: custom.ansi.red ?? '#e05561'
                 }}
                 onPick={() => {
-                  setTermThemeId(p.id)
-                  resetTermExtras() // the theme is the whole setup
+                  setTermThemeId('custom')
+                  // The saved setup is more than the palette: font, indicator,
+                  // acrylic come back with it when the save captured them.
+                  applyCustomExtras(custom)
                 }}
-                onEdit={() => editFrom(p.id)}
+                onEdit={() => editFrom('custom')}
               />
-            )
-          })}
-        </div>
+            )}
+            {sortedPresets.map((p) => {
+              const t = resolveTermTheme(p.id)
+              return (
+                <TermThemeCard
+                  key={p.id}
+                  id={p.id}
+                  name={p.name}
+                  on={themeId === p.id}
+                  bg={t.background}
+                  fg={t.foreground}
+                  cursor={t.cursor}
+                  ansi={{
+                    green: t.green ?? '',
+                    yellow: t.yellow ?? '',
+                    blue: t.blue ?? '',
+                    cyan: t.cyan ?? '',
+                    red: t.red ?? ''
+                  }}
+                  onPick={() => {
+                    setTermThemeId(p.id)
+                    resetTermExtras() // the theme is the whole setup
+                  }}
+                  onEdit={() => editFrom(p.id)}
+                />
+              )
+            })}
+          </div>
         </div>
         <div className="mt-2 flex justify-center">
           <button
             aria-expanded={allThemes}
-            aria-label={allThemes ? 'Show fewer themes' : `Show all ${TERM_PRESETS.length + (custom ? 2 : 1)} themes`}
+            aria-label={
+              allThemes
+                ? 'Show fewer themes'
+                : `Show all ${TERM_PRESETS.length + (custom ? 2 : 1)} themes`
+            }
             title={allThemes ? 'Show fewer' : 'Show all themes'}
             className="grid h-7 w-10 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
             onClick={toggleWall}
           >
-            <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${allThemes ? 'rotate-180' : ''}`} aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              width={15}
+              height={15}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${allThemes ? 'rotate-180' : ''}`}
+              aria-hidden
+            >
               <path d="M6 9l6 6 6-6" />
             </svg>
           </button>
@@ -1435,12 +1560,20 @@ function TerminalTab(): JSX.Element {
       </div>
       {/* Mirrors the style tab's order under its wall: Font first, then the
           material, then the extras. The two tabs should read the same. */}
-      <Pref id="term-font-family" label="Font" hint="The terminal's typeface. A face you don't have falls back quietly.">
+      <Pref
+        id="term-font-family"
+        label="Font"
+        hint="The terminal's typeface. A face you don't have falls back quietly."
+      >
         <Select
           id="term-font-family"
           value={fontId}
           onChange={setTermFontId}
-          options={TERM_FONTS.map((f) => ({ id: f.id, name: f.name, style: { fontFamily: f.stack } }))}
+          options={TERM_FONTS.map((f) => ({
+            id: f.id,
+            name: f.name,
+            style: { fontFamily: f.stack }
+          }))}
         />
       </Pref>
       <Pref
@@ -1556,14 +1689,13 @@ function GeneralTab(): JSX.Element {
       </Pref>
       <Pref
         id="confirm-close"
-        label="Ask before closing tabs"
-        hint="Ctrl+W and the tab's X confirm first. Agents: only while Claude or codex runs in the tab. Unsaved text always asks."
+        label="Ask before closing agent tabs"
+        hint="Confirm while an agent runs in the tab, including hidden terminals. Explorer tabs close directly. Unsaved text always asks."
       >
         <Segmented
           value={confirmClose}
           onChange={(v) => setConfirmCloseMode(v as ConfirmClose)}
           options={[
-            { id: 'always', name: 'Always' },
             { id: 'agent', name: 'Agents' },
             { id: 'never', name: 'Off' }
           ]}
@@ -1585,7 +1717,11 @@ function GeneralTab(): JSX.Element {
           ]}
         />
       </Pref>
-      <Pref id="newtab-show" label="New tabs show" hint="What a fresh tab puts on screen.">
+      <Pref
+        id="newtab-show"
+        label="New projects show"
+        hint="Open as project starts here. The + and Ctrl+T always open an Explorer tab."
+      >
         <Select
           id="newtab-show"
           value={tabShow}

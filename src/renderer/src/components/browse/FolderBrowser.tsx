@@ -8,7 +8,13 @@ import { browseEntries } from './entries'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import './browse.css'
 
-export type { BrowseEntry, BrowsePlace, BrowseSort, FolderBrowserProps } from './types'
+export type {
+  BrowseEntry,
+  BrowsePlace,
+  BrowseSearchState,
+  BrowseSort,
+  FolderBrowserProps
+} from './types'
 
 /** The accepted folder layout extends Prism's own continuous canvas and file rows.
  * Location, history and selection belong to the tab; this surface owns no session.
@@ -17,8 +23,8 @@ export type { BrowseEntry, BrowsePlace, BrowseSort, FolderBrowserProps } from '.
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
   const entries = useMemo(
-    () => browseEntries(props.listing, props.query, props.sort),
-    [props.listing, props.query, props.sort]
+    () => browseEntries(props.listing, props.searchState ? '' : props.query, props.sort),
+    [props.listing, props.query, props.sort, props.searchState]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
   const activate = (entry: BrowseEntry): void => {
@@ -32,7 +38,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ? 'This folder could not be read. Try another location.'
         : !entries.length
           ? props.query.trim()
-            ? 'No matching items in this folder.'
+            ? props.searchState?.running
+              ? 'Searching this folder and subfolders…'
+              : props.searchState?.cancelled || props.searchState?.truncated
+                ? 'No matches found before the search stopped. Refine your search and try again.'
+                : 'No matching items in this folder or its subfolders.'
             : 'This folder is empty.'
           : null)
 
@@ -41,6 +51,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       ref={shell}
       className="folder-browser"
       data-preview={props.previewVisible || undefined}
+      data-places-hidden={props.placesVisible === false || undefined}
       data-testid="folder-browser"
       onKeyDown={(e) => {
         const typing = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')
@@ -82,12 +93,24 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       }}
     >
       <BrowseToolbar {...props} />
-      <BrowsePlaces
-        places={props.places}
-        directory={props.directory}
-        onNavigate={props.onNavigate}
-        onNewTerminal={props.onNewTerminal}
-      />
+      {props.placesVisible !== false && (
+        <BrowsePlaces
+          places={props.places}
+          directory={props.directory}
+          onNavigate={props.onNavigate}
+          onNewTerminal={props.onNewTerminal}
+          onOpenProject={
+            props.onOpenProject
+              ? () =>
+                  props.onOpenProject?.({
+                    path: props.directory,
+                    name: props.directory,
+                    isFolder: true
+                  })
+              : undefined
+          }
+        />
+      )}
       <div className="browse-actions" aria-label="File actions">
         <button
           disabled={!selected || props.loading}
@@ -98,6 +121,34 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           <BrowseIcon name="open" />
           <span>Open</span>
         </button>
+        {props.onOpenProject && (
+          <button
+            disabled={props.loading}
+            onClick={() =>
+              props.onOpenProject?.(
+                selected ?? {
+                  path: props.directory,
+                  name: props.directory,
+                  isFolder: true
+                }
+              )
+            }
+            title={
+              selected?.isFolder === false
+                ? 'Open the containing folder as a project, with this file selected'
+                : 'Open folder as a project'
+            }
+          >
+            <BrowseIcon name="open" />
+            <span>Open as project</span>
+          </button>
+        )}
+        {!props.onOpenProject && props.placesVisible === false && (
+          <button onClick={() => props.onNewTerminal(props.directory)}>
+            <BrowseIcon name="terminal" />
+            <span>New terminal here</span>
+          </button>
+        )}
         {props.onCopy && (
           <button
             disabled={!selected || props.loading}

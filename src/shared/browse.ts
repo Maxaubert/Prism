@@ -26,6 +26,21 @@ export interface BrowseDirectory {
   listing: DirListing
 }
 
+/** Recursive desktop results. Counts expose incomplete coverage rather than
+ * presenting a stopped or partly inaccessible walk as an exhaustive answer. */
+export interface BrowseSearchResult extends BrowseDirectory {
+  scanned: number
+  unreadable: number
+  skippedLinks: number
+  truncated: boolean
+  cancelled: boolean
+}
+
+export interface BrowseSearchProgress extends BrowseSearchResult {
+  tabId: string
+  requestId: string
+}
+
 export interface BrowseShortcut {
   name: string
   path: string

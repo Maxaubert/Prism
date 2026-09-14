@@ -6,11 +6,22 @@ strip and keeps desktop browsing separate from phone sharing.
 
 ## User behavior
 
+- One pinned Explorer tab stays first and remembers its location. The + and Ctrl+T open ordinary
+  Explorer tabs. Right-click a folder and choose Open as project to open a separate tab with a
+  fixed project tree and terminal controls. For a file, its containing folder becomes the project
+  and that file opens. Explorer location and existing sessions stay where they were.
+- The sidebar button toggles places and drives in Explorer, and the folder tree in project tabs.
+  Ordinary tabs close immediately; live agents use the confirmation preference and unsaved text
+  always asks. The pinned Explorer has no close action.
 - Back/Forward retrace folder history; Up and ancestor breadcrumbs move to parent locations.
-  Ctrl+L edits an absolute folder path. Alt+Left/Right/Up provide navigation shortcuts; F5 refreshes.
+  Clicking empty path-bar space or Ctrl+L edits an absolute folder path. Clicking a named segment
+  navigates there. Alt+Left/Right/Up provide navigation shortcuts; F5 refreshes.
 - The list includes dotfiles, unsupported files and folders normally hidden from the viewer tree.
-  Folders precede files. Search filters names in the current folder with the shared query operators;
-  it is not a recursive disk search. Name, type, size and modified-time sorting are available.
+  Folders precede files. Search matches names in the current folder and its descendants, including
+  AppData, with the shared query operators. Results show containing paths and stream while the
+  search runs. Cancel, inaccessible folders, skipped links and partial results are visible. A walk
+  stops after 250,000 entries, 1,000 matches or 30 seconds; it never presents this as complete.
+  Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
 - Single-click selects. Double-click or Enter opens a directory or the file's existing viewer.
   Optional preview reuses that viewer. Unsupported files retain the existing fallback.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
@@ -26,6 +37,8 @@ selection and keyboard rules. The folder list is not a new editing, thumbnail or
 ## State and lifecycle
 
 `src/renderer/src/lib/tabs.ts` retains project root, shell slots, file list and pinned panes.
+Explorer/project roles and the single pinned Explorer persist with the tab. Existing saved tabs
+retain their project behavior; opening a new Explorer does not create a phone root.
 `lib/browse.ts` manages the independent browsing location and up to 100 history entries. Each entry
 keeps selection, scroll, search query and sort. The surface and preview toggle are saved separately.
 `lib/useFolderBrowsing.ts` coordinates directory requests, stale-result protection and media pause.
@@ -57,6 +70,8 @@ at close cannot recreate them when its listing completes.
 
 The phone continues to use `validRoot` and `openRoots`. Visiting a parent, drive or unrelated folder
 on the desktop does not make that location a phone share.
+Recursive search grants only the parents of returned desktop matches. It does not follow links
+or junctions, and cancellation is scoped to its tab and request.
 
 `browseWatch(tabId, path)` explicitly watches the visible owned directory, nonrecursively, with
 coalesced `dir:changed` events. One watcher is held per tab. Passing null, leaving the folder surface
@@ -88,25 +103,19 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-After packaging, `tools/preview-branch.ps1` opens `dist/win-unpacked/Prism.exe` with a separate
-`.e2e/hands-on-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-projects-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
+The separate output path also lets the earlier trial remain open while the new build is prepared.
 
 ## Captured interface
 
-These are native captures from isolated test profiles, with generated files and simulated agent titles.
-The preview contains a short test video generated from a retained demonstration photograph.
+These native captures use isolated test profiles and generated files. The Explorer searches a
+fixture workspace while separate project tabs retain their roots. The details list selects one
+item at a time; established multi-selection and drag operations remain available in project trees.
 
-The three-project capture uses real PowerShell sessions in separate Prism and Filesmith fixture
-folders, while Movies is the active browser. Both activity indicators use simulated title events.
-The details list selects one item at a time; established multi-selection and drag operations remain
-available in the project tree in viewer and terminal views.
+![Explorer search alongside separate project tabs](screenshots/folder-browsing/explorer-projects.png)
 
-![Prism and Filesmith terminals beside the active Movies browser](screenshots/folder-browsing/workspace.png)
-
-![Folder workspace](screenshots/folder-browsing/desktop.png)
-
-![The same viewer in the preview pane](screenshots/folder-browsing/preview.png)
-
-![Folder workspace at 200 percent zoom](screenshots/folder-browsing/zoom200.png)
+![Explorer and projects at 200 percent zoom](screenshots/folder-browsing/explorer-projects-zoom200.png)

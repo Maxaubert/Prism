@@ -21,6 +21,7 @@ import {
   type TabState
 } from './tabs'
 import { browseLocation, browseParent } from './browse'
+import { useBrowseSearch } from './useBrowseSearch'
 
 function pauseTab(tabId: string): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
@@ -54,6 +55,7 @@ export function useFolderBrowsing(
     active.kind !== 'settings' &&
     active.browse.surface === 'folder' &&
     (!active.term || active.term.view === 'hidden')
+  const search = useBrowseSearch(id, path, location?.query ?? '', folder, refreshKey + revision)
 
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
@@ -161,7 +163,10 @@ export function useFolderBrowsing(
       serial.current.set(id, request)
       const fromTree = typeof file === 'string'
       const filePath = fromTree ? file : file.path
-      const root = fromTree && active && underRoot(active.root, filePath) ? active.root : path
+      const root =
+        fromTree && active && underRoot(active.root, filePath)
+          ? active.root
+          : (browseParent(filePath) ?? path)
       const payload = await window.prism.openWithin(root, filePath)
       if (serial.current.get(id) !== request) return
       if (!payload) {
@@ -192,7 +197,9 @@ export function useFolderBrowsing(
     },
     [active, id, path, setState]
   )
-  const listing = result && result.tabId === id && result.path === path ? result.listing : null
+  const directoryListing =
+    result && result.tabId === id && result.path === path ? result.listing : null
+  const listing = search.result?.listing ?? directoryListing
   const select = useCallback(
     (selected: string | null) => {
       if (id) serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
@@ -223,8 +230,10 @@ export function useFolderBrowsing(
     location,
     listing,
     locations,
-    loading: loading || (folder && !listing && !error),
-    error,
+    loading: loading || (folder && !directoryListing && !error),
+    error: error ?? search.error,
+    searchState: search.state,
+    cancelSearch: search.cancel,
     navigate,
     travel,
     patch,

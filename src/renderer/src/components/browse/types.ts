@@ -19,16 +19,27 @@ export interface BrowseSort {
   direction: 'asc' | 'desc'
 }
 
+export interface BrowseSearchState {
+  running: boolean
+  scanned: number
+  unreadable: number
+  skippedLinks: number
+  truncated: boolean
+  cancelled: boolean
+}
+
 export interface FolderBrowserProps {
   directory: string
   listing: DirListing | null
   loading: boolean
   error?: string
   places: BrowsePlace[]
+  placesVisible?: boolean
   selectedPath: string | null
   menuPath?: string
   scrollTop: number
   query: string
+  searchState?: BrowseSearchState
   sort: BrowseSort
   canBack: boolean
   canForward: boolean
@@ -45,6 +56,8 @@ export interface FolderBrowserProps {
   onQueryChange: (query: string) => void
   onSortChange: (sort: BrowseSort) => void
   onNewTerminal: (directory: string) => void
+  onOpenProject?: (entry: BrowseEntry) => void
+  onCancelSearch?: () => void
   onPreviewToggle: () => void
   onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry) => void
   onRename?: (entry: BrowseEntry) => void

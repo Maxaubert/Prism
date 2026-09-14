@@ -17,6 +17,30 @@ const folder = (name: string): string => {
 }
 
 describe('parseTabs', () => {
+  it('retains one permanent Explorer while keeping every tab and active owner', () => {
+    const root = folder('home')
+    const parsed = parseTabs(JSON.stringify({ tabs: [
+      { id: 'project', root, role: 'project', pinned: true, term: 'hidden' },
+      { id: 'explorer', root, role: 'explorer', pinned: true },
+      { id: 'extra', root, role: 'explorer', pinned: true }
+    ], active: 2 }))
+    expect(parsed).toEqual({ tabs: [
+      { id: 'project', root, role: 'project', term: 'hidden' },
+      { id: 'explorer', root, role: 'explorer', pinned: true },
+      { id: 'extra', root, role: 'explorer' }
+    ], active: 2 })
+  })
+
+  it('ignores invalid tab roles and does not pin legacy tabs', () => {
+    const root = folder('legacy')
+    expect(parseTabs(JSON.stringify({ tabs: [
+      { root, role: 'invalid', pinned: true },
+      { root, pinned: true, term: 'full', agent: 'codex' }
+    ], active: 1 }))).toEqual({ tabs: [
+      { root },
+      { root, term: 'full', agent: 'codex' }
+    ], active: 1 })
+  })
   it('keeps the first saved ID and regenerates duplicate owners on restore', () => {
     const root = folder('project')
     const parsed = parseTabs(

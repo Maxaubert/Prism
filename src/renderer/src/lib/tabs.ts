@@ -32,6 +32,11 @@ export interface Tab {
    *  flipped to and from like anything else. Not persisted, never confirmed
    *  on close, owns no root. */
   kind?: 'settings'
+  /** Browsing is separate from a project with a tree and terminal ownership.
+   * Missing roles are legacy project tabs. */
+  role?: 'explorer' | 'project'
+  /** Only the permanent Explorer may be pinned in the strip. */
+  pinned?: boolean
   /** Stable project/tree and phone-share root. Desktop browsing has its own grants. */
   root: string
   /** Folder browsing is independent of the project tree, live shells and current viewer. */
@@ -114,10 +119,15 @@ export const underRoot = (root: string, p: string): boolean => {
 export function newTab(p: OpenPayload, id: string): Tab {
   return {
     id: p.restore && p.restoreTabId ? p.restoreTabId : id,
+    role: p.role ?? 'project',
+    ...(p.role === 'explorer' && p.pinned ? { pinned: true } : {}),
     root: p.root,
     browse: p.browse ?? newBrowse(p.root, p.folder || p.index < 0 ? 'folder' : 'viewer'),
     files: p.files,
-    index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
+    index:
+      p.role === 'explorer' && p.index < 0
+        ? -1
+        : p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
     // A restored tab comes back with its folders open, and ANY tab opens the
     // folders leading to the file it is showing, so the sidebar can mark it.
     tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
@@ -125,6 +135,37 @@ export function newTab(p: OpenPayload, id: string): Tab {
     terms: [],
     panes: p.panes?.filter((pane) => pane.termSlot === undefined) ?? []
   }
+}
+
+export const isExplorerTab = (tab: Tab): boolean =>
+  tab.kind !== 'settings' && tab.role === 'explorer'
+
+export const isPinnedExplorer = (tab: Tab): boolean => isExplorerTab(tab) && tab.pinned === true
+
+/** An explicit new browser never reuses or reroots an existing project. */
+export function addExplorerTab(
+  tabs: readonly Tab[],
+  p: OpenPayload,
+  id: string,
+  pinned = false
+): TabState {
+  const existing = pinned ? tabs.find(isPinnedExplorer) : undefined
+  if (existing) return { tabs: tabs.slice(), activeId: existing.id }
+  const spawned = newTab(
+    { ...p, role: 'explorer', pinned, browse: p.browse ?? newBrowse(p.root) },
+    id
+  )
+  return { tabs: pinned ? [spawned, ...tabs] : [...tabs, spawned], activeId: spawned.id }
+}
+
+/** Restore keeps every owner's identity and location. Extra stale pin flags
+ * are cleared rather than dropping tabs that may still own edited files. */
+export function ensurePinnedExplorer(tabs: readonly Tab[], p: OpenPayload, id: string): Tab[] {
+  const pinned = tabs.find(isPinnedExplorer)
+  if (!pinned) return addExplorerTab(tabs, p, id, true).tabs
+  return [pinned, ...tabs.filter((tab) => tab !== pinned).map((tab) =>
+    isPinnedExplorer(tab) ? { ...tab, pinned: false } : tab
+  )]
 }
 
 /** Write one tab's pinned panes; every other tab is untouched. */
@@ -340,7 +381,7 @@ export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): T
   // you. A file from any other folder, a subfolder of an open tab included,
   // opens a tab of its own rooted at that folder: separate folders, separate
   // tabs, and one tab per root still holds.
-  const hit = tabs.findIndex((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
+  const hit = tabs.findIndex((t) => t.kind !== 'settings' && !isExplorerTab(t) && sameRoot(t.root, p.root))
   if (hit >= 0) {
     const next = tabs.slice()
     const was = next[hit]
@@ -374,10 +415,11 @@ export function rerootTab(
   p: OpenPayload,
   newId: string
 ): TabState {
-  const already = tabs.find((t) => sameRoot(t.root, p.root))
+  const already = tabs.find((t) => !isExplorerTab(t) && sameRoot(t.root, p.root))
   if (already) return { tabs: tabs.slice(), activeId: already.id }
   const i = tabs.findIndex((t) => t.id === id)
   if (i < 0) return receiveFile(tabs, p, newId)
+  if (isExplorerTab(tabs[i])) return addTab(tabs, { ...p, role: 'project', pinned: false }, newId)
   const next = tabs.slice()
   // The shell survives the move: killing a dev server because the tree changed
   // folders would be worse. Its cwd is visibly the old one; exit + reopen gets
@@ -393,7 +435,7 @@ export function rerootTab(
  */
 export function closeTab(tabs: readonly Tab[], id: string, activeId: string | null): TabState {
   const i = tabs.findIndex((t) => t.id === id)
-  if (i < 0) return { tabs: tabs.slice(), activeId }
+  if (i < 0 || isPinnedExplorer(tabs[i])) return { tabs: tabs.slice(), activeId }
   const next = tabs.filter((t) => t.id !== id)
   if (activeId !== id) return { tabs: next, activeId }
   const heir = next[i] ?? next[i - 1] ?? null
@@ -426,18 +468,19 @@ function parentOf(p: string): string {
  */
 export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): Tab[] {
   const from = tabs.findIndex((t) => t.id === id)
-  if (from < 0) return [...tabs]
+  if (from < 0 || isPinnedExplorer(tabs[from])) return [...tabs]
   const next = [...tabs]
   const [moved] = next.splice(from, 1)
   // Removing the tab shifts everything after it left by one, so a drop that
   // was aimed past its old home has to come back by one too.
-  const at = Math.max(0, Math.min(toIndex > from ? toIndex - 1 : toIndex, next.length))
+  const firstMovable = isPinnedExplorer(next[0] ?? moved) ? 1 : 0
+  const at = Math.max(firstMovable, Math.min(toIndex > from ? toIndex - 1 : toIndex, next.length))
   next.splice(at, 0, moved)
   return next
 }
 
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const paths = tabs.map((t) => (t.terms.length || t.term ? t.root : t.browse.path))
+  const paths = tabs.map((t) => (t.role === 'project' || t.terms.length || t.term ? t.root : t.browse.path))
   const bases = tabs.map((t, i) => (t.kind === 'settings' ? 'Settings' : baseOf(paths[i])))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very
   // same folder (the + allows that) have nothing to tell apart, so they keep
@@ -449,6 +492,7 @@ export function tabLabels(tabs: readonly Tab[]): string[] {
     rootsByBase.set(bases[i], set)
   })
   return tabs.map((_, i) => {
+    if (isPinnedExplorer(tabs[i])) return 'Explorer'
     const b = bases[i]
     if (!b) return paths[i]
     if ((rootsByBase.get(b)?.size ?? 0) < 2) return b

@@ -136,7 +136,7 @@ describe('browsing alongside sessions', () => {
   })
 
   it('keeps session labels stable while browsing labels follow the displayed folder', () => {
-    let tabs = [newTab(payload, 'session'), newTab(payload, 'browser')]
+    let tabs = [newTab(payload, 'session'), newTab({ ...payload, role: 'explorer' }, 'browser')]
     tabs = setTabTerm(tabs, 'session', { id: 'agent', view: 'hidden' })
     tabs = navigateBrowse(navigateBrowse(tabs, 'session', other), 'browser', other)
     expect(tabLabels(tabs)).toEqual(['Prism', 'Movies'])

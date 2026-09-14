@@ -30,7 +30,7 @@ import { buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
-const MAIN = join(ROOT, 'out', 'main', 'index.js')
+const MAIN = process.env.PRISM_E2E_MAIN ?? join(ROOT, 'out', 'main', 'index.js')
 const PROFILE_NAME = 'prism-e2e-profile'
 const PROFILE = join(tmpdir(), PROFILE_NAME)
 const SHOTS = join(ROOT, '.e2e', 'shots')
@@ -652,7 +652,7 @@ async function sortScenario(fixtures) {
     await win.click('[aria-label="Settings"]')
     await sleep(400)
     ok(
-      await win.locator('[role="tab"]:has-text("Settings")').isVisible().catch(() => false),
+      await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').isVisible().catch(() => false),
       'the cog opens Settings as a tab on the strip'
     )
     await win.click('button:has-text("Terminal")')
@@ -707,20 +707,20 @@ async function sortScenario(fixtures) {
       'with the edited colour kept'
     )
     // Flip away to the folder tab and back: the strip is the way around.
-    await win.locator('[role="tab"]:not(:has-text("Settings"))').first().click()
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first().click()
     await sleep(300)
     ok(
       await win.locator('.p-md h1').first().isVisible().catch(() => false),
       'flipping to the folder tab shows the document again'
     )
-    await win.locator('[role="tab"]:has-text("Settings")').click()
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').click()
     await sleep(300)
     ok((await win.locator('[data-term-card]').count()) >= 6, 'and back to Settings, same page')
     // Close it like any tab.
-    await win.locator('[role="tab"]:has-text("Settings")').locator('..').locator('[aria-label^="Close"]').click()
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').locator('..').locator('[aria-label^="Close"]').click()
     await sleep(300)
     ok(
-      (await win.locator('[role="tab"]:has-text("Settings")').count()) === 0,
+      (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').count()) === 0,
       'the Settings tab closes like any other'
     )
   } finally {
@@ -888,7 +888,7 @@ async function contextMenuScenario(fixtures) {
     await sleep(400)
     ok(
       (await win.locator('[data-pane="pinned"]').count()) === 0 &&
-        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+        (await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1,
       'Ctrl+W pops the pinned pane first; the tab stays'
     )
 
@@ -898,7 +898,7 @@ async function contextMenuScenario(fixtures) {
     await win.locator('[role="menuitem"]:has-text("Open in new tab")').click()
     await sleep(700)
     ok(
-      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      (await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 2,
       'Open in new tab spawns a tab'
     )
     await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
@@ -1347,7 +1347,7 @@ async function iconSchemeScenario(fixtures) {
 
     // THE SETTINGS SWITCH IS GONE.
     await win.click('[aria-label="Settings"]')
-    await win.waitForSelector('[role="tab"]:has-text("Settings")', { timeout: 10000 })
+    await win.waitForSelector('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")', { timeout: 10000 })
     await win.locator('button:has-text("Style")').first().click()
     await sleep(400)
     ok(
@@ -1868,7 +1868,7 @@ async function deleteLastScenario(fixtures) {
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
     await sleep(700)
-    const tabs = () => win.locator('[role="tab"]').count()
+    const tabs = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     const before = await tabs()
     ok(before >= 1, `the tab is there to begin with (${before})`)
 
@@ -2948,7 +2948,7 @@ async function handoffOverTermScenario(fixtures) {
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     await sleep(1500)
-    const shellTabIndex = (await win.locator('[role="tab"]').count()) - 1
+    const shellTabIndex = (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) - 1
     await win.keyboard.type('echo handoff-shell-survives')
     await win.keyboard.press('Enter')
     await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('handoff-shell-survives'))
@@ -2965,9 +2965,9 @@ async function handoffOverTermScenario(fixtures) {
       { timeout: 8000 }
     )
     ok(true, 'and the tree marks it')
-    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === 2, 'the original file tab is reused beside the separate terminal tab')
-    ok((await win.locator('[role="tab"]').first().getAttribute('aria-selected')) === 'true', 'the arriving file activates its original tab')
-    await win.locator('[role="tab"]').nth(shellTabIndex).click()
+    ok((await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 2, 'the original file tab is reused beside the separate terminal tab')
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').first().getAttribute('aria-selected')) === 'true', 'the arriving file activates its original tab')
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').nth(shellTabIndex).click()
     await win.waitForSelector('.xterm', { timeout: 8000 })
     ok((await win.locator('.xterm').textContent())?.includes('handoff-shell-survives'), 'the original shell and its scrollback survive the handoff')
   } finally {
@@ -2980,10 +2980,13 @@ async function tabsScenario(fixtures) {
   const otherRoot = OTHER_ROOT
   let { app, win } = await launch(join(fixtures, 'README.md'))
   const strip = '[role="tablist"]'
-  const tabRows = () => win.locator(`${strip} [role="tab"]`)
+  // Keep the legacy project-flow assertions scoped to closeable tabs. The
+  // pinned Explorer is always present and has its own browser scenario.
+  const tabRows = () => win.locator(`${strip} [data-tab-role]:not([data-pinned]) [role="tab"]`)
   try {
     // The strip is there from the first tab, so the + is always reachable.
     await win.waitForSelector(strip, { timeout: 10000 })
+    ok((await win.locator(`${strip} [data-pinned] [role="tab"]`).count()) === 1, 'one pinned Explorer stays in the strip')
     ok((await tabRows().count()) === 1, 'one folder still shows as a tab')
     // The + no longer opens a dialog, so the suite can actually press it: a tab
     // arrives rooted at the user's own folder, with nothing to answer first.
@@ -3073,7 +3076,8 @@ async function tabsScenario(fixtures) {
     await handoff(join(fixtures, 'notes.txt'))
     ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
 
-    // The new-tab Settings: a remembered folder, and a terminal-first tab.
+    // The remembered folder still applies. Explorer ignores the legacy
+    // terminal-first setting until the user explicitly opens a project.
     await win.evaluate((dir) => {
       localStorage.setItem('prism.newtab.mode', 'folder')
       localStorage.setItem('prism.newtab.folder', dir)
@@ -3086,39 +3090,27 @@ async function tabsScenario(fixtures) {
         ((await tabRows().last().textContent()) ?? '').includes('code'),
       'a new tab roots at the remembered folder'
     )
-    await win.waitForSelector('.xterm', { timeout: 15000 })
-    ok(true, 'and opens showing a terminal, per the setting')
+    await win.waitForSelector('[data-testid="folder-browser"]', { timeout: 15000 })
+    ok((await win.locator('.xterm').count()) === 0, 'and opens as Explorer despite the legacy terminal-first setting')
     await win.evaluate(() => {
       localStorage.setItem('prism.newtab.mode', 'home')
       localStorage.setItem('prism.newtab.show', 'file')
     })
-    await win.keyboard.press('Control+`') // hide, so the close is clean
-    await sleep(300)
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(500)
     ok((await tabRows().count()) === 2, 'and closes again')
 
-    // The ask-before-closing option: on, Ctrl+W asks; Cancel keeps the tab;
-    // asking again and confirming closes it. (Seeded off for every other flow.)
+    // The former always-confirm option now protects agents only. Ordinary
+    // project tabs close immediately, with no unsaved changes to protect.
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
     // Aim Ctrl+W at the code tab, so the fixtures tab (which the rest of the
     // scenario leans on) stays put.
     await tabRows().last().click()
     await sleep(300)
     await win.keyboard.press('Control+w')
-    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
-    ok(
-      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
-      'with the option on, closing a tab asks first'
-    )
-    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
-    await sleep(300)
-    ok((await tabRows().count()) === 2, 'Cancel keeps the tab')
-    await win.keyboard.press('Control+w')
-    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
-    await win.locator('[role="dialog"] button:has-text("Close tab")').click()
     await sleep(400)
-    ok((await tabRows().count()) === 1, 'confirming closes it')
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'ordinary project tabs do not ask for confirmation')
+    ok((await tabRows().count()) === 1, 'Ctrl+W closes the ordinary tab immediately')
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
     // recreate the second tab, restoring the order the flow below expects.
     // The SIBLING root, not a subfolder: a subfolder folds into the tab that
@@ -3362,7 +3354,7 @@ async function termCwdScenario(fixtures) {
       },
       folder
     )
-  const tabText = () => win.locator('[role="tab"][aria-selected="true"]').textContent()
+  const tabText = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]').textContent()
   const typeLine = async (s) => {
     await win.keyboard.type(s)
     await win.keyboard.press('Enter')
@@ -3480,8 +3472,8 @@ async function termCwdScenario(fixtures) {
   try {
     // The file handoff activates its original viewer tab. The restored shell
     // is the other top-level tab, so pick it without creating another shell.
-    await win.waitForSelector('[role="tab"]', { timeout: 15000 })
-    await win.locator('[role="tab"]').last().click()
+    await win.waitForSelector('[data-tab-role]:not([data-pinned]) [role="tab"]', { timeout: 15000 })
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').last().click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     const deadline = Date.now() + 20000
     let back = false
@@ -3491,7 +3483,7 @@ async function termCwdScenario(fixtures) {
     }
     ok(back, `the restored shell stands in the folder it was left in${back ? '' : ` (saw: ...${(await promptText()).trimEnd().slice(-200)})`}`)
     ok(
-      /(^|\W)code(\W|$)/i.test((await win.locator('[role="tab"][aria-selected="true"]').textContent()) ?? ''),
+      /(^|\W)code(\W|$)/i.test((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]').textContent()) ?? ''),
       'and the tab is still rooted where it was, not moved down with the shell'
     )
   } finally {
@@ -3511,7 +3503,7 @@ async function agentTitleScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   // The indicator attributes sit on the tab's WRAPPER, the button's parent.
   const attr = (name) =>
-    win.evaluate((n) => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute(n) ?? null, name)
+    win.evaluate((n) => document.querySelector('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute(n) ?? null, name)
   const state = () => attr('data-agent-state')
   const say = async (glyph, text) => {
     // The title API, not a raw [Console]::Write: that one re-encodes the
@@ -3536,7 +3528,7 @@ async function agentTitleScenario(fixtures) {
 
     const t1 = await say('25D0', 'Claude Code') // ◐
     await win.waitForFunction(
-      () => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
+      () => document.querySelector('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
       null,
       { timeout: 5000 }
     )
@@ -3547,7 +3539,7 @@ async function agentTitleScenario(fixtures) {
     await sleep(300)
     const t2 = await say('2733', 'Session greeting') // ✳
     await win.waitForFunction(
-      () => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
+      () => document.querySelector('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
       null,
       { timeout: 5000 }
     )
@@ -3658,7 +3650,7 @@ async function terminalScenario(fixtures) {
     // A tab's width must not change when its terminal opens: the dot slot is
     // there from birth. Measure before and after.
     const tabWidth = () =>
-      win.evaluate(() => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getBoundingClientRect().width ?? 0)
+      win.evaluate(() => document.querySelector('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')?.parentElement?.getBoundingClientRect().width ?? 0)
     const widthBefore = await tabWidth()
     // The button lives on the sidebar's footer row now.
     await win.locator('aside [aria-label="Terminal"]').click()
@@ -3767,11 +3759,11 @@ async function terminalScenario(fixtures) {
     // The original viewer and the terminal each own a top-level tab. Ctrl+T
     // adds another from inside the shell, and reverse cycling returns here.
     await win.locator('.xterm').click()
-    const tabsBeforeNew = await win.locator('[role="tablist"] [role="tab"]').count()
+    const tabsBeforeNew = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
     await win.keyboard.press('Control+t')
     await sleep(700)
     ok(
-      (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBeforeNew + 1,
+      (await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsBeforeNew + 1,
       'Ctrl+T works while the terminal is focused'
     )
     await win.keyboard.press('Control+Shift+Tab')
@@ -3779,7 +3771,7 @@ async function terminalScenario(fixtures) {
     await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
     await sleep(500)
     ok(
-      (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBeforeNew,
+      (await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsBeforeNew,
       'and the spawned tab closes again'
     )
     await win.locator('.xterm').click()
@@ -3800,15 +3792,18 @@ async function terminalScenario(fixtures) {
     await sleep(400)
     ok((await win.locator('aside[aria-hidden="false"]').count()) === 1, 'and brings it back')
 
-    // Ctrl+W pierces the shell too: with the ask option on, the question
-    // appears while the terminal is focused, and Cancel keeps everything.
+    // Ctrl+W protects an agent while its terminal is focused. The title
+    // fixture is the same deterministic signal used by agentTitleScenario.
     await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
     await win.locator('.xterm').click()
+    await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x2733) Claude Code"')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[data-agent-present]', { timeout: 5000 })
     await win.keyboard.press('Control+w')
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
     ok(
       ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
-      'Ctrl+W asks from inside the terminal'
+      'Ctrl+W asks from inside an agent terminal'
     )
     await win.locator('[role="dialog"] button:has-text("Cancel")').click()
     await sleep(300)
@@ -4107,7 +4102,7 @@ async function terminalScenario(fixtures) {
     // NEW TERMINALS are top-level tabs now. The earlier shell keeps its
     // identity and work, and closing the new shell cannot close that one.
     const termBtn = () => win.locator('aside [aria-label="Terminal"]')
-    const beforeSeparate = await win.locator('[role="tab"]').count()
+    const beforeSeparate = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     await win.keyboard.type('echo separate-terminal-survives')
     await win.keyboard.press('Enter')
     await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('separate-terminal-survives'))
@@ -4116,7 +4111,7 @@ async function terminalScenario(fixtures) {
     await win.locator('[role="menuitem"]:has-text("Open new terminal")').click()
     await sleep(1500)
     ok((await win.locator('.xterm').count()) === 1, 'a new terminal takes the full view alone')
-    ok((await win.locator('[role="tab"]').count()) === beforeSeparate + 1, 'the new terminal adds a top-level tab')
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === beforeSeparate + 1, 'the new terminal adds a top-level tab')
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
@@ -4125,7 +4120,7 @@ async function terminalScenario(fixtures) {
     )
     await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
     await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
-    await win.locator('[role="tab"]').nth(beforeSeparate - 1).click()
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').nth(beforeSeparate - 1).click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     ok((await win.locator('.xterm').textContent())?.includes('separate-terminal-survives'), 'closing the new terminal preserves the original shell and scrollback')
   } finally {
@@ -4411,7 +4406,7 @@ async function playOnOpenScenario(fixtures) {
   try {
     const strip = '[role="tablist"]'
     await win.waitForSelector(strip, { timeout: 10000 })
-    const rows = win.locator(`${strip} [role="tab"]`)
+    const rows = win.locator(`${strip} [data-tab-role]:not([data-pinned]) [role="tab"]`)
     ok((await rows.count()) === 2, `the film's tab came back beside the new one (${await rows.count()})`)
     await rows.filter({ hasNotText: 'other' }).first().click()
     await win.waitForSelector('video', { timeout: 15000 })
@@ -5018,7 +5013,7 @@ async function dragScenario(fixtures) {
       await sleep(1400)
       ok(existsSync(join(box, 'movable.txt')), 'dropping on a FILE moves into that folder')
       ok(
-        !/dragbox.into/i.test((await win.locator('[role="tab"]').first().getAttribute('title')) ?? ''),
+        !/dragbox.into/i.test((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').first().getAttribute('title')) ?? ''),
         'and the tab did not re-root onto what was dragged'
       )
     } finally {
@@ -5124,7 +5119,7 @@ async function dragScenario(fixtures) {
       await sleep(1800)
       ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
       // A FOLDER dragged onto the tab strip opens as a tab of its own.
-      const tabsBefore = await win.locator('[role="tablist"] [role="tab"]').count()
+      const tabsBefore = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
       // Aimed at the EMPTY space after the +, which is where a drop is
       // naturally made and where the window-drag region used to swallow it.
       const strip = await win.locator('[role="tablist"]').boundingBox()
@@ -5136,13 +5131,13 @@ async function dragScenario(fixtures) {
         })
       await sleep(1400)
       ok(
-        (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBefore + 1,
+        (await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsBefore + 1,
         'a folder dropped on the tab strip opens a tab'
       )
 
       // Dropping one of Prism's OWN rows on the viewer opens it there, and the
       // text editor no longer steals the drag to walk its caret about.
-      await win.locator('[role="tablist"] [role="tab"]').first().click()
+      await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').first().click()
       await sleep(500)
       const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
       await win
@@ -5190,7 +5185,7 @@ async function pairPhone(win) {
   const state = await win.evaluate(() =>
     window.prism.phoneSetOn(
       true,
-      document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
+      document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? null
     )
   )
   const base = `http://127.0.0.1:${state.port}`
@@ -5263,7 +5258,7 @@ async function phoneScenario(fixtures) {
     // A second code for the same tab: the first was spent above.
     const again = await win.evaluate(() =>
       window.prism.phoneCode(
-        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+        document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
       )
     )
     ok(!!again.code && again.code.code !== state.code.code, 'a fresh code replaces the spent one')
@@ -5581,7 +5576,7 @@ async function phoneHlsScenario(fixtures) {
     // confirm that a stream exists.
     const again = await win.evaluate(() =>
       window.prism.phoneCode(
-        document.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
+        document.querySelector('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]')?.getAttribute('title') ?? ''
       )
     )
     const other = await fetch(`${base}/pair`, {
@@ -6137,7 +6132,7 @@ async function phoneTabsScenario(fixtures) {
     // one: a genuine sibling folder, since a subfolder of an open root is no
     // longer a second root at all.
     await handoff(join(OTHER_ROOT, 'bad.json'))
-    const tabs = win.locator('[role="tablist"] [role="tab"]')
+    const tabs = win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')
     ok((await tabs.count()) === 2, 'the PC has two roots open')
     // Back to the fixtures tab before pairing: the code is issued for the tab
     // that is CURRENT, so this is what decides which root the phone starts on.

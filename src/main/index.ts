@@ -38,6 +38,7 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
+import { browseSearch, cancelBrowseSearch } from './browseSearch'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -686,7 +687,8 @@ async function restoreTabs(): Promise<OpenPayload[]> {
     // wall has to be registered here, since buildPayload only does that when
     // it is inventing the root itself.
     const restoreTabId = t.id ?? `restored-${i}-${Date.now()}`
-    addRoot(t.root)
+    if (t.role !== 'explorer') addRoot(t.root)
+    else grantDesktopDirectory(restoreTabId, t.root)
     for (const pane of t.panes ?? [])
       if (pane.termSlot === undefined) grantDesktopDirectory(restoreTabId, dirname(pane.path))
     if (t.file) grantDesktopDirectory(restoreTabId, dirname(t.file))
@@ -695,7 +697,12 @@ async function restoreTabs(): Promise<OpenPayload[]> {
     for (const location of t.browse?.history ?? [])
       grantDesktopDirectory(restoreTabId, location.path)
     if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
-    const payload = t.file ? await buildPayload(t.file, t.root) : await folderPayload(t.root)
+    const directory = t.role === 'explorer' ? await browseDirectory(restoreTabId, t.root) : null
+    const payload = t.file
+      ? await buildPayload(t.file, t.root)
+      : t.role === 'explorer'
+        ? directory && { root: directory.path, files: directory.listing.files, index: -1 }
+        : await folderPayload(t.root)
     if (payload) {
       // A claude session resumes by ID - a session claude itself recorded for
       // this folder. No session on disk means no resume at all: never a bare
@@ -728,6 +735,8 @@ async function restoreTabs(): Promise<OpenPayload[]> {
         ...payload,
         restore: true,
         restoreTabId,
+        role: t.role,
+        pinned: t.pinned,
         ...(t.browse ? { browse: t.browse } : {}),
         ...(t.panes ? { panes: t.panes } : {}),
         ...(i === saved.active ? { restoreActive: true } : {}),
@@ -1278,7 +1287,22 @@ function createWindow(): void {
     // file into a tab whose root already holds it, so a launch file that
     // arrives BEFORE its own restored tab spawns a duplicate instead.
     void (async () => {
-      for (const payload of await restoreTabs()) mainWindow?.webContents.send('open:file', payload)
+      const restored = await restoreTabs()
+      if (!restored.some((payload) => payload.role === 'explorer' && payload.pinned)) {
+        const id = `explorer-home-${Date.now()}`
+        const home = await browseDirectory(id, app.getPath('home'))
+        if (home)
+          mainWindow?.webContents.send('open:file', {
+            root: home.path,
+            files: home.listing.files,
+            index: -1,
+            role: 'explorer',
+            pinned: true,
+            restore: true,
+            restoreTabId: id
+          } satisfies OpenPayload)
+      }
+      for (const payload of restored) mainWindow?.webContents.send('open:file', payload)
       // In argv order, each through the ordinary arriving-file route, so
       // several files from one folder still fold into ONE tab and the last
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
@@ -1845,11 +1869,24 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('browse:directory', (_e, tabId: string, path: string) =>
       browseDirectory(tabId, path)
     )
+    ipcMain.handle(
+      'browse:search',
+      (event, tabId: string, path: string, query: string, requestId: string) =>
+        browseSearch(tabId, path, query, requestId, (progress) => {
+          if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
+        })
+    )
+    ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) =>
+      cancelBrowseSearch(tabId, requestId)
+    )
     ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
       browseWatch(tabId, path, (change) => mainWindow?.webContents.send('dir:changed', change))
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
-    ipcMain.on('browse:release', (_e, tabId: string) => releaseDesktop(tabId))
+    ipcMain.on('browse:release', (_e, tabId: string) => {
+      cancelBrowseSearch(tabId)
+      releaseDesktop(tabId)
+    })
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // The renderer is the only thing that knows whether a media element is
     // actually playing, so it owns the answer and main just holds the block.

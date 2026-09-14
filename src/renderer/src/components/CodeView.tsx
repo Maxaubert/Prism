@@ -548,6 +548,7 @@ export function CodeView({
     const onKey = (e: KeyboardEvent): void => {
       const v = view.current
       if (!v) return
+      if (host.current?.closest('[inert]')) return
       const target = e.target as HTMLElement | null
       // Some other field has the keyboard (the sidebar's search box, a dialog).
       // Its keys are its own; only the editor's own inputs come back to us.

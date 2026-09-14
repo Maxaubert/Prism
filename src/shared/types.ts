@@ -126,6 +126,10 @@ export interface OpenPayload {
   browse?: SavedBrowse
   panes?: SavedPane[]
   restoreTabId?: string
+  /** Explorer tabs browse freely; project tabs own a folder tree and shells. */
+  role?: 'explorer' | 'project'
+  /** The permanent first Explorer tab. */
+  pinned?: boolean
   files: ViewerFile[]
   /** Which of `files` to show. -1 when a folder was opened and it holds nothing
    *  viewable: the tree is still rooted there, the viewer just has no file. */

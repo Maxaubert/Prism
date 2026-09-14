@@ -120,7 +120,14 @@ export function BrowseToolbar(props: Props): JSX.Element {
           />
         </form>
       ) : (
-        <nav className="browse-path" aria-label="Folder path" title={props.directory}>
+        <nav
+          className="browse-path"
+          aria-label="Folder path"
+          title={props.directory}
+          onClick={(event) => {
+            if (!(event.target as HTMLElement).closest('button')) begin()
+          }}
+        >
           <div className="browse-crumbs" ref={crumbs}>
             {browseCrumbs(props.directory).map((crumb, index, all) => (
               <span className="browse-crumb" key={crumb.path}>
@@ -152,9 +159,11 @@ export function BrowseToolbar(props: Props): JSX.Element {
           name="folderSearch"
           spellCheck={false}
           autoComplete="off"
-          aria-label="Search this folder"
-          placeholder="Search this folder"
-          title={'Search names in this folder\nWords, "phrases", *.mp4, ext:mp4, -raw'}
+          aria-label="Search this folder and subfolders"
+          placeholder="Search folder and subfolders"
+          title={
+            'Search names in this folder and all subfolders\nWords, "phrases", *.mp4, ext:mp4, -raw'
+          }
           value={props.query}
           onChange={(e) => props.onQueryChange(e.target.value)}
         />

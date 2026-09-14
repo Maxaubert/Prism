@@ -7,12 +7,14 @@ export function BrowsePlaces({
   places,
   directory,
   onNavigate,
-  onNewTerminal
+  onNewTerminal,
+  onOpenProject
 }: {
   places: BrowsePlace[]
   directory: string
   onNavigate: (path: string) => void
   onNewTerminal: (directory: string) => void
+  onOpenProject?: () => void
 }): JSX.Element {
   const groups: BrowsePlace['group'][] = ['Quick access', 'Projects', 'This PC']
   return (
@@ -52,11 +54,13 @@ export function BrowsePlaces({
       </nav>
       <button
         className="browse-terminal"
-        onClick={() => onNewTerminal(directory)}
-        title={`New terminal tab in ${directory}`}
+        onClick={() => (onOpenProject ? onOpenProject() : onNewTerminal(directory))}
+        title={
+          onOpenProject ? `Open ${directory} as a project` : `New terminal tab in ${directory}`
+        }
       >
-        <BrowseIcon name="terminal" />
-        <span>New terminal here</span>
+        <BrowseIcon name={onOpenProject ? 'open' : 'terminal'} />
+        <span>{onOpenProject ? 'Open as project here' : 'New terminal here'}</span>
       </button>
     </aside>
   )

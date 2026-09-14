@@ -19,6 +19,9 @@
       clamp(260px, 32%, 440px)
     );
 }
+.folder-browser[data-places-hidden] {
+  --browse-places-width: 0px;
+}
 .folder-browser button,
 .folder-browser input {
   font: inherit;
@@ -249,6 +252,33 @@
   min-height: 0;
   container-type: inline-size;
 }
+.browse-search-status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-divider);
+  color: var(--p-text-soft);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.browse-search-status > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.browse-search-detail {
+  color: var(--p-dim);
+}
+.browse-search-status button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 3px;
+  color: var(--p-text);
+}
 .browse-columns,
 .browse-row {
   display: grid;
@@ -323,6 +353,27 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.browse-name-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+.browse-name-text > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.browse-list-area[data-searching] .browse-row {
+  height: 60px;
+}
+.browse-result-location {
+  color: var(--p-dim);
+  font-size: 13px;
+}
+.browse-row[data-selected] .browse-result-location {
+  color: inherit;
 }
 .browse-name > svg {
   width: 18px;

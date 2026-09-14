@@ -43,6 +43,11 @@ The accepted September 14 folder mockup extends the existing viewer chrome: comp
 content-sized top-level tabs, a roomy details list and an optional right preview.
 Terminal, folder and media views share that same tab strip.
 
+Explorer tabs use folder icons and one pinned first tab labeled Explorer. Project tabs retain the
+working folder name. The panel toggle controls places in Explorer and the tree in project tabs.
+Recursive search results add a readable containing-folder line and a visible scope/progress row.
+Open as project is available in the Explorer action row and folder/file context menu.
+
 This document records the implemented folder surface. Existing viewer and terminal styles remain
 authoritative for their own controls; see `PRODUCT.md` for product constraints.
 

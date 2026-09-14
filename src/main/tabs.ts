@@ -17,6 +17,8 @@ import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
 
 export interface SavedTab {
   id?: string
+  role?: 'explorer' | 'project'
+  pinned?: boolean
   browse?: SavedBrowse
   panes?: SavedPane[]
   root: string
@@ -170,14 +172,17 @@ export function parseTabs(raw: string): SavedTabs {
 
   const tabs: SavedTab[] = []
   const ids = new Set<string>()
+  let keptPinnedExplorer = false
   // The active tab is tracked by POSITION through the filtering, not re-found
   // by root afterwards: two tabs on one folder are legal (the strip's + allows
   // them), and a root lookup would always crown the first twin.
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    const { root, file, term, agent, cwd, id, browse, open, terms, panes } = entry as {
+    const { root, file, term, agent, cwd, id, browse, open, terms, panes, role, pinned } = entry as {
       id?: unknown
+      role?: unknown
+      pinned?: unknown
       browse?: unknown
       open?: unknown
       terms?: unknown
@@ -190,6 +195,11 @@ export function parseTabs(raw: string): SavedTabs {
     }
     if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
+    if (role === 'explorer' || role === 'project') tab.role = role
+    if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
+      tab.pinned = true
+      keptPinnedExplorer = true
+    }
     if (typeof id === 'string' && id.length > 0 && id.length <= 200 && !ids.has(id)) {
       tab.id = id
       ids.add(id)
