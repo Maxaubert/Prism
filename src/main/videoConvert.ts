@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import { holders } from './holders'
 import { createHash } from 'crypto'
 import {
   existsSync,
@@ -203,6 +204,7 @@ export function convertVideo(
   const promise = new Promise<string>((resolve, reject) => {
     const proc = spawn(ffmpeg, convertArgs(file, partial, plan), { windowsHide: true })
     child = proc
+    holders.add(proc, file) // a move of the source kills the conversion first (#127)
     proc.stdout.setEncoding('utf8')
     proc.stdout.on('data', (chunk: string) => {
       const pct = readProgress(chunk, durationSec)

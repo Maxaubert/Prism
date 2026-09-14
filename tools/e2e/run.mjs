@@ -4976,6 +4976,44 @@ async function dragScenario(fixtures) {
     }
   }
   await sleep(900)
+  // THE OWNER'S REAL CASE: a Dolby film, whose sound is an ffmpeg of Prism's
+  // own decoding the file beside the picture. That ffmpeg holds the file
+  // with the CRT's share mode, and letting the element go is not enough.
+  {
+    const film = join(box, 'dolby-watching.mkv')
+    const { app, win } = await launch(film)
+    try {
+      await win.waitForSelector('video', { timeout: 10000 })
+      await win.evaluate(() => {
+        const v = document.querySelector('video')
+        v.muted = true
+        void v.play().catch(() => {})
+      })
+      await win.waitForFunction(() => (document.querySelector('video')?.currentTime ?? 0) > 0.6, null, { timeout: 10000 })
+      await win.waitForFunction(() => !!document.querySelector('audio[src^="fsaudio:"]'), null, { timeout: 10000 }).catch(() => {})
+      const sidecar = await win.evaluate(() => !!document.querySelector('audio[src^="fsaudio:"]'))
+      ok(sidecar, 'the Dolby sound is on through the sidecar decoder')
+      await win
+        .locator('[role="treeitem"]:has-text("dolby-watching.mkv")')
+        .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())
+      let followed = true
+      await win
+        .waitForFunction(
+          () => /into/i.test(decodeURIComponent(document.querySelector('video')?.currentSrc || '')),
+          null,
+          { timeout: 12000 }
+        )
+        .catch(() => {
+          followed = false
+        })
+      const body = (await win.locator('body').textContent()) ?? ''
+      ok(existsSync(join(box, 'into', 'dolby-watching.mkv')) && !existsSync(film), `the Dolby film you are watching really moved${/could not be moved/.test(body) ? ' (but Prism said: ' + body.match(/could not be moved[^.]*\./)?.[0] + ')' : ''}`)
+      ok(followed, 'and the viewer followed it there')
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
   // Out of the archive, onto a folder in the sidebar.
   const out = join(fixtures, 'zips', 'out')
   rmSync(join(out, 'carry.txt'), { force: true })

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { holders } from './holders'
 import { existsSync } from 'fs'
 import {
   findFfmpeg,
@@ -110,9 +111,14 @@ export function serveSidecarAudio(request: Request, deps: Deps): Response {
       const child = spawn(tools.ffmpeg, sidecarArgs(req.file, req.stream, at), { windowsHide: true })
       proc = child
       live.add(child)
+      // Registered by the FILE it reads (#127): a move of that file kills
+      // it first, since Chromium does not cancel this response the moment
+      // the element goes and the decoder held the film past every retry.
+      holders.add(child, req.file)
 
       const done = (): void => {
         live.delete(child)
+        holders.forget(child)
         child.kill()
       }
 
@@ -166,6 +172,7 @@ export function serveSidecarAudio(request: Request, deps: Deps): Response {
     cancel() {
       if (proc) {
         live.delete(proc)
+        holders.forget(proc)
         proc.kill()
       }
     }
