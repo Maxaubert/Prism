@@ -125,5 +125,5 @@ export function PhoneApp(): JSX.Element {
     )
   // Keyed by the ROOT: moving to another tab starts in that folder with
   // nothing open, rather than in a folder the new root does not contain.
-  return <Browser key={me.root} root={me.root} tab={me.folder} onSwitch={switchTo} />
+  return <Browser key={me.root} root={me.root} onSwitch={switchTo} />
 }

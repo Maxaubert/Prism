@@ -151,3 +151,116 @@ body {
 [data-phone-stage] [data-vol-pct] {
   font-size: 15px;
 }
+
+/*
+ * THE COG'S MENU IS A BOTTOM SHEET ON THE PHONE (2026-09-14, #145, owner:
+ * "the settings cog in videos on mobile is a bit flaky and small"). On the
+ * desktop it is a 230px popover of 30px rows hanging off the cog, which is
+ * right for a pointer and wrong for a thumb: the rows are under the floor,
+ * the text is 12.5px, and the whole thing sits in the bottom corner where a
+ * hand covers it. Here it is the same menu - same markup, same levels, same
+ * rows the e2e drives by name - laid across the bottom of the stage above
+ * the transport, rows at the floor, text at the size the rest of the phone
+ * is set in. `position: fixed` is what takes it out of the cog's own box;
+ * the transport bar spans the stage's bottom edge, so whether the fixed
+ * box resolves against the viewport or against the bar (which happens
+ * whenever the bar carries a filter) the sheet lands in the same place.
+ *
+ * The desktop's sizes are Tailwind classes on the rows; three attribute
+ * selectors outweigh one class, so nothing here needs !important except
+ * where the desktop wrote an inline style.
+ */
+[data-phone-stage] [data-player-menu] {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(var(--phone-row) + 8px + env(safe-area-inset-bottom, 0px));
+  width: auto;
+  max-height: min(70dvh, 520px);
+  border-radius: 14px;
+  padding: 6px 0;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+[data-phone-stage] [data-player-menu] [role='menuitem'],
+[data-phone-stage] [data-player-menu] [role='menuitemradio'],
+[data-phone-stage] [data-player-menu] [role='menuitemcheckbox'] {
+  height: auto;
+  min-height: var(--phone-touch);
+  padding-left: 16px;
+  padding-right: 16px;
+  font-size: 16px;
+}
+
+/* A finger leaves no hover behind, and iOS keeps a :hover fill on the row
+   last tapped until the next tap somewhere else, which reads as a row that
+   stayed selected. The press is the feedback here. */
+@media (hover: none) {
+  [data-phone-stage] [data-player-menu] [role='menuitem']:hover,
+  [data-phone-stage] [data-player-menu] [role='menuitemradio']:hover,
+  [data-phone-stage] [data-player-menu] [role='menuitemcheckbox']:hover {
+    background: transparent;
+  }
+  [data-phone-stage] [data-player-menu] [role='menuitem']:active,
+  [data-phone-stage] [data-player-menu] [role='menuitemradio']:active,
+  [data-phone-stage] [data-player-menu] [role='menuitemcheckbox']:active {
+    background: var(--p-hover);
+  }
+}
+
+/* The tick on a picked row, and the chevron on a row that opens a list. */
+[data-phone-stage] [data-player-menu] [role='menuitemradio'] > svg,
+[data-phone-stage] [data-player-menu] [role='menuitem'] svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The switches on Loop and Autoplay, at a size a thumb can read the state
+   of. The knob's resting places are the desktop's classes, so both are
+   restated here for the bigger track. */
+[data-phone-stage] [data-menu-switch] {
+  width: 40px;
+  height: 22px;
+}
+
+[data-phone-stage] [data-menu-knob] {
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+}
+
+[data-phone-stage] [data-menu-switch][data-on] [data-menu-knob] {
+  left: 20px;
+}
+
+/* The speed slider's track, and its 44px-tall hit area comes from the row
+   padding around it. */
+[data-phone-stage] [data-menu-slider] {
+  height: 8px;
+}
+
+/*
+ * THE TAB DRAWER COMES IN FROM THE EDGE (2026-09-14, #145). Applied inline
+ * by Browser.tsx like the search line's keyframe, for the same reason: a
+ * rule keyed on a marker goes quietly stale when the marker is renamed.
+ */
+@keyframes phone-drawer-in {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes phone-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import type { PhoneTab } from '@shared/types'
+import { FolderGlyph } from './FolderGlyph'
 import { ROW_CLASS } from './rows'
 import { listTabs } from './tabs'
 
@@ -15,7 +16,11 @@ import { listTabs } from './tabs'
  * any more" is a list that has moved on, and the answer is to show the one
  * that has.
  *
- * The rows are the explorer's own, so a tab is tapped the way a folder is.
+ * The rows are the explorer's own, so a tab is tapped the way a folder is:
+ * a folder glyph, the name over its path, and a DRAWN tick on the right of
+ * the one the phone is on (2026-09-14, #145 - the tick used to be a text
+ * glyph in a column of its own on the left, which held the names off the
+ * edge and read as a menu rather than a list of places).
  */
 export function TabList({ onPick }: { onPick: (root: string) => Promise<void> }): JSX.Element {
   const [tabs, setTabs] = useState<PhoneTab[] | null>(null)
@@ -58,26 +63,39 @@ export function TabList({ onPick }: { onPick: (root: string) => Promise<void> })
       {tabs?.length === 0 && (
         <p className="px-4 py-3 opacity-70">Prism has no folder open right now.</p>
       )}
-      <ul className="flex flex-col" role="list">
+      <ul className="flex flex-col px-2" role="list">
         {(tabs ?? []).map((t) => (
           <li key={t.root}>
             <button
-              className={ROW_CLASS}
+              className={`${ROW_CLASS} rounded-xl ${t.current ? 'bg-[var(--p-hover)]' : ''}`}
               onClick={() => pick(t.root)}
               data-phone-tab-row
               aria-current={t.current ? 'true' : undefined}
             >
-              {/* The tick column is always there, ticked or not, so the names
-                  line up the way the player's menu rows do. */}
-              <span className="w-5 shrink-0 text-center opacity-80" aria-hidden>
-                {t.current ? '✓' : ''}
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate">{t.name}</span>
+              <FolderGlyph size={26} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{t.name}</span>
                 {/* The path, because two open folders can share a name and
                     this list has the room the PC's tab strip does not. */}
-                <span className="block truncate text-[13px] opacity-60">{t.root}</span>
+                <span className="block truncate text-[13px] text-[var(--p-text-soft)]">{t.root}</span>
               </span>
+              {t.current && (
+                <svg
+                  viewBox="0 0 24 24"
+                  width={22}
+                  height={22}
+                  fill="none"
+                  stroke="var(--color-accent-hi)"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0"
+                  aria-hidden
+                  data-phone-tab-tick
+                >
+                  <path d="M4.5 12.5l5 5 10-11" />
+                </svg>
+              )}
             </button>
           </li>
         ))}

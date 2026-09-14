@@ -9,6 +9,7 @@ import { ROW_CLASS } from './rows'
 import { thumbUrl } from './api'
 import { readView, writeView, type PhoneView } from './view'
 import { TabList } from './TabList'
+import { FolderGlyph } from './FolderGlyph'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
  *  same speed costs the PC the same number of walks. KEPT at 180ms rather
@@ -54,12 +55,9 @@ const RETRIES = 3
  */
 export function Browser({
   root,
-  tab,
   onSwitch
 }: {
   root: string
-  /** The name of the tab this phone is on, as the PC spells it. */
-  tab: string
   /** Move this phone to another of the PC's open tabs. Rejects with the PC's
    *  own reason when it does not hold that folder any more. */
   onSwitch: (root: string) => Promise<void>
@@ -443,7 +441,7 @@ export function Browser({
         </div>
       </header>
       {tabsOpen && (
-        <Drawer title="Open tabs" subtitle={tab} onClose={() => setTabsOpen(false)}>
+        <Drawer title="Open tabs" subtitle="Folders open in Prism on the PC" onClose={() => setTabsOpen(false)}>
           {/* The drawer closes on a pick that WORKED; a refused one leaves it
               open with the reason and a list that has been read again. */}
           <TabList onPick={(r) => onSwitch(r).then(() => setTabsOpen(false))} />
@@ -616,7 +614,8 @@ function Drawer({
   children
 }: {
   title: string
-  /** The tab you are on, which the hamburger no longer says on the header. */
+  /** One line under the title saying what the list IS (#145): the current
+   *  tab is the ticked row, so repeating its path here said it twice. */
   subtitle?: string
   onClose: () => void
   children: ReactNode
@@ -626,7 +625,8 @@ function Drawer({
       {/* The ground. It dismisses, and it is what makes this read as a layer
           over the folder rather than a screen that replaced it. */}
       <button
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/55"
+        style={{ animation: 'phone-scrim-in 160ms ease-out' }}
         aria-label="Close"
         onClick={onClose}
         data-phone-drawer-scrim
@@ -635,17 +635,20 @@ function Drawer({
         // The FLAT surface, not --p-bg: several styles are translucent, and a
         // drawer you can read the folder through is a smear rather than a
         // layer. It is the token the context menus use, for the same reason.
-        className="relative flex h-full w-[82%] max-w-[320px] flex-col border-r border-[color:var(--p-line)] bg-[var(--p-side-flat)] pt-[env(safe-area-inset-top)] text-[var(--p-text)] shadow-[0_0_40px_rgba(0,0,0,.5)]"
+        // It comes in from its edge (#145): a layer that appears in place
+        // reads as the screen changing, one that slides reads as a drawer.
+        className="relative flex h-full w-[86%] max-w-[340px] flex-col rounded-r-2xl border-r border-[color:var(--p-line)] bg-[var(--p-side-flat)] pt-[env(safe-area-inset-top)] text-[var(--p-text)] shadow-[16px_0_48px_rgba(0,0,0,.55)]"
+        style={{ animation: 'phone-drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1)' }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         data-phone-sheet
       >
-        <div className="flex items-center gap-1 border-b border-[color:var(--p-line)] px-2">
-          <h2 className="min-w-0 flex-1 truncate px-2 text-[15px] font-semibold">
-            {title}
+        <div className="flex items-center gap-1 px-2 pb-1 pt-2">
+          <h2 className="min-w-0 flex-1 px-2">
+            <span className="block truncate text-[19px] font-semibold tracking-[-0.01em]">{title}</span>
             {subtitle ? (
-              <span className="block truncate text-[13px] font-normal opacity-60">{subtitle}</span>
+              <span className="block truncate text-[13px] font-normal text-[var(--p-text-soft)]">{subtitle}</span>
             ) : null}
           </h2>
           <button
@@ -668,7 +671,7 @@ function Drawer({
             </svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">{children}</div>
+        <div className="flex-1 overflow-y-auto pb-[max(env(safe-area-inset-bottom),12px)]">{children}</div>
       </div>
     </div>
   )
@@ -739,20 +742,6 @@ function GridIcon(): JSX.Element {
   )
 }
 
-function FolderGlyph({ size = 22 }: { size?: number }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="var(--p-tree-folder)"
-      className="shrink-0"
-      aria-hidden
-    >
-      <path d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />
-    </svg>
-  )
-}
 
 function ExtChip({ ext }: { ext: string }): JSX.Element {
   return (
