@@ -6,6 +6,8 @@ import { narrowHits } from './narrow'
 import { PhoneViewer } from './PhoneViewer'
 import { placeUrl, readPlace } from './place'
 import { ROW_CLASS } from './rows'
+import { thumbUrl } from './api'
+import { readView, writeView, type PhoneView } from './view'
 import { TabList } from './TabList'
 
 /** The debounce the sidebar's own search box waits, so a phone typing at the
@@ -79,6 +81,11 @@ export function Browser({
   const [want, setWant] = useState<string | null>(start.file)
   /** Whether the field is showing; the query is what decides what is listed. */
   const [searching, setSearching] = useState(false)
+  const [view, setView] = useState<PhoneView>(() => readView())
+  const pickView = (v: PhoneView): void => {
+    setView(v)
+    writeView(v)
+  }
   /** Whether the tab list is showing over the folder. */
   const [tabsOpen, setTabsOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -374,6 +381,24 @@ export function Browser({
                   )
                 })}
               </nav>
+              {/* LIST OR GRID (#135, owner): two buttons, the active one in
+                  the accent, and the choice remembered on this phone. */}
+              <span className="flex shrink-0" role="group" aria-label="View">
+                {(['list', 'grid'] as const).map((v) => (
+                  <button
+                    key={v}
+                    className={`grid h-[var(--phone-touch)] w-[var(--phone-touch)] place-items-center rounded ${
+                      view === v ? 'text-[var(--color-accent-hi)]' : 'opacity-60'
+                    }`}
+                    aria-label={v === 'list' ? 'List' : 'Grid'}
+                    aria-pressed={view === v}
+                    data-phone-view={v}
+                    onClick={() => pickView(v)}
+                  >
+                    {v === 'list' ? <ListIcon /> : <GridIcon />}
+                  </button>
+                ))}
+              </span>
               <button
                 className="grid h-[var(--phone-touch)] w-[var(--phone-touch)] shrink-0 place-items-center rounded"
                 aria-label="Search"
@@ -428,7 +453,33 @@ export function Browser({
             </p>
           )}
           {listing === undefined && <p className="p-4 opacity-70">Loading...</p>}
-          {listing && (
+          {listing && view === 'grid' && (
+            <ul
+              className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-2 p-2 pb-[max(env(safe-area-inset-bottom),8px)]"
+              role="list"
+              data-phone-grid
+            >
+              {listing.folders.map((f) => (
+                <li key={f.path}>
+                  <button className={TILE_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
+                    <span className="grid aspect-square w-full place-items-center rounded-md bg-[var(--p-hover)]">
+                      <FolderGlyph size={40} />
+                    </span>
+                    <span className="line-clamp-2 break-words text-[13px] leading-tight">{f.name}</span>
+                  </button>
+                </li>
+              ))}
+              {listing.files.map((f) => (
+                <li key={f.path}>
+                  <button className={TILE_CLASS} onClick={() => setOpen(f)} data-phone-file data-kind={f.kind}>
+                    <Tile file={f} />
+                    <span className="line-clamp-2 break-words text-[13px] leading-tight">{f.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {listing && view === 'list' && (
             <ul className="flex flex-col pb-[env(safe-area-inset-bottom)]" role="list">
               {listing.folders.map((f) => (
                 <li key={f.path}>
@@ -615,12 +666,61 @@ const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
 /** The sidebar's own folder silhouette (TreeRows.FolderIcon), inlined rather
  *  than imported: TreeRows carries the whole tree, its drag and its selection
  *  into any bundle that imports it. */
-function FolderGlyph(): JSX.Element {
+/** A tile: the picture where there is one, the kind's chip where there is
+ *  not. Asked for lazily, so a folder of three hundred photos asks only for
+ *  the tiles on screen, and a file main could not thumbnail falls back to
+ *  the chip through the image's own error. */
+const TILE_CLASS = 'flex w-full flex-col gap-1.5 rounded-lg p-1 text-left active:bg-[var(--p-hover)]'
+
+function Tile({ file }: { file: ViewerFile }): JSX.Element {
+  const [failed, setFailed] = useState(false)
+  const pictured = (file.kind === 'image' || file.kind === 'video') && !failed
+  return (
+    <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-md bg-[var(--p-hover)]">
+      {pictured ? (
+        <img
+          src={thumbUrl(file.path)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+          data-phone-thumb
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="text-[13px] font-semibold uppercase tracking-wide opacity-60">{file.ext.slice(1, 5)}</span>
+      )}
+      {file.kind === 'video' && (
+        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white" aria-hidden>
+          &#9654;
+        </span>
+      )}
+    </span>
+  )
+}
+
+function ListIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={22} height={22} fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" aria-hidden>
+      <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />
+    </svg>
+  )
+}
+
+function GridIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width={22} height={22} fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinejoin="round" aria-hidden>
+      <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+    </svg>
+  )
+}
+
+function FolderGlyph({ size = 22 }: { size?: number }): JSX.Element {
   return (
     <svg
       viewBox="0 0 24 24"
-      width={22}
-      height={22}
+      width={size}
+      height={size}
       fill="var(--p-tree-folder)"
       className="shrink-0"
       aria-hidden

@@ -883,6 +883,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   it without a word (pinned in `server.test.ts`); and a member VIEWED out of a zip on the
   phone is a double-tap, the panel's own rule. Pinch, swipe and the native video controls
   wait for a real device; hex and the terminal are not offered.
+- **LIST OR GRID, WITH THUMBNAILS MADE ON THE PC** (2026-09-13, #135; owner: two buttons in
+  the phone's title bar, a list icon and a grid icon, to switch between). The pair sits right
+  of the magnifier, the active one in the accent, and the choice is the PHONE's (`view.ts`,
+  localStorage, pure over its storage and tested), so a reload comes back in the view you
+  chose. The grid is tiles at least 110px wide - three across on a phone, more on a tablet -
+  a square picture with the name under it on two lines, folders included; a tap opens as a
+  row does. THE PICTURES ARE THUMBNAILS, not the files (owner pick over icon tiles): a grid
+  of names is a list that saves scrolling, a grid of pictures is a photo app.
+  `src/main/thumbs.ts` renders a 320px JPEG with the bundled ffmpeg - the photo itself, HEIC
+  and RAW and the ffmpeg-decoded formats included since that is the decoder they go through
+  anyway, a frame three seconds into a video with the first frame as the fallback for a clip
+  shorter than that - cached under `userData/thumbs` by path, size and mtime (`thumbKey`),
+  touched on a hit and evicted oldest-first past 200MB (`toEvict`). AT MOST FOUR AT A TIME,
+  which is the performance rules again: a folder of three hundred photos would otherwise
+  start three hundred ffmpegs into the pool a playing film reads through; asks for one key
+  share one process, and the tiles are `loading="lazy"`, so only what is on screen is asked
+  for. `/api/thumb` is walled by `inside()` like every path, answers 404 for a file with no
+  picture in it (the tile draws its chip through the image's own error), and lets the phone
+  cache the JPEG for a day, since the key changes with the file. The thumbnail ffmpeg is not
+  registered with #133's holders in this change - they had not merged - and it lives well
+  under a second, inside the move's own retry; `register` is where they hook in.
 - **THE REMOTE WAS BUILT AND REMOVED** (owner, 2026-09-08, after using it on an iPad;
   #107). For a day the phone could drive the PC: a state stream (`GET /remote/state`,
   Server-Sent Events), a validated command drop (`POST /remote/cmd`), a registry naming

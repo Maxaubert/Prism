@@ -43,6 +43,7 @@ import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
 import { Positions } from './positions'
 import { holders } from './holders'
+import { Thumbs } from './thumbs'
 import { parseStore, serializeStore, type PhoneStore } from './phone/store'
 import { lanAddresses } from './phone/lan'
 import { pairLink } from './phone/routes'
@@ -1404,6 +1405,11 @@ if (!app.requestSingleInstanceLock()) {
     })
     const logPhone = (line: string): void => phoneLog.line(line)
     const hlsTools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
+    // The phone grid's pictures (#135), made once and cached under userData.
+    // Its ffmpegs register with the holders (#133), so a move of the file wins.
+    const thumbs = hlsTools
+      ? new Thumbs(hlsTools.ffmpeg, join(app.getPath('userData'), 'thumbs'), (c, f) => holders.add(c, f))
+      : null
     const hlsJobs = hlsTools
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
       : null
@@ -1501,6 +1507,11 @@ if (!app.requestSingleInstanceLock()) {
       positions: {
         get: (p) => positions.get(p),
         set: (p, t) => positions.set(p, t)
+      },
+      thumb: (p) => {
+        const kind = fileKind(extname(p))
+        if (!thumbs || (kind !== 'image' && kind !== 'video')) return Promise.resolve(null)
+        return thumbs.get(p, kind)
       },
       // A throwaway e2e build must never raise the firewall prompt.
       loopbackOnly: E2E
