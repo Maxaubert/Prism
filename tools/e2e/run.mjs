@@ -5305,9 +5305,8 @@ async function phoneScenario(fixtures) {
     await page.click('[data-phone-view="grid"]')
     await page.waitForSelector('[data-phone-grid]', { timeout: 5000 })
     ok((await page.locator('[data-phone-grid] [data-phone-file]').count()) >= 1, 'the grid shows the files as tiles')
-    // THE NAME IS INSIDE THE TILE, centred at its bottom (#143): the name's
-    // box lies within the square, its centre on the square's, and its bottom
-    // at the square's bottom edge.
+    // THE NAME IS A CAPTION UNDER THE TILE, CENTRED (#143): its box starts
+    // below the square's bottom edge, and its text is centred on the square.
     const tileName = await page.evaluate(() => {
       const tile = document.querySelector('[data-phone-grid] [data-phone-file]')
       const box = tile?.querySelector('span')?.getBoundingClientRect()
@@ -5315,15 +5314,13 @@ async function phoneScenario(fixtures) {
       const name = nameEl?.getBoundingClientRect()
       if (!box || !name) return null
       return {
-        inside: name.left >= box.left - 1 && name.right <= box.right + 1 && name.top >= box.top - 1 && name.bottom <= box.bottom + 1,
+        below: name.top >= box.bottom - 1,
         centred: Math.abs(name.left + name.width / 2 - (box.left + box.width / 2)) < 2,
-        atBottom: Math.abs(name.bottom - box.bottom) < 2,
         align: getComputedStyle(nameEl).textAlign
       }
     })
-    ok(tileName?.inside === true, "a tile's name sits inside its box")
-    ok(tileName?.centred === true && tileName?.align === 'center', 'centred')
-    ok(tileName?.atBottom === true, 'along the bottom edge')
+    ok(tileName?.below === true, "a tile's name sits under its box")
+    ok(tileName?.centred === true && tileName?.align === 'center', 'and is centred on it')
     // AND THE LIST/GRID PAIR IS A TOGGLE (#143): one pill, the active half
     // filled, the other not.
     const toggle = await page.evaluate(() => {
