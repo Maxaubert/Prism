@@ -5691,6 +5691,22 @@ async function phoneHlsScenario(fixtures) {
     await page.mouse.move(120, 200) // wake the chrome: the transport unmounts on its idle clock
     await page.click('[aria-label="Player settings"]')
     await page.waitForSelector('[data-menu-row="audio"]', { timeout: 5000 })
+    // A BOTTOM SHEET, SIZED FOR A THUMB (#145): the menu spans the stage
+    // rather than hanging off the cog, its rows are at the floor, and it
+    // sits above the transport rather than over it.
+    const sheet = await page.evaluate(() => {
+      const menu = document.querySelector('[data-player-menu]')
+      const bar = document.querySelector('[data-transport-row]')
+      if (!menu || !bar) return null
+      const m = menu.getBoundingClientRect()
+      const rows = [...menu.querySelectorAll('[role="menuitem"]')].map((r) => r.getBoundingClientRect().height)
+      return { w: m.width, vw: window.innerWidth, bottom: m.bottom, barTop: bar.getBoundingClientRect().top, minRow: Math.min(...rows), font: getComputedStyle(menu.querySelector('[role="menuitem"]')).fontSize }
+    })
+    ok(!!sheet && sheet.w >= sheet.vw * 0.9, `the cog's menu is a sheet across the stage (${sheet?.w} of ${sheet?.vw}px)`)
+    ok(!!sheet && sheet.minRow >= 44, `its rows are at the floor (${sheet?.minRow}px)`)
+    ok(!!sheet && sheet.bottom <= sheet.barTop + 1, 'and it sits above the transport')
+    ok(sheet?.font === '16px', `read at the phone's size (${sheet?.font})`)
+    await page.screenshot({ path: join(SHOTS, 'phone-cog.png') })
     await page.click('[data-menu-row="picture"]')
     ok((await page.locator('[data-menu-section="picture"] [role="menuitemradio"]').count()) === 5, 'the cog offers the five aspect ratios')
     await page.click('[data-menu-back]')
@@ -6192,6 +6208,20 @@ async function phoneTabsScenario(fixtures) {
       ),
       'and the drawer ticks it'
     )
+    // THE DRAWER'S ROWS (#145): a folder glyph, the name over its path, and
+    // a DRAWN tick on the current one, at the explorer's own row height.
+    const drawerRow = await page.evaluate(() => {
+      const row = document.querySelector('[data-phone-tab-row][aria-current="true"]')
+      if (!row) return null
+      return {
+        h: row.getBoundingClientRect().height,
+        tick: !!row.querySelector('[data-phone-tab-tick]'),
+        glyphs: row.querySelectorAll('svg').length
+      }
+    })
+    ok(!!drawerRow && drawerRow.h >= 56, `a drawer row is a row (${drawerRow?.h}px)`)
+    ok(drawerRow?.tick === true && drawerRow?.glyphs === 2, 'the current tab carries a folder and a drawn tick')
+    await sleep(300) // past the slide-in, so the shot is the drawer and not its entrance
     await page.screenshot({ path: join(SHOTS, 'phone-drawer.png') })
     // The scrim is the drawer's own dismissal: a tap beside it puts it away.
     // BESIDE the panel, which is where a thumb lands: the scrim spans the

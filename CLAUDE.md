@@ -970,6 +970,30 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   e2e, the one phone scenario launched with TWO roots open: what it asserts after a pick is
   not the header's text but what the LISTING answers, since a header that moved over an
   unchanged listing would be a lie nobody would catch.
+  **THE DRAWER IS A LIST OF PLACES** (2026-09-14, #145; owner: "the sidebar mostly just
+  looks unclean"). It was a title with the current root repeated under it in small type, a
+  text tick in a column of its own on the left holding every name off the edge, and rows
+  with no mark of what they were. Now: the title with one line saying what the list IS
+  ("Folders open in Prism on the PC"), rows of the explorer's own height wearing the
+  folder glyph, the name over its path, a DRAWN tick in the accent on the right of the
+  tab the phone is on, and that row filled in the hover grey; the panel comes in from its
+  edge over a scrim that fades, rounded on the side that faces the folder. The current
+  root left the header because the ticked row already says it. `FolderGlyph` moved to
+  its own file so the drawer and the explorer share one silhouette.
+  **AND THE COG'S MENU IS A BOTTOM SHEET** (same change; owner: "the settings cog in
+  videos on mobile is a bit flaky and small"). The desktop's popover is 230px of 30px rows
+  at 12.5px hanging off the cog in the bottom corner, under a thumb. On the phone the SAME
+  menu - same markup, levels and row names the e2e drives - lies across the bottom of the
+  stage above the transport, rows at the 44px floor, text at 16px, switches a thumb can
+  read, and no sticky `:hover` fill (iOS keeps one on the last row tapped, which reads as
+  a row that stayed selected; the press is the feedback under `(hover: none)`). It is
+  `phone.css` again and not a prop: `position: fixed` keyed on `data-player-menu` takes it
+  out of the cog's box, and since the bar spans the stage's bottom edge the sheet lands in
+  the same place whether the fixed box resolves against the viewport or against a bar that
+  carries a filter. PlayerMenu gained MARKERS only (`data-player-menu`, `data-menu-switch`,
+  `data-menu-knob`, `data-menu-slider`, `data-on`), guarded by `touch.test.ts` like the
+  transport's. Measured in `phoneHls`: the sheet spans over 90% of the stage, its rows are
+  44px, it sits above the transport, and it reads at 16px.
 - **SIZED FOR A THUMB** (owner, 2026-09-08, after the same iPad session: the video controls
   and the rows in the file explorer are too small; #107). 44px is the PLATFORM FLOOR rather
   than a taste - Apple asks for 44pt and Google for 48dp - and a ROW is taller again (56px),

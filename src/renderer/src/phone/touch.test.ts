@@ -30,7 +30,17 @@ const owners: Record<string, string> = {
   'data-scrub-track': 'src/renderer/src/components/Transport.tsx',
   'data-scrub-thumb': 'src/renderer/src/components/Transport.tsx',
   'data-vol-readout': 'src/renderer/src/components/VolumeReadout.tsx',
-  'data-vol-pct': 'src/renderer/src/components/VolumeReadout.tsx'
+  'data-vol-pct': 'src/renderer/src/components/VolumeReadout.tsx',
+  // The cog's menu as a bottom sheet (#145).
+  'data-player-menu': 'src/renderer/src/components/PlayerMenu.tsx',
+  'data-menu-switch': 'src/renderer/src/components/PlayerMenu.tsx',
+  'data-menu-knob': 'src/renderer/src/components/PlayerMenu.tsx',
+  'data-menu-slider': 'src/renderer/src/components/PlayerMenu.tsx',
+  'data-on': 'src/renderer/src/components/PlayerMenu.tsx',
+  // The tab drawer's own motion (Browser.tsx applies the keyframes inline;
+  // the sheet marker is only named here for the sizing of its rows).
+  'data-phone-sheet': 'src/renderer/src/phone/Browser.tsx',
+  'data-phone-tab-row': 'src/renderer/src/phone/TabList.tsx'
 }
 
 describe('the phone sizes itself from one stylesheet', () => {
