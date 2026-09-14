@@ -293,8 +293,12 @@ export function VideoView({
     fps: playable.fps,
     // A picked track plays through the sidecar, so the file's own default
     // track must stop coming out of the picture - and this is the ONLY writer
-    // of the element's mute, so nothing can undo it.
-    forceMute: track !== null,
+    // of the element's mute, so nothing can undo it. ON THE SIDECAR HOST
+    // ONLY (#137): on the phone the pick IS the element's own stream, and
+    // muting it was the silence the owner met - every pick, the default's
+    // own language included, and re-applied by the remembered track on
+    // every reload, so nothing brought the sound back.
+    forceMute: track !== null && !onAudioTrack,
     onVolume: () => setVolFlash(Date.now())
   })
 

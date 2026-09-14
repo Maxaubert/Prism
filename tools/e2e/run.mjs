@@ -5559,8 +5559,12 @@ async function phoneHlsScenario(fixtures) {
     await page.click('[data-menu-back]')
     await page.click('[data-menu-row="audio"]')
     await page.waitForSelector('[data-menu-section="audio"]', { timeout: 5000 })
+    // Unmuted from here (#137): a pick must not silence the element, since
+    // on the phone the pick IS the element's stream. The scenario muted it
+    // for autoplay's sake; the film is playing now, so it may sound again.
     const before = await page.evaluate(() => {
       const v = document.querySelector('video')
+      v.muted = false
       return { t: v.currentTime, src: v.getAttribute('src') }
     })
     await page.click('[data-menu-section="audio"] button:has-text("Commentary")')
@@ -5580,6 +5584,8 @@ async function phoneHlsScenario(fixtures) {
     const after = await page.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
     ok(switched, `the pick swaps the stream and it plays (src changed, t=${after.toFixed(2)})`)
     ok(after >= before.t - 0.5, `and it resumes where the old stream was (was ${before.t.toFixed(2)}, now ${after.toFixed(2)})`)
+    await sleep(400)
+    ok(await page.evaluate(() => document.querySelector('video')?.muted === false), 'and the picked track is heard: the element is not muted (#137)')
     await page.keyboard.press('Escape')
     // REMEMBERED (#124): a reload of the film asks for the picked track from
     // the start, and the cog's row says so.

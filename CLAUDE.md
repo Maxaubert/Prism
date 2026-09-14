@@ -1220,6 +1220,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   attach but a playlist to swap. The Dolby fixture grew a second track (AAC, "Commentary",
   880Hz) and `phoneHls` picks it from the cog and asserts the src changed, the film plays,
   and it resumed at or after where it was.
+  **A PICK MUTES THE PICTURE ON THE SIDECAR HOST ONLY** (2026-09-13, #137; owner: on the
+  phone, switching to English went silent, Italian too, and nothing brought the sound back).
+  `forceMute: track !== null` is right on the PC, where the picked track plays through the
+  sidecar and the picture's own sound must stop, and wrong on the phone, where the pick IS
+  the element's stream - so every pick was silence, the default's own language included,
+  and the remembered track (#124) re-applied it on every reload. The mute is conditioned on
+  the host now (`!onAudioTrack`), and `phoneHls` unmutes the element before the pick and
+  asserts it is still unmuted after the swap.
   **AND IT IS SUBMENUS** (owner, same day, #122: "split into sub menus, not all in one big
   menu"). The top level is one row per setting - Speed, Audio track, Subtitles, Aspect ratio
   (the name the owner used; the menu's "Picture" is the same list) - each showing its CURRENT
