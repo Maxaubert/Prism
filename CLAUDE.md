@@ -416,6 +416,20 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   than the bare "could not be moved", because that sentence is the one thing left to act
   on. Proved in `drag`: a playing film is dragged into a folder, really moves, and the
   viewer follows it there, playing, at or after the second it was at.
+  **AND THE PROGRAM IN USE WAS PRISM** (same day, owner screenshot: "in use by another
+  program" on a real film, after all of the above). MEASURED on a three-minute Dolby film:
+  after the player let go, TWO of Prism's own sidecar ffmpegs stayed alive through every
+  retry, holding the film with the CRT's share mode - Chromium does not cancel an
+  `fsaudio://` response the moment its element unmounts, and the six-second fixture had
+  hidden it, its decoder having already finished. So main stops what IT started before it
+  renames: `src/main/holders.ts` (pure over its inputs, tested) registers every ffmpeg
+  main spawns on a media file with the file it reads - the audio sidecar, the waveform's
+  peaks - and `move:entries` and `file:rename` call `holders.release` on the paths first,
+  which kills the matching children and WAITS for them to close (bounded), since `kill` is
+  TerminateProcess and returns before the handles are gone. The renderer's own release
+  and retry stay: they cover the element's stream, this covers the decoders. The e2e's
+  Dolby film in the drag box is three minutes long now, so its decoder is still running
+  when the drag lands, which is the case that failed.
 - **A LINE SAYS WHERE A DROP LANDS** (2026-09-13, #126; owner: dragging to the root should
   be easier - at the bottom of the list, or over a file in the root, a blue line should say
   it will drop here). Dropping on a FILE row has meant "into that file's folder" since

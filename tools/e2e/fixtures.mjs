@@ -550,6 +550,22 @@ export function buildFixtures() {
   // above. Put back at the top of the box if a previous run left it inside.
   rmSync(join(FIXTURES, 'dragbox', 'into', 'watching.mp4'), { force: true })
   cpSync(join(FIXTURES, 'ep1.mp4'), join(FIXTURES, 'dragbox', 'watching.mp4'))
+  // ...and a DOLBY film (#127, the owner's real case): its sound comes
+  // through the sidecar decoder, an ffmpeg of Prism's own holding the file.
+  // LONG, not the six-second fixture: its decoder must still be running when
+  // the drag lands, which is exactly what held the owner's film. Three
+  // minutes of test pattern and a tone in Dolby is a second to encode.
+  rmSync(join(FIXTURES, 'dragbox', 'into', 'dolby-watching.mkv'), { force: true })
+  const longDolby = spawnSync(
+    FFMPEG,
+    ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=180:size=320x240:rate=10',
+     '-f', 'lavfi', '-i', 'sine=frequency=440:duration=180:sample_rate=48000',
+     '-pix_fmt', 'yuv420p', '-c:v', 'libopenh264', '-b:v', '300k', '-c:a', 'ac3', '-ac', '6', '-b:a', '384k',
+     '-shortest', join(FIXTURES, 'dragbox', 'dolby-watching.mkv')],
+    { windowsHide: true }
+  )
+  if (longDolby.status !== 0)
+    throw new Error(`ffmpeg could not build the long Dolby fixture (tried ${FFMPEG}): ${longDolby.stderr}`)
 
   writeFileSync(
     join(FIXTURES, 'ep1.en.srt'),
