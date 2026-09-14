@@ -1,0 +1,54 @@
+import type { MouseEvent, ReactNode } from 'react'
+import type { DirListing, ViewerFile } from '@shared/types'
+
+export interface BrowsePlace {
+  path: string
+  label: string
+  group: 'Quick access' | 'Projects' | 'This PC'
+}
+
+export interface BrowseEntry {
+  path: string
+  name: string
+  isFolder: boolean
+  file?: ViewerFile
+}
+
+export interface BrowseSort {
+  key: 'name' | 'type' | 'size' | 'modified'
+  direction: 'asc' | 'desc'
+}
+
+export interface FolderBrowserProps {
+  directory: string
+  listing: DirListing | null
+  loading: boolean
+  error?: string
+  places: BrowsePlace[]
+  selectedPath: string | null
+  menuPath?: string
+  scrollTop: number
+  query: string
+  sort: BrowseSort
+  canBack: boolean
+  canForward: boolean
+  previewVisible: boolean
+  preview?: ReactNode
+  terminalControls?: ReactNode
+  onNavigate: (path: string) => void
+  onBack: () => void
+  onForward: () => void
+  onUp: () => void
+  onSelect: (path: string | null) => void
+  onOpen: (file: ViewerFile) => void
+  onScroll: (top: number) => void
+  onQueryChange: (query: string) => void
+  onSortChange: (sort: BrowseSort) => void
+  onNewTerminal: (directory: string) => void
+  onPreviewToggle: () => void
+  onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry) => void
+  onRename?: (entry: BrowseEntry) => void
+  onCopy?: (entry: BrowseEntry) => void
+  onDelete?: (entry: BrowseEntry) => void
+  onRefresh?: () => void
+}

@@ -1905,7 +1905,7 @@ async function comicScenario(fixtures) {
 
     await win.keyboard.press('ArrowRight')
     await sleep(400)
-    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Right turns the page')
+    ok((await shown()) === 'page2.png', 'Right turns the page')
     ok((await shown()) === 'page2.png', `to page2, not page10 (${await shown()})`)
 
     await win.keyboard.press('ArrowRight')
@@ -1915,11 +1915,13 @@ async function comicScenario(fixtures) {
     // The end is the end: Right again stays put rather than wrapping.
     await win.keyboard.press('ArrowRight')
     await sleep(300)
-    ok((await win.locator('text=Page 3 of 3').count()) === 1, 'the last page is the last page')
+    ok((await shown()) === 'page10.png', 'the last page is the last page')
 
     await win.keyboard.press('ArrowLeft')
-    await sleep(400)
-    ok((await win.locator('text=Page 2 of 3').count()) === 1, 'Left goes back')
+    // The page counter auto-hides on its own clock. Assert the image being
+    // shown, which is the navigation result even after the chrome has faded.
+    await win.waitForFunction(() => document.querySelector('img[alt]')?.getAttribute('alt') === 'page2.png', null, { timeout: 5000 })
+    ok((await shown()) === 'page2.png', 'Left goes back')
 
     // UP AND DOWN are the folder now (2026-09-01): Left and Right belong to the
     // book, and Ctrl no longer buys the folder back because App does not handle
@@ -2946,7 +2948,12 @@ async function handoffOverTermScenario(fixtures) {
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     await sleep(1500)
-    // A file IN the tab's root: that is the one case that folds now.
+    const shellTabIndex = (await win.locator('[role="tab"]').count()) - 1
+    await win.keyboard.type('echo handoff-shell-survives')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('handoff-shell-survives'))
+    // The terminal has its own top-level tab. The original file tab receives
+    // the arriving file, while the shell remains intact in its separate tab.
     await handoff(join(fixtures, 'notes.txt'))
     await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
     ok(true, 'a file arriving from Explorer hides the full terminal')
@@ -2958,11 +2965,11 @@ async function handoffOverTermScenario(fixtures) {
       { timeout: 8000 }
     )
     ok(true, 'and the tree marks it')
-    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === 1, 'in the same tab: the root already held it')
-    // The shell is hidden, not gone: Ctrl+` brings it straight back.
-    await win.keyboard.press('Control+`')
+    ok((await win.locator('[role="tablist"] [role="tab"]').count()) === 2, 'the original file tab is reused beside the separate terminal tab')
+    ok((await win.locator('[role="tab"]').first().getAttribute('aria-selected')) === 'true', 'the arriving file activates its original tab')
+    await win.locator('[role="tab"]').nth(shellTabIndex).click()
     await win.waitForSelector('.xterm', { timeout: 8000 })
-    ok(true, 'the shell was hidden, not killed')
+    ok((await win.locator('.xterm').textContent())?.includes('handoff-shell-survives'), 'the original shell and its scrollback survive the handoff')
   } finally {
     await app.close()
   }
@@ -3355,7 +3362,7 @@ async function termCwdScenario(fixtures) {
       },
       folder
     )
-  const tabText = () => win.locator('[role="tab"]').first().textContent()
+  const tabText = () => win.locator('[role="tab"][aria-selected="true"]').textContent()
   const typeLine = async (s) => {
     await win.keyboard.type(s)
     await win.keyboard.press('Enter')
@@ -3390,26 +3397,20 @@ async function termCwdScenario(fixtures) {
     )
     ok(true, 'a second cd walks the mark one level down')
 
-    // The other direction: the tab reroots (a folder row dropped on the
-    // viewer is the dialog-less way to do what the folder button does) and
-    // the TOUCHED shell follows by one Set-Location, because it is idle at a
-    // prompt with nothing typed and hosts no agent.
-    await win.keyboard.press('Control+`') // from inside: hides the terminal
-    await sleep(500)
-    const viewer = await win.locator('[data-pane="live"], body').first().boundingBox()
-    await win
-      .locator('aside [role="treeitem"]:has-text("nested")')
-      .first()
-      .dragTo(win.locator('body'), { targetPosition: { x: viewer.width - 220, y: viewer.height / 2 } })
-    await win.waitForFunction(
-      () => /nested/i.test(document.querySelector('[role="tab"]')?.textContent ?? ''),
-      null,
-      { timeout: 10000 }
-    )
-    ok(true, `a folder dropped on the viewer reroots the tab (${await tabText()})`)
-    await win.keyboard.press('Control+`')
+    // Browsing now owns a separate location. Only the explicit idle-shell
+    // action writes Set-Location; neither browsing nor a cwd report reroots it.
+    await win.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await win.getByRole('button', { name: 'Edit folder path', exact: true }).click()
+    await win.getByRole('textbox', { name: 'Folder path', exact: true }).fill(join(root, 'nested'))
+    await win.getByRole('textbox', { name: 'Folder path', exact: true }).press('Enter')
+    await win.waitForFunction((path) => document.querySelector('nav[aria-label="Folder path"]')?.getAttribute('title') === path, join(root, 'nested'))
+    await win.getByRole('button', { name: 'Return to terminal', exact: true }).click()
     await win.waitForSelector('.xterm', { timeout: 10000 })
     const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+    ok(/level-two>\s*$/.test((await termText()).trimEnd()), 'browsing a different folder leaves the used shell in place')
+    await win.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await win.getByRole('button', { name: 'Use folder in terminal', exact: true }).click()
+    await win.getByRole('button', { name: 'Return to terminal', exact: true }).click()
     const deadline = Date.now() + 10000
     let moved = false
     while (Date.now() < deadline && !moved) {
@@ -3420,23 +3421,23 @@ async function termCwdScenario(fixtures) {
     await sleep(800)
     ok(
       /nested>\s*$/.test((await termText()).trimEnd()),
-      'and its prompt now sits in the new root'
+      'and its prompt now sits in the deliberately chosen folder'
     )
     await win.locator('.xterm').click()
 
-    // Past the wall: the tab reroots to where the shell went.
+    // Past the project root: the shell moves while browsing and identity stay put.
     await typeLine(`cd '${OTHER_ROOT}'`)
     await win.waitForFunction(
-      () => (document.querySelector('[role="tab"]')?.textContent ?? '').includes('other'),
-      null,
+      (path) => (document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd().endsWith(path + '>'),
+      OTHER_ROOT,
       { timeout: 10000 }
     )
-    ok(true, `cd outside the root reroots the tab (${await tabText()})`)
+    ok((await tabText()).includes('code'), `cd outside keeps the session's project label (${await tabText()})`)
     ok(
-      await win.evaluate(() => [...document.querySelectorAll('[role="treeitem"]')].every((e) => /\\other\\/i.test(e.getAttribute('data-row') ?? ''))),
-      'and the tree is the new root'
+      await win.evaluate((path) => [...document.querySelectorAll('[role="treeitem"]')].every((e) => (e.getAttribute('data-row') ?? '').toLowerCase().startsWith(path.toLowerCase() + '\\')), root),
+      'and the project tree retains its root'
     )
-    ok((await win.locator('.xterm').count()) === 1, 'the shell survived the reroot')
+    ok((await win.locator('.xterm').count()) === 1, 'the shell survives moving outside the project')
   } finally {
     await app.close()
   }
@@ -3477,11 +3478,10 @@ async function termCwdScenario(fixtures) {
   await sleep(900)
   ;({ app, win } = await launch(join(root, 'bad.json'), true))
   try {
-    // The launch hands a FILE over, and a file arriving means "show me this
-    // file" (2026-09-04) - it hides the shell it lands over. The shell is
-    // spawned all the same; this only brings the panel back on screen.
-    await win.waitForSelector('aside [aria-label="Terminal"]', { timeout: 15000 })
-    await win.locator('aside [aria-label="Terminal"]').click()
+    // The file handoff activates its original viewer tab. The restored shell
+    // is the other top-level tab, so pick it without creating another shell.
+    await win.waitForSelector('[role="tab"]', { timeout: 15000 })
+    await win.locator('[role="tab"]').last().click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     const deadline = Date.now() + 20000
     let back = false
@@ -3491,7 +3491,7 @@ async function termCwdScenario(fixtures) {
     }
     ok(back, `the restored shell stands in the folder it was left in${back ? '' : ` (saw: ...${(await promptText()).trimEnd().slice(-200)})`}`)
     ok(
-      /(^|\W)code(\W|$)/i.test((await win.locator('[role="tab"]').first().textContent()) ?? ''),
+      /(^|\W)code(\W|$)/i.test((await win.locator('[role="tab"][aria-selected="true"]').textContent()) ?? ''),
       'and the tab is still rooted where it was, not moved down with the shell'
     )
   } finally {
@@ -3511,7 +3511,7 @@ async function agentTitleScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   // The indicator attributes sit on the tab's WRAPPER, the button's parent.
   const attr = (name) =>
-    win.evaluate((n) => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute(n) ?? null, name)
+    win.evaluate((n) => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute(n) ?? null, name)
   const state = () => attr('data-agent-state')
   const say = async (glyph, text) => {
     // The title API, not a raw [Console]::Write: that one re-encodes the
@@ -3536,7 +3536,7 @@ async function agentTitleScenario(fixtures) {
 
     const t1 = await say('25D0', 'Claude Code') // ◐
     await win.waitForFunction(
-      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
+      () => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') === 'working',
       null,
       { timeout: 5000 }
     )
@@ -3547,7 +3547,7 @@ async function agentTitleScenario(fixtures) {
     await sleep(300)
     const t2 = await say('2733', 'Session greeting') // ✳
     await win.waitForFunction(
-      () => document.querySelector('[role="tablist"] [role="tab"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
+      () => document.querySelector('[role="tablist"] [role="tab"][aria-selected="true"]')?.parentElement?.getAttribute('data-agent-state') !== 'working',
       null,
       { timeout: 5000 }
     )
@@ -3764,22 +3764,22 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'RightArrow accepts the suggestion and it runs')
 
-    // Tab-management hotkeys pierce a focused shell: Ctrl+T spawns a tab from
-    // inside the terminal, Ctrl+Tab cycles back to this one.
+    // The original viewer and the terminal each own a top-level tab. Ctrl+T
+    // adds another from inside the shell, and reverse cycling returns here.
     await win.locator('.xterm').click()
+    const tabsBeforeNew = await win.locator('[role="tablist"] [role="tab"]').count()
     await win.keyboard.press('Control+t')
     await sleep(700)
     ok(
-      (await win.locator('[role="tablist"] [role="tab"]').count()) === 2,
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBeforeNew + 1,
       'Ctrl+T works while the terminal is focused'
     )
-    await win.keyboard.press('Control+Tab')
+    await win.keyboard.press('Control+Shift+Tab')
     await sleep(400)
     await win.locator('[role="tablist"] [aria-label^="Close"]').last().click()
     await sleep(500)
     ok(
-      (await win.locator('[role="tablist"]').count()) === 0 ||
-        (await win.locator('[role="tablist"] [role="tab"]').count()) === 1,
+      (await win.locator('[role="tablist"] [role="tab"]').count()) === tabsBeforeNew,
       'and the spawned tab closes again'
     )
     await win.locator('.xterm').click()
@@ -4104,41 +4104,30 @@ async function terminalScenario(fixtures) {
     await win.waitForSelector('.xterm', { timeout: 15000 })
     ok(true, 'and the next Ctrl+` opens a fresh one')
 
-    // SEVERAL TERMINALS (owner, 2026-09-03): a second shell, the list to pick
-    // from, one pinned as a pane beside the other, and a close submenu.
+    // NEW TERMINALS are top-level tabs now. The earlier shell keeps its
+    // identity and work, and closing the new shell cannot close that one.
     const termBtn = () => win.locator('aside [aria-label="Terminal"]')
+    const beforeSeparate = await win.locator('[role="tab"]').count()
+    await win.keyboard.type('echo separate-terminal-survives')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('separate-terminal-survives'))
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     await win.locator('[role="menuitem"]:has-text("Open new terminal")').click()
     await sleep(1500)
     ok((await win.locator('.xterm').count()) === 1, 'a new terminal takes the full view alone')
+    ok((await win.locator('[role="tab"]').count()) === beforeSeparate + 1, 'the new terminal adds a top-level tab')
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
-      (await win.locator('[role="menuitem"]:has-text("Terminal 1")').count()) === 1 &&
-        (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 1,
-      'the menu lists both terminals'
+      (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 0,
+      'the new shell is not hidden in a nested session picker'
     )
-    await win.hover('[role="menuitem"]:has-text("Open in split view")')
-    await sleep(400)
-    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
-    await sleep(1800)
-    ok(
-      (await win.locator('[data-pane="pinned"] .xterm').count()) === 1 &&
-        (await win.locator('.xterm').count()) === 2,
-      'the other terminal is pinned as a pane beside the current one'
-    )
-    // ...and TERMINALS ONLY (owner, 2026-09-03): a split built from a full
-    // terminal draws no file pane - the old split does not come back.
-    ok((await win.locator('[data-pane="live"]').count()) === 0, 'with no file pane drawn beside them')
-    await termBtn().click({ button: 'right' })
-    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    await win.hover('[role="menuitem"]:has-text("Close terminal")')
-    await sleep(400)
-    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
-    for (let i = 0; i < 30 && (await win.locator('[data-pane="pinned"]').count()) > 0; i++) await sleep(100)
-    ok((await win.locator('[data-pane="pinned"]').count()) === 0, 'closing the pinned shell removes its pane')
-    ok((await win.locator('.xterm').count()) === 1, 'and the other one carries on')
+    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
+    await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
+    await win.locator('[role="tab"]').nth(beforeSeparate - 1).click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    ok((await win.locator('.xterm').textContent())?.includes('separate-terminal-survives'), 'closing the new terminal preserves the original shell and scrollback')
   } finally {
     await app.close()
   }
@@ -4609,7 +4598,11 @@ async function searchQueryScenario(fixtures) {
     const box = win.locator('input[aria-label="Search files"]')
     const names = async (q) => {
       await box.fill(q)
-      await sleep(700)
+      await win.waitForFunction(() => {
+        const sidebar = document.querySelector('aside[aria-hidden="false"]')
+        return !!sidebar && !sidebar.textContent.includes('searching…') &&
+          (!!sidebar.querySelector('[aria-label="Search results"]') || sidebar.textContent.includes('nothing matches'))
+      }, null, { timeout: 15000 })
       return win.evaluate(() =>
         [...document.querySelectorAll('[data-search-hit], [role="option"], [role="treeitem"]')]
           .map((e) => e.textContent.trim())
@@ -6234,10 +6227,15 @@ async function phoneTabsScenario(fixtures) {
     // And back, without a code anywhere in it.
     await page.click('[data-phone-tab]')
     await page.waitForSelector('[data-phone-sheet]', { timeout: 5000 })
+    // Each drawer opening fetches its rows afresh. Reading before that answer
+    // arrives gives [], and nth(-1) silently picks the current last tab.
+    await page.waitForFunction(() => document.querySelectorAll('[data-phone-tab-row]').length === 2, null, { timeout: 10000 })
     const back = await page.locator('[data-phone-tab-row]').allTextContents()
+    const fixtureIndex = back.findIndex((t) => /fixtures/i.test(t))
+    if (fixtureIndex < 0) throw new Error(`Fixture root is absent from the phone drawer: ${back.join(' | ')}`)
     await page
       .locator('[data-phone-tab-row]')
-      .nth(back.findIndex((t) => /fixtures/i.test(t)))
+      .nth(fixtureIndex)
       .click()
     await page.waitForSelector('[data-phone-file]:has-text("README.md")', { timeout: 10000 })
     ok(true, 'and back again, with no code scanned either way')

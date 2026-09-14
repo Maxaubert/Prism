@@ -17,11 +17,27 @@ const folder = (name: string): string => {
 }
 
 describe('parseTabs', () => {
+  it('keeps the first saved ID and regenerates duplicate owners on restore', () => {
+    const root = folder('project')
+    const parsed = parseTabs(
+      JSON.stringify({
+        tabs: [
+          { id: 'same', root },
+          { id: 'same', root }
+        ],
+        active: 1
+      })
+    )
+    expect(parsed).toEqual({ tabs: [{ id: 'same', root }, { root }], active: 1 })
+  })
   it('keeps roots that still exist, in order', () => {
     const a = folder('shoot')
     const b = folder('docs')
     const saved: SavedTabs = { tabs: [{ root: a }, { root: b }], active: 1 }
-    expect(parseTabs(JSON.stringify(saved))).toEqual({ tabs: [{ root: a }, { root: b }], active: 1 })
+    expect(parseTabs(JSON.stringify(saved))).toEqual({
+      tabs: [{ root: a }, { root: b }],
+      active: 1
+    })
   })
 
   it('carries the terminal view, and only sane values of it', () => {
@@ -29,7 +45,11 @@ describe('parseTabs', () => {
     const b = folder('docs')
     const c = folder('code')
     const saved = {
-      tabs: [{ root: a, term: 'full' }, { root: b, term: 'split' }, { root: c, term: 'sideways' }],
+      tabs: [
+        { root: a, term: 'full' },
+        { root: b, term: 'split' },
+        { root: c, term: 'sideways' }
+      ],
       active: 0
     }
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([
@@ -41,7 +61,10 @@ describe('parseTabs', () => {
 
   it('drops a root that is gone, without a word', () => {
     const a = folder('shoot')
-    const saved: SavedTabs = { tabs: [{ root: a }, { root: join(box, 'deleted-last-week') }], active: 0 }
+    const saved: SavedTabs = {
+      tabs: [{ root: a }, { root: join(box, 'deleted-last-week') }],
+      active: 0
+    }
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
   })
 
@@ -49,9 +72,9 @@ describe('parseTabs', () => {
     const a = folder('shoot')
     const f = join(box, 'notes.txt')
     writeFileSync(f, 'x')
-    expect(parseTabs(JSON.stringify({ tabs: [{ root: a }, { root: f }], active: 0 })).tabs).toEqual([
-      { root: a }
-    ])
+    expect(parseTabs(JSON.stringify({ tabs: [{ root: a }, { root: f }], active: 0 })).tabs).toEqual(
+      [{ root: a }]
+    )
   })
 
   it('pulls the active index back when the tab it named was dropped', () => {
@@ -89,7 +112,7 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved)).tabs).toEqual([{ root: a }])
   })
 
-  it("reads the old boolean agent flag as claude, and codex as itself", () => {
+  it('reads the old boolean agent flag as claude, and codex as itself', () => {
     const a = folder('agents')
     const saved = {
       tabs: [
@@ -120,7 +143,7 @@ describe('parseTabs', () => {
     expect(parseTabs(JSON.stringify(saved)).tabs[0]?.cwd).toBe(sub)
   })
 
-  it('drops a shell folder that is gone, outside the root, or has no terminal', () => {
+  it('keeps an outside shell folder, but drops one that is gone or has no terminal', () => {
     const a = folder('project')
     const away = folder('elsewhere')
     const saved = {
@@ -133,7 +156,7 @@ describe('parseTabs', () => {
     }
     expect(parseTabs(JSON.stringify(saved)).tabs.map((t) => t.cwd)).toEqual([
       undefined,
-      undefined,
+      away,
       undefined
     ])
   })
@@ -155,7 +178,10 @@ describe('parseTabs', () => {
     const f = join(box, 'now-a-file')
     writeFileSync(f, 'x')
     // active names a root that no longer restores; a twin of it survives at 1
-    const saved: SavedTabs = { tabs: [{ root: join(box, 'gone') }, { root: a }, { root: f }], active: 2 }
+    const saved: SavedTabs = {
+      tabs: [{ root: join(box, 'gone') }, { root: a }, { root: f }],
+      active: 2
+    }
     expect(parseTabs(JSON.stringify(saved)).active).toBe(0)
   })
 

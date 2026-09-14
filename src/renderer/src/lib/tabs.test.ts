@@ -17,9 +17,14 @@ import {
   reorderTabs,
   tabLabels,
   toggleTermView,
-  type Tab
-, addTerm, pickTerm, removeTerm, termLabel} from './tabs'
+  type Tab,
+  addTerm,
+  pickTerm,
+  removeTerm,
+  termLabel
+} from './tabs'
 import { pinTermPane } from './panes'
+import { newBrowse } from './browse'
 
 const f = (path: string): ViewerFile => ({
   path,
@@ -71,7 +76,9 @@ describe('receiveFile', () => {
     const drive = tabOf('X:' + BS, ['X:' + BS + 'a.jpg'])
     const r = receiveFile(
       [drive],
-      payload('X:' + BS + 'Comics' + BS + 'Artbooks', ['X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg']),
+      payload('X:' + BS + 'Comics' + BS + 'Artbooks', [
+        'X:' + BS + 'Comics' + BS + 'Artbooks' + BS + 'p.jpg'
+      ]),
       'new'
     )
     expect(r.tabs).toHaveLength(2)
@@ -93,7 +100,9 @@ describe('receiveFile', () => {
     expect(same.activeId).toBe(comics.id)
     const deeper = receiveFile(
       [drive, comics],
-      payload('X:' + BS + 'Comics' + BS + 'Art', ['X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg']),
+      payload('X:' + BS + 'Comics' + BS + 'Art', [
+        'X:' + BS + 'Comics' + BS + 'Art' + BS + 'p.jpg'
+      ]),
       'new'
     )
     expect(deeper.tabs).toHaveLength(3)
@@ -376,6 +385,7 @@ describe('the gear', () => {
     id,
     kind: 'settings',
     root: '',
+    browse: newBrowse(''),
     files: [],
     index: -1,
     tree: { expanded: new Set<string>(), children: {} },
@@ -473,6 +483,7 @@ describe('a tab holds several terminals (2026-09-03)', () => {
   const tab = (): Tab => ({
     id: 't1',
     root: 'C:\\x',
+    browse: newBrowse('C:\\x'),
     files: [],
     index: -1,
     tree: { expanded: new Set(['C:\\x']), children: {} },
@@ -502,7 +513,12 @@ describe('a tab holds several terminals (2026-09-03)', () => {
   })
 
   it('removing the current shell hands over to the most recent survivor; the last leaves null', () => {
-    let tabs = addTerm(addTerm(addTerm([tab()], 't1', 'a', 'full'), 't1', 'b', 'full'), 't1', 'c', 'full')
+    let tabs = addTerm(
+      addTerm(addTerm([tab()], 't1', 'a', 'full'), 't1', 'b', 'full'),
+      't1',
+      'c',
+      'full'
+    )
     tabs = removeTerm(tabs, 't1', 'c')
     expect(tabs[0].terms).toEqual(['a', 'b'])
     expect(tabs[0].term).toEqual({ id: 'b', view: 'full' })

@@ -1,3 +1,4 @@
+import type { BrowseDirectory, BrowseShortcut, SavedBrowse, SavedPane } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type {
   ArchiveListing,
@@ -24,6 +25,12 @@ import type {
 // `mediaUrl` + the open payload, nothing app-specific.
 
 const api = {
+  browseDirectory: (tabId: string, path: string): Promise<BrowseDirectory | null> =>
+    ipcRenderer.invoke('browse:directory', tabId, path),
+  browseWatch: (tabId: string, path: string | null): Promise<boolean> =>
+    ipcRenderer.invoke('browse:watch', tabId, path),
+  browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke('browse:locations'),
+  browseRelease: (tabId: string): void => ipcRenderer.send('browse:release', tabId),
   /**
    * What this host can do (#106). The viewers serve two hosts, the desktop
    * app and the phone page, and the phone's bridge (`phone/prismShim.ts`)
@@ -65,8 +72,11 @@ const api = {
   tabsChanged: (
     tabs: Array<{
       root: string
+      id?: string
+      browse?: SavedBrowse
+      panes?: SavedPane[]
       file?: string
-      term?: 'full' | 'split'
+      term?: 'full' | 'split' | 'hidden'
       terms?: number
       /** The folder that shell was standing in, when it is not the root. */
       cwd?: string
@@ -87,7 +97,8 @@ const api = {
    *  the audio track, subtitle track and aspect ratio picked for it. A patch
    *  merges; null clears a field. */
   memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke('pos:get', path),
-  memorySet: (path: string, patch: FileMemoryPatch): void => ipcRenderer.send('pos:set', path, patch),
+  memorySet: (path: string, patch: FileMemoryPatch): void =>
+    ipcRenderer.send('pos:set', path, patch),
   // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.
@@ -574,8 +585,7 @@ const api = {
   /** A fullscreen transition is starting or has finished. While one is in
    *  flight the window is held OPAQUE: a translucent window has nothing behind
    *  it, so the frame where it has resized but not repainted shows the desktop. */
-  setFsTransition: (active: boolean): void =>
-    ipcRenderer.send('window:fs-transition', active),
+  setFsTransition: (active: boolean): void => ipcRenderer.send('window:fs-transition', active),
   /** Raise or fade out the display-covering black shroud. The in-window veil
    *  cannot touch the taskbar or the desktop around the window; the shroud
    *  fades them on the same clock. */

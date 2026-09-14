@@ -1,0 +1,170 @@
+import { useMemo, useRef, type JSX } from 'react'
+import { formatBytes } from '../../lib/format'
+import { BrowseIcon } from './BrowseIcon'
+import { BrowseList } from './BrowseList'
+import { BrowsePlaces } from './BrowsePlaces'
+import { BrowseToolbar } from './BrowseToolbar'
+import { browseEntries } from './entries'
+import type { BrowseEntry, FolderBrowserProps } from './types'
+import './browse.css'
+
+export type { BrowseEntry, BrowsePlace, BrowseSort, FolderBrowserProps } from './types'
+
+/** The accepted folder layout extends Prism's own continuous canvas and file rows.
+ * Location, history and selection belong to the tab; this surface owns no session.
+ * The preview slot can be empty when App positions its existing mounted viewer over it.
+ */
+export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
+  const shell = useRef<HTMLDivElement>(null)
+  const entries = useMemo(
+    () => browseEntries(props.listing, props.query, props.sort),
+    [props.listing, props.query, props.sort]
+  )
+  const selected = entries.find((entry) => entry.path === props.selectedPath)
+  const activate = (entry: BrowseEntry): void => {
+    if (entry.isFolder) props.onNavigate(entry.path)
+    else if (entry.file) props.onOpen(entry.file)
+  }
+  const message = props.loading
+    ? 'Loading folder…'
+    : props.error ||
+      (props.listing?.unreadable
+        ? 'This folder could not be read. Try another location.'
+        : !entries.length
+          ? props.query.trim()
+            ? 'No matching items in this folder.'
+            : 'This folder is empty.'
+          : null)
+
+  return (
+    <div
+      ref={shell}
+      className="folder-browser"
+      data-preview={props.previewVisible || undefined}
+      data-testid="folder-browser"
+      onKeyDown={(e) => {
+        const typing = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')
+        if (e.key === 'F5' && props.onRefresh) {
+          e.preventDefault()
+          e.stopPropagation()
+          props.onRefresh()
+        } else if (!typing && selected && e.key === 'Delete' && props.onDelete) {
+          e.preventDefault()
+          e.stopPropagation()
+          props.onDelete(selected)
+        } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
+          e.preventDefault()
+          e.stopPropagation()
+          shell.current
+            ?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')
+            ?.click()
+        } else if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
+          if (e.key === 'ArrowRight' && props.canForward) props.onForward()
+          if (e.key === 'ArrowUp') props.onUp()
+        } else if (!typing && selected && e.key === 'F2' && props.onRename) {
+          e.preventDefault()
+          e.stopPropagation()
+          props.onRename(selected)
+        } else if (
+          !typing &&
+          selected &&
+          e.ctrlKey &&
+          e.key.toLowerCase() === 'c' &&
+          props.onCopy
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          props.onCopy(selected)
+        }
+      }}
+    >
+      <BrowseToolbar {...props} />
+      <BrowsePlaces
+        places={props.places}
+        directory={props.directory}
+        onNavigate={props.onNavigate}
+        onNewTerminal={props.onNewTerminal}
+      />
+      <div className="browse-actions" aria-label="File actions">
+        <button
+          disabled={!selected || props.loading}
+          onClick={() => {
+            if (selected) activate(selected)
+          }}
+        >
+          <BrowseIcon name="open" />
+          <span>Open</span>
+        </button>
+        {props.onCopy && (
+          <button
+            disabled={!selected || props.loading}
+            onClick={() => {
+              if (selected) props.onCopy?.(selected)
+            }}
+          >
+            <BrowseIcon name="copy" />
+            <span>Copy</span>
+          </button>
+        )}
+        {props.onRename && (
+          <button
+            disabled={!selected || props.loading}
+            onClick={() => {
+              if (selected) props.onRename?.(selected)
+            }}
+          >
+            <BrowseIcon name="rename" />
+            <span>Rename</span>
+          </button>
+        )}
+        {props.onContextMenu && (
+          <button
+            className="browse-icon-button"
+            aria-label="More file actions"
+            title="More file actions"
+            disabled={!selected || props.loading}
+            onClick={(e) => {
+              if (selected) props.onContextMenu?.(e, selected)
+            }}
+          >
+            <BrowseIcon name="more" />
+          </button>
+        )}
+        <div className="browse-terminal-controls">{props.terminalControls}</div>
+        <button
+          className="browse-icon-button"
+          aria-label="Preview pane"
+          title="Preview pane"
+          aria-pressed={props.previewVisible}
+          onClick={props.onPreviewToggle}
+        >
+          <BrowseIcon name="preview" />
+        </button>
+      </div>
+      <BrowseList
+        {...props}
+        entries={props.loading ? [] : entries}
+        onActivate={activate}
+        message={message}
+      />
+      {props.previewVisible && (
+        <aside className="browse-preview-slot" aria-label="File preview">
+          {props.preview}
+        </aside>
+      )}
+      <div className="browse-status" role="status">
+        <span>
+          {props.loading
+            ? 'Loading…'
+            : `${entries.length} ${entries.length === 1 ? 'item' : 'items'}`}
+        </span>
+        {selected && (
+          <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+        )}
+      </div>
+    </div>
+  )
+}

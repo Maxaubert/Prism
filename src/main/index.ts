@@ -29,15 +29,15 @@ import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } fr
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
 import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
+import { addRoot, dropRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
 import {
-  addRoot,
-  dropRoot,
-  insideAnyRoot,
-  isAnyRoot,
-  onRootsChanged,
-  openRoots,
-  validRoot
-} from './roots'
+  extendDesktopDirectories,
+  grantDesktopDirectory,
+  insideDesktop,
+  releaseDesktop,
+  validDesktopRoot
+} from './desktopAccess'
+import { browseDirectory, browseLocations, browseWatch } from './browse'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -430,7 +430,7 @@ function underDir(dir: string, p: string): boolean {
 
 function mediaAllowed(p: string): boolean {
   return (
-    insideAnyRoot(p) ||
+    insideDesktop(p) ||
     extractedPaths.has(p) ||
     servable.has(p) ||
     underDir(RENDERER_DIR, p) ||
@@ -651,14 +651,6 @@ const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
  * claude's (every non-alphanumeric character becomes a dash). Null when the
  * folder has no sessions - then nothing is resumed.
  */
-/** Is `p` the folder `root` or inside it? Restore uses this to keep a saved
- *  root rather than letting the file's own folder become one. */
-function insideRootPath(root: string, p: string): boolean {
-  const a = resolve(root).toLowerCase()
-  const b = resolve(p).toLowerCase()
-  return b === a || b.startsWith(a.endsWith(sep) ? a : a + sep)
-}
-
 /** The marker that means "codex, continue this folder's newest session". Not
  *  an id: codex finds it itself. */
 const CODEX_RESUME = 'codex:last'
@@ -693,10 +685,17 @@ async function restoreTabs(): Promise<OpenPayload[]> {
     // the payload was rebuilt from the file alone and root followed it. The
     // wall has to be registered here, since buildPayload only does that when
     // it is inventing the root itself.
-    const keptRoot =
-      t.file && existsSync(t.root) && insideRootPath(t.root, t.file) ? t.root : undefined
-    if (keptRoot) addRoot(keptRoot)
-    const payload = t.file ? await buildPayload(t.file, keptRoot) : await folderPayload(t.root)
+    const restoreTabId = t.id ?? `restored-${i}-${Date.now()}`
+    addRoot(t.root)
+    for (const pane of t.panes ?? [])
+      if (pane.termSlot === undefined) grantDesktopDirectory(restoreTabId, dirname(pane.path))
+    if (t.file) grantDesktopDirectory(restoreTabId, dirname(t.file))
+    if (t.cwd) grantDesktopDirectory(restoreTabId, t.cwd)
+    for (const path of t.open ?? []) grantDesktopDirectory(restoreTabId, path)
+    for (const location of t.browse?.history ?? [])
+      grantDesktopDirectory(restoreTabId, location.path)
+    if (t.browse) grantDesktopDirectory(restoreTabId, t.browse.path)
+    const payload = t.file ? await buildPayload(t.file, t.root) : await folderPayload(t.root)
     if (payload) {
       // A claude session resumes by ID - a session claude itself recorded for
       // this folder. No session on disk means no resume at all: never a bare
@@ -728,6 +727,9 @@ async function restoreTabs(): Promise<OpenPayload[]> {
       out.push({
         ...payload,
         restore: true,
+        restoreTabId,
+        ...(t.browse ? { browse: t.browse } : {}),
+        ...(t.panes ? { panes: t.panes } : {}),
         ...(i === saved.active ? { restoreActive: true } : {}),
         ...(t.term ? { term: t.term } : {}),
         ...(t.term && t.cwd ? { termCwd: t.cwd } : {}),
@@ -1049,7 +1051,7 @@ const verbOffMarker = (): string => join(app.getPath('userData'), 'shell-verb-of
  * is the price of there having been no record to migrate.
  */
 async function reconcileVerb(): Promise<void> {
-  if (!app.isPackaged || E2E) return
+  if (!app.isPackaged || E2E || process.argv.includes('--preview')) return
   try {
     const fs = await import('fs/promises')
     const saidNo = !!(await fs.stat(verbOffMarker()).catch(() => null))
@@ -1332,7 +1334,7 @@ if (!app.requestSingleInstanceLock()) {
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
-        allowed: (p) => insideAnyRoot(p) || extractedPaths.has(p),
+        allowed: (p) => insideDesktop(p) || extractedPaths.has(p),
         packaged: app.isPackaged,
         resourcesPath: process.resourcesPath,
         appPath: app.getAppPath()
@@ -1408,7 +1410,9 @@ if (!app.requestSingleInstanceLock()) {
     // The phone grid's pictures (#135), made once and cached under userData.
     // Its ffmpegs register with the holders (#133), so a move of the file wins.
     const thumbs = hlsTools
-      ? new Thumbs(hlsTools.ffmpeg, join(app.getPath('userData'), 'thumbs'), (c, f) => holders.add(c, f))
+      ? new Thumbs(hlsTools.ffmpeg, join(app.getPath('userData'), 'thumbs'), (c, f) =>
+          holders.add(c, f)
+        )
       : null
     const hlsJobs = hlsTools
       ? new HlsJobs({ ffmpeg: hlsTools.ffmpeg, baseDir: HLS_DIR, log: logPhone })
@@ -1717,7 +1721,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'term:spawn',
       async (_e, id: string, root: string, shellId?: string, resume?: string) => {
-        if (!insideAnyRoot(root) && !isAnyRoot(root)) return false
+        if (!insideDesktop(root) && !isAnyRoot(root)) return false
         // The resume id came from main's own scan of ~/.claude/projects, but it
         // crossed the renderer on the way back - shape-check it again before it
         // goes anywhere near a command line.
@@ -1744,14 +1748,14 @@ if (!app.requestSingleInstanceLock()) {
     // a root, so it is inside the wall by construction; main composes the
     // line, the renderer decided whether now was a safe moment to write it.
     ipcMain.on('term:cd', (_e, id: string, path: string) => {
-      if (isAnyRoot(path) || insideAnyRoot(path)) cdTerm(id, path)
+      if (isAnyRoot(path) || insideDesktop(path)) cdTerm(id, path)
     })
     ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
     ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
     // The renderer says which root is in front and shell-less; main starts
     // its shell ahead of the click. Best-effort, walled like term:spawn.
     ipcMain.on('term:prewarm', (_e, root: string, shellId?: string) => {
-      if (insideAnyRoot(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
+      if (insideDesktop(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
     })
 
     /**
@@ -1838,6 +1842,14 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
+    ipcMain.handle('browse:directory', (_e, tabId: string, path: string) =>
+      browseDirectory(tabId, path)
+    )
+    ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
+      browseWatch(tabId, path, (change) => mainWindow?.webContents.send('dir:changed', change))
+    )
+    ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    ipcMain.on('browse:release', (_e, tabId: string) => releaseDesktop(tabId))
     ipcMain.on('tabs:changed', (_e, state: SavedTabs) => saveTabs(state))
     // The renderer is the only thing that knows whether a media element is
     // actually playing, so it owns the answer and main just holds the block.
@@ -1858,26 +1870,36 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'open:within',
       async (_e, root: string, p: string): Promise<OpenPayload | null> =>
-        validRoot(root, p) ? await buildPayload(p, root) : null
+        validDesktopRoot(root, p) ? await buildPayload(p, root) : null
     )
-    ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> =>
-      validRoot(root, p) ? await listDir(p) : null
-    )
+    ipcMain.handle('dir:list', async (_e, root: string, p: string): Promise<DirListing | null> => {
+      if (!validDesktopRoot(root, p)) return null
+      const listing = await listDir(p)
+      if (!listing.unreadable) extendDesktopDirectories(root, [p])
+      return listing
+    })
     // The sidebar's search: that tab's whole root, bounded, never outside it.
-    ipcMain.handle('search:files', async (_e, root: string, query: string) =>
-      validRoot(root, root) ? await searchFiles(root, query) : { hits: [], truncated: false }
-    )
+    ipcMain.handle('search:files', async (_e, root: string, query: string) => {
+      if (!validDesktopRoot(root, root)) return { hits: [], truncated: false }
+      const result = await searchFiles(root, query)
+      extendDesktopDirectories(
+        root,
+        result.hits.map((hit) => dirname(hit.path))
+      )
+      return result
+    })
     // File operations. Inside the root only, and nothing is ever destroyed: an
     // overwritten or deleted file goes to the Recycle Bin.
     // The root itself is off limits: renaming or binning the folder the tree is
     // rooted in would pull the ground out from under the window.
-    const editable = (p: string): boolean => insideAnyRoot(p) && !isAnyRoot(p)
+    const editable = (p: string): boolean => insideDesktop(p) && !isAnyRoot(p)
 
     ipcMain.handle(
       'file:rename',
       async (_e, p: string, name: string, onClash: OnClash): Promise<RenameResult> => {
         ownWrite(p)
-        if (!editable(p)) return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
+        if (!editable(p))
+          return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
         await holders.release([p]) // a rename is refused for the same reason a move is (#127)
         const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
         // The file's memory follows it (#124): its place and its choices.
@@ -1908,7 +1930,7 @@ if (!app.requestSingleInstanceLock()) {
      * pretends to be the file, so nothing can save it back.
      */
     ipcMain.handle('file:tailBytes', async (_e, p: string, max: number) => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
       const want = Math.min(Math.max(64 * 1024, Number(max) || 0), TEXT_MAX_BYTES)
       return readTail(p, want)
     })
@@ -1916,7 +1938,7 @@ if (!app.requestSingleInstanceLock()) {
     /** Follow a file that is still being written: new bytes arrive on
      *  `file:appended` until `tail:stop`. One watch per path. */
     ipcMain.handle('tail:start', async (_e, p: string, from: number) => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return false
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return false
       return startTail(p, Number(from) || 0, (e) =>
         mainWindow?.webContents.send('file:appended', e)
       )
@@ -1928,13 +1950,14 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('file:text', async (_e, p: string): Promise<TextRead> => {
       // Extracted archive members live in temp, outside every root; each one
       // was granted individually when archive:extract wrote it.
-      if (!insideAnyRoot(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
+      if (!insideDesktop(p) && !extractedPaths.has(p)) return { error: 'unreadable' }
       const r = await readTextWalled(p)
       // A markdown document may point at pictures OUTSIDE the folder Prism
       // opened in ("../assets/logo.png" from a doc in docs/), which the
       // media wall would otherwise refuse. Main grants exactly the files
       // this document names, having read it (see docImages.ts).
-      if ('text' in r && isMarkdownPath(p)) for (const img of documentImages(p, r.text)) servable.add(img)
+      if ('text' in r && isMarkdownPath(p))
+        for (const img of documentImages(p, r.text)) servable.add(img)
       return r
     })
     // The editor's save. Text files only, in place, inside the root: this is
@@ -1953,7 +1976,7 @@ if (!app.requestSingleInstanceLock()) {
      */
     ipcMain.handle('file:write', async (_e, p: string, text: string): Promise<WriteResult> => {
       ownWrite(p)
-      if (!insideAnyRoot(p)) return { ok: false, reason: 'refused' }
+      if (!insideDesktop(p)) return { ok: false, reason: 'refused' }
       if (fileKind(extname(p).toLowerCase(), basename(p)) !== 'text')
         return { ok: false, reason: 'refused' }
       if (!existsSync(dirname(p))) return { ok: false, reason: 'gone' }
@@ -1988,7 +2011,7 @@ if (!app.requestSingleInstanceLock()) {
      * error.
      */
     ipcMain.handle('image:photo-info', async (_e, p: string): Promise<PhotoInfo> => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return {}
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return {}
       return photoInfo(p)
     })
 
@@ -1997,7 +2020,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'file:stat',
       (_e, p: string): { size: number; mtimeMs: number; isFolder: boolean } | null => {
-        if (!insideAnyRoot(p)) return null
+        if (!insideDesktop(p)) return null
         try {
           const st = statSync(p)
           return { size: st.size, mtimeMs: st.mtimeMs, isFolder: st.isDirectory() }
@@ -2011,9 +2034,15 @@ if (!app.requestSingleInstanceLock()) {
 
     // Sidecar tracks for a video (same name, same folder or Subs/), and their
     // text as WebVTT. Same wall as everything else: inside the root only.
-    ipcMain.handle('subs:for', (_e, p: string): SubTrack[] =>
-      insideAnyRoot(p) ? sidecarsFor(p) : []
-    )
+    ipcMain.handle('subs:for', (_e, p: string): SubTrack[] => {
+      if (!insideDesktop(p)) return []
+      const tracks = sidecarsFor(p)
+      extendDesktopDirectories(
+        dirname(p),
+        tracks.map((track) => dirname(track.path))
+      )
+      return tracks
+    })
     /**
      * A subtitle file the user points at (2026-08-27), for the tracks the
      * name-matching cannot find: a differently named .srt, or one kept
@@ -2037,7 +2066,7 @@ if (!app.requestSingleInstanceLock()) {
       return { path: p, label: basename(p) }
     })
     ipcMain.handle('subs:read', async (_e, p: string): Promise<string | null> =>
-      insideAnyRoot(p) || pickedSubs.has(p)
+      insideDesktop(p) || pickedSubs.has(p)
         ? readAsVtt(p, findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())?.ffmpeg)
         : null
     )
@@ -2057,7 +2086,7 @@ if (!app.requestSingleInstanceLock()) {
      * - took 7.4GB on a 2GB film and threw at the end of it.
      */
     ipcMain.handle('media:peaks', async (_e, p: string): Promise<number[] | null> => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
       // Known already: no ffprobe, no ffmpeg, no wait.
       const known = cachedPeaks(p)
       if (known) return known
@@ -2070,7 +2099,7 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('media:probe', async (_e, p: string): Promise<MediaProbe> => {
       const none: MediaProbe = { ffmpeg: false, needed: false }
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return none
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return none
       // A MIDI file is a score, not a recording: it has to be synthesised
       // before there is anything to play. The answer comes back at once so the
       // player can say so, and the rendering is asked for separately - loading
@@ -2123,7 +2152,7 @@ if (!app.requestSingleInstanceLock()) {
     // Render a score. Separate from the probe because it can take seconds:
     // the player shows that it is working rather than an error.
     ipcMain.handle('audio:synth', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
       const fluid = findFluid(app.isPackaged, process.resourcesPath, app.getAppPath())
       if (!fluid || !isMidi(p)) return null
       try {
@@ -2140,7 +2169,7 @@ if (!app.requestSingleInstanceLock()) {
     // and knows the duration the element reported, so it can ask for the first
     // audio track without anything having probed the file.
     ipcMain.handle('audio:blind', (_e, p: string, duration: number): string | null => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
       if (!Number.isFinite(duration) || duration <= 0) return null
       if (!findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())) return null
       return sidecarUrl(p, FIRST_AUDIO, duration)
@@ -2158,7 +2187,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'video:convert',
       async (e, p: string): Promise<{ url?: string; error?: string }> => {
-        if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p)))
+        if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p)))
           return { error: 'outside the folder' }
         const tools = findFfmpeg(app.isPackaged, process.resourcesPath, app.getAppPath())
         if (!tools?.ffprobe) return { error: 'no decoder available' }
@@ -2203,7 +2232,7 @@ if (!app.requestSingleInstanceLock()) {
     // Office and ebook documents: converted to HTML in main, sanitised there
     // too, so nobody else's markup reaches a renderer that can see window.prism.
     ipcMain.handle('doc:html', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || (!insideAnyRoot(p) && !extractedPaths.has(p))) return null
+      if (typeof p !== 'string' || (!insideDesktop(p) && !extractedPaths.has(p))) return null
       return docHtmlOf(p)
     })
 
@@ -2215,9 +2244,10 @@ if (!app.requestSingleInstanceLock()) {
       // answer is no, removed when it is yes - so the reconcile on the next
       // launch repairs a wiped verb but never argues with a deliberate off.
       const fs = await import('fs/promises')
-      await (on
-        ? fs.rm(verbOffMarker(), { force: true })
-        : fs.writeFile(verbOffMarker(), new Date().toISOString())
+      await (
+        on
+          ? fs.rm(verbOffMarker(), { force: true })
+          : fs.writeFile(verbOffMarker(), new Date().toISOString())
       ).catch(() => undefined)
       return on ? installVerb(app.getPath('exe')) : removeVerb()
     })
@@ -2225,15 +2255,15 @@ if (!app.requestSingleInstanceLock()) {
     /* ----- context-menu verbs ----- */
 
     ipcMain.on('file:show-in-explorer', (_e, p: string) => {
-      if (insideAnyRoot(p)) shell.showItemInFolder(p)
+      if (insideDesktop(p)) shell.showItemInFolder(p)
     })
     ipcMain.on('file:open-default', (_e, p: string) => {
-      if (insideAnyRoot(p)) void shell.openPath(p)
+      if (insideDesktop(p)) void shell.openPath(p)
     })
     // The Windows "how do you want to open this?" chooser, which also reaches
     // the store apps the submenu can't launch.
     ipcMain.on('file:open-chooser', (_e, p: string) => {
-      if (!insideAnyRoot(p)) return
+      if (!insideDesktop(p)) return
       spawn('rundll32.exe', ['shell32.dll,OpenAs_RunDLL', p], {
         detached: true,
         stdio: 'ignore'
@@ -2251,7 +2281,7 @@ if (!app.requestSingleInstanceLock()) {
       return hit && Date.now() - hit.at < OPEN_WITH_TTL ? hit.list : null
     }
     ipcMain.handle('apps:for', async (_e, p: string): Promise<OpenWithApp[]> => {
-      if (!insideAnyRoot(p)) return []
+      if (!insideDesktop(p)) return []
       const ext = extname(p).toLowerCase()
       if (!ext) return []
       let list = cachedApps(ext)
@@ -2271,7 +2301,7 @@ if (!app.requestSingleInstanceLock()) {
       )
     })
     ipcMain.handle('file:open-with', (_e, p: string, exe: string): boolean => {
-      if (!insideAnyRoot(p)) return false
+      if (!insideDesktop(p)) return false
       // The expired list still answers a launch: the menu the user is clicking
       // was built from it moments ago.
       const c = openWithCache.get(extname(p).toLowerCase())?.list.find((x) => x.exe === exe)
@@ -2292,7 +2322,7 @@ if (!app.requestSingleInstanceLock()) {
       const list = Array.isArray(p) ? p : [p]
       if (
         !list.length ||
-        list.some((x) => typeof x !== 'string' || (!insideAnyRoot(x) && !extractedPaths.has(x)))
+        list.some((x) => typeof x !== 'string' || (!insideDesktop(x) && !extractedPaths.has(x)))
       )
         return Promise.resolve(false)
       const quoted = list.map((x) => `'${x.replace(/'/g, "''")}'`).join(',')
@@ -2401,75 +2431,78 @@ if (!app.requestSingleInstanceLock()) {
      * counted copy plus delete across volumes - and a stale mark (the user
      * copied something else since) quietly falls back to an ordinary copy.
      */
-    ipcMain.handle('file:paste-into', async (_e, destDir: string, cut?: string[], jobId?: string) => {
-      if (typeof destDir !== 'string' || !insideAnyRoot(destDir)) {
-        return { pasted: 0, failed: 0, refused: true, paths: [] }
-      }
-      const src = await clipboardFiles()
-      if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
-      const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
-      const moving =
-        Array.isArray(cut) &&
-        cut.length === src.length &&
-        cut.every((c) => src.some((f) => norm(f) === norm(String(c))))
-      ownWrite(join(destDir, 'x'))
-      const fs = await import('fs/promises')
-      const total = moving
-        ? 0 // a rename is instant; only the cross-volume fallback counts bytes
-        : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0))).then((a) =>
-            a.reduce((x, y) => x + y, 0)
-          )
-      let done = 0
-      let lastSent = 0
-      const tick = (bytes: number, of = total): void => {
-        done += bytes
-        const now = Date.now()
-        if (of > 0 && now - lastSent > 120) {
-          lastSent = now
-          mainWindow?.webContents.send('paste:progress', {
-            jobId: typeof jobId === 'string' ? jobId : '',
-            pct: Math.min(100, (done / of) * 100)
-          })
+    ipcMain.handle(
+      'file:paste-into',
+      async (_e, destDir: string, cut?: string[], jobId?: string) => {
+        if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
+          return { pasted: 0, failed: 0, refused: true, paths: [] }
         }
-      }
-      let pasted = 0
-      let failed = 0
-      const paths: string[] = []
-      for (const s of src) {
-        try {
-          const target = join(destDir, uniqueName(destDir, basename(s)))
-          if (moving) {
-            try {
-              await fs.rename(s, target)
-            } catch {
-              // EXDEV or a lock: counted copy, then the source goes.
-              const size = await walkSizes(s).catch(() => 0)
-              let moved = 0
-              await copyCounted(s, target, (b) => {
-                moved += b
-                tick(b, size)
-              })
-              void moved
-              await fs.rm(s, { recursive: true })
-            }
-          } else {
-            await copyCounted(s, target, tick)
+        const src = await clipboardFiles()
+        if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
+        const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
+        const moving =
+          Array.isArray(cut) &&
+          cut.length === src.length &&
+          cut.every((c) => src.some((f) => norm(f) === norm(String(c))))
+        ownWrite(join(destDir, 'x'))
+        const fs = await import('fs/promises')
+        const total = moving
+          ? 0 // a rename is instant; only the cross-volume fallback counts bytes
+          : await Promise.all(src.map((f) => walkSizes(f).catch(() => 0))).then((a) =>
+              a.reduce((x, y) => x + y, 0)
+            )
+        let done = 0
+        let lastSent = 0
+        const tick = (bytes: number, of = total): void => {
+          done += bytes
+          const now = Date.now()
+          if (of > 0 && now - lastSent > 120) {
+            lastSent = now
+            mainWindow?.webContents.send('paste:progress', {
+              jobId: typeof jobId === 'string' ? jobId : '',
+              pct: Math.min(100, (done / of) * 100)
+            })
           }
-          paths.push(target)
-          pasted += 1
-        } catch {
-          failed += 1
         }
+        let pasted = 0
+        let failed = 0
+        const paths: string[] = []
+        for (const s of src) {
+          try {
+            const target = join(destDir, uniqueName(destDir, basename(s)))
+            if (moving) {
+              try {
+                await fs.rename(s, target)
+              } catch {
+                // EXDEV or a lock: counted copy, then the source goes.
+                const size = await walkSizes(s).catch(() => 0)
+                let moved = 0
+                await copyCounted(s, target, (b) => {
+                  moved += b
+                  tick(b, size)
+                })
+                void moved
+                await fs.rm(s, { recursive: true })
+              }
+            } else {
+              await copyCounted(s, target, tick)
+            }
+            paths.push(target)
+            pasted += 1
+          } catch {
+            failed += 1
+          }
+        }
+        return { pasted, failed, paths, moved: moving }
       }
-      return { pasted, failed, paths, moved: moving }
-    })
+    )
 
     // The icon Windows itself shows for a file of this type - the user's own
     // association (WinRAR, 7-Zip, Explorer's zip folder...). One fetch per
     // extension; the tree shows it for archives (#68, revised 2026-08-22).
     const extIconCache = new Map<string, string | null>()
     ipcMain.handle('icon:for-ext', async (_e, p: string): Promise<string | null> => {
-      if (typeof p !== 'string' || !insideAnyRoot(p)) return null
+      if (typeof p !== 'string' || !insideDesktop(p)) return null
       const ext = extname(p).toLowerCase()
       if (!ext) return null
       const hit = extIconCache.get(ext)
@@ -2491,7 +2524,7 @@ if (!app.requestSingleInstanceLock()) {
     // emptied simply is not there any more.
     ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
       ownWrite(...(Array.isArray(paths) ? paths : []))
-      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideAnyRoot(p)))
+      if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
         return Promise.resolve(false)
       const list = paths.map((p) => `'${p.replace(/'/g, "''")}'`).join(',')
       const script = [
@@ -2529,7 +2562,7 @@ if (!app.requestSingleInstanceLock()) {
     // the wall would be left pointing at nothing and that tab dies. Renaming
     // and binning a root are already refused; this is the same rule.
     const movable = (p: unknown): p is string =>
-      typeof p === 'string' && !isAnyRoot(p) && (insideAnyRoot(p) || extractedPaths.has(p))
+      typeof p === 'string' && !isAnyRoot(p) && (insideDesktop(p) || extractedPaths.has(p))
     ipcMain.handle(
       'file:move',
       async (_e, paths: string[], destDir: string, onClash: 'ask' | 'keep-both' | 'replace') => {
@@ -2551,7 +2584,7 @@ if (!app.requestSingleInstanceLock()) {
             resolve(dirname(p)).toLowerCase() !== resolve(destDir).toLowerCase()
         )
         if (!wanted.length) return { moved: [], clashes: [], failed: [], replaced: [] }
-        if (!wanted.every(movable) || !insideAnyRoot(destDir))
+        if (!wanted.every(movable) || !insideDesktop(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.
           return {
@@ -2598,7 +2631,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(
       'archive:extract-to',
       (_e, zip: string, entries: string[], destDir: string, password?: string) => {
-        if (!archiveOk(zip) || !Array.isArray(entries) || !insideAnyRoot(destDir))
+        if (!archiveOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
           return { ok: false, reason: 'failed' }
         const pw = typeof password === 'string' ? password : ''
         // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
@@ -2638,7 +2671,7 @@ if (!app.requestSingleInstanceLock()) {
     // and deletes rewrite the container, so an oversized archive is refused
     // rather than frozen over.
     const archiveOk = (p: unknown): p is string =>
-      typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'archive'
+      typeof p === 'string' && insideDesktop(p) && fileKind(extname(p)) === 'archive'
     /**
      * READING an archive, which a WRITE guard cannot answer (2026-09-01).
      *
@@ -2657,7 +2690,7 @@ if (!app.requestSingleInstanceLock()) {
      */
     const archiveReadOk = (p: unknown): p is string =>
       typeof p === 'string' &&
-      (insideAnyRoot(p) || extractedPaths.has(p)) &&
+      (insideDesktop(p) || extractedPaths.has(p)) &&
       fileKind(extname(p)) === 'archive'
     /**
      * A comic book has its OWN guard, not `archiveOk` widened (2026-08-31).
@@ -2667,7 +2700,7 @@ if (!app.requestSingleInstanceLock()) {
      * `.cbz` is not the archive kind is that its verbs are the wrong menu.
      */
     const comicOk = (p: unknown): p is string =>
-      typeof p === 'string' && insideAnyRoot(p) && fileKind(extname(p)) === 'comic'
+      typeof p === 'string' && insideDesktop(p) && fileKind(extname(p)) === 'comic'
 
     /**
      * `comic:open`'s body, factored (#106) so the phone's `/api/comic` opens
@@ -3061,7 +3094,7 @@ if (!app.requestSingleInstanceLock()) {
 
     ipcMain.handle('file:duplicate', async (_e, p: string): Promise<string | null> => {
       ownWrite(p)
-      if (!insideAnyRoot(p)) return null
+      if (!insideDesktop(p)) return null
       try {
         if (!statSync(p).isFile()) return null // folders are a different feature
         const dir = dirname(p)

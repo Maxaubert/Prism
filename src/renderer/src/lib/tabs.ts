@@ -1,5 +1,7 @@
 import type { DirListing, OpenPayload, ViewerFile } from '@shared/types'
+import type { BrowseLocation, SavedBrowse } from '@shared/browse'
 import type { PinnedPane } from './panes'
+import { navigateBrowseState, newBrowse, travelBrowseState, updateBrowseLocation } from './browse'
 
 export type TermView = 'hidden' | 'full' | 'split'
 
@@ -30,8 +32,10 @@ export interface Tab {
    *  flipped to and from like anything else. Not persisted, never confirmed
    *  on close, owns no root. */
   kind?: 'settings'
-  /** Absolute. The folder the tree is bounded by and main checks against. */
+  /** Stable project/tree and phone-share root. Desktop browsing has its own grants. */
   root: string
+  /** Folder browsing is independent of the project tree, live shells and current viewer. */
+  browse: SavedBrowse
   /** The root folder's viewable files, as main listed them. */
   files: ViewerFile[]
   /** Which of `files` is on screen. -1 when the folder holds nothing viewable. */
@@ -109,8 +113,9 @@ export const underRoot = (root: string, p: string): boolean => {
 /** A tab from a payload main just built. */
 export function newTab(p: OpenPayload, id: string): Tab {
   return {
-    id,
+    id: p.restore && p.restoreTabId ? p.restoreTabId : id,
     root: p.root,
+    browse: p.browse ?? newBrowse(p.root, p.folder || p.index < 0 ? 'folder' : 'viewer'),
     files: p.files,
     index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
     // A restored tab comes back with its folders open, and ANY tab opens the
@@ -118,13 +123,62 @@ export function newTab(p: OpenPayload, id: string): Tab {
     tree: restoredTree(p.root, p.open, p.files[p.index]?.path),
     term: null,
     terms: [],
-    panes: []
+    panes: p.panes?.filter((pane) => pane.termSlot === undefined) ?? []
   }
 }
 
 /** Write one tab's pinned panes; every other tab is untouched. */
 export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPane[]): Tab[] {
   return tabs.map((t) => (t.id === tabId ? { ...t, panes } : t))
+}
+
+/** Browsing does not reroot a project or replace a shell, viewer, tree or pinned pane. */
+export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
+  return tabs.map((tab) =>
+    tab.id === tabId && tab.kind !== 'settings'
+      ? { ...tab, browse: navigateBrowseState(tab.browse, path), term: hideTerm(tab.term) }
+      : tab
+  )
+}
+
+export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number): Tab[] {
+  return tabs.map((tab) => {
+    if (tab.id !== tabId || tab.kind === 'settings') return tab
+    const browse = travelBrowseState(tab.browse, delta)
+    return browse === tab.browse ? tab : { ...tab, browse, term: hideTerm(tab.term) }
+  })
+}
+
+function hideTerm(term: Tab['term']): Tab['term'] {
+  return term && term.view !== 'hidden' ? { ...term, view: 'hidden' } : term
+}
+
+export function setBrowseLocation(
+  tabs: readonly Tab[],
+  tabId: string,
+  patch: Partial<Omit<BrowseLocation, 'path'>>
+): Tab[] {
+  return tabs.map((tab) =>
+    tab.id === tabId ? { ...tab, browse: updateBrowseLocation(tab.browse, patch) } : tab
+  )
+}
+
+export function setBrowseSurface(
+  tabs: readonly Tab[],
+  tabId: string,
+  surface: SavedBrowse['surface']
+): Tab[] {
+  return tabs.map((tab) =>
+    tab.id === tabId
+      ? { ...tab, browse: { ...tab.browse, surface }, term: hideTerm(tab.term) }
+      : tab
+  )
+}
+
+export function setBrowsePreview(tabs: readonly Tab[], tabId: string, preview: boolean): Tab[] {
+  return tabs.map((tab) =>
+    tab.id === tabId ? { ...tab, browse: { ...tab.browse, preview } } : tab
+  )
 }
 
 /**
@@ -211,6 +265,7 @@ export function openSettingsTab(tabs: readonly Tab[], id: string): TabState {
     id,
     kind: 'settings',
     root: '',
+    browse: newBrowse(''),
     files: [],
     index: -1,
     tree: emptyTree(''),
@@ -291,6 +346,7 @@ export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): T
     const was = next[hit]
     next[hit] = {
       ...was,
+      browse: { ...navigateBrowseState(was.browse, p.root), surface: 'viewer' },
       files: p.files,
       index: p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1
     }
@@ -381,21 +437,22 @@ export function reorderTabs(tabs: readonly Tab[], id: string, toIndex: number): 
 }
 
 export function tabLabels(tabs: readonly Tab[]): string[] {
-  const bases = tabs.map((t) => (t.kind === 'settings' ? 'Settings' : baseOf(t.root)))
+  const paths = tabs.map((t) => (t.terms.length || t.term ? t.root : t.browse.path))
+  const bases = tabs.map((t, i) => (t.kind === 'settings' ? 'Settings' : baseOf(paths[i])))
   // A collision means one basename over DIFFERENT roots. Two tabs on the very
   // same folder (the + allows that) have nothing to tell apart, so they keep
   // the plain name rather than both growing an identical suffix.
   const rootsByBase = new Map<string, Set<string>>()
-  tabs.forEach((t, i) => {
+  tabs.forEach((_, i) => {
     const set = rootsByBase.get(bases[i]) ?? new Set<string>()
-    set.add(t.root.toLowerCase())
+    set.add(paths[i].toLowerCase())
     rootsByBase.set(bases[i], set)
   })
-  return tabs.map((t, i) => {
+  return tabs.map((_, i) => {
     const b = bases[i]
-    if (!b) return t.root
+    if (!b) return paths[i]
     if ((rootsByBase.get(b)?.size ?? 0) < 2) return b
-    const parent = parentOf(t.root)
+    const parent = parentOf(paths[i])
     return parent ? `${b} — ${parent}` : b
   })
 }

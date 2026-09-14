@@ -1593,7 +1593,7 @@ function GeneralTab(): JSX.Element {
           options={[
             { id: 'file', name: 'First file in the folder' },
             { id: 'terminal', name: 'A terminal' },
-            { id: 'none', name: 'Nothing' }
+            { id: 'none', name: 'Folder browser' }
           ]}
         />
       </Pref>

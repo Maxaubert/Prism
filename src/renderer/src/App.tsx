@@ -9,12 +9,14 @@ import {
   reorderTabs,
   rerootTab,
   sameRoot,
+  underRoot,
   setTabPanes,
   setTabTerm,
   toggleTermView,
   type TabState,
   type TreeState,
-  addTerm,
+  setBrowseSurface,
+  type Tab,
   pickTerm,
   removeTerm,
   termLabel
@@ -61,7 +63,14 @@ import { TermDock } from './components/TermDock'
 // same lazy boundary, so xterm stays out of the launch bundle.
 const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
-import { tickIf } from './lib/fileVerbs'
+import { tickIf, fileVerbs } from './lib/fileVerbs'
+import { useFolderBrowsing } from './lib/useFolderBrowsing'
+import { browseParent } from './lib/browse'
+import { terminalRestoreOrder } from './lib/terminalRestore'
+import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
+import { BrowseRename } from './components/browse/BrowseRename'
+import { PropertiesDialog } from './components/PropertiesDialog'
+import './components/browse/workspace.css'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -112,7 +121,14 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import { intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying } from './lib/playState'
+import {
+  intendToPlay,
+  rememberPaused,
+  rememberTime,
+  sessionTime,
+  wasPaused,
+  wasPlaying
+} from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
 import { JobChip } from './components/JobChip'
@@ -130,7 +146,7 @@ import {
 // they are React keys and the handle every tab action names, never anything
 // persisted. A counter is enough and, unlike a path, survives a rename.
 let tabSeq = 0
-const nextTabId = (): string => `tab-${(tabSeq += 1)}`
+const nextTabId = (): string => `tab-${Date.now()}-${(tabSeq += 1)}`
 let termSeq = 0
 const nextTermId = (): string => `term-${(termSeq += 1)}`
 
@@ -939,6 +955,7 @@ export default function App(): JSX.Element {
   // Keyed case-insensitively, as Windows paths are, but keeping the real path:
   // that is what gets written, and what the tree matches its rows against.
   const buffers = useRef(new Map<string, { path: string; text: string }>())
+  const bufferOwners = useRef(new Map<string, Set<string>>())
   const [dirtyPaths, setDirtyPaths] = useState<ReadonlySet<string>>(new Set())
   // The names as they are actually spelled. dirtyPaths is lowercased for
   // matching, which is no way to address someone's file in a dialog.
@@ -988,6 +1005,8 @@ export default function App(): JSX.Element {
       if (!buf) return
       buffers.current.delete(old)
       buffers.current.set(to.toLowerCase(), { path: to, text: buf.text })
+      for (const owned of bufferOwners.current.values())
+        if (owned.delete(old)) owned.add(to.toLowerCase())
       syncDirty()
     },
     [syncDirty]
@@ -1000,7 +1019,14 @@ export default function App(): JSX.Element {
     (path: string, text: string | null) => {
       const key = path.toLowerCase()
       if (text === null) buffers.current.delete(key)
-      else buffers.current.set(key, { path, text })
+      else {
+        buffers.current.set(key, { path, text })
+        if (activeIdRef.current) {
+          const owned = bufferOwners.current.get(activeIdRef.current) ?? new Set<string>()
+          owned.add(key)
+          bufferOwners.current.set(activeIdRef.current, owned)
+        }
+      }
       syncDirty()
     },
     [syncDirty]
@@ -1034,6 +1060,7 @@ export default function App(): JSX.Element {
     return failed
   }, [syncDirty])
   const [refreshKey, setRefreshKey] = useState(0)
+  const browsing = useFolderBrowsing(active, setTabState, refreshKey)
   const [ask, setAsk] = useState<Ask | null>(null)
 
   // Settings covers the tree, so over it the same control collapses that page's
@@ -1077,7 +1104,8 @@ export default function App(): JSX.Element {
   const withNewTabShow = useCallback((st: TabState): TabState => {
     const show = newTabShow()
     const tab = st.tabs.find((t) => t.id === st.activeId)
-    if (!tab || show === 'file') return st
+    if (!tab) return st
+    if (show === 'file') return { ...st, tabs: setBrowseSurface(st.tabs, tab.id, 'viewer') }
     if (show === 'terminal') {
       if (tab.term) return st
       const termId = nextTermId()
@@ -1086,7 +1114,7 @@ export default function App(): JSX.Element {
     }
     // The quiet start: the sidebar keeps the folder's files, but nothing
     // goes on screen (NoFileState) until the user picks one.
-    return { ...st, tabs: st.tabs.map((t) => (t.id === tab.id ? { ...t, index: -1 } : t)) }
+    return { ...st, tabs: setBrowseSurface(st.tabs, tab.id, 'folder') }
   }, [])
 
   const open = useCallback(
@@ -1146,6 +1174,17 @@ export default function App(): JSX.Element {
             termRoots.current.set(extra, target.root)
             tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
           }
+          const restored = tabs.find((t) => t.id === target.id)!
+          for (const pane of p.panes ?? []) {
+            if (pane.termSlot === undefined) continue
+            const term = restored.terms[pane.termSlot]
+            if (term)
+              tabs = setTabPanes(
+                tabs,
+                target.id,
+                pinTermPane(tabs.find((t) => t.id === target.id)!.panes, pane.id, term, pane.dir)
+              )
+          }
         }
         // A file ARRIVING means "show me this file" (2026-09-04), exactly as
         // a tree click does: over a FULL terminal it hides the shell (still
@@ -1192,7 +1231,8 @@ export default function App(): JSX.Element {
     (p: OpenPayload | null) => {
       if (p && !p.restore && !p.folder) {
         const f = p.index >= 0 ? p.files[p.index] : undefined
-        if (f && (f.kind === 'video' || f.kind === 'audio')) intendToPlay(window.prism.mediaUrl(f.path))
+        if (f && (f.kind === 'video' || f.kind === 'audio'))
+          intendToPlay(window.prism.mediaUrl(f.path))
       }
       open(p)
     },
@@ -1426,6 +1466,8 @@ export default function App(): JSX.Element {
       }
       // ...and so does the level it was playing at: the id never comes back.
       forgetTabVolume(id)
+      window.prism.browseRelease(id)
+      bufferOwners.current.delete(id)
       return closeTab(s.tabs, id, s.activeId)
     })
   }, [])
@@ -1436,6 +1478,14 @@ export default function App(): JSX.Element {
       .filter((b) => b.path.toLowerCase().startsWith(r))
       .map((b) => baseName(b.path))
   }, [])
+  const bufferBelongsTo = useCallback((tab: Tab, path: string): boolean => {
+    const key = path.toLowerCase()
+    return (
+      !!bufferOwners.current.get(tab.id)?.has(key) ||
+      tab.files[tab.index]?.path.toLowerCase() === key ||
+      tab.panes.some((pane) => pane.path.toLowerCase() === key)
+    )
+  }, [])
   /** Which agent each session hosts - resume is claude-only. Up here because
    *  the reroot below asks it before writing into a shell. */
   const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
@@ -1443,6 +1493,7 @@ export default function App(): JSX.Element {
    *  shell that has never reported (WSL, a shell still starting) is absent,
    *  and absent means Prism does not know, so it does not act. */
   const termCwd = useRef(new Map<string, string>())
+  const [cwdRevision, setCwdRevision] = useState(0)
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
     setTabState((s) => {
       const next = rerootTab(s.tabs, id, p, nextTabId())
@@ -1454,6 +1505,7 @@ export default function App(): JSX.Element {
       if (
         tab?.term &&
         !isTouched(tab.term.id) &&
+        !agentKinds.current.has(tab.term.id) &&
         !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)
       ) {
         window.prism.termKill(tab.term.id)
@@ -1523,7 +1575,9 @@ export default function App(): JSX.Element {
       }
       // Unsaved text asks in EVERY mode: the setting below only governs the
       // plain "you are closing a tab" confirmation, never data loss.
-      const names = dirtyUnder(tab.root)
+      const names = [...buffers.current.values()]
+        .filter((b) => bufferBelongsTo(tab, b.path))
+        .map((b) => baseName(b.path))
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else {
         const mode = confirmCloseMode()
@@ -1550,7 +1604,7 @@ export default function App(): JSX.Element {
         else forceCloseTab(id)
       }
     },
-    [agentIds, dirtyUnder, forceCloseTab, tabs, workingIds]
+    [agentIds, bufferBelongsTo, forceCloseTab, tabs, workingIds]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
@@ -1642,6 +1696,19 @@ export default function App(): JSX.Element {
     (id: string): string | undefined => termCwd.current.get(id) ?? termRoots.current.get(id),
     []
   )
+  const termTabAt = useCallback((root: string) => {
+    void window.prism.openRoot(root).then((p) => {
+      if (!p) return
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.term) return s
+        const termId = nextTermId()
+        termRoots.current.set(termId, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+      })
+    })
+  }, [])
   const applyTermView = useCallback(
     (fn: typeof toggleTermView) =>
       setTabState((s) => {
@@ -1649,24 +1716,21 @@ export default function App(): JSX.Element {
         if (!tab || tab.kind === 'settings') return s
         const next = fn(tab.term, nextTermId())
         if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
-        let tabs = setTabTerm(s.tabs, tab.id, next)
-        // A FULL terminal is a single-item view, and a split you have left
-        // falls apart rather than lying in wait (owner, 2026-09-03): the file
-        // pins go. Terminal panes stay, so two shells side by side survive a
-        // hide and show.
-        if (next.view === 'full' && tab.panes.some((pn) => !pn.term))
-          tabs = setTabPanes(tabs, tab.id, tab.panes.filter((pn) => !!pn.term))
+        const tabs = setTabTerm(s.tabs, tab.id, next)
         return { ...s, tabs }
       }),
     []
   )
   /** The sidebar button and Ctrl+`: full view, the terminal's home. */
-  const toggleTerm = useCallback(() => applyTermView(toggleTermView), [applyTermView])
+  const toggleTerm = useCallback(() => {
+    if (active && !active.term) termTabAt(active.browse.path)
+    else applyTermView(toggleTermView)
+  }, [active, termTabAt, applyTermView])
   /** Ctrl+Shift+T: open full, unconditionally (never hides). */
-  const openTermFull = useCallback(
-    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
-    [applyTermView]
-  )
+  const openTermFull = useCallback(() => {
+    if (active && !active.term) termTabAt(active.browse.path)
+    else applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
+  }, [active, termTabAt, applyTermView])
   /**
    * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
    * continuously while an AI CLI works (its spinner repaints). The dots are
@@ -1802,11 +1866,21 @@ export default function App(): JSX.Element {
     else if (!hadTabs.current) return
     window.prism.tabsChanged(
       folderTabs.map((t) => ({
+        id: t.id,
         root: t.root,
+        browse: t.browse,
+        panes: t.panes.map((pane) => ({
+          id: pane.id,
+          path: pane.path,
+          dir: pane.dir,
+          ...(pane.term
+            ? { termSlot: terminalRestoreOrder(t.terms, t.term?.id).indexOf(pane.term) }
+            : {})
+        })),
         file: t.files[t.index]?.path,
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
-        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        term: t.term?.view,
         // How many shells, so a tab with three comes back with three slots.
         terms: t.terms.length > 1 ? t.terms.length : undefined,
         // WHERE that shell was standing (2026-09-09). The tab's root is not
@@ -1827,7 +1901,7 @@ export default function App(): JSX.Element {
         // restore, each by its own flag. 'other' agents have nothing to
         // come back to, so they are not recorded.
         agent: (() => {
-          if (!t.term || t.term.view === 'hidden' || !agentIds.has(t.term.id)) return undefined
+          if (!t.term || !agentIds.has(t.term.id)) return undefined
           const kind = agentKinds.current.get(t.term.id)
           return kind === 'claude' || kind === 'codex' ? kind : undefined
         })()
@@ -1837,7 +1911,7 @@ export default function App(): JSX.Element {
         folderTabs.findIndex((t) => t.id === activeId)
       )
     )
-  }, [tabs, activeId, agentIds])
+  }, [tabs, activeId, agentIds, cwdRevision, termFolder])
 
   /**
    * The agent's OWN word (2026-09-04, owner: "instant, and event-driven").
@@ -2031,6 +2105,7 @@ export default function App(): JSX.Element {
         const before = termCwd.current.get(sessionId)
         termCwd.current.set(sessionId, path)
         if (before && decideFollow(before, path) === 'same') return
+        setCwdRevision((revision) => revision + 1)
         // The tab whose CURRENT shell this is. `tabs` is a dependency, so the
         // subscription is renewed with the state and never reads a stale list.
         const tab = tabs.find((t) => t.kind !== 'settings' && t.term?.id === sessionId)
@@ -2049,40 +2124,24 @@ export default function App(): JSX.Element {
           setRevealReq({ tabId: tab.id, path, seq: revealSeq.current })
           return
         }
-        // Past the wall. A folder some other tab already holds is left to that
-        // tab: rerooting would switch you there, mid-keystroke, which is worse
-        // than a tree that lags one cd behind.
-        const held = tabs.some((t) => t.kind !== 'settings' && sameRoot(t.root, path))
-        if (held) return
-        const id = tab.id
-        void window.prism.openRoot(path).then((p) => p && applyReroot(id, p))
+        // A shell report changes only its own cwd. Register desktop access,
+        // but never move the browser cursor, project identity or phone share.
+        void window.prism.browseDirectory(tab.id, path)
       }),
-    [applyReroot, setTree, tabs]
+    [setTree, tabs]
   )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
+  const openBrowseFile = browsing.openFile
   const openFromTree = useCallback(
-    // No guard: unsaved text is kept in `buffers`, so leaving a file costs
-    // nothing and there is nothing to ask about.
-    (p: string) =>
-      void (
-        active &&
-        window.prism.openWithin(active.root, p).then((payload) => {
-          if (!payload) return
-          open(payload)
-          setPaneFocus('live') // the clicked file is the live pane's
-          // Clicking a file means "show me this file". Over a FULL terminal
-          // that hides the shell (still running) and gives the file the room;
-          // in split the file simply lands in its pane, terminal untouched.
-          setTabState((s) => {
-            const tab = s.tabs.find((t) => t.id === s.activeId)
-            return tab?.term?.view === 'full'
-              ? { ...s, tabs: setTabTerm(s.tabs, tab.id, { ...tab.term, view: 'hidden' }) }
-              : s
-          })
-        })
-      ),
-    [active, open]
+    (path: string) => {
+      if (!active) return
+      const id = active.id
+      void openBrowseFile(path).then((opened) => {
+        if (opened && activeIdRef.current === id) setPaneFocus('live')
+      })
+    },
+    [active, openBrowseFile]
   )
 
   /** The terminal button's own context menu. */
@@ -2128,18 +2187,10 @@ export default function App(): JSX.Element {
    * and a shell can be pinned as a PANE beside the live file or another
    * shell, through the same grid the file pins use.
    */
+
   const openNewTerm = useCallback(() => {
-    if (!active || active.kind === 'settings') return
-    const termId = nextTermId()
-    termRoots.current.set(termId, active.root)
-    setTabState((s) => {
-      const tab = s.tabs.find((t) => t.id === active.id)
-      // Full view: the file pins fall apart, as in applyTermView.
-      const tabs = tab ? setTabPanes(s.tabs, tab.id, tab.panes.filter((pn) => !!pn.term)) : s.tabs
-      return { ...s, tabs: addTerm(tabs, active.id, termId, 'full') }
-    })
-    setPaneFocus('term')
-  }, [active])
+    if (active && active.kind !== 'settings') termTabAt(active.browse.path)
+  }, [active, termTabAt])
   const pickTermId = useCallback(
     (termId: string) => {
       if (!active) return
@@ -2154,7 +2205,7 @@ export default function App(): JSX.Element {
       const d = dir ?? lastSplitDir()
       saveSplitDir(d)
       const already = active.panes.find((pn) => pn.term === termId)
-      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === active.id)
         if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
@@ -2299,7 +2350,7 @@ export default function App(): JSX.Element {
       }
       // A re-pin keeps its pane (pinPane moves it), so focus its EXISTING id.
       const already = active?.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
-      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
@@ -2344,19 +2395,7 @@ export default function App(): JSX.Element {
   }, [])
   /** The terminal menu's version: a new tab on the same root, shell in front. */
   /** A fresh tab rooted at `root`, with its terminal in front. */
-  const termTabAt = useCallback((root: string) => {
-    void window.prism.openRoot(root).then((p) => {
-      if (!p) return
-      setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab || tab.term) return s
-        const termId = nextTermId()
-        termRoots.current.set(termId, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
-      })
-    })
-  }, [])
+
   /**
    * "Open terminal here", on a folder in the tree (2026-08-31).
    *
@@ -2371,28 +2410,7 @@ export default function App(): JSX.Element {
    * not renavigate the window. The sidebar's folder button is the verb for
    * that, and it is deliberately a different button.
    */
-  const openTermHere = useCallback(
-    (folder: string) => {
-      if (!active || active.kind === 'settings') return
-      const term = active.term
-      if (term && isTouched(term.id)) {
-        termTabAt(folder)
-        return
-      }
-      if (term) {
-        window.prism.termKill(term.id)
-        disposeSession(term.id)
-        termRoots.current.delete(term.id)
-      }
-      const termId = nextTermId()
-      termRoots.current.set(termId, folder)
-      setTabState((s) => ({
-        ...s,
-        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
-      }))
-    },
-    [active, termTabAt]
-  )
+  const openTermHere = useCallback((folder: string) => termTabAt(folder), [termTabAt])
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
@@ -2420,6 +2438,79 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
+  const [browseMenu, setBrowseMenu] = useState<{ x: number; y: number; entry: BrowseEntry } | null>(
+    null
+  )
+  const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
+  const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
+  const showBrowsePreview =
+    browsing.folder &&
+    !!active?.browse.preview &&
+    !!browsing.previewFile &&
+    file?.path === browsing.previewFile.path
+  const browsePlaces = useMemo(
+    () => [
+      ...browsing.locations.map((location) => ({
+        path: location.path,
+        label: location.name,
+        group: location.group === 'drive' ? ('This PC' as const) : ('Quick access' as const)
+      })),
+      ...tabs
+        .filter((tab) => tab.kind !== 'settings' && tab.terms.length > 0)
+        .filter(
+          (tab, index, all) => all.findIndex((other) => sameRoot(other.root, tab.root)) === index
+        )
+        .map((tab) => ({ path: tab.root, label: baseName(tab.root), group: 'Projects' as const }))
+    ],
+    [browsing.locations, tabs]
+  )
+  const canChangeTerminalFolder =
+    !!active?.term &&
+    !agentIds.has(active.term.id) &&
+    !agentKinds.current.has(active.term.id) &&
+    idleAtPrompt(active.term.id) &&
+    termCwd.current.has(active.term.id)
+  const terminalBrowseControls = active?.term ? (
+    <div className="browse-terminal-actions">
+      {termView !== 'full' && (
+        <button onClick={openTermFull} title={termFolder(active.term.id)}>
+          Return to terminal
+        </button>
+      )}
+      <button
+        onClick={() => {
+          const path = termFolder(active.term!.id)
+          if (path) void browsing.navigate(path)
+        }}
+      >
+        Terminal folder
+      </button>
+      {termView !== 'full' && (
+        <button
+          className="browse-cd"
+          disabled={!canChangeTerminalFolder}
+          title={
+            canChangeTerminalFolder
+              ? 'Change the idle terminal to this folder'
+              : 'Available at an idle shell prompt with no agent or typed command'
+          }
+          onClick={() => {
+            const term = active.term
+            if (
+              !term ||
+              agentKinds.current.has(term.id) ||
+              !idleAtPrompt(term.id) ||
+              !termCwd.current.has(term.id)
+            )
+              return
+            window.prism.termCd(term.id, active.browse.path)
+          }}
+        >
+          Use folder in terminal
+        </button>
+      )}
+    </div>
+  ) : null
   /** The terminal's own find bar. Lives here because Ctrl+Shift+F is claimed
    *  in App's key handler, like every other key the shell does not keep. */
   const [termFind, setTermFind] = useState(false)
@@ -2982,10 +3073,26 @@ export default function App(): JSX.Element {
       // Escape, the arrows - stay the shell's; only the search box, a rename
       // and the text editor keep the full typing shield.
       const inTerm = !!el && !!el.closest('.xterm')
+      const inBrowser = !!el?.closest('.folder-browser')
+      if (inBrowser && e.altKey) return
+      if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
-      if (e.key === 'F11') {
+      if (
+        e.altKey &&
+        !inTerm &&
+        !typing &&
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
+      ) {
+        e.preventDefault()
+        if (e.key === 'ArrowLeft') browsing.travel(-1)
+        else if (e.key === 'ArrowRight') browsing.travel(1)
+        else if (active) {
+          const parent = browseParent(active.browse.path)
+          if (parent) void browsing.navigate(parent)
+        }
+      } else if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
       } else if (e.ctrlKey && !typing && !inTerm && !fullscreen && /^[zy]$/i.test(e.key)) {
@@ -3141,6 +3248,7 @@ export default function App(): JSX.Element {
   }, [
     active,
     closeActiveTab,
+    browsing,
     file,
     fullscreen,
     go,
@@ -3208,8 +3316,7 @@ export default function App(): JSX.Element {
         const first = inside.paths[0]
         if (!first) return
         void window.prism.statFile(first).then((st) => {
-          if (st?.isFolder)
-            void window.prism.openRoot(first).then((p) => p && applyReroot(activeIdRef.current, p))
+          if (st?.isFolder) void browsing.navigate(first)
           else void window.prism.openPath(first).then(open)
         })
         return
@@ -3236,7 +3343,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('drop', end, true)
       window.removeEventListener('dragend', end, true)
     }
-  }, [applyReroot, open, setup])
+  }, [browsing, open, setup])
 
   // The style's light belongs to an empty window, a visualizer, or a page of
   // Prism's own - never behind someone's photo.
@@ -3316,7 +3423,7 @@ export default function App(): JSX.Element {
           the settings page; `invisible` keeps a playing video alive. */}
       <div
         inert={settingsOpen || setup}
-        className={`flex min-h-0 flex-1 ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
+        className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
@@ -3325,8 +3432,12 @@ export default function App(): JSX.Element {
         {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
-            open={sidebar}
-            root={active.root}
+            open={sidebar && !browsing.folder}
+            root={
+              termView === 'full' || (file && underRoot(active.root, file.path))
+                ? active.root
+                : active.browse.path
+            }
             tabId={active.id}
             onOpenFolder={rerootHere}
             onToggleTerm={toggleTerm}
@@ -3384,7 +3495,85 @@ export default function App(): JSX.Element {
             wash={washed}
           />
         )}
-        <div className="flex min-w-0 min-h-0 flex-1" style={{ flexDirection: dockFlex(dockEdge) }}>
+        <div
+          className="relative flex min-w-0 min-h-0 flex-1"
+          style={{ flexDirection: dockFlex(dockEdge) }}
+        >
+          {browsing.folder && active && browsing.location && !fullscreen && (
+            <div className="browse-surface-host absolute inset-0">
+              <FolderBrowser
+                directory={active.browse.path}
+                listing={browsing.listing}
+                loading={browsing.loading}
+                error={browsing.error}
+                places={browsePlaces}
+                selectedPath={browsing.location.selected}
+                scrollTop={browsing.location.scrollTop}
+                query={browsing.location.query}
+                sort={browsing.location.sort}
+                canBack={active.browse.cursor > 0}
+                canForward={active.browse.cursor < active.browse.history.length - 1}
+                onNavigate={(path) => void browsing.navigate(path)}
+                onBack={() => browsing.travel(-1)}
+                onForward={() => browsing.travel(1)}
+                onUp={() => {
+                  const parent = browseParent(active.browse.path)
+                  if (parent) void browsing.navigate(parent)
+                }}
+                onSelect={browsing.select}
+                onOpen={(file) => void browsing.openFile(file)}
+                menuPath={browseMenu?.entry.path}
+                onScroll={(scrollTop) => browsing.patch({ scrollTop })}
+                onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
+                onSortChange={(sort) => browsing.patch({ sort, scrollTop: 0 })}
+                onNewTerminal={termTabAt}
+                onCopy={(entry) => void window.prism.copyFileToClipboard(entry.path)}
+                onRename={(entry) => setBrowseRename(entry)}
+                onDelete={(entry) =>
+                  setAsk({
+                    kind: 'delete',
+                    path: entry.path,
+                    name: entry.name,
+                    isFolder: entry.isFolder
+                  })
+                }
+                onRefresh={() => setRefreshKey((key) => key + 1)}
+                onContextMenu={(event, entry) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry })
+                }
+                previewVisible={active.browse.preview}
+                onPreviewToggle={browsing.togglePreview}
+                terminalControls={terminalBrowseControls}
+              />
+              {active.browse.preview && browsing.previewFile && (
+                <div className="browse-preview-actions">
+                  <span title={browsing.previewFile.name}>{browsing.previewFile.name}</span>
+                  <button onClick={() => void browsing.openFile(browsing.previewFile!)}>
+                    Open full view
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {!browsing.folder && active && active.kind !== 'settings' && !fullscreen && (
+            <div className="browse-return-row">
+              <button onClick={browsing.showFolder} title="Return to folder">
+                Browse files
+              </button>
+              <span
+                title={
+                  termView === 'full' && active.term
+                    ? termFolder(active.term.id)
+                    : active.browse.path
+                }
+              >
+                {termView === 'full' && active.term
+                  ? termFolder(active.term.id)
+                  : active.browse.path}
+              </span>
+              {terminalBrowseControls}
+            </div>
+          )}
           <div
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
               washed ? 'p-wash' : ''
@@ -3392,9 +3581,13 @@ export default function App(): JSX.Element {
               // Full view: the terminal takes the whole area, but the viewer
               // stays MOUNTED so scroll, zoom and playback survive the visit -
               // the same reason hidden shells stay alive.
-              termView === 'full' ? 'hidden' : ''
+              termView === 'full' || (browsing.folder && !fullscreen && !showBrowsePreview)
+                ? 'hidden'
+                : ''
             }`}
             ref={viewerBox}
+            data-browse-preview={(showBrowsePreview && !fullscreen) || undefined}
+            data-workspace-viewer
           >
             {/* the fullscreen fade-to-black, inside the fullscreen element */}
             <div
@@ -3416,6 +3609,7 @@ export default function App(): JSX.Element {
               const players = deck.map((e) => (
                 <div
                   key={e.tabId}
+                  data-player-tab={e.tabId}
                   aria-hidden={e.tabId === activeId ? undefined : true}
                   className={
                     e.tabId === activeId
@@ -3425,7 +3619,7 @@ export default function App(): JSX.Element {
                 >
                   <Viewer
                     file={e.file}
-                    background={e.tabId !== activeId}
+                    background={e.tabId !== activeId || (browsing.folder && !showBrowsePreview)}
                     volumeKey={e.tabId}
                     onUndoable={noteUndo}
                     onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
@@ -3509,18 +3703,16 @@ export default function App(): JSX.Element {
                       </div>
                     ))}
                   </>
-                ) : file ? (
-                  // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
-                  // FLAC opened with "No file selected" written across it).
-                  // Media lives in the PLAYER deck, so `warm` is empty for it
-                  // BY DESIGN, and this branch used to answer that emptiness
-                  // with the nothing-open notice. It was drawn under the
-                  // player either way: a film's picture covers it, which is
-                  // why it went unseen for months, and the audio visualizer is
-                  // a transparent ring, which is where it showed through.
-                  // There IS a file here; the player above is drawing it.
-                  null
-                ) : active ? (
+                ) : file ? // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
+                // FLAC opened with "No file selected" written across it).
+                // Media lives in the PLAYER deck, so `warm` is empty for it
+                // BY DESIGN, and this branch used to answer that emptiness
+                // with the nothing-open notice. It was drawn under the
+                // player either way: a film's picture covers it, which is
+                // why it went unseen for months, and the audio visualizer is
+                // a transparent ring, which is where it showed through.
+                // There IS a file here; the player above is drawing it.
+                null : active ? (
                   <NoFileState />
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
@@ -3528,7 +3720,9 @@ export default function App(): JSX.Element {
               // While the terminal is FULL its panes are drawn in the terminal
               // area, not here: this grid sits hidden behind it, and mounting a
               // shell's panel twice would attach one xterm to one session twice.
-              const pins = (active?.panes ?? []).filter((pn) => termView !== 'full' || !pn.term)
+              const pins = (browsing.folder ? [] : (active?.panes ?? [])).filter(
+                (pn) => termView !== 'full' || !pn.term
+              )
               const withPlayers = (
                 <>
                   {players}
@@ -3580,7 +3774,9 @@ export default function App(): JSX.Element {
                       area={areas.pinned[i]}
                       dir={pn.dir}
                       term={pn.term}
-                      termRoot={pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined}
+                      termRoot={
+                        pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined
+                      }
                       shellId={pn.term ? savedShellId() : undefined}
                       onMove={(d) => (pn.term ? pinTermAsPane(pn.term, d) : pinSplit(pn.path, d))}
                       onClose={() => unpinSplitId(pn.id)}
@@ -3669,6 +3865,7 @@ export default function App(): JSX.Element {
               return (
                 <div
                   className="grid min-h-0 min-w-0 flex-1 gap-px bg-[var(--p-divider)]"
+                  data-workspace-term-grid
                   style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
                 >
                   <div className="flex min-h-0 min-w-0" style={{ gridArea: ta.live }}>
@@ -3907,6 +4104,94 @@ export default function App(): JSX.Element {
         />
       )}
 
+      {browseMenu && (
+        <ContextMenu
+          x={browseMenu.x}
+          y={browseMenu.y}
+          onClose={() => setBrowseMenu(null)}
+          items={[
+            {
+              label: 'Open',
+              onPick: () => {
+                if (browseMenu.entry.isFolder) void browsing.navigate(browseMenu.entry.path)
+                else if (browseMenu.entry.file) void browsing.openFile(browseMenu.entry.file)
+              }
+            },
+            ...(browseMenu.entry.isFolder
+              ? [{ label: 'New terminal here', onPick: () => termTabAt(browseMenu.entry.path) }]
+              : [
+                  {
+                    label: 'Open in split view',
+                    onPick: () => {
+                      if (activeId)
+                        setTabState((s) => ({
+                          ...s,
+                          tabs: setBrowseSurface(s.tabs, activeId, 'viewer')
+                        }))
+                      pinSplit(browseMenu.entry.path)
+                    }
+                  }
+                ]),
+            {
+              label: 'Copy',
+              onPick: () => void window.prism.copyFileToClipboard(browseMenu.entry.path)
+            },
+            { label: 'Open in new tab', onPick: () => openInNewTab(browseMenu.entry.path) },
+            ...(!browseMenu.entry.isFolder
+              ? [
+                  {
+                    label: 'Open in…',
+                    onPick: () => window.prism.openWithChooser(browseMenu.entry.path)
+                  },
+                  {
+                    label: 'Duplicate',
+                    onPick: () => {
+                      void window.prism.duplicateFile(browseMenu.entry.path).then((copy) => {
+                        if (copy) {
+                          noteUndo({ kind: 'duplicate', source: browseMenu.entry.path, path: copy })
+                          setRefreshKey((key) => key + 1)
+                        }
+                      })
+                    }
+                  }
+                ]
+              : []),
+            { label: 'Rename', onPick: () => setBrowseRename(browseMenu.entry) },
+            {
+              label: 'Delete',
+              onPick: () =>
+                setAsk({
+                  kind: 'delete',
+                  path: browseMenu.entry.path,
+                  name: browseMenu.entry.name,
+                  isFolder: browseMenu.entry.isFolder
+                })
+            },
+            ...fileVerbs(browseMenu.entry.path),
+            { label: 'Properties', onPick: () => setBrowseProps(browseMenu.entry) }
+          ]}
+        />
+      )}
+      {browseProps && active && (
+        <PropertiesDialog
+          root={active.browse.path}
+          path={browseProps.path}
+          name={browseProps.name}
+          kind={browseProps.file?.kind ?? 'other'}
+          isFolder={browseProps.isFolder}
+          onClose={() => setBrowseProps(null)}
+        />
+      )}
+      {browseRename && (
+        <BrowseRename
+          name={browseRename.name}
+          onCancel={() => setBrowseRename(null)}
+          onSave={(name) => {
+            void runRename(browseRename.path, name, 'ask')
+            setBrowseRename(null)
+          }}
+        />
+      )}
       {ask?.kind === 'close-tab' && (
         <Dialog
           title={
@@ -3933,9 +4218,8 @@ export default function App(): JSX.Element {
               onPick: () => {
                 const tab = tabs.find((t) => t.id === ask.id)
                 if (tab) {
-                  const r = tab.root.toLowerCase()
                   for (const key of [...buffers.current.keys()]) {
-                    if (key.startsWith(r)) buffers.current.delete(key)
+                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
                   }
                   syncDirty()
                 }
@@ -3991,9 +4275,8 @@ export default function App(): JSX.Element {
               onPick: () => {
                 const tab = tabs.find((t) => t.id === ask.id)
                 if (tab) {
-                  const r = tab.root.toLowerCase()
                   for (const key of [...buffers.current.keys()]) {
-                    if (key.startsWith(r)) buffers.current.delete(key)
+                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
                   }
                   syncDirty()
                 }
