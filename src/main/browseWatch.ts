@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from 'fs'
+import { realpathSync, watch, type FSWatcher } from 'fs'
 import type { DirChange } from '@shared/types'
 
 interface BrowseWatch {
@@ -28,7 +28,11 @@ export function setBrowseWatch(
   if (watches.get(tabId)?.path === path) return true
   closeBrowseWatch(tabId)
   try {
-    const watcher = watch(path, { recursive: false, persistent: false }, () => {
+    // libuv's Windows watcher compares native long paths internally; passing
+    // an 8.3 alias can trip its directory-prefix assertion on a file event.
+    // Keep the requested path for ownership and renderer events only.
+    const nativePath = realpathSync.native(path)
+    const watcher = watch(nativePath, { recursive: false, persistent: false }, () => {
       const current = watches.get(tabId)
       if (!current || current.watcher !== watcher) return
       const now = Date.now()

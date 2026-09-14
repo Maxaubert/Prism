@@ -51,6 +51,10 @@ describe('desktop browsing authority', () => {
     const two = join(box, 'two')
     mkdirSync(one)
     mkdirSync(two)
+    // Dirty buffers belong to existing files. Real files also let canonical
+    // paths expand an 8.3 TEMP alias consistently on Windows CI runners.
+    writeFileSync(join(one, 'dirty.txt'), 'first buffer')
+    writeFileSync(join(two, 'dirty.txt'), 'second buffer')
     await browseDirectory('a', one)
     await browseDirectory('a', two)
     await browseDirectory('b', one)
