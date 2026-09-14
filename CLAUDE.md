@@ -912,6 +912,15 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   cache the JPEG for a day, since the key changes with the file. The thumbnail ffmpeg is not
   registered with #133's holders in this change - they had not merged - and it lives well
   under a second, inside the move's own retry; `register` is where they hook in.
+  **THE NAME IS INSIDE THE TILE, AND THE PAIR IS A TOGGLE** (2026-09-14, #143, owner). The
+  name sat under the square as a caption, which made every tile a box plus a line and the
+  grid a list with pictures; it lives along the tile's bottom edge now, centred, over a
+  scrim so it reads on a photo as well as on the plain ground, two lines at most, and the
+  video's play badge moved to the top corner to leave that edge to it. The list and grid
+  buttons were two icons side by side, the active one tinted, which read as two verbs
+  rather than one switch; they are one segmented pill now, the active half filled in the
+  accent. Proved in `phone` off the boxes and the computed styles: the name inside the
+  square, centred, on its bottom edge; one pill, the active half filled.
 - **THE REMOTE WAS BUILT AND REMOVED** (owner, 2026-09-08, after using it on an iPad;
   #107). For a day the phone could drive the PC: a state stream (`GET /remote/state`,
   Server-Sent Events), a validated command drop (`POST /remote/cmd`), a registry naming

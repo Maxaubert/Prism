@@ -5305,6 +5305,38 @@ async function phoneScenario(fixtures) {
     await page.click('[data-phone-view="grid"]')
     await page.waitForSelector('[data-phone-grid]', { timeout: 5000 })
     ok((await page.locator('[data-phone-grid] [data-phone-file]').count()) >= 1, 'the grid shows the files as tiles')
+    // THE NAME IS INSIDE THE TILE, centred at its bottom (#143): the name's
+    // box lies within the square, its centre on the square's, and its bottom
+    // at the square's bottom edge.
+    const tileName = await page.evaluate(() => {
+      const tile = document.querySelector('[data-phone-grid] [data-phone-file]')
+      const box = tile?.querySelector('span')?.getBoundingClientRect()
+      const nameEl = tile?.querySelector('[data-phone-tile-name]')
+      const name = nameEl?.getBoundingClientRect()
+      if (!box || !name) return null
+      return {
+        inside: name.left >= box.left - 1 && name.right <= box.right + 1 && name.top >= box.top - 1 && name.bottom <= box.bottom + 1,
+        centred: Math.abs(name.left + name.width / 2 - (box.left + box.width / 2)) < 2,
+        atBottom: Math.abs(name.bottom - box.bottom) < 2,
+        align: getComputedStyle(nameEl).textAlign
+      }
+    })
+    ok(tileName?.inside === true, "a tile's name sits inside its box")
+    ok(tileName?.centred === true && tileName?.align === 'center', 'centred')
+    ok(tileName?.atBottom === true, 'along the bottom edge')
+    // AND THE LIST/GRID PAIR IS A TOGGLE (#143): one pill, the active half
+    // filled, the other not.
+    const toggle = await page.evaluate(() => {
+      const on = document.querySelector('[data-phone-view][aria-pressed="true"]')
+      const off = document.querySelector('[data-phone-view][aria-pressed="false"]')
+      const pill = document.querySelector('[data-phone-view-toggle]')
+      if (!on || !off || !pill) return null
+      const bg = (el) => getComputedStyle(el).backgroundColor
+      return { onBg: bg(on), offBg: bg(off), samePill: on.parentElement === pill && off.parentElement === pill }
+    })
+    ok(toggle?.samePill === true, 'list and grid share one pill')
+    ok(!!toggle && toggle.onBg !== toggle.offBg && toggle.onBg !== 'rgba(0, 0, 0, 0)', `the active half is filled (${toggle?.onBg} against ${toggle?.offBg})`)
+    await page.screenshot({ path: join(SHOTS, 'phone-grid.png') })
     await page
       .waitForFunction(() => [...document.querySelectorAll('[data-phone-thumb]')].some((i) => i.naturalWidth > 0), null, { timeout: 15000 })
       .catch(() => {})

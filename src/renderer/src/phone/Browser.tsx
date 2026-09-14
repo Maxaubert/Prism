@@ -389,14 +389,20 @@ export function Browser({
                   )
                 })}
               </nav>
-              {/* LIST OR GRID (#135, owner): two buttons, the active one in
-                  the accent, and the choice remembered on this phone. */}
-              <span className="flex shrink-0" role="group" aria-label="View">
+              {/* LIST OR GRID (#135, owner): a TOGGLE (#143, owner) - one
+                  segmented pill, the active half filled in the accent - and
+                  the choice remembered on this phone. */}
+              <span
+                className="my-auto flex h-9 shrink-0 items-stretch rounded-lg bg-[var(--p-hover)] p-0.5"
+                role="group"
+                aria-label="View"
+                data-phone-view-toggle
+              >
                 {(['list', 'grid'] as const).map((v) => (
                   <button
                     key={v}
-                    className={`grid h-[var(--phone-touch)] w-[var(--phone-touch)] place-items-center rounded ${
-                      view === v ? 'text-[var(--color-accent-hi)]' : 'opacity-60'
+                    className={`grid w-10 place-items-center rounded-md ${
+                      view === v ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)]' : 'opacity-60'
                     }`}
                     aria-label={v === 'list' ? 'List' : 'Grid'}
                     aria-pressed={view === v}
@@ -470,10 +476,10 @@ export function Browser({
               {listing.folders.map((f) => (
                 <li key={f.path}>
                   <button className={TILE_CLASS} onClick={() => setDir(f.path)} data-phone-folder>
-                    <span className="grid aspect-square w-full place-items-center rounded-md bg-[var(--p-hover)]">
+                    <span className="relative grid aspect-square w-full place-items-center overflow-hidden rounded-md bg-[var(--p-hover)]">
                       <FolderGlyph size={40} />
+                      <TileName name={f.name} />
                     </span>
-                    <span className="line-clamp-2 break-words text-[13px] leading-tight">{f.name}</span>
                   </button>
                 </li>
               ))}
@@ -481,7 +487,6 @@ export function Browser({
                 <li key={f.path}>
                   <button className={TILE_CLASS} onClick={() => pick(f)} data-phone-file data-kind={f.kind}>
                     <Tile file={f} />
-                    <span className="line-clamp-2 break-words text-[13px] leading-tight">{f.name}</span>
                   </button>
                 </li>
               ))}
@@ -678,7 +683,21 @@ const extOf = (name: string): string => /\.[^.]*$/.exec(name)?.[0] ?? ''
  *  not. Asked for lazily, so a folder of three hundred photos asks only for
  *  the tiles on screen, and a file main could not thumbnail falls back to
  *  the chip through the image's own error. */
-const TILE_CLASS = 'flex w-full flex-col gap-1.5 rounded-lg p-1 text-left active:bg-[var(--p-hover)]'
+const TILE_CLASS = 'block w-full rounded-lg p-1 text-left active:bg-[var(--p-hover)]'
+
+/** THE NAME LIVES INSIDE THE TILE (#143, owner): centred along its bottom
+ *  edge, over a scrim so it reads on a photo as well as on the plain ground,
+ *  rather than as a caption under the box. Two lines at most. */
+function TileName({ name }: { name: string }): JSX.Element {
+  return (
+    <span
+      className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-black/0 px-1.5 pb-1 pt-4 text-center text-[12px] leading-tight text-white"
+      data-phone-tile-name
+    >
+      <span className="line-clamp-2 break-words">{name}</span>
+    </span>
+  )
+}
 
 function Tile({ file }: { file: ViewerFile }): JSX.Element {
   const [failed, setFailed] = useState(false)
@@ -698,11 +717,13 @@ function Tile({ file }: { file: ViewerFile }): JSX.Element {
       ) : (
         <span className="text-[13px] font-semibold uppercase tracking-wide opacity-60">{file.ext.slice(1, 5)}</span>
       )}
+      {/* Top right, since the bottom edge is the name's now. */}
       {file.kind === 'video' && (
-        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white" aria-hidden>
+        <span className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white" aria-hidden>
           &#9654;
         </span>
       )}
+      <TileName name={file.name} />
     </span>
   )
 }
