@@ -6,8 +6,7 @@ import {
   rememberTime,
   sessionTime,
   wasPaused,
-  wasPlaying
-} from './playState'
+  wasPlaying, whenIntended } from './playState'
 
 beforeEach(() => {
   forgetPaused('a')
@@ -104,5 +103,18 @@ describe('what starts playing on its own', () => {
   it('ignores an intent with no file', () => {
     intendToPlay('')
     expect(wasPlaying('')).toBe(false)
+  })
+
+  it('tells a player already holding the file about a repeat pick (#139)', () => {
+    let heard = 0
+    const off = whenIntended('c', () => {
+      heard += 1
+    })
+    intendToPlay('c')
+    intendToPlay('other')
+    expect(heard).toBe(1)
+    off()
+    intendToPlay('c')
+    expect(heard).toBe(1)
   })
 })

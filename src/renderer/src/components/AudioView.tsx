@@ -12,7 +12,7 @@ import type { TransportStyle } from '../lib/transport'
 import { resolveVizTheme } from '../lib/theme'
 import { useViz, WIDTHS } from '../lib/vizStore'
 import { useDecodedSource } from '../lib/useDecodedSource'
-import { wasPlaying } from '../lib/playState'
+import { wasPlaying, whenIntended } from '../lib/playState'
 import { useBackgroundPause } from '../lib/useBackgroundPause'
 
 // The audio player: the chosen visualizer fills the window. Style, colour, and
@@ -138,6 +138,15 @@ export function AudioView({
 
   useBackgroundPause(audioRef)
 
+  // The row of the track ON SCREEN picked again (#139): see VideoView.
+  useEffect(
+    () =>
+      whenIntended(url, () => {
+        const el = audioRef.current
+        if (el && el.paused) void el.play().catch(() => undefined)
+      }),
+    [url]
+  )
   const c = useMediaControls(audioRef, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,

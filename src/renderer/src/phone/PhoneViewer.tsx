@@ -16,7 +16,7 @@ import { hlsPlayerHere } from './canPlay'
 import { diag, watchMedia } from './diag'
 import { watchReturn } from './returning'
 import { askPlay, chooseAudio, type PlayAnswer } from './prismShim'
-import { rememberPaused, rememberTime } from '../lib/playState'
+import { intendToPlay, rememberPaused, rememberTime } from '../lib/playState'
 
 // Split out exactly as App splits them (#106): none of these is on the path
 // of playing a film, and a phone that only ever plays films must never
@@ -207,12 +207,16 @@ function usePlayAnswer(file: ViewerFile, want: boolean, audio: number | null): P
 
 export function PhoneViewer({
   file,
+  autoplay,
   onClose,
   onStep,
   canStep,
   onOpenLocal
 }: {
   file: ViewerFile
+  /** The phone was TAPPED onto this file (#139): a film or a track then
+   *  plays as it appears. A reload landing on the file passes false. */
+  autoplay: boolean
   onClose: () => void
   onStep: (d: 1 | -1) => void
   canStep: (d: 1 | -1) => boolean
@@ -320,6 +324,19 @@ export function PhoneViewer({
   // only src there is for such a file, and the shim's convertVideo answers
   // the same string, so nothing swaps.
   const url = playlist ?? window.prism.mediaUrl(file.path)
+  // A TAPPED film plays (2026-09-14, #139, owner: "same with mobile, when
+  // you click on a video file it should autoplay"). The players ask
+  // `wasPlaying(url)` as the element mounts, and the url is the stream's -
+  // a playlist for an HLS film, which does not exist until `/api/play` has
+  // answered - so the intent is recorded at render time on the url the
+  // element is about to be given, ONCE per file: a later url for the same
+  // file is an audio pick, and the seed above already carries whether it
+  // was playing or paused. A reload that puts the film back gets no intent.
+  const [intendedFor, setIntendedFor] = useState<string | null>(null)
+  if (autoplay && media && answerUrl && intendedFor !== file.path) {
+    intendToPlay(url)
+    setIntendedFor(file.path)
+  }
   const viaHlsJs = playlist !== null && hlsPlayerHere() === 'hlsjs'
   // The native path's return rule (an iPhone, where the element owns the
   // playlist): reload the element and seek back. hls.js hosts get theirs

@@ -11,7 +11,7 @@ import { IconFull } from './icons'
 import { useWaveform } from '../lib/useWaveform'
 import type { TransportStyle } from '../lib/transport'
 import { useViz } from '../lib/vizStore'
-import { wasPlaying } from '../lib/playState'
+import { wasPlaying, whenIntended } from '../lib/playState'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { pngFromVideo, videoHasFrame } from '../lib/copyImage'
 import type { AudioTrackOffer } from '@shared/types'
@@ -274,6 +274,16 @@ export function VideoView({
     // Once per file: the host flag does not change while a file is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
+  // The row of the film ON SCREEN picked again (#139): the element is not
+  // remounting, so `autoPlay` cannot hear it; a paused or finished film plays.
+  useEffect(
+    () =>
+      whenIntended(url, () => {
+        const el = video.current
+        if (el && el.paused) void el.play().catch(() => undefined)
+      }),
+    [url]
+  )
   const c = useMediaControls(video, {
     onFullscreen: onToggleFullscreen,
     onActivity: showChrome,

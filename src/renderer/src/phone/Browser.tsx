@@ -77,6 +77,13 @@ export function Browser({
   // late for a folder already left is ignored rather than shown.
   const [loaded, setLoaded] = useState<{ dir: string; listing: DirListing | null } | null>(null)
   const [open, setOpen] = useState<ViewerFile | null>(null)
+  // The file the phone was TAPPED onto, as against the one a reload put back
+  // (#139): a tap on a film plays it, a reload lands on it paused.
+  const [picked, setPicked] = useState<string | null>(null)
+  const pick = (f: ViewerFile): void => {
+    setPicked(f.path)
+    setOpen(f)
+  }
   /** The file the URL named, until the folder holding it has listed. */
   const [want, setWant] = useState<string | null>(start.file)
   /** Whether the field is showing; the query is what decides what is listed. */
@@ -208,7 +215,7 @@ export function Browser({
   const step = (d: 1 | -1): void => {
     if (!open) return
     const next = stepFile(files, open.path, d)
-    if (next) setOpen(next)
+    if (next) pick(next)
   }
 
   // A markdown's link to a local file opens it if THIS folder lists it, and
@@ -218,7 +225,7 @@ export function Browser({
   const openLocal = (p: string): void => {
     const want = p.toLowerCase()
     const hit = (listing?.files ?? []).find((f) => f.path.toLowerCase() === want)
-    if (hit) setOpen(hit)
+    if (hit) pick(hit)
   }
 
   /** A folder, whether it came from the listing or from a hit: walking there
@@ -233,6 +240,7 @@ export function Browser({
     return (
       <PhoneViewer
         file={open}
+        autoplay={picked === open.path}
         onClose={() => setOpen(null)}
         onStep={step}
         canStep={(d) => !!stepFile(files, open.path, d)}
@@ -443,7 +451,7 @@ export function Browser({
           // not happened yet.
           truncated={!!answer?.truncated}
           pending={pending}
-          onOpen={(h) => (h.isFolder ? walkTo(h.path) : setOpen(fileFromHit(h)))}
+          onOpen={(h) => (h.isFolder ? walkTo(h.path) : pick(fileFromHit(h)))}
         />
       ) : (
         <>
@@ -471,7 +479,7 @@ export function Browser({
               ))}
               {listing.files.map((f) => (
                 <li key={f.path}>
-                  <button className={TILE_CLASS} onClick={() => setOpen(f)} data-phone-file data-kind={f.kind}>
+                  <button className={TILE_CLASS} onClick={() => pick(f)} data-phone-file data-kind={f.kind}>
                     <Tile file={f} />
                     <span className="line-clamp-2 break-words text-[13px] leading-tight">{f.name}</span>
                   </button>
@@ -493,7 +501,7 @@ export function Browser({
                 <li key={f.path}>
                   <button
                     className={ROW_CLASS}
-                    onClick={() => setOpen(f)}
+                    onClick={() => pick(f)}
                     data-phone-file
                     data-kind={f.kind}
                   >

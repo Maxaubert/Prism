@@ -4266,12 +4266,22 @@ async function pauseScenario(fixtures) {
     await win.evaluate(() => { const v = document.querySelector('video'); v.muted = true })
     await sleep(1200)
     const paused = () => win.evaluate(() => document.querySelector('video')?.paused ?? null)
-    // Opening a file does NOT start it (2026-08-28, owner decision): a folder
-    // of films, or a window of restored tabs, would otherwise all play at once.
-    ok((await paused()) === true, 'a film Prism has just opened is not playing')
+    // A FILE WINDOWS HANDS OVER PLAYS (2026-09-14, #139): the launch above is
+    // Explorer's double-click, and that is a pick. What does NOT play is a
+    // restore (the 2026-08-28 rule) - proved in playOnOpenScenario.
+    // The fixture is two seconds long and the launch waits longer than that,
+    // so what is read is whether it PLAYED - ended, or past its start.
+    const ran = await win.evaluate(() => {
+      const v = document.querySelector('video')
+      return !!v && (!v.paused || v.ended || v.currentTime > 0.2)
+    })
+    ok(ran, 'a film Windows handed over played without a click')
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
+    await sleep(300)
+    ok((await paused()) === true, 'and pauses when told to')
     await win.evaluate(() => { void document.querySelector('video').play() })
     await sleep(400)
-    ok((await paused()) === false, 'and it plays when told to')
+    ok((await paused()) === false, 'and plays when told to')
     await win.evaluate(() => document.querySelector('video').pause())
     await sleep(300)
     ok((await paused()) === true, 'a film pauses when told to')
@@ -4314,9 +4324,13 @@ async function pauseScenario(fixtures) {
     ok((await win.locator('video').count()) === 1, 'and one player, never two')
 
     // A CLICK on a film PLAYS it (owner, 2026-09-03), which narrows the
-    // 2026-08-28 rule rather than reversing it: a launch, a restore and a
-    // file Windows hands over still arrive paused. The click is the intent.
-    await win.evaluate(() => document.querySelector('video')?.pause())
+    // 2026-08-28 rule rather than reversing it: a restore still arrives
+    // paused. The click is the intent, and since #139 so is Explorer's.
+    // Paused AT THE START: the fixtures are two seconds long and the shared
+    // profile has autoplay-next on, so what is on screen here may already be
+    // ep2, near its end - and a film that ENDS during the wait below reads
+    // as paused, which is not what is being asked.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
     await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
     await win.waitForFunction(
       () => {
@@ -4331,6 +4345,18 @@ async function pauseScenario(fixtures) {
     ok(
       (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
       'a film you CLICKED in the tree starts playing'
+    )
+    // AND THE ROW OF THE FILM ON SCREEN, picked again, plays it (#139): the
+    // element is not remounting, so the intent has to reach the player that
+    // holds it. Found by the full run, where autoplay-next had already
+    // stepped onto ep2 before the click above, and the click did nothing.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
+    await sleep(200)
+    await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
+    await sleep(600)
+    ok(
+      (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
+      'and clicking the row of the paused film on screen plays it'
     )
     // DELETE REACHES A FILM (owner, 2026-09-03): clicking the row hands the
     // video element the keyboard, and the row's own Delete handler never
@@ -4361,6 +4387,57 @@ async function pauseScenario(fixtures) {
     await app.close()
     if (existsSync(join(PROFILE, 'ep2.stash')) && !existsSync(join(fixtures, 'ep2.mp4')))
       copyFileSync(join(PROFILE, 'ep2.stash'), join(fixtures, 'ep2.mp4'))
+  }
+}
+
+/**
+ * Play on open, and NOT on restore (2026-09-14, #139). Explorer's double-click
+ * plays (asserted at the head of the pausing scenario, whose launch is that
+ * handoff); this is the other half: the same film, back in a RESTORED tab
+ * after a relaunch, sits paused - a window full of restored tabs starting
+ * every film at once is what the 2026-08-28 rule exists to prevent, and it
+ * stands. The relaunch arrives with a file from ANOTHER root so the restored
+ * tab is a background tab, and its player mounts when the tab is visited,
+ * which is the moment a user meets it.
+ */
+async function playOnOpenScenario(fixtures) {
+  console.log('play on open, not on restore')
+  let { app, win } = await launch(join(fixtures, 'ep1.mp4'))
+  try {
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    let playing = true
+    await win
+      .waitForFunction(() => document.querySelector('video')?.paused === false, null, { timeout: 5000 })
+      .catch(() => {
+        playing = false
+      })
+    ok(playing, 'a film handed over by Explorer plays without a click')
+    await sleep(700) // tabs.json saves on a 400ms debounce
+  } finally {
+    await app.close()
+  }
+  await sleep(900)
+  ;({ app, win } = await launch(join(OTHER_ROOT, 'bad.json'), true))
+  try {
+    const strip = '[role="tablist"]'
+    await win.waitForSelector(strip, { timeout: 10000 })
+    const rows = win.locator(`${strip} [role="tab"]`)
+    ok((await rows.count()) === 2, `the film's tab came back beside the new one (${await rows.count()})`)
+    await rows.filter({ hasNotText: 'other' }).first().click()
+    await win.waitForSelector('video', { timeout: 15000 })
+    await win.evaluate(() => { document.querySelector('video').muted = true })
+    await sleep(1500)
+    const state = await win.evaluate(() => {
+      const v = document.querySelector('video')
+      return v ? { paused: v.paused, src: decodeURIComponent(v.currentSrc || v.src || '') } : null
+    })
+    // ep1 or ep2: the shared profile has autoplay-next on, and a two-second
+    // film that played has handed over to the next by the time it is closed.
+    ok(/ep[12]/i.test(state?.src ?? ''), `the restored tab holds the film (${state?.src.slice(-20)})`)
+    ok(state?.paused === true, 'and a RESTORED film is not playing')
+  } finally {
+    await app.close()
   }
 }
 
@@ -5240,6 +5317,15 @@ async function phoneScenario(fixtures) {
         ready = false
       })
     ok(ready, 'the video has metadata over the LAN route')
+    // A TAPPED FILM PLAYS (2026-09-14, #139): the tap on the row above is the
+    // pick, and nothing here has pressed play.
+    let tapped = true
+    await page
+      .waitForFunction(() => document.querySelector('video')?.paused === false, null, { timeout: 5000 })
+      .catch(() => {
+        tapped = false
+      })
+    ok(tapped, 'a film the phone was tapped onto is playing, with no play pressed')
     await page.screenshot({ path: join(SHOTS, 'phone-video.png') })
 
     /*
@@ -6263,6 +6349,7 @@ await run(comicScenario)
 await run(folderArgScenario)
 await run(gearScenario)
 await run(pauseScenario)
+await run(playOnOpenScenario)
 await run(volumeScenario)
 await run(fullscreenBlackScenario)
 await run(searchQueryScenario)
