@@ -98,6 +98,13 @@ against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path befo
 These are native captures from isolated test profiles, with generated files and simulated agent titles.
 The preview contains a short test video generated from a retained demonstration photograph.
 
+The three-project capture uses real PowerShell sessions in separate Prism and Filesmith fixture
+folders, while Movies is the active browser. Both activity indicators use simulated title events.
+The details list selects one item at a time; established multi-selection and drag operations remain
+available in the project tree in viewer and terminal views.
+
+![Prism and Filesmith terminals beside the active Movies browser](screenshots/folder-browsing/workspace.png)
+
 ![Folder workspace](screenshots/folder-browsing/desktop.png)
 
 ![The same viewer in the preview pane](screenshots/folder-browsing/preview.png)
