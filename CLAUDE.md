@@ -443,6 +443,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   files too, beside their folder's own ring, and reads as the same promise twice rather
   than as noise. Proved in `drag` with synthetic dragover events, since a real drag ends in
   a drop and the line is a mid-drag state.
+  **AND THE FOLDER IT HOVERS IS MARKED IN GREY** (2026-09-14, #140; owner: "blue means
+  selected; the grey highlighting is more indicative of marked files"). The folder row
+  under a drag wore the hover fill AND an accent ring, and the ring read as a selection,
+  which it is not: the accent is "these are what I am about to act on" and a drop
+  destination is where something is about to land. It wears the fill alone now - the
+  same grey the right-click menu's target wears - and the accent keeps two meanings in
+  the tree, the selection and the drop LINE, which is a promise about a place and not a
+  mark on a row. Proved in `drag` off the computed style mid-drag: filled, no ring.
 - **The empty window offers a TAB, not a file** (2026-08-31). With nothing open at all the
   first button was "Open file...", which is the narrowest way into an app whose whole model is
   a tab rooted at a FOLDER you then browse: it left you holding one file with no obvious next
