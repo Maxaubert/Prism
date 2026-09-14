@@ -37,11 +37,16 @@ function Toggle({
           on ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-track)]'
         }`}
         aria-hidden
+        // Markers for the phone's size pass (phone.css, #145); the sizes
+        // here are the desktop's and do not move.
+        data-menu-switch
+        data-on={on || undefined}
       >
         <span
           className={`absolute top-[2px] h-[10px] w-[10px] rounded-full bg-white transition-[left] ${
             on ? 'left-[14px]' : 'left-[2px]'
           }`}
+          data-menu-knob
         />
       </span>
     </button>
@@ -233,6 +238,9 @@ export function PlayerMenu({
           role="menu"
           aria-label="Player settings"
           data-menu-level={level}
+          // The phone turns this popover into a bottom sheet from its own
+          // stylesheet (#145), keyed on this marker.
+          data-player-menu
           // max-h + scroll: short windows would otherwise clip the menu against
           // the viewer pane's overflow-hidden with no way to reach the bottom.
           className="absolute bottom-9 right-0 z-30 max-h-[min(60vh,420px)] w-[230px] overflow-y-auto rounded-[6px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] py-1 font-normal shadow-[0_10px_28px_rgba(0,0,0,.5)] [scrollbar-width:thin]"
@@ -300,6 +308,7 @@ export function PlayerMenu({
                   onChange={(e) => c.setRate(Number(e.target.value))}
                   onDoubleClick={() => c.setRate(1)}
                   aria-label="Playback speed"
+                  data-menu-slider
                   className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
                   style={{ accentColor: 'var(--p-accent)' }}
                 />
