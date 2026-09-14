@@ -5909,9 +5909,19 @@ async function phoneDocsScenario(fixtures) {
       'and the row names the folder it is in, which is what tells two of a name apart'
     )
     await page.click('[data-phone-hit]:has-text("buried.py")')
-    await page.waitForSelector('[data-phone-viewer] .cm-content', { timeout: 15000 })
+    // The editor mounts BEFORE the file's text has arrived from the PC, so
+    // the text is waited for, not read once: read once, this failed in
+    // four full runs out of four under load and passed alone every time.
+    let opened = true
+    await page
+      .waitForFunction(() => /VALUE = 42/.test(document.querySelector('[data-phone-viewer] .cm-content')?.textContent ?? ''), null, {
+        timeout: 15000
+      })
+      .catch(() => {
+        opened = false
+      })
     ok(
-      /VALUE = 42/.test((await page.textContent('.cm-content')) ?? ''),
+      opened,
       'a hit opens exactly as a folder row does'
     )
     await page.screenshot({ path: join(SHOTS, 'phone-search.png') })
