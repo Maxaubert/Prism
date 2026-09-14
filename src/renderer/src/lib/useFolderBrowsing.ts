@@ -181,7 +181,9 @@ export function useFolderBrowsing(
       if (parent) void window.prism.browseDirectory(id, parent)
       setState((s) => ({
         ...s,
-        tabs: (parent ? navigateBrowse(s.tabs, id, parent) : s.tabs).map((t) =>
+        tabs: setBrowseLocation(parent ? navigateBrowse(s.tabs, id, parent) : s.tabs, id, {
+          selected: filePath
+        }).map((t) =>
           t.id === id
             ? {
                 ...t,

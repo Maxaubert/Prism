@@ -4293,7 +4293,7 @@ async function pauseScenario(fixtures) {
     await win.evaluate(() => { const v = document.querySelector('video'); v.currentTime = 0.1; void v.play() })
     await sleep(500)
     const t1 = await win.evaluate(() => document.querySelector('video').currentTime)
-    await win.locator('[data-tab]').first().click()
+    await win.locator('[data-tab]:not([data-pinned])').first().click()
     await sleep(700)
     const t2 = await win.evaluate(() => document.querySelector('video')?.currentTime ?? -1)
     ok(t2 > t1, 'the clock ran while another tab was in front')
@@ -4632,7 +4632,7 @@ async function gearScenario(fixtures) {
   try {
     const gear = win.locator('[aria-label="Settings"]')
     const pressed = () => gear.getAttribute('aria-pressed')
-    const tabCount = () => win.locator('[data-tab]').count()
+    const tabCount = () => win.locator('[data-tab]:not([data-pinned])').count()
     // Wait for the state, never for a guessed number of milliseconds: this
     // scenario failed once on a 400ms sleep that was simply too short, which
     // told me about my test rather than about the gear.
@@ -4654,7 +4654,7 @@ async function gearScenario(fixtures) {
 
     await gear.click()
     await until('true', 'and opens again')
-    await win.locator('[data-tab]').first().click()
+    await win.locator('[data-tab]:not([data-pinned])').first().click()
     await until('false', 'settings open BEHIND another tab read as unpressed')
     ok((await tabCount()) === withSettings, 'and the settings tab is still open')
 

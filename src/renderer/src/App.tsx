@@ -71,6 +71,7 @@ import { useFolderBrowsing } from './lib/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
+import { BrowsePlaces } from './components/browse/BrowsePlaces'
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import './components/browse/workspace.css'
@@ -3502,6 +3503,23 @@ export default function App(): JSX.Element {
         {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
             footer is its home, and a paste must stay visible either way. */}
         {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
+        {active && isExplorerTab(active) && !browsing.folder && !fullscreen && placesVisible && (
+          <div className="browse-viewer-places">
+            <BrowsePlaces
+              places={browsePlaces}
+              directory={active.browse.path}
+              onNavigate={(path) => void browsing.navigate(path)}
+              onNewTerminal={termTabAt}
+              onOpenProject={() =>
+                openAsProject({
+                  path: active.browse.path,
+                  name: active.browse.path,
+                  isFolder: true
+                })
+              }
+            />
+          </div>
+        )}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar && !isExplorerTab(active)}
@@ -3785,8 +3803,7 @@ export default function App(): JSX.Element {
                       </div>
                     ))}
                   </>
-                ) : file ? // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
-                // with the nothing-open notice. It was drawn under the
+                ) : file ? // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
                 // player either way: a film's picture covers it, which is
                 // why it went unseen for months, and the audio visualizer is
                 // a transparent ring, which is where it showed through.

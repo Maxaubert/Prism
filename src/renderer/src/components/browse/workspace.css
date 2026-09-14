@@ -4,6 +4,17 @@
 .browse-surface-host {
   z-index: 1;
 }
+.browse-viewer-places {
+  display: flex;
+  flex: 0 0 210px;
+  min-height: 0;
+  color: var(--p-text);
+  background: var(--p-bg);
+  font-size: 15px;
+}
+.browse-viewer-places > .browse-places {
+  width: 100%;
+}
 .browse-workspace [data-browse-preview] {
   position: absolute;
   z-index: 2;

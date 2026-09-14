@@ -312,7 +312,7 @@ test('folder navigation retains history state and lists dotfiles and unsupported
   }
 })
 
-test('Explorer stays pinned, new tabs browse immediately, and places and path controls work', async () => {
+test('Explorer stays pinned, new tabs browse immediately, and places and path controls work', async ({}, info) => {
   const h = await setup()
   const { page } = h
   try {
@@ -349,6 +349,27 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
     await expect(page.getByTestId('folder-browser')).toHaveAttribute('data-places-hidden', 'true')
     await page.keyboard.press('Control+b')
     await expect(page.getByRole('complementary', { name: 'Locations', exact: true })).toBeVisible()
+
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const locations = page.getByRole('complementary', { name: 'Locations', exact: true })
+    await expect(locations).toBeVisible()
+    await shot(page, info, 'explorer-viewer-places.png', h.app)
+    await page.keyboard.press('Control+b')
+    await expect(locations).toHaveCount(0)
+    await page.keyboard.press('Control+b')
+    await expect(locations).toBeVisible()
+    const homePlace = locations.getByRole('button', { name: 'Home', exact: true })
+    const homePath = await homePlace.getAttribute('title')
+    await homePlace.click()
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(pathBar).toHaveAttribute('title', homePath!)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await expect(ordinaryTabs(page).first()).toHaveAttribute('title', h.project)
+    await ordinaryTabs(page).first().click()
+    await expect(pathBar).toHaveAttribute('title', h.project)
+    await ordinaryTabs(page).last().click()
 
     await page.evaluate(() => localStorage.removeItem('prism.tabs.confirmClose'))
     await page.keyboard.press('Control+w')
@@ -494,6 +515,11 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
       'data-tab-role',
       'explorer'
     )
+    await expect(row(page, 'notes-renamed.txt')).toBeVisible()
+    await page.getByRole('button', { name: 'Refresh folder', exact: true }).click()
+    await expect(page.getByTestId('browse-search-status')).toContainText('Search results')
+    await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(row(page, 'notes-renamed.txt')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
   } finally {
     await stop(h.app)
