@@ -4917,6 +4917,25 @@ async function dragScenario(fixtures) {
         scroller?.dispatchEvent(new DragEvent('dragleave', { bubbles: true }))
       })
       ok((await lineUnder()) === null, 'and leaving takes the line away')
+      // THE HOVERED FOLDER IS MARKED IN GREY (#140): a fill and no accent
+      // ring, since the accent means selected. Read off the computed style
+      // mid-drag, the same synthetic dragover as the line above.
+      const overInto = await win.evaluate(() => {
+        const row = [...document.querySelectorAll('aside [role="treeitem"]')].find((r) => (r.textContent ?? '').trim().startsWith('into'))
+        if (!row) return null
+        row.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))
+        const cs = getComputedStyle(row)
+        const accent = getComputedStyle(document.documentElement).getPropertyValue('--p-accent-hi').trim()
+        const out = { drop: row.hasAttribute('data-drop'), shadow: cs.boxShadow, bg: cs.backgroundColor, accent }
+        row.dispatchEvent(new DragEvent('dragleave', { bubbles: true }))
+        return out
+      })
+      ok(overInto?.drop === true, 'a drag over a folder row marks that row')
+      ok(overInto?.shadow === 'none', `and the mark is a fill, with no ring (${overInto?.shadow})`)
+      ok(
+        !!overInto && overInto.bg !== 'rgba(0, 0, 0, 0)' && overInto.bg !== 'transparent',
+        `the marked folder is filled (${overInto?.bg})`
+      )
       await win
         .locator('[role="treeitem"]:has-text("movable.txt")')
         .dragTo(win.locator('[role="treeitem"]:has-text("into")').first())

@@ -503,8 +503,11 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
             }
           }}
           className={`flex w-full items-center gap-1.5 rounded-[var(--p-radius-sm)] pr-2 text-left outline-none focus-visible:outline-none ${
+            // The folder a drag hovers is MARKED, in the grey the menu's
+            // target wears, not ringed in the accent (2026-09-14, #140):
+            // the accent means selected, and a drop destination is not.
             t.dropTarget === path
-              ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)] ring-1 ring-inset ring-[var(--p-accent-hi)]'
+              ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
               : onCursor || t.selected.has(path)
                 ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
                 : onMenuHl
