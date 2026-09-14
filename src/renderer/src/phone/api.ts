@@ -41,6 +41,11 @@ export function apiUrl(path: string, params: Record<string, string> = {}): strin
   return s ? `${path}?${s}` : path
 }
 
+/** A tile's picture (#135): an `<img src>` carries no header either. */
+export function thumbUrl(path: string): string {
+  return apiUrl('/api/thumb', { path })
+}
+
 /** `<video src>` cannot carry a header, so the token rides in the query. */
 export function mediaUrl(path: string): string {
   const t = readToken()
