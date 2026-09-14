@@ -4326,7 +4326,11 @@ async function pauseScenario(fixtures) {
     // A CLICK on a film PLAYS it (owner, 2026-09-03), which narrows the
     // 2026-08-28 rule rather than reversing it: a restore still arrives
     // paused. The click is the intent, and since #139 so is Explorer's.
-    await win.evaluate(() => document.querySelector('video')?.pause())
+    // Paused AT THE START: the fixtures are two seconds long and the shared
+    // profile has autoplay-next on, so what is on screen here may already be
+    // ep2, near its end - and a film that ENDS during the wait below reads
+    // as paused, which is not what is being asked.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
     await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
     await win.waitForFunction(
       () => {
@@ -4341,6 +4345,18 @@ async function pauseScenario(fixtures) {
     ok(
       (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
       'a film you CLICKED in the tree starts playing'
+    )
+    // AND THE ROW OF THE FILM ON SCREEN, picked again, plays it (#139): the
+    // element is not remounting, so the intent has to reach the player that
+    // holds it. Found by the full run, where autoplay-next had already
+    // stepped onto ep2 before the click above, and the click did nothing.
+    await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
+    await sleep(200)
+    await win.locator('[role="treeitem"][data-row$="ep2.mp4" i]').first().click()
+    await sleep(600)
+    ok(
+      (await win.evaluate(() => document.querySelector('video')?.paused)) === false,
+      'and clicking the row of the paused film on screen plays it'
     )
     // DELETE REACHES A FILM (owner, 2026-09-03): clicking the row hands the
     // video element the keyboard, and the row's own Delete handler never
@@ -4416,7 +4432,9 @@ async function playOnOpenScenario(fixtures) {
       const v = document.querySelector('video')
       return v ? { paused: v.paused, src: decodeURIComponent(v.currentSrc || v.src || '') } : null
     })
-    ok(/ep1/i.test(state?.src ?? ''), `the restored tab holds the film (${state?.src.slice(-20)})`)
+    // ep1 or ep2: the shared profile has autoplay-next on, and a two-second
+    // film that played has handed over to the next by the time it is closed.
+    ok(/ep[12]/i.test(state?.src ?? ''), `the restored tab holds the film (${state?.src.slice(-20)})`)
     ok(state?.paused === true, 'and a RESTORED film is not playing')
   } finally {
     await app.close()
