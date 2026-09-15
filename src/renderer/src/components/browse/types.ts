@@ -68,6 +68,8 @@ export interface FolderBrowserProps {
   onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void
   onRename?: (entry: BrowseEntry) => void
   onCopy?: (entry: BrowseEntry) => void
+  onCut?: (entry: BrowseEntry) => void
+  onPaste?: (directory: string) => void
   onDelete?: (entry: BrowseEntry) => void
   onRefresh?: () => void
 }

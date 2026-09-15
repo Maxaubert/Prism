@@ -19,6 +19,7 @@ import { ContextMenu } from './ContextMenu'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
+import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
 import { intendToPlay } from '../lib/playState'
 import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
@@ -384,8 +385,15 @@ export function Sidebar({
         return
       setSel((s) => (s.items.size ? emptySelection : s))
     }
+    const focus = (event: FocusEvent): void => {
+      hasFocus.current = !!panel.current?.contains(event.target as Node)
+    }
     window.addEventListener('pointerdown', away, true)
-    return () => window.removeEventListener('pointerdown', away, true)
+    window.addEventListener('focusin', focus)
+    return () => {
+      window.removeEventListener('pointerdown', away, true)
+      window.removeEventListener('focusin', focus)
+    }
   }, [])
 
   /** Fetches in flight, so the same folder is never asked for twice at once.
@@ -792,13 +800,10 @@ export function Sidebar({
    *  paste a move - checked in main against what the clipboard then holds, so
    *  a copy taken elsewhere in between quietly downgrades it to a copy.
    *  Explorer interop is one-way: files cut here paste as copies there. */
-  const cutRef = useRef<string[]>([])
-  const [cutSet, setCutSet] = useState<ReadonlySet<string>>(new Set())
+  const cutSet = useFileCut()
   const copyMark = useCallback((paths: string[], cut: boolean): void => {
     if (!paths.length) return
-    void window.prism.copyFilesToClipboard(paths)
-    cutRef.current = cut ? paths : []
-    setCutSet(cut ? new Set(paths.map((q) => q.toLowerCase())) : new Set())
+    void copyFilePaths(paths, cut)
   }, [])
 
   // Byte progress lands on the job it was tagged with: several pastes can
@@ -806,8 +811,9 @@ export function Sidebar({
   useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
 
   const runPaste = useCallback(
-    (dest: string): void => {
-      const cutPaths = cutRef.current
+    async (dest: string): Promise<void> => {
+      await fileClipboardReady()
+      const cutPaths = fileCutPaths()
       const job = startJob('paste', cutPaths.length ? 'Moving' : 'Copying')
       void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined, job).then((r) => {
         endJob(job)
@@ -816,8 +822,7 @@ export function Sidebar({
         if (!r.pasted) return setPasteNote('Nothing could be pasted here.')
         if (r.failed) setPasteNote('Pasted ' + r.pasted + ', but ' + r.failed + ' could not be copied.')
         if (r.moved) {
-          cutRef.current = []
-          setCutSet(new Set())
+          clearFileCut(cutPaths)
         }
         // The pasted files become the selection, Explorer's way - now, and
         // again after the watcher's refresh clears every mark (droppedOn).
@@ -1148,9 +1153,35 @@ export function Sidebar({
     // clips), which keeps the rows from reflowing on every frame of the slide.
     <aside
       ref={panel}
+      data-project-sidebar
       inert={!open}
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
+      onKeyDown={(event) => {
+        const target = event.target as HTMLElement
+        if (target.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor')) return
+        if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+          event.preventDefault()
+          event.stopPropagation()
+          panel.current?.querySelector<HTMLInputElement>('input')?.focus()
+          return
+        }
+        if (target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
+        if (event.key === 'F5' && !event.ctrlKey && !event.altKey) {
+          event.preventDefault()
+          event.stopPropagation()
+          Object.keys(state.children).forEach((path) => void load(path, true))
+        } else if (event.key === 'Backspace' && !event.ctrlKey && !event.altKey && !event.metaKey && at) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (state.expanded.has(at)) toggle(at)
+          else {
+            const parent = parentDir(at)
+            const row = rows.find((item) => item.path.toLowerCase() === parent.toLowerCase())
+            if (row) land(row)
+          }
+        }
+      }}
       className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
         dragging
           ? ''

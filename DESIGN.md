@@ -111,6 +111,7 @@ tiles, oversized pills and a second navigation strip.
 - **Details list:** Name, Type, Size and Date modified align under sortable headers. Rows have
   selection, hover and keyboard-focus states; single-click selects and activation opens.
 - **Preview:** reuse the live viewer in a bounded right pane with an explicit open action.
+  Avoid repeating the selected filename; retain Open full view and the existing preview toggle.
 - **Project terminals:** preserve the original terminal and sidebar controls. Browsing belongs to
   a separate Explorer tab, and never moves a running shell's working directory.
 - **Explorer split:** one replaceable viewer sits to the right of the persistent file list. File

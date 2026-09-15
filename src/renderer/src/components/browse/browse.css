@@ -422,6 +422,9 @@
   width: 18px;
   height: 18px;
 }
+.browse-row[data-cut] .browse-name > svg {
+  opacity: 0.45;
+}
 .browse-row .browse-column-type,
 .browse-row .browse-column-size,
 .browse-row .browse-column-modified {

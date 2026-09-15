@@ -540,9 +540,8 @@ export function CodeView({
     if (v) v.dispatch({ effects: wrapComp.reconfigure(wrapFor(name, wrap)) })
   }, [wrap, name])
 
-  // Ctrl+S and Ctrl+F belong to the open file whether or not it has focus -
-  // and since nothing focuses it on arrival, that has to be a window listener
-  // rather than one on this subtree, which is how the pdf viewer does it too.
+  // Save and find work before the editor takes focus. Find yields to a focused
+  // navigation surface, whose search belongs to the folder rather than this file.
   // Capture, so they land before CodeMirror's own keymap sees them.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -562,6 +561,7 @@ export function CodeView({
         e.stopPropagation()
         void save()
       } else if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
+        if (target?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]')) return
         e.preventDefault()
         e.stopPropagation()
         v.focus()

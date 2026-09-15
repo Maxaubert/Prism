@@ -38,7 +38,16 @@ strip and keeps desktop browsing separate from phone sharing.
   selections and opens replace that viewer; they never add pinned panes or hide the list. Folder
   navigation keeps the current file in the viewer. Open full view explicitly hides the list;
   returning restores the split. The split setting and displayed file survive restart.
+  The viewer header keeps Open full view without repeating the selected filename. The existing
+  preview toggle opens and closes the split.
   Unsupported files retain the existing fallback.
+- The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V. Paste targets
+  the displayed directory, even when a child folder is selected. Ctrl+F focuses folder search.
+  Cut files retain their move behavior across Explorer and project tabs; a later Copy cancels it.
+  Full and split Explorer viewers also support file copy, cut, paste, rename and delete when
+  the viewer owns keyboard focus. Editors, selected text and terminals retain their own shortcuts.
+  In the project tree, Backspace collapses a folder or selects its parent within the project;
+  F5 refreshes and Ctrl+F searches. Existing project multi-selection and paste destinations remain.
 - The Open as project quick button requires a selected folder; a file or no selection disables it.
   Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
   and Delete, while the row's right-click menu retains the complete action set.
@@ -130,9 +139,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/section-widths-trial`.
-Then `tools/preview-branch.ps1` opens `dist/section-widths-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/section-widths-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-shortcuts-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-shortcuts-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-shortcuts-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -140,6 +149,13 @@ The separate output path also lets the earlier trial remain open while the new b
 ## Captured interface
 
 These captures use the packaged branch with isolated test profiles and generated files.
+
+The split header keeps Open full view without repeating the filename. Folder search retains
+keyboard focus while a document is displayed beside it:
+
+![Explorer split header and focused folder search](screenshots/folder-browsing/split-header.png)
+
+![Explorer split header at 200 percent zoom](screenshots/folder-browsing/split-header-zoom200.png)
 
 Resizable Explorer sections keep slim scrollbars beside the file list and viewer. The focused
 divider is visible, and right-click targets use a neutral grey rather than the selection accent:

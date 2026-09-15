@@ -577,6 +577,8 @@ export function PdfView({
       const el = e.target as HTMLElement | null
       const typing = !!el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
       if ((e.key === 'f' || e.key === 'F') && e.ctrlKey) {
+        if (e.defaultPrevented || el?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"],.xterm,.cm-editor,[role="dialog"],[role="menu"]')) return
+        if (typing && !scroller.current?.contains(el)) return
         e.preventDefault()
         setFindOpen(true)
         return

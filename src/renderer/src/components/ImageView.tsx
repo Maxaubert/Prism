@@ -421,6 +421,7 @@ export function ImageView({
       // as the picture, so 'r' rotated it mid-word and '0' reset the zoom
       // under someone searching for "r0ma" (2026-08-28).
       const el = e.target as HTMLElement | null
+      if (e.defaultPrevented) return
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
       switch (e.key) {
         case '+':
@@ -433,11 +434,16 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
-        // The menu advertises this in its shortcut column, so it has to exist.
-        // A text selection keeps its own copy: only an untouched page gets it.
+        // Project viewers retain pixel copy. Focused file rows and Explorer's
+        // own file-copy shortcut keep their clipboard operation.
         case 'c':
         case 'C':
-          if (e.ctrlKey && !window.getSelection()?.toString()) {
+          if (
+            e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
+            (el === document.body || (el !== null && stageRef.current?.contains(el))) &&
+            !el?.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor') &&
+            !window.getSelection()?.toString()
+          ) {
             e.preventDefault()
             void copyImage()
           }
@@ -473,7 +479,7 @@ export function ImageView({
     // dialog: neither exists on the phone (#106), so the rows are left out
     // rather than offered and refused.
     ...(window.prism.capabilities.clipboard
-      ? [{ label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() }]
+      ? [{ label: 'Copy image', disabled: !img, onPick: () => void copyImage() }]
       : []),
     ...(window.prism.capabilities.write
       ? [

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 
 import { formatBytes, formatWhen } from '../../lib/format'
 import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
+import { useFileCut } from '../../lib/fileClipboard'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
@@ -39,6 +40,7 @@ type Props = Pick<
 }
 
 export function BrowseList(props: Props): JSX.Element {
+  const cut = useFileCut()
   const searching = !!props.query.trim()
   const rowHeight = searching ? 60 : 40
   const scroller = useRef<HTMLDivElement>(null)
@@ -188,6 +190,8 @@ export function BrowseList(props: Props): JSX.Element {
                     aria-setsize={props.entries.length}
                     tabIndex={selected ? 0 : -1}
                     className="browse-row"
+                    data-cut={cut.has(entry.path.toLowerCase()) || undefined}
+                    aria-description={cut.has(entry.path.toLowerCase()) ? 'Cut' : undefined}
                     data-browse-path={entry.path}
                     data-browse-index={first + offset}
                     data-selected={selected || undefined}

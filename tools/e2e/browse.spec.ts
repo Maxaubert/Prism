@@ -1790,3 +1790,276 @@ test('Explorer section widths drag and persist with slim usable scrollbars at no
     await stop(app)
   }
 })
+
+/** Restore the user's common clipboard formats after real CF_HDROP shortcut checks. */
+async function keepClipboard(app: ElectronApplication): Promise<() => Promise<void>> {
+  const saved = await app.evaluate(({ clipboard }) => ({
+    text: clipboard.readText(),
+    html: clipboard.readHTML(),
+    rtf: clipboard.readRTF(),
+    image: clipboard.readImage().toDataURL()
+  }))
+  const files = execFileSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-Command',
+      '(Get-Clipboard -Format FileDropList) | ForEach-Object { $_.FullName }'
+    ],
+    { encoding: 'utf8', windowsHide: true }
+  )
+    .split(/\r?\n/)
+    .filter(Boolean)
+  return async () => {
+    if (files.length) {
+      execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath ${files.map(quotePS).join(',')}`],
+        { windowsHide: true }
+      )
+    } else {
+      await app.evaluate(({ clipboard, nativeImage }, value) => {
+        clipboard.write({ ...value, image: nativeImage.createFromDataURL(value.image) })
+      }, saved)
+    }
+  }
+}
+
+async function clipboardFile(path: string): Promise<void> {
+  await expect
+    .poll(() =>
+      execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          '(Get-Clipboard -Format FileDropList) | ForEach-Object { $_.FullName }'
+        ],
+        { encoding: 'utf8', windowsHide: true }
+      )
+        .split(/\r?\n/)
+        .filter(Boolean)
+    )
+    .toContain(path)
+}
+
+test('Explorer file hotkeys target displayed folders and full files while text editing keeps its keys', async () => {
+  const h = await setup()
+  const { page, app } = h
+  const restoreClipboard = await keepClipboard(app)
+  const child = join(h.movies, 'Child')
+  const moving = join(h.project, 'move-me.txt')
+  try {
+    mkdirSync(child)
+    writeFileSync(moving, 'Move this fixture\n')
+    await row(page, 'Nested').click()
+    await page.keyboard.press('Enter')
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.nested)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Backspace')
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.project)
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click()
+    await page.keyboard.press('Control+c')
+    await clipboardFile(join(h.project, 'notes.txt'))
+    await go(page, h.movies)
+    await row(page, 'Child').click()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.movies, 'notes.txt'))).toBe(true)
+    expect(readFileSync(join(h.movies, 'notes.txt'), 'utf8')).toBe('Original notes\n')
+    expect(existsSync(join(child, 'notes.txt'))).toBe(false)
+    expect(existsSync(join(h.project, 'notes.txt'))).toBe(true)
+
+    await go(page, h.project)
+    await search(page, 'move-me.txt')
+    await row(page, 'move-me.txt').click()
+    await page.keyboard.press('Control+x')
+    await clipboardFile(moving)
+    await go(page, h.movies)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.movies, 'move-me.txt'))).toBe(true)
+    await expect.poll(() => existsSync(moving)).toBe(false)
+
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const editor = page.locator('.cm-content')
+    await expect(editor).toHaveText('Original notes')
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Control+c')
+    await clipboardFile(join(h.movies, 'notes.txt'))
+    await go(page, h.nested)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, 'notes.txt'))).toBe(true)
+
+    await go(page, h.project)
+    await search(page, 'entry-000.txt')
+    await row(page, 'entry-000.txt').click()
+    await page.keyboard.press('Control+c')
+    await clipboardFile(join(h.project, 'entry-000.txt'))
+    await go(page, h.movies)
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').dblclick()
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.movies, 'entry-000.txt'))).toBe(true)
+    await expect(editor).toHaveText('Original notes')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+
+    await editor.click()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+c')
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toContain('Original notes')
+    await page.keyboard.press('Control+x')
+    await expect(editor).toHaveText('')
+    expect(existsSync(join(h.movies, 'notes.txt'))).toBe(true)
+    await page.keyboard.press('Control+v')
+    await expect(editor).toHaveText('Original notes')
+    await page.keyboard.press('Control+End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Backspace')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(editor).toHaveText('Original notes')
+    await returnToFolder(page)
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await expect(page.locator('.browse-preview-actions')).toHaveText('Open full view')
+    const previewToggle = page.getByRole('button', { name: 'Preview pane', exact: true })
+    await expect(previewToggle).toHaveAttribute('aria-pressed', 'true')
+    await previewToggle.click()
+    await expect(page.locator('[data-browse-preview="true"]')).toHaveCount(0)
+    await previewToggle.click()
+    await expect(page.locator('[data-browse-preview="true"]')).toBeVisible()
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+f')
+    await expect(
+      page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    ).toBeFocused()
+  } finally {
+    await restoreClipboard()
+    await stop(app)
+  }
+})
+
+test('file cut and copy cross Explorer and project tabs while the terminal owns clipboard shortcuts', async () => {
+  const h = await setup()
+  const { page, app } = h
+  const restoreClipboard = await keepClipboard(app)
+  const moving = join(h.project, 'cross-tab.txt')
+  try {
+    writeFileSync(moving, 'Cross-tab move\n')
+    copyFileSync(join(ROOT, 'build/icon.png'), join(h.movies, 'preview.png'))
+    mkdirSync(join(h.movies, 'Child'))
+    writeFileSync(join(h.movies, 'Child', 'inside-project.txt'), 'Inside project child\n')
+    await search(page, 'cross-tab.txt')
+    await row(page, 'cross-tab.txt').click()
+    await page.keyboard.press('Control+x')
+    await clipboardFile(moving)
+    await go(page, h.home)
+    await row(page, 'Movies').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.movies, 'readme.txt')
+    const projectTab = ordinaryTabs(page).last()
+    const explorerTab = ordinaryTabs(page).first()
+    const treeRow = (path: string) =>
+      page
+        .getByRole('tree')
+        .locator('[data-row]')
+        .filter({
+          has: page.getByText(basename(path), { exact: true })
+        })
+        .first()
+    const childRow = treeRow(join(h.movies, 'Child'))
+    await childRow.click()
+    await page.keyboard.press('Enter')
+    await expect(childRow).toHaveAttribute('aria-expanded', 'true')
+    await treeRow(join(h.movies, 'Child', 'inside-project.txt')).click()
+    await treeRow(join(h.movies, 'Child', 'inside-project.txt')).focus()
+    await page.keyboard.press('Backspace')
+    await expect(childRow).toBeFocused()
+    await page.keyboard.press('Backspace')
+    await expect(childRow).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', h.movies)
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.movies, 'cross-tab.txt'))).toBe(true)
+    await expect.poll(() => existsSync(moving)).toBe(false)
+    expect(existsSync(join(h.movies, 'Child', 'cross-tab.txt'))).toBe(false)
+
+    await treeRow(join(h.movies, 'cross-tab.txt')).click()
+    await page.keyboard.press('Control+x')
+    await clipboardFile(join(h.movies, 'cross-tab.txt'))
+    await explorerTab.click()
+    await go(page, h.nested)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, 'cross-tab.txt'))).toBe(true)
+    await expect.poll(() => existsSync(join(h.movies, 'cross-tab.txt'))).toBe(false)
+
+    await projectTab.click()
+    await treeRow(join(h.movies, 'readme.txt')).click()
+    await page.keyboard.press('Control+c')
+    await clipboardFile(join(h.movies, 'readme.txt'))
+    await explorerTab.click()
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, 'readme.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'readme.txt'))).toBe(true)
+
+    await projectTab.click()
+    await treeRow(join(h.movies, 'preview.png')).click()
+    await expect(page.getByRole('img', { name: 'preview.png', exact: true })).toBeVisible()
+    await treeRow(join(h.movies, 'preview.png')).focus()
+    await page.keyboard.press('Control+c')
+    await clipboardFile(join(h.movies, 'preview.png'))
+    await explorerTab.click()
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, 'preview.png'))).toBe(true)
+    expect(readFileSync(join(h.nested, 'preview.png'))).toEqual(
+      readFileSync(join(h.movies, 'preview.png'))
+    )
+
+    await projectTab.click()
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await shellReady(page, h.movies)
+    await app.evaluate(({ clipboard }) => clipboard.writeText('Write-Output PRISM_HOTKEY_PASTE'))
+    await page.locator('.xterm-helper-textarea:visible').focus()
+    await page.keyboard.press('Control+x')
+    await page.keyboard.press('Control+c')
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      'Write-Output PRISM_HOTKEY_PASTE'
+    )
+    await page.keyboard.press('Control+v')
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(
+        async () =>
+          ((await page.locator('.xterm:visible .xterm-rows').textContent()) ?? '').split(
+            'PRISM_HOTKEY_PASTE'
+          ).length - 1
+      )
+      .toBeGreaterThanOrEqual(2)
+    await shellReady(page, h.movies)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await expectNoExplorerControls(page)
+    expect(existsSync(join(h.movies, 'readme.txt'))).toBe(true)
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await treeRow(join(h.movies, 'readme.txt')).click()
+    await treeRow(join(h.movies, 'readme.txt')).focus()
+    await page.keyboard.press('Control+f')
+    await expect(page.getByRole('textbox', { name: 'Search files', exact: true })).toBeFocused()
+  } finally {
+    await restoreClipboard()
+    await stop(app)
+  }
+})

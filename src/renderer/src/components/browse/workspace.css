@@ -96,16 +96,11 @@
   height: 40px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   padding: 0 12px;
   background: var(--p-bg);
   border-left: 1px solid var(--p-divider);
-}
-.browse-preview-actions span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .browse-return-row {
   position: absolute;

@@ -76,6 +76,8 @@ import { BrowsePlaces } from './components/browse/BrowsePlaces'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
+import { copyFilePaths } from './lib/fileClipboard'
+import { useFilePaste } from './lib/useFilePaste'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -2574,6 +2576,12 @@ export default function App(): JSX.Element {
   } | null>(null)
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
   const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
+  const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
+  const reportPasteError = useCallback(
+    (message: string) => setAsk({ kind: 'failed', message }),
+    []
+  )
+  const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
   const showBrowsePreview =
     browsing.folder &&
     !!active?.browse.preview &&
@@ -3257,6 +3265,40 @@ export default function App(): JSX.Element {
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
       if (!settingsOpen && !fullscreen && !document.querySelector('[data-owns-escape]')) {
+        const explorerFileFocus =
+          active && isExplorerTab(active) && termView !== 'full' &&
+          (!browsing.folder || !!el?.closest('[data-workspace-viewer]')) &&
+          !typing && !inTerm &&
+          !el?.closest('.cm-editor,[role="dialog"],[role="menu"],[role="separator"],.browse-viewer-places') &&
+          (el === document.body || !!el?.closest('[data-workspace-viewer]'))
+        if (
+          explorerFileFocus &&
+          e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
+          ['c', 'x', 'v'].includes(e.key.toLowerCase()) &&
+          !window.getSelection()?.toString()
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          const key = e.key.toLowerCase()
+          if (key === 'v' && viewerDirectory) void pasteFiles(viewerDirectory)
+          else if (file) void copyFilePaths([file.path], key === 'x')
+          return
+        }
+        if (explorerFileFocus && file && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+          const entry = { path: file.path, name: file.name, isFolder: false, file }
+          if (e.key === 'F2') {
+            e.preventDefault()
+            e.stopPropagation()
+            setBrowseRename(entry)
+            return
+          }
+          if (e.key === 'Delete') {
+            e.preventDefault()
+            e.stopPropagation()
+            setAsk({ kind: 'delete', ...entry })
+            return
+          }
+        }
         if (
           viewingFile &&
           !typing &&
@@ -3460,6 +3502,7 @@ export default function App(): JSX.Element {
     active,
     closeActiveTab,
     browsing,
+    pasteFiles,
     viewingFile,
     viewerDirectory,
     returnToFolder,
@@ -3811,7 +3854,9 @@ export default function App(): JSX.Element {
                 onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
                 onSortChange={(sort) => browsing.patch({ sort, scrollTop: 0 })}
                 onNewTerminal={termTabAt}
-                onCopy={(entry) => void window.prism.copyFileToClipboard(entry.path)}
+                onCopy={(entry) => void copyFilePaths([entry.path])}
+                onCut={(entry) => void copyFilePaths([entry.path], true)}
+                onPaste={(directory) => void pasteFiles(directory)}
                 onRename={(entry) => setBrowseRename(entry)}
                 onDelete={(entry) =>
                   setAsk({
@@ -3831,7 +3876,6 @@ export default function App(): JSX.Element {
               />
               {active.browse.preview && browsing.previewFile && (
                 <div className="browse-preview-actions">
-                  <span title={browsing.previewFile.name}>{browsing.previewFile.name}</span>
                   <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
                     Open full view
                   </button>
@@ -4430,7 +4474,7 @@ export default function App(): JSX.Element {
                 ]),
             {
               label: 'Copy',
-              onPick: () => void window.prism.copyFileToClipboard(browseMenu.entry.path)
+              onPick: () => void copyFilePaths([browseMenu.entry.path])
             },
             { label: 'Open in new tab', onPick: () => openInNewTab(browseMenu.entry.path) },
             { label: 'Open as project', onPick: () => openAsProject(browseMenu.entry) },

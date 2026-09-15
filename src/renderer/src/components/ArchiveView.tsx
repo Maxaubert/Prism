@@ -1,3 +1,4 @@
+import { copyFilePaths } from '../lib/fileClipboard'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
@@ -452,7 +453,7 @@ function ArchiveInner({
       withPassword(entry, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
           if (r.ok) {
-            void window.prism.copyFileToClipboard(r.path)
+            void copyFilePaths([r.path])
             return 'ok'
           }
           return r.reason
@@ -534,7 +535,7 @@ function ArchiveInner({
           if (r.ok) out.push(r.path)
           else if (r.reason === 'password' || r.reason === 'aes') locked += 1
         }
-        if (out.length) void window.prism.copyFilesToClipboard(out)
+        if (out.length) void copyFilePaths(out)
         if (locked)
           setOops(
             `${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`
@@ -557,7 +558,7 @@ function ArchiveInner({
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry).then((r) => {
         setBusy(null)
-        if (r.ok) void window.prism.copyFilesToClipboard([r.path])
+        if (r.ok) void copyFilePaths([r.path])
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops(
             'That folder is password protected. Open a member first to unlock the archive, then copy again.'
@@ -1062,7 +1063,7 @@ function ArchiveInner({
             {caps.clipboard && (
               <ArcVerb
                 label="Copy"
-                onClick={() => void window.prism.copyFileToClipboard(file.path)}
+                onClick={() => void copyFilePaths([file.path])}
                 path="M9 9h10v10H9zM5 15V5h10"
               />
             )}
@@ -1468,7 +1469,7 @@ function ArchiveInner({
               ? [
                   {
                     label: 'Copy archive',
-                    onPick: () => void window.prism.copyFileToClipboard(file.path)
+                    onPick: () => void copyFilePaths([file.path])
                   }
                 ]
               : []),

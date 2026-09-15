@@ -54,12 +54,25 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-places-hidden={props.placesVisible === false || undefined}
       data-testid="folder-browser"
       onKeyDown={(e) => {
-        const typing = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]')
+        const target = e.target as HTMLElement
+        const typing = target.closest(
+          'input,textarea,select,[contenteditable]:not([contenteditable="false"]),.cm-editor,.xterm,[role="dialog"],[role="menu"]'
+        )
+        if (target.closest('[role="dialog"],[role="menu"]')) return
+        const inList = !!target.closest('.browse-list')
         if (e.key === 'F5' && props.onRefresh) {
           e.preventDefault()
           e.stopPropagation()
           props.onRefresh()
-        } else if (!typing && selected && e.key === 'Delete' && props.onDelete) {
+        } else if (
+          !typing &&
+          inList &&
+          selected &&
+          e.key === 'Delete' &&
+          !e.ctrlKey &&
+          !e.shiftKey &&
+          props.onDelete
+        ) {
           e.preventDefault()
           e.stopPropagation()
           props.onDelete(selected)
@@ -69,26 +82,40 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           shell.current
             ?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')
             ?.click()
-        } else if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) {
+        } else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          e.stopPropagation()
+          shell.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+        } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Backspace') {
+          e.preventDefault()
+          e.stopPropagation()
+          if (props.canBack) props.onBack()
+          else props.onUp()
+        } else if (!typing && e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) {
           e.preventDefault()
           e.stopPropagation()
           if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
           if (e.key === 'ArrowRight' && props.canForward) props.onForward()
           if (e.key === 'ArrowUp') props.onUp()
-        } else if (!typing && selected && e.key === 'F2' && props.onRename) {
+        } else if (!typing && inList && selected && e.key === 'F2' && props.onRename) {
           e.preventDefault()
           e.stopPropagation()
           props.onRename(selected)
         } else if (
           !typing &&
-          selected &&
+          inList &&
           e.ctrlKey &&
-          e.key.toLowerCase() === 'c' &&
-          props.onCopy
+          !e.shiftKey &&
+          !e.altKey &&
+          !e.metaKey &&
+          ['c', 'x', 'v'].includes(e.key.toLowerCase())
         ) {
           e.preventDefault()
           e.stopPropagation()
-          props.onCopy(selected)
+          const key = e.key.toLowerCase()
+          if (key === 'v') props.onPaste?.(props.directory)
+          else if (selected && key === 'x') props.onCut?.(selected)
+          else if (selected) props.onCopy?.(selected)
         }
       }}
     >
