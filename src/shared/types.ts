@@ -1,3 +1,5 @@
+import type { SavedBrowse, SavedPane } from './browse'
+
 export type FileKind =
   'image' | 'video' | 'audio' | 'pdf' | 'doc' | 'text' | 'archive' | 'comic' | 'other'
 
@@ -121,6 +123,13 @@ export type RenameResult =
  * files, the index of the one that was actually opened, and the session root
  * (the folder Prism was opened in) that the sidebar tree is bounded by. */
 export interface OpenPayload {
+  browse?: SavedBrowse
+  panes?: SavedPane[]
+  restoreTabId?: string
+  /** Explorer tabs browse freely; project tabs own a folder tree and shells. */
+  role?: 'explorer' | 'project'
+  /** The permanent first Explorer tab. */
+  pinned?: boolean
   files: ViewerFile[]
   /** Which of `files` to show. -1 when a folder was opened and it holds nothing
    *  viewable: the tree is still rooted there, the viewer just has no file. */
@@ -130,7 +139,7 @@ export interface OpenPayload {
    *  closed, so reopen one (a fresh shell - sessions die with the app). A tab
    *  that lived as a Claude session must come back as a terminal, not as an
    *  empty viewer. */
-  term?: 'full' | 'split'
+  term?: 'full' | 'split' | 'hidden'
   /** Restore only: how many shells the tab held (2026-09-03). The current one
    *  is spawned at once; the others get their slots and spawn when picked. */
   terms?: number
@@ -138,8 +147,8 @@ export interface OpenPayload {
    *  is not always the tab's root - "Open terminal here" and a cd inside the
    *  root both move it, and the root deliberately does not follow. The fresh
    *  shell starts there, and an agent resumes the conversation recorded for
-   *  THAT folder rather than the root's newest one. Only ever the tab's root
-   *  or somewhere inside it. */
+   *  THAT folder rather than the root's newest one. Desktop browsing and
+   *  the shell's location are independent of the phone's shared root. */
   termCwd?: string
   /** Restore only: the SESSION ID of the Claude conversation the terminal
    *  hosted at close. The fresh shell launches `claude --resume <id>` as its
@@ -172,7 +181,12 @@ export interface FileMemory {
   subs?: string | null
   fit?: string
 }
-export type FileMemoryPatch = { t?: number | null; audio?: number | null; subs?: string | null; fit?: string | null }
+export type FileMemoryPatch = {
+  t?: number | null
+  audio?: number | null
+  subs?: string | null
+  fit?: string | null
+}
 
 /** A shell main detected on this machine; the only things term:spawn launches. */
 export interface ShellDef {

@@ -12,6 +12,9 @@ files:
   # Recording and render working files. Hundreds of megabytes of takes that have
   # no business inside the app, and one corrupt one that stopped the build.
   - '!.demo/**'
+  - '!.e2e/**'
+  - '!test-results/**'
+  - '!playwright-report/**'
   - '!videos/**'
   - '!tools/**'
   - '!build/**'
