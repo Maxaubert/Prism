@@ -28,7 +28,7 @@ function savedTabs(path: string): {
     pinned?: boolean
     file?: string
     term?: string
-    browse?: { path: string; surface: string }
+    browse?: { path: string; surface: string; preview?: boolean }
     panes?: { path: string }[]
   }>
 } | null {
@@ -1142,11 +1142,13 @@ test('promoted projects keep Explorer controls absent in file, full terminal, sp
     }
     await page.getByRole('button', { name: 'Terminal', exact: true }).click()
     await shellReady(page, h.project)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
     await expectNoExplorerControls(page)
     await page.getByRole('button', { name: 'Terminal', exact: true }).click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
     await expectNoExplorerControls(page)
     await expect(page.locator('.xterm:visible')).toHaveCount(1)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
     await shot(page, info, 'project-split-without-explorer.png', app)
     await app.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents
@@ -1300,6 +1302,8 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     expect(player).toBeTruthy()
     await expect.poll(() => player!.evaluate((video) => video.readyState)).toBeGreaterThanOrEqual(2)
     await row(page, 'sample.mp4').dblclick()
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await page.getByRole('button', { name: 'Open full view', exact: true }).click()
     await expect(page.getByTestId('folder-browser')).not.toBeVisible()
     expect(
       await player!.evaluate(
@@ -1377,27 +1381,73 @@ test('desktop browsing leaves phone scope fixed and restores a hidden shell in i
   }
 })
 
-test('pinned file panes survive browsing, terminal tabs and restart', async () => {
+test('Explorer split keeps locations and list beside one replaceable viewer across folders and restart', async ({}, info) => {
   const h = await setup()
   let { app, page } = h
   try {
-    await page.getByRole('searchbox', { name: 'Search this folder' }).fill('notes.txt')
-    await row(page, 'notes.txt').dblclick()
-    const pinPath = join(h.project, 'entry-000.txt')
-    await returnToFolder(page)
-    await search(page, 'entry-000.txt')
-    await row(page, 'entry-000.txt').click({ button: 'right' })
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
-    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
-    await returnToFolder(page)
-    await go(page, h.movies)
-    await newTerminalHere(page)
-    await expect(ordinaryTabs(page)).toHaveCount(2)
-    await ordinaryTabs(page).first().click()
+    const viewer = page.locator('[data-browse-preview="true"]')
+    const editor = page.getByRole('textbox').and(page.locator('.cm-content'))
+    await expect(editor).toHaveText('Original notes')
+    await expect(viewer).toHaveCount(1)
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Locations', exact: true })).toBeVisible()
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(0)
+    await search(page, 'entry-000.txt')
+    await row(page, 'entry-000.txt').click()
+    await expect(editor).toHaveText('0')
+    await search(page, 'entry-001.txt')
+    await row(page, 'entry-001.txt').dblclick()
+    await expect(editor).toHaveText('1')
+    await expect(viewer).toHaveCount(1)
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(0)
+    await search(page, '')
+    await row(page, 'Nested').click()
+    await expect(editor).toHaveText('1')
+    await row(page, 'Nested').dblclick()
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Preview pane', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await expect(editor).toHaveText('1')
+    await row(page, 'inside.txt').click()
+    await expect(editor).toHaveText('Nested folder')
     await go(page, h.project)
     await search(page, 'notes.txt')
     await row(page, 'notes.txt').dblclick()
-    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
+    await expect(editor).toHaveText('Original notes')
+    await search(page, '')
+    const boxes = await Promise.all([
+      page.getByRole('complementary', { name: 'Locations', exact: true }).boundingBox(),
+      page.getByTestId('browse-list').boundingBox(),
+      viewer.boundingBox()
+    ])
+    expect(boxes.every(Boolean)).toBe(true)
+    expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x + 2)
+    expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x + 2)
+    await shot(page, info, 'explorer-single-split.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await expect(viewer).toBeVisible()
+    await expect(page.getByTestId('browse-list')).toBeInViewport()
+    await shot(page, info, 'explorer-single-split-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(1)
+      return contents.getZoomFactor()
+    })
+    await page.getByRole('button', { name: 'Open full view', exact: true }).click()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(editor).toHaveText('Original notes')
+    await returnToFolder(page)
+    await expect(editor).toHaveText('Original notes')
     const saved = join(h.profile, 'tabs.json')
     await expect
       .poll(() => {
@@ -1406,13 +1456,88 @@ test('pinned file panes survive browsing, terminal tabs and restart', async () =
       })
       .toMatchObject({
         active: 1,
-        tab: { browse: { path: h.project, surface: 'viewer' }, panes: [{ path: pinPath }] }
+        tab: {
+          role: 'explorer',
+          file: join(h.project, 'notes.txt'),
+          browse: { path: h.project, surface: 'folder', preview: true }
+        }
+      })
+    await stop(app)
+    ;({ app, page } = await start(h.profile))
+    await expect(ordinaryTabs(page)).toHaveCount(1)
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(page.locator('[data-browse-preview="true"]')).toHaveCount(1)
+    await expect(page.getByRole('textbox').and(page.locator('.cm-content'))).toHaveText(
+      'Original notes'
+    )
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(0)
+    await search(page, 'entry-000.txt')
+    await row(page, 'entry-000.txt').click()
+    await expect(page.getByRole('textbox').and(page.locator('.cm-content'))).toHaveText('0')
+  } finally {
+    await stop(app)
+  }
+})
+
+test('project file split panes remain independent and persist with the project terminal', async ({}, info) => {
+  const h = await setup()
+  let { app, page } = h
+  try {
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await page
+      .getByRole('tree')
+      .locator('..')
+      .evaluate((el) => {
+        el.scrollTop = 0
+      })
+    for (const name of ['entry-000.txt', 'entry-001.txt']) {
+      const target = page
+        .getByRole('treeitem')
+        .filter({ has: page.getByText(name, { exact: true }) })
+      await target.click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    }
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(2)
+    await expect(page.locator('[data-pane="pinned"] .cm-content')).toHaveText(['0', '1'])
+    await shot(page, info, 'project-independent-splits.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await shot(page, info, 'project-independent-splits-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(1)
+      return contents.getZoomFactor()
+    })
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await shellReady(page, h.project)
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(2)
+    await expectNoExplorerControls(page)
+    const saved = join(h.profile, 'tabs.json')
+    await expect
+      .poll(() => savedTabs(saved)?.tabs[2])
+      .toMatchObject({
+        role: 'project',
+        root: h.project,
+        term: 'hidden',
+        panes: [
+          { path: join(h.project, 'entry-000.txt') },
+          { path: join(h.project, 'entry-001.txt') }
+        ]
       })
     await stop(app)
     ;({ app, page } = await start(h.profile))
     await expect(ordinaryTabs(page)).toHaveCount(2)
-    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
-    await expect(page.locator('[data-pane="pinned"] .cm-content')).toHaveText('0')
+    await expect(page.locator('[data-pane="pinned"]')).toHaveCount(2)
+    await expect(page.locator('[data-pane="pinned"] .cm-content')).toHaveText(['0', '1'])
+    await expectNoExplorerControls(page)
   } finally {
     await stop(app)
   }

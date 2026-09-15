@@ -2948,12 +2948,11 @@ async function handoffOverTermScenario(fixtures) {
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     await sleep(1500)
-    const shellTabIndex = (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) - 1
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'opening the terminal keeps the original project tab')
     await win.keyboard.type('echo handoff-shell-survives')
     await win.keyboard.press('Enter')
     await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('handoff-shell-survives'))
-    // The terminal has its own top-level tab. The original file tab receives
-    // the arriving file, while the shell remains intact in its separate tab.
+    // File handoff shows the file inside the same project, keeping its shell.
     await handoff(join(fixtures, 'notes.txt'))
     await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
     ok(true, 'a file arriving from Explorer hides the full terminal')
@@ -2965,9 +2964,9 @@ async function handoffOverTermScenario(fixtures) {
       { timeout: 8000 }
     )
     ok(true, 'and the tree marks it')
-    ok((await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 2, 'the original file tab is reused beside the separate terminal tab')
+    ok((await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'the original project tab is reused')
     ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').first().getAttribute('aria-selected')) === 'true', 'the arriving file activates its original tab')
-    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').nth(shellTabIndex).click()
+    await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 8000 })
     ok((await win.locator('.xterm').textContent())?.includes('handoff-shell-survives'), 'the original shell and its scrollback survive the handoff')
   } finally {
@@ -3402,12 +3401,26 @@ async function termCwdScenario(fixtures) {
     const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
     ok(/level-two>\s*$/.test((await termText()).trimEnd()), 'opening a project file leaves the used shell in place')
     ok((await win.locator('.xterm').count()) === 1, 'returning keeps the same single shell')
-    await typeLine('cd ..')
+    await typeLine('$projectCwdProof = $PID')
+    const projectTabs = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
+    await win.locator('[role="treeitem"]').filter({ hasText: 'nested' }).first().click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Open terminal here', exact: true }).click()
     await win.waitForFunction(() => /nested>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 10000 })
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === projectTabs, 'Open terminal here adds a session inside the same project')
     ok(
       /nested>\s*$/.test((await termText()).trimEnd()),
-      'an explicit shell cd still changes its own folder'
+      'the new session starts in the explicitly selected folder'
     )
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Terminal 1', exact: true }).click()
+    await win.waitForFunction(() => /level-two>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 10000 })
+    await win.locator('.xterm').click()
+    await typeLine("Write-Output ('project-cwd-proof:' + $projectCwdProof + ':' + $PID)")
+    await win.waitForFunction(() => /project-cwd-proof:(\d+):\1/.test(document.querySelector('.xterm .xterm-rows')?.textContent ?? ''), null, { timeout: 10000 })
+    ok(true, 'the touched original shell keeps its PID, variable and cwd')
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.getByRole('menuitem', { name: 'Terminal 2', exact: true }).click()
+    await win.waitForFunction(() => /nested>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 10000 })
     await win.locator('.xterm').click()
 
     // Past the project root: the shell moves while browsing and identity stay put.
@@ -3463,10 +3476,10 @@ async function termCwdScenario(fixtures) {
   await sleep(900)
   ;({ app, win } = await launch(join(root, 'bad.json'), true))
   try {
-    // The file handoff activates its original viewer tab. The restored shell
-    // is the other top-level tab, so pick it without creating another shell.
+    // The launch file activates the same project and hides its restored shell.
     await win.waitForSelector('[data-tab-role]:not([data-pinned]) [role="tab"]', { timeout: 15000 })
-    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').last().click()
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'restore retains one project owner for its file and shell')
+    await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 15000 })
     const deadline = Date.now() + 20000
     let back = false
@@ -3749,8 +3762,8 @@ async function terminalScenario(fixtures) {
     )
     ok(true, 'RightArrow accepts the suggestion and it runs')
 
-    // The original viewer and the terminal each own a top-level tab. Ctrl+T
-    // adds another from inside the shell, and reverse cycling returns here.
+    // Ctrl+T adds an Explorer tab from inside the project shell, and reverse
+    // cycling returns to the same project and terminal.
     await win.locator('.xterm').click()
     const tabsBeforeNew = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
     await win.keyboard.press('Control+t')
@@ -4092,8 +4105,8 @@ async function terminalScenario(fixtures) {
     await win.waitForSelector('.xterm', { timeout: 15000 })
     ok(true, 'and the next Ctrl+` opens a fresh one')
 
-    // NEW TERMINALS are top-level tabs now. The earlier shell keeps its
-    // identity and work, and closing the new shell cannot close that one.
+    // Project terminals stay in the same top-level tab. Their picker and
+    // split panes retain independent shells and scrollback.
     const termBtn = () => win.locator('aside [aria-label="Terminal"]')
     const beforeSeparate = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     await win.keyboard.type('echo separate-terminal-survives')
@@ -4104,18 +4117,28 @@ async function terminalScenario(fixtures) {
     await win.locator('[role="menuitem"]:has-text("Open new terminal")').click()
     await sleep(1500)
     ok((await win.locator('.xterm').count()) === 1, 'a new terminal takes the full view alone')
-    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === beforeSeparate + 1, 'the new terminal adds a top-level tab')
+    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === beforeSeparate, 'the new terminal stays inside the project tab')
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     ok(
-      (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 0,
-      'the new shell is not hidden in a nested session picker'
+      (await win.locator('[role="menuitem"]:has-text("Terminal 1")').count()) === 1 &&
+        (await win.locator('[role="menuitem"]:has-text("Terminal 2")').count()) === 1,
+      'the project menu lists both terminal sessions'
     )
-    await win.locator('[role="menuitem"]:has-text("Close terminal")').click()
-    await win.waitForFunction(() => !document.querySelector('.xterm'), null, { timeout: 10000 })
-    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').nth(beforeSeparate - 1).click()
-    await win.waitForSelector('.xterm', { timeout: 15000 })
-    ok((await win.locator('.xterm').textContent())?.includes('separate-terminal-survives'), 'closing the new terminal preserves the original shell and scrollback')
+    await win.hover('[role="menuitem"]:has-text("Open in split view")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 2, null, { timeout: 10000 })
+    ok((await win.locator('[data-pane="pinned"] .xterm').count()) === 1, 'the original shell pins beside the new session')
+    ok((await win.locator('[data-pane="pinned"] .xterm').textContent())?.includes('separate-terminal-survives'), 'the original shell retains its scrollback')
+    ok((await win.locator('[data-pane="live"]').count()) === 0, 'the full terminal split has no file pane')
+    await termBtn().click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.hover('[role="menuitem"]:has-text("Close terminal")')
+    await sleep(400)
+    await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
+    await win.waitForFunction(() => !document.querySelector('[data-pane="pinned"]'), null, { timeout: 10000 })
+    ok((await win.locator('.xterm').count()) === 1, 'closing the pinned shell preserves the other project session')
   } finally {
     await app.close()
   }

@@ -79,7 +79,7 @@ names. Do not make the main listing smaller to fit extra columns.
 The folder surface fills the available workspace below the existing tab strip. Its rows are a 48px
 path/history/search toolbar, a 44px action bar, flexible content and a 26px status bar.
 Quick access, open projects and drives occupy a 210px left rail. The rail becomes 160px below 760px.
-The file list gets the remaining width. Its optional preview uses `clamp(260px, 32%, 440px)` on
+The file list gets the remaining width. Its optional viewer uses `clamp(280px, 40%, 720px)` on
 desktop and 44% at the narrow workspace breakpoint.
 
 The list scrolls within the window and renders a bounded set of visible rows. Metadata columns
@@ -109,6 +109,9 @@ tiles, oversized pills and a second navigation strip.
 - **Preview:** reuse the live viewer in a bounded right pane with an explicit open action.
 - **Project terminals:** preserve the original terminal and sidebar controls. Browsing belongs to
   a separate Explorer tab, and never moves a running shell's working directory.
+- **Explorer split:** one replaceable viewer sits to the right of the persistent file list. File
+  selection and activation reuse it, while folder navigation keeps the current viewer. Project
+  split panes remain independent, and project terminals stay inside their project tab.
 - **Focus:** folder buttons and inputs use a visible 2px accent outline. Disabled controls reduce
   opacity and retain their spatial position. Preserve keyboard access when layout becomes narrow.
 

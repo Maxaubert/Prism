@@ -16,7 +16,7 @@
 .folder-browser[data-preview] {
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr) var(
       --browse-preview-width,
-      clamp(260px, 32%, 440px)
+      clamp(280px, 40%, 720px)
     );
 }
 .folder-browser[data-places-hidden] {

@@ -1,5 +1,5 @@
 .browse-workspace {
-  --browse-preview-width: clamp(260px, 32%, 440px);
+  --browse-preview-width: clamp(280px, 40%, 720px);
 }
 .browse-surface-host {
   z-index: 1;

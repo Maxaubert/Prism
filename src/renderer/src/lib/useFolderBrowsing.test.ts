@@ -50,4 +50,24 @@ describe('project and Explorer surface isolation', () => {
     expect(result.searchState).toBeUndefined()
     expect(tab.term).toEqual({ id: 'shell', view: 'hidden' })
   })
+
+  it('keeps the Explorer split file when the list navigates or selects a folder', () => {
+    const tab = restored('explorer')
+    const file = {
+      path: 'C:\\movies\\clip.mp4',
+      name: 'clip.mp4',
+      ext: '.mp4',
+      kind: 'video' as const,
+      size: 100,
+      mtimeMs: 0
+    }
+    tab.files = [file]
+    tab.index = 0
+    tab.browse.preview = true
+    tab.browse.history[0].selected = 'C:\\project\\Nested'
+    const result = initialBrowsing(tab)
+    expect(result.folder).toBe(true)
+    expect(result.previewFile).toBe(file)
+    expect(result.location?.selected).toBe('C:\\project\\Nested')
+  })
 })

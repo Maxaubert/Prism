@@ -158,7 +158,7 @@ export function useFolderBrowsing(
   }, [id, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   const openFile = useCallback(
-    async (file: ViewerFile | string, full = true) => {
+    async (file: ViewerFile | string, full?: boolean) => {
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
@@ -198,7 +198,10 @@ export function useFolderBrowsing(
                 ...t,
                 files: payload.files,
                 index: payload.index,
-                browse: { ...t.browse, surface: full ? 'viewer' : 'folder' },
+                browse: {
+                  ...t.browse,
+                  surface: (full ?? !(isExplorerTab(t) && t.browse.preview)) ? 'viewer' : 'folder'
+                },
                 term: t.term ? { ...t.term, view: 'hidden' } : null
               }
             : t
@@ -232,9 +235,20 @@ export function useFolderBrowsing(
     const file = listing?.files.find((f) => f.path === location?.selected)
     if (preview && file) void openFile(file, false)
   }, [active, id, setState, listing, location?.selected, openFile])
+  const openSplit = useCallback(
+    (file: ViewerFile | string) => {
+      if (!active || !id || !isExplorerTab(active)) return
+      setState((s) => ({
+        ...s,
+        tabs: setBrowsePreview(setBrowseSurface(s.tabs, id, 'folder'), id, true)
+      }))
+      void openFile(file, false)
+    },
+    [active, id, setState, openFile]
+  )
   const previewFile = useMemo(
-    () => listing?.files.find((f) => f.path === location?.selected),
-    [listing, location?.selected]
+    () => active?.files[active.index],
+    [active?.files, active?.index]
   )
   return {
     folder,
@@ -250,6 +264,7 @@ export function useFolderBrowsing(
     patch,
     showFolder,
     openFile,
+    openSplit,
     select,
     togglePreview,
     previewFile

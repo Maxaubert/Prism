@@ -34,7 +34,11 @@ strip and keeps desktop browsing separate from phone sharing.
   stops after 250,000 entries, 1,000 matches or 30 seconds; it never presents this as complete.
   Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
 - Single-click selects. Double-click or Enter opens a directory or the file's existing viewer.
-  Optional preview reuses that viewer. Unsupported files retain the existing fallback.
+  In Explorer, Open in split view enables one viewer to the right of the file list. Further file
+  selections and opens replace that viewer; they never add pinned panes or hide the list. Folder
+  navigation keeps the current file in the viewer. Open full view explicitly hides the list;
+  returning restores the split. The split setting and displayed file survive restart.
+  Unsupported files retain the existing fallback.
 - The Open as project quick button requires a selected folder; a file or no selection disables it.
   Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
   and Delete, while the row's right-click menu retains the complete action set.
@@ -42,10 +46,13 @@ strip and keeps desktop browsing separate from phone sharing.
   Dismissing the menu restores the normal stripe or selected-row appearance.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
   it. Switching top-level tabs preserves Prism's existing intentional playback behavior.
-- New terminal here creates a new top-level tab at that directory. Browsing leaves existing shells,
+- New terminal here in Explorer creates a new top-level project tab at that directory. Browsing leaves existing shells,
   agent sessions and their actual cwd alone. Ctrl+Tab and Ctrl+Shift+Tab traverse the shared strip.
 - Project terminals keep their working directory while another Explorer tab browses elsewhere.
-  The sidebar continues to follow the reported terminal location within the project root.
+  Opening a terminal stays in the same project tab. New terminal adds a session inside that tab;
+  Open terminal here preserves touched or agent shells and opens a session at the chosen folder.
+  Project file split panes retain their existing independent behavior. The sidebar continues to
+  follow the reported terminal location within the project root.
 
 Existing tree, archive, viewer and terminal actions remain separate surfaces with their established
 selection and keyboard rules. The folder list is not a new editing, thumbnail or library system.
@@ -119,9 +126,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/actions-project-trial`.
-Then `tools/preview-branch.ps1` opens `dist/actions-project-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/actions-project-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-split-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-split-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-split-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -137,7 +144,17 @@ path bar remains editable without a pen icon:
 
 ![Explorer action row at 200 percent zoom](screenshots/folder-browsing/explorer-actions-more-zoom200.png)
 
-Project files and split terminals retain the sidebar and original viewer layout without Explorer controls:
+Explorer split view keeps the file list in the middle and one replaceable viewer on the right:
+
+![Explorer file list with one split viewer](screenshots/folder-browsing/explorer-single-split.png)
+
+![Explorer split viewer at 200 percent zoom](screenshots/folder-browsing/explorer-single-split-zoom200.png)
+
+Projects retain independent file splits and terminals inside their existing tab, without Explorer controls:
+
+![Project independent file splits](screenshots/folder-browsing/project-independent-splits.png)
+
+![Project independent splits at 200 percent zoom](screenshots/folder-browsing/project-independent-splits-zoom200.png)
 
 ![Project file without Explorer controls](screenshots/folder-browsing/project-file-without-explorer.png)
 

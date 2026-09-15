@@ -1796,12 +1796,12 @@ export default function App(): JSX.Element {
   )
   /** The sidebar button and Ctrl+`: full view, the terminal's home. */
   const toggleTerm = useCallback(() => {
-    if (active && !active.term) termTabAt(active.browse.path)
+    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
     else applyTermView(toggleTermView)
   }, [active, termTabAt, applyTermView])
   /** Ctrl+Shift+T: open full, unconditionally (never hides). */
   const openTermFull = useCallback(() => {
-    if (active && !active.term) termTabAt(active.browse.path)
+    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
     else applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
   }, [active, termTabAt, applyTermView])
   /**
@@ -2264,7 +2264,18 @@ export default function App(): JSX.Element {
    */
 
   const openNewTerm = useCallback(() => {
-    if (active && active.kind !== 'settings') termTabAt(active.browse.path)
+    if (!active || active.kind === 'settings') return
+    if (isExplorerTab(active)) {
+      termTabAt(active.browse.path)
+      return
+    }
+    const termId = nextTermId()
+    termRoots.current.set(termId, active.root)
+    setTabState((s) => ({
+      ...s,
+      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
+    }))
+    setPaneFocus('term')
   }, [active, termTabAt])
   const pickTermId = useCallback(
     (termId: string) => {
@@ -2405,8 +2416,14 @@ export default function App(): JSX.Element {
   }, [active])
 
   const paneSeq = useRef(0)
+  const openBrowseSplit = browsing.openSplit
   const pinSplit = useCallback(
     (path: string, dir?: SplitDir) => {
+      if (active && isExplorerTab(active)) {
+        openBrowseSplit(path)
+        setPaneFocus('live')
+        return
+      }
       const d = dir ?? lastSplitDir()
       saveSplitDir(d)
       // Over a FULL terminal, "open in split view" means: this file, beside
@@ -2439,7 +2456,7 @@ export default function App(): JSX.Element {
       })
       setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
-    [active, applyTermView, open, pickDock, fullscreen]
+    [active, applyTermView, openBrowseSplit, open, pickDock, fullscreen]
   )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {
@@ -2485,18 +2502,31 @@ export default function App(): JSX.Element {
   /**
    * "Open terminal here", on a folder in the tree (2026-08-31).
    *
-   * A tab has exactly ONE terminal, so this cannot mean "a second shell".
-   * It follows the reroot policy that already exists instead: an UNTOUCHED
-   * shell (nobody has typed into it) is replaced by one spawned in that
-   * folder, and a TOUCHED one is somebody's work - a half-typed command, a
-   * Claude session - so it is never taken away. That folder gets a terminal
-   * in a NEW TAB instead, which is the only other honest answer.
+   * An untouched project shell can be replaced at the requested folder.
+   * A touched shell or agent stays alive; the new shell joins the same
+   * project's terminal list. Explorer alone opens a separate project tab.
    *
    * The tab's own root does not move: this opens a shell somewhere, it does
    * not renavigate the window. The sidebar's folder button is the verb for
    * that, and it is deliberately a different button.
    */
-  const openTermHere = useCallback((folder: string) => termTabAt(folder), [termTabAt])
+  const openTermHere = useCallback((folder: string) => {
+    if (!active || active.kind === 'settings') return
+    if (isExplorerTab(active)) {
+      termTabAt(folder)
+      return
+    }
+    const term = active.term
+    if (term && !isTouched(term.id) && !agentIds.has(term.id) && !agentKinds.current.has(term.id))
+      closeTermId(term.id)
+    const termId = nextTermId()
+    termRoots.current.set(termId, folder)
+    setTabState((s) => ({
+      ...s,
+      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
+    }))
+    setPaneFocus('term')
+  }, [active, agentIds, closeTermId, termTabAt])
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
@@ -3328,7 +3358,7 @@ export default function App(): JSX.Element {
         // and a window that vanishes under a reflex keystroke - with unsaved
         // text in it - is the failure the close flow exists to prevent.
         e.preventDefault()
-        if (active && active.panes.length > 0) {
+        if (active && !isExplorerTab(active) && active.panes.length > 0) {
           unpinSplitId(active.panes[active.panes.length - 1].id)
         } else {
           closeActiveTab()
@@ -3786,7 +3816,7 @@ export default function App(): JSX.Element {
               {active.browse.preview && browsing.previewFile && (
                 <div className="browse-preview-actions">
                   <span title={browsing.previewFile.name}>{browsing.previewFile.name}</span>
-                  <button onClick={() => void browsing.openFile(browsing.previewFile!)}>
+                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
                     Open full view
                   </button>
                 </div>
@@ -3966,7 +3996,9 @@ export default function App(): JSX.Element {
               // While the terminal is FULL its panes are drawn in the terminal
               // area, not here: this grid sits hidden behind it, and mounting a
               // shell's panel twice would attach one xterm to one session twice.
-              const pins = (browsing.folder ? [] : (active?.panes ?? [])).filter(
+              const pins = (
+                browsing.folder || (active && isExplorerTab(active)) ? [] : (active?.panes ?? [])
+              ).filter(
                 (pn) => termView !== 'full' || !pn.term
               )
               const withPlayers = (
@@ -4369,11 +4401,6 @@ export default function App(): JSX.Element {
                   {
                     label: 'Open in split view',
                     onPick: () => {
-                      if (activeId)
-                        setTabState((s) => ({
-                          ...s,
-                          tabs: setBrowseSurface(s.tabs, activeId, 'viewer')
-                        }))
                       pinSplit(browseMenu.entry.path)
                     }
                   }
