@@ -9,6 +9,7 @@ import {
 import { ImageView } from './ImageView'
 import { openDocAt, rememberDocPos, saveDocPos } from '../lib/docPosition'
 import { preloadImage } from '../lib/imageLoader'
+import { createChromeActivityClock } from '../lib/autoHideChrome'
 
 /**
  * A comic book (2026-08-31).
@@ -41,6 +42,7 @@ export function ComicView({
   onToggleFullscreen: () => void
   fullscreen?: boolean
 }): JSX.Element {
+  const [chromeActivity] = useState(createChromeActivityClock)
   const [state, setState] = useState<
     | { for: string; pages: string[] }
     | { for: string; error: 'password' | 'failed' | 'empty' }
@@ -198,6 +200,7 @@ export function ComicView({
         name={pageName}
         onToggleFullscreen={onToggleFullscreen}
         fullscreen={fullscreen}
+        chromeActivity={chromeActivity}
         status={total > 1 ? `Page ${at + 1} of ${total}` : undefined}
       />
     </div>

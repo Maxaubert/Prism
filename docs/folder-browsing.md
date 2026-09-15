@@ -62,6 +62,10 @@ strip and keeps desktop browsing separate from phone sharing.
   Dismissing the menu restores the normal stripe or selected-row appearance.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
   it. Switching top-level tabs preserves Prism's existing intentional playback behavior.
+- Comic and image controls respond to pointer activity inside their own viewer frame. Moving
+  over Explorer, the title bar, sidebars or another viewer neither reveals them nor prolongs
+  their idle timer. Each comic keeps that timer across page changes. PDF controls use only
+  their own viewer's hover state; their keyboard focus behavior remains available.
 - New terminal here in Explorer creates a new top-level project tab at that directory. Browsing leaves existing shells,
   agent sessions and their actual cwd alone. Ctrl+Tab and Ctrl+Shift+Tab traverse the shared strip.
 - Project terminals keep their working directory while another Explorer tab browses elsewhere.
@@ -142,9 +146,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-focus-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-focus-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-focus-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/viewer-toolbar-trial`.
+Then `tools/preview-branch.ps1` opens `dist/viewer-toolbar-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/viewer-toolbar-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -152,6 +156,16 @@ The separate output path also lets the earlier trial remain open while the new b
 ## Captured interface
 
 These captures use the packaged branch with isolated test profiles and generated files.
+
+Comic and PDF toolbars remain hidden while the pointer is outside their viewer:
+
+![Comic controls hidden during Explorer activity](screenshots/folder-browsing/viewer-toolbar-comic.png)
+
+![Comic controls at 200 percent zoom](screenshots/folder-browsing/viewer-toolbar-comic-zoom200.png)
+
+![PDF controls hidden during Explorer activity](screenshots/folder-browsing/viewer-toolbar-pdf.png)
+
+![PDF controls at 200 percent zoom](screenshots/folder-browsing/viewer-toolbar-pdf-zoom200.png)
 
 Keyboard navigation keeps focus inside the list, with a visible row indicator and no frame outline:
 

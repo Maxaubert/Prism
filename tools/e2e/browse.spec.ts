@@ -2156,3 +2156,198 @@ test('Explorer keyboard navigation retains focus through folder history and empt
     await stop(app)
   }
 })
+
+function chromePdf(title: string): Buffer {
+  const stream = `BT /F1 20 Tf 40 420 Td (${title}) Tj ET`
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = [0]
+  for (const [index, object] of objects.entries()) {
+    offsets.push(pdf.length)
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`
+  }
+  const xref = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(pdf, 'latin1')
+}
+
+test('comic controls ignore outside movement and keep separate clocks through project pane page turns', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  const comicName = '000-scope-comic.cbz'
+  const imageName = '001-scope-image.png'
+  try {
+    const comic = new AdmZip()
+    const picture = readFileSync(join(ROOT, 'build/icon.png'))
+    for (const name of ['page1.png', 'page2.png', 'page3.png']) comic.addFile(name, picture)
+    comic.writeZip(join(h.project, comicName))
+    writeFileSync(join(h.project, imageName), picture)
+    await search(page, comicName)
+    await row(page, comicName).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    const viewer = page.locator('[data-browse-preview="true"]')
+    const chrome = viewer.locator('[data-viewer-chrome]')
+    await expect(viewer.getByRole('img', { name: 'page1.png', exact: true })).toBeVisible()
+    const outside = page.getByRole('button', { name: 'New tab', exact: true })
+    await outside.hover()
+    await expect(chrome).toHaveCount(0, { timeout: 5000 })
+    for (const target of [
+      outside,
+      page.getByRole('region', { name: 'Quick access', exact: true }),
+      row(page, comicName)
+    ]) {
+      await target.hover()
+      await page.waitForTimeout(180)
+      await expect(chrome).toHaveCount(0)
+    }
+    await viewer.getByRole('img', { name: 'page1.png', exact: true }).hover()
+    await expect(chrome).toBeVisible()
+    const box = (await outside.boundingBox())!
+    // Keep moving outside longer than the idle clock; outside motion must not reset it.
+    for (let index = 0; index < 22; index++) {
+      await page.mouse.move(box.x + box.width / 2 + (index % 2 ? 4 : -4), box.y + box.height / 2)
+      await page.waitForTimeout(150)
+    }
+    await expect(chrome).toHaveCount(0)
+    await viewer.getByRole('img', { name: 'page1.png', exact: true }).hover()
+    await expect(chrome).toBeVisible()
+    await chrome.hover()
+    await page.waitForTimeout(3200)
+    await expect(chrome).toBeVisible()
+    await viewer.click({ position: { x: 50, y: 70 } })
+    await outside.hover()
+    await expect(chrome).toHaveCount(0, { timeout: 5000 })
+    await page.keyboard.press('ArrowRight')
+    await expect(viewer.getByRole('img', { name: 'page2.png', exact: true })).toBeVisible()
+    await expect(chrome).toHaveCount(0)
+    await shot(page, info, 'comic-outside-chrome-hidden.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await outside.hover()
+    await expect(chrome).toHaveCount(0)
+    await viewer.getByRole('img', { name: 'page2.png', exact: true }).hover()
+    await expect(chrome).toBeVisible()
+    await outside.hover()
+    await expect(chrome).toHaveCount(0, { timeout: 5000 })
+    await shot(page, info, 'comic-outside-chrome-hidden-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)
+    )
+
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    for (const name of [comicName, imageName]) {
+      await page
+        .getByRole('treeitem')
+        .filter({ has: page.getByText(name, { exact: true }) })
+        .click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    }
+    const pins = page.locator('[data-pane="pinned"]')
+    await expect(pins).toHaveCount(2)
+    const comicPane = pins.nth(0)
+    const imagePane = pins.nth(1)
+    const comicChrome = comicPane.locator('[data-viewer-chrome]')
+    const imageChrome = imagePane.locator('[data-viewer-chrome]')
+    await expect(comicPane.getByRole('img', { name: /page[12]\.png/ })).toBeVisible()
+    await expect(imagePane.getByRole('img', { name: imageName, exact: true })).toBeVisible()
+    await outside.hover()
+    await expect(pins.locator('[data-viewer-chrome]')).toHaveCount(0, { timeout: 5000 })
+    await imagePane.getByRole('img', { name: imageName, exact: true }).hover()
+    await expect(imageChrome).toBeVisible()
+    await expect(comicChrome).toHaveCount(0)
+    await imageChrome.hover()
+    await page.waitForTimeout(3200)
+    await expect(imageChrome).toBeVisible()
+    await expect(comicChrome).toHaveCount(0)
+    const previous = await comicPane.getByRole('img').getAttribute('alt')
+    await page.keyboard.press(previous === 'page3.png' ? 'ArrowLeft' : 'ArrowRight')
+    await expect(comicPane.getByRole('img')).not.toHaveAttribute('alt', previous!)
+    await expect(comicChrome).toHaveCount(0)
+    await expect(imageChrome).toBeVisible()
+    await shot(page, info, 'project-independent-image-chrome.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('PDF controls reveal only inside their own Explorer or project viewer', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  const names = ['000-scope-first.pdf', '001-scope-second.pdf']
+  try {
+    for (const [index, name] of names.entries())
+      writeFileSync(join(h.project, name), chromePdf(`Viewer ${index + 1}`))
+    await search(page, names[0])
+    await row(page, names[0]).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    const viewer = page.locator('[data-browse-preview="true"] [data-pdf-viewer]')
+    const chrome = viewer.locator('[data-pdf-chrome]')
+    await expect(viewer.locator('canvas')).toBeVisible()
+    const outside = page.getByRole('button', { name: 'New tab', exact: true })
+    for (const target of [
+      outside,
+      page.getByRole('region', { name: 'Quick access', exact: true }),
+      row(page, names[0])
+    ]) {
+      await target.hover()
+      await expect(chrome).toHaveCSS('opacity', '0')
+    }
+    await viewer.hover({ position: { x: 70, y: 100 } })
+    await expect(chrome).toHaveCSS('opacity', '1')
+    await outside.hover()
+    await expect(chrome).toHaveCSS('opacity', '0')
+    await shot(page, info, 'pdf-outside-chrome-hidden.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await outside.hover()
+    await expect(chrome).toHaveCSS('opacity', '0')
+    await viewer.hover({ position: { x: 70, y: 100 } })
+    await expect(chrome).toHaveCSS('opacity', '1')
+    await outside.hover()
+    await expect(chrome).toHaveCSS('opacity', '0')
+    await shot(page, info, 'pdf-outside-chrome-hidden-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)
+    )
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    for (const name of names) {
+      await page
+        .getByRole('treeitem')
+        .filter({ has: page.getByText(name, { exact: true }) })
+        .click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    }
+    const viewers = page.locator('[data-pane="pinned"] [data-pdf-viewer]')
+    await expect(viewers).toHaveCount(2)
+    await expect(viewers.nth(1).locator('canvas')).toBeVisible()
+    await outside.hover()
+    for (const viewer of [viewers.nth(0), viewers.nth(1)])
+      await expect(viewer.locator('[data-pdf-chrome]')).toHaveCSS('opacity', '0')
+    await viewers.nth(0).hover({ position: { x: 70, y: 100 } })
+    await expect(viewers.nth(0).locator('[data-pdf-chrome]')).toHaveCSS('opacity', '1')
+    await expect(viewers.nth(1).locator('[data-pdf-chrome]')).toHaveCSS('opacity', '0')
+    await viewers.nth(1).hover({ position: { x: 70, y: 100 } })
+    await expect(viewers.nth(1).locator('[data-pdf-chrome]')).toHaveCSS('opacity', '1')
+    await expect(viewers.nth(0).locator('[data-pdf-chrome]')).toHaveCSS('opacity', '0')
+    await outside.hover()
+    for (const viewer of [viewers.nth(0), viewers.nth(1)])
+      await expect(viewer.locator('[data-pdf-chrome]')).toHaveCSS('opacity', '0')
+    await shot(page, info, 'project-independent-pdf-chrome.png', app)
+  } finally {
+    await stop(app)
+  }
+})

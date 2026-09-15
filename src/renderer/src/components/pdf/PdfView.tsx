@@ -761,7 +761,7 @@ export function PdfView({
   }
 
   return (
-    <div className="group relative h-full w-full">
+    <div className="group/pdf-viewer relative h-full w-full" data-pdf-viewer>
       <div
         ref={scroller}
         // 0, not -1: Tab is the keyboard's way into the document, and clicking
@@ -842,7 +842,7 @@ export function PdfView({
           and a z-auto pill under a big page sat BELOW them - visible through
           the transparent text, but swallowing no clicks. */}
       {doc && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div data-pdf-chrome className="pointer-events-none absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] px-2 py-1 text-[var(--p-text)] opacity-0 transition-opacity focus-within:opacity-100 group-hover/pdf-viewer:opacity-100">
           <input
             value={pageEdit ?? String(page)}
             onFocus={(e) => {

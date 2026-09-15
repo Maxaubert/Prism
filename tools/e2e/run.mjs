@@ -1609,8 +1609,16 @@ async function chromeHideScenario(fixtures) {
   // matches nothing, so the assertion below passed without testing anything.
   const pill = () => win.getByText(/Page \d+ of \d+/)
   try {
+    const stage = win.locator('[data-owns-arrows]')
+    await stage.waitFor({ state: 'visible', timeout: 20000 })
+    const wakeInside = async () => {
+      const box = await stage.boundingBox()
+      await win.mouse.move(box.x + box.width / 2, box.y + box.height / 3)
+      await win.mouse.move(box.x + box.width / 2 + 12, box.y + box.height / 3 + 8)
+    }
+    await wakeInside()
     await win.waitForSelector('[data-viewer-chrome]', { timeout: 20000 })
-    ok(true, 'the control cluster is up when the page opens')
+    ok(true, 'the control cluster wakes inside the comic viewer')
 
     // ONE BAR (owner, 2026-09-02). The counter used to be a second pill stacked
     // above the cluster, and before that the two were drawn on top of one
@@ -1655,8 +1663,7 @@ async function chromeHideScenario(fixtures) {
     ok((await pill().count()) === 0, 'and the page counter goes with it')
 
     // And comes back on movement, with no click.
-    await win.mouse.move(300, 300)
-    await win.mouse.move(320, 310)
+    await wakeInside()
     await sleep(500)
     ok((await bar().count()) === 1, 'and comes back on pointer movement alone')
 

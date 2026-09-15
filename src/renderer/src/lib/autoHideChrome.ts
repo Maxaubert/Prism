@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 /** How long the chrome stays up after the last thing that happened. */
 export const CHROME_IDLE = 2600
@@ -6,19 +6,21 @@ export const CHROME_IDLE = 2600
  *  clock and the transition cannot disagree about when it is gone. */
 export const CHROME_FADE = 160
 
-/**
- * When the user last did something, held at MODULE level rather than per hook.
- *
- * Because the chrome's owner REMOUNTS. A comic keys its ImageView by page, so
- * every page turn builds a fresh one - and a per-instance clock starts over,
- * which meant the bar reappeared on every page of a book read with the
- * keyboard. Excluding the arrow keys could never have fixed that on its own:
- * the state was not being woken, it was being born.
- *
- * Seeded at module load so the first file opened in a session shows its
- * controls, and never reset on mount, which is the whole point.
- */
-let lastActivity = Date.now()
+/** A comic owns this clock so page remounts inherit its existing idle state. */
+export interface ChromeActivityClock {
+  lastActivity: () => number
+  touch: () => void
+}
+const INITIAL_ACTIVITY = Date.now()
+export function createChromeActivityClock(): ChromeActivityClock {
+  let lastActivity = INITIAL_ACTIVITY
+  return {
+    lastActivity: () => lastActivity,
+    touch: () => {
+      lastActivity = Date.now()
+    }
+  }
+}
 
 /**
  * Viewer chrome that gets out of the way, and comes back on movement.
@@ -37,6 +39,8 @@ let lastActivity = Date.now()
  * which wakes it the instant it hides. And not with a root-level
  * `onMouseMove`, because Chromium fires `mousemove` on layout change under a
  * STATIONARY cursor, which is another way it wakes itself for ever.
+ * Window events count only when their target and coordinates are inside this
+ * viewer, so moving over another pane or navigation cannot wake its controls.
  *
  * `pinned` is asked of the DOM rather than tracked as state, for the same
  * reason: reaching for a control and pausing your hand should not make the
@@ -54,6 +58,7 @@ let lastActivity = Date.now()
  * to be left mounted and invisible.
  */
 export function useAutoHideChrome(
+  stage: RefObject<HTMLElement | null>,
   pinned: () => boolean,
   idle = CHROME_IDLE,
   /**
@@ -66,11 +71,14 @@ export function useAutoHideChrome(
    * single page. Turning a page is the thing you came to do, not a request to
    * see the controls.
    */
-  wakesOnKey: (e: KeyboardEvent) => boolean = () => true
+  wakesOnKey: (e: KeyboardEvent) => boolean = () => true,
+  activityClock?: ChromeActivityClock
 ): { shown: boolean; leaving: boolean; wake: () => void } {
+  const [ownClock] = useState(createChromeActivityClock)
+  const clock = activityClock ?? ownClock
   // Inherited, not assumed: a remount picks up where the clock actually is, so
   // a page turn does not bring the bar back.
-  const [shown, setShown] = useState(() => Date.now() - lastActivity < idle)
+  const [shown, setShown] = useState(() => Date.now() - clock.lastActivity() < idle)
   const [leaving, setLeaving] = useState(false)
   /** When the fade started, so the clock knows when it is over. */
   const leftAt = useRef(0)
@@ -84,12 +92,12 @@ export function useAutoHideChrome(
   }, [pinned])
 
   const wake = useCallback(() => {
-    lastActivity = Date.now()
+    clock.touch()
     // A wake DURING the fade reverses it: the element is still mounted, so it
     // simply transitions back to opaque rather than flickering out and in.
     setLeaving(false)
     setShown(true)
-  }, [])
+  }, [clock])
 
   useEffect(() => {
     // 60ms rather than 250: the fade's end has to be noticed within a frame or
@@ -105,13 +113,13 @@ export function useAutoHideChrome(
         }
         return
       }
-      if (now - lastActivity < idle) return
+      if (now - clock.lastActivity() < idle) return
       if (isPinned.current()) return
       leftAt.current = now
       setLeaving(true)
     }, 60)
     return () => window.clearInterval(t)
-  }, [idle])
+  }, [idle, clock])
 
   // A wake mid-fade has to clear the pending removal too, or the clock takes
   // the element away under a pointer that just asked for it.
@@ -127,13 +135,38 @@ export function useAutoHideChrome(
   }, [wakesOnKey])
 
   useEffect(() => {
-    const on = (): void => wake()
-    const onKey = (e: KeyboardEvent): void => {
-      if (keyWakes.current(e)) wake()
+    const withinStage = (event: PointerEvent): boolean => {
+      const element = stage.current
+      if (!element || element.closest('[inert]') || !element.contains(event.target as Node))
+        return false
+      const bounds = element.getBoundingClientRect()
+      return (
+        event.clientX >= bounds.left &&
+        event.clientX < bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY < bounds.bottom
+      )
+    }
+    const onMove = (event: PointerEvent): void => {
+      if (withinStage(event)) wake()
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented) return
+      const element = stage.current
+      const target = event.target as HTMLElement | null
+      if (!element || element.closest('[inert]') || !element.getClientRects().length) return
+      if (target !== document.body && !element.contains(target)) return
+      if (
+        target?.closest(
+          'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="menu"],[role="dialog"]'
+        )
+      )
+        return
+      if (keyWakes.current(event)) wake()
     }
     // pointermove rather than mousemove: Chromium fires `mousemove` on a layout
     // change under a STATIONARY cursor, which a page turn is.
-    window.addEventListener('pointermove', on, { capture: true, passive: true })
+    window.addEventListener('pointermove', onMove, { capture: true, passive: true })
     window.addEventListener('keydown', onKey, true)
     // A TAP is activity too (2026-09-07, #106, the phone). A finger that
     // touches and lifts fires no pointermove at all, so on a phone the chrome
@@ -141,19 +174,26 @@ export function useAutoHideChrome(
     // transport on a film. Touch and pen only, so the mouse rule above stands
     // exactly as it was measured.
     const onDown = (e: PointerEvent): void => {
-      if (e.pointerType !== 'mouse') wake()
+      if (e.pointerType !== 'mouse' && withinStage(e)) wake()
     }
     window.addEventListener('pointerdown', onDown, { capture: true, passive: true })
     // Entering or leaving fullscreen relays out the whole stage, and the chrome
     // has to be visible on the other side of it.
-    document.addEventListener('fullscreenchange', on)
+    let previousFullscreen = document.fullscreenElement
+    const onFullscreen = (): void => {
+      const element = stage.current
+      const current = document.fullscreenElement
+      if (element && (previousFullscreen?.contains(element) || current?.contains(element))) wake()
+      previousFullscreen = current
+    }
+    document.addEventListener('fullscreenchange', onFullscreen)
     return () => {
-      window.removeEventListener('pointermove', on, true)
+      window.removeEventListener('pointermove', onMove, true)
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('pointerdown', onDown, true)
-      document.removeEventListener('fullscreenchange', on)
+      document.removeEventListener('fullscreenchange', onFullscreen)
     }
-  }, [wake])
+  }, [wake, stage])
 
   return { shown, leaving, wake }
 }
