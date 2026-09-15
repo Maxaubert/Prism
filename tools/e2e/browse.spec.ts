@@ -822,7 +822,7 @@ test('missing file pins recover on a valid choice and late failures stay out of 
   }
 })
 
-test('context menu target stays strongly highlighted on both row stripes and clears on dismissal', async ({}, info) => {
+test('context target uses distinct grey on both row stripes and restores blue selection on dismissal', async ({}, info) => {
   const h = await setup()
   const { page, app } = h
   try {
@@ -843,9 +843,16 @@ test('context menu target stays strongly highlighted on both row stripes and cle
       ).toBeVisible()
       const style = await target.evaluate((el) => {
         const css = getComputedStyle(el)
-        return { background: css.backgroundColor, color: css.color }
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')!
+        context.fillStyle = css.backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        const channels = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3)
+        return { background: css.backgroundColor, color: css.color, channels }
       })
       expect(style.background).not.toBe(idleBackground)
+      // A neutral context target must not look like the blue selection state.
+      expect(Math.max(...style.channels) - Math.min(...style.channels)).toBeLessThan(20)
       if (menuBackground) expect(style.background).toBe(menuBackground)
       menuBackground = style.background
       await expect(target).toHaveCSS('outline-style', 'solid')
@@ -856,7 +863,7 @@ test('context menu target stays strongly highlighted on both row stripes and cle
       await expect(target.locator('.browse-column-type')).toHaveCSS('color', style.color)
       await page.getByRole('button', { name: 'New tab', exact: true }).hover()
       await expect(target).toHaveCSS('background-color', style.background)
-      await target.hover({ position: { x: 6, y: 20 } })
+      await target.hover({ position: { x: 28, y: 20 } })
       await expect(target).toHaveCSS('background-color', style.background)
       await shot(page, info, `context-row-${striped ? 'striped' : 'plain'}.png`, app)
       await page.keyboard.press('Escape')
@@ -864,6 +871,15 @@ test('context menu target stays strongly highlighted on both row stripes and cle
       await page.getByRole('button', { name: 'New tab', exact: true }).hover()
       await expect(target).toHaveCSS('background-color', idleBackground)
     }
+    const selected = rows.first()
+    await selected.click()
+    await expect(selected).toHaveAttribute('aria-selected', 'true')
+    const selectedBackground = await selected.evaluate((el) => getComputedStyle(el).backgroundColor)
+    expect(selectedBackground).not.toBe(menuBackground)
+    await selected.click({ button: 'right' })
+    await expect(selected).toHaveCSS('background-color', menuBackground!)
+    await page.keyboard.press('Escape')
+    await expect(selected).toHaveCSS('background-color', selectedBackground)
     await app.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents
       contents.setZoomFactor(2)
@@ -1613,6 +1629,163 @@ test('a late folder result stays with its initiating tab while another tab is br
       h.movies
     )
     await expect(row(page, 'readme.txt')).toBeVisible()
+  } finally {
+    await stop(app)
+  }
+})
+
+test('Explorer section widths drag and persist with slim usable scrollbars at normal and high zoom', async ({}, info) => {
+  const h = await setup()
+  let { app, page } = h
+  try {
+    writeFileSync(
+      join(h.project, 'layout.json'),
+      JSON.stringify(
+        Object.fromEntries(
+          Array.from({ length: 80 }, (_, index) => [
+            `section-${String(index).padStart(3, '0')}`,
+            {
+              title: 'A preview that stays beside the folder list',
+              description: 'Readable content '.repeat(16)
+            }
+          ])
+        ),
+        null,
+        2
+      )
+    )
+    const comic = new AdmZip()
+    const picture = readFileSync(join(ROOT, 'build/icon.png'))
+    for (const name of ['page1.png', 'page2.png', 'page3.png']) comic.addFile(name, picture)
+    comic.writeZip(join(h.project, 'resize-comic.cbz'))
+    await search(page, 'layout.json')
+    await row(page, 'layout.json').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await expect(page.locator('.cm-content')).toContainText('section-000')
+    await search(page, '')
+    const places = () => page.getByRole('complementary', { name: 'Locations', exact: true })
+    const viewer = () => page.locator('[data-browse-preview="true"]')
+    const list = () => page.getByTestId('browse-list')
+    const width = async (target: ReturnType<typeof places>): Promise<number> =>
+      (await target.boundingBox())?.width ?? 0
+    const drag = async (name: string, delta: number): Promise<void> => {
+      const separator = page.getByRole('separator', { name, exact: true })
+      const box = (await separator.boundingBox())!
+      expect(box.width).toBeGreaterThanOrEqual(8)
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2 + delta, box.y + box.height / 2, { steps: 8 })
+      await page.mouse.up()
+    }
+    const before = { places: await width(places()), preview: await width(viewer()) }
+    await drag('Resize Quick access', 70)
+    await expect.poll(() => width(places())).toBeGreaterThan(before.places + 60)
+    await drag('Resize Explorer preview', -80)
+    await expect.poll(() => width(viewer())).toBeGreaterThan(before.preview + 70)
+    const afterDrag = { places: await width(places()), preview: await width(viewer()) }
+    const quickSeparator = page.getByRole('separator', { name: 'Resize Quick access', exact: true })
+    await quickSeparator.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(() => width(places())).toBeLessThan(afterDrag.places - 10)
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
+    const previewSeparator = page.getByRole('separator', {
+      name: 'Resize Explorer preview',
+      exact: true
+    })
+    await previewSeparator.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(() => width(viewer())).toBeGreaterThan(afterDrag.preview + 10)
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
+
+    for (const scroller of [list(), page.locator('.cm-scroller')]) {
+      const scrollStyle = await scroller.evaluate((element) => {
+        const el = element as HTMLElement
+        const bar = getComputedStyle(el, '::-webkit-scrollbar')
+        const button = getComputedStyle(el, '::-webkit-scrollbar-button')
+        return {
+          width: parseFloat(bar.width),
+          height: parseFloat(bar.height),
+          button: button.display,
+          gutter: el.offsetWidth - el.clientWidth,
+          overflows: el.scrollHeight > el.clientHeight
+        }
+      })
+      expect(scrollStyle.width).toBeLessThanOrEqual(8)
+      expect(scrollStyle.height).toBeLessThanOrEqual(8)
+      expect(scrollStyle.button).toBe('none')
+      expect(scrollStyle.gutter).toBeLessThanOrEqual(8)
+      expect(scrollStyle.overflows).toBe(true)
+      await scroller.hover()
+      await page.mouse.wheel(0, 360)
+      await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+      await scroller.evaluate((el) => {
+        el.scrollTop = 0
+      })
+      await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBe(0)
+      // Both slim thumbs remain draggable beside the wider resize hit targets.
+      const box = (await scroller.boundingBox())!
+      await page.mouse.move(box.x + box.width - 3, box.y + 8)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width - 3, box.y + 80, { steps: 8 })
+      await page.mouse.up()
+      await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+      await scroller.evaluate((el) => {
+        el.scrollTop = 0
+      })
+    }
+    await shot(page, info, 'explorer-resizable-sections.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await expect(list()).toBeInViewport()
+    await expect(viewer()).toBeInViewport()
+    const zoomBoxes = await Promise.all([
+      places().boundingBox(),
+      list().boundingBox(),
+      viewer().boundingBox()
+    ])
+    expect(zoomBoxes[0]!.x + zoomBoxes[0]!.width).toBeLessThanOrEqual(zoomBoxes[1]!.x + 2)
+    expect(zoomBoxes[1]!.x + zoomBoxes[1]!.width).toBeLessThanOrEqual(zoomBoxes[2]!.x + 2)
+    expect(zoomBoxes[1]!.width).toBeGreaterThan(100)
+    await shot(page, info, 'explorer-resizable-sections-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)
+    )
+    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
+    await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
+
+    // The same locations width applies while a file occupies the full main area.
+    await page.getByRole('button', { name: 'Open full view', exact: true }).click()
+    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
+    await expect(
+      page.getByRole('separator', { name: 'Resize Quick access', exact: true })
+    ).toBeVisible()
+    await returnToFolder(page)
+    await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
+    await expect
+      .poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs[1]?.browse?.preview)
+      .toBe(true)
+    await stop(app)
+    ;({ app, page } = await start(h.profile))
+    await expect(viewer()).toBeVisible()
+    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
+    await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
+    await expect(page.locator('.cm-content')).toContainText('section-000')
+    await search(page, 'resize-comic.cbz')
+    await row(page, 'resize-comic.cbz').click()
+    const comicPage = viewer().getByRole('img', { name: 'page1.png', exact: true })
+    await expect(comicPage).toBeVisible()
+    // Comic capture listeners must let a focused resize handle own its arrows.
+    for (const name of ['Resize Quick access', 'Resize Explorer preview']) {
+      const separator = page.getByRole('separator', { name, exact: true })
+      const beforeKey = await separator.getAttribute('aria-valuenow')
+      await separator.focus()
+      await page.keyboard.press('ArrowRight')
+      await expect(separator).not.toHaveAttribute('aria-valuenow', beforeKey!)
+      await expect(comicPage).toBeVisible()
+    }
   } finally {
     await stop(app)
   }

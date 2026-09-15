@@ -79,13 +79,17 @@ names. Do not make the main listing smaller to fit extra columns.
 The folder surface fills the available workspace below the existing tab strip. Its rows are a 48px
 path/history/search toolbar, a 44px action bar, flexible content and a 26px status bar.
 Quick access, open projects and drives occupy a 210px left rail. The rail becomes 160px below 760px.
-The file list gets the remaining width. Its optional viewer uses `clamp(280px, 40%, 720px)` on
-desktop and 44% at the narrow workspace breakpoint.
+These are defaults: drag either Explorer section boundary to resize the places rail or viewer.
+The file list gets the remaining width. Width preferences survive restart and adapt to the window.
+Dividers support arrow keys, Home/End and double-click reset, with a visible focus indicator.
 
 The list scrolls within the window and renders a bounded set of visible rows. Metadata columns
 disappear as the list container narrows: modified date below 720px, type below 510px, size below
 300px. The name remains. Breadcrumbs scroll horizontally and reveal the current location.
 Check actual high-zoom layouts after changing toolbar width, row height or preview geometry.
+Desktop scrollbars use a 6px thumb with a transparent track and no arrow buttons. Explicitly hidden
+scrollbars remain hidden. Alternating rows use a subtle 2% foreground tint; right-click targets use
+a stronger neutral fill and outline. Blue remains the normal selection color.
 
 ## Elevation & Depth
 

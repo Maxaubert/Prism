@@ -18,11 +18,62 @@
 }
 .browse-viewer-places {
   display: flex;
-  flex: 0 0 210px;
+  flex: 0 0 var(--explorer-places-width, 210px);
   min-height: 0;
   color: var(--p-text);
   background: var(--p-bg);
   font-size: 15px;
+}
+.explorer-resize {
+  position: absolute;
+  z-index: 8;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-app-region: no-drag;
+  outline: none;
+}
+.prism-desktop:has([role='menu']) .explorer-resize {
+  pointer-events: none;
+}
+.explorer-resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: transparent;
+}
+.explorer-resize:hover::after,
+.explorer-resize:focus-visible::after,
+.explorer-resize[data-dragging]::after {
+  background: var(--p-accent-hi);
+}
+.explorer-resize:focus-visible {
+  outline: 1px solid var(--p-accent-hi);
+  outline-offset: -3px;
+}
+.explorer-resize-places {
+  top: 0;
+  bottom: 0;
+  left: var(--explorer-places-width);
+}
+.is-browsing > .explorer-resize-places {
+  top: 48px;
+  bottom: 26px;
+}
+.explorer-resize-places.is-right {
+  left: auto;
+  right: var(--explorer-places-width);
+  transform: translateX(100%);
+}
+.explorer-resize-preview {
+  top: 92px;
+  bottom: 26px;
+  right: var(--browse-preview-width);
+  transform: translateX(100%);
 }
 .browse-viewer-places > .browse-places {
   width: 100%;

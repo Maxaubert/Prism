@@ -74,6 +74,8 @@ import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowsePlaces } from './components/browse/BrowsePlaces'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
+import { ExplorerResize } from './components/browse/ExplorerResize'
+import { useExplorerWidths } from './lib/useExplorerWidths'
 import {
   useQuickAccess,
   pinQuickAccess,
@@ -2577,6 +2579,10 @@ export default function App(): JSX.Element {
     !!active?.browse.preview &&
     !!browsing.previewFile &&
     file?.path === browsing.previewFile.path
+  const explorerWidths = useExplorerWidths(
+    placesVisible,
+    browsing.folder && !!active?.browse.preview
+  )
   const quickAccessDefaults = useMemo(
     () =>
       browsing.locations
@@ -3569,7 +3575,7 @@ export default function App(): JSX.Element {
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
-    <div className="flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
+    <div className="prism-desktop flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
       {/* The fullscreen fade, OUTSIDE the fullscreen element: it covers the
           whole window - sidebar, tabs and title bar included - so everything
           darkens together rather than the picture going first and the chrome
@@ -3660,6 +3666,8 @@ export default function App(): JSX.Element {
       )}
       <div
         inert={settingsOpen || setup}
+        ref={explorerWidths.workspace}
+        style={active && isExplorerTab(active) ? explorerWidths.style : undefined}
         className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
@@ -3667,6 +3675,14 @@ export default function App(): JSX.Element {
         {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
             footer is its home, and a paste must stay visible either way. */}
         {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
+        {active && isExplorerTab(active) && !fullscreen && placesVisible && (
+          <ExplorerResize
+            section="places"
+            bounds={explorerWidths.bounds.places}
+            onResize={(width) => explorerWidths.resize('places', width)}
+            right={!browsing.folder && treeSide === 'right'}
+          />
+        )}
         {active && isExplorerTab(active) && !browsing.folder && !fullscreen && placesVisible && (
           <div className="browse-viewer-places">
             <BrowsePlaces
@@ -3822,6 +3838,13 @@ export default function App(): JSX.Element {
                 </div>
               )}
             </div>
+          )}
+          {browsing.folder && active?.browse.preview && !fullscreen && (
+            <ExplorerResize
+              section="preview"
+              bounds={explorerWidths.bounds.preview}
+              onResize={(width) => explorerWidths.resize('preview', width)}
+            />
           )}
           {!browsing.folder &&
             active &&

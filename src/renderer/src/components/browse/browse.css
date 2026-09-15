@@ -1,5 +1,5 @@
 .folder-browser {
-  --browse-places-width: 210px;
+  --browse-places-width: var(--explorer-places-width, 210px);
   display: grid;
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr);
   grid-template-rows: 48px 44px minmax(0, 1fr) 26px;
@@ -379,7 +379,7 @@
   color: var(--p-text-soft);
 }
 .browse-row[data-striped] {
-  background: color-mix(in srgb, var(--p-text) 3.5%, transparent);
+  background: color-mix(in srgb, var(--p-text) 2%, transparent);
 }
 .browse-row > span {
   overflow: hidden;
@@ -429,14 +429,15 @@
   font-size: 13px;
 }
 .folder-browser .browse-row[data-selected],
-.folder-browser .browse-row[data-selected]:hover,
-.folder-browser .browse-row[data-menu],
-.folder-browser .browse-row[data-menu]:hover {
+.folder-browser .browse-row[data-selected]:hover {
   background: var(--p-sel-bg);
   color: var(--p-on-accent);
 }
-.folder-browser .browse-row[data-menu] {
-  outline: 2px solid var(--p-accent-hi);
+.folder-browser .browse-row[data-menu],
+.folder-browser .browse-row[data-menu]:hover {
+  background: color-mix(in srgb, var(--p-text) 14%, var(--p-bg));
+  color: var(--p-text);
+  outline: 2px solid color-mix(in srgb, var(--p-text) 40%, var(--p-bg));
   outline-offset: -2px;
 }
 .browse-row:is([data-selected], [data-menu]) .browse-name,
@@ -522,7 +523,7 @@
 }
 @media (max-width: 760px) {
   .folder-browser {
-    --browse-places-width: 160px;
+    --browse-places-width: var(--explorer-places-width, 160px);
   }
 }
 @media (max-width: 560px) {

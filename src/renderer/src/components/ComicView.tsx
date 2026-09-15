@@ -109,7 +109,7 @@ export function ComicView({
       const el = document.activeElement as HTMLElement | null
       // The search box, a rename and the shell keep their own arrows.
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
-      if (el?.closest('.xterm')) return
+      if (el?.closest('.xterm,[role="separator"]')) return
       // Ctrl+arrow is the FOLDER's, deliberately: it is how you reach the
       // next book. App handles that one; this only claims the plain arrows,
       // and App yields them by finding data-owns-arrows in the DOM.

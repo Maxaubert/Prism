@@ -42,7 +42,11 @@ strip and keeps desktop browsing separate from phone sharing.
 - The Open as project quick button requires a selected folder; a file or no selection disables it.
   Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
   and Delete, while the row's right-click menu retains the complete action set.
-- Right-clicked rows use a distinct accent highlight and outline on both alternating row colors.
+- Drag the boundaries between Quick access, the file list and the viewer to adjust section widths.
+  Keyboard-focused dividers support arrow keys and Home/End; double-click resets their width.
+  Widths persist across restarts and fit the available window space, including at high zoom.
+- Desktop scrollbars use slim 6px thumbs without arrow buttons or solid tracks.
+- Right-clicked rows use a grey highlight and outline on both subtler alternating row colors.
   Dismissing the menu restores the normal stripe or selected-row appearance.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
   it. Switching top-level tabs preserves Prism's existing intentional playback behavior.
@@ -126,9 +130,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-split-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-split-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-split-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/section-widths-trial`.
+Then `tools/preview-branch.ps1` opens `dist/section-widths-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/section-widths-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -136,6 +140,17 @@ The separate output path also lets the earlier trial remain open while the new b
 ## Captured interface
 
 These captures use the packaged branch with isolated test profiles and generated files.
+
+Resizable Explorer sections keep slim scrollbars beside the file list and viewer. The focused
+divider is visible, and right-click targets use a neutral grey rather than the selection accent:
+
+![Resizable Explorer sections and slim scrollbars](screenshots/folder-browsing/explorer-resizable-sections.png)
+
+![Resizable Explorer sections at 200 percent zoom](screenshots/folder-browsing/explorer-resizable-sections-zoom200.png)
+
+![Grey right-click highlight on a subtle row stripe](screenshots/folder-browsing/explorer-grey-context-row.png)
+
+![Grey right-click highlight at 200 percent zoom](screenshots/folder-browsing/explorer-grey-context-row-zoom200.png)
 
 The quick action row includes Delete, and the More menu keeps the additional actions. The whole
 path bar remains editable without a pen icon:
