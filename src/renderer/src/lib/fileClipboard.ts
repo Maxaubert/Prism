@@ -12,14 +12,14 @@ function mark(paths: string[]): void {
   listeners.forEach((listener) => listener())
 }
 
-/** A shared cut mark follows files between Explorer and project tabs. Main moves only when
- * the current Windows clipboard still contains the exact marked paths. */
+/** A shared cut mark follows files between Explorer and project tabs. Main reads
+ * the Windows copy/cut mode, falling back to matching marks for older clipboards. */
 export function copyFilePaths(paths: string[], cut = false): Promise<boolean> {
   const request = ++revision
   pending = pending
     .catch(() => false)
     .then(async () => {
-      const copied = await window.prism.copyFilesToClipboard(paths)
+      const copied = await window.prism.copyFilesToClipboard(paths, cut)
       if (request === revision && copied) mark(cut ? [...paths] : [])
       return copied
     })

@@ -206,7 +206,6 @@ export function BrowseList(props: Props): JSX.Element {
                     draggable
                     {...folderDrop(entry.isFolder ? entry.path : browseParent(entry.path) ?? props.directory, entry.path)}
                     onDragStart={(event) => {
-                      props.onSelect(entry.path)
                       setDrag({ kind: 'files', paths: [entry.path] })
                       event.dataTransfer.effectAllowed = 'copyMove'
                       event.dataTransfer.setData(DRAG_MIME, 'files')

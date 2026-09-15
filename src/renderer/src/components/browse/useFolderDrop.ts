@@ -1,5 +1,12 @@
 import { useEffect, useState, type DragEvent } from 'react'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../../lib/dragDrop'
+import {
+  DRAG_MIME,
+  dragIncludesPath,
+  dragPayload,
+  droppedPaths,
+  setDrag,
+  type DragPayload
+} from '../../lib/dragDrop'
 
 const pathKey = (path: string): string =>
   path.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
@@ -33,7 +40,11 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
         if (!accepts(event)) return
         event.preventDefault()
         event.stopPropagation()
-        if (!onDropInto || insideSource(directory, dragPayload(event.dataTransfer))) {
+        if (
+          !onDropInto ||
+          dragIncludesPath(event.dataTransfer, target) ||
+          insideSource(directory, dragPayload(event.dataTransfer))
+        ) {
           event.dataTransfer.dropEffect = 'none'
           setHovered(null)
           return
@@ -54,11 +65,12 @@ export function useFolderDrop(onDropInto?: (directory: string, payload: DragPayl
         event.preventDefault()
         event.stopPropagation()
         const payload = dragPayload(event.dataTransfer)
+        const self = dragIncludesPath(event.dataTransfer, target)
         const paths = payload ? [] : droppedPaths(event.dataTransfer)
         setDrag(null)
         setHovered(null)
         event.currentTarget.closest<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
-        if (payload && !insideSource(directory, payload)) onDropInto?.(directory, payload)
+        if (payload && !self && !insideSource(directory, payload)) onDropInto?.(directory, payload)
         else if (paths.length) onDropInto?.(directory, { kind: 'files', paths })
       }
     }

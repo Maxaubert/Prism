@@ -1165,6 +1165,17 @@ test('promoted projects keep Explorer controls absent in file, full terminal, sp
     await expectNoExplorerControls(page)
     await expect(page.locator('.xterm:visible')).toHaveCount(1)
     await expect(ordinaryTabs(page)).toHaveCount(2)
+    const terminalDivider = page.locator(
+      '[data-term-panel] > .cursor-ew-resize, [data-term-panel] > .cursor-ns-resize'
+    )
+    const dividerColor = await terminalDivider.evaluate(
+      (element) => getComputedStyle(element).backgroundColor
+    )
+    await terminalDivider.hover()
+    expect(await terminalDivider.evaluate((element) => getComputedStyle(element).cursor)).toMatch(
+      /^(ew|ns)-resize$/
+    )
+    await expect(terminalDivider).toHaveCSS('background-color', dividerColor)
     await shot(page, info, 'project-split-without-explorer.png', app)
     await app.evaluate(({ BrowserWindow }) => {
       const contents = BrowserWindow.getAllWindows()[0].webContents
@@ -1503,6 +1514,54 @@ test('project file split panes remain independent and persist with the project t
     await row(page, 'notes.txt').click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
     await expect(ordinaryTabs(page)).toHaveCount(2)
+    await expect(page.locator('.cm-content')).toHaveText('Original notes')
+    const treeSeparator = page.getByRole('separator', { name: 'Resize file tree', exact: true })
+    await expect
+      .poll(() =>
+        page
+          .locator('aside[aria-hidden="false"]')
+          .first()
+          .evaluate((element) =>
+            Math.abs(
+              element.getBoundingClientRect().width -
+                Number.parseFloat((element as HTMLElement).style.width)
+            )
+          )
+      )
+      .toBeLessThan(1)
+    const treeEdge = await treeSeparator.boundingBox()
+    const originalWidth = await treeSeparator.getAttribute('aria-valuenow')
+    // The sidebar clips the outer half of its handle, so grab its visible half.
+    const treeGrip = {
+      x: treeEdge!.x + treeEdge!.width / 4,
+      y: treeEdge!.y + treeEdge!.height / 2
+    }
+    expect(
+      await page.evaluate(
+        ({ x, y }) =>
+          document
+            .elementFromPoint(x, y)
+            ?.closest('[role="separator"]')
+            ?.getAttribute('aria-label'),
+        treeGrip
+      )
+    ).toBe('Resize file tree')
+    await page.mouse.move(treeGrip.x, treeGrip.y)
+    await expect(treeSeparator).toHaveCSS('cursor', 'ew-resize')
+    await expect(treeSeparator.locator('span')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await page.mouse.down()
+    await expect(treeSeparator).toBeFocused()
+    await page.mouse.move(treeGrip.x + 30, treeGrip.y, { steps: 8 })
+    await expect(treeSeparator.locator('span')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await shot(page, info, 'held-project-resize-no-line.png', app)
+    await page.mouse.up()
+    await expect(treeSeparator).not.toHaveAttribute('aria-valuenow', originalWidth!)
+    await treeSeparator.focus()
+    await page.keyboard.press('ArrowLeft')
+    await expect(treeSeparator.locator('span')).not.toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)'
+    )
     await page
       .getByRole('tree')
       .locator('..')
@@ -1673,8 +1732,20 @@ test('Explorer section widths drag and persist with slim usable scrollbars at no
       const box = (await separator.boundingBox())!
       expect(box.width).toBeGreaterThanOrEqual(8)
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await expect(separator).toHaveCSS('cursor', 'ew-resize')
+      await expect
+        .poll(() =>
+          separator.evaluate((element) => getComputedStyle(element, '::after').backgroundColor)
+        )
+        .toBe('rgba(0, 0, 0, 0)')
       await page.mouse.down()
       await page.mouse.move(box.x + box.width / 2 + delta, box.y + box.height / 2, { steps: 8 })
+      await expect
+        .poll(() =>
+          separator.evaluate((element) => getComputedStyle(element, '::after').backgroundColor)
+        )
+        .toBe('rgba(0, 0, 0, 0)')
+      if (name === 'Resize Explorer preview') await shot(page, info, 'held-resize-no-line.png', app)
       await page.mouse.up()
     }
     const before = { places: await width(places()), preview: await width(viewer()) }
@@ -1686,6 +1757,11 @@ test('Explorer section widths drag and persist with slim usable scrollbars at no
     const quickSeparator = page.getByRole('separator', { name: 'Resize Quick access', exact: true })
     await quickSeparator.focus()
     await page.keyboard.press('ArrowLeft')
+    await expect
+      .poll(() =>
+        quickSeparator.evaluate((element) => getComputedStyle(element, '::after').backgroundColor)
+      )
+      .not.toBe('rgba(0, 0, 0, 0)')
     await expect.poll(() => width(places())).toBeLessThan(afterDrag.places - 10)
     await page.keyboard.press('ArrowRight')
     await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
@@ -2706,6 +2782,292 @@ test('held file drops onto existing tab labels and close areas use that tab fold
     await expect(row(page, 'settings-stays.txt')).toBeVisible()
   } finally {
     await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held drags preserve the marked row and preview, and selected files and folders keep their blue self-hover', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  try {
+    writeFileSync(
+      join(h.movies, 'drag-other.txt'),
+      'This file is cargo, not the selected preview\n'
+    )
+    mkdirSync(join(h.movies, 'Dragging folder'))
+    mkdirSync(join(h.movies, 'Target folder'))
+    await go(page, h.movies)
+    const sourceTab = ordinaryTabs(page).first()
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await go(page, h.nested)
+    const destinationTab = ordinaryTabs(page).last()
+    await sourceTab.click()
+    await row(page, 'readme.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    const preview = page.locator('[data-browse-preview="true"] .cm-content')
+    await expect(preview).toHaveText('A different browsing location.')
+    await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
+    const selectedBlue = await row(page, 'readme.txt').evaluate(
+      (element) => getComputedStyle(element).backgroundColor
+    )
+
+    await pickUp(page, row(page, 'drag-other.txt'))
+    await expect(page.locator('[data-file-drag-badge]')).toContainText('drag-other.txt')
+    await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
+    await expect(row(page, 'readme.txt')).toHaveCSS('background-color', selectedBlue)
+    await expect(row(page, 'drag-other.txt')).toHaveAttribute('aria-selected', 'false')
+    await expect(preview).toHaveText('A different browsing location.')
+    await page.keyboard.press('Control+Tab')
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await expect.poll(() => existsSync(join(h.nested, 'drag-other.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'drag-other.txt'))).toBe(false)
+    await sourceTab.click()
+    await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
+    await expect(preview).toHaveText('A different browsing location.')
+
+    await pickUp(page, row(page, 'readme.txt'))
+    await expect(page.locator('[data-file-drag-badge]')).toContainText('readme.txt')
+    await expect(row(page, 'readme.txt')).not.toHaveAttribute('data-drag-over', 'true')
+    await expect(row(page, 'readme.txt')).toHaveCSS('background-color', selectedBlue)
+    await expect(preview).toHaveText('A different browsing location.')
+    await shot(page, info, 'held-selected-file-stays-blue.png', app)
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
+
+    await row(page, 'Dragging folder').click()
+    await expect(row(page, 'Dragging folder')).toHaveAttribute('aria-selected', 'true')
+    const folderBlue = await row(page, 'Dragging folder').evaluate(
+      (element) => getComputedStyle(element).backgroundColor
+    )
+    await pickUp(page, row(page, 'Dragging folder'))
+    await expect(row(page, 'Dragging folder')).not.toHaveAttribute('data-drag-over', 'true')
+    await expect(row(page, 'Dragging folder')).toHaveCSS('background-color', folderBlue)
+    await expect(preview).toHaveText('A different browsing location.')
+    const target = await row(page, 'Target folder').boundingBox()
+    await page.mouse.move(target!.x + 100, target!.y + target!.height / 2, { steps: 8 })
+    await expectGreyDropTarget(row(page, 'Target folder'))
+    await expect(row(page, 'Dragging folder')).toHaveCSS('background-color', folderBlue)
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    expect(existsSync(join(h.movies, 'Dragging folder'))).toBe(true)
+    expect(existsSync(join(h.movies, 'Target folder', 'Dragging folder'))).toBe(false)
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+interface NativeFileClipboard {
+  paths: string[]
+  effect: number | null
+  image: { width: number; height: number } | null
+}
+
+/** Read the native data object from a different process, after Prism's writer has exited. */
+function nativeFileClipboard(): NativeFileClipboard {
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    Add-Type -AssemblyName System.Windows.Forms
+    $data = [System.Windows.Forms.Clipboard]::GetDataObject()
+    $paths = @(if ($data -and $data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) {
+      $data.GetData([System.Windows.Forms.DataFormats]::FileDrop)
+    })
+    $effect = $null
+    if ($data -and $data.GetDataPresent('Preferred DropEffect')) {
+      $raw = $data.GetData('Preferred DropEffect')
+      $bytes = if ($raw -is [System.IO.MemoryStream]) { $raw.ToArray() } else { [byte[]]$raw }
+      $effect = [BitConverter]::ToUInt32($bytes, 0)
+    }
+    $image = $null
+    if ($data -and $data.GetDataPresent([System.Windows.Forms.DataFormats]::Bitmap)) {
+      $bitmap = $data.GetData([System.Windows.Forms.DataFormats]::Bitmap)
+      try { $image = @{ width = $bitmap.Width; height = $bitmap.Height } }
+      finally { $bitmap.Dispose() }
+    }
+    @{ paths = $paths; effect = $effect; image = $image } | ConvertTo-Json -Compress
+  `
+  return JSON.parse(
+    execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command', script], {
+      encoding: 'utf8',
+      windowsHide: true
+    })
+  )
+}
+
+/** Simulate another Windows application's file operation without Prism's renderer cut mark. */
+function writeNativeFileClipboard(paths: string[], cut: boolean): void {
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+    Add-Type -AssemblyName System.Windows.Forms
+    $paths = [System.Collections.Specialized.StringCollection]::new()
+    foreach ($path in $request.paths) { [void]$paths.Add($path) }
+    $data = [System.Windows.Forms.DataObject]::new()
+    $data.SetFileDropList($paths)
+    $effect = if ($request.cut) { 2 } else { 1 }
+    $stream = [System.IO.MemoryStream]::new([BitConverter]::GetBytes([uint32]$effect))
+    try {
+      $data.SetData('Preferred DropEffect', $stream)
+      [System.Windows.Forms.Clipboard]::SetDataObject($data, $true, 10, 100)
+    } finally { $stream.Dispose() }
+  `
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command', script], {
+    input: JSON.stringify({ paths, cut }),
+    encoding: 'utf8',
+    windowsHide: true
+  })
+}
+
+/** Optional local integration: never paste into, configure or close a preexisting Word process. */
+function pasteImageInIsolatedWord(): void {
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    $existing = @(Get-Process WINWORD -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+    if ($existing.Count -ne 0) { throw 'Word isolation requires no existing Word processes; no app or document was changed.' }
+    $started = [DateTime]::UtcNow
+    $word = $null
+    $document = $null
+    $range = $null
+    $shape = $null
+    $owned = $false
+    $operationError = $null
+    $cleanupError = $null
+    $doNotSave = 0
+    try {
+      $word = New-Object -ComObject Word.Application
+      $created = @(Get-CimInstance Win32_Process -Filter "Name = 'WINWORD.EXE'")
+      if ($created.Count -ne 1 -or $created[0].CreationDate.ToUniversalTime() -lt $started -or
+          $created[0].CommandLine -notmatch '/Automation' -or $created[0].CommandLine -notmatch '-Embedding') {
+        throw 'Word isolation could not be established; no document was created or changed.'
+      }
+      $owned = $true
+      [Console]::WriteLine('Owned Word process: ' + $created[0].ProcessId)
+      if ($word.Documents.Count -ne 0) { throw 'The Word process has a document already; it was left untouched.' }
+      $word.Visible = $false
+      $word.DisplayAlerts = 0
+      $document = $word.Documents.Add()
+      $range = $document.Content
+      $range.Paste()
+      if ($document.InlineShapes.Count -ne 1) { throw 'Word did not paste one inline picture.' }
+      $shape = $document.InlineShapes.Item(1)
+      if ($shape.Type -ne 3 -or $shape.Width -le 0 -or $shape.Height -le 0) {
+        throw 'The pasted Word content is not a picture with dimensions.'
+      }
+      [Console]::WriteLine('WORD_IMAGE_PASTE_OK InlineShapes=1 Type=3')
+    } catch {
+      $operationError = $_
+    } finally {
+      if ($owned) {
+        try { if ($document) { $document.Close([ref]$doNotSave) } }
+        catch { $cleanupError = $_ }
+        finally {
+          try { if ($word -and $word.Documents.Count -eq 0) { $word.Quit([ref]$doNotSave) } }
+          catch { if (-not $cleanupError) { $cleanupError = $_ } }
+        }
+      }
+      foreach ($com in @($shape, $range, $document, $word)) {
+        if ($com -and [System.Runtime.InteropServices.Marshal]::IsComObject($com)) {
+          try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($com) }
+          catch { if (-not $cleanupError) { $cleanupError = $_ } }
+        }
+      }
+    }
+    if ($operationError) {
+      if ($cleanupError) { [Console]::Error.WriteLine('Word cleanup also failed: ' + $cleanupError) }
+      throw $operationError
+    }
+    if ($cleanupError) { throw $cleanupError }
+  `
+  const output = execFileSync(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-STA', '-Command', script],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 60_000
+    }
+  )
+  expect(output).toContain('WORD_IMAGE_PASTE_OK')
+  console.log(output.trim())
+}
+
+test('Windows clipboard retains native file lists, copy and cut effects, and image pixels across Explorer and project copy actions', async () => {
+  const h = await setup()
+  const { page, app } = h
+  const restoreClipboard = await keepClipboard(app)
+  const fileName = "notat-ÆØÅ 東京 O'Brien $(literal).txt"
+  const folderName = "Folder O'Brien $(literal)"
+  const imageName = "bilde-æ O'Brien $(literal).png"
+  const filePath = join(h.movies, fileName)
+  const folderPath = join(h.movies, folderName)
+  const imagePath = join(h.movies, imageName)
+  try {
+    writeFileSync(filePath, 'Literal path data must not be interpreted as a command\n')
+    mkdirSync(folderPath)
+    copyFileSync(join(ROOT, 'build/icon.png'), imagePath)
+    await go(page, h.movies)
+    await row(page, fileName).click()
+    await page.keyboard.press('Control+c')
+    await expect.poll(nativeFileClipboard).toEqual({ paths: [filePath], effect: 1, image: null })
+    await page.keyboard.press('Control+x')
+    await expect.poll(nativeFileClipboard).toEqual({ paths: [filePath], effect: 2, image: null })
+    expect(existsSync(filePath)).toBe(true)
+    await row(page, folderName).click()
+    await page.getByRole('button', { name: 'Copy', exact: true }).click()
+    await expect.poll(nativeFileClipboard).toEqual({ paths: [folderPath], effect: 1, image: null })
+
+    await go(page, h.home)
+    await row(page, 'Movies').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.movies, 'readme.txt')
+    await projectRow(page, fileName).click()
+    await projectRow(page, folderName).click({ modifiers: ['Control'] })
+    await expect(page.getByRole('tree').locator('[data-selected="true"]')).toHaveCount(2)
+    await page.keyboard.press('Control+c')
+    await expect
+      .poll(() => {
+        const value = nativeFileClipboard()
+        return { ...value, paths: [...value.paths].sort() }
+      })
+      .toEqual({ paths: [filePath, folderPath].sort(), effect: 1, image: null })
+
+    await projectRow(page, imageName).click()
+    await page.keyboard.press('Control+c')
+    const png = readFileSync(imagePath)
+    const image = { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+    await expect.poll(nativeFileClipboard).toEqual({ paths: [imagePath], effect: 1, image })
+    // The persistent pixels remain readable after another receiving process opens the clipboard.
+    expect(nativeFileClipboard()).toEqual({ paths: [imagePath], effect: 1, image })
+    if (process.env.PRISM_TEST_WORD === '1') pasteImageInIsolatedWord()
+    await page.keyboard.press('Control+x')
+    await expect.poll(nativeFileClipboard).toEqual({ paths: [imagePath], effect: 2, image: null })
+    expect(existsSync(imagePath)).toBe(true)
+
+    // An external copy replaces a stale Prism cut of this exact same Unicode path.
+    writeNativeFileClipboard([imagePath], false)
+    await ordinaryTabs(page).first().click()
+    await go(page, h.nested)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, imageName))).toBe(true)
+    expect(existsSync(imagePath)).toBe(true)
+    expect(readFileSync(join(h.nested, imageName))).toEqual(png)
+
+    // Conversely, a cut from another app moves even though Prism never marked this file cut.
+    writeNativeFileClipboard([filePath], true)
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('Control+v')
+    await expect.poll(() => existsSync(join(h.nested, fileName))).toBe(true)
+    await expect.poll(() => existsSync(filePath)).toBe(false)
+    expect(readFileSync(join(h.nested, fileName), 'utf8')).toBe(
+      'Literal path data must not be interpreted as a command\n'
+    )
+  } finally {
+    await restoreClipboard()
     await stop(app)
   }
 })

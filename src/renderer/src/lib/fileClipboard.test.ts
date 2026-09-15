@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const copy = vi.fn<(paths: string[]) => Promise<boolean>>()
+const copy = vi.fn<(paths: string[], cut?: boolean) => Promise<boolean>>()
 
 beforeEach(() => {
   vi.resetModules()
@@ -55,7 +55,9 @@ describe('file clipboard across Explorer and project tabs', () => {
   it('Copy cancels Cut even when it copies the same file', async () => {
     const clipboard = await import('./fileClipboard')
     await clipboard.copyFilePaths(['C:\\comic.cbz'], true)
+    expect(copy).toHaveBeenLastCalledWith(['C:\\comic.cbz'], true)
     await clipboard.copyFilePaths(['C:\\comic.cbz'])
+    expect(copy).toHaveBeenLastCalledWith(['C:\\comic.cbz'], false)
     expect(clipboard.fileCutPaths()).toEqual([])
   })
 

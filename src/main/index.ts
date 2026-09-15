@@ -25,6 +25,7 @@ import {
 import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
+import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
@@ -2356,22 +2357,14 @@ if (!app.requestSingleInstanceLock()) {
     // pastes it). Electron's clipboard has no CF_HDROP; PowerShell does.
     // One path or a multi-selection's worth: every one must pass the wall
     // (roots, or an individually granted extracted member) or nothing copies.
-    ipcMain.handle('file:copy-clip', (_e, p: string | string[]): Promise<boolean> => {
+    ipcMain.handle('file:copy-clip', (_e, p: string | string[], cut = false): Promise<boolean> => {
       const list = Array.isArray(p) ? p : [p]
       if (
         !list.length ||
         list.some((x) => typeof x !== 'string' || (!insideDesktop(x) && !extractedPaths.has(x)))
       )
         return Promise.resolve(false)
-      const quoted = list.map((x) => `'${x.replace(/'/g, "''")}'`).join(',')
-      return new Promise((done) => {
-        execFile(
-          'powershell.exe',
-          ['-NoProfile', '-Command', `Set-Clipboard -LiteralPath ${quoted}`],
-          { windowsHide: true, timeout: 5000 },
-          (err) => done(!err)
-        )
-      })
+      return copyWindowsFiles(list, cut === true)
     })
 
     /**
@@ -2384,27 +2377,8 @@ if (!app.requestSingleInstanceLock()) {
      * list, and the copy side is already a PowerShell call for the same
      * reason.
      */
-    function clipboardFiles(): Promise<string[]> {
-      return new Promise((done) => {
-        execFile(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-Command',
-            '(Get-Clipboard -Format FileDropList) | ForEach-Object { $_.FullName }'
-          ],
-          { windowsHide: true, timeout: 5000, encoding: 'utf8' },
-          (err, out) =>
-            done(
-              err
-                ? []
-                : String(out ?? '')
-                    .split(/\r?\n/)
-                    .map((l) => l.trim())
-                    .filter(Boolean)
-            )
-        )
-      })
+    async function clipboardFiles(): Promise<string[]> {
+      return (await readWindowsFiles()).paths
     }
 
     /**
@@ -2464,10 +2438,9 @@ if (!app.requestSingleInstanceLock()) {
 
     /**
      * Paste, with PROGRESS and an answer that names what landed (2026-09-03).
-     * `cut` is the renderer's own cut mark: when it still matches what the
-     * clipboard holds, the paste MOVES - rename where the volume allows,
-     * counted copy plus delete across volumes - and a stale mark (the user
-     * copied something else since) quietly falls back to an ordinary copy.
+     * Windows copy/cut metadata is authoritative, including when another app
+     * copies the same paths that Prism previously marked as cut. Older file
+     * clipboards without this format retain the matching renderer mark fallback.
      */
     ipcMain.handle(
       'file:paste-into',
@@ -2475,13 +2448,14 @@ if (!app.requestSingleInstanceLock()) {
         if (typeof destDir !== 'string' || !insideDesktop(destDir)) {
           return { pasted: 0, failed: 0, refused: true, paths: [] }
         }
-        const src = await clipboardFiles()
+        const clipboard = await readWindowsFiles()
+        const src = clipboard.paths
         if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
         const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
-        const moving =
+        const moving = clipboard.cut ?? (
           Array.isArray(cut) &&
           cut.length === src.length &&
-          cut.every((c) => src.some((f) => norm(f) === norm(String(c))))
+          cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
         ownWrite(join(destDir, 'x'))
         const fs = await import('fs/promises')
         const total = moving

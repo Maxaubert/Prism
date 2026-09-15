@@ -28,6 +28,8 @@ strip and keeps desktop browsing separate from phone sharing.
   menu. Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
 - Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
+  Starting a drag preserves the current selection and preview. A selected source stays blue
+  when dragged over itself; that row is not a destination.
   Dropping in an Explorer list's empty area moves them into its displayed folder; a file row
   targets that file's containing folder. Hold the mouse button and use Ctrl+Tab or Ctrl+Shift+Tab
   to carry items into another tab. Dropping directly onto an existing tab moves into its currently
@@ -55,6 +57,10 @@ strip and keeps desktop browsing separate from phone sharing.
   rows and controls retain their visible keyboard focus.
   Paste targets the displayed directory, even when a child folder is selected. Ctrl+F focuses folder search.
   Cut files retain their move behavior across Explorer and project tabs; a later Copy cancels it.
+  Copy puts the original files and Windows copy/cut metadata on the system clipboard for other
+  applications. A single common image also supplies bitmap pixels for document apps, while
+  Explorer and terminals can still use the file. Incoming Windows copy/cut metadata takes
+  precedence over old Prism cut marks. Unicode paths remain literal across the process boundary.
   Full and split Explorer viewers also support file copy, cut, paste, rename and delete when
   the viewer owns keyboard focus. Editors, selected text and terminals retain their own shortcuts.
   In the project tree, Backspace collapses a folder or selects its parent within the project;
@@ -63,6 +69,8 @@ strip and keeps desktop browsing separate from phone sharing.
   Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
   and Delete, while the row's right-click menu retains the complete action set.
 - Drag the boundaries between Quick access, the file list and the viewer to adjust section widths.
+  Mouse resizing uses the simple horizontal resize cursor without a hover or dragging highlight,
+  including the project sidebar and terminal dividers.
   Keyboard-focused dividers support arrow keys and Home/End; double-click resets their width.
   Widths persist across restarts and fit the available window space, including at high zoom.
 - Desktop scrollbars use slim 6px thumbs without arrow buttons or solid tracks.
@@ -154,12 +162,14 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-tab-drop-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-tab-drop-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-tab-drop-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-native-clipboard-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-native-clipboard-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-native-clipboard-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
+Set `PRISM_TEST_WORD=1` to also verify image paste in a temporary Word document. That optional
+local check requires installed Word with no running Word process, and closes its own unsaved document.
 
 ## Captured interface
 
@@ -194,8 +204,18 @@ keyboard focus while a document is displayed beside it:
 
 ![Explorer split header at 200 percent zoom](screenshots/folder-browsing/split-header-zoom200.png)
 
-Resizable Explorer sections keep slim scrollbars beside the file list and viewer. The focused
-divider is visible, and right-click targets use a neutral grey rather than the selection accent:
+Resizable Explorer sections keep slim scrollbars beside the file list and viewer. Only keyboard
+focus marks the divider; mouse hover and dragging leave it quiet:
+
+![Explorer resizing without a hover or drag highlight](screenshots/folder-browsing/explorer-quiet-resize.png)
+
+![Project sidebar resizing without a hover or drag highlight](screenshots/folder-browsing/project-quiet-resize.png)
+
+Dragging a selected file over itself preserves its blue selection and the current preview:
+
+![Selected drag source keeps its blue highlight](screenshots/folder-browsing/explorer-drag-selection.png)
+
+Keyboard-focused dividers remain visible, and right-click targets use neutral grey:
 
 ![Resizable Explorer sections and slim scrollbars](screenshots/folder-browsing/explorer-resizable-sections.png)
 

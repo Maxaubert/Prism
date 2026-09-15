@@ -14,6 +14,7 @@ export function ExplorerResize({
 }): JSX.Element {
   const drag = useRef<{ x: number; value: number } | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [pointerResize, setPointerResize] = useState(false)
   const direction = section === 'preview' || right ? -1 : 1
   return (
     <div
@@ -27,10 +28,12 @@ export function ExplorerResize({
       title="Drag to resize. Arrow keys adjust width. Double-click to reset."
       className={`explorer-resize explorer-resize-${section}${right ? ' is-right' : ''}`}
       data-dragging={dragging || undefined}
+      data-pointer-resize={pointerResize || undefined}
       onPointerDown={(event) => {
         if (event.button !== 0) return
         event.preventDefault()
         event.stopPropagation()
+        setPointerResize(true)
         event.currentTarget.focus()
         event.currentTarget.setPointerCapture(event.pointerId)
         drag.current = { x: event.clientX, value: bounds.value }
@@ -55,7 +58,9 @@ export function ExplorerResize({
         setDragging(false)
       }}
       onDoubleClick={() => onResize(null)}
+      onBlur={() => setPointerResize(false)}
       onKeyDown={(event) => {
+        setPointerResize(false)
         const step = event.shiftKey ? 48 : 16
         if (event.key === 'ArrowLeft') onResize(bounds.value - step * direction)
         else if (event.key === 'ArrowRight') onResize(bounds.value + step * direction)

@@ -309,8 +309,8 @@ const api = {
     format: 'png' | 'jpeg'
   ): Promise<string | null> => ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
-  copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
-    ipcRenderer.invoke('file:copy-clip', paths),
+  copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
+    ipcRenderer.invoke('file:copy-clip', paths, cut),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),

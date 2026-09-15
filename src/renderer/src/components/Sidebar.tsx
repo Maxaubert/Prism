@@ -268,6 +268,7 @@ export function Sidebar({
   const [revealed, setRevealed] = useState<string | null>(null)
   const [width, setWidth] = useState(loadWidth)
   const [dragging, setDragging] = useState(false)
+  const [pointerResize, setPointerResize] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [arcJob, setArcJob] = useState<ArcJob | null>(null)
@@ -565,7 +566,9 @@ export function Sidebar({
 
   const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
+    e.currentTarget.focus()
     e.currentTarget.setPointerCapture(e.pointerId)
+    setPointerResize(true)
     setDragging(true)
   }, [])
 
@@ -585,6 +588,7 @@ export function Sidebar({
 
   const onHandleKey = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      setPointerResize(false)
       const wider = right ? 'ArrowLeft' : 'ArrowRight'
       if (e.key === wider) resize(width + 16)
       else if (e.key === (right ? 'ArrowRight' : 'ArrowLeft')) resize(width - 16)
@@ -1460,13 +1464,14 @@ export function Sidebar({
         onPointerCancel={onHandleUp}
         onDoubleClick={() => resize(DEFAULT_W)}
         onKeyDown={onHandleKey}
-        className={`no-drag group absolute inset-y-0 z-10 w-2 cursor-col-resize focus-visible:outline-none ${
+        onBlur={() => setPointerResize(false)}
+        className={`no-drag group absolute inset-y-0 z-10 w-2 cursor-ew-resize focus-visible:outline-none ${
           right ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2'
         }`}
       >
         <span
-          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--p-accent-hi)] group-focus-visible:bg-[var(--p-accent-hi)] ${
-            dragging ? 'bg-[var(--p-accent-hi)]' : 'bg-transparent'
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent ${
+            !pointerResize && !dragging ? 'group-focus-visible:bg-[var(--p-accent-hi)]' : ''
           }`}
         />
       </div>
