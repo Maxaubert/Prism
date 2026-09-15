@@ -1,4 +1,4 @@
-import { useMemo, useRef, type JSX } from 'react'
+import { useLayoutEffect, useMemo, useRef, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -22,14 +22,27 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
+  const focusList = (): void => {
+    shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
+  }
+  const retainListFocus = (): void => {
+    if (document.activeElement?.closest('.browse-list')) focusList()
+  }
+  // The list survives folder loads; its rows do not. It also takes the keyboard
+  // when returning from a full-file viewer, before a row is available again.
+  useLayoutEffect(() => {
+    focusList()
+  }, [])
   const entries = useMemo(
     () => browseEntries(props.listing, props.searchState ? '' : props.query, props.sort),
     [props.listing, props.query, props.sort, props.searchState]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
   const activate = (entry: BrowseEntry): void => {
-    if (entry.isFolder) props.onNavigate(entry.path)
-    else if (entry.file) props.onOpen(entry.file)
+    if (entry.isFolder) {
+      retainListFocus()
+      props.onNavigate(entry.path)
+    } else if (entry.file) props.onOpen(entry.file)
   }
   const message = props.loading
     ? 'Loading folder…'
@@ -63,6 +76,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         if (e.key === 'F5' && props.onRefresh) {
           e.preventDefault()
           e.stopPropagation()
+          retainListFocus()
           props.onRefresh()
         } else if (
           !typing &&
@@ -89,11 +103,13 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Backspace') {
           e.preventDefault()
           e.stopPropagation()
+          retainListFocus()
           if (props.canBack) props.onBack()
           else props.onUp()
         } else if (!typing && e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)) {
           e.preventDefault()
           e.stopPropagation()
+          retainListFocus()
           if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
           if (e.key === 'ArrowRight' && props.canForward) props.onForward()
           if (e.key === 'ArrowUp') props.onUp()

@@ -41,8 +41,11 @@ strip and keeps desktop browsing separate from phone sharing.
   The viewer header keeps Open full view without repeating the selected filename. The existing
   preview toggle opens and closes the split.
   Unsupported files retain the existing fallback.
-- The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V. Paste targets
-  the displayed directory, even when a child folder is selected. Ctrl+F focuses folder search.
+- The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V.
+  Keyboard navigation retains list focus across folder loads, empty folders
+  and returns from full-file views, without a focus outline around the list frame. Individual
+  rows and controls retain their visible keyboard focus.
+  Paste targets the displayed directory, even when a child folder is selected. Ctrl+F focuses folder search.
   Cut files retain their move behavior across Explorer and project tabs; a later Copy cancels it.
   Full and split Explorer viewers also support file copy, cut, paste, rename and delete when
   the viewer owns keyboard focus. Editors, selected text and terminals retain their own shortcuts.
@@ -139,9 +142,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-shortcuts-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-shortcuts-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-shortcuts-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-focus-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-focus-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-focus-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -149,6 +152,12 @@ The separate output path also lets the earlier trial remain open while the new b
 ## Captured interface
 
 These captures use the packaged branch with isolated test profiles and generated files.
+
+Keyboard navigation keeps focus inside the list, with a visible row indicator and no frame outline:
+
+![Explorer keyboard focus stays on file rows](screenshots/folder-browsing/keyboard-navigation.png)
+
+![Explorer keyboard navigation at 200 percent zoom](screenshots/folder-browsing/keyboard-navigation-zoom200.png)
 
 The split header keeps Open full view without repeating the filename. Folder search retains
 keyboard focus while a document is displayed beside it:

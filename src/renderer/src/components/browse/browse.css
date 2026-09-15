@@ -367,7 +367,7 @@
   overflow: auto;
   flex: 1;
   scrollbar-gutter: stable;
-  outline-offset: -2px;
+  outline: none;
 }
 .browse-row-space {
   min-height: 100%;
