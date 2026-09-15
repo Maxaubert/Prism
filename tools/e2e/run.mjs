@@ -2266,7 +2266,13 @@ async function codeScenario(fixtures) {
       'a stream-lexed language never claims an error'
     )
 
-    // Ctrl+F belongs to the file, whether or not the caret is in it.
+    // A focused tree searches files; focusing the editor searches its contents.
+    await win.keyboard.press('Control+f')
+    ok(
+      await win.locator('input[aria-label="Search files"]').evaluate((el) => document.activeElement === el),
+      'Ctrl+F from the tree focuses folder search'
+    )
+    await win.locator('.cm-content').click()
     await win.keyboard.press('Control+f')
     await win.waitForSelector('.cm-panel.cm-search', { timeout: 5000 })
     ok(true, 'Ctrl+F opens the code find bar')
