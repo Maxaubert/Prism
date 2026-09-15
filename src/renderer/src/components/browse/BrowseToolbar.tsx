@@ -15,7 +15,13 @@ type Props = Pick<
   | 'onNavigate'
   | 'onQueryChange'
   | 'onRefresh'
->
+> & {
+  /** Display the open file after its containing folder's navigable crumbs. */
+  fileName?: string
+  /** File viewers return to their containing folder before travelling history. */
+  onReturnToFolder?: () => void
+  showSearch?: boolean
+}
 
 export function BrowseToolbar(props: Props): JSX.Element {
   const [editing, setEditing] = useState(false)
@@ -31,7 +37,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
     const observer = new ResizeObserver(reveal)
     observer.observe(row)
     return () => observer.disconnect()
-  }, [props.directory, editing])
+  }, [props.directory, props.fileName, editing])
   const focusPath = useCallback((el: HTMLInputElement | null): void => {
     el?.focus()
     el?.select()
@@ -45,10 +51,10 @@ export function BrowseToolbar(props: Props): JSX.Element {
       <div className="browse-history">
         <button
           className="browse-icon-button"
-          title="Back (Alt+Left)"
+          title={props.onReturnToFolder ? 'Back to folder (Alt+Left)' : 'Back (Alt+Left)'}
           aria-label="Back"
-          disabled={!props.canBack}
-          onClick={props.onBack}
+          disabled={!props.onReturnToFolder && !props.canBack}
+          onClick={props.onReturnToFolder ?? props.onBack}
         >
           <BrowseIcon name="back" />
         </button>
@@ -65,7 +71,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
           className="browse-icon-button"
           title="Up (Alt+Up)"
           aria-label="Up"
-          disabled={!browseParent(props.directory)}
+          disabled={!props.fileName && !browseParent(props.directory)}
           onClick={props.onUp}
         >
           <BrowseIcon name="up" />
@@ -133,13 +139,20 @@ export function BrowseToolbar(props: Props): JSX.Element {
               <span className="browse-crumb" key={crumb.path}>
                 <button
                   onClick={() => props.onNavigate(crumb.path)}
-                  aria-current={index === all.length - 1 ? 'location' : undefined}
+                  aria-current={
+                    !props.fileName && index === all.length - 1 ? 'location' : undefined
+                  }
                 >
                   {crumb.name}
                 </button>
                 <BrowseIcon name="chevron" />
               </span>
             ))}
+            {props.fileName && (
+              <span className="browse-file-crumb" aria-current="page" title={props.fileName}>
+                {props.fileName}
+              </span>
+            )}
           </div>
           <button
             className="browse-edit-path"
@@ -152,22 +165,24 @@ export function BrowseToolbar(props: Props): JSX.Element {
           </button>
         </nav>
       )}
-      <label className="browse-search">
-        <BrowseIcon name="search" />
-        <input
-          type="search"
-          name="folderSearch"
-          spellCheck={false}
-          autoComplete="off"
-          aria-label="Search this folder and subfolders"
-          placeholder="Search folder and subfolders"
-          title={
-            'Search names in this folder and all subfolders\nWords, "phrases", *.mp4, ext:mp4, -raw'
-          }
-          value={props.query}
-          onChange={(e) => props.onQueryChange(e.target.value)}
-        />
-      </label>
+      {props.showSearch !== false && (
+        <label className="browse-search">
+          <BrowseIcon name="search" />
+          <input
+            type="search"
+            name="folderSearch"
+            spellCheck={false}
+            autoComplete="off"
+            aria-label="Search this folder and subfolders"
+            placeholder="Search folder and subfolders"
+            title={
+              'Search names in this folder and all subfolders\nWords, "phrases", *.mp4, ext:mp4, -raw'
+            }
+            value={props.query}
+            onChange={(e) => props.onQueryChange(e.target.value)}
+          />
+        </label>
+      )}
     </div>
   )
 }

@@ -3,9 +3,17 @@ import { test, expect, type TestInfo } from '@playwright/test'
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright-core'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import AdmZip from 'adm-zip'
 
 const ROOT = resolve(__dirname, '../..')
 const MAIN = join(ROOT, 'out/main/index.js')
@@ -144,6 +152,17 @@ async function go(page: Page, path: string): Promise<void> {
   await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
 }
 
+async function returnToFolder(page: Page): Promise<void> {
+  const terminalReturn = page.getByRole('button', { name: 'Browse files', exact: true })
+  if (await terminalReturn.count()) await terminalReturn.click()
+  else
+    await page
+      .getByTestId('browse-toolbar')
+      .getByRole('button', { name: 'Back', exact: true })
+      .click()
+  await expect(page.getByTestId('folder-browser')).toBeVisible()
+}
+
 function row(page: Page, filename: string) {
   return page
     .getByTestId('browse-list')
@@ -257,7 +276,7 @@ test('folder navigation retains history state and lists dotfiles and unsupported
     await page.getByRole('searchbox', { name: 'Search this folder' }).fill('unknown')
     await row(page, 'unknown.prism-test-binary').dblclick()
     await expect(page.getByRole('button', { name: 'Show the bytes', exact: true })).toBeVisible()
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await expect(page.getByRole('searchbox', { name: 'Search this folder' })).toHaveValue('unknown')
 
     await search(page, 'entry')
@@ -326,8 +345,29 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
 
     const pathBar = page.getByRole('navigation', { name: 'Folder path', exact: true })
     const blank = page.locator('.browse-edit-path')
+    await page.getByRole('button', { name: 'New tab', exact: true }).hover()
+    const idlePathBackground = await pathBar.evaluate((el) => getComputedStyle(el).backgroundColor)
+    await blank.hover({ position: { x: 3, y: 18 } })
+    await expect
+      .poll(() => pathBar.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .not.toBe(idlePathBackground)
+    await expect(blank).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const hoveredPathBackground = await pathBar.evaluate(
+      (el) => getComputedStyle(el).backgroundColor
+    )
+    await pathBar.locator('.browse-crumb button').last().hover()
+    await expect(pathBar).toHaveCSS('background-color', hoveredPathBackground)
+    await pathBar.locator('.browse-crumb button').last().focus()
+    await page.getByRole('button', { name: 'New tab', exact: true }).hover()
+    await expect(pathBar).toHaveCSS('background-color', hoveredPathBackground)
     await blank.click({ position: { x: 3, y: 18 } })
-    await expect(page.getByRole('textbox', { name: 'Folder path', exact: true })).toBeVisible()
+    const editablePath = page.getByRole('textbox', { name: 'Folder path', exact: true })
+    await expect(editablePath).toBeVisible()
+    expect(
+      await editablePath.evaluate(
+        (el: HTMLInputElement) => el.selectionStart === 0 && el.selectionEnd === el.value.length
+      )
+    ).toBe(true)
     await page.keyboard.press('Escape')
     const driveRoot = (await pathBar.getAttribute('title'))!.slice(0, 3)
     const ancestor = pathBar.locator('.browse-crumb button').first()
@@ -378,6 +418,307 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
     await expect(pinned).toHaveCount(1)
   } finally {
     await stop(h.app)
+  }
+})
+
+test('full-file breadcrumbs and Back return to the containing folder without consuming editor Backspace', async ({}, info) => {
+  const h = await setup()
+  const { page } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const toolbar = page.getByTestId('browse-toolbar')
+    const pathBar = page.getByRole('navigation', { name: 'Folder path', exact: true })
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(toolbar).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Browse files', exact: true })).toHaveCount(0)
+    await expect(toolbar.locator('.browse-file-crumb')).toHaveText('notes.txt')
+    await expect(pathBar).toHaveAttribute('title', h.project)
+    await expect(toolbar.getByRole('button', { name: 'Back', exact: true })).toBeEnabled()
+    await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(row(page, 'notes.txt')).toHaveAttribute('aria-selected', 'true')
+
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await page.keyboard.press('Control+l')
+    const editablePath = page.getByRole('textbox', { name: 'Folder path', exact: true })
+    await expect(editablePath).toHaveValue(h.project)
+    expect(
+      await editablePath.evaluate(
+        (el: HTMLInputElement) => el.selectionStart === 0 && el.selectionEnd === el.value.length
+      )
+    ).toBe(true)
+    await editablePath.press('Escape')
+    await pathBar.locator('.browse-crumb button').last().click()
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(pathBar).toHaveAttribute('title', h.project)
+
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await toolbar.getByRole('button', { name: 'Back', exact: true }).focus()
+    await page.keyboard.press('Backspace')
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await toolbar.getByRole('button', { name: 'Back', exact: true }).focus()
+    await page.keyboard.press('Alt+ArrowLeft')
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+
+    await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const editor = page.getByRole('textbox').and(page.locator('.cm-content'))
+    await editor.click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type('Z')
+    await page.keyboard.press('Backspace')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(editor).toHaveText('Original notes')
+    await toolbar.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
+    await shot(page, info, 'full-file-breadcrumbs.png', h.app)
+    await h.app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await expect(toolbar.getByRole('button', { name: 'Back', exact: true })).toBeInViewport()
+    await expect(toolbar.locator('.browse-file-crumb')).toBeInViewport()
+    await toolbar.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
+    await shot(page, info, 'full-file-breadcrumbs-zoom200.png', h.app)
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('archive Backspace leaves its internal folder before returning to the disk folder', async () => {
+  const h = await setup()
+  const { page } = h
+  try {
+    const archive = new AdmZip()
+    archive.addFile('Inside/member.txt', Buffer.from('Archive member fixture\n'))
+    archive.writeZip(join(h.project, 'nested.zip'))
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await search(page, 'nested.zip')
+    await row(page, 'nested.zip').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const root = page.getByRole('listbox', { name: 'Contents of nested.zip', exact: true })
+    await expect(root).toBeVisible()
+    await root.locator('[data-arc-row="Inside"]').dblclick()
+    const inside = page.getByRole('listbox', { name: 'Contents of Inside', exact: true })
+    await expect(inside).toBeVisible()
+    await inside.getByRole('option').first().focus()
+    await page.keyboard.press('Backspace')
+    await expect(root).toBeVisible()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await page
+      .getByTestId('browse-toolbar')
+      .getByRole('button', { name: 'Back', exact: true })
+      .focus()
+    await page.keyboard.press('Backspace')
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(row(page, 'nested.zip')).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('Quick access supports empty defaults, file and folder pins, reordering and restart', async ({}, info) => {
+  const h = await setup()
+  let { app, page } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    let quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    let pins = quick.locator('[data-quick-access-path]')
+    await expect.poll(() => pins.count()).toBeGreaterThan(0)
+    const drive = page
+      .getByRole('region', { name: 'This PC', exact: true })
+      .getByRole('button')
+      .first()
+    const drivePath = await drive.getAttribute('title')
+    expect(drivePath).toMatch(/^[A-Za-z]:\\$/)
+    await drive.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const drivePin = quick.getByTitle(drivePath!, { exact: true })
+    await expect(drivePin).toBeVisible()
+    await expect(drivePin.locator(':scope > span')).toHaveText(drivePath!.replace(/[\\/]+$/, ''))
+    await drivePin.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    await expect(drivePin).toHaveCount(0)
+    while (await pins.count()) {
+      await pins.first().click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    }
+    await expect(quick).toContainText('Drag files or folders here to pin them.')
+    expect(await page.evaluate(() => localStorage.getItem('prism.quickAccess'))).toBe('[]')
+    await expect.poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs.length).toBe(3)
+    await stop(app)
+    ;({ app, page } = await start(h.profile))
+    quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    pins = quick.locator('[data-quick-access-path]')
+    await expect(quick).toBeVisible()
+    await expect(pins).toHaveCount(0)
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.project)
+
+    await row(page, 'Nested').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt'])
+    await search(page, '')
+    await row(page, 'entry-000.txt').dragTo(
+      quick.getByRole('heading', { name: 'Quick access', exact: true })
+    )
+    await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt', 'entry-000.txt'])
+    await quick
+      .getByRole('button', { name: 'entry-000.txt', exact: true })
+      .dragTo(quick.getByRole('button', { name: 'Nested', exact: true }), {
+        targetPosition: { x: 35, y: 4 }
+      })
+    await expect(pins.locator(':scope > span')).toHaveText(['entry-000.txt', 'Nested', 'notes.txt'])
+    await quick.getByRole('button', { name: 'notes.txt', exact: true }).focus()
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: 'Move up', exact: true }).focus()
+    await page.keyboard.press('Enter')
+    await expect(pins.locator(':scope > span')).toHaveText(['entry-000.txt', 'notes.txt', 'Nested'])
+    await shot(page, info, 'quick-access-customized.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await expect(quick.getByRole('button', { name: 'notes.txt', exact: true })).toBeInViewport()
+    await expect(quick.getByRole('button', { name: 'Nested', exact: true })).toBeInViewport()
+    await shot(page, info, 'quick-access-customized-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(1)
+      return contents.getZoomFactor()
+    })
+
+    await stop(app)
+    ;({ app, page } = await start(h.profile))
+    quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    pins = quick.locator('[data-quick-access-path]')
+    await expect(pins.locator(':scope > span')).toHaveText(['entry-000.txt', 'notes.txt', 'Nested'])
+    await quick.getByRole('button', { name: 'Nested', exact: true }).click()
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.nested)
+    await quick.getByRole('button', { name: 'notes.txt', exact: true }).click()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+    await expect(page.getByTestId('browse-toolbar').locator('.browse-file-crumb')).toHaveText(
+      'notes.txt'
+    )
+    await page.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
+    await shot(page, info, 'path-bar-quick-access.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await expect(page.getByTestId('browse-toolbar').locator('.browse-file-crumb')).toBeInViewport()
+    await expect(quick.getByRole('button', { name: 'notes.txt', exact: true })).toBeInViewport()
+    await page.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
+    await shot(page, info, 'path-bar-quick-access-zoom200.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('missing file pins recover on a valid choice and late failures stay out of another tab', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    for (const name of ['notes.txt', 'entry-000.txt']) {
+      await search(page, name)
+      await row(page, name).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    }
+    const quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    await quick.getByRole('button', { name: 'notes.txt', exact: true }).click()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    const missing = join(h.project, 'entry-000.txt')
+    unlinkSync(missing)
+    await quick.getByRole('button', { name: 'entry-000.txt', exact: true }).click()
+    const errorText = 'This file cannot be opened. It may have moved or been deleted.'
+    await expect(page.getByText(errorText, { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await quick.getByRole('button', { name: 'notes.txt', exact: true }).click()
+    await expect(page.getByText(errorText, { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+
+    await app.evaluate(({ ipcMain }, target) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
+        ._invokeHandlers
+      const original = handlers.get('open:within')!
+      let release!: () => void
+      const gate = new Promise<void>((done) => {
+        release = done
+      })
+      const delayed = {
+        started: false,
+        completed: false,
+        release: () => {
+          release()
+          ipcMain.removeHandler('open:within')
+          ipcMain.handle('open:within', original)
+        }
+      }
+      ;(globalThis as unknown as { __prismPinDelay: typeof delayed }).__prismPinDelay = delayed
+      ipcMain.removeHandler('open:within')
+      ipcMain.handle('open:within', async (...args: unknown[]) => {
+        if (args[2] !== target) return original(...args)
+        delayed.started = true
+        await gate
+        const result = await original(...args)
+        delayed.completed = true
+        return result
+      })
+    }, missing)
+    await quick.getByRole('button', { name: 'entry-000.txt', exact: true }).click()
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { __prismPinDelay: { started: boolean } }).__prismPinDelay
+              .started
+        )
+      )
+      .toBe(true)
+    await ordinaryTabs(page).first().click()
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { __prismPinDelay: { release: () => void } }
+      ).__prismPinDelay.release()
+    )
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { __prismPinDelay: { completed: boolean } }).__prismPinDelay
+              .completed
+        )
+      )
+      .toBe(true)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByText(errorText, { exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.project)
+    await ordinaryTabs(page).last().click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByText(errorText, { exact: true })).toHaveCount(0)
+  } finally {
+    await stop(app)
   }
 })
 
@@ -623,7 +964,7 @@ test('two real shell tabs retain cwd and work while another tab browses and open
       `$Host.UI.RawUI.WindowTitle="$([char]0x2733) Claude Code"; Start-Sleep -Milliseconds 200; $until=(Get-Date).AddSeconds(90); while (!(Test-Path -LiteralPath ${quotePS(stopSignal)}) -and (Get-Date) -lt $until) { $Host.UI.RawUI.WindowTitle="$([char]0x25D0) Claude Code"; Start-Sleep -Milliseconds 200 }; $Host.UI.RawUI.WindowTitle="$([char]0x2733) Claude Code"`
     )
     await expect(tabs.nth(2).locator('..')).toHaveAttribute('data-agent-state', 'working')
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await go(page, h.nested)
     await expect(
       page.getByRole('button', { name: 'Use folder in terminal', exact: true })
@@ -651,7 +992,7 @@ test('two real shell tabs retain cwd and work while another tab browses and open
       .toBe(firstState)
     await page.keyboard.press('Control+Shift+Tab')
     await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await expect(row(page, 'sample.mp4')).toHaveAttribute('aria-selected', 'true')
     await shot(page, info, 'sessions-and-browser.png', h.app)
     writeFileSync(stopSignal, 'stop')
@@ -682,7 +1023,7 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     await page.keyboard.press('Control+End')
     await page.keyboard.type('Unsaved browsing test')
     await expect(editor).toContainText('Unsaved browsing test')
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await go(page, h.movies)
     await page.getByRole('button', { name: 'New terminal here', exact: true }).click()
     await expect(ordinaryTabs(page)).toHaveCount(2)
@@ -693,7 +1034,7 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     expect(readFileSync(join(h.project, 'notes.txt'), 'utf8')).toBe('Original notes\n')
     await shot(page, info, 'dirty-buffer-retained.png', h.app)
     videoFixture(h.movies)
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await go(page, h.movies)
     await row(page, 'sample.mp4').click()
     await page.getByRole('button', { name: 'Preview pane', exact: true }).click()
@@ -710,7 +1051,7 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
       )
     ).toBe(true)
     await expect(page.locator('video')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await expect(page.getByTestId('folder-browser')).toBeVisible()
     expect(
       await player!.evaluate(
@@ -741,7 +1082,7 @@ test('desktop browsing leaves phone scope fixed and restores a hidden shell in i
     await shellReady(page, h.project)
     await shellLine(page, `Set-Location -LiteralPath ${quotePS(h.nested)}`)
     await shellReady(page, h.nested)
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await go(page, h.movies)
     const outside = await fetch(`${base}/api/dir?path=${encodeURIComponent(h.movies)}`, {
       headers: { authorization: `Bearer ${token}` }
@@ -789,7 +1130,7 @@ test('pinned file panes survive browsing, terminal tabs and restart', async () =
     await treeRow.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
     await expect(page.locator('[data-pane="pinned"]')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Browse files', exact: true }).click()
+    await returnToFolder(page)
     await go(page, h.movies)
     await page.getByRole('button', { name: 'New terminal here', exact: true }).click()
     await expect(ordinaryTabs(page)).toHaveCount(2)

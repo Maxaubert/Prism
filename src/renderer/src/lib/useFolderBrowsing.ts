@@ -161,13 +161,23 @@ export function useFolderBrowsing(
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
+      if (visibleId.current === id) setError(undefined)
       const fromTree = typeof file === 'string'
       const filePath = fromTree ? file : file.path
       const root =
         fromTree && active && underRoot(active.root, filePath)
           ? active.root
           : (browseParent(filePath) ?? path)
-      const payload = await window.prism.openWithin(root, filePath)
+      // A saved file pin may be outside every visited folder after restart.
+      // Grant its parent only on activation, inside the same navigation sequence.
+      const parent = fromTree ? (browseParent(filePath) ?? root) : null
+      const granted = parent
+        ? await window.prism.browseDirectory(id, parent).catch(() => null)
+        : true
+      if (serial.current.get(id) !== request) return
+      const payload = granted
+        ? await window.prism.openWithin(root, filePath).catch(() => null)
+        : null
       if (serial.current.get(id) !== request) return
       if (!payload) {
         if (visibleId.current === id)
@@ -175,10 +185,8 @@ export function useFolderBrowsing(
             tabId: id,
             message: 'This file cannot be opened. It may have moved or been deleted.'
           })
-        return
+        return false
       }
-      const parent = fromTree ? (browseParent(filePath) ?? root) : null
-      if (parent) void window.prism.browseDirectory(id, parent)
       setState((s) => ({
         ...s,
         tabs: setBrowseLocation(parent ? navigateBrowse(s.tabs, id, parent) : s.tabs, id, {

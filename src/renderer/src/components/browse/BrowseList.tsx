@@ -192,6 +192,14 @@ export function BrowseList(props: Props): JSX.Element {
                     data-selected={selected || undefined}
                     data-menu={entry.path === props.menuPath || undefined}
                     data-striped={(first + offset) % 2 === 1 || undefined}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = 'copy'
+                      event.dataTransfer.setData(
+                        'application/x-prism-quick-access-paths',
+                        JSON.stringify([entry.path])
+                      )
+                    }}
                     title={searching ? entry.path : entry.name}
                     onClick={() => props.onSelect(entry.path)}
                     onDoubleClick={() => props.onActivate(entry)}

@@ -52,6 +52,30 @@
   padding: 4px 12px;
   border-bottom: 1px solid var(--p-divider);
   min-width: 0;
+  min-height: 48px;
+  flex-shrink: 0;
+  color: var(--p-text);
+  background: var(--p-bg);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 15px;
+}
+.browse-toolbar button,
+.browse-toolbar input {
+  font: inherit;
+}
+.browse-toolbar button {
+  cursor: default;
+}
+.browse-toolbar button:disabled {
+  opacity: 0.4;
+}
+.browse-toolbar button:not(:disabled):hover {
+  background: var(--p-hover);
+}
+.browse-toolbar button:focus-visible,
+.browse-toolbar input:focus-visible {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
 }
 .browse-history {
   display: flex;
@@ -75,6 +99,18 @@
   min-width: 90px;
   align-items: center;
   height: 36px;
+  border-radius: 3px;
+}
+.browse-path:hover,
+.browse-path:focus-within {
+  background: var(--p-hover);
+}
+.browse-path:focus-within {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
+}
+.browse-toolbar .browse-path button:not(:disabled):hover {
+  background: transparent;
 }
 .browse-crumbs {
   display: flex;
@@ -95,6 +131,16 @@
   color: var(--p-text-soft);
 }
 .browse-crumb button[aria-current] {
+  color: var(--p-text);
+  font-weight: 600;
+}
+.browse-file-crumb {
+  flex-shrink: 0;
+  padding: 0 8px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--p-text);
   font-weight: 600;
 }

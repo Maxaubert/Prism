@@ -72,6 +72,14 @@ import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
 import { BrowsePlaces } from './components/browse/BrowsePlaces'
+import { BrowseToolbar } from './components/browse/BrowseToolbar'
+import {
+  useQuickAccess,
+  pinQuickAccess,
+  unpinQuickAccess,
+  moveQuickAccess,
+  sameQuickAccessPath
+} from './lib/quickAccess'
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import './components/browse/workspace.css'
@@ -2509,6 +2517,16 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
+  const viewingFile =
+    !!active && active.kind !== 'settings' && !browsing.folder && termView !== 'full'
+  const viewerDirectory = file
+    ? (browseParent(file.path) ?? active?.browse.path)
+    : active?.browse.path
+  const returnToFolder = useCallback(() => {
+    if (viewerDirectory && active && !sameRoot(viewerDirectory, active.browse.path))
+      void browsing.navigate(viewerDirectory)
+    else browsing.showFolder()
+  }, [viewerDirectory, active, browsing])
   const [browseMenu, setBrowseMenu] = useState<{ x: number; y: number; entry: BrowseEntry } | null>(
     null
   )
@@ -2519,6 +2537,48 @@ export default function App(): JSX.Element {
     !!active?.browse.preview &&
     !!browsing.previewFile &&
     file?.path === browsing.previewFile.path
+  const quickAccessDefaults = useMemo(
+    () =>
+      browsing.locations
+        .filter((location) => location.group === 'quick')
+        .map((location) => ({
+          path: location.path,
+          label: location.name,
+          isFolder: true
+        })),
+    [browsing.locations]
+  )
+  const quickAccess = useQuickAccess(quickAccessDefaults)
+  const pinQuickAccessPaths = useCallback(
+    async (paths: string[], beforePath?: string) => {
+      if (!active) return
+      const pins = await Promise.all(
+        paths.map(async (path) => {
+          const parent = browseParent(path) ?? path
+          await window.prism.browseDirectory(active.id, parent).catch(() => null)
+          const stat = await window.prism.statFile(path).catch(() => null)
+          return stat
+            ? {
+                path,
+                label: baseName(path.replace(/[\\/]+$/, '')) || path,
+                isFolder: stat.isFolder
+              }
+            : null
+        })
+      )
+      pinQuickAccess(
+        pins.filter((pin): pin is NonNullable<typeof pin> => pin !== null),
+        beforePath
+      )
+      if (pins.some((pin) => pin === null))
+        setAsk({
+          kind: 'failed',
+          message:
+            'Some items could not be pinned. Check that they still exist and are accessible, then try again.'
+        })
+    },
+    [active]
+  )
   const browsePlaces = useMemo(
     () => [
       ...browsing.locations.map((location) => ({
@@ -3150,6 +3210,36 @@ export default function App(): JSX.Element {
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
+      if (!settingsOpen && !fullscreen && !document.querySelector('[data-owns-escape]')) {
+        if (
+          viewingFile &&
+          !typing &&
+          !inTerm &&
+          e.key === 'Backspace' &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
+          const archiveOwnsBackspace = [
+            ...document.querySelectorAll('[data-archive-subfolder]')
+          ].some((node) => !node.closest('[inert],[aria-hidden="true"]'))
+          if (archiveOwnsBackspace || e.defaultPrevented) return
+          e.preventDefault()
+          e.stopPropagation()
+          returnToFolder()
+          return
+        }
+        if (viewingFile && !inTerm && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
+          e.preventDefault()
+          e.stopPropagation()
+          document
+            .querySelector<HTMLButtonElement>(
+              '.browse-viewer-toolbar [data-testid="browse-edit-path"]'
+            )
+            ?.click()
+          return
+        }
+      }
       if (
         e.altKey &&
         !inTerm &&
@@ -3157,10 +3247,12 @@ export default function App(): JSX.Element {
         ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
       ) {
         e.preventDefault()
-        if (e.key === 'ArrowLeft') browsing.travel(-1)
-        else if (e.key === 'ArrowRight') browsing.travel(1)
+        if (e.key === 'ArrowLeft') {
+          if (viewingFile) returnToFolder()
+          else browsing.travel(-1)
+        } else if (e.key === 'ArrowRight') browsing.travel(1)
         else if (active) {
-          const parent = browseParent(active.browse.path)
+          const parent = viewingFile ? viewerDirectory : browseParent(active.browse.path)
           if (parent) void browsing.navigate(parent)
         }
       } else if (e.key === 'F11') {
@@ -3320,6 +3412,9 @@ export default function App(): JSX.Element {
     active,
     closeActiveTab,
     browsing,
+    viewingFile,
+    viewerDirectory,
+    returnToFolder,
     file,
     fullscreen,
     go,
@@ -3494,6 +3589,29 @@ export default function App(): JSX.Element {
       {/* Settings covers this area. Hiding it (rather than leaving it painted
           underneath) is what lets a translucent style show its material through
           the settings page; `invisible` keeps a playing video alive. */}
+      {viewingFile && active && viewerDirectory && !fullscreen && !settingsOpen && !setup && (
+        <div className="browse-viewer-toolbar">
+          <BrowseToolbar
+            directory={viewerDirectory}
+            fileName={file?.name}
+            canBack={active.browse.cursor > 0}
+            canForward={active.browse.cursor < active.browse.history.length - 1}
+            query={browsing.location?.query ?? ''}
+            showSearch={false}
+            onReturnToFolder={returnToFolder}
+            onBack={() => browsing.travel(-1)}
+            onForward={() => browsing.travel(1)}
+            onUp={returnToFolder}
+            onNavigate={(path) => void browsing.navigate(path)}
+            onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
+          />
+          {browsing.error && (
+            <div className="browse-navigation-error" role="status">
+              {browsing.error}
+            </div>
+          )}
+        </div>
+      )}
       <div
         inert={settingsOpen || setup}
         className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
@@ -3507,6 +3625,13 @@ export default function App(): JSX.Element {
           <div className="browse-viewer-places">
             <BrowsePlaces
               places={browsePlaces}
+              quickAccess={quickAccess}
+              onQuickAccessFile={(path) => void openBrowseFile(path)}
+              onUnpinQuickAccess={unpinQuickAccess}
+              onMoveQuickAccess={moveQuickAccess}
+              onPinQuickAccessPaths={(paths, beforePath) =>
+                void pinQuickAccessPaths(paths, beforePath)
+              }
               directory={active.browse.path}
               onNavigate={(path) => void browsing.navigate(path)}
               onNewTerminal={termTabAt}
@@ -3593,6 +3718,13 @@ export default function App(): JSX.Element {
                 loading={browsing.loading}
                 error={browsing.error}
                 places={browsePlaces}
+                quickAccess={quickAccess}
+                onQuickAccessFile={(path) => void openBrowseFile(path)}
+                onUnpinQuickAccess={unpinQuickAccess}
+                onMoveQuickAccess={moveQuickAccess}
+                onPinQuickAccessPaths={(paths, beforePath) =>
+                  void pinQuickAccessPaths(paths, beforePath)
+                }
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 searchState={browsing.searchState}
@@ -3645,25 +3777,29 @@ export default function App(): JSX.Element {
               )}
             </div>
           )}
-          {!browsing.folder && active && active.kind !== 'settings' && !fullscreen && (
-            <div className="browse-return-row">
-              <button onClick={browsing.showFolder} title="Return to folder">
-                Browse files
-              </button>
-              <span
-                title={
-                  termView === 'full' && active.term
+          {!browsing.folder &&
+            active &&
+            active.kind !== 'settings' &&
+            termView === 'full' &&
+            !fullscreen && (
+              <div className="browse-return-row">
+                <button onClick={browsing.showFolder} title="Return to folder">
+                  Browse files
+                </button>
+                <span
+                  title={
+                    termView === 'full' && active.term
+                      ? termFolder(active.term.id)
+                      : active.browse.path
+                  }
+                >
+                  {termView === 'full' && active.term
                     ? termFolder(active.term.id)
-                    : active.browse.path
-                }
-              >
-                {termView === 'full' && active.term
-                  ? termFolder(active.term.id)
-                  : active.browse.path}
-              </span>
-              {terminalBrowseControls}
-            </div>
-          )}
+                    : active.browse.path}
+                </span>
+                {terminalBrowseControls}
+              </div>
+            )}
           <div
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
               washed ? 'p-wash' : ''
@@ -3803,10 +3939,7 @@ export default function App(): JSX.Element {
                       </div>
                     ))}
                   </>
-                ) : file ? // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
-                // player either way: a film's picture covers it, which is
-                // why it went unseen for months, and the audio visualizer is
-                // a transparent ring, which is where it showed through.
+                ) : file ? // a transparent ring, which is where it showed through. // why it went unseen for months, and the audio visualizer is // player either way: a film's picture covers it, which is // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
                 // There IS a file here; the player above is drawing it.
                 null : active ? (
                   <NoFileState />
@@ -4234,6 +4367,23 @@ export default function App(): JSX.Element {
             },
             { label: 'Open in new tab', onPick: () => openInNewTab(browseMenu.entry.path) },
             { label: 'Open as project', onPick: () => openAsProject(browseMenu.entry) },
+            {
+              label: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path))
+                ? 'Unpin from Quick access'
+                : 'Pin to Quick access',
+              onPick: () => {
+                if (quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)))
+                  unpinQuickAccess(browseMenu.entry.path)
+                else
+                  pinQuickAccess([
+                    {
+                      path: browseMenu.entry.path,
+                      label: browseMenu.entry.name,
+                      isFolder: browseMenu.entry.isFolder
+                    }
+                  ])
+              }
+            },
             ...(!browseMenu.entry.isFolder
               ? [
                   {

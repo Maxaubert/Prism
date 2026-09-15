@@ -576,7 +576,10 @@ function ArchiveInner({
   const extractFolderHere = useCallback(
     (entry: string): void => {
       setBusy('extract')
-      const job = startJob('extract', 'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry))
+      const job = startJob(
+        'extract',
+        'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry)
+      )
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
         endJob(job)
         setBusy(null)
@@ -1034,9 +1037,7 @@ function ArchiveInner({
           <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
             {caps.write && (
               <ArcVerb
-                label={
-                  busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'
-                }
+                label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
                 disabled={busy !== null}
                 onClick={() => extractAll(true)}
                 path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
@@ -1091,7 +1092,11 @@ function ArchiveInner({
                 itself is the first crumb wherever you stand, so the path
                 reads the same coming back as it did going in (and the panel
                 never jumps a line). */}
-          <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+          <div
+            data-archive-crumbs
+            data-archive-subfolder={cwd ? '' : undefined}
+            className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]"
+          >
             {trail?.map((a, i) => (
               <span key={i} className="flex min-w-0 items-center gap-1">
                 <button
@@ -1390,7 +1395,18 @@ function ArchiveInner({
               >
                 {file.name}
               </button>
-              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width={12}
+                height={12}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-[var(--p-dim2)]"
+                aria-hidden
+              >
                 <path d="M9 6l6 6-6 6" />
               </svg>
               <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
@@ -1416,7 +1432,13 @@ function ArchiveInner({
           onClose={() => setPanelMenu(null)}
           items={[
             ...(caps.write
-              ? [{ label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() }]
+              ? [
+                  {
+                    label: 'Extract all…',
+                    disabled: busy !== null,
+                    onPick: () => void extractAll()
+                  }
+                ]
               : []),
             ...(writable
               ? [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]

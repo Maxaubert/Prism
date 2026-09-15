@@ -96,6 +96,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       {props.placesVisible !== false && (
         <BrowsePlaces
           places={props.places}
+          quickAccess={props.quickAccess}
+          onQuickAccessFile={props.onQuickAccessFile}
+          onUnpinQuickAccess={props.onUnpinQuickAccess}
+          onMoveQuickAccess={props.onMoveQuickAccess}
+          onPinQuickAccessPaths={props.onPinQuickAccessPaths}
           directory={props.directory}
           onNavigate={props.onNavigate}
           onNewTerminal={props.onNewTerminal}

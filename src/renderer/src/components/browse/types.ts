@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react'
 import type { DirListing, ViewerFile } from '@shared/types'
+import type { QuickAccessPin } from '../../lib/quickAccess'
 
 export interface BrowsePlace {
   path: string
@@ -35,6 +36,11 @@ export interface FolderBrowserProps {
   error?: string
   places: BrowsePlace[]
   placesVisible?: boolean
+  quickAccess?: QuickAccessPin[]
+  onQuickAccessFile?: (path: string) => void
+  onUnpinQuickAccess?: (path: string) => void
+  onMoveQuickAccess?: (path: string, beforePath?: string) => void
+  onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
   selectedPath: string | null
   menuPath?: string
   scrollTop: number

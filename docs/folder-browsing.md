@@ -16,6 +16,13 @@ strip and keeps desktop browsing separate from phone sharing.
 - Back/Forward retrace folder history; Up and ancestor breadcrumbs move to parent locations.
   Clicking empty path-bar space or Ctrl+L edits an absolute folder path. Clicking a named segment
   navigates there. Alt+Left/Right/Up provide navigation shortcuts; F5 refreshes.
+- The whole path bar highlights on hover or keyboard focus. It stays above the full-file viewer,
+  showing the file after its containing folder. Back, Backspace or a folder breadcrumb returns to
+  the folder. Backspace inside an editor or text field still edits text.
+- Every Quick access default can be unpinned. Pin any file or folder from its context menu, or
+  drop it onto Quick access. Drag pins to reorder them, or use Move up/Move down in the context
+  menu. Pin choices and order persist, including a deliberately empty list. File pins open the
+  existing viewer; folder pins navigate. Pinning does not add phone shares.
 - The list includes dotfiles, unsupported files and folders normally hidden from the viewer tree.
   Folders precede files. Search matches names in the current folder and its descendants, including
   AppData, with the shared query operators. Results show containing paths and stream while the
@@ -103,9 +110,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-projects-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/quick-access-trial`.
+Then `tools/preview-branch.ps1` opens `dist/quick-access-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/quick-access-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -119,3 +126,9 @@ item at a time; established multi-selection and drag operations remain available
 ![Explorer search alongside separate project tabs](screenshots/folder-browsing/explorer-projects.png)
 
 ![Explorer and projects at 200 percent zoom](screenshots/folder-browsing/explorer-projects-zoom200.png)
+
+The full-file viewer keeps its highlighted path bar above custom file and folder pins:
+
+![Persistent path bar and custom Quick access pins](screenshots/folder-browsing/path-bar-quick-access.png)
+
+![Path bar and Quick access at 200 percent zoom](screenshots/folder-browsing/path-bar-quick-access-zoom200.png)

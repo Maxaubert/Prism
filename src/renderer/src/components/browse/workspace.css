@@ -4,6 +4,18 @@
 .browse-surface-host {
   z-index: 1;
 }
+.browse-viewer-toolbar {
+  flex-shrink: 0;
+  background: var(--p-bg);
+}
+.browse-viewer-toolbar > .browse-toolbar {
+  height: 48px;
+}
+.browse-navigation-error {
+  padding: 8px 12px;
+  color: var(--p-text);
+  font-size: 15px;
+}
 .browse-viewer-places {
   display: flex;
   flex: 0 0 210px;
