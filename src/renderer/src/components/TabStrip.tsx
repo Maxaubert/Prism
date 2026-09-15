@@ -3,7 +3,7 @@ import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tab
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from '../lib/recentRoots'
-import { dragPayload, setDrag } from '../lib/dragDrop'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 
 /**
@@ -57,6 +57,7 @@ export function TabStrip({
   onClose,
   onNew,
   onDropFile,
+  onDropIntoTab,
   onReorder,
   onOpenRecent,
   wash
@@ -80,6 +81,8 @@ export function TabStrip({
   onNew: () => void
   /** A file dropped on the strip opens in a new tab. */
   onDropFile: (path: string) => void
+  /** Existing tabs receive cargo in their current folder without switching tabs. */
+  onDropIntoTab: (tabId: string, payload: DragPayload) => void
   /** A tab dragged along the strip lands in front of `toIndex` (#70). */
   onReorder: (id: string, toIndex: number) => void
   /** Open a folder from the + menu's list of places Prism has been. */
@@ -110,9 +113,13 @@ export function TabStrip({
   // dragover ever arrived and the drop could only be made over a tab. The
   // handle comes back the moment the drag ends.
   const [dragInFlight, setDragInFlight] = useState(false)
+  const [fileDropTab, setFileDropTab] = useState<string | null>(null)
   useEffect(() => {
     const on = (): void => setDragInFlight(true)
-    const off = (): void => setDragInFlight(false)
+    const off = (): void => {
+      setDragInFlight(false)
+      setFileDropTab(null)
+    }
     window.addEventListener('dragstart', on, true)
     window.addEventListener('dragenter', on, true)
     window.addEventListener('dragend', off, true)
@@ -344,6 +351,41 @@ export function TabStrip({
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             data-tab
+            data-folder-drop={
+              t.kind === 'settings' ? undefined : isExplorerTab(t) ? t.browse.path : t.root
+            }
+            data-drag-over={fileDropTab === t.id || undefined}
+            onDragOver={(e) => {
+              // Stop before the blank-strip handler: an existing tab is a
+              // destination, while empty strip space opens a new tab.
+              e.stopPropagation()
+              if (
+                t.kind === 'settings' ||
+                !(e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes('Files'))
+              ) {
+                e.dataTransfer.dropEffect = 'none'
+                return
+              }
+              e.preventDefault()
+              e.dataTransfer.dropEffect =
+                dragPayload(e.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
+              setFileDropTab(t.id)
+            }}
+            onDragLeave={(e) => {
+              if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget))
+                setFileDropTab(null)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const payload = dragPayload(e.dataTransfer)
+              const paths = payload ? [] : droppedPaths(e.dataTransfer)
+              setDrag(null)
+              setFileDropTab(null)
+              if (t.kind === 'settings') return
+              if (payload) onDropIntoTab(t.id, payload)
+              else if (paths.length) onDropIntoTab(t.id, { kind: 'files', paths })
+            }}
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}
             onPointerUp={onTabPointerUp}

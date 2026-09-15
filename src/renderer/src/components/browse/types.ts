@@ -1,6 +1,7 @@
 import type { MouseEvent, ReactNode } from 'react'
 import type { DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
+import type { DragPayload } from '../../lib/dragDrop'
 
 export interface BrowsePlace {
   path: string
@@ -72,4 +73,5 @@ export interface FolderBrowserProps {
   onPaste?: (directory: string) => void
   onDelete?: (entry: BrowseEntry) => void
   onRefresh?: () => void
+  onDropInto?: (directory: string, payload: DragPayload) => void
 }

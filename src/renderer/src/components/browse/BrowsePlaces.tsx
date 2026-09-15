@@ -2,7 +2,7 @@ import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
-import { dragPayload, droppedPaths } from '../../lib/dragDrop'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../../lib/dragDrop'
 import {
   QUICK_ACCESS_PATHS_MIME,
   QUICK_ACCESS_PIN_MIME,
@@ -12,6 +12,7 @@ import {
 import { BrowseIcon } from './BrowseIcon'
 import type { BrowsePlace, FolderBrowserProps } from './types'
 import './quick-access.css'
+import { useFolderDrop } from './useFolderDrop'
 
 type Props = Pick<
   FolderBrowserProps,
@@ -24,6 +25,7 @@ type Props = Pick<
   | 'onUnpinQuickAccess'
   | 'onMoveQuickAccess'
   | 'onPinQuickAccessPaths'
+  | 'onDropInto'
 > & { onOpenProject?: () => void }
 
 function acceptsDrop(event: DragEvent): boolean {
@@ -46,8 +48,10 @@ export function BrowsePlaces({
   onQuickAccessFile,
   onUnpinQuickAccess,
   onMoveQuickAccess,
-  onPinQuickAccessPaths
+  onPinQuickAccessPaths,
+  onDropInto
 }: Props): JSX.Element {
+  const folderDrop = useFolderDrop(onDropInto)
   const pins =
     quickAccess ??
     places
@@ -75,7 +79,14 @@ export function BrowsePlaces({
     if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
-    const before = drop?.before
+    // The release can arrive before React paints the final hover update.
+    // Choose the insertion point from the actual drop position, not that state.
+    const row = (event.target as Element).closest<HTMLElement>('[data-quick-access-path]')
+    const at = row ? pins.findIndex((pin) => pin.path === row.dataset.quickAccessPath) : -1
+    const box = row?.getBoundingClientRect()
+    const before = box && at >= 0
+      ? event.clientY < box.top + box.height / 2 ? pins[at].path : pins[at + 1]?.path
+      : undefined
     setDrop(null)
     setDragging(null)
     const moving = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
@@ -156,11 +167,14 @@ export function BrowsePlaces({
                   setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true })
                 }}
                 onDragStart={(event) => {
+                  setDrag({ kind: 'files', paths: [pin.path] })
+                  event.dataTransfer.setData(DRAG_MIME, 'files')
                   event.dataTransfer.setData(QUICK_ACCESS_PIN_MIME, pin.path)
-                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.effectAllowed = 'copyMove'
                   setDragging(pin.path)
                 }}
                 onDragEnd={() => {
+                  setDrag(null)
                   setDrop(null)
                   setDragging(null)
                 }}
@@ -211,6 +225,7 @@ export function BrowsePlaces({
                   <button
                     key={place.path}
                     className="browse-place"
+                    {...folderDrop(place.path)}
                     aria-current={current ? 'location' : undefined}
                     onClick={() => onNavigate(place.path)}
                     title={place.path}

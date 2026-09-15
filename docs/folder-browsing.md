@@ -27,6 +27,14 @@ strip and keeps desktop browsing separate from phone sharing.
   drop it onto Quick access. Drag pins to reorder them, or use Move up/Move down in the context
   menu. Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
+- Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
+  Dropping in an Explorer list's empty area moves them into its displayed folder; a file row
+  targets that file's containing folder. Hold the mouse button and use Ctrl+Tab or Ctrl+Shift+Tab
+  to carry items into another tab. Dropping directly onto an existing tab moves into its currently
+  displayed Explorer folder or project root without activating it or opening a new tab. Drop targets
+  use a neutral grey fill without a focus ring. Nothing moves until release. Escape, window blur or releasing
+  outside the window cancels the carry. Existing conflict prompts and undo remain available. Quick access drops
+  pin or reorder items instead of moving them on disk.
 - The list includes dotfiles, unsupported files and folders normally hidden from the viewer tree.
   Folders precede files. Search matches names in the current folder and its descendants, including
   AppData, with the shared query operators. Results show containing paths and stream while the
@@ -146,9 +154,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/viewer-toolbar-trial`.
-Then `tools/preview-branch.ps1` opens `dist/viewer-toolbar-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/viewer-toolbar-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-tab-drop-trial`.
+Then `tools/preview-branch.ps1` opens `dist/explorer-tab-drop-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/explorer-tab-drop-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -156,6 +164,12 @@ The separate output path also lets the earlier trial remain open while the new b
 ## Captured interface
 
 These captures use the packaged branch with isolated test profiles and generated files.
+
+![Held file drag uses a neutral destination fill](screenshots/folder-browsing/explorer-held-drag.png)
+
+![Breadcrumb drop target at 200 percent zoom](screenshots/folder-browsing/explorer-held-drag-zoom200.png)
+
+![Dropping onto an existing tab targets its open folder](screenshots/folder-browsing/explorer-tab-drop.png)
 
 Comic and PDF toolbars remain hidden while the pointer is outside their viewer:
 

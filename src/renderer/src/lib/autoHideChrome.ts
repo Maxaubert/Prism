@@ -92,6 +92,9 @@ export function useAutoHideChrome(
   }, [pinned])
 
   const wake = useCallback(() => {
+    // Cancel removal before React batches state updates. A hidden viewer can
+    // already have a fade tick queued when this pointer activity arrives.
+    leftAt.current = 0
     clock.touch()
     // A wake DURING the fade reverses it: the element is still mounted, so it
     // simply transitions back to opaque rather than flickering out and in.
@@ -120,12 +123,6 @@ export function useAutoHideChrome(
     }, 60)
     return () => window.clearInterval(t)
   }, [idle, clock])
-
-  // A wake mid-fade has to clear the pending removal too, or the clock takes
-  // the element away under a pointer that just asked for it.
-  useEffect(() => {
-    if (!leaving) leftAt.current = 0
-  }, [leaving])
 
   // Held in a ref for the same reason `pinned` is: re-registering the window
   // listeners on every render is how one gets missed.

@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { browseCrumbs, browseParent } from '../../lib/browse'
 import { BrowseIcon } from './BrowseIcon'
 import type { FolderBrowserProps } from './types'
+import { useFolderDrop } from './useFolderDrop'
 
 type Props = Pick<
   FolderBrowserProps,
@@ -15,6 +16,7 @@ type Props = Pick<
   | 'onNavigate'
   | 'onQueryChange'
   | 'onRefresh'
+  | 'onDropInto'
 > & {
   /** Display the open file after its containing folder's navigable crumbs. */
   fileName?: string
@@ -24,6 +26,7 @@ type Props = Pick<
 }
 
 export function BrowseToolbar(props: Props): JSX.Element {
+  const folderDrop = useFolderDrop(props.onDropInto)
   const [editing, setEditing] = useState(false)
   const [path, setPath] = useState(props.directory)
   const crumbs = useRef<HTMLDivElement>(null)
@@ -138,6 +141,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
             {browseCrumbs(props.directory).map((crumb, index, all) => (
               <span className="browse-crumb" key={crumb.path}>
                 <button
+                  {...folderDrop(crumb.path)}
                   onClick={() => props.onNavigate(crumb.path)}
                   aria-current={
                     !props.fileName && index === all.length - 1 ? 'location' : undefined

@@ -298,6 +298,17 @@
   min-height: 0;
   container-type: inline-size;
 }
+[data-folder-drop][data-drag-over='true'] {
+  background: var(--p-hover-hi) !important;
+  color: var(--p-text) !important;
+  box-shadow: none !important;
+  outline: 0 none !important;
+}
+body[data-internal-file-drag] :focus-visible,
+body[data-internal-file-drag] .browse-path:focus-within {
+  outline: 0 none !important;
+  box-shadow: none !important;
+}
 .browse-search-status {
   display: flex;
   align-items: flex-start;

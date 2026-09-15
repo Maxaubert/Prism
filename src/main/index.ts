@@ -2621,7 +2621,7 @@ if (!app.requestSingleInstanceLock()) {
             !insideSelf(p, destDir) &&
             resolve(dirname(p)).toLowerCase() !== resolve(destDir).toLowerCase()
         )
-        if (!wanted.length) return { moved: [], clashes: [], failed: [], replaced: [] }
+        if (!wanted.length) return { moved: [], clashes: [], failed: [], replaced: [], busy: [] }
         if (!wanted.every(movable) || !insideDesktop(destDir))
           // `refused` is the wall talking, which is a different sentence from
           // "that file is locked": the renderer branches on it.

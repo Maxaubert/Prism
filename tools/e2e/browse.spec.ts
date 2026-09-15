@@ -2351,3 +2351,361 @@ test('PDF controls reveal only inside their own Explorer or project viewer', asy
     await stop(app)
   }
 })
+
+/** Exercise the pointer gesture itself, including keys while the primary button remains held. */
+async function pickUp(page: Page, source: ReturnType<typeof row>): Promise<void> {
+  await source.scrollIntoViewIfNeeded()
+  const box = await source.boundingBox()
+  expect(box).not.toBeNull()
+  await page.mouse.move(box!.x + Math.min(100, box!.width / 2), box!.y + box!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box!.x + Math.min(100, box!.width / 2) + 24, box!.y + box!.height / 2, {
+    steps: 4
+  })
+}
+
+async function dropOn(page: Page, target: ReturnType<typeof row>, blank = false): Promise<void> {
+  const box = await target.boundingBox()
+  expect(box).not.toBeNull()
+  await page.mouse.move(
+    box!.x + Math.min(120, box!.width / 2),
+    blank ? box!.y + box!.height - 24 : box!.y + box!.height / 2,
+    { steps: 8 }
+  )
+  await page.mouse.up()
+}
+
+function projectRow(page: Page, name: string): ReturnType<typeof row> {
+  return page
+    .getByRole('tree')
+    .locator('[data-row]')
+    .filter({
+      has: page.getByText(name, { exact: true })
+    })
+    .first()
+}
+
+async function expectGreyDropTarget(target: ReturnType<typeof row>): Promise<void> {
+  await expect(target).toHaveAttribute('data-drag-over', 'true')
+  const grey = await target.evaluate((element) => {
+    const reference = document.createElement('span')
+    reference.style.backgroundColor = 'var(--p-hover-hi)'
+    element.append(reference)
+    const grey = getComputedStyle(reference).backgroundColor
+    reference.remove()
+    return grey
+  })
+  await expect
+    .poll(() =>
+      target.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          background: style.backgroundColor,
+          shadow: style.boxShadow,
+          outline: style.outlineWidth
+        }
+      })
+    )
+    .toEqual({ background: grey, shadow: 'none', outline: '0px' })
+}
+
+test('held file drags move into Explorer folders, and cancelled drags leave disk unchanged', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  const destination = join(h.movies, 'Destination')
+  const movingFolder = join(h.movies, 'Moving folder')
+  try {
+    mkdirSync(destination)
+    mkdirSync(movingFolder)
+    writeFileSync(join(movingFolder, 'inside.txt'), 'A moved folder retains its contents\n')
+    writeFileSync(join(h.movies, 'cancel-me.txt'), 'Cancelled pointer gesture\n')
+    await go(page, h.movies)
+    await pickUp(page, row(page, 'Moving folder'))
+    await dropOn(page, row(page, 'Moving folder'))
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    expect(existsSync(join(movingFolder, 'inside.txt'))).toBe(true)
+    expect(existsSync(join(movingFolder, 'Moving folder'))).toBe(false)
+    await pickUp(page, row(page, 'Moving folder'))
+    const folderBox = await row(page, 'Destination').boundingBox()
+    await page.mouse.move(folderBox!.x + 100, folderBox!.y + folderBox!.height / 2, { steps: 8 })
+    await expect(row(page, 'Destination')).toHaveAttribute('data-drag-over', 'true')
+    await expectGreyDropTarget(row(page, 'Destination'))
+    await shot(page, info, 'held-folder-drag.png', app)
+    await dropOn(page, row(page, 'Destination'))
+    await expect.poll(() => existsSync(join(destination, 'Moving folder', 'inside.txt'))).toBe(true)
+    expect(existsSync(movingFolder)).toBe(false)
+    await expect(row(page, 'Moving folder')).toHaveCount(0)
+
+    await pickUp(page, row(page, 'cancel-me.txt'))
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(row(page, 'cancel-me.txt')).toBeVisible()
+    expect(readFileSync(join(h.movies, 'cancel-me.txt'), 'utf8')).toBe(
+      'Cancelled pointer gesture\n'
+    )
+
+    await pickUp(page, row(page, 'cancel-me.txt'))
+    const target = await row(page, 'Destination').boundingBox()
+    await page.mouse.move(target!.x + 100, target!.y + target!.height / 2, { steps: 8 })
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    await expect(page.locator('body')).not.toHaveAttribute('data-internal-file-drag', 'true')
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+    await expect(row(page, 'cancel-me.txt')).toBeVisible()
+    expect(existsSync(join(destination, 'cancel-me.txt'))).toBe(false)
+    expect(existsSync(join(h.movies, 'cancel-me.txt'))).toBe(true)
+
+    await pickUp(page, row(page, 'cancel-me.txt'))
+    await page.mouse.move(-20, -20, { steps: 8 })
+    await page.mouse.up()
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+    await expect(row(page, 'cancel-me.txt')).toBeVisible()
+    expect(existsSync(join(destination, 'cancel-me.txt'))).toBe(false)
+
+    await go(page, h.nested)
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    })
+    await pickUp(page, row(page, 'inside.txt'))
+    const parentCrumb = page
+      .getByRole('navigation', { name: 'Folder path', exact: true })
+      .getByRole('button', { name: 'Prism Project', exact: true })
+    await expect(parentCrumb).toBeInViewport()
+    const crumbBox = await parentCrumb.boundingBox()
+    await page.mouse.move(crumbBox!.x + crumbBox!.width / 2, crumbBox!.y + crumbBox!.height / 2, {
+      steps: 8
+    })
+    await expect(parentCrumb).toHaveAttribute('data-drag-over', 'true')
+    await expectGreyDropTarget(parentCrumb)
+    await shot(page, info, 'held-breadcrumb-drag-zoom200.png', app)
+    await dropOn(page, parentCrumb)
+    await expect.poll(() => existsSync(join(h.project, 'inside.txt'))).toBe(true)
+    expect(existsSync(join(h.nested, 'inside.txt'))).toBe(false)
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.nested)
+  } finally {
+    await page.keyboard.up('Control').catch(() => {})
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held drags survive Ctrl+Tab and Ctrl+Shift+Tab between Explorer and a project sidebar', async () => {
+  const h = await setup()
+  const { page, app } = h
+  const destination = join(h.project, 'Nested')
+  try {
+    writeFileSync(join(h.movies, 'cross-view.txt'), 'Move from Explorer to project\n')
+    mkdirSync(join(h.movies, 'Return folder'))
+    writeFileSync(join(h.movies, 'Return folder', 'inside.txt'), 'Move folder between tabs\n')
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    const explorer = ordinaryTabs(page).first()
+    const project = ordinaryTabs(page).last()
+    await explorer.click()
+    await go(page, h.movies)
+
+    await pickUp(page, row(page, 'cross-view.txt'))
+    await page.keyboard.press('Control+Tab')
+    await expect(project).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, projectRow(page, 'Nested'))
+    await expect.poll(() => existsSync(join(destination, 'cross-view.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'cross-view.txt'))).toBe(false)
+    await projectRow(page, 'Nested').dblclick()
+    await expect(projectRow(page, 'cross-view.txt')).toBeVisible()
+
+    await pickUp(page, projectRow(page, 'cross-view.txt'))
+    await page.keyboard.press('Control+Shift+Tab')
+    await expect(explorer).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await expect.poll(() => existsSync(join(h.movies, 'cross-view.txt'))).toBe(true)
+    expect(existsSync(join(destination, 'cross-view.txt'))).toBe(false)
+    await expect(row(page, 'cross-view.txt')).toBeVisible()
+
+    await pickUp(page, row(page, 'Return folder'))
+    await page.keyboard.press('Control+Tab')
+    await expect(project).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, projectRow(page, 'Nested'))
+    await expect.poll(() => existsSync(join(destination, 'Return folder', 'inside.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'Return folder'))).toBe(false)
+    await expectNoExplorerControls(page)
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held Explorer drags cross browsing tabs and Quick access still pins without moving files', async () => {
+  const h = await setup()
+  const { page, app } = h
+  try {
+    writeFileSync(join(h.movies, 'between-explorers.txt'), 'Move between two browsing tabs\n')
+    await go(page, h.movies)
+    const sourceTab = ordinaryTabs(page).first()
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await go(page, h.nested)
+    const destinationTab = ordinaryTabs(page).last()
+    await sourceTab.click()
+    await row(page, 'between-explorers.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    const preview = page.locator('[data-browse-preview="true"]')
+    await expect(preview.locator('.cm-content')).toHaveText('Move between two browsing tabs')
+
+    // A collision leaves both files and the originating viewer intact, without changing tabs.
+    writeFileSync(join(h.nested, 'between-explorers.txt'), 'An existing destination\n')
+    await pickUp(page, row(page, 'between-explorers.txt'))
+    await page.keyboard.press('Control+Tab')
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    expect(readFileSync(join(h.nested, 'between-explorers.txt'), 'utf8')).toBe(
+      'An existing destination\n'
+    )
+    await sourceTab.click()
+    await expect(preview.locator('.cm-content')).toHaveText('Move between two browsing tabs')
+    await expect
+      .poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs[1]?.file)
+      .toBe(join(h.movies, 'between-explorers.txt'))
+    unlinkSync(join(h.nested, 'between-explorers.txt'))
+
+    await pickUp(page, row(page, 'between-explorers.txt'))
+    await page.keyboard.press('Control+Tab')
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await expect.poll(() => existsSync(join(h.nested, 'between-explorers.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'between-explorers.txt'))).toBe(false)
+    await expect(row(page, 'between-explorers.txt')).toBeVisible()
+    await sourceTab.click()
+    await expect(preview.locator('.cm-content')).toHaveText('Move between two browsing tabs')
+    await expect
+      .poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs[1]?.file)
+      .toBe(join(h.nested, 'between-explorers.txt'))
+    await destinationTab.click()
+
+    await pickUp(page, row(page, 'between-explorers.txt'))
+    const quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    await dropOn(page, quick.getByRole('heading', { name: 'Quick access', exact: true }))
+    await expect(
+      quick.getByRole('button', { name: 'between-explorers.txt', exact: true })
+    ).toBeVisible()
+    expect(existsSync(join(h.nested, 'between-explorers.txt'))).toBe(true)
+    await pickUp(page, quick.getByRole('button', { name: 'between-explorers.txt', exact: true }))
+    const first = quick.locator('[data-quick-access-path]').first()
+    const firstBox = await first.boundingBox()
+    await page.mouse.move(firstBox!.x + 35, firstBox!.y + 4, { steps: 8 })
+    await page.mouse.up()
+    await expect(quick.locator('[data-quick-access-path]').first()).toHaveAttribute(
+      'data-quick-access-path',
+      join(h.nested, 'between-explorers.txt')
+    )
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held project sidebar drags retain their files while Ctrl+Shift+Tab selects another project', async () => {
+  const h = await setup()
+  const { page, app } = h
+  try {
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    await ordinaryTabs(page).first().click()
+    await row(page, 'Movies').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.movies, 'readme.txt')
+    await pickUp(page, projectRow(page, 'readme.txt'))
+    await expect(page.locator('body')).toHaveAttribute('data-internal-file-drag', 'true')
+    await page.keyboard.press('Control+Shift+Tab')
+    await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', h.project)
+    await expect(page.locator('[data-file-drag-badge]')).toBeVisible()
+    await dropOn(page, projectRow(page, 'Nested'))
+    await expect.poll(() => existsSync(join(h.nested, 'readme.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'readme.txt'))).toBe(false)
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held file drops onto existing tab labels and close areas use that tab folder without opening or selecting tabs', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  try {
+    for (const name of ['tab-label.txt', 'tab-close.txt', 'settings-stays.txt']) {
+      writeFileSync(join(h.movies, name), `${name}\n`)
+    }
+    mkdirSync(join(h.movies, 'Project cargo'))
+    writeFileSync(
+      join(h.movies, 'Project cargo', 'inside.txt'),
+      'A folder dropped onto a project tab\n'
+    )
+    await go(page, h.movies)
+    const source = ordinaryTabs(page).first()
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await go(page, h.nested)
+    const destination = ordinaryTabs(page).last()
+    const destinationWrapper = destination.locator('..')
+    await source.click()
+    const originalCount = await page.getByRole('tab').count()
+
+    await pickUp(page, row(page, 'tab-label.txt'))
+    const target = await destination.boundingBox()
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, {
+      steps: 8
+    })
+    await expect(destinationWrapper).toHaveAttribute('data-folder-drop', h.nested)
+    await expectGreyDropTarget(destinationWrapper)
+    await shot(page, info, 'held-existing-tab-drag.png', app)
+    await dropOn(page, destination)
+    await expect.poll(() => existsSync(join(h.nested, 'tab-label.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'tab-label.txt'))).toBe(false)
+    expect(existsSync(join(h.project, 'tab-label.txt'))).toBe(false)
+    await expect(source).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab')).toHaveCount(originalCount)
+
+    await pickUp(page, row(page, 'tab-close.txt'))
+    await dropOn(page, destinationWrapper.locator('[data-tab-close]'))
+    await expect.poll(() => existsSync(join(h.nested, 'tab-close.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'tab-close.txt'))).toBe(false)
+    await expect(source).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab')).toHaveCount(originalCount)
+
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    const project = ordinaryTabs(page).last()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    await source.click()
+    await go(page, h.movies)
+    await pickUp(page, row(page, 'Project cargo'))
+    await dropOn(page, project)
+    await expect.poll(() => existsSync(join(h.project, 'Project cargo', 'inside.txt'))).toBe(true)
+    expect(existsSync(join(h.movies, 'Project cargo'))).toBe(false)
+    await expect(source).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab')).toHaveCount(originalCount + 1)
+
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settings = page.locator('[data-tab-role="settings"] > [role="tab"]')
+    await expect(settings).toHaveAttribute('aria-selected', 'true')
+    await source.click()
+    await pickUp(page, row(page, 'settings-stays.txt'))
+    await dropOn(page, settings)
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+    await expect(source).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab')).toHaveCount(originalCount + 2)
+    expect(readFileSync(join(h.movies, 'settings-stays.txt'), 'utf8')).toBe('settings-stays.txt\n')
+    await expect(row(page, 'settings-stays.txt')).toBeVisible()
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})

@@ -1,6 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
+import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
   addTab,
   addExplorerTab,
@@ -148,6 +149,7 @@ import {
 } from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
+import { useInternalFileDrag } from './lib/internalFileDrag'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -2098,6 +2100,7 @@ export default function App(): JSX.Element {
       return { ...s, activeId: s.tabs[(i + delta + s.tabs.length) % s.tabs.length].id }
     })
   }, [])
+  useInternalFileDrag(stepTab)
   /** Jump to the nth tab, 1-based, for Ctrl+1..Ctrl+9. */
   const jumpTab = useCallback((n: number) => {
     setTabState((s) => (s.tabs[n - 1] ? { ...s, activeId: s.tabs[n - 1].id } : s))
@@ -2971,85 +2974,111 @@ export default function App(): JSX.Element {
 
   /** A drop landed on a folder (#70): files move in, archive members extract
    *  there. Moving asks about taken names before it touches anything. */
+  const moveTabs = useRef(tabs)
+  const moveQueue = useRef<Promise<void>>(Promise.resolve())
+  const moveCommits = useRef<Array<() => void>>([])
+  useLayoutEffect(() => {
+    moveTabs.current = tabs
+    for (const done of moveCommits.current.splice(0)) done()
+  }, [tabs])
   const runMove = useCallback(
-    async (
+    (
       paths: string[],
       dest: string,
       mode: 'ask' | 'keep-both' | 'replace',
       track = true
     ): Promise<Array<{ from: string; to: string }>> => {
-      // MOVING THE FILE YOU ARE WATCHING (#127). Windows refuses to move a
-      // file something holds open, and that something is Prism's own player
-      // as often as not (MEASURED: EBUSY from the media stream, and from
-      // ffmpeg decoding beside it). Delete learned this on 2026-08-22; move
-      // never did. So Prism lets go FIRST - the tab steps off the file, the
-      // element unmounts and its stream closes - moves, retries what Windows
-      // still calls busy while the handles drain, and then FOLLOWS the file
-      // to where it landed, at the second it was at, playing if it was.
-      const cur = file?.path
-      const heldPath = cur && paths.some((p) => within(cur, p)) ? cur : null
-      const oldUrl = heldPath ? window.prism.mediaUrl(heldPath) : null
-      const mark = oldUrl ? { t: sessionTime(oldUrl), paused: wasPaused(oldUrl) } : null
-      const held = releaseFiles(paths)
-      if (held) await new Promise((res) => setTimeout(res, 350))
-      let r = await window.prism.moveEntries(paths, dest, mode)
-      if (mode === 'ask' && r.clashes.length) {
-        setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
-        if (heldPath) reopen(heldPath) // nothing moved: put it back on screen
-        return []
-      }
-      for (let i = 0; i < 3 && r.busy.length; i += 1) {
-        await new Promise((res) => setTimeout(res, 300))
-        const again = await window.prism.moveEntries(r.busy, dest, mode)
-        const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
-        r = {
-          ...r,
-          moved: [...r.moved, ...again.moved],
-          failed: [
-            ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
-            ...again.failed.filter((p) => !r.failed.includes(p))
-          ],
-          busy: again.busy,
-          replaced: [...r.replaced, ...again.replaced],
-          refused: r.refused || again.refused
+      const operation = async (): Promise<FileMove[]> => {
+        // Release every tab that holds this cargo, including background previews
+        // and pinned players. Read the latest committed tabs after async grants.
+        const held = captureMoveViews(moveTabs.current, paths)
+        const marks = new Map<string, { t: number; paused: boolean }>()
+        for (const entry of held) {
+          const viewing = entry.live ? [entry.tab.files[entry.tab.index].path] : []
+          viewing.push(
+            ...entry.tab.panes
+              .filter((pane) => !pane.term && !entry.panes.includes(pane))
+              .map((pane) => pane.path)
+          )
+          for (const path of viewing) {
+            const url = window.prism.mediaUrl(path)
+            marks.set(path, { t: sessionTime(url), paused: wasPaused(url) })
+          }
         }
-      }
-      setAsk(null)
-      setRefreshKey((n) => n + 1)
-      if (track && r.moved.length)
-        noteUndo({
-          kind: 'move',
-          items: r.moved,
-          replaced: r.replaced?.length ? r.replaced : undefined
-        })
-      // Follow the open file FIRST, whatever else failed: it may have been
-      // inside a folder that moved, in which case only its prefix changed.
-      // It comes back at the second it was at (the session mark is keyed by
-      // url, and the url has changed with the path), playing if it was.
-      if (cur) {
-        const landed = r.moved.find((m) => within(cur, m.from))
-        if (landed) {
-          const to = landed.to + cur.slice(landed.from.length)
-          if (mark) {
-            const url = window.prism.mediaUrl(to)
+        setTabState((state) => ({ ...state, tabs: releaseMoveViews(state.tabs, held) }))
+        const restore = (moves: FileMove[]): Promise<void> => {
+          for (const [path, mark] of marks) {
+            const url = window.prism.mediaUrl(movedPath(path, moves))
             if (mark.t > 0) rememberTime(url, mark.t)
             rememberPaused(url, mark.paused)
           }
-          reopen(to)
-        } else if (heldPath) reopen(heldPath) // it did not move: put it back
+          for (const buffer of [...buffers.current.values()]) {
+            const path = movedPath(buffer.path, moves)
+            if (path !== buffer.path) rekeyBuffer(buffer.path, path)
+          }
+          // A queued move must see the restored viewers in committed React state.
+          // Register first, then always issue a fresh tabs array to trigger the effect.
+          return new Promise((resolve) => {
+            moveCommits.current.push(resolve)
+            setTabState((state) => ({ ...state, tabs: restoreMoveViews(state.tabs, held, moves) }))
+          })
+        }
+        if (held.length) await new Promise((res) => setTimeout(res, 350))
+        let moved: FileMove[] = []
+        try {
+          let r = await window.prism.moveEntries(paths, dest, mode)
+          moved = r.moved
+          if (mode === 'ask' && r.clashes.length) {
+            setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
+            return []
+          }
+          for (let i = 0; i < 3 && r.busy.length; i += 1) {
+            await new Promise((res) => setTimeout(res, 300))
+            const again = await window.prism.moveEntries(r.busy, dest, mode)
+            const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
+            r = {
+              ...r,
+              moved: [...r.moved, ...again.moved],
+              failed: [
+                ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
+                ...again.failed.filter((p) => !r.failed.includes(p))
+              ],
+              busy: again.busy,
+              replaced: [...r.replaced, ...again.replaced],
+              refused: r.refused || again.refused
+            }
+            moved = r.moved
+          }
+          setAsk(null)
+          setRefreshKey((n) => n + 1)
+          if (track && r.moved.length)
+            noteUndo({
+              kind: 'move',
+              items: r.moved,
+              replaced: r.replaced?.length ? r.replaced : undefined
+            })
+          moved = r.moved
+          if (r.failed.length)
+            setAsk({
+              kind: 'failed',
+              message: r.refused
+                ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
+                : r.busy.length
+                  ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
+                  : `${r.failed.length} of ${paths.length} could not be moved.`
+            })
+          return r.moved
+        } finally {
+          await restore(moved)
+        }
       }
-      if (r.failed.length)
-        setAsk({
-          kind: 'failed',
-          message: r.refused
-            ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
-            : r.busy.length
-              ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
-              : `${r.failed.length} of ${paths.length} could not be moved.`
-        })
-      return r.moved
+      // Only one move can detach players at once, including moves queued while
+      // another is waiting for Windows handles. A failure does not block the next.
+      const result = moveQueue.current.then(operation)
+      moveQueue.current = result.then(() => undefined, () => undefined)
+      return result
     },
-    [file, noteUndo, reopen, releaseFiles]
+    [noteUndo, rekeyBuffer]
   )
 
   /** Reverse one action. Undo never asks: it puts things back beside whatever
@@ -3236,6 +3265,37 @@ export default function App(): JSX.Element {
         })
     },
     [runMove]
+  )
+  const onBrowseDropInto = useCallback(
+    (dest: string, payload: DragPayload, tabId = active?.id): void => {
+      if (!tabId) return
+      // A desktop drop explicitly chooses both ends, including a drive or a
+      // breadcrumb the tab has not visited. These grants never widen phone roots.
+      const directories = new Set([
+        dest,
+        ...(payload.kind === 'files'
+          ? payload.paths.map((path) => browseParent(path)).filter((path): path is string => !!path)
+          : [])
+      ])
+      void Promise.all([...directories].map((path) => window.prism.browseDirectory(tabId, path)))
+        .then((results) => {
+          if (results.some((result) => !result || result.listing.unreadable)) {
+            setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' })
+            return
+          }
+          onDropInto(dest, payload)
+        })
+        .catch(() => setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' }))
+    },
+    [active, onDropInto]
+  )
+  const onDropIntoTab = useCallback(
+    (tabId: string, payload: DragPayload): void => {
+      const target = moveTabs.current.find((tab) => tab.id === tabId)
+      if (!target || target.kind === 'settings') return
+      onBrowseDropInto(isExplorerTab(target) ? target.browse.path : target.root, payload, target.id)
+    },
+    [onBrowseDropInto]
   )
 
   // App-level keys, in the capture phase so this runs before the player's own
@@ -3673,6 +3733,7 @@ export default function App(): JSX.Element {
           doneIds={doneIds}
           agentIds={agentIds}
           onDropFile={openInNewTab}
+          onDropIntoTab={onDropIntoTab}
           onReorder={reorderTab}
           onOpenRecent={openRecent}
           onPick={pickTab}
@@ -3688,6 +3749,7 @@ export default function App(): JSX.Element {
         <div className="browse-viewer-toolbar">
           <BrowseToolbar
             directory={viewerDirectory}
+            onDropInto={onBrowseDropInto}
             fileName={file?.name}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
@@ -3730,6 +3792,7 @@ export default function App(): JSX.Element {
           <div className="browse-viewer-places">
             <BrowsePlaces
               places={browsePlaces}
+              onDropInto={onBrowseDropInto}
               quickAccess={quickAccess}
               onQuickAccessFile={(path) => void openBrowseFile(path)}
               onUnpinQuickAccess={unpinQuickAccess}
@@ -3806,7 +3869,7 @@ export default function App(): JSX.Element {
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
-            onDropInto={onDropInto}
+            onDropInto={onBrowseDropInto}
             onDuplicated={(source, copy) => noteUndo({ kind: 'duplicate', source, path: copy })}
             wash={washed}
           />
@@ -3819,6 +3882,7 @@ export default function App(): JSX.Element {
             <div className="browse-surface-host absolute inset-0">
               <FolderBrowser
                 directory={active.browse.path}
+                onDropInto={onBrowseDropInto}
                 listing={browsing.listing}
                 loading={browsing.loading}
                 error={browsing.error}

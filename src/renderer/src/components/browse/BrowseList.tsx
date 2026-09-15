@@ -3,9 +3,12 @@ import { formatBytes, formatWhen } from '../../lib/format'
 import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
+import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
+import { QUICK_ACCESS_PATHS_MIME } from '../../lib/quickAccess'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
+import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 
 const OVERSCAN = 12
@@ -32,6 +35,7 @@ type Props = Pick<
   | 'query'
   | 'searchState'
   | 'onCancelSearch'
+  | 'onDropInto'
 > & {
   entries: BrowseEntry[]
   onActivate: (entry: BrowseEntry) => void
@@ -41,6 +45,7 @@ type Props = Pick<
 
 export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
+  const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
   const searching = !!props.query.trim()
   const rowHeight = searching ? 60 : 40
   const scroller = useRef<HTMLDivElement>(null)
@@ -157,6 +162,7 @@ export function BrowseList(props: Props): JSX.Element {
         aria-busy={props.loading || !!props.searchState?.running}
         tabIndex={selectedIndex < first || selectedIndex >= end ? 0 : -1}
         data-testid="browse-list"
+        {...folderDrop(props.directory, 'list')}
         onKeyDown={onKeyDown}
         onScroll={(e) => {
           if (!props.loading) props.onScroll(e.currentTarget.scrollTop)
@@ -198,13 +204,18 @@ export function BrowseList(props: Props): JSX.Element {
                     data-menu={entry.path === props.menuPath || undefined}
                     data-striped={(first + offset) % 2 === 1 || undefined}
                     draggable
+                    {...folderDrop(entry.isFolder ? entry.path : browseParent(entry.path) ?? props.directory, entry.path)}
                     onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = 'copy'
+                      props.onSelect(entry.path)
+                      setDrag({ kind: 'files', paths: [entry.path] })
+                      event.dataTransfer.effectAllowed = 'copyMove'
+                      event.dataTransfer.setData(DRAG_MIME, 'files')
                       event.dataTransfer.setData(
-                        'application/x-prism-quick-access-paths',
+                        QUICK_ACCESS_PATHS_MIME,
                         JSON.stringify([entry.path])
                       )
                     }}
+                    onDragEnd={() => setDrag(null)}
                     title={searching ? entry.path : entry.name}
                     onClick={() => props.onSelect(entry.path)}
                     onDoubleClick={() => props.onActivate(entry)}

@@ -139,6 +139,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       {props.placesVisible !== false && (
         <BrowsePlaces
           places={props.places}
+          onDropInto={props.onDropInto}
           quickAccess={props.quickAccess}
           onQuickAccessFile={props.onQuickAccessFile}
           onUnpinQuickAccess={props.onUnpinQuickAccess}
