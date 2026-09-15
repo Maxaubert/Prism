@@ -160,9 +160,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
             title="Edit folder path (Ctrl+L)"
             data-testid="browse-edit-path"
             onClick={begin}
-          >
-            <BrowseIcon name="rename" />
-          </button>
+          />
         </nav>
       )}
       {props.showSearch !== false && (

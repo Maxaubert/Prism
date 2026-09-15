@@ -65,7 +65,7 @@ export interface FolderBrowserProps {
   onOpenProject?: (entry: BrowseEntry) => void
   onCancelSearch?: () => void
   onPreviewToggle: () => void
-  onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry) => void
+  onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void
   onRename?: (entry: BrowseEntry) => void
   onCopy?: (entry: BrowseEntry) => void
   onDelete?: (entry: BrowseEntry) => void

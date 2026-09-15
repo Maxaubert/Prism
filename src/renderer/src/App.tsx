@@ -1135,7 +1135,12 @@ export default function App(): JSX.Element {
     }
     // The quiet start: the sidebar keeps the folder's files, but nothing
     // goes on screen (NoFileState) until the user picks one.
-    return { ...st, tabs: setBrowseSurface(st.tabs, tab.id, 'folder') }
+    return {
+      ...st,
+      tabs: setBrowseSurface(st.tabs, tab.id, 'viewer').map((item) =>
+        item.id === tab.id ? { ...item, index: -1 } : item
+      )
+    }
   }, [])
 
   const open = useCallback(
@@ -2520,7 +2525,7 @@ export default function App(): JSX.Element {
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
   const viewingFile =
-    !!file && !!active && active.kind !== 'settings' && !browsing.folder && termView !== 'full'
+    !!file && !!active && isExplorerTab(active) && !browsing.folder && termView !== 'full'
   const viewerDirectory = file
     ? (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
@@ -2529,9 +2534,12 @@ export default function App(): JSX.Element {
       void browsing.navigate(viewerDirectory)
     else browsing.showFolder()
   }, [viewerDirectory, active, browsing])
-  const [browseMenu, setBrowseMenu] = useState<{ x: number; y: number; entry: BrowseEntry } | null>(
-    null
-  )
+  const [browseMenu, setBrowseMenu] = useState<{
+    x: number
+    y: number
+    entry: BrowseEntry
+    source?: 'more'
+  } | null>(null)
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
   const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
   const showBrowsePreview =
@@ -3243,6 +3251,8 @@ export default function App(): JSX.Element {
         }
       }
       if (
+        active &&
+        isExplorerTab(active) &&
         e.altKey &&
         !inTerm &&
         !typing &&
@@ -3484,8 +3494,12 @@ export default function App(): JSX.Element {
         const first = inside.paths[0]
         if (!first) return
         void window.prism.statFile(first).then((st) => {
-          if (st?.isFolder) void browsing.navigate(first)
-          else void window.prism.openPath(first).then(open)
+          if (st?.isFolder) {
+            if (active && isExplorerTab(active)) void browsing.navigate(first)
+            else void window.prism.openRoot(first).then((payload) => {
+              if (payload) open({ ...payload, folder: true })
+            })
+          } else void window.prism.openPath(first).then(open)
         })
         return
       }
@@ -3511,7 +3525,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('drop', end, true)
       window.removeEventListener('dragend', end, true)
     }
-  }, [browsing, open, setup])
+  }, [active, browsing, open, setup])
 
   // The style's light belongs to an empty window, a visualizer, or a page of
   // Prism's own - never behind someone's photo.
@@ -3762,8 +3776,8 @@ export default function App(): JSX.Element {
                   })
                 }
                 onRefresh={() => setRefreshKey((key) => key + 1)}
-                onContextMenu={(event, entry) =>
-                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry })
+                onContextMenu={(event, entry, source) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
                 previewVisible={active.browse.preview}
                 onPreviewToggle={browsing.togglePreview}
@@ -3781,7 +3795,7 @@ export default function App(): JSX.Element {
           )}
           {!browsing.folder &&
             active &&
-            active.kind !== 'settings' &&
+            isExplorerTab(active) &&
             termView === 'full' &&
             !fullscreen && (
               <div className="browse-return-row">
@@ -4419,7 +4433,11 @@ export default function App(): JSX.Element {
             },
             ...fileVerbs(browseMenu.entry.path),
             { label: 'Properties', onPick: () => setBrowseProps(browseMenu.entry) }
-          ]}
+          ].filter(
+            (item) =>
+              browseMenu.source !== 'more' ||
+              !['Open', 'Copy', 'Rename', 'Delete'].includes(item.label ?? '')
+          )}
         />
       )}
       {browseProps && active && (

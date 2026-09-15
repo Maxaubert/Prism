@@ -16,6 +16,7 @@ import {
   setBrowseLocation,
   setBrowseSurface,
   setBrowsePreview,
+  isExplorerTab,
   underRoot,
   type Tab,
   type TabState
@@ -52,7 +53,7 @@ export function useFolderBrowsing(
   const error = errorState && errorState.tabId === id ? errorState.message : undefined
   const folder =
     !!active &&
-    active.kind !== 'settings' &&
+    isExplorerTab(active) &&
     active.browse.surface === 'folder' &&
     (!active.term || active.term.view === 'hidden')
   const search = useBrowseSearch(id, path, location?.query ?? '', folder, refreshKey + revision)

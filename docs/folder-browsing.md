@@ -13,12 +13,14 @@ strip and keeps desktop browsing separate from phone sharing.
   a file is selected. For a file, its containing folder becomes the project
   and that file opens. Explorer location and existing sessions stay where they were.
 - The sidebar button toggles places and drives in Explorer, and the folder tree in project tabs.
+  Project files and terminals retain the original viewer layout, without the path bar, folder
+  browser or terminal browsing controls. Restored project browse state cannot expose Explorer.
   Ordinary tabs close immediately; live agents use the confirmation preference and unsaved text
   always asks. The pinned Explorer has no close action.
 - Back/Forward retrace folder history; Up and ancestor breadcrumbs move to parent locations.
   Clicking empty path-bar space or Ctrl+L edits an absolute folder path. Clicking a named segment
   navigates there. Alt+Left/Right/Up provide navigation shortcuts; F5 refreshes.
-- The whole path bar highlights on hover or keyboard focus. It stays above the full-file viewer,
+- The whole path bar highlights on hover or keyboard focus, with no pen icon. In Explorer it stays above the full-file viewer,
   showing the file after its containing folder. Back, Backspace or a folder breadcrumb returns to
   the folder. Backspace inside an editor or text field still edits text.
 - Every Quick access default can be unpinned. Pin any file or folder from its context menu, or
@@ -33,14 +35,17 @@ strip and keeps desktop browsing separate from phone sharing.
   Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
 - Single-click selects. Double-click or Enter opens a directory or the file's existing viewer.
   Optional preview reuses that viewer. Unsupported files retain the existing fallback.
+- The Open as project quick button requires a selected folder; a file or no selection disables it.
+  Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
+  and Delete, while the row's right-click menu retains the complete action set.
 - Right-clicked rows use a distinct accent highlight and outline on both alternating row colors.
   Dismissing the menu restores the normal stripe or selected-row appearance.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
   it. Switching top-level tabs preserves Prism's existing intentional playback behavior.
 - New terminal here creates a new top-level tab at that directory. Browsing leaves existing shells,
   agent sessions and their actual cwd alone. Ctrl+Tab and Ctrl+Shift+Tab traverse the shared strip.
-- A terminal tab can return to its shell, reveal its reported folder, or deliberately use the browsed
-  directory at an eligible idle prompt. Agent presence or an unfinished command prevents injected cd.
+- Project terminals keep their working directory while another Explorer tab browses elsewhere.
+  The sidebar continues to follow the reported terminal location within the project root.
 
 Existing tree, archive, viewer and terminal actions remain separate surfaces with their established
 selection and keyboard rules. The folder list is not a new editing, thumbnail or library system.
@@ -114,39 +119,28 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/project-empty-trial`.
-Then `tools/preview-branch.ps1` opens `dist/project-empty-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/project-empty-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/actions-project-trial`.
+Then `tools/preview-branch.ps1` opens `dist/actions-project-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/actions-project-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
 
 ## Captured interface
 
-These native captures use isolated test profiles and generated files. The Explorer searches a
-fixture workspace while separate project tabs retain their roots. The details list selects one
-item at a time; established multi-selection and drag operations remain available in project trees.
+These captures use the packaged branch with isolated test profiles and generated files.
 
-![Explorer search alongside separate project tabs](screenshots/folder-browsing/explorer-projects.png)
+The quick action row includes Delete, and the More menu keeps the additional actions. The whole
+path bar remains editable without a pen icon:
 
-![Explorer and projects at 200 percent zoom](screenshots/folder-browsing/explorer-projects-zoom200.png)
+![Explorer actions and compact More menu](screenshots/folder-browsing/explorer-actions-more.png)
 
-The full-file viewer keeps its highlighted path bar above custom file and folder pins:
+![Explorer action row at 200 percent zoom](screenshots/folder-browsing/explorer-actions-more-zoom200.png)
 
-![Persistent path bar and custom Quick access pins](screenshots/folder-browsing/path-bar-quick-access.png)
+Project files and split terminals retain the sidebar and original viewer layout without Explorer controls:
 
-![Path bar and Quick access at 200 percent zoom](screenshots/folder-browsing/path-bar-quick-access-zoom200.png)
+![Project file without Explorer controls](screenshots/folder-browsing/project-file-without-explorer.png)
 
-Opening a folder as a project shows its tree and waits for a file selection:
+![Project file and terminal](screenshots/folder-browsing/project-split-without-explorer.png)
 
-![Empty project workspace](screenshots/folder-browsing/empty-project.png)
-
-![Empty project at 200 percent zoom](screenshots/folder-browsing/empty-project-zoom200.png)
-
-The context-menu target stays distinct on both alternating row backgrounds:
-
-![Context menu on a plain row](screenshots/folder-browsing/context-row-plain.png)
-
-![Context menu on a striped row](screenshots/folder-browsing/context-row-striped.png)
-
-![Context menu at 200 percent zoom](screenshots/folder-browsing/context-row-zoom200.png)
+![Project split terminal at 200 percent zoom](screenshots/folder-browsing/project-split-without-explorer-zoom200.png)

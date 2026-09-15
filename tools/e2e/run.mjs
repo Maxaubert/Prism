@@ -3389,31 +3389,24 @@ async function termCwdScenario(fixtures) {
     )
     ok(true, 'a second cd walks the mark one level down')
 
-    // Browsing now owns a separate location. Only the explicit idle-shell
-    // action writes Set-Location; neither browsing nor a cwd report reroots it.
-    await win.getByRole('button', { name: 'Browse files', exact: true }).click()
-    await win.getByRole('button', { name: 'Edit folder path', exact: true }).click()
-    await win.getByRole('textbox', { name: 'Folder path', exact: true }).fill(join(root, 'nested'))
-    await win.getByRole('textbox', { name: 'Folder path', exact: true }).press('Enter')
-    await win.waitForFunction((path) => document.querySelector('nav[aria-label="Folder path"]')?.getAttribute('title') === path, join(root, 'nested'))
-    await win.getByRole('button', { name: 'Return to terminal', exact: true }).click()
-    await win.waitForSelector('.xterm', { timeout: 10000 })
+    // Projects retain their original tree/viewer layout. Hiding the shell
+    // and opening a tree file must neither expose Explorer nor move the shell.
+    ok((await win.getByRole('button', { name: 'Browse files', exact: true }).count()) === 0, 'a project terminal has no Explorer return row')
+    await win.keyboard.press('Control+`')
+    await win.locator('[role="treeitem"]').filter({ hasText: 'pyburied.py' }).click()
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    ok((await win.locator('[data-testid="folder-browser"]').count()) === 0, 'a project file uses the original tree and viewer')
+    ok((await win.locator('nav[aria-label="Folder path"]').count()) === 0, 'and has no Explorer path bar')
+    await win.keyboard.press('Control+`')
+    await win.waitForFunction(() => !!document.activeElement?.closest('.xterm'), null, { timeout: 10000 })
     const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
-    ok(/level-two>\s*$/.test((await termText()).trimEnd()), 'browsing a different folder leaves the used shell in place')
-    await win.getByRole('button', { name: 'Browse files', exact: true }).click()
-    await win.getByRole('button', { name: 'Use folder in terminal', exact: true }).click()
-    await win.getByRole('button', { name: 'Return to terminal', exact: true }).click()
-    const deadline = Date.now() + 10000
-    let moved = false
-    while (Date.now() < deadline && !moved) {
-      moved = (await termText()).includes('Set-Location -LiteralPath')
-      if (!moved) await sleep(250)
-    }
-    ok(moved, `the used shell was moved by one Set-Location, written at its idle prompt${moved ? '' : ` (saw: ...${(await termText()).slice(-260)})`}`)
-    await sleep(800)
+    ok(/level-two>\s*$/.test((await termText()).trimEnd()), 'opening a project file leaves the used shell in place')
+    ok((await win.locator('.xterm').count()) === 1, 'returning keeps the same single shell')
+    await typeLine('cd ..')
+    await win.waitForFunction(() => /nested>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 10000 })
     ok(
       /nested>\s*$/.test((await termText()).trimEnd()),
-      'and its prompt now sits in the deliberately chosen folder'
+      'an explicit shell cd still changes its own folder'
     )
     await win.locator('.xterm').click()
 

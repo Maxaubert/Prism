@@ -128,21 +128,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </button>
         {props.onOpenProject && (
           <button
-            disabled={props.loading}
-            onClick={() =>
-              props.onOpenProject?.(
-                selected ?? {
-                  path: props.directory,
-                  name: props.directory,
-                  isFolder: true
-                }
-              )
-            }
-            title={
-              selected?.isFolder === false
-                ? 'Open the containing folder as a project, with this file selected'
-                : 'Open folder as a project'
-            }
+            disabled={!selected?.isFolder || props.loading}
+            onClick={() => {
+              if (selected?.isFolder) props.onOpenProject?.(selected)
+            }}
+            title="Open selected folder as a project"
           >
             <BrowseIcon name="open" />
             <span>Open as project</span>
@@ -176,6 +166,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             <span>Rename</span>
           </button>
         )}
+        {props.onDelete && (
+          <button
+            disabled={!selected || props.loading}
+            onClick={() => {
+              if (selected) props.onDelete?.(selected)
+            }}
+          >
+            <BrowseIcon name="delete" />
+            <span>Delete</span>
+          </button>
+        )}
         {props.onContextMenu && (
           <button
             className="browse-icon-button"
@@ -183,7 +184,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             title="More file actions"
             disabled={!selected || props.loading}
             onClick={(e) => {
-              if (selected) props.onContextMenu?.(e, selected)
+              if (selected) props.onContextMenu?.(e, selected, 'more')
             }}
           >
             <BrowseIcon name="more" />

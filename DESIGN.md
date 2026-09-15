@@ -46,12 +46,15 @@ Terminal, folder and media views share that same tab strip.
 Explorer tabs use folder icons and one pinned first tab labeled Explorer. Project tabs retain the
 working folder name. The panel toggle controls places in Explorer and the tree in project tabs.
 Recursive search results add a readable containing-folder line and a visible scope/progress row.
-Open as project is available in the Explorer action row and folder/file context menu.
+Open as project requires a selected folder in the Explorer action row; context menus retain the
+explicit folder/file actions. Delete is a quick action, and More omits Open, Copy, Rename and Delete
+while right-click retains the complete menu.
 Opening a folder as a project shows its tree beside an empty workspace, without an Explorer list
 or an automatically selected file. Context-menu rows use the accent selection fill and a visible
 outline so the target stays distinct on either alternating row background.
-The path bar highlights as one continuous control and remains above a full-file viewer, with
-clickable ancestor folders and a current-file label. Quick access uses persistent, reorderable
+The path bar highlights as one continuous control without a pen icon and remains above an Explorer
+full-file viewer, with clickable ancestor folders and a current-file label. Project files and
+terminals retain the original layout without Explorer controls. Quick access uses persistent, reorderable
 file and folder pins, with context-menu actions for unpinning and keyboard-accessible reordering.
 
 This document records the implemented folder surface. Existing viewer and terminal styles remain
@@ -104,8 +107,8 @@ tiles, oversized pills and a second navigation strip.
 - **Details list:** Name, Type, Size and Date modified align under sortable headers. Rows have
   selection, hover and keyboard-focus states; single-click selects and activation opens.
 - **Preview:** reuse the live viewer in a bounded right pane with an explicit open action.
-- **Terminal actions:** label return, terminal-folder reveal and deliberate cwd change plainly;
-  show disabled eligibility states for cwd changes rather than silently acting on a busy shell.
+- **Project terminals:** preserve the original terminal and sidebar controls. Browsing belongs to
+  a separate Explorer tab, and never moves a running shell's working directory.
 - **Focus:** folder buttons and inputs use a visible 2px accent outline. Disabled controls reduce
   opacity and retain their spatial position. Preserve keyboard access when layout becomes narrow.
 
