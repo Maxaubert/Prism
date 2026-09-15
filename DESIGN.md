@@ -47,6 +47,9 @@ Explorer tabs use folder icons and one pinned first tab labeled Explorer. Projec
 working folder name. The panel toggle controls places in Explorer and the tree in project tabs.
 Recursive search results add a readable containing-folder line and a visible scope/progress row.
 Open as project is available in the Explorer action row and folder/file context menu.
+Opening a folder as a project shows its tree beside an empty workspace, without an Explorer list
+or an automatically selected file. Context-menu rows use the accent selection fill and a visible
+outline so the target stays distinct on either alternating row background.
 The path bar highlights as one continuous control and remains above a full-file viewer, with
 clickable ancestor folders and a current-file label. Quick access uses persistent, reorderable
 file and folder pins, with context-menu actions for unpinning and keyboard-accessible reordering.

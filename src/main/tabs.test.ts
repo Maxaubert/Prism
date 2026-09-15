@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseTabs, type SavedTabs } from './tabs'
+import { parseTabs, restoredFileIndex, type SavedTabs } from './tabs'
 
 let box = ''
 beforeEach(() => {
@@ -17,6 +17,18 @@ const folder = (name: string): string => {
 }
 
 describe('parseTabs', () => {
+  it('preserves the empty project workspace after persistence despite a nonempty rebuilt folder', () => {
+    const root = folder('project')
+    const file = join(root, 'notes.txt')
+    writeFileSync(file, 'first file in the folder')
+    const browse = { path: root, surface: 'viewer', history: [], cursor: 0, preview: false }
+    const parsed = parseTabs(JSON.stringify({ tabs: [{ root, role: 'project', browse }], active: 0 }))
+    expect(parsed.tabs[0].file).toBeUndefined()
+    expect(restoredFileIndex(parsed.tabs[0], 0)).toBe(-1)
+    expect(restoredFileIndex({ ...parsed.tabs[0], file }, 0)).toBe(0)
+    expect(restoredFileIndex({ root }, 0)).toBe(0)
+    expect(restoredFileIndex({ ...parsed.tabs[0], browse: { ...parsed.tabs[0].browse!, surface: 'folder' } }, 0)).toBe(0)
+  })
   it('retains one permanent Explorer while keeping every tab and active owner', () => {
     const root = folder('home')
     const parsed = parseTabs(JSON.stringify({ tabs: [

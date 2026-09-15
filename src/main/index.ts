@@ -51,7 +51,7 @@ import { pairLink } from './phone/routes'
 import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
-import { readTabs, writeTabs, type SavedTabs } from './tabs'
+import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
 import { detectShells } from './shells'
 import {
   killAll,
@@ -733,6 +733,7 @@ async function restoreTabs(): Promise<OpenPayload[]> {
       // it to the front without moving it.
       out.push({
         ...payload,
+        index: restoredFileIndex(t, payload.index),
         restore: true,
         restoreTabId,
         role: t.role,

@@ -8,7 +8,9 @@ strip and keeps desktop browsing separate from phone sharing.
 
 - One pinned Explorer tab stays first and remembers its location. The + and Ctrl+T open ordinary
   Explorer tabs. Right-click a folder and choose Open as project to open a separate tab with a
-  fixed project tree and terminal controls. For a file, its containing folder becomes the project
+  fixed project tree and an empty workspace, with no selected file or Explorer list. This explicit
+  action starts empty regardless of the startup preference, and stays empty after restart until
+  a file is selected. For a file, its containing folder becomes the project
   and that file opens. Explorer location and existing sessions stay where they were.
 - The sidebar button toggles places and drives in Explorer, and the folder tree in project tabs.
   Ordinary tabs close immediately; live agents use the confirmation preference and unsaved text
@@ -31,6 +33,8 @@ strip and keeps desktop browsing separate from phone sharing.
   Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
 - Single-click selects. Double-click or Enter opens a directory or the file's existing viewer.
   Optional preview reuses that viewer. Unsupported files retain the existing fallback.
+- Right-clicked rows use a distinct accent highlight and outline on both alternating row colors.
+  Dismissing the menu restores the normal stripe or selected-row appearance.
 - Return to folder and folder navigation pause that tab's media. Turning preview off also pauses
   it. Switching top-level tabs preserves Prism's existing intentional playback behavior.
 - New terminal here creates a new top-level tab at that directory. Browsing leaves existing shells,
@@ -110,9 +114,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/quick-access-trial`.
-Then `tools/preview-branch.ps1` opens `dist/quick-access-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/quick-access-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/project-empty-trial`.
+Then `tools/preview-branch.ps1` opens `dist/project-empty-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/project-empty-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -132,3 +136,17 @@ The full-file viewer keeps its highlighted path bar above custom file and folder
 ![Persistent path bar and custom Quick access pins](screenshots/folder-browsing/path-bar-quick-access.png)
 
 ![Path bar and Quick access at 200 percent zoom](screenshots/folder-browsing/path-bar-quick-access-zoom200.png)
+
+Opening a folder as a project shows its tree and waits for a file selection:
+
+![Empty project workspace](screenshots/folder-browsing/empty-project.png)
+
+![Empty project at 200 percent zoom](screenshots/folder-browsing/empty-project-zoom200.png)
+
+The context-menu target stays distinct on both alternating row backgrounds:
+
+![Context menu on a plain row](screenshots/folder-browsing/context-row-plain.png)
+
+![Context menu on a striped row](screenshots/folder-browsing/context-row-striped.png)
+
+![Context menu at 200 percent zoom](screenshots/folder-browsing/context-row-zoom200.png)

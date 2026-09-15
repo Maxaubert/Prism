@@ -178,6 +178,7 @@ export function BrowseList(props: Props): JSX.Element {
             <div style={{ transform: `translateY(${first * rowHeight}px)` }}>
               {rendered.map((entry, offset) => {
                 const selected = entry.path === props.selectedPath
+                const highlighted = selected || entry.path === props.menuPath
                 return (
                   <button
                     key={entry.path}
@@ -213,17 +214,17 @@ export function BrowseList(props: Props): JSX.Element {
                   >
                     <span className="browse-column-name browse-name">
                       {entry.isFolder ? (
-                        <FolderIcon color={selected ? 'currentColor' : 'var(--p-tree-folder)'} />
+                        <FolderIcon color={highlighted ? 'currentColor' : 'var(--p-tree-folder)'} />
                       ) : (
                         entry.file && (
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
                             name={entry.name}
-                            color={selected ? 'currentColor' : iconColour(entry.file.kind)}
-                            selected={selected}
+                            color={highlighted ? 'currentColor' : iconColour(entry.file.kind)}
+                            selected={highlighted}
                             size={18}
-                            bg={selected ? 'var(--p-sel-bg)' : 'var(--p-bg)'}
+                            bg={highlighted ? 'var(--p-sel-bg)' : 'var(--p-bg)'}
                           />
                         )
                       )}

@@ -381,9 +381,6 @@
 .browse-row[data-striped] {
   background: color-mix(in srgb, var(--p-text) 3.5%, transparent);
 }
-.browse-row[data-menu] {
-  background: var(--p-hover);
-}
 .browse-row > span {
   overflow: hidden;
   white-space: nowrap;
@@ -418,7 +415,7 @@
   color: var(--p-dim);
   font-size: 13px;
 }
-.browse-row[data-selected] .browse-result-location {
+.browse-row:is([data-selected], [data-menu]) .browse-result-location {
   color: inherit;
 }
 .browse-name > svg {
@@ -432,14 +429,20 @@
   font-size: 13px;
 }
 .folder-browser .browse-row[data-selected],
-.folder-browser .browse-row[data-selected]:hover {
+.folder-browser .browse-row[data-selected]:hover,
+.folder-browser .browse-row[data-menu],
+.folder-browser .browse-row[data-menu]:hover {
   background: var(--p-sel-bg);
   color: var(--p-on-accent);
 }
-.browse-row[data-selected] .browse-name,
-.browse-row[data-selected] .browse-column-type,
-.browse-row[data-selected] .browse-column-size,
-.browse-row[data-selected] .browse-column-modified {
+.folder-browser .browse-row[data-menu] {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
+}
+.browse-row:is([data-selected], [data-menu]) .browse-name,
+.browse-row:is([data-selected], [data-menu]) .browse-column-type,
+.browse-row:is([data-selected], [data-menu]) .browse-column-size,
+.browse-row:is([data-selected], [data-menu]) .browse-column-modified {
   color: inherit;
 }
 .browse-message {

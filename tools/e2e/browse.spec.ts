@@ -26,6 +26,7 @@ function savedTabs(path: string): {
     root?: string
     role?: 'explorer' | 'project'
     pinned?: boolean
+    file?: string
     term?: string
     browse?: { path: string; surface: string }
     panes?: { path: string }[]
@@ -176,6 +177,26 @@ function row(page: Page, filename: string) {
 
 function ordinaryTabs(page: Page) {
   return page.locator('[data-tab-role]:not([data-pinned]) > [role="tab"]')
+}
+
+async function expectEmptyProject(page: Page, root: string, childName: string): Promise<void> {
+  await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', root)
+  await expect(page.getByRole('tab', { selected: true }).locator('..')).toHaveAttribute(
+    'data-tab-role',
+    'project'
+  )
+  await expect(page.getByRole('tree')).toBeVisible()
+  await expect(page.getByRole('tree')).toContainText(childName)
+  await expect(page.getByRole('tree').locator('[aria-selected="true"]')).toHaveCount(0)
+  await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
+  await expect(page.getByText('Pick one from the sidebar', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+  await expect(page.locator('.xterm:visible')).toHaveCount(0)
+  await expect(
+    page
+      .getByRole('textbox')
+      .filter({ hasText: /Original notes|AppData settings fixture|Nested folder/ })
+  ).toHaveCount(0)
 }
 
 async function search(page: Page, query: string): Promise<void> {
@@ -722,6 +743,63 @@ test('missing file pins recover on a valid choice and late failures stay out of 
   }
 })
 
+test('context menu target stays strongly highlighted on both row stripes and clears on dismissal', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  try {
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    const rows = page.locator('.browse-row')
+    let menuBackground: string | undefined
+    for (const striped of [false, true]) {
+      const target = rows
+        .locator(striped ? ':scope[data-striped]' : ':scope:not([data-striped])')
+        .first()
+      await page.getByRole('button', { name: 'New tab', exact: true }).hover()
+      const idleBackground = await target.evaluate((el) => getComputedStyle(el).backgroundColor)
+      await target.click({ button: 'right' })
+      await expect(target).toHaveAttribute('data-menu', 'true')
+      await expect(target).toHaveAttribute('aria-selected', 'false')
+      await expect(
+        page.getByRole('menuitem', { name: 'Open as project', exact: true })
+      ).toBeVisible()
+      const style = await target.evaluate((el) => {
+        const css = getComputedStyle(el)
+        return { background: css.backgroundColor, color: css.color }
+      })
+      expect(style.background).not.toBe(idleBackground)
+      if (menuBackground) expect(style.background).toBe(menuBackground)
+      menuBackground = style.background
+      await expect(target).toHaveCSS('outline-style', 'solid')
+      expect(
+        await target.evaluate((el) => parseFloat(getComputedStyle(el).outlineWidth))
+      ).toBeGreaterThanOrEqual(1.5)
+      await expect(target.locator('.browse-name')).toHaveCSS('color', style.color)
+      await expect(target.locator('.browse-column-type')).toHaveCSS('color', style.color)
+      await page.getByRole('button', { name: 'New tab', exact: true }).hover()
+      await expect(target).toHaveCSS('background-color', style.background)
+      await target.hover({ position: { x: 6, y: 20 } })
+      await expect(target).toHaveCSS('background-color', style.background)
+      await shot(page, info, `context-row-${striped ? 'striped' : 'plain'}.png`, app)
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.browse-row[data-menu]')).toHaveCount(0)
+      await page.getByRole('button', { name: 'New tab', exact: true }).hover()
+      await expect(target).toHaveCSS('background-color', idleBackground)
+    }
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await rows.first().click({ button: 'right' })
+    await expect(rows.first()).toHaveCSS('background-color', menuBackground!)
+    await shot(page, info, 'context-row-zoom200.png', app)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.browse-row[data-menu]')).toHaveCount(0)
+  } finally {
+    await stop(app)
+  }
+})
+
 test('recursive Explorer search finds AppData and opens files and folders as separate persistent projects', async ({}, info) => {
   const h = await setup()
   let { app, page } = h
@@ -761,14 +839,31 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     await expect(
       page.getByRole('navigation', { name: 'Folder path', exact: true })
     ).toHaveAttribute('title', h.home)
-    await search(page, 'Prism Project')
-    await row(page, 'Prism Project').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
-    await expect(page.getByRole('tab', { selected: true })).toHaveAttribute('title', h.project)
-    await expect(page.getByRole('tree')).toBeVisible()
-    await expect(
-      page.getByRole('navigation', { name: 'Folder path', exact: true })
-    ).toHaveAttribute('title', h.project)
+    // Explicit folder promotion stays empty even if ordinary new projects prefer a file or shell.
+    for (const [preference, folder, root, child] of [
+      ['file', 'Prism Project', h.project, 'notes.txt'],
+      ['terminal', 'Nested', h.nested, 'inside.txt']
+    ]) {
+      await explorer.click()
+      await page.evaluate((value) => localStorage.setItem('prism.newtab.show', value), preference)
+      await search(page, folder)
+      await row(page, folder).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+      await expectEmptyProject(page, root, child)
+    }
+    await shot(page, info, 'empty-project-workspace.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(2)
+      return contents.getZoomFactor()
+    })
+    await expectEmptyProject(page, h.nested, 'inside.txt')
+    await shot(page, info, 'empty-project-workspace-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      contents.setZoomFactor(1)
+      return contents.getZoomFactor()
+    })
 
     const saved = join(h.profile, 'tabs.json')
     await expect.poll(() => savedTabs(saved)?.tabs.filter((tab) => tab.pinned).length).toBe(1)
@@ -786,10 +881,32 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
       .toBe(true)
     const count = await page.getByRole('tab').count()
     await expect.poll(() => savedTabs(saved)?.tabs.length).toBe(count)
+    await expect
+      .poll(() => {
+        const tabs = savedTabs(saved)?.tabs
+        return [h.project, h.nested].every((root) =>
+          tabs?.some(
+            (tab) =>
+              tab.role === 'project' &&
+              tab.root === root &&
+              !tab.file &&
+              !tab.term &&
+              tab.browse?.surface === 'viewer'
+          )
+        )
+      })
+      .toBe(true)
     await stop(app)
     ;({ app, page } = await start(h.profile))
     await expect(page.getByRole('tab')).toHaveCount(count)
     await expect(page.locator('[data-pinned]')).toHaveCount(1)
+    await expectEmptyProject(page, h.nested, 'inside.txt')
+    await ordinaryTabs(page).nth(3).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    await ordinaryTabs(page).nth(2).click()
+    await expect(
+      page.getByRole('textbox').filter({ hasText: 'AppData settings fixture' })
+    ).toBeVisible()
     const restoredExplorer = page.locator(
       '[data-tab-role="explorer"]:not([data-pinned]) > [role="tab"]'
     )
@@ -799,7 +916,8 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     ).toHaveAttribute('title', h.home)
     await expect(
       page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
-    ).toHaveValue('Prism Project')
+    ).toHaveValue('Nested')
+    await search(page, 'Prism Project')
     await expect(row(page, 'Prism Project')).toBeVisible()
     await shot(page, info, 'explorer-projects.png', app)
     await app.evaluate(({ BrowserWindow }) =>

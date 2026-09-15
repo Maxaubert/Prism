@@ -4,6 +4,7 @@ import { preloadImage } from './lib/imageLoader'
 import {
   addTab,
   addExplorerTab,
+  addProjectTab,
   isExplorerTab,
   isPinnedExplorer,
   ensurePinnedExplorer,
@@ -1765,15 +1766,16 @@ export default function App(): JSX.Element {
         const payload = entry.isFolder ? folder : await window.prism.openWithin(root, entry.path)
         if (!payload) return
         setTabState((state) => {
-          const next = addTab(state.tabs, { ...payload, role: 'project' }, nextTabId())
-          return entry.isFolder ? withNewTabShow(next) : next
+          return entry.isFolder
+            ? addProjectTab(state.tabs, payload, nextTabId())
+            : addTab(state.tabs, { ...payload, role: 'project' }, nextTabId())
         })
         setSidebar(true)
         localStorage.setItem(SIDEBAR_KEY, '1')
         setHasNavigated(false)
       })()
     },
-    [withNewTabShow]
+    []
   )
   const applyTermView = useCallback(
     (fn: typeof toggleTermView) =>
@@ -2518,7 +2520,7 @@ export default function App(): JSX.Element {
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
   const viewingFile =
-    !!active && active.kind !== 'settings' && !browsing.folder && termView !== 'full'
+    !!file && !!active && active.kind !== 'settings' && !browsing.folder && termView !== 'full'
   const viewerDirectory = file
     ? (browseParent(file.path) ?? active?.browse.path)
     : active?.browse.path
@@ -3938,6 +3940,7 @@ export default function App(): JSX.Element {
                         />
                       </div>
                     ))}
+                    {!file && active && <NoFileState />}
                   </>
                 ) : file ? // a transparent ring, which is where it showed through. // why it went unseen for months, and the audio visualizer is // player either way: a film's picture covers it, which is // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
                 // There IS a file here; the player above is drawing it.

@@ -125,7 +125,7 @@ export function newTab(p: OpenPayload, id: string): Tab {
     browse: p.browse ?? newBrowse(p.root, p.folder || p.index < 0 ? 'folder' : 'viewer'),
     files: p.files,
     index:
-      p.role === 'explorer' && p.index < 0
+      p.index < 0 && (p.role === 'explorer' || p.browse?.surface === 'viewer')
         ? -1
         : p.files.length ? Math.max(0, Math.min(p.files.length - 1, p.index)) : -1,
     // A restored tab comes back with its folders open, and ANY tab opens the
@@ -156,6 +156,17 @@ export function addExplorerTab(
     id
   )
   return { tabs: pinned ? [spawned, ...tabs] : [...tabs, spawned], activeId: spawned.id }
+}
+
+/** Opening a folder as a project starts with its tree and an empty workspace. */
+export function addProjectTab(tabs: readonly Tab[], p: OpenPayload, id: string): TabState {
+  return addTab(tabs, {
+    ...p,
+    role: 'project',
+    pinned: false,
+    index: -1,
+    browse: newBrowse(p.root, 'viewer')
+  }, id)
 }
 
 /** Restore keeps every owner's identity and location. Extra stale pin flags

@@ -63,6 +63,14 @@ export interface SavedTabs {
 
 const NONE: SavedTabs = { tabs: [], active: 0 }
 
+/** Rebuilding a folder listing must not select its first file in a workspace
+ * the user deliberately left empty. Legacy folder restores keep their policy. */
+export function restoredFileIndex(tab: SavedTab, rebuiltIndex: number): number {
+  return tab.role === 'project' && !tab.file && tab.browse?.surface === 'viewer'
+    ? -1
+    : rebuiltIndex
+}
+
 /** Is `p` the folder `root` or somewhere inside it? Lower-cased first, since
  *  these are Windows paths and two spellings are one folder; `relative` is a
  *  plain string comparison and would call C:\Foo and C:\foo strangers. */

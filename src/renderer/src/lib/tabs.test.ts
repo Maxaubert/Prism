@@ -3,6 +3,7 @@ import type { OpenPayload, ViewerFile } from '@shared/types'
 import {
   addTab,
   addExplorerTab,
+  addProjectTab,
   ensurePinnedExplorer,
   ancestorsWithin,
   closeTab,
@@ -51,6 +52,29 @@ const tabOf = (root: string, files: string[], index = 0): Tab =>
   newTab(payload(root, files, index), `t-${root}`)
 
 describe('Explorer and project tabs', () => {
+  it('opens a folder as an empty project without disturbing Explorer or its files', () => {
+    const p = payload(SHOOT, ['C:\\shoot\\a.jpg', 'C:\\shoot\\b.jpg'], 0)
+    const explorer = addExplorerTab([], p, 'explorer', true).tabs[0]
+    const result = addProjectTab([explorer], p, 'project')
+    expect(result.activeId).toBe('project')
+    expect(result.tabs[0]).toBe(explorer)
+    expect(result.tabs[1]).toMatchObject({
+      root: SHOOT, role: 'project', index: -1, files: p.files,
+      browse: { surface: 'viewer', path: SHOOT }, term: null, terms: []
+    })
+    expect(result.tabs[1].tree.expanded.has(SHOOT)).toBe(true)
+    expect(newTab({ ...p, role: 'project' }, 'file-project').index).toBe(0)
+  })
+
+  it('restores an explicitly empty project without mounting the first listed file', () => {
+    const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], -1)
+    const restored = newTab({ ...p, role: 'project', browse: newBrowse(SHOOT, 'viewer'),
+      restore: true, restoreTabId: 'empty-project' }, 'unused')
+    expect(restored.id).toBe('empty-project')
+    expect(restored.index).toBe(-1)
+    expect(restored.browse.surface).toBe('viewer')
+    expect(newTab(p, 'legacy-folder').index).toBe(0)
+  })
   it('does not select or mount a file when Explorer opens a nonempty folder', () => {
     const p = payload(SHOOT, ['C:\\shoot\\a.jpg'], -1)
     const pinned = addExplorerTab([], p, 'explorer', true).tabs[0]
