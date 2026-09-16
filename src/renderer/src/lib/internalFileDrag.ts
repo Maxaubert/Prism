@@ -62,8 +62,10 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       const effect = carry.data.dropEffect as DataTransfer['dropEffect']
       const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
       carry.badge.textContent = action ? `${action} ${carry.label}` : carry.label
-      carry.badge.style.left = `${carry.x + 16}px`
-      carry.badge.style.top = `${carry.y + 18}px`
+      const { width, height } = carry.badge.getBoundingClientRect()
+      // Keep the lower-left edge beside the pointer without covering its target.
+      carry.badge.style.left = `${Math.max(4, Math.min(carry.x + 4, window.innerWidth - width - 4))}px`
+      carry.badge.style.top = `${Math.max(4, Math.min(carry.y - height - 4, window.innerHeight - height - 4))}px`
     }
     const tick = (): void => {
       if (!carry) return
@@ -138,7 +140,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         color: 'var(--p-text)',
         border: '1px solid var(--p-divider)',
         fontSize: '14px',
-        maxWidth: '320px',
+        maxWidth: 'min(320px, calc(100vw - 8px))',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',

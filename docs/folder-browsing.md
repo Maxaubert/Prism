@@ -28,7 +28,8 @@ strip and keeps desktop browsing separate from phone sharing.
   menu. Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
 - Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
-  Starting a drag preserves the current selection and preview. A selected source stays blue
+  Starting a drag preserves the current selection and preview. Its label stays close to the cursor,
+  attached at its lower-left edge and kept inside the window. A selected source stays blue
   when dragged over itself; that row is not a destination.
   Dropping in an Explorer list's empty area moves them into its displayed folder; a file row
   targets that file's containing folder. Hold the mouse button and use Ctrl+Tab or Ctrl+Shift+Tab
@@ -165,9 +166,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/quick-access-drop-trial`.
-Then `tools/preview-branch.ps1` opens `dist/quick-access-drop-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/quick-access-drop-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/cursor-drag-trial`.
+Then `tools/preview-branch.ps1` opens `dist/cursor-drag-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/cursor-drag-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
@@ -179,6 +180,12 @@ Quick access folder pins receive file drops, while pin drags show an insertion l
 ![A pinned folder receives a file drop](screenshots/folder-browsing/quick-access-folder-drop.png)
 
 ![A pin drag reorders shortcuts without moving their files](screenshots/folder-browsing/quick-access-pin-reorder.png)
+
+The drag label follows close to the pointer and remains inside the window at high zoom:
+
+![Close drag label at normal zoom](screenshots/folder-browsing/drag-badge-close-zoom100.png)
+
+![Close drag label at 200 percent zoom](screenshots/folder-browsing/drag-badge-close-zoom200.png)
 
 ## Captured interface
 
