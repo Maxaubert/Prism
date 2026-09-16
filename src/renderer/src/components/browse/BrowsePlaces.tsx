@@ -2,6 +2,8 @@ import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
+import { FileMenuIcon } from '../FileMenuIcon'
+import { fileVerbs } from '../../lib/fileVerbs'
 import { setDrag } from '../../lib/dragDrop'
 import {
   QUICK_ACCESS_PIN_MIME,
@@ -25,7 +27,9 @@ type Props = Pick<
   | 'onMoveQuickAccess'
   | 'onPinQuickAccessPaths'
   | 'onDropInto'
-> & { onOpenProject?: () => void }
+  | 'onOpenProject'
+  | 'onOpenNewTab'
+>
 
 function isPinDrag(event: DragEvent): boolean {
   return event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
@@ -37,6 +41,7 @@ export function BrowsePlaces({
   onNavigate,
   onNewTerminal,
   onOpenProject,
+  onOpenNewTab,
   quickAccess,
   onQuickAccessFile,
   onUnpinQuickAccess,
@@ -240,7 +245,11 @@ export function BrowsePlaces({
       </nav>
       <button
         className="browse-terminal"
-        onClick={() => (onOpenProject ? onOpenProject() : onNewTerminal(directory))}
+        onClick={() =>
+          onOpenProject
+            ? onOpenProject({ path: directory, name: directory, isFolder: true })
+            : onNewTerminal(directory)
+        }
         title={
           onOpenProject ? `Open ${directory} as a project` : `New terminal tab in ${directory}`
         }
@@ -253,21 +262,54 @@ export function BrowsePlaces({
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={
-            menu.pinned
+          items={[
+            {
+              label: 'Open',
+              icon: <FileMenuIcon name="open" />,
+              onPick: () => menu.pin.isFolder
+                ? onNavigate(menu.pin.path)
+                : onQuickAccessFile?.(menu.pin.path)
+            },
+            {
+              label: 'Open in new tab',
+              icon: <FileMenuIcon name="new-tab" />,
+              disabled: !onOpenNewTab,
+              onPick: () => onOpenNewTab?.(menu.pin.path, menu.pin.isFolder)
+            },
+            {
+              label: 'Open as project',
+              icon: <FileMenuIcon name="project" />,
+              disabled: !onOpenProject,
+              onPick: () => onOpenProject?.({
+                path: menu.pin.path, name: menu.pin.label, isFolder: menu.pin.isFolder
+              })
+            },
+            ...(menu.pin.isFolder ? [{
+              label: 'New terminal here',
+              icon: <FileMenuIcon name="terminal" />,
+              onPick: () => onNewTerminal(menu.pin.path)
+            }] : []),
+            ...fileVerbs(menu.pin.path).map((item) => ({
+              ...item,
+              icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
+            })),
+            ...(menu.pinned
               ? [
                   {
                     label: 'Unpin from Quick access',
+                    icon: <FileMenuIcon name="unpin" />,
                     disabled: !onUnpinQuickAccess,
                     onPick: () => onUnpinQuickAccess?.(menu.pin.path)
                   },
                   {
                     label: 'Move up',
+                    icon: <FileMenuIcon name="up" />,
                     disabled: !onMoveQuickAccess || menuIndex <= 0,
                     onPick: () => onMoveQuickAccess?.(menu.pin.path, pins[menuIndex - 1]?.path)
                   },
                   {
                     label: 'Move down',
+                    icon: <FileMenuIcon name="down" />,
                     disabled: !onMoveQuickAccess || menuIndex < 0 || menuIndex >= pins.length - 1,
                     onPick: () => onMoveQuickAccess?.(menu.pin.path, pins[menuIndex + 2]?.path)
                   }
@@ -275,11 +317,12 @@ export function BrowsePlaces({
               : [
                   {
                     label: 'Pin to Quick access',
+                    icon: <FileMenuIcon name="pin" />,
                     disabled: !onPinQuickAccessPaths,
                     onPick: () => onPinQuickAccessPaths?.([menu.pin.path])
                   }
-                ]
-          }
+                ])
+          ]}
         />
       )}
     </aside>

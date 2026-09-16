@@ -148,16 +148,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           directory={props.directory}
           onNavigate={props.onNavigate}
           onNewTerminal={props.onNewTerminal}
-          onOpenProject={
-            props.onOpenProject
-              ? () =>
-                  props.onOpenProject?.({
-                    path: props.directory,
-                    name: props.directory,
-                    isFolder: true
-                  })
-              : undefined
-          }
+          onOpenProject={props.onOpenProject}
+          onOpenNewTab={props.onOpenNewTab}
         />
       )}
       <div className="browse-actions" aria-label="File actions">

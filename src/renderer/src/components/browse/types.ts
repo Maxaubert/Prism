@@ -64,6 +64,7 @@ export interface FolderBrowserProps {
   onSortChange: (sort: BrowseSort) => void
   onNewTerminal: (directory: string) => void
   onOpenProject?: (entry: BrowseEntry) => void
+  onOpenNewTab?: (path: string, isFolder?: boolean) => void
   onCancelSearch?: () => void
   onPreviewToggle: () => void
   onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void

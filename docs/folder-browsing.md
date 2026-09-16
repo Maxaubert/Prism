@@ -72,6 +72,13 @@ strip and keeps desktop browsing separate from phone sharing.
 - The Open as project quick button requires a selected folder; a file or no selection disables it.
   Delete is a quick button and keeps its confirmation. More file actions omits Open, Copy, Rename
   and Delete, while the row's right-click menu retains the complete action set.
+- Quick access items, drives and project-tree rows offer Open as project and Open in new tab.
+  The latter always creates an Explorer tab. Folder projects start empty; a file opens in a
+  project rooted at its parent. Existing tabs keep their location and selection.
+  Explorer and project file menus share action icons, clipboard shortcuts and app choices.
+  Context-menu Paste targets the clicked folder or a file's parent, including search results.
+  Menus scroll within the window at high zoom. See the [menu consistency audit](file-menu-audit.md)
+  for the shared actions and deliberate differences.
 - Drag the boundaries between Quick access, the file list and the viewer to adjust section widths.
   Mouse resizing uses the simple horizontal resize cursor without a hover or dragging highlight,
   including the project sidebar and terminal dividers.
@@ -166,9 +173,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/cursor-drag-trial`.
-Then `tools/preview-branch.ps1` opens `dist/cursor-drag-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/cursor-drag-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/menu-consistency-trial`.
+Then `tools/preview-branch.ps1` opens `dist/menu-consistency-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/menu-consistency-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.

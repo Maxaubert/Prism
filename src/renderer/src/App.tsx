@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
+import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
@@ -68,7 +68,9 @@ import { TermDock } from './components/TermDock'
 // same lazy boundary, so xterm stays out of the launch bundle.
 const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
+import { FileMenuIcon } from './components/FileMenuIcon'
 import { tickIf, fileVerbs } from './lib/fileVerbs'
+import { fileAppMenu } from './lib/fileAppMenu'
 import { useFolderBrowsing } from './lib/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
@@ -77,7 +79,7 @@ import { BrowsePlaces } from './components/browse/BrowsePlaces'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
-import { copyFilePaths } from './lib/fileClipboard'
+import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
 import { useFilePaste } from './lib/useFilePaste'
 import {
   useQuickAccess,
@@ -2483,21 +2485,24 @@ export default function App(): JSX.Element {
 
   /** "Open in new tab": a fresh tab rooted at the file's folder, like an
    *  Explorer open would make, spawned unconditionally. */
-  const openInNewTab = useCallback((path: string) => {
+  const openInNewTab = useCallback((path: string, knownFolder?: boolean) => {
     void (async () => {
-      const stat = await window.prism.statFile(path)
-      if (!stat) return
-      const root = stat.isFolder ? path : browseParent(path)
+      // Places know their kind even before their directory has a desktop grant.
+      // browseDirectory validates that destination and grants desktop access;
+      // statFile intentionally refuses paths outside the existing grants.
+      const isFolder = knownFolder ?? (await window.prism.statFile(path))?.isFolder
+      if (isFolder === undefined) return
+      const root = isFolder ? path : browseParent(path)
       if (!root) return
       const id = nextTabId()
       const directory = await window.prism.browseDirectory(id, root)
       if (!directory) return
-      const payload = stat.isFolder
+      const payload = isFolder
         ? { root, files: directory.listing.files, index: -1 }
         : await window.prism.openWithin(root, path)
       if (!payload) return
       setTabState((s) =>
-        stat.isFolder
+        isFolder
           ? addExplorerTab(s.tabs, payload, id)
           : addTab(s.tabs, { ...payload, role: 'explorer' }, id)
       )
@@ -2576,7 +2581,29 @@ export default function App(): JSX.Element {
     y: number
     entry: BrowseEntry
     source?: 'more'
+    canPaste?: boolean
+    apps?: OpenWithApp[] | null
   } | null>(null)
+  const browseMenuPath = browseMenu?.entry.path
+  const browseMenuFolder = browseMenu?.entry.isFolder
+  useEffect(() => {
+    if (!browseMenuPath) return
+    let cancelled = false
+    void fileClipboardReady()
+      .then(() => window.prism.clipboardHasFiles())
+      .then((canPaste) => {
+        if (!cancelled) setBrowseMenu((menu) => menu ? { ...menu, canPaste } : null)
+      })
+      .catch(() => {})
+    if (!browseMenuFolder) {
+      void window.prism.appsFor(browseMenuPath)
+        .catch(() => [])
+        .then((apps) => {
+          if (!cancelled) setBrowseMenu((menu) => menu ? { ...menu, apps } : null)
+        })
+    }
+    return () => { cancelled = true }
+  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y])
   const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
   const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
   const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
@@ -3803,13 +3830,8 @@ export default function App(): JSX.Element {
               directory={active.browse.path}
               onNavigate={(path) => void browsing.navigate(path)}
               onNewTerminal={termTabAt}
-              onOpenProject={() =>
-                openAsProject({
-                  path: active.browse.path,
-                  name: active.browse.path,
-                  isFolder: true
-                })
-              }
+              onOpenProject={openAsProject}
+              onOpenNewTab={openInNewTab}
             />
           </div>
         )}
@@ -3825,6 +3847,7 @@ export default function App(): JSX.Element {
             onUnpinSplit={unpinSplitPath}
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
+            onOpenProject={(path, isFolder) => openAsProject({ path, name: path, isFolder })}
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
             terms={active.terms.map((id) => ({
@@ -3896,6 +3919,7 @@ export default function App(): JSX.Element {
                 }
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
+                onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}
                 onCancelSearch={browsing.cancelSearch}
                 selectedPath={browsing.location.selected}
@@ -4521,31 +4545,54 @@ export default function App(): JSX.Element {
           items={[
             {
               label: 'Open',
+              icon: <FileMenuIcon name="open" />,
+              hint: 'Enter',
               onPick: () => {
                 if (browseMenu.entry.isFolder) void browsing.navigate(browseMenu.entry.path)
                 else if (browseMenu.entry.file) void browsing.openFile(browseMenu.entry.file)
               }
             },
             ...(browseMenu.entry.isFolder
-              ? [{ label: 'New terminal here', onPick: () => termTabAt(browseMenu.entry.path) }]
+              ? [{ label: 'New terminal here', icon: <FileMenuIcon name="terminal" />, onPick: () => termTabAt(browseMenu.entry.path) }]
               : [
                   {
                     label: 'Open in split view',
+                    icon: <FileMenuIcon name="split" />,
                     onPick: () => {
                       pinSplit(browseMenu.entry.path)
                     }
                   }
                 ]),
+            { label: 'Open in new tab', icon: <FileMenuIcon name="new-tab" />, onPick: () => openInNewTab(browseMenu.entry.path, browseMenu.entry.isFolder) },
+            { label: 'Open as project', icon: <FileMenuIcon name="project" />, onPick: () => openAsProject(browseMenu.entry) },
+            {
+              label: 'Cut',
+              icon: <FileMenuIcon name="cut" />,
+              hint: 'Ctrl+X',
+              onPick: () => void copyFilePaths([browseMenu.entry.path], true)
+            },
             {
               label: 'Copy',
+              icon: <FileMenuIcon name="copy" />,
+              hint: 'Ctrl+C',
               onPick: () => void copyFilePaths([browseMenu.entry.path])
             },
-            { label: 'Open in new tab', onPick: () => openInNewTab(browseMenu.entry.path) },
-            { label: 'Open as project', onPick: () => openAsProject(browseMenu.entry) },
+            {
+              label: 'Paste',
+              icon: <FileMenuIcon name="paste" />,
+              hint: 'Ctrl+V',
+              disabled: !browseMenu.canPaste,
+              onPick: () => {
+                const directory = browseMenu.entry.isFolder
+                  ? browseMenu.entry.path : browseParent(browseMenu.entry.path)
+                if (directory) void pasteFiles(directory)
+              }
+            },
             {
               label: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path))
                 ? 'Unpin from Quick access'
                 : 'Pin to Quick access',
+              icon: <FileMenuIcon name={quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)) ? 'unpin' : 'pin'} />,
               onPick: () => {
                 if (quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)))
                   unpinQuickAccess(browseMenu.entry.path)
@@ -4561,12 +4608,10 @@ export default function App(): JSX.Element {
             },
             ...(!browseMenu.entry.isFolder
               ? [
-                  {
-                    label: 'Open in…',
-                    onPick: () => window.prism.openWithChooser(browseMenu.entry.path)
-                  },
+                  fileAppMenu(browseMenu.entry.path, browseMenu.apps ?? null),
                   {
                     label: 'Duplicate',
+                    icon: <FileMenuIcon name="duplicate" />,
                     onPick: () => {
                       void window.prism.duplicateFile(browseMenu.entry.path).then((copy) => {
                         if (copy) {
@@ -4578,9 +4623,12 @@ export default function App(): JSX.Element {
                   }
                 ]
               : []),
-            { label: 'Rename', onPick: () => setBrowseRename(browseMenu.entry) },
+            { label: 'Rename', icon: <FileMenuIcon name="rename" />, hint: 'F2', onPick: () => setBrowseRename(browseMenu.entry) },
             {
               label: 'Delete',
+              icon: <FileMenuIcon name="delete" />,
+              hint: 'Del',
+              danger: true,
               onPick: () =>
                 setAsk({
                   kind: 'delete',
@@ -4589,8 +4637,11 @@ export default function App(): JSX.Element {
                   isFolder: browseMenu.entry.isFolder
                 })
             },
-            ...fileVerbs(browseMenu.entry.path),
-            { label: 'Properties', onPick: () => setBrowseProps(browseMenu.entry) }
+            ...fileVerbs(browseMenu.entry.path).map((item) => ({
+              ...item,
+              icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
+            })),
+            { label: 'Properties', icon: <FileMenuIcon name="properties" />, onPick: () => setBrowseProps(browseMenu.entry) }
           ].filter(
             (item) =>
               browseMenu.source !== 'more' ||

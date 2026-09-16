@@ -232,6 +232,18 @@ async function expectEmptyProject(page: Page, root: string, childName: string): 
   ).toHaveCount(0)
 }
 
+async function expectOpenInAppsMenu(page: Page): Promise<void> {
+  const openIn = page
+    .getByRole('menuitem')
+    .filter({ has: page.getByText('Open in', { exact: true }) })
+  await expect(openIn.locator('[data-file-menu-icon="open-with"]')).toBeVisible()
+  await openIn.hover()
+  await expect(page.getByRole('menuitem', { name: 'Default app', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('menuitem', { name: 'Choose another app…', exact: true })
+  ).toBeVisible()
+}
+
 async function search(page: Page, query: string): Promise<void> {
   await page
     .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
@@ -476,7 +488,9 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
     await page.keyboard.press('Escape')
     await row(page, 'Nested').click({ button: 'right' })
     for (const name of ['Open', 'Copy', 'Rename', 'Delete']) {
-      await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible()
+      await expect(
+        page.getByRole('menuitem').filter({ has: page.getByText(name, { exact: true }) })
+      ).toBeVisible()
     }
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Delete', exact: true }).click()
@@ -725,6 +739,343 @@ test('Quick access supports empty defaults, file and folder pins, reordering and
     await expect(quick.getByRole('button', { name: 'notes.txt', exact: true })).toBeInViewport()
     await page.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
     await shot(page, info, 'path-bar-quick-access-zoom200.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('Places context menus open folder pins, file pins and drives in separate Explorer and project tabs', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    const source = ordinaryTabs(page).first()
+    await row(page, 'Nested').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await search(page, '')
+    const quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    const folderPin = quick.getByRole('button', { name: 'Nested', exact: true })
+    await folderPin.click({ button: 'right' })
+    for (const [name, icon] of [
+      ['Open in new tab', 'new-tab'],
+      ['Open as project', 'project']
+    ]) {
+      await expect(page.getByRole('menuitem', { name, exact: true })).toBeEnabled()
+      await expect(
+        page.getByRole('menuitem', { name, exact: true }).locator(`[data-file-menu-icon="${icon}"]`)
+      ).toBeVisible()
+    }
+    await shot(page, info, 'places-folder-menu.png', app)
+    await page.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(2)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.nested)
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await source.click()
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.project)
+    await folderPin.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(3)
+    await expectEmptyProject(page, h.nested, 'inside.txt')
+
+    await source.click()
+    const filePin = quick.getByRole('button', { name: 'notes.txt', exact: true })
+    await filePin.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(4)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toHaveText(
+      'Original notes'
+    )
+    await source.click()
+    await filePin.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(5)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'project'
+    )
+    await expect(ordinaryTabs(page).last()).toHaveAttribute('title', h.project)
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toHaveText(
+      'Original notes'
+    )
+    await expectNoExplorerControls(page)
+
+    await source.click()
+    const drivePath = h.project.slice(0, 3)
+    const drive = page
+      .getByRole('region', { name: 'This PC', exact: true })
+      .getByTitle(drivePath, { exact: true })
+    await drive.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(6)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', drivePath)
+    await source.click()
+    await drive.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(7)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'project'
+    )
+    await expect(ordinaryTabs(page).last()).toHaveAttribute('title', drivePath)
+    await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
+    await expectNoExplorerControls(page)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('project folder context menus create Explorer and project tabs without changing their source project', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    const source = ordinaryTabs(page).nth(1)
+    await projectRow(page, 'notes.txt').click({ button: 'right' })
+    await expectOpenInAppsMenu(page)
+    await page.keyboard.press('Escape')
+    await projectRow(page, 'Nested').click({ button: 'right' })
+    for (const [name, icon] of [
+      ['Open in new tab', 'new-tab'],
+      ['Open as project', 'project']
+    ]) {
+      await expect(
+        page.getByRole('menuitem', { name, exact: true }).locator(`[data-file-menu-icon="${icon}"]`)
+      ).toBeVisible()
+    }
+    await shot(page, info, 'project-folder-menu.png', app)
+    await page.getByRole('menuitem', { name: 'Open in new tab', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(3)
+    await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
+      'data-tab-role',
+      'explorer'
+    )
+    await expect(
+      page.getByRole('navigation', { name: 'Folder path', exact: true })
+    ).toHaveAttribute('title', h.nested)
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await source.click()
+    await expect(source).toHaveAttribute('title', h.project)
+    await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
+    await expectNoExplorerControls(page)
+    await projectRow(page, 'Nested').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expect(ordinaryTabs(page)).toHaveCount(4)
+    await expectEmptyProject(page, h.nested, 'inside.txt')
+    await source.click()
+    await expect(source).toHaveAttribute('title', h.project)
+    await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
+    await expectNoExplorerControls(page)
+    const projectSearch = page.getByRole('textbox', { name: 'Search files', exact: true })
+    await projectSearch.fill('Nested')
+    const result = page
+      .getByRole('listbox', { name: 'Search results', exact: true })
+      .getByRole('option')
+      .filter({ has: page.getByText('Nested', { exact: true }) })
+    await result.click({ button: 'right' })
+    await page
+      .getByRole('menuitem')
+      .filter({ has: page.getByText('Open', { exact: true }) })
+      .click()
+    await expect(projectSearch).toHaveValue('')
+    await expect(projectRow(page, 'inside.txt')).toBeVisible()
+    await expect(ordinaryTabs(page)).toHaveCount(4)
+    await expect(source).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    await stop(app)
+  }
+})
+
+test('Explorer context menu icons and Cut Paste work for folder and search-result file destinations at high zoom', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  const restoreClipboard = await keepClipboard(app)
+  try {
+    await app.evaluate(({ clipboard }) => clipboard.writeText('No file clipboard fixture'))
+    await row(page, 'Nested').click({ button: 'right' })
+    const action = (name: string) =>
+      page.getByRole('menuitem').filter({ has: page.getByText(name, { exact: true }) })
+    for (const [name, icon] of [
+      ['Open', 'open'],
+      ['Open in new tab', 'new-tab'],
+      ['Open as project', 'project'],
+      ['Copy', 'copy'],
+      ['Cut', 'cut'],
+      ['Paste', 'paste'],
+      ['Rename', 'rename'],
+      ['Delete', 'delete'],
+      ['Copy path', 'path'],
+      ['Properties', 'properties']
+    ]) {
+      await expect(action(name).locator(`[data-file-menu-icon="${icon}"]`)).toBeVisible()
+    }
+    await page.keyboard.press('Escape')
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await expectOpenInAppsMenu(page)
+    await action('Cut').click()
+    await clipboardFile(join(h.project, 'notes.txt'))
+    await search(page, '')
+    await row(page, 'Nested').click({ button: 'right' })
+    await action('Paste').click()
+    await expect.poll(() => existsSync(join(h.nested, 'notes.txt'))).toBe(true)
+    expect(existsSync(join(h.project, 'notes.txt'))).toBe(false)
+
+    await go(page, h.movies)
+    await row(page, 'readme.txt').click({ button: 'right' })
+    await action('Copy').click()
+    await clipboardFile(join(h.movies, 'readme.txt'))
+    await go(page, h.project)
+    await search(page, 'inside.txt')
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await row(page, 'inside.txt').click({ button: 'right' })
+    await action('Paste').scrollIntoViewIfNeeded()
+    await expect(action('Paste')).toBeInViewport()
+    await action('Properties').scrollIntoViewIfNeeded()
+    await expect(action('Properties')).toBeInViewport()
+    const menuBounds = await page.getByRole('menu').first().boundingBox()
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    expect(menuBounds!.y).toBeGreaterThanOrEqual(0)
+    expect(menuBounds!.y + menuBounds!.height).toBeLessThanOrEqual(viewport.height + 1)
+    await shot(page, info, 'explorer-file-menu-zoom200.png', app)
+    await action('Paste').click()
+    await expect.poll(() => existsSync(join(h.nested, 'readme.txt'))).toBe(true)
+    expect(existsSync(join(h.project, 'readme.txt'))).toBe(false)
+    expect(readFileSync(join(h.movies, 'readme.txt'), 'utf8')).toBe(
+      'A different browsing location.\n'
+    )
+  } finally {
+    await restoreClipboard()
+    await stop(app)
+  }
+})
+
+test('an open app flyout stays attached when delayed Paste and a longer same-count app choice arrive', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await expect.poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs.length).toBe(2)
+    await page.evaluate(() => localStorage.setItem('prism.tree.side', 'right'))
+    await page.reload()
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    await app.evaluate(({ ipcMain }) => {
+      let paste!: () => void
+      let apps!: () => void
+      const pasteGate = new Promise<void>((resolve) => {
+        paste = resolve
+      })
+      const appsGate = new Promise<void>((resolve) => {
+        apps = resolve
+      })
+      const gates = { paste, apps, pasteStarted: false, appsStarted: false }
+      ;(globalThis as unknown as { __prismMenuGates: typeof gates }).__prismMenuGates = gates
+      ipcMain.removeHandler('clipboard:has-files')
+      ipcMain.handle('clipboard:has-files', async () => {
+        gates.pasteStarted = true
+        await pasteGate
+        return true
+      })
+      ipcMain.removeHandler('apps:for')
+      ipcMain.handle('apps:for', async () => {
+        gates.appsStarted = true
+        await appsGate
+        return [
+          {
+            id: 'fixture-only-never-launched',
+            name: 'A deliberately long registered application name that widens the existing three-row flyout'
+          }
+        ]
+      })
+    })
+    await projectRow(page, 'notes.txt').click({ button: 'right' })
+    await expect
+      .poll(() =>
+        app.evaluate(() => {
+          const gate = (
+            globalThis as unknown as {
+              __prismMenuGates: { pasteStarted: boolean; appsStarted: boolean }
+            }
+          ).__prismMenuGates
+          return gate.pasteStarted && gate.appsStarted
+        })
+      )
+      .toBe(true)
+    await expectOpenInAppsMenu(page)
+    const parent = page
+      .getByRole('menuitem')
+      .filter({ has: page.getByText('Open in', { exact: true }) })
+    const flyout = page
+      .getByRole('menu')
+      .filter({ has: page.getByRole('menuitem', { name: 'Default app', exact: true }) })
+    await expect(flyout.getByRole('menuitem')).toHaveCount(3)
+    await expect(
+      page.getByRole('menuitem', { name: 'Looking for apps…', exact: true })
+    ).toBeVisible()
+    const before = await flyout.boundingBox()
+    const main = page.getByRole('menu').filter({ has: parent })
+    const mainBefore = await main.boundingBox()
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { __prismMenuGates: { paste: () => void } }
+      ).__prismMenuGates.paste()
+    )
+    await expect(
+      page.getByRole('menuitem').filter({ has: page.getByText('Paste', { exact: true }) })
+    ).toBeVisible()
+    await expect(parent).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.getByRole('menuitem', { name: 'Default app', exact: true })).toBeVisible()
+    await expect.poll(async () => (await main.boundingBox())!.y).toBeLessThan(mainBefore!.y)
+    await app.evaluate(() =>
+      (globalThis as unknown as { __prismMenuGates: { apps: () => void } }).__prismMenuGates.apps()
+    )
+    await expect(flyout.getByRole('menuitem')).toHaveCount(3)
+    await expect(
+      page.getByRole('menuitem', { name: /^A deliberately long registered application/ })
+    ).toBeVisible()
+    await expect(parent).toHaveAttribute('aria-expanded', 'true')
+    await expect
+      .poll(async () => (await flyout.boundingBox())!.width)
+      .toBeGreaterThan(before!.width)
+    const after = await flyout.boundingBox()
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    expect(after!.x).toBeGreaterThanOrEqual(7)
+    expect(after!.y).toBeGreaterThanOrEqual(7)
+    expect(after!.x + after!.width).toBeLessThanOrEqual(viewport.width - 7)
+    expect(after!.y + after!.height).toBeLessThanOrEqual(viewport.height - 7)
+    const parentBox = await parent.boundingBox()
+    const firstItem = await flyout.getByRole('menuitem').first().boundingBox()
+    expect(Math.abs(firstItem!.y - parentBox!.y - 1)).toBeLessThanOrEqual(1)
+    await shot(page, info, 'project-delayed-app-flyout.png', app)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
   } finally {
     await stop(app)
   }
@@ -1055,6 +1406,7 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
     await page.getByRole('button', { name: 'New tab', exact: true }).click()
     await search(page, 'notes')
     await row(page, 'notes.txt').click()
+    await expect(row(page, 'notes.txt')).toHaveAttribute('aria-selected', 'true')
     await page.getByRole('button', { name: 'Preview pane', exact: true }).click()
     await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
     const count = await page.getByRole('tab').count()
@@ -1982,6 +2334,8 @@ test('Explorer file hotkeys target displayed folders and full files while text e
     await go(page, h.movies)
     await search(page, 'notes.txt')
     await row(page, 'notes.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(editor).toHaveText('Original notes')
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
     await page.keyboard.press('Control+v')
     await expect.poll(() => existsSync(join(h.movies, 'entry-000.txt'))).toBe(true)
