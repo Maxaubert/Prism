@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { DRAG_MIME, getDrag, setDrag } from './dragDrop'
+import { QUICK_ACCESS_PIN_MIME } from './quickAccess'
 
 /** Chromium's native drag loop swallows Ctrl+Tab. Keep Prism cargo in the
  * renderer, delivering the same drag events to its existing drop targets. */
@@ -18,6 +19,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       badge: HTMLDivElement
       cursorStyle: HTMLStyleElement
       label: string
+      pin: boolean
     } | null = null
     let frame = 0
     let suppressClick = false
@@ -41,6 +43,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
     const targetAtPointer = (): Element | null => {
       if (!carry) return null
       const target = document.elementFromPoint(carry.x, carry.y)
+      // Pins carry ordering intent only, never a filesystem operation or open.
+      if (carry.pin && !target?.closest('.quick-access')) return null
       return target?.closest('[inert]') ? null : target
     }
     const hover = (): void => {
@@ -103,11 +107,12 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         !pressed ||
         !event.isTrusted ||
         event.defaultPrevented ||
-        !event.dataTransfer?.types.includes(DRAG_MIME)
+        !event.dataTransfer
       )
         return
-      const payload = getDrag()
-      if (!payload || !(event.target instanceof Element)) return
+      const pin = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
+      const payload = event.dataTransfer.types.includes(DRAG_MIME) ? getDrag() : null
+      if ((!payload && !pin) || !(event.target instanceof Element)) return
       const data = new DataTransfer()
       for (const type of event.dataTransfer.types)
         data.setData(type, event.dataTransfer.getData(type))
@@ -115,7 +120,7 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       event.preventDefault()
       const badge = document.createElement('div')
       badge.dataset.fileDragBadge = ''
-      const paths = payload.kind === 'files' ? payload.paths : payload.entries
+      const paths = pin ? [pin] : payload?.kind === 'files' ? payload.paths : payload!.entries
       const label =
         paths.length === 1 ? (paths[0].split(/[\\/]/).pop() ?? 'Item') : `${paths.length} items`
       badge.textContent = label
@@ -151,7 +156,8 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
         shift: event.shiftKey,
         badge,
         cursorStyle,
-        label
+        label,
+        pin: !!pin
       }
       document.body.dataset.internalFileDrag = 'true'
       hover()

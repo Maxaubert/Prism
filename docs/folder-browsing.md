@@ -23,8 +23,8 @@ strip and keeps desktop browsing separate from phone sharing.
 - The whole path bar highlights on hover or keyboard focus, with no pen icon. In Explorer it stays above the full-file viewer,
   showing the file after its containing folder. Back, Backspace or a folder breadcrumb returns to
   the folder. Backspace inside an editor or text field still edits text.
-- Every Quick access default can be unpinned. Pin any file or folder from its context menu, or
-  drop it onto Quick access. Drag pins to reorder them, or use Move up/Move down in the context
+- Every Quick access default can be unpinned. Pin any file or folder from its context menu.
+  Drag pins to reorder them, or use Move up/Move down in the context
   menu. Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
 - Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
@@ -35,8 +35,11 @@ strip and keeps desktop browsing separate from phone sharing.
   to carry items into another tab. Dropping directly onto an existing tab moves into its currently
   displayed Explorer folder or project root without activating it or opening a new tab. Drop targets
   use a neutral grey fill without a focus ring. Nothing moves until release. Escape, window blur or releasing
-  outside the window cancels the carry. Existing conflict prompts and undo remain available. Quick access drops
-  pin or reorder items instead of moving them on disk.
+  outside the window cancels the carry. Existing conflict prompts and undo remain available.
+  Quick access folder pins accept files and folders into their target directories using the same move operation.
+  Dropping onto a file pin, the Quick access heading or empty space does nothing. Dragging an
+  existing pin only reorders Quick access; it cannot move, open or extract its target elsewhere,
+  including after switching tabs. Only the context-menu action adds a pin.
 - The list includes dotfiles, unsupported files and folders normally hidden from the viewer tree.
   Folders precede files. Search matches names in the current folder and its descendants, including
   AppData, with the shared query operators. Results show containing paths and stream while the
@@ -162,14 +165,20 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/explorer-native-clipboard-trial`.
-Then `tools/preview-branch.ps1` opens `dist/explorer-native-clipboard-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/explorer-native-clipboard-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/quick-access-drop-trial`.
+Then `tools/preview-branch.ps1` opens `dist/quick-access-drop-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/quick-access-drop-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.
 Set `PRISM_TEST_WORD=1` to also verify image paste in a temporary Word document. That optional
 local check requires installed Word with no running Word process, and closes its own unsaved document.
+
+Quick access folder pins receive file drops, while pin drags show an insertion line for reordering:
+
+![A pinned folder receives a file drop](screenshots/folder-browsing/quick-access-folder-drop.png)
+
+![A pin drag reorders shortcuts without moving their files](screenshots/folder-browsing/quick-access-pin-reorder.png)
 
 ## Captured interface
 

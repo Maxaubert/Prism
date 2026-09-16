@@ -2,9 +2,8 @@ import { useState, type DragEvent, type JSX } from 'react'
 import { fileKind } from '@shared/fileKind'
 import { FolderIcon, KindIcon } from '../TreeRows'
 import { ContextMenu } from '../ContextMenu'
-import { DRAG_MIME, dragPayload, droppedPaths, setDrag } from '../../lib/dragDrop'
+import { setDrag } from '../../lib/dragDrop'
 import {
-  QUICK_ACCESS_PATHS_MIME,
   QUICK_ACCESS_PIN_MIME,
   sameQuickAccessPath,
   type QuickAccessPin
@@ -28,14 +27,8 @@ type Props = Pick<
   | 'onDropInto'
 > & { onOpenProject?: () => void }
 
-function acceptsDrop(event: DragEvent): boolean {
-  const types = event.dataTransfer.types
-  return (
-    types.includes(QUICK_ACCESS_PIN_MIME) ||
-    types.includes(QUICK_ACCESS_PATHS_MIME) ||
-    types.includes('Files') ||
-    dragPayload(event.dataTransfer)?.kind === 'files'
-  )
+function isPinDrag(event: DragEvent): boolean {
+  return event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
 }
 
 export function BrowsePlaces({
@@ -67,18 +60,22 @@ export function BrowsePlaces({
   const [dragging, setDragging] = useState<string | null>(null)
   const groups: BrowsePlace['group'][] = ['Projects', 'This PC']
   const over = (event: DragEvent, before?: string): void => {
-    if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
-    event.dataTransfer.dropEffect = event.dataTransfer.types.includes(QUICK_ACCESS_PIN_MIME)
-      ? 'move'
-      : 'copy'
+    if (!isPinDrag(event)) {
+      event.dataTransfer.dropEffect = 'none'
+      setDrop(null)
+      return
+    }
+    event.dataTransfer.dropEffect = 'move'
     setDrop({ before })
   }
   const land = (event: DragEvent): void => {
-    if (!acceptsDrop(event)) return
     event.preventDefault()
     event.stopPropagation()
+    setDrop(null)
+    setDragging(null)
+    if (!isPinDrag(event)) return
     // The release can arrive before React paints the final hover update.
     // Choose the insertion point from the actual drop position, not that state.
     const row = (event.target as Element).closest<HTMLElement>('[data-quick-access-path]')
@@ -87,33 +84,9 @@ export function BrowsePlaces({
     const before = box && at >= 0
       ? event.clientY < box.top + box.height / 2 ? pins[at].path : pins[at + 1]?.path
       : undefined
-    setDrop(null)
-    setDragging(null)
     const moving = event.dataTransfer.getData(QUICK_ACCESS_PIN_MIME)
-    if (moving) {
-      if (pins.some((pin) => sameQuickAccessPath(pin.path, moving)))
-        onMoveQuickAccess?.(moving, before)
-      return
-    }
-    const supplied = event.dataTransfer.getData(QUICK_ACCESS_PATHS_MIME)
-    if (supplied) {
-      try {
-        const paths: unknown = JSON.parse(supplied)
-        if (Array.isArray(paths))
-          onPinQuickAccessPaths?.(
-            paths.filter((path): path is string => typeof path === 'string'),
-            before
-          )
-      } catch {
-        /* A malformed drag payload is not a path. */
-      }
-      return
-    }
-    const inside = dragPayload(event.dataTransfer)
-    onPinQuickAccessPaths?.(
-      inside?.kind === 'files' ? inside.paths : droppedPaths(event.dataTransfer),
-      before
-    )
+    if (moving && pins.some((pin) => sameQuickAccessPath(pin.path, moving)))
+      onMoveQuickAccess?.(moving, before)
   }
   const menuIndex = menu
     ? pins.findIndex((pin) => sameQuickAccessPath(pin.path, menu.pin.path))
@@ -137,15 +110,17 @@ export function BrowsePlaces({
         >
           <h2>Quick access</h2>
           {!pins.length && (
-            <p className="quick-access-empty">Drag files or folders here to pin them.</p>
+            <p className="quick-access-empty">Right-click a file or folder to pin it here.</p>
           )}
           {pins.map((pin, index) => {
             const current = pin.isFolder && sameQuickAccessPath(pin.path, directory)
             const ext = /\.[^.\\/]+$/.exec(pin.path)?.[0].toLowerCase() ?? ''
+            const destination = pin.isFolder ? folderDrop(pin.path) : undefined
             return (
               <button
                 key={pin.path}
                 className="browse-place quick-access-pin"
+                {...destination}
                 data-quick-access-path={pin.path}
                 data-drop-before={drop?.before === pin.path ? '' : undefined}
                 data-dragging={dragging === pin.path ? '' : undefined}
@@ -167,10 +142,9 @@ export function BrowsePlaces({
                   setMenu({ pin, x: box.left + 20, y: box.bottom, pinned: true })
                 }}
                 onDragStart={(event) => {
-                  setDrag({ kind: 'files', paths: [pin.path] })
-                  event.dataTransfer.setData(DRAG_MIME, 'files')
+                  setDrag(null)
                   event.dataTransfer.setData(QUICK_ACCESS_PIN_MIME, pin.path)
-                  event.dataTransfer.effectAllowed = 'copyMove'
+                  event.dataTransfer.effectAllowed = 'move'
                   setDragging(pin.path)
                 }}
                 onDragEnd={() => {
@@ -179,11 +153,20 @@ export function BrowsePlaces({
                   setDragging(null)
                 }}
                 onDragOver={(event) => {
+                  if (!isPinDrag(event)) {
+                    if (destination) destination.onDragOver(event)
+                    else over(event)
+                    return
+                  }
                   const box = event.currentTarget.getBoundingClientRect()
                   over(
                     event,
                     event.clientY < box.top + box.height / 2 ? pin.path : pins[index + 1]?.path
                   )
+                }}
+                onDrop={(event) => {
+                  if (!isPinDrag(event) && destination) destination.onDrop(event)
+                  else land(event)
                 }}
                 title={pin.path}
               >

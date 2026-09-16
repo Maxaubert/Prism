@@ -4,7 +4,6 @@ import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
-import { QUICK_ACCESS_PATHS_MIME } from '../../lib/quickAccess'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
@@ -209,10 +208,6 @@ export function BrowseList(props: Props): JSX.Element {
                       setDrag({ kind: 'files', paths: [entry.path] })
                       event.dataTransfer.effectAllowed = 'copyMove'
                       event.dataTransfer.setData(DRAG_MIME, 'files')
-                      event.dataTransfer.setData(
-                        QUICK_ACCESS_PATHS_MIME,
-                        JSON.stringify([entry.path])
-                      )
                     }}
                     onDragEnd={() => setDrag(null)}
                     title={searching ? entry.path : entry.name}

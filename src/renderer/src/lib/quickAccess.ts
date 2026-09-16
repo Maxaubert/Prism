@@ -7,7 +7,6 @@ export interface QuickAccessPin {
 }
 
 export const QUICK_ACCESS_KEY = 'prism.quickAccess'
-export const QUICK_ACCESS_PATHS_MIME = 'application/x-prism-quick-access-paths'
 export const QUICK_ACCESS_PIN_MIME = 'application/x-prism-quick-access-pin'
 const listeners = new Set<() => void>()
 const pathKey = (path: string): string =>

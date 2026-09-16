@@ -650,7 +650,7 @@ test('Quick access supports empty defaults, file and folder pins, reordering and
       await pins.first().click({ button: 'right' })
       await page.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
     }
-    await expect(quick).toContainText('Drag files or folders here to pin them.')
+    await expect(quick).toContainText('Right-click a file or folder to pin it here.')
     expect(await page.evaluate(() => localStorage.getItem('prism.quickAccess'))).toBe('[]')
     await expect.poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs.length).toBe(3)
     await stop(app)
@@ -670,9 +670,8 @@ test('Quick access supports empty defaults, file and folder pins, reordering and
     await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
     await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt'])
     await search(page, '')
-    await row(page, 'entry-000.txt').dragTo(
-      quick.getByRole('heading', { name: 'Quick access', exact: true })
-    )
+    await row(page, 'entry-000.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
     await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt', 'entry-000.txt'])
     await quick
       .getByRole('button', { name: 'entry-000.txt', exact: true })
@@ -2615,7 +2614,7 @@ test('held drags survive Ctrl+Tab and Ctrl+Shift+Tab between Explorer and a proj
   }
 })
 
-test('held Explorer drags cross browsing tabs and Quick access still pins without moving files', async () => {
+test('held Explorer drags cross browsing tabs and preserve their originating preview', async () => {
   const h = await setup()
   const { page, app } = h
   try {
@@ -2662,23 +2661,185 @@ test('held Explorer drags cross browsing tabs and Quick access still pins withou
       .poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs[1]?.file)
       .toBe(join(h.nested, 'between-explorers.txt'))
     await destinationTab.click()
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
 
-    await pickUp(page, row(page, 'between-explorers.txt'))
+test('held file and folder drags move into folder pins without adding pins elsewhere in Quick access', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  const movingFolder = join(h.movies, 'Moving folder')
+  try {
+    mkdirSync(movingFolder)
+    writeFileSync(join(movingFolder, 'kept.txt'), 'Folder contents survive the move\n')
+    writeFileSync(join(h.movies, 'unpin-me.txt'), 'Drops never create a pin\n')
     const quick = page.getByRole('region', { name: 'Quick access', exact: true })
-    await dropOn(page, quick.getByRole('heading', { name: 'Quick access', exact: true }))
-    await expect(
-      quick.getByRole('button', { name: 'between-explorers.txt', exact: true })
-    ).toBeVisible()
-    expect(existsSync(join(h.nested, 'between-explorers.txt'))).toBe(true)
-    await pickUp(page, quick.getByRole('button', { name: 'between-explorers.txt', exact: true }))
-    const first = quick.locator('[data-quick-access-path]').first()
-    const firstBox = await first.boundingBox()
-    await page.mouse.move(firstBox!.x + 35, firstBox!.y + 4, { steps: 8 })
-    await page.mouse.up()
-    await expect(quick.locator('[data-quick-access-path]').first()).toHaveAttribute(
-      'data-quick-access-path',
-      join(h.nested, 'between-explorers.txt')
+    const pins = quick.locator('[data-quick-access-path]')
+    while (await pins.count()) {
+      await pins.first().click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    }
+    await row(page, 'Nested').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await search(page, 'notes.txt')
+    await row(page, 'notes.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await go(page, h.movies)
+    const folderPin = quick.getByRole('button', { name: 'Nested', exact: true })
+    for (const name of ['readme.txt', 'Moving folder']) {
+      await pickUp(page, row(page, name))
+      const box = await folderPin.boundingBox()
+      await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 8 })
+      await expect(folderPin).toHaveAttribute('data-drag-over', 'true')
+      if (name === 'readme.txt') await shot(page, info, 'quick-access-folder-drop.png', app)
+      await dropOn(page, folderPin)
+      await expect.poll(() => existsSync(join(h.nested, name))).toBe(true)
+      expect(existsSync(join(h.movies, name))).toBe(false)
+      await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt'])
+      await expect(
+        page.getByRole('navigation', { name: 'Folder path', exact: true })
+      ).toHaveAttribute('title', h.movies)
+    }
+    expect(readFileSync(join(h.nested, 'Moving folder', 'kept.txt'), 'utf8')).toBe(
+      'Folder contents survive the move\n'
     )
+
+    for (const target of [
+      quick.getByRole('heading', { name: 'Quick access', exact: true }),
+      quick.getByRole('button', { name: 'notes.txt', exact: true })
+    ]) {
+      await pickUp(page, row(page, 'unpin-me.txt'))
+      await dropOn(page, target)
+      await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+      await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt'])
+      await expect(row(page, 'unpin-me.txt')).toBeVisible()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+    }
+    // The section's bottom padding belongs to the region, not a pin target.
+    await pickUp(page, row(page, 'unpin-me.txt'))
+    const regionBox = await quick.boundingBox()
+    const blank = {
+      x: regionBox!.x + regionBox!.width / 2,
+      y: regionBox!.y + regionBox!.height - 1
+    }
+    expect(
+      await page.evaluate(
+        ({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-quick-access-path]')),
+        blank
+      )
+    ).toBe(false)
+    await page.mouse.move(blank.x, blank.y, { steps: 8 })
+    await page.mouse.up()
+    await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+    await expect(pins.locator(':scope > span')).toHaveText(['Nested', 'notes.txt'])
+    expect(readFileSync(join(h.movies, 'unpin-me.txt'), 'utf8')).toBe('Drops never create a pin\n')
+    expect(existsSync(join(h.nested, 'unpin-me.txt'))).toBe(false)
+    await expect(row(page, 'unpin-me.txt')).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('held Quick access pins only reorder, including across tabs and rejected file destinations', async ({}, info) => {
+  const h = await setup()
+  const { page, app } = h
+  const pinnedFolder = join(h.movies, 'Pinned folder')
+  const archivePath = join(h.movies, 'pinned.zip')
+  try {
+    mkdirSync(pinnedFolder)
+    writeFileSync(join(pinnedFolder, 'kept.txt'), 'A shortcut must not move this folder\n')
+    const archive = new AdmZip()
+    archive.addFile('unpacked.txt', Buffer.from('A shortcut must not extract this file\n'))
+    archive.writeZip(archivePath)
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    const sourceTab = ordinaryTabs(page).first()
+    const projectTab = ordinaryTabs(page).nth(1)
+    await sourceTab.click()
+    await go(page, h.movies)
+    const quick = page.getByRole('region', { name: 'Quick access', exact: true })
+    const pins = quick.locator('[data-quick-access-path]')
+    while (await pins.count()) {
+      await pins.first().click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Unpin from Quick access', exact: true }).click()
+    }
+    for (const name of ['readme.txt', 'Pinned folder', 'pinned.zip']) {
+      await row(page, name).click({ button: 'right' })
+      await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    }
+    const pin = (name: string) => quick.getByRole('button', { name, exact: true })
+    await pickUp(page, pin('pinned.zip'))
+    await expect(page.locator('body')).toHaveAttribute('data-internal-file-drag', 'true')
+    const first = await pin('readme.txt').boundingBox()
+    await page.mouse.move(first!.x + 35, first!.y + 4, { steps: 8 })
+    await shot(page, info, 'quick-access-pin-reorder.png', app)
+    await page.mouse.up()
+    const order = ['pinned.zip', 'readme.txt', 'Pinned folder']
+    await expect(pins.locator(':scope > span')).toHaveText(order)
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await go(page, h.nested)
+    const destinationTab = ordinaryTabs(page).last()
+    const tabCount = await page.getByRole('tab').count()
+    await sourceTab.click()
+
+    const unchanged = async () => {
+      await expect(page.locator('[data-file-drag-badge]')).toHaveCount(0)
+      await expect(page.getByRole('tab')).toHaveCount(tabCount)
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      expect(readFileSync(join(h.movies, 'readme.txt'), 'utf8')).toBe(
+        'A different browsing location.\n'
+      )
+      expect(readFileSync(join(pinnedFolder, 'kept.txt'), 'utf8')).toBe(
+        'A shortcut must not move this folder\n'
+      )
+      expect(existsSync(archivePath)).toBe(true)
+      for (const folder of [h.project, h.nested, pinnedFolder]) {
+        for (const name of ['readme.txt', 'Pinned folder', 'pinned.zip', 'unpacked.txt']) {
+          expect(existsSync(join(folder, name))).toBe(false)
+        }
+      }
+      await sourceTab.click()
+      await expect(page.getByTestId('browse-list')).toBeVisible()
+      await expect(
+        page.getByRole('navigation', { name: 'Folder path', exact: true })
+      ).toHaveAttribute('title', h.movies)
+      await expect(pins.locator(':scope > span')).toHaveText(order)
+    }
+    await pickUp(page, pin('readme.txt'))
+    await dropOn(page, row(page, 'Pinned folder'))
+    await unchanged()
+
+    await pickUp(page, pin('pinned.zip'))
+    await page.keyboard.press('Control+Tab')
+    await expect(projectTab).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, projectRow(page, 'Nested'))
+    await expect(projectTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('No file selected', { exact: true })).toBeVisible()
+    await unchanged()
+
+    await pickUp(page, pin('Pinned folder'))
+    await page.keyboard.press('Control+Tab')
+    await page.keyboard.press('Control+Tab')
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    await dropOn(page, page.getByTestId('browse-list'), true)
+    await expect(destinationTab).toHaveAttribute('aria-selected', 'true')
+    await unchanged()
+
+    for (const target of [
+      destinationTab,
+      page.getByRole('button', { name: 'New tab', exact: true })
+    ]) {
+      await pickUp(page, pin('readme.txt'))
+      await dropOn(page, target)
+      await expect(sourceTab).toHaveAttribute('aria-selected', 'true')
+      await unchanged()
+    }
   } finally {
     await page.mouse.up().catch(() => {})
     await stop(app)
