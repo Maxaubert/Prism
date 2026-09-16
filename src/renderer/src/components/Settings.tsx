@@ -1,3 +1,4 @@
+import { WinEShortcutSetting } from './WinEShortcutSetting'
 import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
@@ -1736,6 +1737,7 @@ function GeneralTab(): JSX.Element {
       <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </Pref>
+      <WinEShortcutSetting />
       {/* Explorer's own menu. Windows 11 hides classic verbs behind "Show more
           options", and saying so is better than the user hunting for it. */}
       <Pref

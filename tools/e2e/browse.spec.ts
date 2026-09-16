@@ -1,7 +1,9 @@
 /* eslint-disable no-empty-pattern -- Playwright requires a destructured fixture argument, including tests without browser fixtures. */
 import { test, expect, type TestInfo } from '@playwright/test'
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright-core'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
+import { createServer, type Socket } from 'node:net'
+import { promisify } from 'node:util'
 import { randomUUID } from 'node:crypto'
 import {
   copyFileSync,
@@ -60,11 +62,11 @@ async function park(app: ElectronApplication): Promise<void> {
   })
 }
 
-async function start(profile: string): Promise<{ app: ElectronApplication; page: Page }> {
+async function start(profile: string, extraArgs: string[] = []): Promise<{ app: ElectronApplication; page: Page }> {
   const executablePath = process.env.PRISM_BROWSE_EXECUTABLE
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
-    args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e']
+    args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', ...extraArgs]
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -3879,5 +3881,298 @@ test('Windows clipboard retains native file lists, copy and cut effects, and ima
   } finally {
     await restoreClipboard()
     await stop(app)
+  }
+})
+
+test('Explorer hides title filenames while a collapsed project still names its file', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    const title = page.getByTestId('titlebar-file-name')
+    const explorer = ordinaryTabs(page).first()
+    await go(page, h.movies)
+    await row(page, 'readme.txt').click()
+    await page.getByRole('button', { name: 'Preview pane', exact: true }).click()
+    await expect(page.locator('[data-browse-preview]')).toBeVisible()
+    await expect(title).toHaveText('')
+    await shot(page, info, 'win-e-explorer-titlebar-preview.png', app)
+    await page.getByRole('button', { name: 'Toggle file tree', exact: true }).click()
+    await expect(title).toHaveText('')
+    await row(page, 'readme.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(title).toHaveText('')
+    await page.getByRole('button', { name: 'Toggle file tree', exact: true }).click()
+    await expect(title).toHaveText('')
+    await returnToFolder(page)
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    await projectRow(page, 'notes.txt').click()
+    await expect(title).toHaveText('')
+    await page.getByRole('button', { name: 'Toggle file tree', exact: true }).click()
+    await expect(title).toHaveText('notes.txt')
+    // Return with the project sidebar preference closed, reproducing the reported leak.
+    await explorer.click()
+    await go(page, h.movies)
+    await row(page, 'readme.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(title).toHaveText('')
+    await shot(page, info, 'win-e-explorer-titlebar-full.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('Win+E General setting uses confirmed Windows state and handles failures without touching a real helper', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await app.evaluate(({ ipcMain }) => {
+      const fixture = {
+        status: { available: true, enabled: false, running: false, conflict: false, error: '' },
+        writes: [] as boolean[], release: () => {}, failNext: false
+      }
+      ;(globalThis as unknown as { __winEFixture: typeof fixture }).__winEFixture = fixture
+      const initial = new Promise<void>((resolve) => { fixture.release = resolve })
+      ipcMain.removeHandler('win-e:status')
+      ipcMain.handle('win-e:status', async () => { await initial; return fixture.status })
+      ipcMain.removeHandler('win-e:set')
+      ipcMain.handle('win-e:set', (_event, enabled: boolean) => {
+        fixture.writes.push(enabled)
+        if (fixture.failNext) {
+          fixture.failNext = false
+          return { ...fixture.status, error: 'Windows could not start the shortcut helper.' }
+        }
+        fixture.status = { ...fixture.status, enabled, running: enabled, error: '' }
+        return fixture.status
+      })
+    })
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'General', exact: true }).click()
+    const control = page.getByRole('switch', { name: 'Open Prism with Win+E', exact: true })
+    await expect(control).toHaveAttribute('aria-checked', 'false')
+    await expect(control).toBeDisabled()
+    await app.evaluate(() => (globalThis as unknown as { __winEFixture: { release: () => void } }).__winEFixture.release())
+    await expect(control).toBeEnabled()
+    await app.evaluate(() => { (globalThis as unknown as { __winEFixture: { failNext: boolean } }).__winEFixture.failNext = true })
+    await control.click()
+    await expect(page.getByRole('status')).toContainText('Windows could not start the shortcut helper.')
+    await expect(control).toHaveAttribute('aria-checked', 'false')
+    await control.click()
+    await expect(control).toHaveAttribute('aria-checked', 'true')
+    await control.click()
+    await expect(control).toHaveAttribute('aria-checked', 'false')
+    expect(await app.evaluate(() => (globalThis as unknown as { __winEFixture: { writes: boolean[] } }).__winEFixture.writes)).toEqual([true, true, false])
+    await control.scrollIntoViewIfNeeded()
+    await shot(page, info, 'win-e-general-setting.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    })
+    await control.scrollIntoViewIfNeeded()
+    await expect(control).toBeInViewport()
+    await expect(control).toBeEnabled()
+    await expect(control).toHaveAttribute('aria-checked', 'false')
+    const hint = page.locator('#win-e-shortcut-hint')
+    const label = page.locator('label[for="win-e-shortcut"]')
+    await expect(hint).toBeInViewport()
+    await expect(label).toBeInViewport()
+    const switchBounds = await control.boundingBox()
+    const hintBounds = await hint.boundingBox()
+    const labelBounds = await label.boundingBox()
+    expect(hintBounds!.x + hintBounds!.width).toBeLessThanOrEqual(switchBounds!.x)
+    expect(labelBounds!.x + labelBounds!.width).toBeLessThanOrEqual(switchBounds!.x)
+    await shot(page, info, 'win-e-general-setting-zoom200.png', app)
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)
+    })
+    for (const mode of ['conflict', 'unavailable'] as const) {
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await app.evaluate((_electron, mode) => {
+        const fixture = (globalThis as unknown as { __winEFixture: { status: { available: boolean; enabled: boolean; running: boolean; conflict: boolean; error: string } } }).__winEFixture
+        fixture.status = { available: mode !== 'unavailable', enabled: false, running: false, conflict: mode === 'conflict', error: mode === 'unavailable' ? 'Available in the installed Windows app.' : '' }
+      }, mode)
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await expect(control).toBeDisabled()
+      await expect(control).toHaveAttribute('aria-checked', 'false')
+      await expect(page.getByRole('status')).toContainText(mode === 'conflict' ? 'Another Prism installation or profile controls Win+E.' : 'Available in the installed Windows app.')
+    }
+  } finally {
+    await stop(app)
+  }
+})
+
+test('Win+E activates the pinned Explorer folder before acknowledging and preserves the project', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    const pinned = page.locator('[data-pinned] > [role="tab"]')
+    await pinned.click()
+    await go(page, h.movies)
+    await row(page, 'readme.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await ordinaryTabs(page).first().click()
+    await go(page, h.home)
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    const projectTab = page.locator('[data-tab-role="project"] > [role="tab"]')
+    await projectRow(page, 'notes.txt').click()
+    const count = await page.getByRole('tab').count()
+    const id = randomUUID()
+    await app.evaluate(({ ipcMain, BrowserWindow }, requestId) => {
+      const fixture = { acknowledgements: [] as string[] }
+      ;(globalThis as unknown as { __winERequests: typeof fixture }).__winERequests = fixture
+      ipcMain.on('win-e:ready', (_event, id: string) => fixture.acknowledgements.push(id))
+      BrowserWindow.getAllWindows()[0].webContents.send('win-e:open', requestId)
+    }, id)
+    await expect(pinned).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(row(page, 'readme.txt')).toBeVisible()
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { __winERequests: { acknowledgements: string[] } }).__winERequests.acknowledgements)).toEqual([id])
+    await expect(page.getByRole('tab')).toHaveCount(count)
+    await projectTab.click()
+    await expect(projectRow(page, 'notes.txt')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+  } finally {
+    await stop(app)
+  }
+})
+
+/** A real local ACK endpoint, standing in for the helper without registering Win+E. */
+async function winEAckPipe(requestId: string, observe: () => Promise<unknown>) {
+  const messages: string[] = []
+  const observations: Promise<unknown>[] = []
+  const sockets = new Set<Socket>()
+  const server = createServer((socket) => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+    let text = ''
+    socket.on('data', (data) => {
+      text += data.toString('utf8')
+      if (!text.includes('\n')) return
+      messages.push(text.trim())
+      // Observe the rendered surface as soon as main acknowledges the request.
+      observations.push(observe())
+      socket.end()
+    })
+    socket.on('error', () => {})
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(String.raw`\\.\pipe\PrismWinE.${requestId}`, resolve)
+  })
+  return {
+    messages,
+    observations,
+    close: async () => {
+      for (const socket of sockets) socket.destroy()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+}
+
+async function winEVisibleState(page: Page) {
+  return page.evaluate(() => {
+    const selected = document.querySelector('[role="tab"][aria-selected="true"]')
+    const folder = document.querySelector<HTMLElement>('[data-testid="folder-browser"]')
+    return {
+      role: selected?.parentElement?.getAttribute('data-tab-role'),
+      pinned: selected?.parentElement?.hasAttribute('data-pinned'),
+      folderVisible: !!folder?.getClientRects().length,
+      folder: document.querySelector('nav[aria-label="Folder path"]')?.getAttribute('title'),
+      projects: document.querySelectorAll('[data-tab-role="project"] > [role="tab"]').length
+    }
+  })
+}
+
+/** Leave a real saved project active and the pinned Explorer on a full-file surface. */
+async function prepareWinEProject(h: Harness): Promise<void> {
+  const { page } = h
+  await page.locator('[data-pinned] > [role="tab"]').click()
+  await go(page, h.movies)
+  await row(page, 'readme.txt').dblclick()
+  await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+  await ordinaryTabs(page).first().click()
+  await go(page, h.home)
+  await row(page, 'Prism Project').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+  await expectEmptyProject(page, h.project, 'notes.txt')
+  await projectRow(page, 'notes.txt').click()
+  await expect.poll(() => {
+    const saved = savedTabs(join(h.profile, 'tabs.json'))
+    return saved?.tabs[saved.active]
+  }).toMatchObject({ role: 'project', root: h.project, file: join(h.project, 'notes.txt') })
+}
+
+async function expectWinEProjectPreserved(h: Harness): Promise<void> {
+  const { page } = h
+  const project = page.locator('[data-tab-role="project"] > [role="tab"]')
+  await expect(project).toHaveCount(1)
+  await expect(project).toHaveAttribute('title', h.project)
+  await project.click()
+  await expect(projectRow(page, 'notes.txt')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
+  await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+}
+
+test('Win+E cold CLI launch restores projects and acknowledges the rendered Explorer over its named pipe', async () => {
+  test.skip(process.platform !== 'win32', 'The shortcut acknowledgement uses a Windows named pipe.')
+  const h = await setup()
+  let live = true
+  let pipe: Awaited<ReturnType<typeof winEAckPipe>> | undefined
+  try {
+    await prepareWinEProject(h)
+    const count = await h.page.getByRole('tab').count()
+    await stop(h.app)
+    live = false
+    const id = randomUUID()
+    pipe = await winEAckPipe(id, async () => winEVisibleState((await launch).page))
+    const launch = start(h.profile, [`--win-e=${id}`])
+    ;({ app: h.app, page: h.page } = await launch)
+    live = true
+    await expect.poll(() => pipe!.messages).toEqual([id])
+    expect(await pipe.observations[0]).toEqual({
+      role: 'explorer', pinned: true, folderVisible: true, folder: h.movies, projects: 1
+    })
+    await expect(h.page.getByRole('tab')).toHaveCount(count)
+    await expect(h.page.locator('[data-pinned] > [role="tab"]')).toHaveAttribute('aria-selected', 'true')
+    await expect(row(h.page, 'readme.txt')).toBeVisible()
+    await expectWinEProjectPreserved(h)
+  } finally {
+    if (live) await stop(h.app)
+    await pipe?.close()
+  }
+})
+
+test('Win+E warm CLI handoff acknowledges the existing window and preserves its active project', async () => {
+  test.skip(process.platform !== 'win32', 'The shortcut acknowledgement uses a Windows named pipe.')
+  const h = await setup()
+  let pipe: Awaited<ReturnType<typeof winEAckPipe>> | undefined
+  try {
+    await prepareWinEProject(h)
+    const count = await h.page.getByRole('tab').count()
+    const id = randomUUID()
+    pipe = await winEAckPipe(id, () => winEVisibleState(h.page))
+    const launch = await h.app.evaluate(({ app }) => ({
+      executable: app.getPath('exe'), packaged: app.isPackaged
+    }))
+    // The second process gets this test's profile and non-interactive flags, never the installed profile.
+    await promisify(execFile)(launch.executable, [
+      ...(launch.packaged ? [] : [MAIN]), `--user-data-dir=${h.profile}`,
+      '--preview', '--e2e', `--win-e=${id}`
+    ], { windowsHide: true, timeout: 15000 })
+    await expect.poll(() => pipe!.messages).toEqual([id])
+    expect(await pipe.observations[0]).toEqual({
+      role: 'explorer', pinned: true, folderVisible: true, folder: h.movies, projects: 1
+    })
+    await expect(h.page.getByRole('tab')).toHaveCount(count)
+    await expect(h.page.locator('[data-pinned] > [role="tab"]')).toHaveAttribute('aria-selected', 'true')
+    await expect(row(h.page, 'readme.txt')).toBeVisible()
+    await expectWinEProjectPreserved(h)
+  } finally {
+    await stop(h.app)
+    await pipe?.close()
   }
 })

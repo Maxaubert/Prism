@@ -35,6 +35,7 @@ jobs:
       - run: npm run typecheck
 
       - run: npm test
+      - run: npm run test:win-e
 
       - run: npm run lint
 

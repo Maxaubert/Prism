@@ -6,6 +6,7 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!native/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,.prettierrc.yaml,.prettierignore,eslint.config.js,tsconfig*.json}'
   - '!{.git,.claude,docs,test}/*'
@@ -29,6 +30,10 @@ asarUnpack:
 # @electron/rebuild insists on recompiling from source and dies in node-gyp.
 npmRebuild: false
 extraResources:
+  - from: vendor/win-e
+    to: win-e
+    filter:
+      - PrismShortcut.exe
   - from: build/icon.ico
     to: icon.ico
   # One icon per ProgID, so a .zip opened with Prism does not wear the

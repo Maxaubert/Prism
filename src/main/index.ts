@@ -29,6 +29,8 @@ import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
 import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
+import { createWinEShortcut } from './winEShortcut'
+import { createWinERequests, winERequest } from './winERequests'
 import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
 import {
@@ -624,6 +626,7 @@ async function folderPayload(dir: string): Promise<OpenPayload | null> {
 }
 
 let mainWindow: BrowserWindow | null = null
+const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
@@ -1063,7 +1066,7 @@ const verbOffMarker = (): string => join(app.getPath('userData'), 'shell-verb-of
  * is the price of there having been no record to migrate.
  */
 async function reconcileVerb(): Promise<void> {
-  if (!app.isPackaged || E2E || process.argv.includes('--preview')) return
+  if (!app.isPackaged || E2E || process.argv.includes('--preview') || winERequest(process.argv)) return
   try {
     const fs = await import('fs/promises')
     const saidNo = !!(await fs.stat(verbOffMarker()).catch(() => null))
@@ -1275,6 +1278,7 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
+  mainWindow.webContents.on('did-start-loading', () => winERequests.reload())
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) void mainWindow.loadURL(devUrl)
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1311,6 +1315,7 @@ function createWindow(): void {
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
       for (const t of pendingOpen) await sendOpen(t)
       pendingOpen = []
+      winERequests.restored()
     })()
   })
 }
@@ -1321,6 +1326,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_e, argv) => {
+    const shortcutRequest = winERequest(argv)
+    if (shortcutRequest) winERequests.enqueue(shortcutRequest)
     const paths = pathsFromArgv(argv)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
@@ -1339,6 +1346,8 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   pendingOpen = pathsFromArgv(process.argv)
+  const shortcutRequest = winERequest(process.argv)
+  if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => {
@@ -1358,6 +1367,28 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    const winE = createWinEShortcut({
+      helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
+      executable: process.execPath,
+      profile: app.getPath('userData'),
+      supported: process.platform === 'win32' && app.isPackaged && !E2E
+    })
+    ipcMain.handle('win-e:status', (event) => {
+      if (event.sender !== mainWindow?.webContents) throw new Error('Unknown window')
+      return winE.status()
+    })
+    ipcMain.handle('win-e:set', (event, enabled: unknown) => {
+      if (event.sender !== mainWindow?.webContents || typeof enabled !== 'boolean')
+        throw new Error('Invalid shortcut request')
+      return winE.set(enabled)
+    })
+    ipcMain.on('win-e:listen', (event) => {
+      if (event.sender === mainWindow?.webContents) winERequests.listen()
+    })
+    ipcMain.on('win-e:ready', (event, id: unknown) => {
+      if (event.sender === mainWindow?.webContents && typeof id === 'string') winERequests.ready(id)
+    })
+    void winE.resume()
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {

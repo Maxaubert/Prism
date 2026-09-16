@@ -1,3 +1,4 @@
+import { useWinEOpen } from './lib/useWinEOpen'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
@@ -317,7 +318,7 @@ function TopBar({
       <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
         Prism
       </span>
-      <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
+      <span data-testid="titlebar-file-name" className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
       {/* Unsaved work is the one thing the bar interrupts itself to say. The
           tree names the file, so the dot goes where the eye already is. */}
       {dirty && (
@@ -1492,6 +1493,10 @@ export default function App(): JSX.Element {
       setHasNavigated(false)
     })()
   }, [])
+
+  useWinEOpen(tabState, setTabState, browsing.folder && !setup && !fullscreen, nextTabId, () => {
+    if (fullscreen) setFs(false)
+  })
 
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a
@@ -3722,7 +3727,8 @@ export default function App(): JSX.Element {
           // repeats it when the tree isn't there to say it. A FULL terminal
           // names nothing: the file it would name is not what's on screen.
           name={
-            (sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')
+            !active || isExplorerTab(active) || settingsOpen || sidebar || termView === 'full'
+              ? '' : (file?.name ?? '')
           }
           pos={pos}
           settingsOpen={settingsOpen}

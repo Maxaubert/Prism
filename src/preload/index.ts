@@ -8,6 +8,7 @@ import type {
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import type { FolderSizeResult } from '@shared/folderSize'
+import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
   ArchiveListing,
   DirChange,
@@ -598,6 +599,15 @@ const api = {
   installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
+  winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:status'),
+  setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:set', enabled),
+  onWinEOpen: (cb: (requestId: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string): void => cb(id)
+    ipcRenderer.on('win-e:open', listener)
+    ipcRenderer.send('win-e:listen')
+    return () => ipcRenderer.removeListener('win-e:open', listener)
+  },
+  winEReady: (requestId: string): void => ipcRenderer.send('win-e:ready', requestId),
   /** True when setup asked for the first-run guide, whatever this machine has
    *  already seen. */
   forceSetup: process.argv.includes('--prism-setup'),

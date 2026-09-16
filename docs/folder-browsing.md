@@ -6,6 +6,12 @@ strip and keeps desktop browsing separate from phone sharing.
 
 ## User behavior
 
+- General settings offers an optional **Open Prism with Win+E** switch, off by default.
+  It opens the pinned Explorer folder without changing projects. See the
+  [shortcut behavior and fallback checks](win-e-shortcut.md).
+- Explorer never repeats filenames in the title bar. Projects retain the filename when
+  their sidebar is closed.
+
 ![Recursive folder sizes](screenshots/folder-browsing/folder-sizes.png)
 
 ![Folder Properties](screenshots/folder-browsing/folder-properties.png)
