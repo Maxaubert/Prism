@@ -13,6 +13,8 @@ whole-application accessibility assessment.
 | The new Open action needed to match project search navigation | Opening a folder search result clears the filter and reveals the expanded folder, like clicking that result. |
 | A drive could not open in a new tab before it had been browsed | Known sidebar locations establish the desktop browsing grant before opening, without adding phone shares. |
 | Explorer menus had no icons | File menus use the same outlined action icons as the project tree. |
+| Image-viewer actions still had no icons | Rotate, clipboard, save-copy, slideshow and filesystem actions now use matching icons, including image-format choices. |
+| Explorer called its replaceable preview a split view | Its menu now says Show in preview. Selection previews; Enter/double-click opens full view. Project split menus are unchanged. |
 | Explorer lacked context-menu Cut and Paste | Both are available with shortcut hints. Paste targets the clicked folder, or the clicked file's parent, including search results. |
 | App choices differed between views | Explorer and project files share Default app, registered apps and Choose another app. |
 | Explorer Delete lacked danger styling | It uses the project's destructive-action treatment and retains confirmation. |
@@ -42,3 +44,7 @@ broader regression suite covers existing project, viewer, archive and terminal b
 ![Explorer file actions at 200 percent zoom](screenshots/folder-browsing/explorer-file-menu-zoom200.png)
 
 ![App flyout after delayed clipboard and application results](screenshots/folder-browsing/project-delayed-app-flyout.png)
+
+![Image menu icons at 200 percent zoom](screenshots/folder-browsing/image-menu-icons.png)
+
+![Explorer selection preview with the sidebar footer removed](screenshots/folder-browsing/explorer-default-preview.png)

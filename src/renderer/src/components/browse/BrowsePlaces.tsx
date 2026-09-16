@@ -134,12 +134,21 @@ export function BrowsePlaces({
                 onClick={() =>
                   pin.isFolder ? onNavigate(pin.path) : onQuickAccessFile?.(pin.path)
                 }
+                onDoubleClick={() => {
+                  if (!pin.isFolder) onQuickAccessFile?.(pin.path, true)
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault()
                   event.stopPropagation()
                   setMenu({ pin, x: event.clientX, y: event.clientY, pinned: true })
                 }}
                 onKeyDown={(event) => {
+                  if (!pin.isFolder && event.key === 'Enter') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onQuickAccessFile?.(pin.path, true)
+                    return
+                  }
                   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
                     return
                   event.preventDefault()
@@ -243,20 +252,6 @@ export function BrowsePlaces({
           ) : null
         })}
       </nav>
-      <button
-        className="browse-terminal"
-        onClick={() =>
-          onOpenProject
-            ? onOpenProject({ path: directory, name: directory, isFolder: true })
-            : onNewTerminal(directory)
-        }
-        title={
-          onOpenProject ? `Open ${directory} as a project` : `New terminal tab in ${directory}`
-        }
-      >
-        <BrowseIcon name={onOpenProject ? 'open' : 'terminal'} />
-        <span>{onOpenProject ? 'Open as project here' : 'New terminal here'}</span>
-      </button>
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -268,7 +263,7 @@ export function BrowsePlaces({
               icon: <FileMenuIcon name="open" />,
               onPick: () => menu.pin.isFolder
                 ? onNavigate(menu.pin.path)
-                : onQuickAccessFile?.(menu.pin.path)
+                : onQuickAccessFile?.(menu.pin.path, true)
             },
             {
               label: 'Open in new tab',

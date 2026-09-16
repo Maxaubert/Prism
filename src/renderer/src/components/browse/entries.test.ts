@@ -51,4 +51,32 @@ describe('folder browser entries', () => {
     ).toEqual(['Folder 2', 'Folder 10', 'unknown.bin', 'image 2.jpg', 'image 10.jpg'])
     expect(listing.folders[0].name).toBe('Folder 10')
   })
+
+  it('sorts measured folder totals and leaves unknown sizes last in both directions', () => {
+    const total = (bytes: number) => ({
+      bytes,
+      files: 1,
+      folders: 0,
+      unreadable: 0,
+      skippedLinks: 0,
+      truncated: false
+    })
+    const sizes = { 'C:\\Files\\Folder 10': total(0), 'C:\\Files\\Folder 2': total(2048) }
+    expect(
+      browseEntries(listing, '', { key: 'size', direction: 'asc' }, sizes)
+        .slice(0, 2)
+        .map((entry) => entry.name)
+    ).toEqual(['Folder 10', 'Folder 2'])
+    expect(
+      browseEntries(listing, '', { key: 'size', direction: 'desc' }, sizes)
+        .slice(0, 2)
+        .map((entry) => entry.name)
+    ).toEqual(['Folder 2', 'Folder 10'])
+    for (const direction of ['asc', 'desc'] as const)
+      expect(
+        browseEntries(listing, '', { key: 'size', direction }, { 'C:\\Files\\Folder 10': total(0) })
+          .slice(0, 2)
+          .map((entry) => entry.name)
+      ).toEqual(['Folder 10', 'Folder 2'])
+  })
 })

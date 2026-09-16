@@ -158,7 +158,7 @@ export function useFolderBrowsing(
   }, [id, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   const openFile = useCallback(
-    async (file: ViewerFile | string, full?: boolean) => {
+    async (file: ViewerFile | string, full = true) => {
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
@@ -200,7 +200,7 @@ export function useFolderBrowsing(
                 index: payload.index,
                 browse: {
                   ...t.browse,
-                  surface: (full ?? !(isExplorerTab(t) && t.browse.preview)) ? 'viewer' : 'folder'
+                  surface: full ? 'viewer' : 'folder'
                 },
                 term: t.term ? { ...t.term, view: 'hidden' } : null
               }

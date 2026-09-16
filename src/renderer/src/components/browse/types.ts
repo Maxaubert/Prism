@@ -2,6 +2,7 @@ import type { MouseEvent, ReactNode } from 'react'
 import type { DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
+import type { FolderSizeResult } from '@shared/folderSize'
 
 export interface BrowsePlace {
   path: string
@@ -14,6 +15,7 @@ export interface BrowseEntry {
   name: string
   isFolder: boolean
   file?: ViewerFile
+  folderSize?: FolderSizeResult | null
 }
 
 export interface BrowseSort {
@@ -38,7 +40,7 @@ export interface FolderBrowserProps {
   places: BrowsePlace[]
   placesVisible?: boolean
   quickAccess?: QuickAccessPin[]
-  onQuickAccessFile?: (path: string) => void
+  onQuickAccessFile?: (path: string, full?: boolean) => void
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void

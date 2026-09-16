@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { formatBytes, formatWhen } from '../../lib/format'
+import { folderSizeCoverage, folderSizeLabel } from '../../lib/folderSize'
 import { typeLabel } from '../../lib/typeLabel'
 import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
@@ -203,7 +204,10 @@ export function BrowseList(props: Props): JSX.Element {
                     data-menu={entry.path === props.menuPath || undefined}
                     data-striped={(first + offset) % 2 === 1 || undefined}
                     draggable
-                    {...folderDrop(entry.isFolder ? entry.path : browseParent(entry.path) ?? props.directory, entry.path)}
+                    {...folderDrop(
+                      entry.isFolder ? entry.path : (browseParent(entry.path) ?? props.directory),
+                      entry.path
+                    )}
                     onDragStart={(event) => {
                       setDrag({ kind: 'files', paths: [entry.path] })
                       event.dataTransfer.effectAllowed = 'copyMove'
@@ -249,8 +253,13 @@ export function BrowseList(props: Props): JSX.Element {
                     <span className="browse-column-type">
                       {typeLabel(entry.name, entry.isFolder)}
                     </span>
-                    <span className="browse-column-size">
-                      {entry.file ? formatBytes(entry.file.size) : ''}
+                    <span
+                      className="browse-column-size"
+                      title={entry.folderSize ? folderSizeCoverage(entry.folderSize) : undefined}
+                    >
+                      {entry.file
+                        ? formatBytes(entry.file.size)
+                        : folderSizeLabel(entry.folderSize)}
                     </span>
                     <span className="browse-column-modified">
                       {entry.file ? formatWhen(entry.file.mtimeMs) : ''}

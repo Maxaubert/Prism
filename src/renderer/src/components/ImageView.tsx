@@ -13,6 +13,7 @@ import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
 import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { FileMenuIcon } from './FileMenuIcon'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import {
@@ -474,25 +475,26 @@ export function ImageView({
    *
    * What is left is what you cannot do another way with a pointer: turn the
    * picture, take the PIXELS (which for a HEIC or a RAW is the one thing
-   * Windows itself cannot do), and get to the file. No icons: this is a short
-   * list of verbs, not a toolbar.
+   * Windows itself cannot do), and get to the file. Shared action icons keep
+   * the menu consistent with the Explorer and project menus.
    */
   const menuItems = (): MenuItem[] => [
-    { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
+    { label: 'Rotate', icon: <FileMenuIcon name="rotate" />, onPick: () => setRot((d) => (d + 90) % 360) },
     // The pixels go to the OS clipboard and the copy through main's save
     // dialog: neither exists on the phone (#106), so the rows are left out
     // rather than offered and refused.
     ...(window.prism.capabilities.clipboard
-      ? [{ label: 'Copy image', disabled: !img, onPick: () => void copyImage() }]
+      ? [{ label: 'Copy image', icon: <FileMenuIcon name="copy" />, disabled: !img, onPick: () => void copyImage() }]
       : []),
     ...(window.prism.capabilities.write
       ? [
           {
             label: 'Save a copy',
+            icon: <FileMenuIcon name="save" />,
             disabled: !img,
             children: [
-              { label: 'PNG', onPick: () => void saveCopy('png') },
-              { label: 'JPEG', onPick: () => void saveCopy('jpeg') }
+              { label: 'PNG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('png') },
+              { label: 'JPEG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('jpeg') }
             ]
           }
         ]
@@ -501,6 +503,7 @@ export function ImageView({
       ? [
           {
             label: slideshow ? 'Stop slideshow' : 'Slideshow',
+            icon: <FileMenuIcon name={slideshow ? 'stop' : 'slideshow'} />,
             // The interval hangs off the same row, so starting one and saying
             // how fast it goes are one gesture rather than two.
             onPick: () => setSlideshow((on) => !on),
@@ -516,7 +519,7 @@ export function ImageView({
           } as MenuItem
         ]
       : []),
-    ...(path ? fileVerbs(path) : [])
+    ...(path ? fileVerbs(path, { icons: true }) : [])
   ]
 
   return (

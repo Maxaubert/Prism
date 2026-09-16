@@ -126,7 +126,7 @@ async function setup(): Promise<Harness> {
     }, project)
     await page.reload()
     await expect(page.locator('[data-pinned] > [role="tab"]')).toHaveCount(1)
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await expect(page.getByTestId('browse-list')).toBeVisible()
     await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
     await park(app)
@@ -135,6 +135,17 @@ async function setup(): Promise<Harness> {
     await stop(app)
     throw error
   }
+}
+
+/** Legacy scenarios opt out explicitly; the default-preview scenario exercises untouched tabs. */
+async function newExplorerWithoutPreview(page: Page): Promise<void> {
+  const before = await ordinaryTabs(page).count()
+  await page.getByRole('button', { name: 'New tab', exact: true }).click()
+  await expect(ordinaryTabs(page)).toHaveCount(before + 1)
+  await expect(ordinaryTabs(page).last()).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+  const preview = page.getByRole('button', { name: 'Preview pane', exact: true })
+  if ((await preview.getAttribute('aria-pressed')) === 'true') await preview.click()
 }
 
 async function go(page: Page, path: string): Promise<void> {
@@ -442,7 +453,7 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
     await expect(page.getByRole('textbox', { name: 'Folder path', exact: true })).toHaveCount(0)
     await expect(pathBar).toHaveAttribute('title', driveRoot)
 
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await expect(ordinaryTabs(page)).toHaveCount(2)
     await expect(ordinaryTabs(page).last().locator('..')).toHaveAttribute(
       'data-tab-role',
@@ -539,7 +550,7 @@ test('full-file breadcrumbs and Back return to the containing folder without con
   const h = await setup()
   const { page } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await search(page, 'notes.txt')
     await row(page, 'notes.txt').dblclick()
     await expect(page.getByTestId('folder-browser')).toHaveCount(0)
@@ -613,7 +624,7 @@ test('archive Backspace leaves its internal folder before returning to the disk 
     const archive = new AdmZip()
     archive.addFile('Inside/member.txt', Buffer.from('Archive member fixture\n'))
     archive.writeZip(join(h.project, 'nested.zip'))
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await search(page, 'nested.zip')
     await row(page, 'nested.zip').dblclick()
     await expect(page.getByTestId('folder-browser')).toHaveCount(0)
@@ -642,7 +653,7 @@ test('Quick access supports empty defaults, file and folder pins, reordering and
   const h = await setup()
   let { app, page } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     let quick = page.getByRole('region', { name: 'Quick access', exact: true })
     let pins = quick.locator('[data-quick-access-path]')
     await expect.poll(() => pins.count()).toBeGreaterThan(0)
@@ -1081,11 +1092,293 @@ test('an open app flyout stays attached when delayed Paste and a longer same-cou
   }
 })
 
+test('recursive folder sizes sort by totals, refresh nested changes and agree with Explorer and project Properties', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  const large = join(h.movies, 'Large folder')
+  try {
+    for (const path of [
+      join(large, 'Nested', 'Deep'),
+      join(large, 'Empty within'),
+      join(h.movies, 'Empty folder'),
+      join(h.movies, 'Small folder')
+    ])
+      mkdirSync(path, { recursive: true })
+    writeFileSync(join(large, 'direct.bin'), Buffer.alloc(1024))
+    writeFileSync(join(large, 'Nested', 'deeper.bin'), Buffer.alloc(2048))
+    writeFileSync(join(large, 'Nested', 'Deep', 'third.bin'), Buffer.alloc(4096))
+    writeFileSync(join(h.movies, 'Small folder', 'tiny.txt'), 'abc')
+    await go(page, h.movies)
+    const size = (name: string) => row(page, name).locator('.browse-column-size')
+    await expect(size('Large folder')).toHaveText('7.0 KB')
+    await expect(size('Small folder')).toHaveText('3 B')
+    await expect(size('Empty folder')).toHaveText('0 B')
+    const names = page.getByTestId('browse-list').locator('.browse-name-text > span:first-child')
+    await page.getByRole('button', { name: /^Sort by size/ }).click()
+    await expect(names).toHaveText(['Empty folder', 'Small folder', 'Large folder', 'readme.txt'])
+    await page.getByRole('button', { name: /^Sort by size/ }).click()
+    await expect(names).toHaveText(['Large folder', 'Small folder', 'Empty folder', 'readme.txt'])
+    const property = (name: string) =>
+      page
+        .getByRole('dialog')
+        .locator('dl > div')
+        .filter({ has: page.locator('dt', { hasText: new RegExp(`^${name}$`) }) })
+        .locator('dd')
+    await row(page, 'Large folder').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
+    await expect(property('Size')).toHaveText(`7.0 KB (${(7168).toLocaleString()} bytes)`)
+    await expect(property('Contents')).toHaveText('3 files, 3 folders (including subfolders)')
+    await expect(property('Coverage')).toHaveText('Includes files in all subfolders')
+    await shot(page, info, 'explorer-recursive-folder-properties.png', app)
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
+    writeFileSync(join(large, 'Nested', 'Deep', 'third.bin'), Buffer.alloc(8192))
+    await page.getByTestId('browse-list').focus()
+    await page.keyboard.press('F5')
+    await expect(size('Large folder')).toHaveText('11.0 KB')
+    await shot(page, info, 'explorer-recursive-folder-sizes.png', app)
+    await go(page, h.home)
+    await row(page, 'Movies').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.movies, 'readme.txt')
+    await projectRow(page, 'Large folder').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
+    await expect(property('Size')).toHaveText(`11.0 KB (${(11264).toLocaleString()} bytes)`)
+    await expect(property('Contents')).toHaveText('3 files, 3 folders (including subfolders)')
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
+    await projectRow(page, 'Empty folder').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
+    await expect(property('Size')).toHaveText('0 B (0 bytes)')
+    await expect(property('Contents')).toHaveText('0 files, 0 folders (including subfolders)')
+  } finally {
+    await stop(app)
+  }
+})
+
+test('folder size scans show pending and partial totals, cancel on navigation and ignore late results', async () => {
+  const h = await setup()
+  const { app, page } = h
+  const held = join(h.movies, 'Held folder')
+  const unavailable = join(h.movies, 'Unavailable folder')
+  try {
+    mkdirSync(held)
+    mkdirSync(unavailable)
+    await app.evaluate(
+      ({ ipcMain }, paths) => {
+        type Handler = (...args: unknown[]) => unknown
+        const original = (
+          ipcMain as unknown as { _invokeHandlers: Map<string, Handler> }
+        )._invokeHandlers.get('folder:size')!
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        const state = { ids: [] as string[], cancelled: [] as string[], release, completed: 0 }
+        ;(globalThis as unknown as { __prismSizeGate: typeof state }).__prismSizeGate = state
+        ipcMain.on('folder:size-cancel', (_event, id: string) => state.cancelled.push(id))
+        ipcMain.removeHandler('folder:size')
+        ipcMain.handle('folder:size', async (...args: unknown[]) => {
+          if (args[1] === paths.unavailable) return null
+          if (args[1] !== paths.held) return original(...args)
+          state.ids.push(args[2] as string)
+          await gate
+          state.completed++
+          return {
+            bytes: 1024,
+            files: 2,
+            folders: 1,
+            unreadable: 1,
+            skippedLinks: 1,
+            truncated: true
+          }
+        })
+      },
+      { held, unavailable }
+    )
+    await go(page, h.movies)
+    await expect(row(page, 'Held folder').locator('.browse-column-size')).toHaveText('Calculating…')
+    await expect(row(page, 'Unavailable folder').locator('.browse-column-size')).toHaveText(
+      'Unavailable'
+    )
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { __prismSizeGate: { ids: string[] } }).__prismSizeGate.ids
+              .length
+        )
+      )
+      .toBeGreaterThan(0)
+    await go(page, h.nested)
+    await expect
+      .poll(() =>
+        app.evaluate(() => {
+          const gate = (
+            globalThis as unknown as { __prismSizeGate: { ids: string[]; cancelled: string[] } }
+          ).__prismSizeGate
+          return gate.ids.every((id) => gate.cancelled.includes(id))
+        })
+      )
+      .toBe(true)
+    await app.evaluate(() =>
+      (
+        globalThis as unknown as { __prismSizeGate: { release: () => void } }
+      ).__prismSizeGate.release()
+    )
+    await expect
+      .poll(() =>
+        app.evaluate(
+          () =>
+            (globalThis as unknown as { __prismSizeGate: { completed: number } }).__prismSizeGate
+              .completed
+        )
+      )
+      .toBeGreaterThan(0)
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await expect(page.getByTestId('browse-list')).not.toContainText('≥')
+    await go(page, h.movies)
+    await expect(row(page, 'Held folder').locator('.browse-column-size')).toHaveText('≥ 1.0 KB')
+    await expect(row(page, 'Held folder').locator('.browse-column-size')).toHaveAttribute(
+      'title',
+      'Partial total: 1 unreadable items; 1 links skipped; Scan limit reached'
+    )
+    await row(page, 'Held folder').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Properties', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText(
+      `≥ 1.0 KB (at least ${(1024).toLocaleString()} bytes)`
+    )
+    await expect(page.getByRole('dialog')).toContainText(
+      'Partial total: 1 unreadable items; 1 links skipped; Scan limit reached'
+    )
+  } finally {
+    await stop(app)
+  }
+})
+
+test('image viewer context actions and save formats have shared icons in Explorer and a high-zoom project', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    for (const name of ['picture-one.png', 'picture-two.png'])
+      copyFileSync(join(ROOT, 'build/icon.png'), join(h.movies, name))
+    await go(page, h.movies)
+    await row(page, 'picture-one.png').dblclick()
+    const picture = page.getByRole('img', { name: 'picture-one.png', exact: true })
+    const verifyMenu = async () => {
+      await expect(picture).toBeVisible()
+      await expect
+        .poll(() =>
+          picture.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+        )
+        .toBe(true)
+      await picture.click({ button: 'right' })
+      for (const [name, icon] of [
+        ['Rotate', 'rotate'],
+        ['Copy image', 'copy'],
+        ['Save a copy', 'save'],
+        ['Slideshow', 'slideshow'],
+        ['Show in File Explorer', 'folder'],
+        ['Copy path', 'path']
+      ]) {
+        await expect(
+          page
+            .getByRole('menuitem', { name, exact: true })
+            .locator(`[data-file-menu-icon="${icon}"]`)
+        ).toBeVisible()
+      }
+      await page.getByRole('menuitem', { name: 'Save a copy', exact: true }).hover()
+      for (const name of ['PNG', 'JPEG'])
+        await expect(
+          page.getByRole('menuitem', { name, exact: true }).locator('[data-file-menu-icon="image"]')
+        ).toBeVisible()
+    }
+    await verifyMenu()
+    await shot(page, info, 'image-context-icons.png', app)
+    await page.keyboard.press('Escape')
+    await returnToFolder(page)
+    await row(page, 'picture-one.png').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectNoExplorerControls(page)
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)
+    )
+    await verifyMenu()
+    await shot(page, info, 'image-context-icons-zoom200.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('new Explorer tabs preview clicks and arrow selections by default while double-click and Enter open full view', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    writeFileSync(join(h.movies, 'a.txt'), 'First preview\n')
+    writeFileSync(join(h.movies, 'b.txt'), 'Second preview\n')
+    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    const toggle = page.getByRole('button', { name: 'Preview pane', exact: true })
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page.getByRole('button', { name: 'Open as project here', exact: true })
+    ).toHaveCount(0)
+    await go(page, h.movies)
+    const preview = page.locator('[data-browse-preview="true"]')
+    await row(page, 'a.txt').click()
+    await expect(preview.locator('.cm-content')).toHaveText('First preview')
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(row(page, 'b.txt')).toHaveAttribute('aria-selected', 'true')
+    await expect(preview.locator('.cm-content')).toHaveText('Second preview')
+    await shot(page, info, 'explorer-default-preview.png', app)
+    await row(page, 'a.txt').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    const filePin = page
+      .getByRole('region', { name: 'Quick access', exact: true })
+      .getByRole('button', { name: 'a.txt', exact: true })
+    await filePin.click()
+    await expect(preview.locator('.cm-content')).toHaveText('First preview')
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await filePin.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'First preview' })).toBeVisible()
+    await returnToFolder(page)
+    await filePin.dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'First preview' })).toBeVisible()
+    await returnToFolder(page)
+    await row(page, 'b.txt').dblclick()
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'Second preview' })).toBeVisible()
+    await returnToFolder(page)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await row(page, 'a.txt').click()
+    await expect(preview.locator('.cm-content')).toHaveText('First preview')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('folder-browser')).toHaveCount(0)
+    await expect(page.getByRole('textbox').filter({ hasText: 'First preview' })).toBeVisible()
+    await returnToFolder(page)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await row(page, 'b.txt').click()
+    await expect(page.getByTestId('browse-list')).toBeVisible()
+    await expect(preview).toHaveCount(0)
+    await row(page, 'b.txt').click({ button: 'right' })
+    await expect(page.getByRole('menuitem', { name: 'Show in preview', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('menuitem', { name: 'Open in split view', exact: true })
+    ).toHaveCount(0)
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
+    await expect(preview.locator('.cm-content')).toHaveText('Second preview')
+  } finally {
+    await stop(app)
+  }
+})
+
 test('missing file pins recover on a valid choice and late failures stay out of another tab', async () => {
   const h = await setup()
   const { app, page } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     for (const name of ['notes.txt', 'entry-000.txt']) {
       await search(page, name)
       await row(page, name).click({ button: 'right' })
@@ -1176,7 +1469,7 @@ test('context target uses distinct grey on both row stripes and restores blue se
   const h = await setup()
   const { page, app } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     const rows = page.locator('.browse-row')
     let menuBackground: string | undefined
     for (const striped of [false, true]) {
@@ -1253,7 +1546,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     mkdirSync(appData, { recursive: true })
     const settings = join(appData, 'Playnite-settings.txt')
     writeFileSync(settings, 'AppData settings fixture\n')
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await go(page, h.home)
     await search(page, 'Playnite')
     await expect(row(page, 'Playnite')).toBeVisible()
@@ -1403,7 +1696,9 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
   const h = await setup()
   const { page } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
+    const toggle = page.getByRole('button', { name: 'Preview pane', exact: true })
+    if ((await toggle.getAttribute('aria-pressed')) === 'true') await toggle.click()
     await search(page, 'notes')
     await row(page, 'notes.txt').click()
     await expect(row(page, 'notes.txt')).toHaveAttribute('aria-selected', 'true')
@@ -1435,7 +1730,7 @@ test('cancel search reaches the matching request and a fresh query can run after
   const h = await setup()
   const { app, page } = h
   try {
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     // Hold one request at the IPC boundary so Cancel remains actionable on fast disks.
     // The real traversal and cancellation ownership are verified by browseSearch unit tests.
     await app.evaluate(({ ipcMain }) => {
@@ -1679,7 +1974,7 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     const player = await page.locator('video').elementHandle()
     expect(player).toBeTruthy()
     await expect.poll(() => player!.evaluate((video) => video.readyState)).toBeGreaterThanOrEqual(2)
-    await row(page, 'sample.mp4').dblclick()
+    await row(page, 'sample.mp4').click()
     await expect(page.getByTestId('folder-browser')).toBeVisible()
     await page.getByRole('button', { name: 'Open full view', exact: true }).click()
     await expect(page.getByTestId('folder-browser')).not.toBeVisible()
@@ -1765,7 +2060,7 @@ test('Explorer split keeps locations and list beside one replaceable viewer acro
   try {
     await search(page, 'notes.txt')
     await row(page, 'notes.txt').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     const viewer = page.locator('[data-browse-preview="true"]')
     const editor = page.getByRole('textbox').and(page.locator('.cm-content'))
     await expect(editor).toHaveText('Original notes')
@@ -1777,7 +2072,7 @@ test('Explorer split keeps locations and list beside one replaceable viewer acro
     await row(page, 'entry-000.txt').click()
     await expect(editor).toHaveText('0')
     await search(page, 'entry-001.txt')
-    await row(page, 'entry-001.txt').dblclick()
+    await row(page, 'entry-001.txt').click()
     await expect(editor).toHaveText('1')
     await expect(viewer).toHaveCount(1)
     await expect(page.getByTestId('folder-browser')).toBeVisible()
@@ -1796,7 +2091,7 @@ test('Explorer split keeps locations and list beside one replaceable viewer acro
     await expect(editor).toHaveText('Nested folder')
     await go(page, h.project)
     await search(page, 'notes.txt')
-    await row(page, 'notes.txt').dblclick()
+    await row(page, 'notes.txt').click()
     await expect(editor).toHaveText('Original notes')
     await search(page, '')
     const boxes = await Promise.all([
@@ -2070,7 +2365,7 @@ test('Explorer section widths drag and persist with slim usable scrollbars at no
     comic.writeZip(join(h.project, 'resize-comic.cbz'))
     await search(page, 'layout.json')
     await row(page, 'layout.json').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     await expect(page.locator('.cm-content')).toContainText('section-000')
     await search(page, '')
     const places = () => page.getByRole('complementary', { name: 'Locations', exact: true })
@@ -2361,7 +2656,7 @@ test('Explorer file hotkeys target displayed folders and full files while text e
     await returnToFolder(page)
     await search(page, 'notes.txt')
     await row(page, 'notes.txt').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     await expect(page.locator('.browse-preview-actions')).toHaveText('Open full view')
     const previewToggle = page.getByRole('button', { name: 'Preview pane', exact: true })
     await expect(previewToggle).toHaveAttribute('aria-pressed', 'true')
@@ -2621,7 +2916,7 @@ test('comic controls ignore outside movement and keep separate clocks through pr
     writeFileSync(join(h.project, imageName), picture)
     await search(page, comicName)
     await row(page, comicName).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     const viewer = page.locator('[data-browse-preview="true"]')
     const chrome = viewer.locator('[data-viewer-chrome]')
     await expect(viewer.getByRole('img', { name: 'page1.png', exact: true })).toBeVisible()
@@ -2719,7 +3014,7 @@ test('PDF controls reveal only inside their own Explorer or project viewer', asy
       writeFileSync(join(h.project, name), chromePdf(`Viewer ${index + 1}`))
     await search(page, names[0])
     await row(page, names[0]).click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     const viewer = page.locator('[data-browse-preview="true"] [data-pdf-viewer]')
     const chrome = viewer.locator('[data-pdf-chrome]')
     await expect(viewer.locator('canvas')).toBeVisible()
@@ -2975,12 +3270,12 @@ test('held Explorer drags cross browsing tabs and preserve their originating pre
     writeFileSync(join(h.movies, 'between-explorers.txt'), 'Move between two browsing tabs\n')
     await go(page, h.movies)
     const sourceTab = ordinaryTabs(page).first()
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await go(page, h.nested)
     const destinationTab = ordinaryTabs(page).last()
     await sourceTab.click()
     await row(page, 'between-explorers.txt').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     const preview = page.locator('[data-browse-preview="true"]')
     await expect(preview.locator('.cm-content')).toHaveText('Move between two browsing tabs')
 
@@ -3136,7 +3431,7 @@ test('held Quick access pins only reorder, including across tabs and rejected fi
     await page.mouse.up()
     const order = ['pinned.zip', 'readme.txt', 'Pinned folder']
     await expect(pins.locator(':scope > span')).toHaveText(order)
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await go(page, h.nested)
     const destinationTab = ordinaryTabs(page).last()
     const tabCount = await page.getByRole('tab').count()
@@ -3241,7 +3536,7 @@ test('held file drops onto existing tab labels and close areas use that tab fold
     )
     await go(page, h.movies)
     const source = ordinaryTabs(page).first()
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await go(page, h.nested)
     const destination = ordinaryTabs(page).last()
     const destinationWrapper = destination.locator('..')
@@ -3313,12 +3608,12 @@ test('held drags preserve the marked row and preview, and selected files and fol
     mkdirSync(join(h.movies, 'Target folder'))
     await go(page, h.movies)
     const sourceTab = ordinaryTabs(page).first()
-    await page.getByRole('button', { name: 'New tab', exact: true }).click()
+    await newExplorerWithoutPreview(page)
     await go(page, h.nested)
     const destinationTab = ordinaryTabs(page).last()
     await sourceTab.click()
     await row(page, 'readme.txt').click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Open in split view', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Show in preview', exact: true }).click()
     const preview = page.locator('[data-browse-preview="true"] .cm-content')
     await expect(preview).toHaveText('A different browsing location.')
     await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')

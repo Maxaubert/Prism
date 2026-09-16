@@ -239,17 +239,6 @@
   background: var(--p-sel-bg);
   color: var(--p-on-accent);
 }
-.browse-terminal {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 40px;
-  border-top: 1px solid var(--p-divider);
-  padding: 0 16px;
-  color: var(--p-text-soft);
-  font-size: 13px !important;
-}
 .browse-actions {
   grid-column: 2 / -1;
   grid-row: 2;

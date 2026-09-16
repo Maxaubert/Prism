@@ -40,6 +40,7 @@ import {
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
 import { browseSearch, cancelBrowseSearch } from './browseSearch'
+import { folderSize } from './folderSize'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -1885,6 +1886,43 @@ if (!app.requestSingleInstanceLock()) {
       browseWatch(tabId, path, (change) => mainWindow?.webContents.send('dir:changed', change))
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    const folderSizeRequests = new Map<number, Map<string, AbortController>>()
+    ipcMain.handle('folder:size', async (event, path: string, requestId: string) => {
+      if (
+        typeof path !== 'string' ||
+        !insideDesktop(path) ||
+        typeof requestId !== 'string' ||
+        !requestId ||
+        requestId.length > 200 ||
+        event.sender.isDestroyed()
+      )
+        return null
+      const senderId = event.sender.id
+      let requests = folderSizeRequests.get(senderId)
+      if (!requests) {
+        requests = new Map()
+        folderSizeRequests.set(senderId, requests)
+        event.sender.once('destroyed', () => {
+          for (const controller of folderSizeRequests.get(senderId)?.values() ?? [])
+            controller.abort()
+          folderSizeRequests.delete(senderId)
+        })
+      }
+      requests.get(requestId)?.abort()
+      if (!requests.has(requestId) && requests.size >= 64) return null
+      const controller = new AbortController()
+      requests.set(requestId, controller)
+      try {
+        const result = await folderSize(path, controller.signal)
+        return insideDesktop(path) && !controller.signal.aborted ? result : null
+      } finally {
+        if (requests.get(requestId) === controller) requests.delete(requestId)
+      }
+    })
+    ipcMain.on('folder:size-cancel', (event, requestId: string) => {
+      if (typeof requestId === 'string')
+        folderSizeRequests.get(event.sender.id)?.get(requestId)?.abort()
+    })
     ipcMain.on('browse:release', (_e, tabId: string) => {
       cancelBrowseSearch(tabId)
       releaseDesktop(tabId)

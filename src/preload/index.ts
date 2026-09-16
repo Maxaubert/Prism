@@ -7,6 +7,7 @@ import type {
   SavedPane
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
+import type { FolderSizeResult } from '@shared/folderSize'
 import type {
   ArchiveListing,
   DirChange,
@@ -222,6 +223,9 @@ const api = {
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
+  folderSize: (path: string, requestId: string): Promise<FolderSizeResult | null> =>
+    ipcRenderer.invoke('folder:size', path, requestId),
+  cancelFolderSize: (requestId: string): void => ipcRenderer.send('folder:size-cancel', requestId),
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
   subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
     ipcRenderer.invoke('subs:for', path),

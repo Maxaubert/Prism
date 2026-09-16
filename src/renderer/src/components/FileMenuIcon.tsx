@@ -7,6 +7,11 @@ const paths = {
   split: 'M4 5h16v14H4zM13 5v14',
   cut: 'M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0',
   copy: 'M8 8h12v12H8zM16 8V4H4v12h4',
+  rotate: 'M20 9a8 8 0 1 0 0 6M20 3v6h-6',
+  image: 'M3 4h18v16H3zM3 16l6-6 4 4 3-3 5 5M15 8h.01',
+  save: 'M4 3h13l4 4v14H3V3h1M7 3v7h10V3M7 21v-7h10v7',
+  slideshow: 'M3 4h18v13H3zM12 17v4M8 21h8M10 7l5 3.5-5 3.5z',
+  stop: 'M5 5h14v14H5z',
   paste: 'M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17',
   rename: 'M4 20h4L19 9l-4-4L4 16z',
   delete: 'M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13',
@@ -25,7 +30,7 @@ const paths = {
 
 export type FileMenuIconName = keyof typeof paths
 
-/** Shared action glyphs for Explorer and project file menus. */
+/** Shared action glyphs for file and viewer menus. */
 export function FileMenuIcon({ name }: { name: FileMenuIconName }): JSX.Element {
   return (
     <svg

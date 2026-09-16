@@ -6,6 +6,10 @@ strip and keeps desktop browsing separate from phone sharing.
 
 ## User behavior
 
+![Recursive folder sizes](screenshots/folder-browsing/folder-sizes.png)
+
+![Folder Properties](screenshots/folder-browsing/folder-properties.png)
+
 - One pinned Explorer tab stays first and remembers its location. The + and Ctrl+T open ordinary
   Explorer tabs. Right-click a folder and choose Open as project to open a separate tab with a
   fixed project tree and an empty workspace, with no selected file or Explorer list. This explicit
@@ -47,13 +51,20 @@ strip and keeps desktop browsing separate from phone sharing.
   search runs. Cancel, inaccessible folders, skipped links and partial results are visible. A walk
   stops after 250,000 entries, 1,000 matches or 30 seconds; it never presents this as complete.
   Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
-- Single-click selects. Double-click or Enter opens a directory or the file's existing viewer.
-  In Explorer, Open in split view enables one viewer to the right of the file list. Further file
-  selections and opens replace that viewer; they never add pinned panes or hide the list. Folder
-  navigation keeps the current file in the viewer. Open full view explicitly hides the list;
-  returning restores the split. The split setting and displayed file survive restart.
+  Folder sizes include files in subfolders and calculate in the background, with at most two
+  scans active. Size sorting uses the totals while keeping folders before files. Properties
+  shows exact bytes and recursive file/folder counts in both Explorer and projects. F5 refreshes
+  the totals. Links are skipped; unreadable items and the 250,000-entry/30-second scan limits
+  produce a visible lower bound, never a false complete total. Navigation cancels stale scans.
+- Single-click or keyboard selection previews a file beside the list. New Explorer tabs have
+  the Preview pane enabled; its icon hides or shows it and the choice survives restart.
+  Double-click, Enter and Open enter full view, including when the preview is visible.
+  Show in preview in a file's context menu restores the pane and previews that file.
+  Further selections replace that viewer; they never add pinned panes or hide the list. Folder
+  navigation keeps the current file in the viewer. Open full view also hides the list;
+  returning restores the preview. The preview setting and displayed file survive restart.
   The viewer header keeps Open full view without repeating the selected filename. The existing
-  preview toggle opens and closes the split.
+  preview toggle opens and closes the pane. Project split views retain their existing behavior.
   Unsupported files retain the existing fallback.
 - The Explorer list supports arrows, Enter, Backspace, F2, Delete and Ctrl+C/X/V.
   Keyboard navigation retains list focus across folder loads, empty folders
@@ -173,9 +184,9 @@ These commands describe the gates, not their latest results. Record actual outco
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
 installed Prism or close active user terminals. This document makes no installation claim.
 
-Package the follow-up trial with `npm run package -- --config.directories.output=dist/menu-consistency-trial`.
-Then `tools/preview-branch.ps1` opens `dist/menu-consistency-trial/win-unpacked/Prism.exe` with a separate
-`.e2e/menu-consistency-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
+Package the follow-up trial with `npm run package -- --config.directories.output=dist/folder-size-trial`.
+Then `tools/preview-branch.ps1` opens `dist/folder-size-trial/win-unpacked/Prism.exe` with a separate
+`.e2e/folder-size-profile`. Its `--preview` flag suppresses automatic Explorer menu registration so
 trying the branch does not repoint the installed application's shell verb. To run the focused suite
 against that executable, set `PRISM_BROWSE_EXECUTABLE` to its absolute path before invoking Playwright.
 The separate output path also lets the earlier trial remain open while the new build is prepared.

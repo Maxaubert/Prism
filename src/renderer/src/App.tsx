@@ -3821,7 +3821,7 @@ export default function App(): JSX.Element {
               places={browsePlaces}
               onDropInto={onBrowseDropInto}
               quickAccess={quickAccess}
-              onQuickAccessFile={(path) => void openBrowseFile(path)}
+              onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active?.browse.preview)}
               onUnpinQuickAccess={unpinQuickAccess}
               onMoveQuickAccess={moveQuickAccess}
               onPinQuickAccessPaths={(paths, beforePath) =>
@@ -3911,7 +3911,7 @@ export default function App(): JSX.Element {
                 error={browsing.error}
                 places={browsePlaces}
                 quickAccess={quickAccess}
-                onQuickAccessFile={(path) => void openBrowseFile(path)}
+                onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active.browse.preview)}
                 onUnpinQuickAccess={unpinQuickAccess}
                 onMoveQuickAccess={moveQuickAccess}
                 onPinQuickAccessPaths={(paths, beforePath) =>
@@ -4556,7 +4556,7 @@ export default function App(): JSX.Element {
               ? [{ label: 'New terminal here', icon: <FileMenuIcon name="terminal" />, onPick: () => termTabAt(browseMenu.entry.path) }]
               : [
                   {
-                    label: 'Open in split view',
+                    label: 'Show in preview',
                     icon: <FileMenuIcon name="split" />,
                     onPick: () => {
                       pinSplit(browseMenu.entry.path)

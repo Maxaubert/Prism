@@ -15,7 +15,7 @@ export function newBrowse(path: string, surface: SavedBrowse['surface'] = 'folde
     ],
     cursor: 0,
     surface,
-    preview: false
+    preview: true
   }
 }
 

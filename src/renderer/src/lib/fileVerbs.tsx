@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import type { MenuItem } from '../components/ContextMenu'
+import { FileMenuIcon } from '../components/FileMenuIcon'
 import { canCopyText, clipboardText } from './clipboardText'
 
 /**
@@ -15,13 +16,8 @@ import { canCopyText, clipboardText } from './clipboardText'
  * is on screen. Anything kind-specific (rotate, speed, extract) belongs to
  * the surface that owns it.
  *
- * NO ICONS, and few shortcuts (owner decision, 2026-08-31). A menu over the
- * thing you are looking at is a short list of verbs, not a toolbar: the
- * glyphs added width and a column of colour to a panel whose whole job is to
- * be read in one glance, and a shortcut hint against a row everybody already
- * knows how to reach teaches nothing. The SIDEBAR's menu keeps its icons -
- * it sits among file rows that are themselves icon-led, and it is the one
- * menu with enough verbs to need scanning.
+ * Viewer menus retain their compact text presentation by default. Surfaces
+ * that use the shared file-menu icons can opt in without changing actions.
  */
 
 /** A tick, or the space one would take, so labels line up either way. Ticks
@@ -61,17 +57,25 @@ export const tickIf = (on: boolean): JSX.Element =>
  * offered: the path is the browser's own clipboard, which every host has,
  * and a row that does nothing when tapped is worse than no row.
  */
-export function fileVerbs(path: string): MenuItem[] {
+export function fileVerbs(path: string, { icons = false }: { icons?: boolean } = {}): MenuItem[] {
   // `navigator.clipboard` is a SECURE-CONTEXT api and the phone page is
   // plain http by design, so on a phone it is simply not there: the row
   // threw rather than copying. The old execCommand path still works in that
   // context, and a host with neither does not offer the row at all.
   const copyPath: MenuItem | null = canCopyText()
-    ? { label: 'Copy path', onPick: () => void clipboardText(path) }
+    ? {
+        label: 'Copy path',
+        icon: icons ? <FileMenuIcon name="path" /> : undefined,
+        onPick: () => void clipboardText(path)
+      }
     : null
   if (!window.prism.capabilities.explorer) return copyPath ? [copyPath] : []
   return [
-    { label: 'Show in File Explorer', onPick: () => window.prism.showInExplorer(path) },
+    {
+      label: 'Show in File Explorer',
+      icon: icons ? <FileMenuIcon name="folder" /> : undefined,
+      onPick: () => window.prism.showInExplorer(path)
+    },
     ...(copyPath ? [copyPath] : [])
   ]
 }

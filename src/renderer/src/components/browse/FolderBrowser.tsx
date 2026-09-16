@@ -5,6 +5,7 @@ import { BrowseList } from './BrowseList'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
 import { browseEntries } from './entries'
+import { useFolderSizes } from '../../hooks/useFolderSizes'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import './browse.css'
 
@@ -33,9 +34,15 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   useLayoutEffect(() => {
     focusList()
   }, [])
+  const folderPaths = useMemo(
+    () => props.listing?.folders.map((folder) => folder.path) ?? [],
+    [props.listing]
+  )
+  const folderSizes = useFolderSizes(folderPaths, !props.loading && !props.searchState?.running)
   const entries = useMemo(
-    () => browseEntries(props.listing, props.searchState ? '' : props.query, props.sort),
-    [props.listing, props.query, props.sort, props.searchState]
+    () =>
+      browseEntries(props.listing, props.searchState ? '' : props.query, props.sort, folderSizes),
+    [props.listing, props.query, props.sort, props.searchState, folderSizes]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
   const activate = (entry: BrowseEntry): void => {
