@@ -1789,9 +1789,11 @@ async function rowPasteScenario(fixtures) {
     // (PasteCtrl+V), and Cut and Copy sit above Paste since 2026-09-03.
     const pasteAt = order.findIndex((t) => t.startsWith('Paste'))
     const cutAt = order.findIndex((t) => t.startsWith('Cut'))
+    const copyAt = order.findIndex((t) => t.startsWith('Copy') && !t.startsWith('Copy path'))
+    const renameAt = order.findIndex((t) => t.startsWith('Rename'))
     ok(
-      pasteAt >= 0 && pasteAt < 7 && cutAt >= 0 && cutAt < pasteAt,
-      `and the Cut/Copy/Paste block sits near the top (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
+      cutAt >= 0 && copyAt === cutAt + 1 && pasteAt === copyAt + 1 && renameAt > pasteAt,
+      `and Cut/Copy/Paste stay together before Rename (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
     const before = await win.locator('[role="treeitem"]').count()
