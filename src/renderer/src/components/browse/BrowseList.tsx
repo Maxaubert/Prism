@@ -7,7 +7,6 @@ import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, iconColour } from '../TreeRows'
 import { BrowseIcon } from './BrowseIcon'
-import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { useFolderDrop } from './useFolderDrop'
 import type { BrowseEntry, BrowseSort, FolderBrowserProps } from './types'
 
@@ -17,6 +16,11 @@ const columns: Array<{ key: BrowseSort['key']; label: string }> = [
   { key: 'type', label: 'Type' },
   { key: 'size', label: 'Size' },
   { key: 'modified', label: 'Date modified' }
+]
+const searchColumns: typeof columns = [
+  { key: 'name', label: 'Name' },
+  { key: 'path', label: 'Path' },
+  { key: 'size', label: 'Size' }
 ]
 
 type Props = Pick<
@@ -47,8 +51,9 @@ export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
   const searching = !!props.query.trim()
-  const rowHeight = searching ? 60 : 40
+  const rowHeight = 40
   const scroller = useRef<HTMLDivElement>(null)
+  const columnScroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
   const typed = useRef({ text: '', at: 0 })
   useLayoutEffect(() => {
@@ -124,31 +129,41 @@ export function BrowseList(props: Props): JSX.Element {
 
   return (
     <div className="browse-list-area" data-searching={searching || undefined}>
-      {searching && (
-        <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
-      )}
-      <div className="browse-columns">
-        {columns.map(({ key, label }) => (
-          <button
-            key={key}
-            className={`browse-column-${key}`}
-            title={`Sort by ${label.toLowerCase()}`}
-            aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
-            onClick={() =>
-              props.onSortChange({
-                key,
-                direction: props.sort.key === key && props.sort.direction === 'asc' ? 'desc' : 'asc'
-              })
-            }
-          >
-            {label}
-            {props.sort.key === key && (
-              <span className="browse-sort-arrow" data-descending={props.sort.direction === 'desc'}>
-                <BrowseIcon name="up" />
-              </span>
-            )}
-          </button>
-        ))}
+      <div
+        className="browse-column-viewport"
+        ref={columnScroller}
+        onScroll={(event) => {
+          if (scroller.current && scroller.current.scrollLeft !== event.currentTarget.scrollLeft)
+            scroller.current.scrollLeft = event.currentTarget.scrollLeft
+        }}
+      >
+        <div className="browse-columns">
+          {(searching ? searchColumns : columns).map(({ key, label }) => (
+            <button
+              key={key}
+              className={`browse-column-${key}`}
+              title={`Sort by ${label.toLowerCase()}`}
+              aria-label={`Sort by ${label.toLowerCase()}${props.sort.key === key ? `, ${props.sort.direction === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+              onClick={() =>
+                props.onSortChange({
+                  key,
+                  direction:
+                    props.sort.key === key && props.sort.direction === 'asc' ? 'desc' : 'asc'
+                })
+              }
+            >
+              {label}
+              {props.sort.key === key && (
+                <span
+                  className="browse-sort-arrow"
+                  data-descending={props.sort.direction === 'desc'}
+                >
+                  <BrowseIcon name="up" />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
       <div
         ref={scroller}
@@ -165,6 +180,11 @@ export function BrowseList(props: Props): JSX.Element {
         {...folderDrop(props.directory, 'list')}
         onKeyDown={onKeyDown}
         onScroll={(e) => {
+          if (
+            columnScroller.current &&
+            columnScroller.current.scrollLeft !== e.currentTarget.scrollLeft
+          )
+            columnScroller.current.scrollLeft = e.currentTarget.scrollLeft
           if (!props.loading) props.onScroll(e.currentTarget.scrollTop)
         }}
         onClick={(e) => {
@@ -243,15 +263,18 @@ export function BrowseList(props: Props): JSX.Element {
                       )}
                       <span className="browse-name-text">
                         <span>{entry.name}</span>
-                        {searching && (
-                          <span className="browse-result-location">
-                            {browseParent(entry.path) ?? entry.path}
-                          </span>
-                        )}
                       </span>
                     </span>
-                    <span className="browse-column-type">
-                      {typeLabel(entry.name, entry.isFolder)}
+                    <span
+                      className={
+                        searching
+                          ? 'browse-column-path browse-result-location'
+                          : 'browse-column-type'
+                      }
+                    >
+                      {searching
+                        ? (browseParent(entry.path) ?? entry.path)
+                        : typeLabel(entry.name, entry.isFolder)}
                     </span>
                     <span
                       className="browse-column-size"
@@ -261,9 +284,11 @@ export function BrowseList(props: Props): JSX.Element {
                         ? formatBytes(entry.file.size)
                         : folderSizeLabel(entry.folderSize)}
                     </span>
-                    <span className="browse-column-modified">
-                      {entry.file ? formatWhen(entry.file.mtimeMs) : ''}
-                    </span>
+                    {!searching && (
+                      <span className="browse-column-modified">
+                        {entry.file ? formatWhen(entry.file.mtimeMs) : ''}
+                      </span>
+                    )}
                   </button>
                 )
               })}

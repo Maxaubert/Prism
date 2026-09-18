@@ -1686,9 +1686,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     await expect(row(page, 'Playnite-settings.txt').locator('.browse-result-location')).toHaveText(
       appData
     )
-    await expect(page.getByTestId('browse-search-status')).toContainText(
-      'This folder and subfolders'
-    )
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('title', /This folder and subfolders/)
     await shot(page, info, 'recursive-appdata-search.png', app)
 
     const explorer = ordinaryTabs(page).nth(1)
@@ -1891,10 +1889,15 @@ test('Everything Explorer filters respond from the index and focus surrounds the
         return result
       })
     })
+    const normalHeight = await page.locator('.browse-row').first().evaluate((el) => el.getBoundingClientRect().height)
     await search(page, 'folder: Playnite')
+    await expect(page.locator('.browse-columns button')).toHaveText(['Name', 'Path', 'Size'])
+    await expect(page.locator('.browse-list-area > .browse-search-status')).toHaveCount(0)
+    await expect(page.locator('.browse-status .browse-search-status')).toHaveCount(1)
+    expect(await row(page, 'Playnite').evaluate((el) => el.getBoundingClientRect().height)).toBe(normalHeight)
     await expect(row(page, 'Playnite')).toBeVisible()
     await expect(row(page, 'Playnite.dll')).toHaveCount(0)
-    await expect(page.getByTestId('browse-search-status')).toContainText('Everything index')
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('data-source', 'everything')
     await search(page, 'file: Playnite')
     await expect(row(page, 'Playnite.dll')).toBeVisible()
     await expect(row(page, '.Playnite-hidden')).toBeVisible()
@@ -1911,7 +1914,8 @@ test('Everything Explorer filters respond from the index and focus surrounds the
     await expect(row(page, 'Playnite.dll')).toBeVisible()
     await search(page, 'prism-no-such-indexed-result-152')
     await expect(page.getByTestId('browse-list').locator('[role="option"]')).toHaveCount(0)
-    await expect(page.getByTestId('browse-search-status')).toContainText('Everything index')
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('data-source', 'everything')
+    await search(page, 'file: Playnite')
     for (const zoom of [1, 2]) {
       await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom)
       const field = page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
@@ -1920,8 +1924,35 @@ test('Everything Explorer filters respond from the index and focus surrounds the
       await expect(field).toHaveCSS('outline-style', 'none')
       await expect(field.locator('..')).toHaveCSS('outline-style', 'solid')
       expect(await field.locator('..').evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThan(1)
+      const result = row(page, 'Playnite.dll')
+      await expect(result.locator('.browse-column-path')).toHaveText(folder)
+      await expect(result).toHaveCSS('height', '40px')
+      const cells = await result.locator(':scope > span').evaluateAll((elements) => elements.map((el) => {
+        const rect = el.getBoundingClientRect()
+        return { x: rect.x, right: rect.right, y: rect.y, height: rect.height, width: rect.width }
+      }))
+      expect(cells).toHaveLength(3)
+      expect(cells.every((cell) => cell.width > 0)).toBe(true)
+      expect(cells[0].right).toBeLessThan(cells[1].x)
+      expect(cells[1].right).toBeLessThan(cells[2].x)
       await shot(page, info, `search-focus-${zoom}.png`, app)
     }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+    await page.locator('.browse-list-area').evaluate((element) => { (element as HTMLElement).style.width = '240px' })
+    const list = page.getByTestId('browse-list')
+    expect(await row(page, 'Playnite.dll').locator('.browse-name-text').evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(100)
+    await list.evaluate((element) => { element.scrollLeft = 120 })
+    await expect.poll(() => page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)).toBe(120)
+    await expect(row(page, 'Playnite.dll').locator('.browse-column-path')).toBeVisible()
+    await list.evaluate((element) => { element.scrollLeft = 0 })
+    await expect.poll(() => page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)).toBe(0)
+    await page.getByRole('button', { name: 'Sort by size', exact: true }).focus()
+    await expect.poll(async () => {
+      const headerLeft = await page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)
+      const bodyLeft = await list.evaluate((el) => el.scrollLeft)
+      return headerLeft > 0 && headerLeft === bodyLeft
+    }).toBe(true)
+    await page.locator('.browse-list-area').evaluate((element) => { (element as HTMLElement).style.removeProperty('width') })
     const timings = await app.evaluate(() => (globalThis as unknown as { __searchTimings: { query: string; ms: number }[] }).__searchTimings)
     console.log('Indexed Explorer timings:', JSON.stringify(timings))
     await info.attach('indexed-search-timings', { body: JSON.stringify(timings, null, 2), contentType: 'application/json' })

@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
+import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
 import { browseEntries } from './entries'
@@ -263,6 +264,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </span>
         {selected && (
           <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+        )}
+        {!!props.query.trim() && (
+          <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
         )}
       </div>
     </div>

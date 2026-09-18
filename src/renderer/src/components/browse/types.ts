@@ -19,7 +19,7 @@ export interface BrowseEntry {
 }
 
 export interface BrowseSort {
-  key: 'name' | 'type' | 'size' | 'modified'
+  key: 'name' | 'path' | 'type' | 'size' | 'modified'
   direction: 'asc' | 'desc'
 }
 
