@@ -1875,12 +1875,19 @@ test('Everything Explorer filters respond from the index and focus surrounds the
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
       const original = handlers.get('browse:search')!
       const timings: { query: string; ms: number }[] = []
+      let waitingForIndex = true
       ;(globalThis as unknown as { __searchTimings: typeof timings }).__searchTimings = timings
       ipcMain.removeHandler('browse:search')
       ipcMain.handle('browse:search', async (...args: unknown[]) => {
         const start = performance.now()
         const result = await original(...args)
         timings.push({ query: String(args[3]), ms: Math.round(performance.now() - start) })
+        // Reproduce a query arriving just before Everything consumes a newly
+        // created folder. The unchanged query must fill in quietly afterward.
+        if (args[3] === 'folder: Playnite' && waitingForIndex) {
+          waitingForIndex = false
+          return { ...(result as Record<string, unknown>), listing: { folders: [], files: [] } }
+        }
         return result
       })
     })

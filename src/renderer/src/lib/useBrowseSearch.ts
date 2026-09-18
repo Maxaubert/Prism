@@ -31,22 +31,44 @@ export function useBrowseSearch(
   useEffect(() => {
     if (!searching || !tabId || !path) return
     let disposed = false
+    let stopped = false
     let started = false
+    let refreshes = 0
+    let timer: ReturnType<typeof setTimeout>
     const requestId = crypto.randomUUID()
     const unsubscribe = window.prism.onBrowseSearchProgress((progress) => {
-      if (!disposed && progress.tabId === tabId && progress.requestId === requestId)
+      if (
+        !disposed &&
+        !stopped &&
+        refreshes === 0 &&
+        progress.tabId === tabId &&
+        progress.requestId === requestId
+      )
         setAnswer({ key, result: progress, running: true })
     })
-    const timer = setTimeout(() => {
+    const run = () => {
       started = true
-      setAnswer({ key, result: emptyResult(path), running: true })
+      if (refreshes === 0) setAnswer({ key, result: emptyResult(path), running: true })
       void window.prism
         .browseSearch(tabId, path, query, requestId)
         .then((result) => {
-          if (!disposed) setAnswer({ key, result, running: false })
+          if (disposed || stopped) return
+          setAnswer((previous) =>
+            previous?.key === key &&
+            !previous.running &&
+            JSON.stringify(previous.result) === JSON.stringify(result)
+              ? previous
+              : { key, result, running: false }
+          )
+          // Return immediately, then let Everything consume recent create and
+          // rename events. These bounded follow-ups keep the visible results
+          // in place and are cancelled with this query, folder or tab.
+          if (result.source === 'everything' && !result.cancelled && refreshes < 2) {
+            timer = setTimeout(run, ++refreshes === 1 ? 500 : 1500)
+          }
         })
         .catch(() => {
-          if (!disposed)
+          if (!disposed && !stopped && refreshes === 0)
             setAnswer({
               key,
               result: emptyResult(path),
@@ -54,11 +76,20 @@ export function useBrowseSearch(
               error: 'Search could not finish. Try again or choose another folder.'
             })
         })
-    }, 50)
+    }
+    timer = setTimeout(run, 50)
     cancel.current = () => {
+      stopped = true
       clearTimeout(timer)
       if (started) window.prism.browseSearchCancel(tabId, requestId)
-      else setAnswer({ key, result: { ...emptyResult(path), cancelled: true }, running: false })
+      setAnswer((previous) => ({
+        key,
+        result: {
+          ...(previous?.key === key ? previous.result : emptyResult(path)),
+          cancelled: true
+        },
+        running: false
+      }))
     }
     return () => {
       disposed = true
