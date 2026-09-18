@@ -2130,11 +2130,6 @@ export function Settings({
               })}
             </nav>
           ))}
-          <div
-            className={`mt-auto px-2 pb-0.5 text-[10.5px] text-[var(--p-dim2)] ${compactRail ? 'invisible' : ''}`}
-          >
-            Prism
-          </div>
         </aside>
 
         {/* content */}

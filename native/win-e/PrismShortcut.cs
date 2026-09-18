@@ -1,5 +1,6 @@
 // Optional, per-user Win+E interception. Windows Explorer registrations are never changed.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -298,14 +299,31 @@ internal static class Launcher
     }
 }
 
+internal sealed class ShortcutPresses
+{
+    private bool captured;
+    private int pending;
+    internal bool ConsumeCaptured(int key, bool injected, bool up)
+    {
+        if (injected || key != 0x45 || !captured) return false;
+        if (up) captured = false;
+        return true;
+    }
+    internal void Accept()
+    {
+        captured = true;
+        Interlocked.Increment(ref pending);
+    }
+    internal int TakePending() { return Interlocked.Exchange(ref pending, 0); }
+}
+
 internal sealed class Watcher : IDisposable
 {
     private readonly Owner owner;
     private readonly Native.HookProc callback;
     private IntPtr hook;
     private volatile bool active;
-    private bool capturedE;
-    private int pending;
+    private readonly ShortcutPresses presses = new ShortcutPresses();
     private readonly AutoResetEvent request = new AutoResetEvent(false);
     private Thread worker;
     private Watcher(Owner target) { owner = target; callback = HandleKey; }
@@ -363,22 +381,19 @@ internal sealed class Watcher : IDisposable
             var key = (Native.Keyboard)Marshal.PtrToStructure(data, typeof(Native.Keyboard));
             bool down = message.ToInt32() == 0x100 || message.ToInt32() == 0x104;
             bool up = message.ToInt32() == 0x101 || message.ToInt32() == 0x105;
-            if ((key.flags & 0x10) == 0 && key.vkCode == 0x45 && capturedE)
+            if (presses.ConsumeCaptured((int)key.vkCode, (key.flags & 0x10) != 0, up))
             {
-                if (up) capturedE = false;
                 return new IntPtr(1);
             }
             if (active && Matches((int)key.vkCode, down, (key.flags & 0x10) != 0,
                 Held(0x5B) || Held(0x5C), Held(0x11), Held(0x12), Held(0x10)))
             {
                 // Mark the Windows chord as used so its release does not open Start.
-                // Only these injected modifier events are synthesized, never user input.
+                // Use an unassigned non-modifier key, never Ctrl/Alt/Shift: modifier
+                // masking can activate another app's Win+Ctrl dictation shortcut.
                 if (!Native.MaskWindowsRelease()) return Native.CallNextHookEx(hook, code, message, data);
-                capturedE = true;
-                if (Interlocked.CompareExchange(ref pending, 1, 0) == 0)
-                {
-                    request.Set();
-                }
+                presses.Accept();
+                request.Set();
                 return new IntPtr(1);
             }
         }
@@ -387,20 +402,33 @@ internal sealed class Watcher : IDisposable
     private static bool Held(int key) { return (Native.GetAsyncKeyState(key) & 0x8000) != 0; }
     private void Work()
     {
+        var launches = new List<Thread>();
         try
         {
             while (true)
             {
                 request.WaitOne();
-                if (Interlocked.CompareExchange(ref pending, 0, 0) == 1)
-                {
-                    try { Launcher.Open(owner); }
-                    finally { Interlocked.Exchange(ref pending, 0); }
-                }
+                launches.RemoveAll(delegate(Thread launch) { return !launch.IsAlive; });
+                Dispatch(presses.TakePending(), delegate { Launcher.Open(owner); }, launches);
                 if (!active) return;
             }
         }
-        finally { request.Dispose(); }
+        finally
+        {
+            // Accepted presses each finish their own ACK/fallback, including on disable.
+            foreach (Thread launch in launches) launch.Join();
+            request.Dispose();
+        }
+    }
+    internal static void Dispatch(int count, Action launch, List<Thread> launches)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            // Only the dispatcher creates threads. Slow ACKs never drop another press.
+            var thread = new Thread(delegate() { launch(); });
+            thread.Start();
+            launches.Add(thread);
+        }
     }
     public void Dispose()
     {
@@ -421,9 +449,9 @@ internal static class Native
 {
     internal delegate IntPtr HookProc(int code, IntPtr message, IntPtr data);
     [StructLayout(LayoutKind.Sequential)] internal struct Keyboard { internal uint vkCode, scanCode, flags, time; internal UIntPtr extra; }
-    [StructLayout(LayoutKind.Sequential)] private struct KeyInput { internal ushort vk, scan; internal uint flags, time; internal UIntPtr extra; }
-    [StructLayout(LayoutKind.Explicit, Size = 32)] private struct InputUnion { [FieldOffset(0)] internal KeyInput keyboard; }
-    [StructLayout(LayoutKind.Sequential)] private struct Input { internal uint type; internal InputUnion data; }
+    [StructLayout(LayoutKind.Sequential)] internal struct KeyInput { internal ushort vk, scan; internal uint flags, time; internal UIntPtr extra; }
+    [StructLayout(LayoutKind.Explicit, Size = 32)] internal struct InputUnion { [FieldOffset(0)] internal KeyInput keyboard; }
+    [StructLayout(LayoutKind.Sequential)] internal struct Input { internal uint type; internal InputUnion data; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct StartupInfo
     {
         internal uint size;
@@ -447,12 +475,19 @@ internal static class Native
         CloseHandle(process.thread);
         CloseHandle(process.process);
     }
-    internal static bool MaskWindowsRelease()
+    internal static Input[] MenuMaskInputs()
     {
         var events = new Input[2];
         events[0].type = events[1].type = 1;
-        events[0].data.keyboard.vk = events[1].data.keyboard.vk = 0x11;
+        // Microsoft's virtual-key table lists 0xE8 as unassigned. It marks the
+        // Windows chord as used without synthesizing another application's modifiers.
+        events[0].data.keyboard.vk = events[1].data.keyboard.vk = 0xE8;
         events[1].data.keyboard.flags = 2;
+        return events;
+    }
+    internal static bool MaskWindowsRelease()
+    {
+        var events = MenuMaskInputs();
         uint sent = SendInput(2, events, Marshal.SizeOf(typeof(Input)));
         if (sent == 1) SendInput(1, new Input[] { events[1] }, Marshal.SizeOf(typeof(Input)));
         return sent == 2;
@@ -539,6 +574,47 @@ internal static class SelfTests
             Check(!Watcher.Matches(0x45, false, false, true, false, false, false), "uncaptured key release passes through");
             Check(!Watcher.Matches(0x45, true, true, true, false, false, false), "injected keys pass through");
             Check(!Watcher.Matches(0x41, true, false, true, false, false, false), "other Windows shortcuts pass through");
+            var mask = Native.MenuMaskInputs();
+            Check(mask.Length == 2 && mask[0].type == 1 && mask[1].type == 1 &&
+                mask[0].data.keyboard.vk == 0xE8 && mask[1].data.keyboard.vk == 0xE8 &&
+                mask[0].data.keyboard.flags == 0 && mask[1].data.keyboard.flags == 2,
+                "Start-menu mask is one unassigned key down/up pair");
+            bool modifiers = false;
+            foreach (var input in mask)
+            {
+                ushort vk = input.data.keyboard.vk;
+                modifiers |= (vk >= 0x10 && vk <= 0x12) || (vk >= 0xA0 && vk <= 0xA5);
+            }
+            Check(!modifiers, "Start-menu mask never injects Ctrl, Alt or Shift");
+            var presses = new ShortcutPresses();
+            presses.Accept();
+            Check(presses.ConsumeCaptured(0x45, false, false) && presses.ConsumeCaptured(0x45, false, false)
+                && presses.TakePending() == 1, "holding E queues one launch despite auto-repeat");
+            Check(!presses.ConsumeCaptured(0x45, true, true) && presses.ConsumeCaptured(0x45, false, false),
+                "injected key-up does not release the physical-key latch");
+            Check(presses.ConsumeCaptured(0x45, false, true) && !presses.ConsumeCaptured(0x45, false, false),
+                "physical E release allows a new Win+E press");
+            presses.Accept();
+            presses.ConsumeCaptured(0x45, false, true);
+            presses.Accept();
+            Check(presses.TakePending() == 2, "distinct presses are retained while earlier ACKs are pending");
+            var dispatches = new List<Thread>();
+            using (var started = new CountdownEvent(2))
+            using (var release = new ManualResetEvent(false))
+            {
+                bool concurrent;
+                try
+                {
+                    Watcher.Dispatch(2, delegate { started.Signal(); release.WaitOne(); }, dispatches);
+                    concurrent = started.Wait(2000);
+                }
+                finally
+                {
+                    release.Set();
+                    foreach (Thread dispatch in dispatches) dispatch.Join();
+                }
+                Check(concurrent, "separate presses launch concurrently without waiting for another ACK");
+            }
             Check(Program.ReadValue(Program.RunKey) == priorRun, "real Windows Run entry remains unchanged");
             var childClock = Stopwatch.StartNew();
             using (var child = Process.Start(new ProcessStartInfo(Program.Self, "--self-test-spawn-child")

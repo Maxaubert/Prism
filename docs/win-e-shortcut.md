@@ -2,15 +2,25 @@
 
 Settings > General > **Open Prism with Win+E** is off by default. Enabling it starts
 a small Windows helper and registers that helper at sign-in for the current user.
-Prism itself can close normally. Win+E launches or raises Prism and returns to its
-pinned Explorer folder tab, preserving project files and terminals.
+Prism itself can close normally. Each distinct Win+E press opens a new Explorer
+window, preserving existing windows, project files and terminals. Holding the keys
+does not create repeated windows.
+
+Additional windows use separate working profiles so tabs, terminals, browsing grants
+and phone pairings cannot leak between windows. Appearance and other preferences are
+inherited from the shared preference store when a window opens. Shared preference
+changes refresh other windows, including saved style and visualizer presets.
+Normally closed working profiles are cleaned up after exit;
+crashed sessions are retained. The primary profile owns the shortcut registration.
 
 The setting reads Windows state, confirms changes, and reports failures. It is
 available only in packaged Windows builds. A different Prism installation or
 profile cannot take ownership until the existing owner disables the setting.
 
 The helper intercepts only plain Win+E. Other keys and modified combinations pass
-through. It does not log keys or replace Explorer associations, system files or
+through. Start-menu suppression uses an unassigned key rather than injecting Ctrl,
+so it does not synthesize another application's Ctrl+Win shortcut. It does not log
+keys or replace Explorer associations, system files or
 Windows shortcut registry mappings. Disabling the setting stops the helper and
 removes only its own startup entry. A normal uninstall does the same; upgrading
 pauses the helper and preserves opt-in for Prism's next launch.
@@ -36,9 +46,11 @@ sidebar is closed and a full terminal is not covering the file.
 - Explorer Playwright tests exercise the General setting with mocked Windows state,
   titlebar visibility, cold startup and warm second-instance requests. The latter
   use real named pipes and the packaged app with isolated profiles, without a hook.
-- Actual physical Win-key masking, sign-in, crash-hook removal and installed
-  upgrade/uninstall require verification in a disposable Windows session before
-  release. The automated checks do not claim those desktop lifecycle cases.
+- Multiple-window scenarios check separate processes, shared preferences, isolated
+  browsing grants and terminals, and a child remaining usable after its parent closes.
+- The owner confirmed the physical shortcut and chosen style with the current test
+  build. Sign-in, crash-hook removal and installed upgrade/uninstall still need
+  dedicated lifecycle verification; the automated checks do not claim those cases.
 
 Native implementation and build details: [helper reference](../native/win-e/README.md).
 

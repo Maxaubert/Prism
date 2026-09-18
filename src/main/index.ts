@@ -31,6 +31,14 @@ import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
 import { createWinEShortcut } from './winEShortcut'
 import { createWinERequests, winERequest } from './winERequests'
+import {
+  cleanExplorerWindows,
+  explorerWindowOwner,
+  hasOtherExplorerWindows,
+  launchExplorerWindow,
+  markExplorerWindow
+} from './explorerWindow'
+import { createWindowPreferences } from './windowPreferences'
 import { isRoot, isSkipped, listDir, searchFiles, toViewerFile } from './dirList'
 import { addRoot, dropRoot, isAnyRoot, onRootsChanged, openRoots, validRoot } from './roots'
 import {
@@ -92,7 +100,7 @@ import {
 } from './sevenZip'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
-import { installVerb, removeVerb, shouldWriteVerb, verbInstalled } from './shellVerb'
+import { createShellVerbSetting } from './shellVerbSetting'
 import { isRaw, rawPreview } from './rawPreview'
 import { photoInfo, type PhotoInfo } from './photoInfo'
 import { sanitizeDoc } from './docSanitize'
@@ -626,6 +634,14 @@ async function folderPayload(dir: string): Promise<OpenPayload | null> {
 }
 
 let mainWindow: BrowserWindow | null = null
+let installingUpdate = false
+const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
+const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
+const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
+let preferencesLoaded!: () => void
+const preferencesReady = new Promise<void>((resolve) => {
+  preferencesLoaded = resolve
+})
 const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
 /** Subtitle files the user chose in the dialog: reading those is allowed
@@ -1030,56 +1046,18 @@ setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()
 // about.
 comicsDir = join(app.getPath('userData'), 'comics')
 
-/** Written only when someone turns the verb OFF in Settings. Its ABSENCE is
- *  what licenses a repair; see reconcileVerb. */
-const verbOffMarker = (): string => join(app.getPath('userData'), 'shell-verb-off')
-
-/**
- * "Open in Prism" is ON by default (2026-08-31), and STAYS on across upgrades
- * (2026-09-02).
- *
- * THE BUG THIS FIXES. Every upgrade dropped the verb and it had to be switched
- * back on by hand. electron-builder's NSIS uninstalls the old version before
- * installing the new one, and `PRISM_UNREGISTER_TYPES` deletes the three
- * OpenWithPrism keys - correctly, for a real uninstall. userData survives an
- * upgrade, so the old `shell-verb-applied` marker was still there, the default
- * counted itself as already applied, and nothing ever put the keys back.
- *
- * WHY THIS IS NOT THE SETTING LYING. The rule that marker existed to enforce is
- * real: a default that reapplies itself every launch means turning the verb off
- * brings it back tomorrow. But "applied once" was recording the wrong fact.
- * What has to be remembered is the only thing that cannot be read back from the
- * registry - that somebody said NO. So an explicit off writes a marker and is
- * honoured forever, and everything else is a repair: if nobody has said no and
- * Explorer does not have the verb, put it back. A user who never touched the
- * switch cannot tell an upgrade from a fresh install, and should not have to.
- *
- * Not in dev and not under --e2e. `app.getPath('exe')` is the built electron
- * binary in both, and writing HKCU keys pointing at it would repoint the real
- * installed Prism's verb at a throwaway build - thirty e2e launches doing that
- * is its own kind of broken.
- *
- * One wart, said rather than hidden: someone who turned the verb off BEFORE
- * this change has no off-marker, because nothing recorded one, so they get it
- * back once. Their next "off" is remembered permanently. That is the same
- * one-time cost the previous version of this comment already accepted, and it
- * is the price of there having been no record to migrate.
- */
-async function reconcileVerb(): Promise<void> {
-  if (!app.isPackaged || E2E || process.argv.includes('--preview') || winERequest(process.argv)) return
-  try {
-    const fs = await import('fs/promises')
-    const saidNo = !!(await fs.stat(verbOffMarker()).catch(() => null))
-    const exe = app.getPath('exe')
-    // The registry rather than a marker: it is the thing that is actually wrong
-    // after an upgrade, and `verbInstalled` already checks the command points at
-    // THIS build, so a moved install repoints itself too.
-    if (!shouldWriteVerb(saidNo, saidNo ? true : await verbInstalled(exe))) return
-    await installVerb(exe)
-  } catch {
-    /* no userData, no registry: the switch in Settings still works */
-  }
-}
+// All windows share the explicit shell-menu preference. Preview windows report
+// the installed registration without automatically repointing it at a trial.
+const shellVerbSetting = createShellVerbSetting({
+  exe: app.getPath('exe'),
+  marker: join(preferencesOwner, 'shell-verb-off'),
+  automatic:
+    app.isPackaged &&
+    !E2E &&
+    !extraWindowOwner &&
+    !process.argv.includes('--preview') &&
+    !winERequest(process.argv)
+})
 
 /**
  * Keep the screen awake while something is playing (2026-08-30).
@@ -1294,7 +1272,7 @@ function createWindow(): void {
     // file into a tab whose root already holds it, so a launch file that
     // arrives BEFORE its own restored tab spawns a duplicate instead.
     void (async () => {
-      const restored = await restoreTabs()
+      const restored = extraWindowOwner ? [] : await restoreTabs()
       if (!restored.some((payload) => payload.role === 'explorer' && payload.pinned)) {
         const id = `explorer-home-${Date.now()}`
         const home = await browseDirectory(id, app.getPath('home'))
@@ -1325,9 +1303,27 @@ function createWindow(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
-    if (shortcutRequest) winERequests.enqueue(shortcutRequest)
+    if (shortcutRequest) {
+      if (installingUpdate) return
+      void Promise.all([app.whenReady(), preferencesReady])
+        .then(() => {
+          launchExplorerWindow({
+            owner: preferencesOwner,
+            id: shortcutRequest,
+            executable: process.execPath,
+            packaged: app.isPackaged,
+            appPath: app.getAppPath(),
+            argv: process.argv
+          })
+        })
+        .catch(() => {
+          /* The helper falls back if the new window cannot launch. */
+        })
+      return
+    }
     const paths = pathsFromArgv(argv)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
@@ -1351,6 +1347,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // Every shell dies with the app; a pty with no window is an orphan.
   app.on('will-quit', () => {
+    markExplorerWindow(app.getPath('userData'), true)
     stopDwmHelper()
     killAll()
     killSidecars()
@@ -1367,10 +1364,34 @@ if (!app.requestSingleInstanceLock()) {
   )
 
   app.whenReady().then(() => {
+    void cleanExplorerWindows(preferencesOwner)
+    const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send('window-preferences:changed', snapshot)
+    })
+    app.once('will-quit', stopPreferencesWatch)
+    ipcMain.on('window-preferences:load', (event) => {
+      event.returnValue = event.sender === mainWindow?.webContents ? windowPreferences.load() : null
+      if (event.sender === mainWindow?.webContents && extraWindowOwner) preferencesLoaded()
+    })
+    ipcMain.on('window-preferences:seed', (event, values: unknown) => {
+      event.returnValue = null
+      if (event.sender !== mainWindow?.webContents) return
+      try {
+        event.returnValue = windowPreferences.seed(values)
+      } catch {
+        /* Local preferences still work if the shared store is unavailable. */
+      } finally {
+        preferencesLoaded()
+      }
+    })
+    ipcMain.on('window-preferences:set', (event, change: unknown) => {
+      event.returnValue = event.sender === mainWindow?.webContents && windowPreferences.set(change)
+    })
     const winE = createWinEShortcut({
       helper: join(process.resourcesPath, 'win-e', 'PrismShortcut.exe'),
       executable: process.execPath,
-      profile: app.getPath('userData'),
+      profile: preferencesOwner,
       supported: process.platform === 'win32' && app.isPackaged && !E2E
     })
     ipcMain.handle('win-e:status', (event) => {
@@ -1388,7 +1409,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on('win-e:ready', (event, id: unknown) => {
       if (event.sender === mainWindow?.webContents && typeof id === 'string') winERequests.ready(id)
     })
-    void winE.resume()
+    if (!extraWindowOwner) void winE.resume()
     protocol.handle(MEDIA_SCHEME, (request) => serveMedia(request))
     protocol.handle(AUDIO_SCHEME, (request) =>
       serveSidecarAudio(request, {
@@ -1683,14 +1704,32 @@ if (!app.requestSingleInstanceLock()) {
       // refuses until it has; then the quit is pre-answered, like any other
       // route the user has already agreed to.
       if (editorDirty) return false
+      const canInstall = async (): Promise<boolean> => {
+        if (!(await hasOtherExplorerWindows(preferencesOwner))) return !editorDirty
+        if (mainWindow)
+          await dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            message: 'Close the other Prism windows before installing the update.',
+            detail: 'This keeps their open files and terminals safe.',
+            buttons: ['OK']
+          })
+        return false
+      }
+      if (installingUpdate || !(await canInstall())) return false
+      installingUpdate = true
       closeConfirmed = true
-      const ok = await installUpdate(url, (pct) =>
-        mainWindow?.webContents.send('update:progress', pct)
+      const ok = await installUpdate(
+        url,
+        (pct) => mainWindow?.webContents.send('update:progress', pct),
+        canInstall
       )
       // A download that FAILED must not leave the close question pre-answered
       // for the rest of the session: the next Alt+F4 over unsaved text would
       // close over the top of it without asking.
-      if (!ok) closeConfirmed = false
+      if (!ok) {
+        closeConfirmed = false
+        installingUpdate = false
+      }
       return ok
     })
 
@@ -2345,20 +2384,10 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // "Open in Prism" in File Explorer's own context menu (HKCU only).
-    ipcMain.handle('shell:verb-status', () => verbInstalled(app.getPath('exe')))
-    ipcMain.handle('shell:verb-set', async (_e, on: boolean): Promise<boolean> => {
-      if (typeof on !== 'boolean') return false
-      // The off-marker is the record that survives an upgrade. Written when the
-      // answer is no, removed when it is yes - so the reconcile on the next
-      // launch repairs a wiped verb but never argues with a deliberate off.
-      const fs = await import('fs/promises')
-      await (
-        on
-          ? fs.rm(verbOffMarker(), { force: true })
-          : fs.writeFile(verbOffMarker(), new Date().toISOString())
-      ).catch(() => undefined)
-      return on ? installVerb(app.getPath('exe')) : removeVerb()
-    })
+    ipcMain.handle('shell:verb-status', () => shellVerbSetting.status())
+    ipcMain.handle('shell:verb-set', (_e, on: unknown): Promise<boolean> | false =>
+      typeof on === 'boolean' ? shellVerbSetting.set(on) : false
+    )
 
     /* ----- context-menu verbs ----- */
 
@@ -3398,7 +3427,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     createWindow()
-    void reconcileVerb()
+    void shellVerbSetting.status()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

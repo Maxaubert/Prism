@@ -1,6 +1,6 @@
 /* eslint-disable no-empty-pattern -- Playwright requires a destructured fixture argument, including tests without browser fixtures. */
 import { test, expect, type TestInfo } from '@playwright/test'
-import { _electron as electron, type ElectronApplication, type Page } from 'playwright-core'
+import { _electron as electron, chromium, type Browser, type ElectronApplication, type Page } from 'playwright-core'
 import { execFile, execFileSync } from 'node:child_process'
 import { createServer, type Socket } from 'node:net'
 import { promisify } from 'node:util'
@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   unlinkSync,
   writeFileSync
 } from 'node:fs'
@@ -4146,33 +4147,189 @@ test('Win+E cold CLI launch restores projects and acknowledges the rendered Expl
   }
 })
 
-test('Win+E warm CLI handoff acknowledges the existing window and preserves its active project', async () => {
+interface WinEChild {
+  id: string
+  profile: string
+  executable: string
+  pid?: number
+  browser?: Browser
+  page?: Page
+}
+
+/** Real detached children expose CDP on a random loopback port only under --e2e. */
+async function connectWinEChild(child: WinEChild): Promise<Page> {
+  let endpoint = ''
+  await expect.poll(() => {
+    try {
+      const marker = JSON.parse(readFileSync(join(child.profile, 'prism-window.json'), 'utf8'))
+      const [port, path] = readFileSync(join(child.profile, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/)
+      if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0 || marker.closed !== false) return false
+      if (!/^\d+$/.test(port) || Number(port) > 65535 || Number(port) < 1 || !path.startsWith('/devtools/browser/')) return false
+      child.pid = marker.pid
+      endpoint = `ws://127.0.0.1:${port}${path}`
+      return true
+    } catch {
+      return false
+    }
+  }, { timeout: 30_000 }).toBe(true)
+  child.browser = await chromium.connectOverCDP(endpoint)
+  await expect.poll(() => child.browser!.contexts().flatMap((context) => context.pages()).length).toBe(1)
+  child.page = child.browser.contexts()[0].pages()[0]
+  await child.page.waitForLoadState('domcontentloaded')
+  await expect(child.page.getByTestId('folder-browser')).toBeVisible()
+  return child.page
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
+
+/** Never sweep processes by image name. Even fallback cleanup checks this request's exact identity. */
+async function stopWinEChild(child: WinEChild, owner: string): Promise<void> {
+  const expected = join(resolve(owner), 'explorer-windows', child.id)
+  expect(resolve(child.profile)).toBe(expected)
+  expect(child.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  if (!child.pid && existsSync(join(expected, 'prism-window.json')))
+    child.pid = JSON.parse(readFileSync(join(expected, 'prism-window.json'), 'utf8')).pid
+  await child.page?.evaluate(() => window.prism.close(true)).catch(() => {})
+  try {
+    if (child.pid) {
+      expect(Number.isSafeInteger(child.pid) && child.pid > 0).toBe(true)
+      try {
+        await expect.poll(() => processIsAlive(child.pid!), { timeout: 5000 }).toBe(false)
+      } catch {
+        const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+          `Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}' | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress`
+        ], { windowsHide: true })
+        const live = stdout.trim() ? JSON.parse(stdout) : null
+        if (live) {
+          expect(live.ProcessId).toBe(child.pid)
+          expect(live.ExecutablePath.toLowerCase()).toBe(child.executable.toLowerCase())
+          expect(live.CommandLine).toContain(`--user-data-dir=${expected}`)
+          expect(live.CommandLine).toContain(`--explorer-window=${child.id}`)
+          await promisify(execFile)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+        }
+        await expect.poll(() => processIsAlive(child.pid!)).toBe(false)
+      }
+      // The exact profile and exited PID were verified above. The primary may already have removed it.
+      rmSync(expected, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
+  } finally {
+    await child.browser?.close().catch(() => {})
+  }
+}
+
+test('Win+E warm CLI requests open independent Explorer processes with shared preferences and isolated sessions', async () => {
   test.skip(process.platform !== 'win32', 'The shortcut acknowledgement uses a Windows named pipe.')
   const h = await setup()
-  let pipe: Awaited<ReturnType<typeof winEAckPipe>> | undefined
+  const children: WinEChild[] = []
+  const pipes: Awaited<ReturnType<typeof winEAckPipe>>[] = []
+  let primaryLive = true
   try {
+    await go(h.page, h.project)
+    await search(h.page, 'notes.txt')
+    await row(h.page, 'notes.txt').click({ button: 'right' })
+    await h.page.getByRole('menuitem', { name: 'Pin to Quick access', exact: true }).click()
+    await search(h.page, '')
+    const pins = await h.page.evaluate(() => localStorage.getItem('prism.quickAccess'))
     await prepareWinEProject(h)
     const count = await h.page.getByRole('tab').count()
-    const id = randomUUID()
-    pipe = await winEAckPipe(id, () => winEVisibleState(h.page))
     const launch = await h.app.evaluate(({ app }) => ({
-      executable: app.getPath('exe'), packaged: app.isPackaged
+      executable: app.getPath('exe'), packaged: app.isPackaged, home: app.getPath('home'), pid: process.pid
     }))
-    // The second process gets this test's profile and non-interactive flags, never the installed profile.
-    await promisify(execFile)(launch.executable, [
-      ...(launch.packaged ? [] : [MAIN]), `--user-data-dir=${h.profile}`,
-      '--preview', '--e2e', `--win-e=${id}`
-    ], { windowsHide: true, timeout: 15000 })
-    await expect.poll(() => pipe!.messages).toEqual([id])
-    expect(await pipe.observations[0]).toEqual({
-      role: 'explorer', pinned: true, folderVisible: true, folder: h.movies, projects: 1
+    await h.page.evaluate(() => {
+      localStorage.setItem('prism.tree.side', 'right')
+      localStorage.setItem('prism.sidebar.width', '419')
+      localStorage.setItem('prism.phone.win-e-fixture', 'parent-only')
+      sessionStorage.setItem('win-e-fixture', 'parent-only')
     })
-    await expect(h.page.getByRole('tab')).toHaveCount(count)
-    await expect(h.page.locator('[data-pinned] > [role="tab"]')).toHaveAttribute('aria-selected', 'true')
-    await expect(row(h.page, 'readme.txt')).toBeVisible()
+
+    const openChild = async (): Promise<Page> => {
+      const id = randomUUID()
+      const child: WinEChild = { id, profile: join(h.profile, 'explorer-windows', id), executable: launch.executable }
+      children.push(child)
+      // ACK can arrive before CDP attaches; no renderer interaction occurs before this observation.
+      const pipe = await winEAckPipe(id, async () => winEVisibleState(await connection))
+      pipes.push(pipe)
+      const connection = connectWinEChild(child)
+      const [page] = await Promise.all([connection, promisify(execFile)(launch.executable, [
+        ...(launch.packaged ? [] : [MAIN]), `--user-data-dir=${h.profile}`,
+        '--preview', '--e2e', `--win-e=${id}`
+      ], { windowsHide: true, timeout: 15000 })])
+      await expect.poll(() => pipe.messages).toEqual([id])
+      expect(await pipe.observations[0]).toEqual({
+        role: 'explorer', pinned: true, folderVisible: true, folder: launch.home, projects: 0
+      })
+      await expect(page.getByRole('tab')).toHaveCount(1)
+      expect(child.pid).not.toBe(launch.pid)
+      await expect(h.page.getByRole('tab')).toHaveCount(count)
+      await expect(h.page.locator('[data-tab-role="project"] > [role="tab"]')).toHaveAttribute('aria-selected', 'true')
+      await expectWinEProjectPreserved(h)
+      return page
+    }
+
+    const first = await openChild()
+    const firstPreferences = await first.evaluate(() => ({
+      side: localStorage.getItem('prism.tree.side'), pins: localStorage.getItem('prism.quickAccess'),
+      width: localStorage.getItem('prism.sidebar.width'), phone: localStorage.getItem('prism.phone.win-e-fixture'),
+      session: sessionStorage.getItem('win-e-fixture')
+    }))
+    expect(firstPreferences).toMatchObject({ side: 'right', pins, phone: null, session: null })
+    expect(firstPreferences.width).not.toBe('419')
+    await expect(first.locator('.browse-places').getByRole('button', { name: 'notes.txt', exact: true })).toBeVisible()
+    const notes = join(h.project, 'notes.txt')
+    expect(await first.evaluate((path) => window.prism.readText(path), notes)).toEqual({ error: 'unreadable' })
+    await go(first, h.project)
+    expect(await first.evaluate((path) => window.prism.readText(path), notes)).toEqual({ text: 'Original notes\n' })
+    await first.evaluate(() => {
+      localStorage.setItem('prism.tree.side', 'left')
+      sessionStorage.setItem('win-e-fixture', 'first-only')
+    })
+
+    const second = await openChild()
+    expect(children[0].pid).not.toBe(children[1].pid)
+    expect(await second.evaluate(() => localStorage.getItem('prism.tree.side'))).toBe('left')
+    expect(await second.evaluate(() => sessionStorage.getItem('win-e-fixture'))).toBeNull()
+    expect(await second.evaluate((path) => window.prism.readText(path), notes)).toEqual({ error: 'unreadable' })
+    await go(second, h.project)
+    expect(await second.evaluate((path) => window.prism.readText(path), notes)).toEqual({ text: 'Original notes\n' })
+    await go(second, h.movies)
+    await expect(first.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute('title', h.project)
+    await expect.poll(() => h.page.evaluate(() => localStorage.getItem('prism.tree.side'))).toBe('left')
+    expect(await h.page.evaluate(() => localStorage.getItem('prism.sidebar.width'))).toBe('419')
+
+    // Identical terminal IDs in three real processes must address three distinct shells.
+    const terminalId = `win-e-isolation-${randomUUID()}`
+    for (const [page, owner, cwd] of [[h.page, 'parent', h.project], [first, 'first', h.project], [second, 'second', h.movies]] as const) {
+      expect(await page.evaluate(({ id, cwd }) => window.prism.termSpawn(id, cwd, 'cmd'), { id: terminalId, cwd })).toBe(true)
+      await page.evaluate(({ id, owner }) => window.prism.termInput(id, `set PRISM_WIN_E_OWNER=${owner}\r`), { id: terminalId, owner })
+    }
+    const checkTerminal = async (page: Page, owner: string): Promise<void> => {
+      const output = join(h.home, `terminal-${owner}-${randomUUID()}.txt`)
+      await page.evaluate(({ id, output }) => window.prism.termInput(id, `echo %PRISM_WIN_E_OWNER%>"${output}"\r`), { id: terminalId, output })
+      await expect.poll(() => existsSync(output) ? readFileSync(output, 'utf8').trim() : null).toBe(owner)
+    }
+    await checkTerminal(h.page, 'parent')
+    await checkTerminal(first, 'first')
+    await checkTerminal(second, 'second')
     await expectWinEProjectPreserved(h)
-  } finally {
     await stop(h.app)
-    await pipe?.close()
+    primaryLive = false
+    await checkTerminal(first, 'first')
+    await checkTerminal(second, 'second')
+    await go(second, h.nested)
+    await expect(row(second, 'inside.txt')).toBeVisible()
+    await expect(first.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute('title', h.project)
+  } finally {
+    const cleanup = await Promise.allSettled(children.map((child) => stopWinEChild(child, h.profile)))
+    if (primaryLive) await stop(h.app)
+    await Promise.all(pipes.map((pipe) => pipe.close()))
+    expect(cleanup.filter((result) => result.status === 'rejected'), 'Only owned child processes and profiles must be cleaned up').toEqual([])
   }
 })

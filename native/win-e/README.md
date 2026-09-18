@@ -15,13 +15,19 @@ the opt-in for upgrades. The installer must stop the helper before replacing its
 files, and its old uninstaller must preserve the registration when `isUpdated`.
 
 The keyboard hook matches only physical Win+E, swallowing its repeat/key-up pair.
-A short injected Ctrl pair prevents an unrelated Start-menu opening on Win release.
+A short unassigned `0xE8` key pair prevents an unrelated Start-menu opening on Win
+release without injecting Ctrl, Alt or Shift. Microsoft lists this code as
+[unassigned](https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes).
+AutoHotkey's [mask-key documentation](https://github.com/AutoHotkey/AutoHotkeyDocs/blob/v2/docs/lib/A_MenuMaskKey.htm)
+also recommends `vkE8` for avoiding Ctrl side effects while suppressing Start.
 The hook does no filesystem/registry work or process/thread creation. A prestarted
 worker receives a signal, creates a random named pipe, and invokes Prism with
 `--user-data-dir=<profile>` and `--win-e=<UUID>`. The app must acknowledge by writing
 that UUID and a newline to `\\.\pipe\PrismWinE.<UUID>` after Explorer is ready.
 No acknowledgement within eight seconds, or a launch/availability failure, opens
-Windows Explorer. Repeated requests while one is pending are coalesced.
+Windows Explorer. Held auto-repeat generates one request. Each distinct physical
+press gets an independent ACK worker, so a pending request never drops or blocks
+the next press. Thread creation happens on the dispatcher, outside the hook.
 
 A 500 ms lifecycle check exits the hook if its registration changes or the target
 executable/application resources disappear. Owned stale registrations are removed.
@@ -31,7 +37,9 @@ fallback before allowing installer replacement. No keyboard activity is logged.
 
 `node tools/test-win-e.mjs` compiles and runs isolated self-tests. Tests use a unique
 temporary HKCU key and real named pipes, verify deletion/ownership/disable/upgrade
-pause/ACK timeout behavior and child-process pipe detachment, and remove their fixtures. They never install a real
+pause/ACK timeout behavior, modifier-free masking, physical-repeat suppression,
+independent press dispatch and child-process pipe detachment, and remove their
+fixtures. They never install a real
 keyboard hook, change the real Run value, or launch File Explorer. Actual Win-key
 masking, hook removal after a crash, sign-in and installer lifecycle still require
 hands-on verification on a disposable Windows session before release.

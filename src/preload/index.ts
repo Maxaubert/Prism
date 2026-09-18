@@ -1,3 +1,4 @@
+import type { WindowPreferenceChange, WindowPreferencesSnapshot } from '@shared/windowPreferences'
 import type {
   BrowseDirectory,
   BrowseSearchProgress,
@@ -599,6 +600,20 @@ const api = {
   installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
+  windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {
+    try { return ipcRenderer.sendSync('window-preferences:load') } catch { return null }
+  },
+  windowPreferencesSeed: (values: Record<string, string>): WindowPreferencesSnapshot | null => {
+    try { return ipcRenderer.sendSync('window-preferences:seed', values) } catch { return null }
+  },
+  windowPreferencesSet: (change: WindowPreferenceChange): boolean => {
+    try { return ipcRenderer.sendSync('window-preferences:set', change) === true } catch { return false }
+  },
+  onWindowPreferencesChanged: (cb: (snapshot: WindowPreferencesSnapshot) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: WindowPreferencesSnapshot): void => cb(snapshot)
+    ipcRenderer.on('window-preferences:changed', listener)
+    return () => ipcRenderer.removeListener('window-preferences:changed', listener)
+  },
   winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:status'),
   setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:set', enabled),
   onWinEOpen: (cb: (requestId: string) => void): (() => void) => {
