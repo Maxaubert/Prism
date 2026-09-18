@@ -6,12 +6,16 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!native/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,.prettierrc.yaml,.prettierignore,eslint.config.js,tsconfig*.json}'
   - '!{.git,.claude,docs,test}/*'
   # Recording and render working files. Hundreds of megabytes of takes that have
   # no business inside the app, and one corrupt one that stopped the build.
   - '!.demo/**'
+  - '!.e2e/**'
+  - '!test-results/**'
+  - '!playwright-report/**'
   - '!videos/**'
   - '!tools/**'
   - '!build/**'
@@ -26,6 +30,10 @@ asarUnpack:
 # @electron/rebuild insists on recompiling from source and dies in node-gyp.
 npmRebuild: false
 extraResources:
+  - from: vendor/win-e
+    to: win-e
+    filter:
+      - PrismShortcut.exe
   - from: build/icon.ico
     to: icon.ico
   # One icon per ProgID, so a .zip opened with Prism does not wear the

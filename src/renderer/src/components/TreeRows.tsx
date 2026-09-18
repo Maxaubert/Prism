@@ -3,6 +3,7 @@ import type { DirListing, FileKind } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
+import { dragIncludesPath } from '../lib/dragDrop'
 import {
   ICON_COLOURS,
   COMIC_ART,
@@ -475,6 +476,11 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           onDragOver={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            if (dragIncludesPath(e.dataTransfer, path)) {
+              e.dataTransfer.dropEffect = 'none'
+              t.onDropHover(null)
+              return
+            }
             e.dataTransfer.dropEffect = 'move'
             t.onDropHover(path)
           }}
@@ -482,6 +488,10 @@ function Folder({ path, name, depth }: { path: string; name: string; depth: numb
           onDrop={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            if (dragIncludesPath(e.dataTransfer, path)) {
+              t.onDragDone()
+              return
+            }
             t.onDropOn(e, path)
           }}
           // A plain click SELECTS a folder; a second one expands it. Shift and
@@ -671,6 +681,11 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               onDragOver={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                if (dragIncludesPath(e.dataTransfer, f.path)) {
+                  e.dataTransfer.dropEffect = 'none'
+                  t.onDropHover(null)
+                  return
+                }
                 e.dataTransfer.dropEffect = 'move'
                 // The FOLDER lights up, not the file: the file is where the
                 // pointer is, its folder is where the thing will land - and
@@ -682,6 +697,10 @@ export function Rows({ listing, depth }: { listing: DirListing; depth: number })
               onDrop={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
+                if (dragIncludesPath(e.dataTransfer, f.path)) {
+                  t.onDragDone()
+                  return
+                }
                 t.onDropOn(e, dirOf(f.path))
               }}
               // Roving tabindex: the cursor's row is the tree's single tab stop.

@@ -107,7 +107,7 @@ export function TermDock({
 
   // The handle paints the panel's own dark, not transparency: an unpainted
   // strip over the wrapper read as a bright line across the dock.
-  const handleBase = 'shrink-0 no-drag z-10 bg-[var(--p-bg)] transition-colors'
+  const handleBase = 'shrink-0 no-drag z-10 bg-[var(--p-bg)]'
   const handleAxis = vertical
     ? `${handleBase} h-1 w-full cursor-ns-resize`
     : `${handleBase} w-1 h-full cursor-ew-resize`
@@ -143,7 +143,7 @@ export function TermDock({
       onDrop={onDrop}
     >
       {!full && inner && (
-        <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />
+        <div className={handleAxis} onPointerDown={startDrag} />
       )}
       {!full && (
         <button
@@ -183,7 +183,7 @@ export function TermDock({
         </Suspense>
       )}
       {!full && !inner && (
-        <div className={`${handleAxis} hover:bg-[var(--p-accent)]/40`} onPointerDown={startDrag} />
+        <div className={handleAxis} onPointerDown={startDrag} />
       )}
 
       {menu && (

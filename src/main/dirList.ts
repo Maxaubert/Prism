@@ -76,7 +76,11 @@ export async function toViewerFile(p: string): Promise<ViewerFile> {
  * playing film reads through. Sixteen is measured (see listDir) and leaves
  * the pool room to do anything else.
  */
-async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
   const out = new Array<R>(items.length)
   let next = 0
   const worker = async (): Promise<void> => {
@@ -191,7 +195,12 @@ export async function searchFiles(
         if (!isViewable(ext, name)) continue
         if (!matchesQuery(name, terms)) continue
         const rel = dir.slice(root.length).replace(/^[\\/]/, '')
-        hits.push({ path: join(dir, name), name, kind: fileKind(ext.toLowerCase(), name), dir: rel })
+        hits.push({
+          path: join(dir, name),
+          name,
+          kind: fileKind(ext.toLowerCase(), name),
+          dir: rel
+        })
         if (hits.length >= maxHits) return { hits, truncated: true }
       }
     }
@@ -217,7 +226,7 @@ export async function searchFiles(
  * better and can ship while being twice as slow. The win is the concurrency,
  * not the await.
  */
-export async function listDir(dir: string): Promise<DirListing> {
+export async function listDir(dir: string, allFiles = false): Promise<DirListing> {
   let entries: Dirent[]
   try {
     // withFileTypes: the directory read already knows what is a folder, so
@@ -229,7 +238,9 @@ export async function listDir(dir: string): Promise<DirListing> {
   } catch {
     return { folders: [], files: [], unreadable: true }
   }
-  const wanted = entries.filter((e) => !e.name.startsWith('.') && !isSkipped(e.name))
+  const wanted = allFiles
+    ? entries
+    : entries.filter((e) => !e.name.startsWith('.') && !isSkipped(e.name))
 
   const rows = await mapLimit(wanted, STAT_LIMIT, async (e) => {
     const p = join(dir, e.name)
@@ -237,7 +248,7 @@ export async function listDir(dir: string): Promise<DirListing> {
       // A symlink says nothing about itself, so it - and only it - is asked.
       const isDir = e.isSymbolicLink() ? (await stat(p)).isDirectory() : e.isDirectory()
       if (isDir) return { folder: { path: p, name: e.name } }
-      if (!isViewable(extname(p), e.name)) return { hidden: true }
+      if (!allFiles && !isViewable(extname(p), e.name)) return { hidden: true }
       return { file: await toViewerFile(p) }
     } catch {
       /* vanished or unreadable between readdir and stat; skip it */

@@ -1,0 +1,33 @@
+.quick-access {
+  position: relative;
+  min-height: 44px;
+  padding-bottom: 4px;
+}
+.quick-access-pin {
+  position: relative;
+}
+.quick-access-pin[data-dragging] {
+  opacity: 0.55;
+}
+.quick-access-pin[data-drop-before]::before,
+.quick-access[data-drop-end]::after {
+  position: absolute;
+  content: '';
+  height: 2px;
+  background: var(--p-accent-hi);
+  left: 8px;
+  right: 8px;
+  pointer-events: none;
+}
+.quick-access-pin[data-drop-before]::before {
+  top: -1px;
+}
+.quick-access[data-drop-end]::after {
+  bottom: 0;
+}
+.quick-access-empty {
+  margin: 8px 10px 12px;
+  color: var(--p-text-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}

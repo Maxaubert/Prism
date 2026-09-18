@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
-import { tabLabels, type Tab } from '../lib/tabs'
+import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
 import { contrastRatio } from '../lib/termAnsi'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from '../lib/recentRoots'
-import { dragPayload, setDrag } from '../lib/dragDrop'
+import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 
 /**
@@ -57,6 +57,7 @@ export function TabStrip({
   onClose,
   onNew,
   onDropFile,
+  onDropIntoTab,
   onReorder,
   onOpenRecent,
   wash
@@ -80,6 +81,8 @@ export function TabStrip({
   onNew: () => void
   /** A file dropped on the strip opens in a new tab. */
   onDropFile: (path: string) => void
+  /** Existing tabs receive cargo in their current folder without switching tabs. */
+  onDropIntoTab: (tabId: string, payload: DragPayload) => void
   /** A tab dragged along the strip lands in front of `toIndex` (#70). */
   onReorder: (id: string, toIndex: number) => void
   /** Open a folder from the + menu's list of places Prism has been. */
@@ -110,9 +113,13 @@ export function TabStrip({
   // dragover ever arrived and the drop could only be made over a tab. The
   // handle comes back the moment the drag ends.
   const [dragInFlight, setDragInFlight] = useState(false)
+  const [fileDropTab, setFileDropTab] = useState<string | null>(null)
   useEffect(() => {
     const on = (): void => setDragInFlight(true)
-    const off = (): void => setDragInFlight(false)
+    const off = (): void => {
+      setDragInFlight(false)
+      setFileDropTab(null)
+    }
     window.addEventListener('dragstart', on, true)
     window.addEventListener('dragenter', on, true)
     window.addEventListener('dragend', off, true)
@@ -133,7 +140,7 @@ export function TabStrip({
    *  raise the unsaved-changes question, and firing several would overwrite
    *  it and lose the work it exists to protect. That wants App-side
    *  batching, which is a decision rather than a gap to fill here. */
-  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string } | null>(
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string; root: string; pinned: boolean } | null>(
     null
   )
   const [dropAt, setDropAt] = useState<number | null>(null)
@@ -173,6 +180,7 @@ export function TabStrip({
   }
   const onTabPointerDown = (e: PointerEvent<HTMLDivElement>, id: string, i: number): void => {
     if (e.button !== 0) return
+    if (isPinnedExplorer(tabs[i])) return
     // The X is not a handle: capturing the pointer here would swallow its
     // own click and close nothing.
     if ((e.target as HTMLElement).closest('[data-tab-close]')) return
@@ -203,7 +211,7 @@ export function TabStrip({
     setCarry((c) => (c ? { ...c, dx, live: true } : c))
     // The CARRIED tab's own centre decides, not the pointer: it is what the
     // eye is following, and it keeps a grab near an edge honest.
-    if (lane) setDropAt(slotAt(lane.mid + dx))
+    if (lane) setDropAt(Math.max(isPinnedExplorer(tabs[0]) ? 1 : 0, slotAt(lane.mid + dx)))
   }
   const onTabPointerUp = (e: PointerEvent<HTMLDivElement>): void => {
     if (!carry) return
@@ -226,7 +234,7 @@ export function TabStrip({
   // Middle-click closes, the way every tab strip does. `auxclick` rather than
   // mousedown so a stray middle press while scrolling does not lose a tab.
   const auxClose = (e: MouseEvent, id: string): void => {
-    if (e.button === 1) {
+    if (e.button === 1 && !tabs.some((tab) => tab.id === id && isPinnedExplorer(tab))) {
       e.preventDefault()
       onClose(id)
     }
@@ -285,6 +293,8 @@ export function TabStrip({
             data-agent={tint ? indicator : undefined}
             data-agent-state={working ? 'working' : done ? 'done' : undefined}
             data-agent-present={t.term && agentIds.has(t.term.id) ? '' : undefined}
+            data-tab-role={t.kind === 'settings' ? 'settings' : t.role ?? 'project'}
+            data-pinned={isPinnedExplorer(t) ? '' : undefined}
             // Hairline side edges in the divider token: they separate flush
             // tabs when the style draws edges, and vanish (the token goes
             // transparent) when it doesn't. Right edges only: the first tab
@@ -330,11 +340,52 @@ export function TabStrip({
             // click cannot start a carry - onTabPointerDown ignores button 2.
             onContextMenu={(e) => {
               e.preventDefault()
-              setTabMenu({ x: e.clientX, y: e.clientY, id: t.id, root: t.kind === 'settings' ? '' : t.root })
+              setTabMenu({
+                x: e.clientX,
+                y: e.clientY,
+                id: t.id,
+                root: t.kind === 'settings' ? '' : isExplorerTab(t) ? t.browse.path : t.root,
+                pinned: isPinnedExplorer(t)
+              })
             }}
             // Tabs reorder by dragging (#70): the half of the tab the pointer
             // is over decides which side of it the dragged tab lands.
             data-tab
+            data-folder-drop={
+              t.kind === 'settings' ? undefined : isExplorerTab(t) ? t.browse.path : t.root
+            }
+            data-drag-over={fileDropTab === t.id || undefined}
+            onDragOver={(e) => {
+              // Stop before the blank-strip handler: an existing tab is a
+              // destination, while empty strip space opens a new tab.
+              e.stopPropagation()
+              if (
+                t.kind === 'settings' ||
+                !(e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes('Files'))
+              ) {
+                e.dataTransfer.dropEffect = 'none'
+                return
+              }
+              e.preventDefault()
+              e.dataTransfer.dropEffect =
+                dragPayload(e.dataTransfer)?.kind === 'members' ? 'copy' : 'move'
+              setFileDropTab(t.id)
+            }}
+            onDragLeave={(e) => {
+              if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget))
+                setFileDropTab(null)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const payload = dragPayload(e.dataTransfer)
+              const paths = payload ? [] : droppedPaths(e.dataTransfer)
+              setDrag(null)
+              setFileDropTab(null)
+              if (t.kind === 'settings') return
+              if (payload) onDropIntoTab(t.id, payload)
+              else if (paths.length) onDropIntoTab(t.id, { kind: 'files', paths })
+            }}
             onPointerDown={(e) => onTabPointerDown(e, t.id, i)}
             onPointerMove={onTabPointerMove}
             onPointerUp={onTabPointerUp}
@@ -366,7 +417,7 @@ export function TabStrip({
                 either, which is why the slot itself goes with the icon; the
                 widths only settle differently, and only when the setting is
                 deliberately changed. */}
-            {indicator === 'full' && (
+            {isExplorerTab(t) ? <FolderGlyph /> : indicator === 'full' && (
             <span className="grid h-[13px] w-[13px] shrink-0 place-items-center" aria-hidden={!tint}>
               {tint && (
                 <svg
@@ -391,7 +442,7 @@ export function TabStrip({
               aria-selected={on}
               tabIndex={on ? 0 : -1}
               className="min-w-0 max-w-[14rem] truncate py-1 text-left"
-              title={t.root}
+              title={isExplorerTab(t) ? t.browse.path : t.root}
               onClick={() => {
               // A press that travelled is a drag, not a pick.
               if (dragging.current) {
@@ -403,7 +454,9 @@ export function TabStrip({
             >
               {labels[i]}
             </button>
-            <button
+            {isPinnedExplorer(t) ? (
+              <span title="Pinned Explorer" className="text-[var(--p-dim)]"><PinGlyph filled /></span>
+            ) : <button
               className={`grid h-4 w-4 shrink-0 place-items-center rounded-sm text-[var(--p-icon)] transition-opacity hover:bg-white/10 hover:text-[var(--p-text)] ${
                 on ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}
@@ -418,13 +471,13 @@ export function TabStrip({
               <svg viewBox="0 0 24 24" width={10} height={10} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
-            </button>
+            </button>}
           </div>
         )
       })}
       <button
         className="no-drag my-1 grid w-7 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
-        title="New tab (Ctrl+T). Right-click for recent folders"
+        title="New Explorer tab (Ctrl+T). Right-click for recent folders"
         aria-label="New tab"
         onClick={onNew}
         // The + adds a tab instantly; its RIGHT click is where "somewhere I
@@ -448,7 +501,9 @@ export function TabStrip({
             // Every row acts on the tab you clicked. "New tab" was here and
             // went (2026-08-31): the + is one pixel away and its tooltip
             // already teaches Ctrl+T.
-            { label: 'Close tab', hint: 'Ctrl+W', onPick: () => onClose(tabMenu.id) },
+            ...(!tabMenu.pinned
+              ? [{ label: 'Close tab', hint: 'Ctrl+W', onPick: () => onClose(tabMenu.id) }]
+              : []),
             // Settings is a tab with no folder. Offering these there did
             // nothing for one of them and wrote an EMPTY STRING over the
             // clipboard for the other, which is worse than doing nothing.

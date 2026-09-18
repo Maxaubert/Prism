@@ -16,9 +16,12 @@ import { ancestorChain, parentDir, stepRow, toggleExpanded, visibleRows } from '
 import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useAutoScroll, useTreeSide, useTreeSize } from '../lib/treePrefs'
 import { ContextMenu } from './ContextMenu'
+import { FileMenuIcon } from './FileMenuIcon'
+import { fileAppMenu } from '../lib/fileAppMenu'
 import { Dialog } from './Dialog'
 import { JobChip } from './JobChip'
 import { endJob, startJob, updateJob } from '../lib/jobs'
+import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardReady } from '../lib/fileClipboard'
 import { intendToPlay } from '../lib/playState'
 import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
@@ -181,6 +184,7 @@ export function Sidebar({
   onUnpinSplit,
   pinnedPaths,
   onOpenNewTab,
+  onOpenProject,
   onTermHere,
   onTermSplit,
   onCloseTerm,
@@ -233,6 +237,8 @@ export function Sidebar({
   pinnedPaths: readonly string[]
   /** A fresh tab rooted at the file's folder. */
   onOpenNewTab: (path: string) => void
+  /** A new project at this folder, or at a file's parent with that file open. */
+  onOpenProject: (path: string, isFolder: boolean) => void
   /** The terminal button menu's "Open in new tab". */
   /** A folder row's "Open terminal here": a shell spawned in that folder. */
   onTermHere: (folder: string) => void
@@ -267,6 +273,7 @@ export function Sidebar({
   const [revealed, setRevealed] = useState<string | null>(null)
   const [width, setWidth] = useState(loadWidth)
   const [dragging, setDragging] = useState(false)
+  const [pointerResize, setPointerResize] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [arcJob, setArcJob] = useState<ArcJob | null>(null)
@@ -384,8 +391,15 @@ export function Sidebar({
         return
       setSel((s) => (s.items.size ? emptySelection : s))
     }
+    const focus = (event: FocusEvent): void => {
+      hasFocus.current = !!panel.current?.contains(event.target as Node)
+    }
     window.addEventListener('pointerdown', away, true)
-    return () => window.removeEventListener('pointerdown', away, true)
+    window.addEventListener('focusin', focus)
+    return () => {
+      window.removeEventListener('pointerdown', away, true)
+      window.removeEventListener('focusin', focus)
+    }
   }, [])
 
   /** Fetches in flight, so the same folder is never asked for twice at once.
@@ -557,7 +571,9 @@ export function Sidebar({
 
   const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault()
+    e.currentTarget.focus()
     e.currentTarget.setPointerCapture(e.pointerId)
+    setPointerResize(true)
     setDragging(true)
   }, [])
 
@@ -577,6 +593,7 @@ export function Sidebar({
 
   const onHandleKey = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      setPointerResize(false)
       const wider = right ? 'ArrowLeft' : 'ArrowRight'
       if (e.key === wider) resize(width + 16)
       else if (e.key === (right ? 'ArrowRight' : 'ArrowLeft')) resize(width - 16)
@@ -792,13 +809,10 @@ export function Sidebar({
    *  paste a move - checked in main against what the clipboard then holds, so
    *  a copy taken elsewhere in between quietly downgrades it to a copy.
    *  Explorer interop is one-way: files cut here paste as copies there. */
-  const cutRef = useRef<string[]>([])
-  const [cutSet, setCutSet] = useState<ReadonlySet<string>>(new Set())
+  const cutSet = useFileCut()
   const copyMark = useCallback((paths: string[], cut: boolean): void => {
     if (!paths.length) return
-    void window.prism.copyFilesToClipboard(paths)
-    cutRef.current = cut ? paths : []
-    setCutSet(cut ? new Set(paths.map((q) => q.toLowerCase())) : new Set())
+    void copyFilePaths(paths, cut)
   }, [])
 
   // Byte progress lands on the job it was tagged with: several pastes can
@@ -806,8 +820,9 @@ export function Sidebar({
   useEffect(() => window.prism.onPasteProgress((m) => updateJob(m.jobId, m.pct)), [])
 
   const runPaste = useCallback(
-    (dest: string): void => {
-      const cutPaths = cutRef.current
+    async (dest: string): Promise<void> => {
+      await fileClipboardReady()
+      const cutPaths = fileCutPaths()
       const job = startJob('paste', cutPaths.length ? 'Moving' : 'Copying')
       void window.prism.pasteInto(dest, cutPaths.length ? cutPaths : undefined, job).then((r) => {
         endJob(job)
@@ -816,8 +831,7 @@ export function Sidebar({
         if (!r.pasted) return setPasteNote('Nothing could be pasted here.')
         if (r.failed) setPasteNote('Pasted ' + r.pasted + ', but ' + r.failed + ' could not be copied.')
         if (r.moved) {
-          cutRef.current = []
-          setCutSet(new Set())
+          clearFileCut(cutPaths)
         }
         // The pasted files become the selection, Explorer's way - now, and
         // again after the watcher's refresh clears every mark (droppedOn).
@@ -1148,9 +1162,35 @@ export function Sidebar({
     // clips), which keeps the rows from reflowing on every frame of the slide.
     <aside
       ref={panel}
+      data-project-sidebar
       inert={!open}
       aria-hidden={!open}
       style={{ width: open ? width : 0 }}
+      onKeyDown={(event) => {
+        const target = event.target as HTMLElement
+        if (target.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor')) return
+        if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+          event.preventDefault()
+          event.stopPropagation()
+          panel.current?.querySelector<HTMLInputElement>('input')?.focus()
+          return
+        }
+        if (target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return
+        if (event.key === 'F5' && !event.ctrlKey && !event.altKey) {
+          event.preventDefault()
+          event.stopPropagation()
+          Object.keys(state.children).forEach((path) => void load(path, true))
+        } else if (event.key === 'Backspace' && !event.ctrlKey && !event.altKey && !event.metaKey && at) {
+          event.preventDefault()
+          event.stopPropagation()
+          if (state.expanded.has(at)) toggle(at)
+          else {
+            const parent = parentDir(at)
+            const row = rows.find((item) => item.path.toLowerCase() === parent.toLowerCase())
+            if (row) land(row)
+          }
+        }
+      }}
       className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
         dragging
           ? ''
@@ -1429,13 +1469,14 @@ export function Sidebar({
         onPointerCancel={onHandleUp}
         onDoubleClick={() => resize(DEFAULT_W)}
         onKeyDown={onHandleKey}
-        className={`no-drag group absolute inset-y-0 z-10 w-2 cursor-col-resize focus-visible:outline-none ${
+        onBlur={() => setPointerResize(false)}
+        className={`no-drag group absolute inset-y-0 z-10 w-2 cursor-ew-resize focus-visible:outline-none ${
           right ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2'
         }`}
       >
         <span
-          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-150 group-hover:bg-[var(--p-accent-hi)] group-focus-visible:bg-[var(--p-accent-hi)] ${
-            dragging ? 'bg-[var(--p-accent-hi)]' : 'bg-transparent'
+          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent ${
+            !pointerResize && !dragging ? 'group-focus-visible:bg-[var(--p-accent-hi)]' : ''
           }`}
         />
       </div>
@@ -1467,7 +1508,7 @@ export function Sidebar({
             terms.length > 1
               ? {
                   label: 'Open in split view',
-                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  icon: <FileMenuIcon name="split" />,
                   // A CHECKLIST (owner, 2026-09-03): a shell already on screen
                   // is ticked, so it is plain which others to add; picking a
                   // ticked one takes it out of the split again.
@@ -1480,7 +1521,7 @@ export function Sidebar({
                 }
               : {
                   label: 'Open in split view',
-                  icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                  icon: <FileMenuIcon name="split" />,
                   onPick: onTermSplit
                 },
             // CLOSE means close (owner, 2026-09-03): the shell dies, and the
@@ -1518,23 +1559,23 @@ export function Sidebar({
             {
               label: 'Paste',
               hint: 'Ctrl+V',
-              icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
+              icon: <FileMenuIcon name="paste" />,
               onPick: () => runPaste(root)
             },
             {
               label: 'Open terminal here',
-              icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+              icon: <FileMenuIcon name="terminal" />,
               onPick: () => onTermHere(root)
             },
             {
               label: 'Show in File Explorer',
-              icon: <MenuIcon d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />,
+              icon: <FileMenuIcon name="folder" />,
               onPick: () => window.prism.showInExplorer(root)
             },
             {
               label: 'Copy path',
               icon: (
-                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+                <FileMenuIcon name="path" />
               ),
               onPick: () => void navigator.clipboard.writeText(root)
             }
@@ -1575,20 +1616,20 @@ export function Sidebar({
               label: `Cut ${menu.multi.length} files`,
               hint: 'Ctrl+X',
               icon: (
-                <MenuIcon d="M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0" />
+                <FileMenuIcon name="cut" />
               ),
               onPick: () => copyMark(menu.multi!, true)
             },
             {
               label: `Copy ${menu.multi.length} files`,
               hint: 'Ctrl+C',
-              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+              icon: <FileMenuIcon name="copy" />,
               onPick: () => copyMark(menu.multi!, false)
             },
             {
               label: 'Copy paths',
               icon: (
-                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+                <FileMenuIcon name="path" />
               ),
               onPick: () => void navigator.clipboard.writeText(menu.multi!.join('\n'))
             },
@@ -1596,7 +1637,7 @@ export function Sidebar({
               label: `Delete ${menu.multi.length} items`,
               hint: 'Del',
               danger: true,
-              icon: <MenuIcon d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />,
+              icon: <FileMenuIcon name="delete" />,
               onPick: () => onDeleteMany(menu.multi!)
             }
           ]}
@@ -1608,6 +1649,27 @@ export function Sidebar({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            {
+              label: 'Open',
+              hint: 'Enter',
+              icon: <FileMenuIcon name="open" />,
+              onPick: () => {
+                if (menu.isFolder) {
+                  if (query.trim()) revealFolder(menu.path)
+                  else if (!state.expanded.has(menu.path)) toggle(menu.path)
+                } else openPicked(menu.path)
+              }
+            },
+            {
+              label: 'Open in new tab',
+              icon: <FileMenuIcon name="new-tab" />,
+              onPick: () => onOpenNewTab(menu.path)
+            },
+            {
+              label: 'Open as project',
+              icon: <FileMenuIcon name="project" />,
+              onPick: () => onOpenProject(menu.path, menu.isFolder)
+            },
             // Files also go places: another app, Explorer, the clipboard.
             ...(!menu.isFolder
               ? [
@@ -1623,7 +1685,7 @@ export function Sidebar({
                       }
                     : {
                         label: 'Open in split view',
-                        icon: <MenuIcon d="M4 5h16v14H4zM13 5v14" />,
+                        icon: <FileMenuIcon name="split" />,
                         onPick: () => onPinSplit(menu.path),
                         // The remembered direction wears a check: it is where a
                         // bare click on the parent will put the file.
@@ -1638,60 +1700,21 @@ export function Sidebar({
                           onPick: () => onPinSplit(menu.path, d)
                         }))
                       },
-                  {
-                    label: 'Open in new tab',
-                    icon: <MenuIcon d="M4 6h10v12H4zM14 6h6v12h-6M17 9v6M14 12h6" />,
-                    onPick: () => onOpenNewTab(menu.path)
-                  },
-                  {
-                    label: 'Open in',
-                    icon: (
-                      <MenuIcon d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" />
-                    ),
-                    children: [
-                      {
-                        label: 'Default app',
-                        icon: <MenuIcon d="M12 3l8 5-8 5-8-5 8-5zM4 13l8 5 8-5" />,
-                        onPick: () => window.prism.openInDefault(menu.path)
-                      },
-                      ...(menu.apps === null
-                        ? [{ label: 'Looking for apps…', disabled: true }]
-                        : (menu.apps ?? []).map((a) => ({
-                            label: a.name,
-                            icon: a.icon ? (
-                              <img
-                                src={a.icon}
-                                width={14}
-                                height={14}
-                                alt=""
-                                className="shrink-0"
-                              />
-                            ) : (
-                              <MenuIcon d="M4 5h16v14H4zM4 9h16" />
-                            ),
-                            onPick: () => void window.prism.openWith(menu.path, a.id)
-                          }))),
-                      {
-                        label: 'Choose another app…',
-                        icon: <MenuIcon d="M12 8v8M8 12h8M3.5 5h17v14h-17z" />,
-                        onPick: () => window.prism.openWithChooser(menu.path)
-                      }
-                    ]
-                  }
+                  fileAppMenu(menu.path, menu.apps)
                 ]
               : []),
             {
               label: 'Cut',
               hint: 'Ctrl+X',
               icon: (
-                <MenuIcon d="M9.2 4.5L14.5 12m0 0l4.3 6M14.5 12l4.3-6M14.5 12l-4.3 6M6 6.2a1.8 1.8 0 1 0 .01 0M6 17.8a1.8 1.8 0 1 0 .01 0" />
+                <FileMenuIcon name="cut" />
               ),
               onPick: () => copyMark([menu.path], true)
             },
             {
               label: 'Copy',
               hint: 'Ctrl+C',
-              icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4" />,
+              icon: <FileMenuIcon name="copy" />,
               onPick: () => copyMark([menu.path], false)
             },
             ...(menu.canPaste
@@ -1711,7 +1734,7 @@ export function Sidebar({
                      */
                     label: 'Paste',
                     hint: 'Ctrl+V',
-                    icon: <MenuIcon d="M9 3.5h6v3H9zM7 5H4.5v15.5h15V5H17" />,
+                    icon: <FileMenuIcon name="paste" />,
                     onPick: () => runPaste(menu.isFolder ? menu.path : parentDir(menu.path))
                   }
                 ]
@@ -1720,7 +1743,7 @@ export function Sidebar({
               ? [
                   {
                     label: 'Open terminal here',
-                    icon: <MenuIcon d="M5.5 6.5l6 5.5-6 5.5M13.5 18.5H19" />,
+                    icon: <FileMenuIcon name="terminal" />,
                     onPick: () => onTermHere(menu.path)
                   }
                 ]
@@ -1746,7 +1769,7 @@ export function Sidebar({
                     ? [
                         {
                           label: 'Add files…',
-                          icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
+                          icon: <FileMenuIcon name="duplicate" />,
                           onPick: () => addToArchive(menu.path, menu.name)
                         }
                       ]
@@ -1755,13 +1778,13 @@ export function Sidebar({
               : []),
             {
               label: 'Show in File Explorer',
-              icon: <MenuIcon d="M2.5 5.5h6.2l2 2.6h10.8v10.4H2.5z" />,
+              icon: <FileMenuIcon name="folder" />,
               onPick: () => window.prism.showInExplorer(menu.path)
             },
             {
               label: 'Copy path',
               icon: (
-                <MenuIcon d="M9 15l6-6M7.5 10.5l-2 2a3.5 3.5 0 0 0 5 5l2-2M16.5 13.5l2-2a3.5 3.5 0 0 0-5-5l-2 2" />
+                <FileMenuIcon name="path" />
               ),
               onPick: () => void navigator.clipboard.writeText(menu.path)
             },
@@ -1769,7 +1792,7 @@ export function Sidebar({
               ? [
                   {
                     label: 'Duplicate',
-                    icon: <MenuIcon d="M8 8h12v12H8zM16 8V4H4v12h4M14 11v6M11 14h6" />,
+                    icon: <FileMenuIcon name="duplicate" />,
                     onPick: () =>
                       void window.prism.duplicateFile(menu.path).then((copy) => {
                         if (copy) {
@@ -1783,7 +1806,7 @@ export function Sidebar({
             {
               label: 'Rename',
               hint: 'F2',
-              icon: <MenuIcon d="M4 20h4L19 9l-4-4L4 16z" />,
+              icon: <FileMenuIcon name="rename" />,
               onPick: () => setEditing(menu.path)
             },
             {
@@ -1791,7 +1814,7 @@ export function Sidebar({
               // The size right on the row: the question Properties answers most.
               hint: menu.isFolder ? undefined : formatBytes(menu.size ?? NaN) || undefined,
               icon: (
-                <MenuIcon d="M12 8.2v.01M12 11v5M3.8 12a8.2 8.2 0 1 0 16.4 0 8.2 8.2 0 0 0-16.4 0z" />
+                <FileMenuIcon name="properties" />
               ),
               onPick: () =>
                 setProps({
@@ -1805,7 +1828,7 @@ export function Sidebar({
               label: 'Delete',
               hint: 'Del',
               danger: true,
-              icon: <MenuIcon d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />,
+              icon: <FileMenuIcon name="delete" />,
               onPick: () => onDelete(menu.path, menu.name, menu.isFolder)
             }
           ]}

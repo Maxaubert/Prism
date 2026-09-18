@@ -1,3 +1,4 @@
+import { copyFilePaths } from '../lib/fileClipboard'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { withImpliedFolders } from '@shared/archiveTree'
 import type { FileKind, ViewerFile } from '@shared/types'
@@ -452,7 +453,7 @@ function ArchiveInner({
       withPassword(entry, (pw) =>
         window.prism.archiveExtract(file.path, entry.path, pw).then((r) => {
           if (r.ok) {
-            void window.prism.copyFileToClipboard(r.path)
+            void copyFilePaths([r.path])
             return 'ok'
           }
           return r.reason
@@ -534,7 +535,7 @@ function ArchiveInner({
           if (r.ok) out.push(r.path)
           else if (r.reason === 'password' || r.reason === 'aes') locked += 1
         }
-        if (out.length) void window.prism.copyFilesToClipboard(out)
+        if (out.length) void copyFilePaths(out)
         if (locked)
           setOops(
             `${locked} of the selected members are password protected. Open one first to unlock the archive, then copy again.`
@@ -557,7 +558,7 @@ function ArchiveInner({
       setBusy('extract')
       void window.prism.archiveExtractDir(file.path, entry).then((r) => {
         setBusy(null)
-        if (r.ok) void window.prism.copyFilesToClipboard([r.path])
+        if (r.ok) void copyFilePaths([r.path])
         else if (r.reason === 'password' || r.reason === 'aes')
           setOops(
             'That folder is password protected. Open a member first to unlock the archive, then copy again.'
@@ -576,7 +577,10 @@ function ArchiveInner({
   const extractFolderHere = useCallback(
     (entry: string): void => {
       setBusy('extract')
-      const job = startJob('extract', 'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry))
+      const job = startJob(
+        'extract',
+        'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry)
+      )
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
         endJob(job)
         setBusy(null)
@@ -1034,9 +1038,7 @@ function ArchiveInner({
           <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
             {caps.write && (
               <ArcVerb
-                label={
-                  busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'
-                }
+                label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
                 disabled={busy !== null}
                 onClick={() => extractAll(true)}
                 path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
@@ -1061,7 +1063,7 @@ function ArchiveInner({
             {caps.clipboard && (
               <ArcVerb
                 label="Copy"
-                onClick={() => void window.prism.copyFileToClipboard(file.path)}
+                onClick={() => void copyFilePaths([file.path])}
                 path="M9 9h10v10H9zM5 15V5h10"
               />
             )}
@@ -1091,7 +1093,11 @@ function ArchiveInner({
                 itself is the first crumb wherever you stand, so the path
                 reads the same coming back as it did going in (and the panel
                 never jumps a line). */}
-          <div data-archive-crumbs className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]">
+          <div
+            data-archive-crumbs
+            data-archive-subfolder={cwd ? '' : undefined}
+            className="mb-1 flex h-6 items-center gap-1 px-1 text-[12px]"
+          >
             {trail?.map((a, i) => (
               <span key={i} className="flex min-w-0 items-center gap-1">
                 <button
@@ -1390,7 +1396,18 @@ function ArchiveInner({
               >
                 {file.name}
               </button>
-              <svg viewBox="0 0 24 24" width={12} height={12} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--p-dim2)]" aria-hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width={12}
+                height={12}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-[var(--p-dim2)]"
+                aria-hidden
+              >
                 <path d="M9 6l6 6-6 6" />
               </svg>
               <span className="min-w-0 truncate font-semibold text-[var(--p-text)]">
@@ -1416,7 +1433,13 @@ function ArchiveInner({
           onClose={() => setPanelMenu(null)}
           items={[
             ...(caps.write
-              ? [{ label: 'Extract all…', disabled: busy !== null, onPick: () => void extractAll() }]
+              ? [
+                  {
+                    label: 'Extract all…',
+                    disabled: busy !== null,
+                    onPick: () => void extractAll()
+                  }
+                ]
               : []),
             ...(writable
               ? [{ label: 'Add files…', disabled: busy !== null, onPick: () => void addFiles() }]
@@ -1446,7 +1469,7 @@ function ArchiveInner({
               ? [
                   {
                     label: 'Copy archive',
-                    onPick: () => void window.prism.copyFileToClipboard(file.path)
+                    onPick: () => void copyFilePaths([file.path])
                   }
                 ]
               : []),

@@ -1168,3 +1168,20 @@ try {
 } catch {
   /* no storage: the defaults in vizStore stand */
 }
+
+// Shared preferences arrive without calling this window's setters. Refresh the
+// cached objects before a later edit can overwrite another window's saved theme.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea !== localStorage) return
+    if (event.key !== null && ![KEY, MODE_KEY, PRESETS_KEY, DRAFT_KEY].includes(event.key)) return
+    presets = loadJson<Style[]>(PRESETS_KEY, [])
+    draft = loadJson<Overrides>(DRAFT_KEY, {})
+    current = load()
+    mode = loadMode()
+    version += 1
+    // The originating window already saved related accent preferences. Receiving
+    // its changes must not write them back or reset this window's terminal style.
+    apply(false)
+  })
+}

@@ -19,6 +19,12 @@ describe('decidePaste', () => {
       data: '"C:\\a b\\s.png"'
     })
   })
+  it('an image copied as a file pastes its path despite the document bitmap', () => {
+    expect(decidePaste({ image: true, text: '', files: ['C:\\a b\\s.png'] })).toEqual({
+      kind: 'text',
+      data: '"C:\\a b\\s.png"'
+    })
+  })
   it('copied files beat their own text form (Explorer sets both)', () => {
     expect(decidePaste({ image: false, text: 's.png', files: ['C:\\x\\s.png'] })).toEqual({
       kind: 'text',

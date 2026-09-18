@@ -1,6 +1,16 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { addArgs, pointsAt, queryArgs, removeArgs, shouldWriteVerb, verbKeys, verbSpec } from './shellVerb'
+import {
+  addArgs,
+  pointsAt,
+  queryArgs,
+  removeArgs,
+  shouldWriteVerb,
+  verbKeys,
+  verbSpec,
+  verbInstalled,
+  verbRegistered
+} from './shellVerb'
 
 const EXE = 'C:\\Users\\Admin\\AppData\\Local\\Programs\\Prism\\Prism.exe'
 
@@ -25,7 +35,9 @@ describe('the Explorer verb', () => {
   })
 
   it('says where you land, on the verb that lands you somewhere else', () => {
-    const flat = addArgs(EXE).map((a) => a.join(' ')).join('\n')
+    const flat = addArgs(EXE)
+      .map((a) => a.join(' '))
+      .join('\n')
     expect(flat).toContain('Open Prism here')
   })
 
@@ -35,7 +47,9 @@ describe('the Explorer verb', () => {
   })
 
   it('names the menu item and gives it the app icon', () => {
-    const flat = addArgs(EXE).map((a) => a.join(' ')).join('\n')
+    const flat = addArgs(EXE)
+      .map((a) => a.join(' '))
+      .join('\n')
     expect(flat).toContain('Open in Prism')
     expect(flat).toContain(`${EXE},0`)
   })
@@ -89,8 +103,46 @@ HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\OpenWithPrism\\command
   it('reads an empty answer as absent', () => {
     expect(pointsAt('', EXE)).toBe(false)
   })
+
+  it('does not accept a path merely mentioned in another command', () => {
+    expect(pointsAt(`REG_SZ "D:\\Other\\Prism.exe" "${EXE}" "%1"`, EXE)).toBe(false)
+    expect(pointsAt(`REG_SZ "${EXE}.old" "%1"`, EXE)).toBe(false)
+  })
 })
 
+describe('complete live menu registration', () => {
+  const registry =
+    (overrides: Record<string, string | null> = {}) =>
+    async (args: string[]) => {
+      const key = args[1].replace(/\\command$/, '')
+      const command = key in overrides ? overrides[key] : `"${EXE}" "${verbSpec(key).arg}"`
+      return {
+        ok: command !== null,
+        out: command === null ? '' : `    (Default)    REG_SZ    ${command}\r\n`
+      }
+    }
+
+  it('reports the installed copy as enabled when viewed from a preview', async () => {
+    expect(await verbRegistered(registry(), (path) => path === EXE)).toBe(true)
+    expect(await verbInstalled('D:\\Preview\\Prism.exe', registry())).toBe(false)
+  })
+
+  it.each(verbKeys())('requires the %s command as well as the file entry', async (key) => {
+    expect(await verbRegistered(registry({ [key]: null }), () => true)).toBe(false)
+    expect(await verbInstalled(EXE, registry({ [key]: null }))).toBe(false)
+  })
+
+  it('rejects a stale executable, mixed targets and the wrong background argument', async () => {
+    expect(await verbRegistered(registry(), () => false)).toBe(false)
+    const background = verbKeys()[2]
+    expect(
+      await verbRegistered(registry({ [background]: '"D:\\Other\\Prism.exe" "%V"' }), () => true)
+    ).toBe(false)
+    expect(await verbRegistered(registry({ [background]: `"${EXE}" "%1"` }), () => true)).toBe(
+      false
+    )
+  })
+})
 
 /**
  * Every verb key the app can write must be a key the uninstaller deletes.
@@ -114,7 +166,9 @@ describe('the uninstaller removes every verb key', () => {
     // pages.nsh is excluded from the uninstaller build, so customUnInstall
     // defined there is a macro the uninstaller never has.
     expect(nsh).toContain('!macro customUnInstall')
-    expect(readFileSync('build/installer/pages.nsh', 'utf8')).not.toContain('!macro customUnInstall')
+    expect(readFileSync('build/installer/pages.nsh', 'utf8')).not.toContain(
+      '!macro customUnInstall'
+    )
   })
 })
 

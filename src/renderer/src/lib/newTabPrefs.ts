@@ -25,7 +25,7 @@ export function newTabFolder(): string {
 
 export function newTabShow(): NewTabShow {
   const v = localStorage.getItem(SHOW_KEY)
-  return v === 'terminal' || v === 'none' ? v : 'file'
+  return v === 'terminal' || v === 'file' ? v : 'none'
 }
 
 export function setNewTabMode(mode: NewTabMode, folder?: string): void {

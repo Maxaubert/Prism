@@ -115,10 +115,10 @@ function num(key: string, fallback: number): number {
   return Number.isFinite(v) && v > 0 ? v : fallback
 }
 
-function loadPresets(): Preset[] {
+function loadPresets(seed = true): Preset[] {
   // A newer seed replaces whatever is stored, so an updated shipped set actually
   // reaches people who already have an older one saved.
-  if (Number(localStorage.getItem(K.presetsSeed)) !== PRESETS_SEED) {
+  if (seed && Number(localStorage.getItem(K.presetsSeed)) !== PRESETS_SEED) {
     localStorage.setItem(K.presets, JSON.stringify(DEFAULT_PRESETS))
     localStorage.setItem(K.presetsSeed, String(PRESETS_SEED))
     return DEFAULT_PRESETS
@@ -134,7 +134,7 @@ function loadPresets(): Preset[] {
   return DEFAULT_PRESETS
 }
 
-function loadRemoved(): string[] {
+function loadRemoved(persist = true): string[] {
   try {
     const raw = localStorage.getItem(K.removed)
     if (raw) {
@@ -142,7 +142,7 @@ function loadRemoved(): string[] {
       // code the theme is gone, so drop it rather than showing a stale count.
       const live = new Set(THEMES.map((t) => t.id))
       const kept = (JSON.parse(raw) as string[]).filter((id) => live.has(id))
-      localStorage.setItem(K.removed, JSON.stringify(kept))
+      if (persist) localStorage.setItem(K.removed, JSON.stringify(kept))
       return kept
     }
   } catch {
@@ -175,6 +175,18 @@ const listeners = new Set<() => void>()
 function apply(p: Partial<VizState>): void {
   state = { ...state, ...p }
   listeners.forEach((l) => l())
+}
+
+// Lists received from another window must replace the cached lists before a
+// local save/delete derives its next value. Receiving them never writes back.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.storageArea !== localStorage) return
+    if (event.key === K.presets) apply({ presets: loadPresets(false) })
+    else if (event.key === K.removed) apply({ removed: loadRemoved(false) })
+    else if (event.key === null)
+      apply({ presets: loadPresets(false), removed: loadRemoved(false) })
+  })
 }
 
 /** Themes still visible in the picker (not curated out). */

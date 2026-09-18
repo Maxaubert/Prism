@@ -32,7 +32,7 @@ export interface MenuItem {
 const PANEL =
   // Flat surface colour: --p-title is translucent on glass styles, and a menu
   // you can read the file names through is noise, not material.
-  'overflow-hidden rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
+  'max-h-[calc(100dvh-16px)] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[2px] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] shadow-[0_10px_28px_rgba(0,0,0,.5)]'
 
 function Row({
   it,
@@ -112,7 +112,7 @@ export function ContextMenu({
   const box = useRef<HTMLDivElement>(null)
   const fly = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
-  const [sub, setSub] = useState<{ index: number; anchorY: number; x: number; y: number } | null>(null)
+  const [sub, setSub] = useState<{ label: string; x: number; y: number } | null>(null)
   // Leaving a submenu parent doesn't close the flyout immediately: the natural
   // diagonal path into the flyout crosses the rows below, and closing on first
   // touch makes the menu read as flickering shut at random. Native menus give
@@ -127,16 +127,29 @@ export function ContextMenu({
   useEffect(() => cancelClose, [cancelClose])
 
   useLayoutEffect(() => {
-    const el = box.current
-    if (!el) return
-    const { width, height } = el.getBoundingClientRect()
-    setPos({
-      x: Math.min(x, window.innerWidth - width - 8),
-      y: Math.min(y, window.innerHeight - height - 8)
-    })
-  }, [x, y])
+    // Async rows (such as Paste) and zoom changes can change the menu's size.
+    // Keep a hovered flyout attached when async rows arrive under the cursor.
+    const clamp = (): void => {
+      const el = box.current
+      if (!el) return
+      const { width, height } = el.getBoundingClientRect()
+      cancelClose()
+      setPos({
+        x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
+        y: Math.max(8, Math.min(y, window.innerHeight - height - 8))
+      })
+    }
+    clamp()
+    const resize = (): void => {
+      setSub(null)
+      clamp()
+    }
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [x, y, items.length, cancelClose])
 
-  const subItems = sub ? items[sub.index]?.children : null
+  const subIndex = sub ? items.findIndex((item) => item.label === sub.label) : -1
+  const subItems = items[subIndex]?.children
 
   // The flyout hangs off its row, flipped to the left when the right edge
   // would push it off screen, and never below the bottom. Re-clamped from the
@@ -145,13 +158,17 @@ export function ContextMenu({
   //
   // Alignment is MEASURED, not assumed: render wherever, read where the first
   // row actually landed, and shift by the exact delta so its top edge meets
-  // the parent row's visible surface (sub.anchorY). No border/padding
+  // the parent row's visible surface. No border/padding
   // arithmetic to drift out of date, and fractional DPI scaling cancels
   // because both sides of the delta come from the same rendered layout.
   useLayoutEffect(() => {
     const el = fly.current
     const menu = box.current
     if (!el || !menu || !sub) return
+    const parent = menu.querySelectorAll<HTMLElement>('[role="menuitem"]')[subIndex]
+    if (!parent) return
+    const anchorY = parent.getBoundingClientRect().top +
+      parseFloat(getComputedStyle(parent).borderTopWidth || '0')
     const r = el.getBoundingClientRect()
     const menuRect = menu.getBoundingClientRect()
     // The flyout is a LAYER, not an extension: like every native submenu
@@ -160,11 +177,12 @@ export function ContextMenu({
     // with a seam down it; the overlap is what makes it read as a card above.
     let fx = menuRect.right - 6
     if (fx + r.width > window.innerWidth - 8) fx = menuRect.left - r.width + 6
+    fx = Math.max(8, Math.min(fx, window.innerWidth - r.width - 8))
     const firstTop = el.querySelector('[role="menuitem"]')?.getBoundingClientRect().top ?? r.top
-    let fy = sub.y + (sub.anchorY - firstTop)
+    let fy = sub.y + (anchorY - firstTop)
     fy = Math.max(8, Math.min(fy, window.innerHeight - r.height - 8))
     if (Math.abs(fx - sub.x) > 0.01 || Math.abs(fy - sub.y) > 0.01) setSub({ ...sub, x: fx, y: fy })
-  }, [sub, subItems?.length])
+  }, [sub, subItems, subIndex, pos.x, pos.y])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -199,7 +217,7 @@ export function ContextMenu({
     if (!it.keepOpen) onClose()
   }
 
-  const hover = (index: number, it: MenuItem, el: HTMLElement): void => {
+  const hover = (it: MenuItem, el: HTMLElement): void => {
     if (!it.children) {
       // Grace period, then close - unless the pointer reached the flyout (or
       // came back to the parent), which cancels the timer.
@@ -212,13 +230,13 @@ export function ContextMenu({
       return
     }
     cancelClose()
-    if (sub?.index === index) return
+    if (sub?.label === it.label) return
     const r = el.getBoundingClientRect()
     // The anchor is the parent row's VISIBLE surface: its rect top plus its
     // own divider border, when it has one. The layout effect above then moves
     // the flyout until its first row's top measures exactly here.
     const anchorY = r.top + parseFloat(getComputedStyle(el).borderTopWidth || '0')
-    setSub({ index, anchorY, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
+    setSub({ label: it.label, x: window.innerWidth, y: anchorY - 1 }) // corrected after measure
   }
 
   return (
@@ -235,11 +253,21 @@ export function ContextMenu({
       <div
         ref={box}
         role="menu"
-        style={{ left: pos.x, top: pos.y }}
-        className={`pointer-events-auto absolute min-w-[156px] ${PANEL}`}
+        style={{
+          left: pos.x,
+          top: pos.y,
+          width: 'max-content',
+          minWidth: 'min(156px, calc(100vw - 16px))',
+          maxWidth: 'calc(100vw - 16px)'
+        }}
+        onScroll={() => {
+          cancelClose()
+          setSub(null)
+        }}
+        className={`pointer-events-auto absolute ${PANEL}`}
       >
-        {items.map((it, i) => (
-          <Row key={it.label} it={it} expanded={sub?.index === i} onPick={pick} onHover={(el) => hover(i, it, el)} />
+        {items.map((it) => (
+          <Row key={it.label} it={it} expanded={sub?.label === it.label} onPick={pick} onHover={(el) => hover(it, el)} />
         ))}
       </div>
       {subItems && sub && (
@@ -248,9 +276,16 @@ export function ContextMenu({
           role="menu"
           // Ambient shadow on top of the panel's own: the overlapped strip of
           // the parent visibly sits UNDER this card, whichever side it opens.
-          style={{ left: sub.x, top: sub.y, boxShadow: '0 10px 28px rgba(0,0,0,.5), 0 0 14px rgba(0,0,0,.4)' }}
+          style={{
+            left: sub.x,
+            top: sub.y,
+            width: 'max-content',
+            minWidth: 'min(176px, calc(100vw - 16px))',
+            maxWidth: 'min(260px, calc(100vw - 16px))',
+            boxShadow: '0 10px 28px rgba(0,0,0,.5), 0 0 14px rgba(0,0,0,.4)'
+          }}
           onPointerEnter={cancelClose}
-          className={`pointer-events-auto absolute min-w-[176px] max-w-[260px] ${PANEL}`}
+          className={`pointer-events-auto absolute ${PANEL}`}
         >
           {subItems.map((it) => (
             <Row key={it.label} it={it} expanded={false} onPick={pick} onHover={() => {}} />

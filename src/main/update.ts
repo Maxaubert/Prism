@@ -96,7 +96,11 @@ export function watchForUpdates(send: (info: UpdateInfo) => void): void {
  * out the silent install, then starts the new build from the same path this
  * one runs at (per-user NSIS reinstalls in place). The app quits under it.
  */
-export async function installUpdate(url: string, onPct: (pct: number) => void): Promise<boolean> {
+export async function installUpdate(
+  url: string,
+  onPct: (pct: number) => void,
+  canInstall: () => Promise<boolean> = async () => true
+): Promise<boolean> {
   if (!isReleaseAssetUrl(url)) return false
   try {
     const res = await fetch(url, { headers: { 'user-agent': 'Prism-update-check' } })
@@ -110,6 +114,7 @@ export async function installUpdate(url: string, onPct: (pct: number) => void): 
       if (total) onPct(Math.min(99, Math.round((got / total) * 100)))
     })
     await pipeline(body, createWriteStream(file))
+    if (!(await canInstall())) return false
     onPct(100)
     // Single-quoted with quotes doubled, PowerShell's own escaping; both
     // paths are ours (temp dir, execPath) but interpolation stays safe anyway.

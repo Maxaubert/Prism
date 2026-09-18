@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { existsSync } from 'fs'
 
 /**
  * "Open in Prism" in File Explorer's context menu.
@@ -58,8 +59,8 @@ export function removeArgs(): string[][] {
 }
 
 /** The `reg query` argument list that asks whether it is there. */
-export function queryArgs(): string[] {
-  return ['query', `${FILE_KEY}\\command`, '/ve']
+export function queryArgs(key = FILE_KEY): string[] {
+  return ['query', `${key}\\command`, '/ve']
 }
 
 /**
@@ -69,8 +70,15 @@ export function queryArgs(): string[] {
  * otherwise leave a verb pointing somewhere the user did not mean.
  */
 export function pointsAt(regOutput: string, exe: string): boolean {
-  return regOutput.toLowerCase().includes(exe.toLowerCase())
+  return commandOf(regOutput)?.exe.toLowerCase() === exe.toLowerCase()
 }
+
+function commandOf(output: string): { exe: string; arg: string } | null {
+  const match = /\bREG_SZ\s+"([^"\r\n]+)"\s+"(%1|%V)"\s*$/im.exec(output)
+  return match ? { exe: match[1], arg: match[2] } : null
+}
+
+type RegistryRunner = (args: string[]) => Promise<{ ok: boolean; out: string }>
 
 function reg(args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
@@ -99,9 +107,35 @@ export function shouldWriteVerb(saidNo: boolean, installed: boolean): boolean {
 }
 
 /** Is the verb registered, and pointing at this executable? */
-export async function verbInstalled(exe: string): Promise<boolean> {
-  const r = await reg(queryArgs())
-  return r.ok && pointsAt(r.out, exe)
+export async function verbInstalled(exe: string, run: RegistryRunner = reg): Promise<boolean> {
+  for (const key of verbKeys()) {
+    const result = await run(queryArgs(key))
+    const command = commandOf(result.out)
+    if (!result.ok || !pointsAt(result.out, exe) || command?.arg !== verbSpec(key).arg) return false
+  }
+  return true
+}
+
+/** A preview must report the installed menu without taking it over. */
+export async function verbRegistered(
+  run: RegistryRunner = reg,
+  exists: (path: string) => boolean = existsSync
+): Promise<boolean> {
+  let target = ''
+  for (const key of verbKeys()) {
+    const result = await run(queryArgs(key))
+    const command = commandOf(result.out)
+    if (
+      !result.ok ||
+      !command ||
+      command.arg !== verbSpec(key).arg ||
+      !/(?:^|[\\/])Prism\.exe$/i.test(command.exe) ||
+      (target && command.exe.toLowerCase() !== target.toLowerCase())
+    )
+      return false
+    target = command.exe
+  }
+  return exists(target)
 }
 
 /** Add the verb (or repoint it at this build). True when Explorer has it. */

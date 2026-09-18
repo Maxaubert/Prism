@@ -4,9 +4,9 @@ import { newTabFolder, newTabMode, newTabShow, setNewTabMode, setNewTabShow } fr
 beforeEach(() => localStorage.clear())
 
 describe('new-tab prefs', () => {
-  it('defaults: home folder, first file, exactly today', () => {
+  it('defaults to browsing the home folder', () => {
     expect(newTabMode()).toBe('home')
-    expect(newTabShow()).toBe('file')
+    expect(newTabShow()).toBe('none')
   })
   it('round-trips a chosen folder with its mode', () => {
     setNewTabMode('folder', 'D:\\downloads')
@@ -25,7 +25,7 @@ describe('new-tab prefs', () => {
       expect(newTabShow()).toBe(show)
     }
     localStorage.setItem('prism.newtab.show', 'soup')
-    expect(newTabShow()).toBe('file')
+    expect(newTabShow()).toBe('none')
     localStorage.setItem('prism.newtab.mode', 'soup')
     expect(newTabMode()).toBe('home')
   })

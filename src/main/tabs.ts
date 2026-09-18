@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs'
 import { isAbsolute, relative, resolve } from 'path'
+import type { BrowseLocation, SavedBrowse, SavedPane } from '@shared/browse'
 
 /**
  * The tab strip, across restarts.
@@ -15,30 +16,23 @@ import { isAbsolute, relative, resolve } from 'path'
  */
 
 export interface SavedTab {
+  id?: string
+  role?: 'explorer' | 'project'
+  pinned?: boolean
+  browse?: SavedBrowse
+  panes?: SavedPane[]
   root: string
   /** The file that tab was showing. Absent if it was showing none. */
   file?: string
   /** The terminal was showing, in this view. The shell itself dies with the
    *  app; this remembers only that the tab should come back AS a terminal. */
-  term?: 'full' | 'split'
+  term?: 'full' | 'split' | 'hidden'
   /** How many shells the tab held (2026-09-03): a tab with three comes back
    *  with three slots, the current one spawned and the rest spawned when
    *  picked. Absent or 1 means the one `term` describes. */
   terms?: number
-  /**
-   * WHERE that shell was standing (2026-09-09).
-   *
-   * A tab is a root and a current file, and this is not a second root: it is
-   * the shell's own folder, which "Open terminal here" and a plain `cd` inside
-   * the root both move without moving the tab. Restoring the shell at the root
-   * instead put it somewhere the user had deliberately left - and, worse, sent
-   * the agent resume to look up the ROOT's newest session, so a conversation
-   * held in a subfolder came back as the wrong conversation.
-   *
-   * Kept only when it is the root or inside it, checked on the way out of the
-   * file as well as on the way in: it is a spawn folder, and the wall's own
-   * `term:spawn` check would refuse anything else anyway.
-   */
+  /** The shell's own existing absolute folder. Browsing and shell location
+   * are independent; restoring a shell never moves the phone's shared root. */
   cwd?: string
   /** The shell hosted a CLAUDE session when the strip was saved: restore may
    *  resume it (`claude --continue` rebuilds the conversation per folder). */
@@ -69,6 +63,14 @@ export interface SavedTabs {
 
 const NONE: SavedTabs = { tabs: [], active: 0 }
 
+/** Rebuilding a folder listing must not select its first file in a workspace
+ * the user deliberately left empty. Legacy folder restores keep their policy. */
+export function restoredFileIndex(tab: SavedTab, rebuiltIndex: number): number {
+  return tab.role === 'project' && !tab.file && tab.browse?.surface === 'viewer'
+    ? -1
+    : rebuiltIndex
+}
+
 /** Is `p` the folder `root` or somewhere inside it? Lower-cased first, since
  *  these are Windows paths and two spellings are one folder; `relative` is a
  *  plain string comparison and would call C:\Foo and C:\foo strangers. */
@@ -82,6 +84,72 @@ const isFolder = (p: string): boolean => {
     return statSync(p).isDirectory()
   } catch {
     return false
+  }
+}
+
+/** History is a bounded suggestion. Each surviving location keeps its own view. */
+export function parseBrowse(raw: unknown): SavedBrowse | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const value = raw as Partial<SavedBrowse>
+  if (typeof value.path !== 'string' || !isAbsolute(value.path) || !isFolder(value.path))
+    return undefined
+  const history: BrowseLocation[] = []
+  let cursor = 0
+  const entries = Array.isArray(value.history) ? value.history.slice(0, 100) : []
+  entries.forEach((location, index) => {
+    if (
+      !location ||
+      typeof location !== 'object' ||
+      typeof location.path !== 'string' ||
+      !isAbsolute(location.path) ||
+      !isFolder(location.path)
+    )
+      return
+    if (index === value.cursor) cursor = history.length
+    history.push({
+      path: location.path,
+      selected: typeof location.selected === 'string' ? location.selected : null,
+      scrollTop:
+        typeof location.scrollTop === 'number' && Number.isFinite(location.scrollTop)
+          ? Math.max(0, location.scrollTop)
+          : 0,
+      query: typeof location.query === 'string' ? location.query.slice(0, 1000) : '',
+      sort: {
+        key: ['name', 'type', 'size', 'modified'].includes(location.sort?.key)
+          ? location.sort.key
+          : 'name',
+        direction: location.sort?.direction === 'desc' ? 'desc' : 'asc'
+      }
+    })
+  })
+  if (!history.length)
+    history.push({
+      path: value.path,
+      selected: null,
+      scrollTop: 0,
+      query: '',
+      sort: { key: 'name', direction: 'asc' }
+    })
+  if (history[cursor].path !== value.path) {
+    const found = history.findIndex((entry) => entry.path === value.path)
+    if (found >= 0) cursor = found
+    else {
+      cursor = history.length
+      history.push({
+        path: value.path,
+        selected: null,
+        scrollTop: 0,
+        query: '',
+        sort: { key: 'name', direction: 'asc' }
+      })
+    }
+  }
+  return {
+    path: value.path,
+    history,
+    cursor,
+    surface: value.surface === 'viewer' ? 'viewer' : 'folder',
+    preview: value.preview === true
   }
 }
 
@@ -111,30 +179,99 @@ export function parseTabs(raw: string): SavedTabs {
       : undefined
 
   const tabs: SavedTab[] = []
+  const ids = new Set<string>()
+  let keptPinnedExplorer = false
   // The active tab is tracked by POSITION through the filtering, not re-found
   // by root afterwards: two tabs on one folder are legal (the strip's + allows
   // them), and a root lookup would always crown the first twin.
   let active = -1
   list.forEach((entry, i) => {
     if (!entry || typeof entry !== 'object') return
-    const { root, file, term, agent, cwd } = entry as {
+    const { root, file, term, agent, cwd, id, browse, open, terms, panes, role, pinned } = entry as {
+      id?: unknown
+      role?: unknown
+      pinned?: unknown
+      browse?: unknown
+      open?: unknown
+      terms?: unknown
+      panes?: unknown
       root?: unknown
       file?: unknown
       term?: unknown
       agent?: unknown
       cwd?: unknown
     }
-    if (typeof root !== 'string' || !isFolder(root)) return
+    if (typeof root !== 'string' || !isAbsolute(root) || !isFolder(root)) return
     const tab: SavedTab = typeof file === 'string' && existsSync(file) ? { root, file } : { root }
-    if (term === 'full' || term === 'split') {
+    if (role === 'explorer' || role === 'project') tab.role = role
+    if (role === 'explorer' && pinned === true && !keptPinnedExplorer) {
+      tab.pinned = true
+      keptPinnedExplorer = true
+    }
+    if (typeof id === 'string' && id.length > 0 && id.length <= 200 && !ids.has(id)) {
+      tab.id = id
+      ids.add(id)
+    }
+    const keptBrowse = parseBrowse(browse)
+    if (keptBrowse) tab.browse = keptBrowse
+    if (Array.isArray(panes)) {
+      const kept: SavedPane[] = []
+      for (const pane of panes.slice(0, 3)) {
+        if (
+          !pane ||
+          typeof pane !== 'object' ||
+          typeof pane.id !== 'string' ||
+          typeof pane.path !== 'string' ||
+          !['left', 'right', 'top', 'bottom'].includes(pane.dir)
+        )
+          continue
+        if (
+          (term === 'full' || term === 'split' || term === 'hidden') &&
+          typeof pane.termSlot === 'number' &&
+          Number.isInteger(pane.termSlot) &&
+          pane.termSlot >= 0 &&
+          pane.termSlot < Math.min(typeof terms === 'number' ? terms : 1, 16)
+        ) {
+          kept.push({
+            id: pane.id,
+            path: `term:slot-${pane.termSlot}`,
+            dir: pane.dir,
+            termSlot: pane.termSlot
+          })
+          continue
+        }
+        if (!isAbsolute(pane.path)) continue
+        try {
+          if (statSync(pane.path).isFile())
+            kept.push({ id: pane.id, path: pane.path, dir: pane.dir })
+        } catch {
+          /* A missing pinned file is no longer a pane. */
+        }
+      }
+      if (kept.length) tab.panes = kept
+    }
+    if (Array.isArray(open)) {
+      const folders = open
+        .slice(0, 400)
+        .filter(
+          (p): p is string =>
+            typeof p === 'string' &&
+            isAbsolute(p) &&
+            (inside(root, p) || !!keptBrowse?.history.some((entry) => inside(entry.path, p))) &&
+            isFolder(p)
+        )
+      if (folders.length) tab.open = folders
+    }
+    if (term === 'full' || term === 'split' || term === 'hidden') {
       tab.term = term
+      if (typeof terms === 'number' && Number.isInteger(terms) && terms > 1)
+        tab.terms = Math.min(terms, 16)
       // Only meaningful with a terminal. `true` is the old spelling of claude.
       if (agent === true || agent === 'claude') tab.agent = 'claude'
       else if (agent === 'codex') tab.agent = 'codex'
-      // The shell's own folder, kept only while it still exists and is still
-      // inside the root: a folder renamed since is not a shell's cwd, it is a
-      // spawn that fails, and the root is the honest fallback.
-      if (typeof cwd === 'string' && inside(root, cwd) && isFolder(cwd)) tab.cwd = cwd
+      // A gone folder falls back to the project. An existing outside folder
+      // stays the shell's own cwd and receives a desktop-only restore grant.
+      if (typeof cwd === 'string' && isAbsolute(cwd) && isFolder(cwd)) tab.cwd = cwd
     }
     if (i === wasActive) active = tabs.length
     tabs.push(tab)
