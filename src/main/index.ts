@@ -1283,7 +1283,11 @@ function createWindow(): void {
   // The lightweight loading shell can finish its document before App loads.
   // Start restore only once the renderer is actually listening for its files.
   const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
-    if (event.sender !== mainWindow?.webContents || restoreStarted) return
+    if (event.sender !== mainWindow?.webContents) return
+    if (restoreStarted) {
+      if (startupRestored) event.sender.send('open:restored')
+      return
+    }
     restoreStarted = true
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
     // became async when listDir did, and firing them off together would let
@@ -1313,9 +1317,15 @@ function createWindow(): void {
       // New OS opens can arrive while a slow restore is still draining. Shift
       // the shared queue so those requests are preserved in arrival order too.
       while (pendingOpen.length) await sendOpen(pendingOpen.shift()!)
-      startupRestored = true
       winERequests.restored()
     })()
+      .catch((error: unknown) => console.error('Could not restore the startup session:', error))
+      .finally(() => {
+        startupRestored = true
+        // A genuinely empty or failed restore may show the ordinary empty state.
+        // Until this signal, no tabs means the initial folders are still loading.
+        if (!event.sender.isDestroyed()) event.sender.send('open:restored')
+      })
   }
   ipcMain.on('open:listen', restoreWhenListening)
   mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))

@@ -458,11 +458,16 @@ const api = {
     return () => ipcRenderer.removeListener('window:state', listener)
   },
   /** Fired when main opens a file (launch arg, drag, or a forwarded second instance). */
-  onOpenFile: (cb: (p: OpenPayload) => void): (() => void) => {
+  onOpenFile: (cb: (p: OpenPayload) => void, onRestored?: () => void): (() => void) => {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
+    const restored = (): void => onRestored?.()
     ipcRenderer.on('open:file', listener)
+    ipcRenderer.on('open:restored', restored)
     ipcRenderer.send('open:listen')
-    return () => ipcRenderer.removeListener('open:file', listener)
+    return () => {
+      ipcRenderer.removeListener('open:file', listener)
+      ipcRenderer.removeListener('open:restored', restored)
+    }
   },
   /**
    * Something changed in a folder Prism has open, and Prism did not do it.

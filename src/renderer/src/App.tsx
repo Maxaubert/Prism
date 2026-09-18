@@ -895,6 +895,7 @@ export default function App(): JSX.Element {
   // the life of the window. `open` in particular is handed to main once, through
   // onOpenFile, and must not be rebuilt whenever a tab changes.
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activeId: null })
+  const [restoring, setRestoring] = useState(true)
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   const rawIndex = active?.index ?? -1
@@ -1281,7 +1282,7 @@ export default function App(): JSX.Element {
     },
     [open]
   )
-  useEffect(() => window.prism.onOpenFile(arrive), [arrive])
+  useEffect(() => window.prism.onOpenFile(arrive, () => setRestoring(false)), [arrive])
 
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
@@ -4151,6 +4152,13 @@ export default function App(): JSX.Element {
                 // There IS a file here; the player above is drawing it.
                 null : active ? (
                   <NoFileState />
+                ) : restoring ? (
+                  <div
+                    data-testid="window-restoring"
+                    className="flex h-full items-center justify-center text-[var(--p-dim)]"
+                  >
+                    <p role="status">Opening Prism…</p>
+                  </div>
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )

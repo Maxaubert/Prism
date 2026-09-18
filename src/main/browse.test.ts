@@ -99,6 +99,14 @@ it('lists unsupported files, hidden files and skipped directories only in the de
   expect(tree.files).toEqual([])
 })
 
+it('does not filter the desktop file list by extension or viewer support', async () => {
+  const names = ['library.dll', 'driver.sys', 'program.exe', 'data.bin', 'unknown.xyz123', 'no-extension', '.hidden', 'desktop.ini']
+  for (const name of names) writeFileSync(join(box, name), 'file')
+  const result = await browseDirectory('all-types', box)
+  expect(result?.listing.files.map((file) => file.name).sort()).toEqual(names.sort())
+  expect(result?.listing.files.find((file) => file.name === 'library.dll')?.kind).toBe('other')
+})
+
 it('restores independent browsing, hidden terminal cwd, tree expansion and shell slots', () => {
   const project = join(box, 'project')
   const browsing = join(box, 'browsing')

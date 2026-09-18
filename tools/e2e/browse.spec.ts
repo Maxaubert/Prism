@@ -411,6 +411,118 @@ test('folder navigation retains history state and lists dotfiles and unsupported
   }
 })
 
+test('Explorer displays all file types independently of viewer support', async () => {
+  const h = await setup()
+  try {
+    const folder = join(h.home, 'All file types')
+    mkdirSync(folder)
+    const names = ['library.dll', 'driver.sys', 'program.exe', 'data.bin', 'unknown.xyz123', 'no-extension', '.hidden', 'desktop.ini']
+    for (const name of names) writeFileSync(join(folder, name), Buffer.from([0, 1, 2, 255]))
+    await go(h.page, folder)
+    for (const name of names) await expect(row(h.page, name)).toBeVisible()
+    await expect(h.page.getByTestId('browse-list').getByRole('option')).toHaveCount(names.length)
+    await search(h.page, 'ext:dll')
+    await expect(row(h.page, 'library.dll')).toBeVisible()
+    await row(h.page, 'library.dll').dblclick()
+    await expect(h.page.getByRole('button', { name: 'Show the bytes', exact: true })).toBeVisible()
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('returning Up shows visited folder rows while a slow refresh discovers new files', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await row(page, 'Nested').dblclick()
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    writeFileSync(join(h.project, '.new-while-away.dll'), 'new file')
+    await app.evaluate(({ ipcMain }, target) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:directory')!
+      let release!: () => void
+      const gate = new Promise<void>((done) => { release = done })
+      const delayed = { calls: 0, fail: false, release }
+      Object.assign(globalThis, { folderRefreshDelay: delayed })
+      ipcMain.removeHandler('browse:directory')
+      ipcMain.handle('browse:directory', async (...args: unknown[]) => {
+        if (args[2] === target) {
+          delayed.calls++
+          await gate
+          if (delayed.fail) return null
+        }
+        return original(...args)
+      })
+    }, h.project)
+    await page.getByRole('button', { name: 'Up', exact: true }).click()
+    await expect(page.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute('title', h.project)
+    await expect(row(page, 'Nested')).toBeVisible()
+    await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(page.getByText('Loading folder…', { exact: true })).toHaveCount(0)
+    await expect(row(page, '.new-while-away.dll')).toHaveCount(0)
+    await expect.poll(() => app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { calls: number } }).folderRefreshDelay.calls
+    )).toBe(1)
+    await app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { release: () => void } }).folderRefreshDelay.release()
+    )
+    await expect(row(page, '.new-while-away.dll')).toBeVisible()
+    expect(await app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { calls: number } }).folderRefreshDelay.calls
+    )).toBe(1)
+    await row(page, 'Nested').dblclick()
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await app.evaluate(() => {
+      (globalThis as unknown as { folderRefreshDelay: { fail: boolean } }).folderRefreshDelay.fail = true
+    })
+    await page.getByRole('button', { name: 'Up', exact: true }).click()
+    await expect(page.getByText('This folder cannot be opened. Check the path or choose another location.', { exact: true })).toBeVisible()
+    await expect(row(page, 'Nested')).toHaveCount(0)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('a new refresh sees filesystem changes without waiting for an older folder response', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await app.evaluate(({ ipcMain }, target) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:directory')!
+      let release!: () => void
+      const gate = new Promise<void>((done) => { release = done })
+      const delayed = { calls: 0, captured: false, release }
+      Object.assign(globalThis, { oldFolderResponse: delayed })
+      ipcMain.removeHandler('browse:directory')
+      ipcMain.handle('browse:directory', async (...args: unknown[]) => {
+        const hold = args[2] === target && ++delayed.calls === 1
+        const result = await original(...args)
+        if (hold) {
+          delayed.captured = true
+          await gate
+        }
+        return result
+      })
+    }, h.project)
+    await page.getByRole('button', { name: 'Refresh folder', exact: true }).click()
+    await expect.poll(() => app.evaluate(() =>
+      (globalThis as unknown as { oldFolderResponse: { captured: boolean } }).oldFolderResponse.captured
+    )).toBe(true)
+    writeFileSync(join(h.project, '.created-during-read.dll'), 'new file')
+    await page.getByRole('button', { name: 'Refresh folder', exact: true }).click()
+    await expect(row(page, '.created-during-read.dll')).toBeVisible()
+    await app.evaluate(() =>
+      (globalThis as unknown as { oldFolderResponse: { release: () => void } }).oldFolderResponse.release()
+    )
+    await expect(row(page, '.created-during-read.dll')).toBeVisible()
+  } finally {
+    await stop(app)
+  }
+})
+
 test('Explorer stays pinned, new tabs browse immediately, and places and path controls work', async ({}, info) => {
   const h = await setup()
   const { page } = h
@@ -4406,9 +4518,37 @@ test('Win+E paints a usable loading window before App loads and acknowledges onl
     await page.getByRole('button', { name: 'Maximize', exact: true }).click()
     await expect.poll(() => app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(false)
     await page.evaluate(() => localStorage.setItem('prism.onboarded', '1'))
+    // Hold initial session messages after React mounts, reproducing slow folder
+    // discovery without depending on disk speed or delaying the App chunk again.
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      const send = contents.send.bind(contents)
+      const queued: Array<[string, ...unknown[]]> = []
+      contents.send = (channel, ...args) => {
+        if (['open:file', 'open:restored', 'win-e:open'].includes(channel)) queued.push([channel, ...args])
+        else send(channel, ...args)
+      }
+      Object.assign(globalThis, {
+        releaseStartupMessages: () => {
+          contents.send = send
+          for (const [channel, ...args] of queued) send(channel, ...args)
+        }
+      })
+    })
     releaseApp()
     await expect(page.getByTestId('window-loading')).toHaveCount(0)
+    await expect(page.getByTestId('window-restoring')).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Opening Prism…')
+    await expect(page.getByText('Open a file or folder to view it', { exact: true })).toHaveCount(0)
+    expect(pipe.messages).toEqual([])
+    await shot(page, info, 'window-restoring.png', app)
+    await app.evaluate(() => {
+      const state = globalThis as typeof globalThis & { releaseStartupMessages?: () => void }
+      state.releaseStartupMessages!()
+      delete state.releaseStartupMessages
+    })
     await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(page.getByTestId('window-restoring')).toHaveCount(0)
     await expect.poll(() => pipe.messages).toEqual([id])
     expect(await pipe.observations[0]).toMatchObject({ role: 'explorer', pinned: true, folderVisible: true })
     await expect.poll(() => savedTabs(join(profile, 'tabs.json'))?.tabs.some((tab) => tab.file === incomingFile)).toBe(true)
