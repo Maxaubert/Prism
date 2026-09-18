@@ -24,6 +24,8 @@ export interface BrowseSort {
 }
 
 export interface BrowseSearchState {
+  source?: 'everything' | 'filesystem'
+  notice?: string
   running: boolean
   scanned: number
   unreadable: number

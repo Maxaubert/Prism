@@ -187,6 +187,13 @@
   color: var(--p-text);
   height: 100%;
 }
+.browse-search:focus-within {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
+}
+.browse-toolbar .browse-search input:focus-visible {
+  outline: none;
+}
 .browse-search input::placeholder {
   color: var(--p-dim);
   opacity: 1;
@@ -294,7 +301,8 @@
   outline: 0 none !important;
 }
 body[data-internal-file-drag] :focus-visible,
-body[data-internal-file-drag] .browse-path:focus-within {
+body[data-internal-file-drag] .browse-path:focus-within,
+body[data-internal-file-drag] .browse-search:focus-within {
   outline: 0 none !important;
   box-shadow: none !important;
 }

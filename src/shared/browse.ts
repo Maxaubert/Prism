@@ -29,6 +29,8 @@ export interface BrowseDirectory {
 /** Recursive desktop results. Counts expose incomplete coverage rather than
  * presenting a stopped or partly inaccessible walk as an exhaustive answer. */
 export interface BrowseSearchResult extends BrowseDirectory {
+  source?: 'everything' | 'filesystem'
+  notice?: string
   scanned: number
   unreadable: number
   skippedLinks: number

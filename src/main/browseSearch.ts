@@ -1,15 +1,19 @@
 import { opendir, realpath, stat } from 'fs/promises'
-import { dirname, extname, isAbsolute, join, resolve, sep } from 'path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { BrowseSearchProgress, BrowseSearchResult } from '@shared/browse'
 import { fileKind } from '@shared/fileKind'
-import { matchesQuery, parseQuery } from '@shared/searchQuery'
+import { parseBrowseQuery } from '@shared/browseQuery'
+import { filetimeToMs, isDirAttr } from '@shared/everythingQuery'
+import { searchEverythingBrowse } from './everythingBrowse'
 import { desktopClosed, grantDesktopDirectory, ownsDesktopDirectory } from './desktopAccess'
 
-const searches = new Map<string, { requestId: string }>()
+const searches = new Map<string, { requestId: string; controller: AbortController }>()
 
 export function cancelBrowseSearch(tabId: string, requestId?: string): void {
-  if (requestId === undefined || searches.get(tabId)?.requestId === requestId)
+  if (requestId === undefined || searches.get(tabId)?.requestId === requestId) {
+    searches.get(tabId)?.controller.abort()
     searches.delete(tabId)
+  }
 }
 
 interface SearchLimits {
@@ -57,10 +61,10 @@ export async function browseSearch(
     result.unreadable = 1
     return result
   }
-  const ticket = { requestId }
+  cancelBrowseSearch(tabId)
+  const ticket = { requestId, controller: new AbortController() }
   searches.set(tabId, ticket)
   const active = (): boolean => searches.get(tabId) === ticket && !desktopClosed(tabId)
-  const terms = parseQuery(query)
   const { maxEntries = 250000, maxHits = 1000, maxMs = 30000 } = limits
   const started = Date.now()
   let lastProgress = 0
@@ -74,10 +78,71 @@ export async function browseSearch(
     emit({ ...snapshot(), tabId, requestId })
   }
   try {
-    if (!terms.some((term) => !term.negated)) return result
+    if (!query.trim()) return result
     result.path = resolve(path)
     const root = comparable(await realpath(result.path))
     const rootPrefix = root.endsWith(sep) ? root : root + sep
+    const indexed = await searchEverythingBrowse(
+      result.path,
+      query,
+      maxHits,
+      ticket.controller.signal
+    )
+    if (!active()) return { ...result, cancelled: true }
+    if (indexed !== null) {
+      result.source = 'everything'
+      result.truncated = indexed.length > maxHits
+      const prefix = comparable(result.path.endsWith(sep) ? result.path : result.path + sep)
+      // Validate in bounded batches. Everything supplies metadata, so this does
+      // no recursive enumeration or per-result stat for size/date columns.
+      for (let start = 0; start < Math.min(indexed.length, maxHits) && active(); start += 16) {
+        await Promise.all(
+          indexed.slice(start, Math.min(start + 16, maxHits)).map(async (entry) => {
+            const fullPath = resolve(entry.filename)
+            if (!comparable(fullPath).startsWith(prefix)) return
+            if (entry.attributes & 1024) {
+              result.skippedLinks++
+              return
+            }
+            try {
+              const canonical = comparable(await realpath(fullPath))
+              if (!active()) return
+              // Even descendants reached through an indexed junction cannot
+              // extend this tab's grant or disclose a different directory.
+              if (canonical !== comparable(resolve(root, relative(result.path, fullPath)))) {
+                result.skippedLinks++
+                return
+              }
+              const name = basename(fullPath)
+              const ext = extname(name).toLowerCase()
+              if (isDirAttr(entry.attributes)) result.listing.folders.push({ path: fullPath, name })
+              else
+                result.listing.files.push({
+                  path: fullPath,
+                  name,
+                  ext,
+                  kind: fileKind(ext, name),
+                  size: entry.size ?? 0,
+                  mtimeMs: entry.date_modified === undefined ? 0 : filetimeToMs(entry.date_modified)
+                })
+              grantDesktopDirectory(tabId, dirname(fullPath))
+            } catch {
+              result.unreadable++
+            }
+            result.scanned++
+          })
+        )
+        progress()
+      }
+      result.cancelled = !active()
+      return snapshot()
+    }
+    result.source = 'filesystem'
+    const terms = parseBrowseQuery(query)
+    if (terms.error) {
+      result.notice = terms.error
+      return result
+    }
     const seen = new Set<string>()
     const queue = [result.path]
     let next = 0
@@ -114,7 +179,7 @@ export async function browseSearch(
           }
           const fullPath = join(dir, entry.name)
           if (entry.isDirectory()) queue.push(fullPath)
-          if (!matchesQuery(entry.name, terms)) {
+          if (!terms.matches(entry.name, entry.isDirectory())) {
             progress()
             continue
           }

@@ -1841,6 +1841,73 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
   }
 })
 
+test('Everything Explorer filters respond from the index and focus surrounds the complete field', async ({}, info) => {
+  const es = join(process.env.USERPROFILE ?? '', '.local', 'bin', 'es.exe')
+  test.skip(!existsSync(es), 'Everything CLI is not installed on this machine')
+  const h = await setup()
+  const { app, page } = h
+  try {
+    const folder = join(h.project, 'Playnite')
+    mkdirSync(folder)
+    writeFileSync(join(folder, 'Playnite.dll'), 'indexed unsupported file')
+    writeFileSync(join(folder, '.Playnite-hidden'), 'indexed hidden file')
+    // A live index catches filesystem events asynchronously. Wait for fixture
+    // ingestion, not for a recursive fallback to disguise an empty index.
+    await expect.poll(() => {
+      try {
+        return execFileSync(es, ['-json', '-n', '10', '-path', h.project, '-search', 'file: Playnite'], { windowsHide: true, encoding: 'utf8' })
+      } catch { return '' }
+    }).toContain('.Playnite-hidden')
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const timings: { query: string; ms: number }[] = []
+      ;(globalThis as unknown as { __searchTimings: typeof timings }).__searchTimings = timings
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (...args: unknown[]) => {
+        const start = performance.now()
+        const result = await original(...args)
+        timings.push({ query: String(args[3]), ms: Math.round(performance.now() - start) })
+        return result
+      })
+    })
+    await search(page, 'folder: Playnite')
+    await expect(row(page, 'Playnite')).toBeVisible()
+    await expect(row(page, 'Playnite.dll')).toHaveCount(0)
+    await expect(page.getByTestId('browse-search-status')).toContainText('Everything index')
+    await search(page, 'file: Playnite')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await expect(row(page, '.Playnite-hidden')).toBeVisible()
+    await expect(row(page, 'Playnite')).toHaveCount(0)
+    await search(page, 'file: ext:dll size:>1')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await expect(row(page, '.Playnite-hidden')).toHaveCount(0)
+    await search(page, '<folder: Playnite> | <file: ext:dll>')
+    await expect(row(page, 'Playnite')).toBeVisible()
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await search(page, 'prism-no-such-indexed-result-152')
+    await expect(page.getByTestId('browse-list').locator('[role="option"]')).toHaveCount(0)
+    await expect(page.getByTestId('browse-search-status')).toContainText('Everything index')
+    for (const zoom of [1, 2]) {
+      await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom)
+      const field = page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+      await field.focus()
+      await expect(field).toBeFocused()
+      await expect(field).toHaveCSS('outline-style', 'none')
+      await expect(field.locator('..')).toHaveCSS('outline-style', 'solid')
+      expect(await field.locator('..').evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThan(1)
+      await shot(page, info, `search-focus-${zoom}.png`, app)
+    }
+    const timings = await app.evaluate(() => (globalThis as unknown as { __searchTimings: { query: string; ms: number }[] }).__searchTimings)
+    console.log('Indexed Explorer timings:', JSON.stringify(timings))
+    await info.attach('indexed-search-timings', { body: JSON.stringify(timings, null, 2), contentType: 'application/json' })
+    expect(timings.length).toBeGreaterThanOrEqual(5)
+    // Generous regression limit. Exact measured latency is attached separately.
+    expect(timings.every((timing) => timing.ms < 1500)).toBe(true)
+  } finally { await stop(app) }
+})
+
 test('cancel search reaches the matching request and a fresh query can run afterward', async () => {
   const h = await setup()
   const { app, page } = h

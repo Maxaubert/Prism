@@ -21,7 +21,14 @@ export function BrowseSearchStatus({
         <span>{phase} · This folder and subfolders</span>
         {state && (
           <span className="browse-search-detail">
-            {state.scanned.toLocaleString()} items checked
+            {state.source === 'everything'
+              ? 'Everything index'
+              : `${state.scanned.toLocaleString()} items checked`}
+          </span>
+        )}
+        {state?.source === 'filesystem' && (
+          <span className="browse-search-detail">
+            {state.notice || 'No index for this location. Searching folders directly.'}
           </span>
         )}
         {!!state?.unreadable && (

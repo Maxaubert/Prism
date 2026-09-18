@@ -12,6 +12,9 @@ import {
 } from './desktopAccess'
 import { addRoot, insideAnyRoot, openRoots, resetRoots } from './roots'
 import type { BrowseSearchProgress } from '@shared/browse'
+import { searchEverythingBrowse } from './everythingBrowse'
+
+vi.mock('./everythingBrowse', () => ({ searchEverythingBrowse: vi.fn(async () => null) }))
 
 vi.mock('fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('fs/promises')>())
@@ -21,6 +24,7 @@ let box: string
 let home: string
 let playnite: string
 beforeEach(() => {
+  vi.mocked(searchEverythingBrowse).mockResolvedValue(null)
   box = mkdtempSync(join(tmpdir(), 'prism-browse-search-'))
   home = join(box, 'Admin')
   playnite = join(home, 'AppData', 'Roaming', 'Playnite')
@@ -39,6 +43,86 @@ afterEach(() => {
 })
 
 describe('recursive desktop Explorer search', () => {
+  it('uses indexed metadata for hidden and unsupported entries without walking or stat calls', async () => {
+    const walk = vi.spyOn(fs, 'opendir')
+    const stats = vi.spyOn(fs, 'stat')
+    vi.mocked(searchEverythingBrowse).mockResolvedValue([
+      { filename: playnite, attributes: 16 },
+      {
+        filename: join(playnite, 'Playnite.exe'),
+        attributes: 32,
+        size: 123,
+        date_modified: 116444736010000000
+      },
+      { filename: join(playnite, '.playnite-settings'), attributes: 34, size: 456 }
+    ])
+    const result = await browseSearch('explorer', home, 'file: | folder:', 'indexed')
+    expect(result.source).toBe('everything')
+    expect(result.listing.folders).toContainEqual({ path: playnite, name: 'Playnite' })
+    expect(result.listing.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Playnite.exe', size: 123, mtimeMs: 1000, kind: 'other' }),
+        expect.objectContaining({ name: '.playnite-settings', size: 456 })
+      ])
+    )
+    expect(walk).not.toHaveBeenCalled()
+    expect(stats).not.toHaveBeenCalled()
+    expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(true)
+    expect(insideAnyRoot(join(playnite, 'Playnite.exe'))).toBe(false)
+  })
+
+  it('never recursively walks after an empty indexed answer and reports unsupported fallback filters', async () => {
+    const walk = vi.spyOn(fs, 'opendir')
+    vi.mocked(searchEverythingBrowse).mockResolvedValueOnce([])
+    expect(await browseSearch('explorer', home, 'missing', 'empty')).toMatchObject({
+      source: 'everything',
+      scanned: 0
+    })
+    expect(walk).not.toHaveBeenCalled()
+    expect(await browseSearch('explorer', home, 'size:>100mb', 'advanced')).toMatchObject({
+      source: 'filesystem',
+      notice: expect.stringContaining('Everything')
+    })
+    expect(walk).not.toHaveBeenCalled()
+  })
+
+  it('rejects indexed sibling-prefix paths, stale files and paths reached through junctions', async () => {
+    const outside = join(box, 'Admin-other')
+    mkdirSync(outside)
+    const secret = join(outside, 'secret.dll')
+    writeFileSync(secret, 'outside')
+    const jump = join(home, 'jump')
+    symlinkSync(outside, jump, 'junction')
+    vi.mocked(searchEverythingBrowse).mockResolvedValue([
+      { filename: secret, attributes: 32 },
+      { filename: join(jump, 'secret.dll'), attributes: 32 },
+      { filename: join(home, 'gone.dll'), attributes: 32 },
+      { filename: jump, attributes: 1040 }
+    ])
+    const result = await browseSearch('explorer', home, '*', 'boundary')
+    expect(result.listing).toEqual({ folders: [], files: [] })
+    expect(result).toMatchObject({ skippedLinks: 2, unreadable: 1 })
+    expect(insideDesktop(secret)).toBe(false)
+  })
+
+  it('aborts superseded indexed work and never grants late results', async () => {
+    let finish!: (rows: Awaited<ReturnType<typeof searchEverythingBrowse>>) => void
+    vi.mocked(searchEverythingBrowse).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done
+        })
+    )
+    const old = browseSearch('explorer', home, 'Playnite', 'old-indexed')
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    const signal = vi.mocked(searchEverythingBrowse).mock.calls.at(-1)![3]
+    cancelBrowseSearch('explorer', 'old-indexed')
+    expect(signal.aborted).toBe(true)
+    finish([{ filename: join(playnite, 'Playnite.exe'), attributes: 32 }])
+    expect((await old).cancelled).toBe(true)
+    expect(insideDesktop(join(playnite, 'Playnite.exe'))).toBe(false)
+  })
+
   it('finds folders, hidden files and unsupported files under AppData with full paths', async () => {
     const result = await browseSearch('explorer', home, 'playnite', 'request')
     expect(result.listing.folders).toContainEqual({ name: 'Playnite', path: playnite })
@@ -67,7 +151,9 @@ describe('recursive desktop Explorer search', () => {
         (file) => file.name
       )
     ).toEqual(['playnite-notes.txt'])
-    expect((await browseSearch('explorer', home, '-playnite', 'excluded')).scanned).toBe(0)
+    expect(
+      (await browseSearch('explorer', home, '-playnite', 'excluded')).listing.files
+    ).toHaveLength(0)
   })
 
   it('grants only matching desktop locations to the owner without sharing them to the phone', async () => {

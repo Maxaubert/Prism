@@ -54,7 +54,7 @@ export function useBrowseSearch(
               error: 'Search could not finish. Try again or choose another folder.'
             })
         })
-    }, 200)
+    }, 50)
     cancel.current = () => {
       clearTimeout(timer)
       if (started) window.prism.browseSearchCancel(tabId, requestId)
