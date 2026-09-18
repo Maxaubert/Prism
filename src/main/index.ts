@@ -50,7 +50,9 @@ import {
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
 import { browseSearch, cancelBrowseSearch } from './browseSearch'
-import { folderSize } from './folderSize'
+import { FolderSizeCache } from './folderSizeCache'
+import { getIndexedFolderSizes } from './everythingBrowse'
+import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -638,6 +640,36 @@ let installingUpdate = false
 const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
 const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
+const indexDirectory = join(preferencesOwner, 'search-index')
+const sizeCacheDirectory = join(preferencesOwner, 'folder-sizes')
+const indexer = initializeIndexerRuntime({
+  binaryDirectory: app.isPackaged
+    ? join(process.resourcesPath, 'everything')
+    : join(__dirname, '..', '..', 'vendor', 'everything'),
+  storageDirectory: indexDirectory,
+  allowService:
+    app.isPackaged && !process.argv.includes('--e2e') && !process.argv.includes('--preview'),
+  serviceInstance: indexerInstance(dirname(app.getPath('exe')))
+})
+if (process.argv.includes('--e2e')) {
+  (globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
+  // Real child-window tests inherit this bound, so visiting Home or a drive
+  // never starts a background crawl of the developer's personal files.
+  const fixtureRoot = process.env.PRISM_E2E_INDEX_ROOT
+  if (fixtureRoot) {
+    const ensureReady = indexer.ensureReady.bind(indexer)
+    indexer.ensureReady = (root) => {
+      const rel = root ? relative(fixtureRoot, root) : ''
+      return rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)
+        ? Promise.resolve(null)
+        : ensureReady(root)
+    }
+  }
+}
+const folderSizes = new FolderSizeCache({
+  directory: sizeCacheDirectory,
+  indexedSizes: getIndexedFolderSizes
+})
 let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
@@ -1016,12 +1048,29 @@ const E2E = process.argv.includes('--e2e')
  * open and close and this is the only thing that starts or stops a watch, so
  * it can never drift onto a path the renderer named.
  */
+function folderChanged(change: { root: string; dirs: string[] }): void {
+  // Our index and cache writes must not invalidate themselves recursively.
+  const directories = change.dirs.filter((path) =>
+    [indexDirectory, sizeCacheDirectory].every((privatePath) => {
+      const rel = relative(privatePath, path)
+      return rel !== '' && (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel))
+    })
+  )
+  void folderSizes
+    .invalidate(directories)
+    .catch(() => {})
+    .finally(() => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send('dir:changed', change)
+    })
+}
+
 onRootsChanged((root, open) => {
   if (!open) {
     unwatchRoot(root)
     return
   }
-  watchRoot(root, (change) => mainWindow?.webContents.send('dir:changed', change), isSkipped)
+  watchRoot(root, folderChanged, isSkipped)
 })
 
 /**
@@ -1034,6 +1083,12 @@ onRootsChanged((root, open) => {
 function ownWrite(...paths: Array<string | null | undefined>): void {
   const now = Date.now()
   for (const p of paths) if (typeof p === 'string' && p) muteDir(dirname(p), now)
+}
+
+async function written(...paths: Array<string | null | undefined>): Promise<void> {
+  await folderSizes
+    .invalidate(paths.filter((p): p is string => typeof p === 'string' && !!p))
+    .catch(() => {})
 }
 
 app.setAppUserModelId('com.prism.viewer')
@@ -1381,7 +1436,20 @@ if (!app.requestSingleInstanceLock()) {
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
   // Every shell dies with the app; a pty with no window is an orphan.
-  app.on('will-quit', () => {
+  let indexerStopped = false
+  let stoppingIndexer = false
+  app.on('will-quit', (event) => {
+    if (!indexerStopped) {
+      event.preventDefault()
+      if (!stoppingIndexer) {
+        stoppingIndexer = true
+        void indexer.dispose().finally(() => {
+          indexerStopped = true
+          app.quit()
+        })
+      }
+      return
+    }
     markExplorerWindow(app.getPath('userData'), true)
     stopDwmHelper()
     killAll()
@@ -1400,6 +1468,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     void cleanExplorerWindows(preferencesOwner)
+    // Restore the private index in the background. Directory navigation adds
+    // roots without delaying the listing or scanning an unrelated test profile.
+    void indexer.ensureReady()
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send('window-preferences:changed', snapshot)
@@ -1839,6 +1910,7 @@ if (!app.requestSingleInstanceLock()) {
           // Muted so the folder watcher does not report Prism's own write.
           ownWrite(r.filePath)
           await writeFile(r.filePath, Buffer.from(bytes))
+          await written(r.filePath)
           return r.filePath
         } catch {
           return null
@@ -1974,23 +2046,47 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
-    ipcMain.handle('browse:directory', (_e, tabId: string, path: string) =>
-      browseDirectory(tabId, path)
-    )
+    const warmFolderSizes = (paths: string[]): void => {
+      void folderSizes.prefetchIndexed(paths.filter(insideDesktop)).catch(() => {})
+    }
+    ipcMain.handle('browse:directory', async (_e, tabId: string, path: string) => {
+      const directory = await browseDirectory(tabId, path)
+      if (directory && !directory.listing.unreadable) {
+        void indexer.ensureReady(directory.path)
+        warmFolderSizes(directory.listing.folders.map((folder) => folder.path))
+      }
+      return directory
+    })
     ipcMain.handle(
       'browse:search',
-      (event, tabId: string, path: string, query: string, requestId: string) =>
-        browseSearch(tabId, path, query, requestId, (progress) => {
+      async (event, tabId: string, path: string, query: string, requestId: string) => {
+        const result = await browseSearch(tabId, path, query, requestId, (progress) => {
           if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
         })
+        if (result && !result.cancelled)
+          warmFolderSizes(result.listing.folders.map((folder) => folder.path))
+        return result
+      }
     )
     ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) =>
       cancelBrowseSearch(tabId, requestId)
     )
     ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
-      browseWatch(tabId, path, (change) => mainWindow?.webContents.send('dir:changed', change))
+      browseWatch(tabId, path, folderChanged)
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
+      if (!Array.isArray(paths) || paths.length > 10000) return {}
+      const authorized = paths.filter(
+        (path): path is string => typeof path === 'string' && insideDesktop(path)
+      )
+      const cached = await folderSizes.readCached(authorized)
+      return Object.fromEntries(Object.entries(cached).filter(([path]) => insideDesktop(path)))
+    })
+    ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
+      if (typeof path !== 'string' || !insideDesktop(path)) return
+      await folderSizes.invalidate([path])
+    })
     const folderSizeRequests = new Map<number, Map<string, AbortController>>()
     ipcMain.handle('folder:size', async (event, path: string, requestId: string) => {
       if (
@@ -2018,7 +2114,10 @@ if (!app.requestSingleInstanceLock()) {
       const controller = new AbortController()
       requests.set(requestId, controller)
       try {
-        const result = await folderSize(path, controller.signal)
+        const result = await folderSizes.get(path, controller.signal, (result) => {
+          if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
+            event.sender.send('folder:size-progress', { requestId, result })
+        })
         return insideDesktop(path) && !controller.signal.aborted ? result : null
       } finally {
         if (requests.get(requestId) === controller) requests.delete(requestId)
@@ -2084,6 +2183,7 @@ if (!app.requestSingleInstanceLock()) {
           return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
         await holders.release([p]) // a rename is refused for the same reason a move is (#127)
         const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
+        await written(p, r.ok ? r.path : dirname(p))
         // The file's memory follows it (#124): its place and its choices.
         if (r.ok) void positions.rename(p, r.path)
         return r
@@ -2097,6 +2197,8 @@ if (!app.requestSingleInstanceLock()) {
         return true
       } catch {
         return false
+      } finally {
+        await written(p)
       }
     })
     // The same wall as every other handler. A text file only ever reaches the
@@ -2180,6 +2282,8 @@ if (!app.requestSingleInstanceLock()) {
           reason: 'failed',
           message: String((e as NodeJS.ErrnoException)?.code ?? '')
         }
+      } finally {
+        await written(p)
       }
     })
 
@@ -2585,10 +2689,11 @@ if (!app.requestSingleInstanceLock()) {
         const src = clipboard.paths
         if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
         const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
-        const moving = clipboard.cut ?? (
-          Array.isArray(cut) &&
-          cut.length === src.length &&
-          cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
+        const moving =
+          clipboard.cut ??
+          (Array.isArray(cut) &&
+            cut.length === src.length &&
+            cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
         ownWrite(join(destDir, 'x'))
         const fs = await import('fs/promises')
         const total = moving
@@ -2638,6 +2743,7 @@ if (!app.requestSingleInstanceLock()) {
             failed += 1
           }
         }
+        await written(destDir, ...(moving ? src : []))
         return { pasted, failed, paths, moved: moving }
       }
     )
@@ -2667,7 +2773,7 @@ if (!app.requestSingleInstanceLock()) {
     // rather than InvokeVerb, because the Restore verb's NAME is localised
     // and the namespace move is not. Best effort: an item the user has since
     // emptied simply is not there any more.
-    ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+    ipcMain.handle('file:restore', async (_e, paths: string[]): Promise<boolean> => {
       ownWrite(...(Array.isArray(paths) ? paths : []))
       if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
         return Promise.resolve(false)
@@ -2688,14 +2794,14 @@ if (!app.requestSingleInstanceLock()) {
         // happened (an emptied Recycle Bin is the common case).
         'if ($missing) { exit 1 }'
       ].join('; ')
-      return new Promise((done) => {
+      return new Promise<boolean>((done) => {
         execFile(
           'powershell.exe',
           ['-NoProfile', '-Command', script],
           { windowsHide: true, timeout: 20000 },
           (err) => done(!err)
         )
-      })
+      }).finally(() => written(...paths))
     })
 
     /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
@@ -2746,7 +2852,7 @@ if (!app.requestSingleInstanceLock()) {
         await holders.release(wanted)
         const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
-        )
+        ).finally(() => written(destDir, ...wanted))
         // Each file's memory follows it (#124).
         for (const m of r.moved) void positions.rename(m.from, m.to)
         return r
@@ -3247,6 +3353,7 @@ if (!app.requestSingleInstanceLock()) {
         // drive root, and slicing past it ate the name's first character.
         const copy = join(dir, uniqueName(dir, basename(p)))
         await copyFile(p, copy)
+        await written(copy)
         return copy
       } catch {
         return null

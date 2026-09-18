@@ -20,6 +20,7 @@ import AdmZip from 'adm-zip'
 
 const ROOT = resolve(__dirname, '../..')
 const MAIN = join(ROOT, 'out/main/index.js')
+const pageApps = new WeakMap<Page, ElectronApplication>()
 const quotePS = (value: string): string => `'${value.replace(/'/g, "''")}'`
 
 /** The app writes on a debounce; a poll may land while Windows holds the file open. */
@@ -67,9 +68,11 @@ async function start(profile: string, extraArgs: string[] = []): Promise<{ app: 
   const executablePath = process.env.PRISM_BROWSE_EXECUTABLE
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
+    env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(ROOT, '.e2e') },
     args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', ...extraArgs]
   })
   const page = await app.firstWindow()
+  pageApps.set(page, app)
   await page.waitForLoadState('domcontentloaded')
   await park(app)
   return { app, page }
@@ -78,6 +81,9 @@ async function start(profile: string, extraArgs: string[] = []): Promise<{ app: 
 /** Only this test's Electron process tree is eligible for fallback cleanup. */
 async function stop(app: ElectronApplication): Promise<void> {
   const child = app.process()
+  await app.evaluate(async () => {
+    await (globalThis as unknown as { __prismIndexer?: { dispose(): Promise<void> } }).__prismIndexer?.dispose()
+  }).catch(() => {})
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
   if (child.exitCode === null) {
     await Promise.race([
@@ -117,6 +123,14 @@ async function setup(): Promise<Harness> {
     writeFileSync(join(project, `entry-${String(i).padStart(3, '0')}.txt`), `${i}\n`)
   writeFileSync(join(movies, 'readme.txt'), 'A different browsing location.\n')
   const profile = join(tmpdir(), `prism-browse-e2e-${key}`)
+  mkdirSync(profile, { recursive: true })
+  // Start inside this fixture. A fresh real home could contain millions of
+  // entries and is deliberately outside this isolated UI test's index.
+  writeFileSync(join(profile, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+    id: `fixture-explorer-${key}`, role: 'explorer', pinned: true, root: project,
+    browse: { path: project, history: [{ path: project, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: true },
+    panes: [], open: [project]
+  }] }))
   const { app, page } = await start(profile)
   try {
     await page.evaluate((folder) => {
@@ -258,23 +272,25 @@ async function expectOpenInAppsMenu(page: Page): Promise<void> {
   ).toBeVisible()
 }
 
-async function waitForIndexedFixture(path: string): Promise<void> {
-  const es = join(process.env.USERPROFILE ?? '', '.local', 'bin', 'es.exe')
-  if (!existsSync(es)) return
-  // Indexed search observes fixtures after Everything consumes their filesystem
-  // events. When the service is unavailable the scenarios exercise the walk.
+async function waitForIndexedFixture(page: Page, path: string): Promise<void> {
+  const app = pageApps.get(page)
+  if (!app) throw new Error('Missing private indexer test harness')
+  const endpoint = await app.evaluate(async (_electron, root) => {
+    const runtime = (globalThis as unknown as { __prismIndexer: { ensureReady(root: string): Promise<{ exe: string; instance: string } | null> } }).__prismIndexer
+    return runtime.ensureReady(root)
+  }, dirname(path))
+  expect(endpoint, 'Bundled private indexer must start without an external Everything installation').not.toBeNull()
   await expect.poll(() => {
     try {
-      const output = execFileSync(es, ['-json', '-n', '10', '-path', `"${dirname(path)}"`, '-search*', `"${basename(path)}"`], { windowsHide: true, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 2000 })
+      const output = execFileSync(endpoint!.exe, ['-instance', endpoint!.instance, '-json', '-n', '10', '-path', `"${dirname(path)}"`, '-search*', `"${basename(path)}"`], { windowsHide: true, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 2000 })
       return (JSON.parse(output || '[]') as { filename: string }[]).some((row) => resolve(row.filename).toLowerCase() === resolve(path).toLowerCase())
-    } catch { return true }
-  }).toBe(true)
+    } catch { return false }
+  }, { timeout: 30000 }).toBe(true)
 }
-
 async function search(page: Page, query: string): Promise<void> {
   const directory = await page.getByRole('navigation', { name: 'Folder path', exact: true }).getAttribute('title')
   if (query && directory && existsSync(join(directory, query)))
-    await waitForIndexedFixture(join(directory, query))
+    await waitForIndexedFixture(page, join(directory, query))
   await page
     .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
     .fill(query)
@@ -1228,6 +1244,11 @@ test('recursive folder sizes sort by totals, refresh nested changes and agree wi
   const { app, page } = h
   const large = join(h.movies, 'Large folder')
   try {
+    // Exercise the recursive fallback and its exact descendant counts here.
+    // The bundled-index case below verifies indexed totals separately.
+    await app.evaluate(async () => {
+      await (globalThis as unknown as { __prismIndexer: { dispose(): Promise<void> } }).__prismIndexer.dispose()
+    })
     for (const path of [
       join(large, 'Nested', 'Deep'),
       join(large, 'Empty within'),
@@ -1282,6 +1303,56 @@ test('recursive folder sizes sort by totals, refresh nested changes and agree wi
     await expect(property('Contents')).toHaveText('0 files, 0 folders (including subfolders)')
   } finally {
     await stop(app)
+  }
+})
+
+test('bundled folder totals survive restart and cached sizes appear before fresh requests finish', async () => {
+  const h = await setup()
+  let current = { app: h.app, page: h.page }
+  try {
+    await waitForIndexedFixture(current.page, join(h.nested, 'inside.txt'))
+    await go(current.page, h.movies)
+    await go(current.page, h.project)
+    await expect.poll(async () => {
+      const cached = await current.page.evaluate((path) => window.prism.folderSizesCached([path]), h.nested)
+      return cached[h.nested]?.source
+    }).toBe('index')
+    await expect(row(current.page, 'Nested').locator('.browse-column-size')).toHaveText('≈ 14 B')
+    await stop(current.app)
+    current = await start(h.profile)
+    // Hold fresh requests to prove that the renderer can hydrate the persisted
+    // batch cache without waiting for a scan or a newly started indexing engine.
+    await current.app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('folder:size')
+      ipcMain.handle('folder:size', () => new Promise(() => {}))
+    })
+    await current.page.reload()
+    await expect(current.page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(row(current.page, 'Nested').locator('.browse-column-size')).toHaveText('≈ 14 B')
+    const cached = await current.page.evaluate((path) => window.prism.folderSizesCached([path]), h.nested)
+    expect(cached[h.nested]).toMatchObject({ bytes: 14, source: 'index', countsKnown: false })
+  } finally {
+    await stop(current.app)
+  }
+})
+
+test('closing the final Prism window releases its private bundled engine', async () => {
+  const h = await setup()
+  const child = h.app.process()
+  try {
+    await waitForIndexedFixture(h.page, join(h.nested, 'inside.txt'))
+    const pidFile = join(h.profile, 'search-index', 'engine-pid')
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(pid).toBeGreaterThan(0)
+    await h.page.evaluate(() => window.prism.close(true))
+    await expect.poll(() => child.exitCode).not.toBeNull()
+    await expect.poll(() => {
+      try { process.kill(pid, 0); return true } catch { return false }
+    }).toBe(false)
+    expect(existsSync(pidFile)).toBe(false)
+  } finally {
+    if (child.exitCode === null) await stop(h.app)
+    else for (const stream of child.stdio) stream?.destroy()
   }
 })
 
@@ -1689,7 +1760,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     mkdirSync(appData, { recursive: true })
     const settings = join(appData, 'Playnite-settings.txt')
     writeFileSync(settings, 'AppData settings fixture\n')
-    await waitForIndexedFixture(settings)
+    await waitForIndexedFixture(page, settings)
     await newExplorerWithoutPreview(page)
     await go(page, h.home)
     await search(page, 'Playnite')
@@ -1869,8 +1940,6 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
 })
 
 test('Everything Explorer filters respond from the index and focus surrounds the complete field', async ({}, info) => {
-  const es = join(process.env.USERPROFILE ?? '', '.local', 'bin', 'es.exe')
-  test.skip(!existsSync(es), 'Everything CLI is not installed on this machine')
   const h = await setup()
   const { app, page } = h
   try {
@@ -1879,7 +1948,7 @@ test('Everything Explorer filters respond from the index and focus surrounds the
     mkdirSync(join(folder, 'Saved Games'))
     writeFileSync(join(folder, 'Playnite.dll'), 'indexed unsupported file')
     writeFileSync(join(folder, '.Playnite-hidden'), 'indexed hidden file')
-    await waitForIndexedFixture(join(folder, '.Playnite-hidden'))
+    await waitForIndexedFixture(page, join(folder, '.Playnite-hidden'))
     await app.evaluate(({ ipcMain }) => {
       type Handler = (...args: unknown[]) => Promise<unknown>
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
@@ -4474,7 +4543,9 @@ async function stopWinEChild(child: WinEChild, owner: string): Promise<void> {
           expect(live.ExecutablePath.toLowerCase()).toBe(child.executable.toLowerCase())
           expect(live.CommandLine).toContain(`--user-data-dir=${expected}`)
           expect(live.CommandLine).toContain(`--explorer-window=${child.id}`)
-          await promisify(execFile)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+          // A descendant can exit while taskkill enumerates the tree. The
+          // exited-PID assertion below, rather than its exit code, is decisive.
+          await promisify(execFile)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }).catch(() => {})
         }
         await expect.poll(() => processIsAlive(child.pid!)).toBe(false)
       }
@@ -4633,7 +4704,7 @@ test('Win+E paints a usable loading window before App loads and acknowledges onl
     app = await electron.launch({
       ...(executablePath ? { executablePath } : {}),
       args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', `--win-e=${id}`],
-      env: { ...process.env, ELECTRON_RENDERER_URL: `http://127.0.0.1:${address.port}/` }
+      env: { ...process.env, PRISM_E2E_INDEX_ROOT: profile, ELECTRON_RENDERER_URL: `http://127.0.0.1:${address.port}/` }
     })
     page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')

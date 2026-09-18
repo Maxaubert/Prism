@@ -45,6 +45,7 @@ type Props = Pick<
   onActivate: (entry: BrowseEntry) => void
   message: string | null
   loading: boolean
+  onVisibleFolders?: (paths: string[]) => void
 }
 
 export function BrowseList(props: Props): JSX.Element {
@@ -74,6 +75,17 @@ export function BrowseList(props: Props): JSX.Element {
     Math.ceil((props.scrollTop + height) / rowHeight) + OVERSCAN
   )
   const rendered = props.entries.slice(first, end)
+  const onVisibleFolders = props.onVisibleFolders
+  useLayoutEffect(() => {
+    const top = Math.floor(props.scrollTop / rowHeight)
+    const count = Math.ceil(height / rowHeight) + 1
+    onVisibleFolders?.(
+      props.entries
+        .slice(top, top + count)
+        .filter((entry) => entry.isFolder)
+        .map((entry) => entry.path)
+    )
+  }, [props.entries, props.scrollTop, height, onVisibleFolders])
   const focusRow = (index: number): void => {
     const entry = props.entries[index]
     const node = scroller.current

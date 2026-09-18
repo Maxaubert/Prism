@@ -1,11 +1,64 @@
 import { execFile } from 'child_process'
 import { findEverything } from './everything'
 import { nativeBrowseQuery } from '@shared/browseQuery'
-import { resolve, sep } from 'path'
+import { dirname, resolve, sep } from 'path'
+import { managedIndexerRuntime } from './indexerRuntime'
 
 const indexedRoots = new Map<string, number>()
 export function clearEverythingBrowseCache(): void {
   indexedRoots.clear()
+}
+
+/** Indexed totals cover indexed descendants; callers label them as indexed estimates. */
+export async function getIndexedFolderSizes(
+  paths: readonly string[],
+  signal: AbortSignal = new AbortController().signal
+): Promise<Map<string, { bytes: number }> | null> {
+  if (!paths.length) return new Map()
+  if (signal.aborted) return null
+  const exe = await findEverything(dirname(paths[0]))
+  if (!exe || signal.aborted) return null
+  const managed = managedIndexerRuntime()
+  const instance = managed ? ['-instance', managed.endpoint.instance] : []
+  const values = new Map<string, { bytes: number }>()
+  try {
+    for (let offset = 0; offset < paths.length; offset += 32) {
+      const batch = paths.slice(offset, offset + 32)
+      const requested = new Map(batch.map((path) => [resolve(path).toLowerCase(), path]))
+      const patterns = batch.map((path) => resolve(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const rows = await run(
+        exe,
+        [
+          ...instance,
+          '-json',
+          '-attributes',
+          '-size',
+          '-n',
+          String(batch.length),
+          '-match-path',
+          '-search*',
+          `folder:regex:"^(${patterns.join('|')})$"`
+        ],
+        signal
+      )
+      for (const row of rows) {
+        const path = requested.get(resolve(row.filename).toLowerCase())
+        if (
+          path &&
+          (row.attributes & 16) !== 0 &&
+          (row.attributes & 1024) === 0 &&
+          typeof row.size === 'number' &&
+          Number.isSafeInteger(row.size) &&
+          row.size >= 0
+        ) {
+          values.set(path, { bytes: row.size })
+        }
+      }
+    }
+    return values
+  } catch {
+    return null
+  }
 }
 
 export interface IndexedEntry {
@@ -60,7 +113,7 @@ export async function searchEverythingBrowse(
   maxHits: number,
   signal: AbortSignal
 ): Promise<IndexedEntry[] | null> {
-  const exe = await findEverything()
+  const exe = await findEverything(root)
   if (!exe || signal.aborted) return null
   const args = [
     '-json',
@@ -76,7 +129,8 @@ export async function searchEverythingBrowse(
     '-search*',
     `<${nativeBrowseQuery(query)}>`
   ]
-  let instance: string[] = []
+  const managed = managedIndexerRuntime()
+  let instance: string[] = managed ? ['-instance', managed.endpoint.instance] : []
   const request = async (args: string[]): Promise<IndexedEntry[]> => {
     try {
       return await run(exe, [...instance, ...args], signal)

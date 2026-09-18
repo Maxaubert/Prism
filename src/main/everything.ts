@@ -1,29 +1,11 @@
 /**
- * THE SIDEBAR SEARCHES THROUGH EVERYTHING WHEN IT CAN (2026-09-03, owner).
- *
- * Prism's own search is a bounded breadth-first walk - 20000 entries a
- * keystroke, so a network share can never hang the window - and on a tab
- * rooted at C:\ that bound is most of the drive left unvisited: "most
- * searches returned nothing". voidtools' Everything keeps a live index of
- * the whole machine and answers a whole-disk query in milliseconds through
- * its `es.exe` CLI, so when that CLI is on this machine the search goes
- * through it, scoped to the tab's root with `-path`, and the walk stays as
- * the fallback for machines without it, for an index that has not caught up
- * with a file made a second ago (the walk runs whenever Everything answers
- * NOTHING), and for the moments the service is down.
- *
- * DETECTED, never bundled: es.exe is a thin client for a service that has to
- * be installed and running anyway, so shipping the client alone would be a
- * button that does nothing. Found on PATH or in the usual install folders,
- * once, and cached. Run with execFile and an argument array only - a `$` in
- * a root or a name must never reach a shell.
- *
- * The 1.5 alpha's IPC lives under a named instance; es.ini beside the exe
- * normally carries that, and the retry with `-instance 1.5a` covers a copy
- * without one. Error 8 ("IPC not found") is the service being down, not the
- * tool being missing.
+ * Prism starts a bundled, private Everything index through indexerRuntime.
+ * Every managed query targets its named instance, never a personal installation.
+ * Standalone legacy callers can still discover an existing ES client; production
+ * initializes the managed runtime before registering search IPC.
  */
 import { execFile } from 'child_process'
+import { managedIndexerRuntime } from './indexerRuntime'
 import { existsSync } from 'fs'
 import { basename, extname, join } from 'path'
 import { fileKind, isViewable } from '@shared/fileKind'
@@ -35,7 +17,9 @@ import { isSkipped } from '@shared/listRules'
 let esPath: string | null | undefined
 
 /** Where es.exe is, or null. Looked up once per run. */
-export function findEverything(): Promise<string | null> {
+export function findEverything(root?: string): Promise<string | null> {
+  const managed = managedIndexerRuntime()
+  if (managed) return managed.ensureReady(root).then((endpoint) => endpoint?.exe ?? null)
   if (esPath !== undefined) return Promise.resolve(esPath)
   const home = process.env.USERPROFILE ?? ''
   const fixed = [
@@ -47,7 +31,8 @@ export function findEverything(): Promise<string | null> {
   return new Promise((done) => {
     execFile('where.exe', ['es.exe'], { windowsHide: true }, (err, out) => {
       const fromPath = !err ? (out.split(/\r?\n/).find((l) => l.trim()) ?? '').trim() : ''
-      esPath = fromPath && existsSync(fromPath) ? fromPath : (fixed.find((p) => existsSync(p)) ?? null)
+      esPath =
+        fromPath && existsSync(fromPath) ? fromPath : (fixed.find((p) => existsSync(p)) ?? null)
       done(esPath)
     })
   })
@@ -94,16 +79,27 @@ export async function searchEverything(
   terms: readonly Term[],
   maxHits: number
 ): Promise<SearchResult | null> {
-  const exe = await findEverything()
+  const exe = await findEverything(root)
   if (!exe || !terms.length) return null
   // Ask for more than the cap: the viewable-files rule drops rows after the
   // fact, and a folder of build output is mostly rows it drops.
-  const base = ['-json', '-attributes', '-n', String(Math.max(maxHits * 8, 400)), '-path', root]
+  const managed = managedIndexerRuntime()
+  const instance = managed ? ['-instance', managed.endpoint.instance] : []
+  const base = [
+    ...instance,
+    '-json',
+    '-attributes',
+    '-n',
+    String(Math.max(maxHits * 8, 400)),
+    '-path',
+    root
+  ]
   const q = everythingArgs(terms)
   let rows: EsRow[]
   try {
     rows = await run(exe, [...base, ...q])
   } catch {
+    if (managed) return null
     try {
       rows = await run(exe, ['-instance', '1.5a', ...base, ...q])
     } catch {

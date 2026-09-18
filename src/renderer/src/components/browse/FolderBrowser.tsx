@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type JSX } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -24,6 +24,14 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
+  const [visibleFolders, setVisibleFolders] = useState<string[]>([])
+  const onVisibleFolders = useCallback((paths: string[]) => {
+    setVisibleFolders((previous) =>
+      previous.length === paths.length && previous.every((path, index) => path === paths[index])
+        ? previous
+        : paths
+    )
+  }, [])
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -39,7 +47,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     () => props.listing?.folders.map((folder) => folder.path) ?? [],
     [props.listing]
   )
-  const folderSizes = useFolderSizes(folderPaths, !props.loading && !props.searchState?.running)
+  const folderSizes = useFolderSizes(
+    folderPaths,
+    !props.loading && !props.searchState?.running,
+    visibleFolders
+  )
   const entries = useMemo(
     () =>
       browseEntries(props.listing, props.searchState ? '' : props.query, props.sort, folderSizes),
@@ -250,6 +262,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         entries={props.loading ? [] : entries}
         onActivate={activate}
         message={message}
+        onVisibleFolders={onVisibleFolders}
       />
       {props.previewVisible && (
         <aside className="browse-preview-slot" aria-label="File preview">

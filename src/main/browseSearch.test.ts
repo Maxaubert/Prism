@@ -81,7 +81,7 @@ describe('recursive desktop Explorer search', () => {
     expect(walk).not.toHaveBeenCalled()
     expect(await browseSearch('explorer', home, 'size:>100mb', 'advanced')).toMatchObject({
       source: 'filesystem',
-      notice: expect.stringContaining('Everything')
+      notice: expect.stringContaining('file index')
     })
     expect(walk).not.toHaveBeenCalled()
   })

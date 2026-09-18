@@ -4,9 +4,9 @@
 #
 # The e2e suite deliberately does NOT run here. It drives real windows, real
 # shells and a real claude CLI on the dev machine, none of which a runner has;
-# it stays the local pre-PR gate (CLAUDE.md). The bundled binaries (ffmpeg,
-# 7-Zip, FluidSynth) are not fetched either: nothing in the unit suite spawns
-# them, and pulling ~130MB per run to prove that would be a poor trade.
+# it stays the local pre-PR gate (CLAUDE.md). Media binaries are not fetched.
+# A separate job verifies the bundled search engine and private service on a
+# disposable runner, including queries from an unelevated account.
 name: ci
 
 on:
@@ -37,3 +37,22 @@ jobs:
 
       - run: npm test
       - run: npm run test:win-e
+
+  bundled-indexer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run fetch:everything
+      - run: npm run test:everything-bundle
+      - name: Verify bundled search and folder sizes without an existing Everything install
+        run: npx vitest run src/main/indexerRuntime.integration.test.ts
+        env:
+          PRISM_INDEXER_INTEGRATION: '1'
+      - name: Verify private indexing service on a clean disposable machine
+        shell: pwsh
+        run: ./tools/test-everything-service.ps1

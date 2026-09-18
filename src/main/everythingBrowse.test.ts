@@ -1,15 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { execFile } from 'child_process'
 import { findEverything } from './everything'
-import { clearEverythingBrowseCache, searchEverythingBrowse } from './everythingBrowse'
+import {
+  clearEverythingBrowseCache,
+  getIndexedFolderSizes,
+  searchEverythingBrowse
+} from './everythingBrowse'
+import { managedIndexerRuntime } from './indexerRuntime'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('./everything', () => ({ findEverything: vi.fn(async () => 'es.exe') }))
+vi.mock('./indexerRuntime', () => ({ managedIndexerRuntime: vi.fn(() => undefined) }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   clearEverythingBrowseCache()
   vi.mocked(findEverything).mockResolvedValue('es.exe')
+  vi.mocked(managedIndexerRuntime).mockReturnValue(undefined)
 })
 
 function answer(output: string, error: Error | null = null): void {
@@ -125,5 +132,38 @@ describe('Everything Explorer adapter', () => {
     controller.abort()
     expect(await searchEverythingBrowse('C:\\Root', '*', 1, controller.signal)).toBeNull()
     expect(execFile).not.toHaveBeenCalled()
+  })
+
+  it('never switches to a personal Everything instance when the private engine is down', async () => {
+    vi.mocked(managedIndexerRuntime).mockReturnValue({
+      endpoint: { instance: 'Prism-private', exe: 'es.exe' }
+    } as ReturnType<typeof managedIndexerRuntime>)
+    answer('', Object.assign(new Error('IPC'), { code: 8 }))
+    expect(
+      await searchEverythingBrowse('C:\\Root', '*', 10, new AbortController().signal)
+    ).toBeNull()
+    expect(execFile).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(execFile).mock.calls[0][1]).toEqual(
+      expect.arrayContaining(['-instance', 'Prism-private'])
+    )
+  })
+
+  it('returns only valid requested non-reparse folder totals and escapes names literally', async () => {
+    answer(
+      JSON.stringify([
+        { filename: 'C:\\Root\\[photos]', attributes: 16, size: 42 },
+        { filename: 'C:\\Root\\junction', attributes: 1040, size: 999 },
+        { filename: 'C:\\Root\\unavailable', attributes: 16, size: null },
+        { filename: 'C:\\Other', attributes: 16, size: 999 }
+      ])
+    )
+    expect(
+      await getIndexedFolderSizes([
+        'C:\\Root\\[photos]',
+        'C:\\Root\\junction',
+        'C:\\Root\\unavailable'
+      ])
+    ).toEqual(new Map([['C:\\Root\\[photos]', { bytes: 42 }]]))
+    expect(vi.mocked(execFile).mock.calls[0][1]?.at(-1)).toContain('\\[photos\\]')
   })
 })

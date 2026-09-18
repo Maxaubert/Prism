@@ -24,7 +24,7 @@ export function nativeBrowseQuery(query: string): string {
 }
 
 const requiresEverything =
-  'This search needs Everything running. Without it, use names, wildcards, folder:, file: or ext: filters.'
+  'These filters need the file index. While it is unavailable for this folder, use names, wildcards, folder:, file: or ext: filters.'
 
 /** A deliberately limited fallback. Never quietly treat advanced operators as names. */
 export function parseBrowseQuery(query: string): BrowseQuery {

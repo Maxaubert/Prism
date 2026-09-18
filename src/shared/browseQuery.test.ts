@@ -68,7 +68,7 @@ describe('Explorer fallback search', () => {
     'ext:jp*'
   ])('reports unsupported syntax: %s', (query) => {
     const parsed = parseBrowseQuery(query)
-    expect(parsed.error).toContain('Everything')
+    expect(parsed.error).toContain('file index')
     expect(parsed.matches('anything', false)).toBe(false)
   })
 

@@ -3961,7 +3961,14 @@ export default function App(): JSX.Element {
                     isFolder: entry.isFolder
                   })
                 }
-                onRefresh={() => setRefreshKey((key) => key + 1)}
+                onRefresh={() => {
+                  void window.prism
+                    .refreshFolderSizes(active.browse.path)
+                    .catch(() => {})
+                    .finally(() => {
+                      setRefreshKey((key) => key + 1)
+                    })
+                }}
                 onContextMenu={(event, entry, source) =>
                   setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
