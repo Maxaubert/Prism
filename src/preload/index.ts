@@ -1,4 +1,15 @@
+import type { WindowPreferenceChange, WindowPreferencesSnapshot } from '@shared/windowPreferences'
+import type {
+  BrowseDirectory,
+  BrowseSearchProgress,
+  BrowseSearchResult,
+  BrowseShortcut,
+  SavedBrowse,
+  SavedPane
+} from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
+import type { FolderSizeResult } from '@shared/folderSize'
+import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
   ArchiveListing,
   DirChange,
@@ -24,6 +35,26 @@ import type {
 // `mediaUrl` + the open payload, nothing app-specific.
 
 const api = {
+  browseDirectory: (tabId: string, path: string): Promise<BrowseDirectory | null> =>
+    ipcRenderer.invoke('browse:directory', tabId, path),
+  browseSearch: (
+    tabId: string,
+    path: string,
+    query: string,
+    requestId: string
+  ): Promise<BrowseSearchResult> =>
+    ipcRenderer.invoke('browse:search', tabId, path, query, requestId),
+  browseSearchCancel: (tabId: string, requestId: string): void =>
+    ipcRenderer.send('browse:search-cancel', tabId, requestId),
+  onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {
+    const listener = (_: unknown, progress: BrowseSearchProgress): void => cb(progress)
+    ipcRenderer.on('browse:search-progress', listener)
+    return () => ipcRenderer.removeListener('browse:search-progress', listener)
+  },
+  browseWatch: (tabId: string, path: string | null): Promise<boolean> =>
+    ipcRenderer.invoke('browse:watch', tabId, path),
+  browseLocations: (): Promise<BrowseShortcut[]> => ipcRenderer.invoke('browse:locations'),
+  browseRelease: (tabId: string): void => ipcRenderer.send('browse:release', tabId),
   /**
    * What this host can do (#106). The viewers serve two hosts, the desktop
    * app and the phone page, and the phone's bridge (`phone/prismShim.ts`)
@@ -65,8 +96,13 @@ const api = {
   tabsChanged: (
     tabs: Array<{
       root: string
+      role?: 'explorer' | 'project'
+      pinned?: boolean
+      id?: string
+      browse?: SavedBrowse
+      panes?: SavedPane[]
       file?: string
-      term?: 'full' | 'split'
+      term?: 'full' | 'split' | 'hidden'
       terms?: number
       /** The folder that shell was standing in, when it is not the root. */
       cwd?: string
@@ -87,7 +123,8 @@ const api = {
    *  the audio track, subtitle track and aspect ratio picked for it. A patch
    *  merges; null clears a field. */
   memoryGet: (path: string): Promise<FileMemory | null> => ipcRenderer.invoke('pos:get', path),
-  memorySet: (path: string, patch: FileMemoryPatch): void => ipcRenderer.send('pos:set', path, patch),
+  memorySet: (path: string, patch: FileMemoryPatch): void =>
+    ipcRenderer.send('pos:set', path, patch),
   // Prism on your phone (#104): the Tools > Phone dialog's state and verbs.
   // Every verb answers with the whole state for `root` (the current tab), so
   // the dialog never has to guess what a click did.
@@ -188,6 +225,9 @@ const api = {
   /** Size, modified time and folder-ness for the Properties popup. */
   statFile: (path: string): Promise<{ size: number; mtimeMs: number; isFolder: boolean } | null> =>
     ipcRenderer.invoke('file:stat', path),
+  folderSize: (path: string, requestId: string): Promise<FolderSizeResult | null> =>
+    ipcRenderer.invoke('folder:size', path, requestId),
+  cancelFolderSize: (requestId: string): void => ipcRenderer.send('folder:size-cancel', requestId),
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
   subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>
     ipcRenderer.invoke('subs:for', path),
@@ -275,8 +315,8 @@ const api = {
     format: 'png' | 'jpeg'
   ): Promise<string | null> => ipcRenderer.invoke('image:save-copy', bytes, suggested, format),
   /** A multi-selection's copy: every file lands on the clipboard together. */
-  copyFilesToClipboard: (paths: string[]): Promise<boolean> =>
-    ipcRenderer.invoke('file:copy-clip', paths),
+  copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
+    ipcRenderer.invoke('file:copy-clip', paths, cut),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
@@ -560,6 +600,29 @@ const api = {
   installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
+  windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {
+    try { return ipcRenderer.sendSync('window-preferences:load') } catch { return null }
+  },
+  windowPreferencesSeed: (values: Record<string, string>): WindowPreferencesSnapshot | null => {
+    try { return ipcRenderer.sendSync('window-preferences:seed', values) } catch { return null }
+  },
+  windowPreferencesSet: (change: WindowPreferenceChange): boolean => {
+    try { return ipcRenderer.sendSync('window-preferences:set', change) === true } catch { return false }
+  },
+  onWindowPreferencesChanged: (cb: (snapshot: WindowPreferencesSnapshot) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: WindowPreferencesSnapshot): void => cb(snapshot)
+    ipcRenderer.on('window-preferences:changed', listener)
+    return () => ipcRenderer.removeListener('window-preferences:changed', listener)
+  },
+  winEShortcutStatus: (): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:status'),
+  setWinEShortcut: (enabled: boolean): Promise<WinEShortcutStatus> => ipcRenderer.invoke('win-e:set', enabled),
+  onWinEOpen: (cb: (requestId: string) => void): (() => void) => {
+    const listener = (_: unknown, id: string): void => cb(id)
+    ipcRenderer.on('win-e:open', listener)
+    ipcRenderer.send('win-e:listen')
+    return () => ipcRenderer.removeListener('win-e:open', listener)
+  },
+  winEReady: (requestId: string): void => ipcRenderer.send('win-e:ready', requestId),
   /** True when setup asked for the first-run guide, whatever this machine has
    *  already seen. */
   forceSetup: process.argv.includes('--prism-setup'),
@@ -574,8 +637,7 @@ const api = {
   /** A fullscreen transition is starting or has finished. While one is in
    *  flight the window is held OPAQUE: a translucent window has nothing behind
    *  it, so the frame where it has resized but not repainted shows the desktop. */
-  setFsTransition: (active: boolean): void =>
-    ipcRenderer.send('window:fs-transition', active),
+  setFsTransition: (active: boolean): void => ipcRenderer.send('window:fs-transition', active),
   /** Raise or fade out the display-covering black shroud. The in-window veil
    *  cannot touch the taskbar or the desktop around the window; the shroud
    *  fades them on the same clock. */

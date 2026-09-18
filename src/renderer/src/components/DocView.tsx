@@ -111,6 +111,7 @@ export function DocView({ path, name }: { path: string; name: string }): JSX.Ele
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.ctrlKey && (e.key === 'f' || e.key === 'F'))) return
       const el = e.target as HTMLElement | null
+      if (e.defaultPrevented || el?.closest('[data-project-sidebar],.folder-browser,.browse-viewer-places,[role="separator"]')) return
       if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return
       if (!ownsKeys()) return
       e.preventDefault()

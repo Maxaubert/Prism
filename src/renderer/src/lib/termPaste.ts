@@ -23,12 +23,12 @@ export function quotePaths(paths: string[]): string {
 }
 
 export function decidePaste(clip: ClipboardState): PasteDecision {
+  // A copied image file also offers pixels to document apps. In a terminal,
+  // its file representation remains the useful one.
+  if (clip.files.length) return { kind: 'text', data: quotePaths(clip.files) }
   // The image wins over any text riding along (Word copies both): a screenshot
   // is why the user pressed Ctrl+V, and Ctrl+Shift+V is the text escape hatch.
   if (clip.image) return { kind: 'key' }
-  // Copied files beat their own text form (Explorer sets both): the path is
-  // the useful half, and it also covers images copied as files.
-  if (clip.files.length) return { kind: 'text', data: quotePaths(clip.files) }
   if (clip.text) return { kind: 'text', data: clip.text }
   return { kind: 'none' }
 }

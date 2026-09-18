@@ -36,3 +36,4 @@ jobs:
       - run: npm run lint
 
       - run: npm test
+      - run: npm run test:win-e

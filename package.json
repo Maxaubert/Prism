@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.50.3",
+  "version": "0.51.0",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
   "license": "MIT",
@@ -17,7 +17,9 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "package": "npm run fetch:bin && electron-vite build && electron-builder --win",
+    "package": "npm run fetch:bin && npm run build:win-e && electron-vite build && electron-builder --win",
+    "build:win-e": "node tools/build-win-e.mjs",
+    "test:win-e": "node tools/test-win-e.mjs",
     "fetch:ffmpeg": "node tools/fetch-ffmpeg.mjs",
     "fetch:7zip": "node tools/fetch-7zip.mjs",
     "fetch:bin": "npm run fetch:ffmpeg && npm run fetch:7zip && npm run fetch:fluidsynth",
@@ -74,6 +76,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.2",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.1.1",

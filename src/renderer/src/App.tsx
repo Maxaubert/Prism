@@ -1,8 +1,15 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { OnClash, OpenPayload, ViewerFile } from '@shared/types'
+import { useWinEOpen } from './lib/useWinEOpen'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
+import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
 import {
   addTab,
+  addExplorerTab,
+  addProjectTab,
+  isExplorerTab,
+  isPinnedExplorer,
+  ensurePinnedExplorer,
   closeTab,
   toggleSettingsTab,
   receiveFile,
@@ -14,7 +21,8 @@ import {
   toggleTermView,
   type TabState,
   type TreeState,
-  addTerm,
+  setBrowseSurface,
+  type Tab,
   pickTerm,
   removeTerm,
   termLabel
@@ -61,7 +69,29 @@ import { TermDock } from './components/TermDock'
 // same lazy boundary, so xterm stays out of the launch bundle.
 const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
-import { tickIf } from './lib/fileVerbs'
+import { FileMenuIcon } from './components/FileMenuIcon'
+import { tickIf, fileVerbs } from './lib/fileVerbs'
+import { fileAppMenu } from './lib/fileAppMenu'
+import { useFolderBrowsing } from './lib/useFolderBrowsing'
+import { browseParent } from './lib/browse'
+import { terminalRestoreOrder } from './lib/terminalRestore'
+import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
+import { BrowsePlaces } from './components/browse/BrowsePlaces'
+import { BrowseToolbar } from './components/browse/BrowseToolbar'
+import { ExplorerResize } from './components/browse/ExplorerResize'
+import { useExplorerWidths } from './lib/useExplorerWidths'
+import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
+import { useFilePaste } from './lib/useFilePaste'
+import {
+  useQuickAccess,
+  pinQuickAccess,
+  unpinQuickAccess,
+  moveQuickAccess,
+  sameQuickAccessPath
+} from './lib/quickAccess'
+import { BrowseRename } from './components/browse/BrowseRename'
+import { PropertiesDialog } from './components/PropertiesDialog'
+import './components/browse/workspace.css'
 import { focusTermSession } from './components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
@@ -112,9 +142,17 @@ import { warmOf } from './lib/viewerCache'
  *  front. Coming back is the common case, so releasing on the very first blur
  *  would throw the cache away every time somebody glanced at another window. */
 const WARM_COOLDOWN_MS = 60_000
-import { intendToPlay, rememberPaused, rememberTime, sessionTime, wasPaused, wasPlaying } from './lib/playState'
+import {
+  intendToPlay,
+  rememberPaused,
+  rememberTime,
+  sessionTime,
+  wasPaused,
+  wasPlaying
+} from './lib/playState'
 import { forgetTabVolume } from './lib/tabVolume'
 import { dragPayload, setDrag, type DragPayload } from './lib/dragDrop'
+import { useInternalFileDrag } from './lib/internalFileDrag'
 import { JobChip } from './components/JobChip'
 import {
   describe as describeUndo,
@@ -130,7 +168,7 @@ import {
 // they are React keys and the handle every tab action names, never anything
 // persisted. A counter is enough and, unlike a path, survives a rename.
 let tabSeq = 0
-const nextTabId = (): string => `tab-${(tabSeq += 1)}`
+const nextTabId = (): string => `tab-${Date.now()}-${(tabSeq += 1)}`
 let termSeq = 0
 const nextTermId = (): string => `term-${(termSeq += 1)}`
 
@@ -280,7 +318,7 @@ function TopBar({
       <span className={`font-semibold text-[var(--p-accent-hi)] ${setup ? '-ml-0.5' : ''}`}>
         Prism
       </span>
-      <span className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
+      <span data-testid="titlebar-file-name" className="min-w-0 flex-1 truncate text-[var(--p-dim)]">{name}</span>
       {/* Unsaved work is the one thing the bar interrupts itself to say. The
           tree names the file, so the dot goes where the eye already is. */}
       {dirty && (
@@ -927,6 +965,9 @@ export default function App(): JSX.Element {
       return !on
     })
   }, [])
+  const [placesVisible, setPlacesVisible] = useState(
+    () => localStorage.getItem('prism.explorer.places') !== '0'
+  )
   // The pencil: markdown's raw source, the one text kind with a rendered form
   // to toggle away from. Leaving the file leaves the editor; a save bumps
   // docVersion so the rendered view re-reads what was written.
@@ -939,6 +980,7 @@ export default function App(): JSX.Element {
   // Keyed case-insensitively, as Windows paths are, but keeping the real path:
   // that is what gets written, and what the tree matches its rows against.
   const buffers = useRef(new Map<string, { path: string; text: string }>())
+  const bufferOwners = useRef(new Map<string, Set<string>>())
   const [dirtyPaths, setDirtyPaths] = useState<ReadonlySet<string>>(new Set())
   // The names as they are actually spelled. dirtyPaths is lowercased for
   // matching, which is no way to address someone's file in a dialog.
@@ -988,6 +1030,8 @@ export default function App(): JSX.Element {
       if (!buf) return
       buffers.current.delete(old)
       buffers.current.set(to.toLowerCase(), { path: to, text: buf.text })
+      for (const owned of bufferOwners.current.values())
+        if (owned.delete(old)) owned.add(to.toLowerCase())
       syncDirty()
     },
     [syncDirty]
@@ -1000,7 +1044,14 @@ export default function App(): JSX.Element {
     (path: string, text: string | null) => {
       const key = path.toLowerCase()
       if (text === null) buffers.current.delete(key)
-      else buffers.current.set(key, { path, text })
+      else {
+        buffers.current.set(key, { path, text })
+        if (activeIdRef.current) {
+          const owned = bufferOwners.current.get(activeIdRef.current) ?? new Set<string>()
+          owned.add(key)
+          bufferOwners.current.set(activeIdRef.current, owned)
+        }
+      }
       syncDirty()
     },
     [syncDirty]
@@ -1034,6 +1085,7 @@ export default function App(): JSX.Element {
     return failed
   }, [syncDirty])
   const [refreshKey, setRefreshKey] = useState(0)
+  const browsing = useFolderBrowsing(active, setTabState, refreshKey)
   const [ask, setAsk] = useState<Ask | null>(null)
 
   // Settings covers the tree, so over it the same control collapses that page's
@@ -1047,8 +1099,13 @@ export default function App(): JSX.Element {
   }, [])
   const togglePanel = useCallback(() => {
     if (settingsOpen) toggleRail()
+    else if (active && isExplorerTab(active))
+      setPlacesVisible((visible) => {
+        localStorage.setItem('prism.explorer.places', visible ? '0' : '1')
+        return !visible
+      })
     else toggleSidebar()
-  }, [settingsOpen, toggleRail, toggleSidebar])
+  }, [settingsOpen, active, toggleRail, toggleSidebar])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
@@ -1077,7 +1134,8 @@ export default function App(): JSX.Element {
   const withNewTabShow = useCallback((st: TabState): TabState => {
     const show = newTabShow()
     const tab = st.tabs.find((t) => t.id === st.activeId)
-    if (!tab || show === 'file') return st
+    if (!tab) return st
+    if (show === 'file') return { ...st, tabs: setBrowseSurface(st.tabs, tab.id, 'viewer') }
     if (show === 'terminal') {
       if (tab.term) return st
       const termId = nextTermId()
@@ -1086,7 +1144,12 @@ export default function App(): JSX.Element {
     }
     // The quiet start: the sidebar keeps the folder's files, but nothing
     // goes on screen (NoFileState) until the user picks one.
-    return { ...st, tabs: st.tabs.map((t) => (t.id === tab.id ? { ...t, index: -1 } : t)) }
+    return {
+      ...st,
+      tabs: setBrowseSurface(st.tabs, tab.id, 'viewer').map((item) =>
+        item.id === tab.id ? { ...item, index: -1 } : item
+      )
+    }
   }, [])
 
   const open = useCallback(
@@ -1097,12 +1160,14 @@ export default function App(): JSX.Element {
       // tabs show" setting, exactly as the + would decide it. A folder Prism
       // already has a tab for switches there instead of making a second - one
       // tab per root - and keeps whatever that tab was showing.
-      if (p.folder) {
+      if (p.folder && !p.restore) {
         // Decided INSIDE the update, against the tabs as they stand: a folder
         // arriving while the strip is still being restored would otherwise
         // look at an empty strip and make a second tab on the same root.
         setTabState((s) => {
-          const hit = s.tabs.find((t) => t.kind !== 'settings' && sameRoot(t.root, p.root))
+          const hit = s.tabs.find(
+            (t) => t.kind !== 'settings' && !isExplorerTab(t) && sameRoot(t.root, p.root)
+          )
           return hit ? { ...s, activeId: hit.id } : withNewTabShow(addTab(s.tabs, p, nextTabId()))
         })
         setHasNavigated(false)
@@ -1146,6 +1211,17 @@ export default function App(): JSX.Element {
             termRoots.current.set(extra, target.root)
             tabs = tabs.map((t) => (t.id === target.id ? { ...t, terms: [...t.terms, extra] } : t))
           }
+          const restored = tabs.find((t) => t.id === target.id)!
+          for (const pane of p.panes ?? []) {
+            if (pane.termSlot === undefined) continue
+            const term = restored.terms[pane.termSlot]
+            if (term)
+              tabs = setTabPanes(
+                tabs,
+                target.id,
+                pinTermPane(tabs.find((t) => t.id === target.id)!.panes, pane.id, term, pane.dir)
+              )
+          }
         }
         // A file ARRIVING means "show me this file" (2026-09-04), exactly as
         // a tree click does: over a FULL terminal it hides the shell (still
@@ -1159,7 +1235,13 @@ export default function App(): JSX.Element {
         // SAVED ORDER now (no more active-goes-last splice, which scrambled the
         // strip), and only the saved active tab takes the front.
         const activeId = p.restore && !p.restoreActive && s.activeId ? s.activeId : st.activeId
-        return { tabs, activeId }
+        return {
+          tabs:
+            p.pinned && p.role === 'explorer'
+              ? ensurePinnedExplorer(tabs, p, target?.id ?? nextTabId())
+              : tabs,
+          activeId
+        }
       })
       setHasNavigated(false) // a fresh open starts in "opened directly" mode
     },
@@ -1171,7 +1253,7 @@ export default function App(): JSX.Element {
   // shell instead of paying pwsh's startup at the click. The xterm chunk is
   // prefetched once at idle for the same reason.
   useEffect(() => {
-    if (!active || active.kind === 'settings' || active.term) return
+    if (!active || active.kind === 'settings' || isExplorerTab(active) || active.term) return
     const t = setTimeout(() => window.prism.termPrewarm(active.root, savedShellId()), 900)
     return () => clearTimeout(t)
   }, [active])
@@ -1192,7 +1274,8 @@ export default function App(): JSX.Element {
     (p: OpenPayload | null) => {
       if (p && !p.restore && !p.folder) {
         const f = p.index >= 0 ? p.files[p.index] : undefined
-        if (f && (f.kind === 'video' || f.kind === 'audio')) intendToPlay(window.prism.mediaUrl(f.path))
+        if (f && (f.kind === 'video' || f.kind === 'audio'))
+          intendToPlay(window.prism.mediaUrl(f.path))
       }
       open(p)
     },
@@ -1392,23 +1475,28 @@ export default function App(): JSX.Element {
    * tabs on one folder.
    */
   const newTab = useCallback(() => {
-    // Where the tab roots is a Settings choice: the user folder (instant), a
-    // remembered folder (instant; falls back to home if it is gone), or the
-    // chooser every time. What it shows is a second choice: the folder's
-    // first file, a terminal already open in full view, or nothing yet.
-    const mode = newTabMode()
-    const request =
-      mode === 'ask'
-        ? window.prism.openFolder(activeRootRef.current)
-        : mode === 'folder'
-          ? window.prism.openRoot(newTabFolder()).then((p) => p ?? window.prism.openHome())
-          : window.prism.openHome()
-    void request.then((p) => {
-      if (!p) return // ask-mode cancelled: no tab
-      setTabState((s) => withNewTabShow(addTab(s.tabs, p, nextTabId())))
+    void (async () => {
+      const mode = newTabMode()
+      const home = (await window.prism.browseLocations()).find(
+        (place) => place.name === 'Home'
+      )?.path
+      const path =
+        mode === 'ask' ? await window.prism.pickFolder() : mode === 'folder' ? newTabFolder() : home
+      if (!path) return
+      const id = nextTabId()
+      const directory =
+        (await window.prism.browseDirectory(id, path)) ??
+        (home ? await window.prism.browseDirectory(id, home) : null)
+      if (!directory) return
+      const p: OpenPayload = { root: directory.path, files: directory.listing.files, index: -1 }
+      setTabState((s) => addExplorerTab(s.tabs, p, id))
       setHasNavigated(false)
-    })
-  }, [withNewTabShow])
+    })()
+  }, [])
+
+  useWinEOpen(tabState, setTabState, browsing.folder && !setup && !fullscreen, nextTabId, () => {
+    if (fullscreen) setFs(false)
+  })
 
   /** Close one tab. The last one leaves an empty window rather than taking the
    *  window with it: Prism is resident, and a window that vanishes under a
@@ -1418,6 +1506,7 @@ export default function App(): JSX.Element {
       // The tab's shell dies with it, both halves: main's pty and the
       // renderer's xterm instance.
       const tab = s.tabs.find((t) => t.id === id)
+      if (tab && isPinnedExplorer(tab)) return s
       // EVERY shell the tab held (2026-09-03), not only the current one.
       for (const termId of tab?.terms ?? []) {
         window.prism.termKill(termId)
@@ -1426,6 +1515,8 @@ export default function App(): JSX.Element {
       }
       // ...and so does the level it was playing at: the id never comes back.
       forgetTabVolume(id)
+      window.prism.browseRelease(id)
+      bufferOwners.current.delete(id)
       return closeTab(s.tabs, id, s.activeId)
     })
   }, [])
@@ -1436,6 +1527,14 @@ export default function App(): JSX.Element {
       .filter((b) => b.path.toLowerCase().startsWith(r))
       .map((b) => baseName(b.path))
   }, [])
+  const bufferBelongsTo = useCallback((tab: Tab, path: string): boolean => {
+    const key = path.toLowerCase()
+    return (
+      !!bufferOwners.current.get(tab.id)?.has(key) ||
+      tab.files[tab.index]?.path.toLowerCase() === key ||
+      tab.panes.some((pane) => pane.path.toLowerCase() === key)
+    )
+  }, [])
   /** Which agent each session hosts - resume is claude-only. Up here because
    *  the reroot below asks it before writing into a shell. */
   const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
@@ -1443,6 +1542,7 @@ export default function App(): JSX.Element {
    *  shell that has never reported (WSL, a shell still starting) is absent,
    *  and absent means Prism does not know, so it does not act. */
   const termCwd = useRef(new Map<string, string>())
+  const [cwdRevision, setCwdRevision] = useState(0)
   const applyReroot = useCallback((id: string | null, p: OpenPayload) => {
     setTabState((s) => {
       const next = rerootTab(s.tabs, id, p, nextTabId())
@@ -1454,6 +1554,7 @@ export default function App(): JSX.Element {
       if (
         tab?.term &&
         !isTouched(tab.term.id) &&
+        !agentKinds.current.has(tab.term.id) &&
         !sameRoot(termRoots.current.get(tab.term.id) ?? '', p.root)
       ) {
         window.prism.termKill(tab.term.id)
@@ -1517,13 +1618,16 @@ export default function App(): JSX.Element {
     (id: string) => {
       const tab = tabs.find((t) => t.id === id)
       if (!tab) return
+      if (isPinnedExplorer(tab)) return
       if (tab.kind === 'settings') {
         forceCloseTab(id)
         return
       }
       // Unsaved text asks in EVERY mode: the setting below only governs the
       // plain "you are closing a tab" confirmation, never data loss.
-      const names = dirtyUnder(tab.root)
+      const names = [...buffers.current.values()]
+        .filter((b) => bufferBelongsTo(tab, b.path))
+        .map((b) => baseName(b.path))
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else {
         const mode = confirmCloseMode()
@@ -1540,7 +1644,7 @@ export default function App(): JSX.Element {
           busy === null || !workingId
             ? null
             : { kind: agentKinds.current.get(workingId) ?? 'other', forMs: busy }
-        if (mode === 'always' || (mode === 'agent' && agentLive))
+        if (agentLive && mode !== 'never')
           setAsk({
             kind: 'close-tab-confirm',
             id,
@@ -1550,7 +1654,7 @@ export default function App(): JSX.Element {
         else forceCloseTab(id)
       }
     },
-    [agentIds, dirtyUnder, forceCloseTab, tabs, workingIds]
+    [agentIds, bufferBelongsTo, forceCloseTab, tabs, workingIds]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
@@ -1585,13 +1689,24 @@ export default function App(): JSX.Element {
   /** A folder from that menu: a tab rooted there, exactly like the + makes.
    *  One that has since been moved or deleted drops out of the list. */
   const openRecent = useCallback((path: string) => {
-    void window.prism.openRoot(path).then((p) => {
-      if (!p) {
+    const id = nextTabId()
+    void window.prism.browseDirectory(id, path).then((directory) => {
+      if (!directory) {
         forgetRoot(path)
         setAsk({ kind: 'failed', message: 'That folder is not there any more.' })
         return
       }
-      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setTabState((s) =>
+        addExplorerTab(
+          s.tabs,
+          {
+            root: directory.path,
+            files: directory.listing.files,
+            index: -1
+          },
+          id
+        )
+      )
       setHasNavigated(false)
     })
   }, [])
@@ -1642,6 +1757,44 @@ export default function App(): JSX.Element {
     (id: string): string | undefined => termCwd.current.get(id) ?? termRoots.current.get(id),
     []
   )
+  const termTabAt = useCallback((root: string) => {
+    void window.prism.openRoot(root).then((p) => {
+      if (!p) return
+      setTabState((s) => addTab(s.tabs, p, nextTabId()))
+      setTabState((s) => {
+        const tab = s.tabs.find((t) => t.id === s.activeId)
+        if (!tab || tab.term) return s
+        const termId = nextTermId()
+        termRoots.current.set(termId, tab.root)
+        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
+      })
+    })
+  }, [])
+
+  const openAsProject = useCallback(
+    (entry: BrowseEntry) => {
+      const root = entry.isFolder ? entry.path : browseParent(entry.path)
+      if (!root) return
+      void (async () => {
+        const folder = await window.prism.openRoot(root)
+        if (!folder) {
+          setAsk({ kind: 'failed', message: 'This folder cannot be opened as a project.' })
+          return
+        }
+        const payload = entry.isFolder ? folder : await window.prism.openWithin(root, entry.path)
+        if (!payload) return
+        setTabState((state) => {
+          return entry.isFolder
+            ? addProjectTab(state.tabs, payload, nextTabId())
+            : addTab(state.tabs, { ...payload, role: 'project' }, nextTabId())
+        })
+        setSidebar(true)
+        localStorage.setItem(SIDEBAR_KEY, '1')
+        setHasNavigated(false)
+      })()
+    },
+    []
+  )
   const applyTermView = useCallback(
     (fn: typeof toggleTermView) =>
       setTabState((s) => {
@@ -1649,24 +1802,21 @@ export default function App(): JSX.Element {
         if (!tab || tab.kind === 'settings') return s
         const next = fn(tab.term, nextTermId())
         if (next.id !== tab.term?.id) termRoots.current.set(next.id, tab.root)
-        let tabs = setTabTerm(s.tabs, tab.id, next)
-        // A FULL terminal is a single-item view, and a split you have left
-        // falls apart rather than lying in wait (owner, 2026-09-03): the file
-        // pins go. Terminal panes stay, so two shells side by side survive a
-        // hide and show.
-        if (next.view === 'full' && tab.panes.some((pn) => !pn.term))
-          tabs = setTabPanes(tabs, tab.id, tab.panes.filter((pn) => !!pn.term))
+        const tabs = setTabTerm(s.tabs, tab.id, next)
         return { ...s, tabs }
       }),
     []
   )
   /** The sidebar button and Ctrl+`: full view, the terminal's home. */
-  const toggleTerm = useCallback(() => applyTermView(toggleTermView), [applyTermView])
+  const toggleTerm = useCallback(() => {
+    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
+    else applyTermView(toggleTermView)
+  }, [active, termTabAt, applyTermView])
   /** Ctrl+Shift+T: open full, unconditionally (never hides). */
-  const openTermFull = useCallback(
-    () => applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' })),
-    [applyTermView]
-  )
+  const openTermFull = useCallback(() => {
+    if (active && isExplorerTab(active)) termTabAt(active.browse.path)
+    else applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
+  }, [active, termTabAt, applyTermView])
   /**
    * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
    * continuously while an AI CLI works (its spinner repaints). The dots are
@@ -1791,7 +1941,7 @@ export default function App(): JSX.Element {
   const hadTabs = useRef(false)
   useEffect(() => {
     const folderTabs = tabs.filter((t) => t.kind !== 'settings')
-    const now = folderTabs.map((t) => t.root)
+    const now = folderTabs.filter((t) => !isExplorerTab(t)).map((t) => t.root)
     for (const was of heldRoots.current) {
       if (!now.some((r) => sameRoot(r, was))) window.prism.dropRoot(was)
     }
@@ -1802,11 +1952,23 @@ export default function App(): JSX.Element {
     else if (!hadTabs.current) return
     window.prism.tabsChanged(
       folderTabs.map((t) => ({
+        id: t.id,
+        role: t.role,
+        pinned: t.pinned,
         root: t.root,
+        browse: t.browse,
+        panes: t.panes.map((pane) => ({
+          id: pane.id,
+          path: pane.path,
+          dir: pane.dir,
+          ...(pane.term
+            ? { termSlot: terminalRestoreOrder(t.terms, t.term?.id).indexOf(pane.term) }
+            : {})
+        })),
         file: t.files[t.index]?.path,
         // A visible terminal is part of what the tab IS: a Claude-session tab
         // must reopen as a terminal next launch, not as an empty viewer.
-        term: t.term && t.term.view !== 'hidden' ? t.term.view : undefined,
+        term: t.term?.view,
         // How many shells, so a tab with three comes back with three slots.
         terms: t.terms.length > 1 ? t.terms.length : undefined,
         // WHERE that shell was standing (2026-09-09). The tab's root is not
@@ -1827,7 +1989,7 @@ export default function App(): JSX.Element {
         // restore, each by its own flag. 'other' agents have nothing to
         // come back to, so they are not recorded.
         agent: (() => {
-          if (!t.term || t.term.view === 'hidden' || !agentIds.has(t.term.id)) return undefined
+          if (!t.term || !agentIds.has(t.term.id)) return undefined
           const kind = agentKinds.current.get(t.term.id)
           return kind === 'claude' || kind === 'codex' ? kind : undefined
         })()
@@ -1837,7 +1999,7 @@ export default function App(): JSX.Element {
         folderTabs.findIndex((t) => t.id === activeId)
       )
     )
-  }, [tabs, activeId, agentIds])
+  }, [tabs, activeId, agentIds, cwdRevision, termFolder])
 
   /**
    * The agent's OWN word (2026-09-04, owner: "instant, and event-driven").
@@ -1945,6 +2107,7 @@ export default function App(): JSX.Element {
       return { ...s, activeId: s.tabs[(i + delta + s.tabs.length) % s.tabs.length].id }
     })
   }, [])
+  useInternalFileDrag(stepTab)
   /** Jump to the nth tab, 1-based, for Ctrl+1..Ctrl+9. */
   const jumpTab = useCallback((n: number) => {
     setTabState((s) => (s.tabs[n - 1] ? { ...s, activeId: s.tabs[n - 1].id } : s))
@@ -2031,6 +2194,7 @@ export default function App(): JSX.Element {
         const before = termCwd.current.get(sessionId)
         termCwd.current.set(sessionId, path)
         if (before && decideFollow(before, path) === 'same') return
+        setCwdRevision((revision) => revision + 1)
         // The tab whose CURRENT shell this is. `tabs` is a dependency, so the
         // subscription is renewed with the state and never reads a stale list.
         const tab = tabs.find((t) => t.kind !== 'settings' && t.term?.id === sessionId)
@@ -2049,40 +2213,24 @@ export default function App(): JSX.Element {
           setRevealReq({ tabId: tab.id, path, seq: revealSeq.current })
           return
         }
-        // Past the wall. A folder some other tab already holds is left to that
-        // tab: rerooting would switch you there, mid-keystroke, which is worse
-        // than a tree that lags one cd behind.
-        const held = tabs.some((t) => t.kind !== 'settings' && sameRoot(t.root, path))
-        if (held) return
-        const id = tab.id
-        void window.prism.openRoot(path).then((p) => p && applyReroot(id, p))
+        // A shell report changes only its own cwd. Register desktop access,
+        // but never move the browser cursor, project identity or phone share.
+        void window.prism.browseDirectory(tab.id, path)
       }),
-    [applyReroot, setTree, tabs]
+    [setTree, tabs]
   )
   // A click in the tree: the folder it lives in becomes the paging list, the
   // root stays where it was, so the tree doesn't move under you.
+  const openBrowseFile = browsing.openFile
   const openFromTree = useCallback(
-    // No guard: unsaved text is kept in `buffers`, so leaving a file costs
-    // nothing and there is nothing to ask about.
-    (p: string) =>
-      void (
-        active &&
-        window.prism.openWithin(active.root, p).then((payload) => {
-          if (!payload) return
-          open(payload)
-          setPaneFocus('live') // the clicked file is the live pane's
-          // Clicking a file means "show me this file". Over a FULL terminal
-          // that hides the shell (still running) and gives the file the room;
-          // in split the file simply lands in its pane, terminal untouched.
-          setTabState((s) => {
-            const tab = s.tabs.find((t) => t.id === s.activeId)
-            return tab?.term?.view === 'full'
-              ? { ...s, tabs: setTabTerm(s.tabs, tab.id, { ...tab.term, view: 'hidden' }) }
-              : s
-          })
-        })
-      ),
-    [active, open]
+    (path: string) => {
+      if (!active) return
+      const id = active.id
+      void openBrowseFile(path).then((opened) => {
+        if (opened && activeIdRef.current === id) setPaneFocus('live')
+      })
+    },
+    [active, openBrowseFile]
   )
 
   /** The terminal button's own context menu. */
@@ -2128,18 +2276,21 @@ export default function App(): JSX.Element {
    * and a shell can be pinned as a PANE beside the live file or another
    * shell, through the same grid the file pins use.
    */
+
   const openNewTerm = useCallback(() => {
     if (!active || active.kind === 'settings') return
+    if (isExplorerTab(active)) {
+      termTabAt(active.browse.path)
+      return
+    }
     const termId = nextTermId()
     termRoots.current.set(termId, active.root)
-    setTabState((s) => {
-      const tab = s.tabs.find((t) => t.id === active.id)
-      // Full view: the file pins fall apart, as in applyTermView.
-      const tabs = tab ? setTabPanes(s.tabs, tab.id, tab.panes.filter((pn) => !!pn.term)) : s.tabs
-      return { ...s, tabs: addTerm(tabs, active.id, termId, 'full') }
-    })
+    setTabState((s) => ({
+      ...s,
+      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
+    }))
     setPaneFocus('term')
-  }, [active])
+  }, [active, termTabAt])
   const pickTermId = useCallback(
     (termId: string) => {
       if (!active) return
@@ -2154,7 +2305,7 @@ export default function App(): JSX.Element {
       const d = dir ?? lastSplitDir()
       saveSplitDir(d)
       const already = active.panes.find((pn) => pn.term === termId)
-      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === active.id)
         if (!tab || tab.kind === 'settings' || !tab.terms.includes(termId)) return s
@@ -2212,12 +2363,13 @@ export default function App(): JSX.Element {
         if (!tab) return s
         return { ...s, tabs: setTabPanes(s.tabs, tab.id, unpinPane(tab.panes, first.id)) }
       })
-      void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
+      if (isExplorerTab(active)) void openBrowseFile(first.path)
+      else void window.prism.openWithin(active.root, first.path).then((p) => p && open(p))
       setPaneFocus('live')
       return
     }
     applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
-  }, [active, applyTermView, open])
+  }, [active, applyTermView, open, openBrowseFile])
   const closeTermPane = useCallback(
     () =>
       applyTermView((term, id) => (term ? { ...term, view: 'hidden' } : { id, view: 'hidden' })),
@@ -2278,8 +2430,14 @@ export default function App(): JSX.Element {
   }, [active])
 
   const paneSeq = useRef(0)
+  const openBrowseSplit = browsing.openSplit
   const pinSplit = useCallback(
     (path: string, dir?: SplitDir) => {
+      if (active && isExplorerTab(active)) {
+        openBrowseSplit(path)
+        setPaneFocus('live')
+        return
+      }
       const d = dir ?? lastSplitDir()
       saveSplitDir(d)
       // Over a FULL terminal, "open in split view" means: this file, beside
@@ -2299,7 +2457,7 @@ export default function App(): JSX.Element {
       }
       // A re-pin keeps its pane (pinPane moves it), so focus its EXISTING id.
       const already = active?.panes.find((pn) => pn.path.toLowerCase() === path.toLowerCase())
-      const paneId = already?.id ?? `pane-${(paneSeq.current += 1)}`
+      const paneId = already?.id ?? `pane-${Date.now()}-${(paneSeq.current += 1)}`
       setTabState((s) => {
         const tab = s.tabs.find((t) => t.id === s.activeId)
         if (!tab || tab.kind === 'settings') return s
@@ -2312,7 +2470,7 @@ export default function App(): JSX.Element {
       })
       setPaneFocus(paneId) // the freshly pinned file is where the eye went
     },
-    [active, applyTermView, open, pickDock, fullscreen]
+    [active, applyTermView, openBrowseSplit, open, pickDock, fullscreen]
   )
   const unpinSplitId = useCallback((paneId: string) => {
     setTabState((s) => {
@@ -2332,67 +2490,60 @@ export default function App(): JSX.Element {
 
   /** "Open in new tab": a fresh tab rooted at the file's folder, like an
    *  Explorer open would make, spawned unconditionally. */
-  const openInNewTab = useCallback((path: string) => {
-    // A FOLDER becomes a tab rooted there, a file a tab showing it: the tab
-    // strip takes both now, since a folder dragged out of the tree is the
-    // natural way to open one beside what you already have.
-    void window.prism.statFile(path).then((st) => {
-      void (st?.isFolder ? window.prism.openRoot(path) : window.prism.openPath(path)).then((p) => {
-        if (p) setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      })
-    })
+  const openInNewTab = useCallback((path: string, knownFolder?: boolean) => {
+    void (async () => {
+      // Places know their kind even before their directory has a desktop grant.
+      // browseDirectory validates that destination and grants desktop access;
+      // statFile intentionally refuses paths outside the existing grants.
+      const isFolder = knownFolder ?? (await window.prism.statFile(path))?.isFolder
+      if (isFolder === undefined) return
+      const root = isFolder ? path : browseParent(path)
+      if (!root) return
+      const id = nextTabId()
+      const directory = await window.prism.browseDirectory(id, root)
+      if (!directory) return
+      const payload = isFolder
+        ? { root, files: directory.listing.files, index: -1 }
+        : await window.prism.openWithin(root, path)
+      if (!payload) return
+      setTabState((s) =>
+        isFolder
+          ? addExplorerTab(s.tabs, payload, id)
+          : addTab(s.tabs, { ...payload, role: 'explorer' }, id)
+      )
+    })()
   }, [])
   /** The terminal menu's version: a new tab on the same root, shell in front. */
   /** A fresh tab rooted at `root`, with its terminal in front. */
-  const termTabAt = useCallback((root: string) => {
-    void window.prism.openRoot(root).then((p) => {
-      if (!p) return
-      setTabState((s) => addTab(s.tabs, p, nextTabId()))
-      setTabState((s) => {
-        const tab = s.tabs.find((t) => t.id === s.activeId)
-        if (!tab || tab.term) return s
-        const termId = nextTermId()
-        termRoots.current.set(termId, tab.root)
-        return { ...s, tabs: setTabTerm(s.tabs, tab.id, { id: termId, view: 'full' }) }
-      })
-    })
-  }, [])
+
   /**
    * "Open terminal here", on a folder in the tree (2026-08-31).
    *
-   * A tab has exactly ONE terminal, so this cannot mean "a second shell".
-   * It follows the reroot policy that already exists instead: an UNTOUCHED
-   * shell (nobody has typed into it) is replaced by one spawned in that
-   * folder, and a TOUCHED one is somebody's work - a half-typed command, a
-   * Claude session - so it is never taken away. That folder gets a terminal
-   * in a NEW TAB instead, which is the only other honest answer.
+   * An untouched project shell can be replaced at the requested folder.
+   * A touched shell or agent stays alive; the new shell joins the same
+   * project's terminal list. Explorer alone opens a separate project tab.
    *
    * The tab's own root does not move: this opens a shell somewhere, it does
    * not renavigate the window. The sidebar's folder button is the verb for
    * that, and it is deliberately a different button.
    */
-  const openTermHere = useCallback(
-    (folder: string) => {
-      if (!active || active.kind === 'settings') return
-      const term = active.term
-      if (term && isTouched(term.id)) {
-        termTabAt(folder)
-        return
-      }
-      if (term) {
-        window.prism.termKill(term.id)
-        disposeSession(term.id)
-        termRoots.current.delete(term.id)
-      }
-      const termId = nextTermId()
-      termRoots.current.set(termId, folder)
-      setTabState((s) => ({
-        ...s,
-        tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
-      }))
-    },
-    [active, termTabAt]
-  )
+  const openTermHere = useCallback((folder: string) => {
+    if (!active || active.kind === 'settings') return
+    if (isExplorerTab(active)) {
+      termTabAt(folder)
+      return
+    }
+    const term = active.term
+    if (term && !isTouched(term.id) && !agentIds.has(term.id) && !agentKinds.current.has(term.id))
+      closeTermId(term.id)
+    const termId = nextTermId()
+    termRoots.current.set(termId, folder)
+    setTabState((s) => ({
+      ...s,
+      tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
+    }))
+    setPaneFocus('term')
+  }, [active, agentIds, closeTermId, termTabAt])
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
@@ -2420,6 +2571,166 @@ export default function App(): JSX.Element {
 
   const file = view?.files[view.index] ?? null
   const termView = active?.term?.view ?? 'hidden'
+  const viewingFile =
+    !!file && !!active && isExplorerTab(active) && !browsing.folder && termView !== 'full'
+  const viewerDirectory = file
+    ? (browseParent(file.path) ?? active?.browse.path)
+    : active?.browse.path
+  const returnToFolder = useCallback(() => {
+    if (viewerDirectory && active && !sameRoot(viewerDirectory, active.browse.path))
+      void browsing.navigate(viewerDirectory)
+    else browsing.showFolder()
+  }, [viewerDirectory, active, browsing])
+  const [browseMenu, setBrowseMenu] = useState<{
+    x: number
+    y: number
+    entry: BrowseEntry
+    source?: 'more'
+    canPaste?: boolean
+    apps?: OpenWithApp[] | null
+  } | null>(null)
+  const browseMenuPath = browseMenu?.entry.path
+  const browseMenuFolder = browseMenu?.entry.isFolder
+  useEffect(() => {
+    if (!browseMenuPath) return
+    let cancelled = false
+    void fileClipboardReady()
+      .then(() => window.prism.clipboardHasFiles())
+      .then((canPaste) => {
+        if (!cancelled) setBrowseMenu((menu) => menu ? { ...menu, canPaste } : null)
+      })
+      .catch(() => {})
+    if (!browseMenuFolder) {
+      void window.prism.appsFor(browseMenuPath)
+        .catch(() => [])
+        .then((apps) => {
+          if (!cancelled) setBrowseMenu((menu) => menu ? { ...menu, apps } : null)
+        })
+    }
+    return () => { cancelled = true }
+  }, [browseMenuPath, browseMenuFolder, browseMenu?.x, browseMenu?.y])
+  const [browseRename, setBrowseRename] = useState<BrowseEntry | null>(null)
+  const [browseProps, setBrowseProps] = useState<BrowseEntry | null>(null)
+  const refreshFiles = useCallback(() => setRefreshKey((key) => key + 1), [])
+  const reportPasteError = useCallback(
+    (message: string) => setAsk({ kind: 'failed', message }),
+    []
+  )
+  const pasteFiles = useFilePaste(refreshFiles, reportPasteError)
+  const showBrowsePreview =
+    browsing.folder &&
+    !!active?.browse.preview &&
+    !!browsing.previewFile &&
+    file?.path === browsing.previewFile.path
+  const explorerWidths = useExplorerWidths(
+    placesVisible,
+    browsing.folder && !!active?.browse.preview
+  )
+  const quickAccessDefaults = useMemo(
+    () =>
+      browsing.locations
+        .filter((location) => location.group === 'quick')
+        .map((location) => ({
+          path: location.path,
+          label: location.name,
+          isFolder: true
+        })),
+    [browsing.locations]
+  )
+  const quickAccess = useQuickAccess(quickAccessDefaults)
+  const pinQuickAccessPaths = useCallback(
+    async (paths: string[], beforePath?: string) => {
+      if (!active) return
+      const pins = await Promise.all(
+        paths.map(async (path) => {
+          const parent = browseParent(path) ?? path
+          await window.prism.browseDirectory(active.id, parent).catch(() => null)
+          const stat = await window.prism.statFile(path).catch(() => null)
+          return stat
+            ? {
+                path,
+                label: baseName(path.replace(/[\\/]+$/, '')) || path,
+                isFolder: stat.isFolder
+              }
+            : null
+        })
+      )
+      pinQuickAccess(
+        pins.filter((pin): pin is NonNullable<typeof pin> => pin !== null),
+        beforePath
+      )
+      if (pins.some((pin) => pin === null))
+        setAsk({
+          kind: 'failed',
+          message:
+            'Some items could not be pinned. Check that they still exist and are accessible, then try again.'
+        })
+    },
+    [active]
+  )
+  const browsePlaces = useMemo(
+    () => [
+      ...browsing.locations.map((location) => ({
+        path: location.path,
+        label: location.name,
+        group: location.group === 'drive' ? ('This PC' as const) : ('Quick access' as const)
+      })),
+      ...tabs
+        .filter((tab) => tab.kind !== 'settings' && tab.terms.length > 0)
+        .filter(
+          (tab, index, all) => all.findIndex((other) => sameRoot(other.root, tab.root)) === index
+        )
+        .map((tab) => ({ path: tab.root, label: baseName(tab.root), group: 'Projects' as const }))
+    ],
+    [browsing.locations, tabs]
+  )
+  const canChangeTerminalFolder =
+    !!active?.term &&
+    !agentIds.has(active.term.id) &&
+    !agentKinds.current.has(active.term.id) &&
+    idleAtPrompt(active.term.id) &&
+    termCwd.current.has(active.term.id)
+  const terminalBrowseControls = active?.term ? (
+    <div className="browse-terminal-actions">
+      {termView !== 'full' && (
+        <button onClick={openTermFull} title={termFolder(active.term.id)}>
+          Return to terminal
+        </button>
+      )}
+      <button
+        onClick={() => {
+          const path = termFolder(active.term!.id)
+          if (path) void browsing.navigate(path)
+        }}
+      >
+        Terminal folder
+      </button>
+      {termView !== 'full' && (
+        <button
+          className="browse-cd"
+          disabled={!canChangeTerminalFolder}
+          title={
+            canChangeTerminalFolder
+              ? 'Change the idle terminal to this folder'
+              : 'Available at an idle shell prompt with no agent or typed command'
+          }
+          onClick={() => {
+            const term = active.term
+            if (
+              !term ||
+              agentKinds.current.has(term.id) ||
+              !idleAtPrompt(term.id) ||
+              !termCwd.current.has(term.id)
+            )
+              return
+            window.prism.termCd(term.id, active.browse.path)
+          }}
+        >
+          Use folder in terminal
+        </button>
+      )}
+    </div>
+  ) : null
   /** The terminal's own find bar. Lives here because Ctrl+Shift+F is claimed
    *  in App's key handler, like every other key the shell does not keep. */
   const [termFind, setTermFind] = useState(false)
@@ -2552,12 +2863,12 @@ export default function App(): JSX.Element {
   }
 
   const reopen = useCallback(
-    (p: string) =>
-      void (
-        active &&
-        window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
-      ),
-    [active, open]
+    (p: string) => {
+      if (!active) return
+      if (isExplorerTab(active)) void openBrowseFile(p, active.browse.surface === 'viewer')
+      else void window.prism.openWithin(active.root, p).then((payload) => payload && open(payload))
+    },
+    [active, open, openBrowseFile]
   )
 
   /* Undo and redo (2026-08-22), for the things Prism WRITES: moving,
@@ -2695,85 +3006,111 @@ export default function App(): JSX.Element {
 
   /** A drop landed on a folder (#70): files move in, archive members extract
    *  there. Moving asks about taken names before it touches anything. */
+  const moveTabs = useRef(tabs)
+  const moveQueue = useRef<Promise<void>>(Promise.resolve())
+  const moveCommits = useRef<Array<() => void>>([])
+  useLayoutEffect(() => {
+    moveTabs.current = tabs
+    for (const done of moveCommits.current.splice(0)) done()
+  }, [tabs])
   const runMove = useCallback(
-    async (
+    (
       paths: string[],
       dest: string,
       mode: 'ask' | 'keep-both' | 'replace',
       track = true
     ): Promise<Array<{ from: string; to: string }>> => {
-      // MOVING THE FILE YOU ARE WATCHING (#127). Windows refuses to move a
-      // file something holds open, and that something is Prism's own player
-      // as often as not (MEASURED: EBUSY from the media stream, and from
-      // ffmpeg decoding beside it). Delete learned this on 2026-08-22; move
-      // never did. So Prism lets go FIRST - the tab steps off the file, the
-      // element unmounts and its stream closes - moves, retries what Windows
-      // still calls busy while the handles drain, and then FOLLOWS the file
-      // to where it landed, at the second it was at, playing if it was.
-      const cur = file?.path
-      const heldPath = cur && paths.some((p) => within(cur, p)) ? cur : null
-      const oldUrl = heldPath ? window.prism.mediaUrl(heldPath) : null
-      const mark = oldUrl ? { t: sessionTime(oldUrl), paused: wasPaused(oldUrl) } : null
-      const held = releaseFiles(paths)
-      if (held) await new Promise((res) => setTimeout(res, 350))
-      let r = await window.prism.moveEntries(paths, dest, mode)
-      if (mode === 'ask' && r.clashes.length) {
-        setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
-        if (heldPath) reopen(heldPath) // nothing moved: put it back on screen
-        return []
-      }
-      for (let i = 0; i < 3 && r.busy.length; i += 1) {
-        await new Promise((res) => setTimeout(res, 300))
-        const again = await window.prism.moveEntries(r.busy, dest, mode)
-        const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
-        r = {
-          ...r,
-          moved: [...r.moved, ...again.moved],
-          failed: [
-            ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
-            ...again.failed.filter((p) => !r.failed.includes(p))
-          ],
-          busy: again.busy,
-          replaced: [...r.replaced, ...again.replaced],
-          refused: r.refused || again.refused
+      const operation = async (): Promise<FileMove[]> => {
+        // Release every tab that holds this cargo, including background previews
+        // and pinned players. Read the latest committed tabs after async grants.
+        const held = captureMoveViews(moveTabs.current, paths)
+        const marks = new Map<string, { t: number; paused: boolean }>()
+        for (const entry of held) {
+          const viewing = entry.live ? [entry.tab.files[entry.tab.index].path] : []
+          viewing.push(
+            ...entry.tab.panes
+              .filter((pane) => !pane.term && !entry.panes.includes(pane))
+              .map((pane) => pane.path)
+          )
+          for (const path of viewing) {
+            const url = window.prism.mediaUrl(path)
+            marks.set(path, { t: sessionTime(url), paused: wasPaused(url) })
+          }
         }
-      }
-      setAsk(null)
-      setRefreshKey((n) => n + 1)
-      if (track && r.moved.length)
-        noteUndo({
-          kind: 'move',
-          items: r.moved,
-          replaced: r.replaced?.length ? r.replaced : undefined
-        })
-      // Follow the open file FIRST, whatever else failed: it may have been
-      // inside a folder that moved, in which case only its prefix changed.
-      // It comes back at the second it was at (the session mark is keyed by
-      // url, and the url has changed with the path), playing if it was.
-      if (cur) {
-        const landed = r.moved.find((m) => within(cur, m.from))
-        if (landed) {
-          const to = landed.to + cur.slice(landed.from.length)
-          if (mark) {
-            const url = window.prism.mediaUrl(to)
+        setTabState((state) => ({ ...state, tabs: releaseMoveViews(state.tabs, held) }))
+        const restore = (moves: FileMove[]): Promise<void> => {
+          for (const [path, mark] of marks) {
+            const url = window.prism.mediaUrl(movedPath(path, moves))
             if (mark.t > 0) rememberTime(url, mark.t)
             rememberPaused(url, mark.paused)
           }
-          reopen(to)
-        } else if (heldPath) reopen(heldPath) // it did not move: put it back
+          for (const buffer of [...buffers.current.values()]) {
+            const path = movedPath(buffer.path, moves)
+            if (path !== buffer.path) rekeyBuffer(buffer.path, path)
+          }
+          // A queued move must see the restored viewers in committed React state.
+          // Register first, then always issue a fresh tabs array to trigger the effect.
+          return new Promise((resolve) => {
+            moveCommits.current.push(resolve)
+            setTabState((state) => ({ ...state, tabs: restoreMoveViews(state.tabs, held, moves) }))
+          })
+        }
+        if (held.length) await new Promise((res) => setTimeout(res, 350))
+        let moved: FileMove[] = []
+        try {
+          let r = await window.prism.moveEntries(paths, dest, mode)
+          moved = r.moved
+          if (mode === 'ask' && r.clashes.length) {
+            setAsk({ kind: 'move-clash', paths, dest, names: r.clashes.map((c) => c.name) })
+            return []
+          }
+          for (let i = 0; i < 3 && r.busy.length; i += 1) {
+            await new Promise((res) => setTimeout(res, 300))
+            const again = await window.prism.moveEntries(r.busy, dest, mode)
+            const movedNow = new Set(again.moved.map((m) => m.from.toLowerCase()))
+            r = {
+              ...r,
+              moved: [...r.moved, ...again.moved],
+              failed: [
+                ...r.failed.filter((p) => !movedNow.has(p.toLowerCase())),
+                ...again.failed.filter((p) => !r.failed.includes(p))
+              ],
+              busy: again.busy,
+              replaced: [...r.replaced, ...again.replaced],
+              refused: r.refused || again.refused
+            }
+            moved = r.moved
+          }
+          setAsk(null)
+          setRefreshKey((n) => n + 1)
+          if (track && r.moved.length)
+            noteUndo({
+              kind: 'move',
+              items: r.moved,
+              replaced: r.replaced?.length ? r.replaced : undefined
+            })
+          moved = r.moved
+          if (r.failed.length)
+            setAsk({
+              kind: 'failed',
+              message: r.refused
+                ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
+                : r.busy.length
+                  ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
+                  : `${r.failed.length} of ${paths.length} could not be moved.`
+            })
+          return r.moved
+        } finally {
+          await restore(moved)
+        }
       }
-      if (r.failed.length)
-        setAsk({
-          kind: 'failed',
-          message: r.refused
-            ? 'Those can only be moved inside the folder Prism opened, and a tab\u2019s own folder cannot be moved.'
-            : r.busy.length
-              ? `${r.busy.length === 1 && paths.length === 1 ? 'That file' : `${r.busy.length} of ${paths.length}`} could not be moved: in use by another program.`
-              : `${r.failed.length} of ${paths.length} could not be moved.`
-        })
-      return r.moved
+      // Only one move can detach players at once, including moves queued while
+      // another is waiting for Windows handles. A failure does not block the next.
+      const result = moveQueue.current.then(operation)
+      moveQueue.current = result.then(() => undefined, () => undefined)
+      return result
     },
-    [file, noteUndo, reopen, releaseFiles]
+    [noteUndo, rekeyBuffer]
   )
 
   /** Reverse one action. Undo never asks: it puts things back beside whatever
@@ -2961,6 +3298,37 @@ export default function App(): JSX.Element {
     },
     [runMove]
   )
+  const onBrowseDropInto = useCallback(
+    (dest: string, payload: DragPayload, tabId = active?.id): void => {
+      if (!tabId) return
+      // A desktop drop explicitly chooses both ends, including a drive or a
+      // breadcrumb the tab has not visited. These grants never widen phone roots.
+      const directories = new Set([
+        dest,
+        ...(payload.kind === 'files'
+          ? payload.paths.map((path) => browseParent(path)).filter((path): path is string => !!path)
+          : [])
+      ])
+      void Promise.all([...directories].map((path) => window.prism.browseDirectory(tabId, path)))
+        .then((results) => {
+          if (results.some((result) => !result || result.listing.unreadable)) {
+            setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' })
+            return
+          }
+          onDropInto(dest, payload)
+        })
+        .catch(() => setAsk({ kind: 'failed', message: 'The source or destination folder could not be opened.' }))
+    },
+    [active, onDropInto]
+  )
+  const onDropIntoTab = useCallback(
+    (tabId: string, payload: DragPayload): void => {
+      const target = moveTabs.current.find((tab) => tab.id === tabId)
+      if (!target || target.kind === 'settings') return
+      onBrowseDropInto(isExplorerTab(target) ? target.browse.path : target.root, payload, target.id)
+    },
+    [onBrowseDropInto]
+  )
 
   // App-level keys, in the capture phase so this runs before the player's own
   // (bubble-phase) key listener. Arrow keys page through the folder, except a
@@ -2982,10 +3350,94 @@ export default function App(): JSX.Element {
       // Escape, the arrows - stay the shell's; only the search box, a rename
       // and the text editor keep the full typing shield.
       const inTerm = !!el && !!el.closest('.xterm')
+      const inBrowser = !!el?.closest('.folder-browser')
+      if (inBrowser && e.altKey) return
+      if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
-      if (e.key === 'F11') {
+      if (!settingsOpen && !fullscreen && !document.querySelector('[data-owns-escape]')) {
+        const explorerFileFocus =
+          active && isExplorerTab(active) && termView !== 'full' &&
+          (!browsing.folder || !!el?.closest('[data-workspace-viewer]')) &&
+          !typing && !inTerm &&
+          !el?.closest('.cm-editor,[role="dialog"],[role="menu"],[role="separator"],.browse-viewer-places') &&
+          (el === document.body || !!el?.closest('[data-workspace-viewer]'))
+        if (
+          explorerFileFocus &&
+          e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
+          ['c', 'x', 'v'].includes(e.key.toLowerCase()) &&
+          !window.getSelection()?.toString()
+        ) {
+          e.preventDefault()
+          e.stopPropagation()
+          const key = e.key.toLowerCase()
+          if (key === 'v' && viewerDirectory) void pasteFiles(viewerDirectory)
+          else if (file) void copyFilePaths([file.path], key === 'x')
+          return
+        }
+        if (explorerFileFocus && file && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+          const entry = { path: file.path, name: file.name, isFolder: false, file }
+          if (e.key === 'F2') {
+            e.preventDefault()
+            e.stopPropagation()
+            setBrowseRename(entry)
+            return
+          }
+          if (e.key === 'Delete') {
+            e.preventDefault()
+            e.stopPropagation()
+            setAsk({ kind: 'delete', ...entry })
+            return
+          }
+        }
+        if (
+          viewingFile &&
+          !typing &&
+          !inTerm &&
+          e.key === 'Backspace' &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
+          const archiveOwnsBackspace = [
+            ...document.querySelectorAll('[data-archive-subfolder]')
+          ].some((node) => !node.closest('[inert],[aria-hidden="true"]'))
+          if (archiveOwnsBackspace || e.defaultPrevented) return
+          e.preventDefault()
+          e.stopPropagation()
+          returnToFolder()
+          return
+        }
+        if (viewingFile && !inTerm && e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
+          e.preventDefault()
+          e.stopPropagation()
+          document
+            .querySelector<HTMLButtonElement>(
+              '.browse-viewer-toolbar [data-testid="browse-edit-path"]'
+            )
+            ?.click()
+          return
+        }
+      }
+      if (
+        active &&
+        isExplorerTab(active) &&
+        e.altKey &&
+        !inTerm &&
+        !typing &&
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(e.key)
+      ) {
+        e.preventDefault()
+        if (e.key === 'ArrowLeft') {
+          if (viewingFile) returnToFolder()
+          else browsing.travel(-1)
+        } else if (e.key === 'ArrowRight') browsing.travel(1)
+        else if (active) {
+          const parent = viewingFile ? viewerDirectory : browseParent(active.browse.path)
+          if (parent) void browsing.navigate(parent)
+        }
+      } else if (e.key === 'F11') {
         e.preventDefault()
         setFs(!fullscreen)
       } else if (e.ctrlKey && !typing && !inTerm && !fullscreen && /^[zy]$/i.test(e.key)) {
@@ -3046,7 +3498,7 @@ export default function App(): JSX.Element {
         // and a window that vanishes under a reflex keystroke - with unsaved
         // text in it - is the failure the close flow exists to prevent.
         e.preventDefault()
-        if (active && active.panes.length > 0) {
+        if (active && !isExplorerTab(active) && active.panes.length > 0) {
           unpinSplitId(active.panes[active.panes.length - 1].id)
         } else {
           closeActiveTab()
@@ -3141,6 +3593,11 @@ export default function App(): JSX.Element {
   }, [
     active,
     closeActiveTab,
+    browsing,
+    pasteFiles,
+    viewingFile,
+    viewerDirectory,
+    returnToFolder,
     file,
     fullscreen,
     go,
@@ -3208,9 +3665,12 @@ export default function App(): JSX.Element {
         const first = inside.paths[0]
         if (!first) return
         void window.prism.statFile(first).then((st) => {
-          if (st?.isFolder)
-            void window.prism.openRoot(first).then((p) => p && applyReroot(activeIdRef.current, p))
-          else void window.prism.openPath(first).then(open)
+          if (st?.isFolder) {
+            if (active && isExplorerTab(active)) void browsing.navigate(first)
+            else void window.prism.openRoot(first).then((payload) => {
+              if (payload) open({ ...payload, folder: true })
+            })
+          } else void window.prism.openPath(first).then(open)
         })
         return
       }
@@ -3236,7 +3696,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('drop', end, true)
       window.removeEventListener('dragend', end, true)
     }
-  }, [applyReroot, open, setup])
+  }, [active, browsing, open, setup])
 
   // The style's light belongs to an empty window, a visualizer, or a page of
   // Prism's own - never behind someone's photo.
@@ -3250,7 +3710,7 @@ export default function App(): JSX.Element {
   // Fullscreen is for watching, not browsing: no tree, no arrows, no chrome.
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
-    <div className="flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
+    <div className="prism-desktop flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
       {/* The fullscreen fade, OUTSIDE the fullscreen element: it covers the
           whole window - sidebar, tabs and title bar included - so everything
           darkens together rather than the picture going first and the chrome
@@ -3267,12 +3727,15 @@ export default function App(): JSX.Element {
           // repeats it when the tree isn't there to say it. A FULL terminal
           // names nothing: the file it would name is not what's on screen.
           name={
-            (sidebar && active && !settingsOpen) || termView === 'full' ? '' : (file?.name ?? '')
+            !active || isExplorerTab(active) || settingsOpen || sidebar || termView === 'full'
+              ? '' : (file?.name ?? '')
           }
           pos={pos}
           settingsOpen={settingsOpen}
           onToggleSettings={toggleSettings}
-          panelOpen={settingsOpen ? !compactRail : sidebar}
+          panelOpen={
+            settingsOpen ? !compactRail : active && isExplorerTab(active) ? placesVisible : sidebar
+          }
           onTogglePanel={togglePanel}
           setup={setup}
           wash={washed}
@@ -3303,6 +3766,7 @@ export default function App(): JSX.Element {
           doneIds={doneIds}
           agentIds={agentIds}
           onDropFile={openInNewTab}
+          onDropIntoTab={onDropIntoTab}
           onReorder={reorderTab}
           onOpenRecent={openRecent}
           onPick={pickTab}
@@ -3314,18 +3778,72 @@ export default function App(): JSX.Element {
       {/* Settings covers this area. Hiding it (rather than leaving it painted
           underneath) is what lets a translucent style show its material through
           the settings page; `invisible` keeps a playing video alive. */}
+      {viewingFile && active && viewerDirectory && !fullscreen && !settingsOpen && !setup && (
+        <div className="browse-viewer-toolbar">
+          <BrowseToolbar
+            directory={viewerDirectory}
+            onDropInto={onBrowseDropInto}
+            fileName={file?.name}
+            canBack={active.browse.cursor > 0}
+            canForward={active.browse.cursor < active.browse.history.length - 1}
+            query={browsing.location?.query ?? ''}
+            showSearch={false}
+            onReturnToFolder={returnToFolder}
+            onBack={() => browsing.travel(-1)}
+            onForward={() => browsing.travel(1)}
+            onUp={returnToFolder}
+            onNavigate={(path) => void browsing.navigate(path)}
+            onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
+          />
+          {browsing.error && (
+            <div className="browse-navigation-error" role="status">
+              {browsing.error}
+            </div>
+          )}
+        </div>
+      )}
       <div
         inert={settingsOpen || setup}
-        className={`flex min-h-0 flex-1 ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
+        ref={explorerWidths.workspace}
+        style={active && isExplorerTab(active) ? explorerWidths.style : undefined}
+        className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
       >
         {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
             footer is its home, and a paste must stay visible either way. */}
         {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
+        {active && isExplorerTab(active) && !fullscreen && placesVisible && (
+          <ExplorerResize
+            section="places"
+            bounds={explorerWidths.bounds.places}
+            onResize={(width) => explorerWidths.resize('places', width)}
+            right={!browsing.folder && treeSide === 'right'}
+          />
+        )}
+        {active && isExplorerTab(active) && !browsing.folder && !fullscreen && placesVisible && (
+          <div className="browse-viewer-places">
+            <BrowsePlaces
+              places={browsePlaces}
+              onDropInto={onBrowseDropInto}
+              quickAccess={quickAccess}
+              onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active?.browse.preview)}
+              onUnpinQuickAccess={unpinQuickAccess}
+              onMoveQuickAccess={moveQuickAccess}
+              onPinQuickAccessPaths={(paths, beforePath) =>
+                void pinQuickAccessPaths(paths, beforePath)
+              }
+              directory={active.browse.path}
+              onNavigate={(path) => void browsing.navigate(path)}
+              onNewTerminal={termTabAt}
+              onOpenProject={openAsProject}
+              onOpenNewTab={openInNewTab}
+            />
+          </div>
+        )}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
-            open={sidebar}
+            open={sidebar && !isExplorerTab(active)}
             root={active.root}
             tabId={active.id}
             onOpenFolder={rerootHere}
@@ -3335,6 +3853,7 @@ export default function App(): JSX.Element {
             onUnpinSplit={unpinSplitPath}
             pinnedPaths={active.panes.map((pn) => pn.path)}
             onOpenNewTab={openInNewTab}
+            onOpenProject={(path, isFolder) => openAsProject({ path, name: path, isFolder })}
             onTermHere={openTermHere}
             onTermSplit={openTermSplit}
             terms={active.terms.map((id) => ({
@@ -3379,12 +3898,115 @@ export default function App(): JSX.Element {
             onRename={(p, name) => void runRename(p, name, 'ask')}
             onDelete={(path, name, isFolder) => setAsk({ kind: 'delete', path, name, isFolder })}
             onDeleteMany={(paths) => setAsk({ kind: 'delete-many', paths })}
-            onDropInto={onDropInto}
+            onDropInto={onBrowseDropInto}
             onDuplicated={(source, copy) => noteUndo({ kind: 'duplicate', source, path: copy })}
             wash={washed}
           />
         )}
-        <div className="flex min-w-0 min-h-0 flex-1" style={{ flexDirection: dockFlex(dockEdge) }}>
+        <div
+          className="relative flex min-w-0 min-h-0 flex-1"
+          style={{ flexDirection: dockFlex(dockEdge) }}
+        >
+          {browsing.folder && active && browsing.location && !fullscreen && (
+            <div className="browse-surface-host absolute inset-0">
+              <FolderBrowser
+                directory={active.browse.path}
+                onDropInto={onBrowseDropInto}
+                listing={browsing.listing}
+                loading={browsing.loading}
+                error={browsing.error}
+                places={browsePlaces}
+                quickAccess={quickAccess}
+                onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active.browse.preview)}
+                onUnpinQuickAccess={unpinQuickAccess}
+                onMoveQuickAccess={moveQuickAccess}
+                onPinQuickAccessPaths={(paths, beforePath) =>
+                  void pinQuickAccessPaths(paths, beforePath)
+                }
+                placesVisible={isExplorerTab(active) ? placesVisible : false}
+                onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
+                onOpenNewTab={openInNewTab}
+                searchState={browsing.searchState}
+                onCancelSearch={browsing.cancelSearch}
+                selectedPath={browsing.location.selected}
+                scrollTop={browsing.location.scrollTop}
+                query={browsing.location.query}
+                sort={browsing.location.sort}
+                canBack={active.browse.cursor > 0}
+                canForward={active.browse.cursor < active.browse.history.length - 1}
+                onNavigate={(path) => void browsing.navigate(path)}
+                onBack={() => browsing.travel(-1)}
+                onForward={() => browsing.travel(1)}
+                onUp={() => {
+                  const parent = browseParent(active.browse.path)
+                  if (parent) void browsing.navigate(parent)
+                }}
+                onSelect={browsing.select}
+                onOpen={(file) => void browsing.openFile(file)}
+                menuPath={browseMenu?.entry.path}
+                onScroll={(scrollTop) => browsing.patch({ scrollTop })}
+                onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
+                onSortChange={(sort) => browsing.patch({ sort, scrollTop: 0 })}
+                onNewTerminal={termTabAt}
+                onCopy={(entry) => void copyFilePaths([entry.path])}
+                onCut={(entry) => void copyFilePaths([entry.path], true)}
+                onPaste={(directory) => void pasteFiles(directory)}
+                onRename={(entry) => setBrowseRename(entry)}
+                onDelete={(entry) =>
+                  setAsk({
+                    kind: 'delete',
+                    path: entry.path,
+                    name: entry.name,
+                    isFolder: entry.isFolder
+                  })
+                }
+                onRefresh={() => setRefreshKey((key) => key + 1)}
+                onContextMenu={(event, entry, source) =>
+                  setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
+                }
+                previewVisible={active.browse.preview}
+                onPreviewToggle={browsing.togglePreview}
+                terminalControls={terminalBrowseControls}
+              />
+              {active.browse.preview && browsing.previewFile && (
+                <div className="browse-preview-actions">
+                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
+                    Open full view
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {browsing.folder && active?.browse.preview && !fullscreen && (
+            <ExplorerResize
+              section="preview"
+              bounds={explorerWidths.bounds.preview}
+              onResize={(width) => explorerWidths.resize('preview', width)}
+            />
+          )}
+          {!browsing.folder &&
+            active &&
+            isExplorerTab(active) &&
+            termView === 'full' &&
+            !fullscreen && (
+              <div className="browse-return-row">
+                <button onClick={browsing.showFolder} title="Return to folder">
+                  Browse files
+                </button>
+                <span
+                  title={
+                    termView === 'full' && active.term
+                      ? termFolder(active.term.id)
+                      : active.browse.path
+                  }
+                >
+                  {termView === 'full' && active.term
+                    ? termFolder(active.term.id)
+                    : active.browse.path}
+                </span>
+                {terminalBrowseControls}
+              </div>
+            )}
           <div
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
               washed ? 'p-wash' : ''
@@ -3392,9 +4014,13 @@ export default function App(): JSX.Element {
               // Full view: the terminal takes the whole area, but the viewer
               // stays MOUNTED so scroll, zoom and playback survive the visit -
               // the same reason hidden shells stay alive.
-              termView === 'full' ? 'hidden' : ''
+              termView === 'full' || (browsing.folder && !fullscreen && !showBrowsePreview)
+                ? 'hidden'
+                : ''
             }`}
             ref={viewerBox}
+            data-browse-preview={(showBrowsePreview && !fullscreen) || undefined}
+            data-workspace-viewer
           >
             {/* the fullscreen fade-to-black, inside the fullscreen element */}
             <div
@@ -3416,6 +4042,12 @@ export default function App(): JSX.Element {
               const players = deck.map((e) => (
                 <div
                   key={e.tabId}
+                  data-player-tab={e.tabId}
+                  inert={
+                    e.tabId !== activeId ||
+                    (browsing.folder && !showBrowsePreview) ||
+                    termView === 'full'
+                  }
                   aria-hidden={e.tabId === activeId ? undefined : true}
                   className={
                     e.tabId === activeId
@@ -3425,7 +4057,7 @@ export default function App(): JSX.Element {
                 >
                   <Viewer
                     file={e.file}
-                    background={e.tabId !== activeId}
+                    background={e.tabId !== activeId || (browsing.folder && !showBrowsePreview)}
                     volumeKey={e.tabId}
                     onUndoable={noteUndo}
                     onRenameSelf={(name) => void runRename(e.file.path, name, 'ask')}
@@ -3470,6 +4102,11 @@ export default function App(): JSX.Element {
                     {warm.map((w) => (
                       <div
                         key={w.tabId}
+                        inert={
+                          w.tabId !== activeId ||
+                          (browsing.folder && !showBrowsePreview) ||
+                          termView === 'full'
+                        }
                         aria-hidden={w.tabId === activeId ? undefined : true}
                         className={
                           w.tabId === activeId
@@ -3508,19 +4145,11 @@ export default function App(): JSX.Element {
                         />
                       </div>
                     ))}
+                    {!file && active && <NoFileState />}
                   </>
-                ) : file ? (
-                  // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
-                  // FLAC opened with "No file selected" written across it).
-                  // Media lives in the PLAYER deck, so `warm` is empty for it
-                  // BY DESIGN, and this branch used to answer that emptiness
-                  // with the nothing-open notice. It was drawn under the
-                  // player either way: a film's picture covers it, which is
-                  // why it went unseen for months, and the audio visualizer is
-                  // a transparent ring, which is where it showed through.
-                  // There IS a file here; the player above is drawing it.
-                  null
-                ) : active ? (
+                ) : file ? // a transparent ring, which is where it showed through. // why it went unseen for months, and the audio visualizer is // player either way: a film's picture covers it, which is // with the nothing-open notice. It was drawn under the // BY DESIGN, and this branch used to answer that emptiness // Media lives in the PLAYER deck, so `warm` is empty for it // FLAC opened with "No file selected" written across it). // A FILM OR A TRACK IS NOT "no file" (2026-09-08, owner: a
+                // There IS a file here; the player above is drawing it.
+                null : active ? (
                   <NoFileState />
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
@@ -3528,7 +4157,11 @@ export default function App(): JSX.Element {
               // While the terminal is FULL its panes are drawn in the terminal
               // area, not here: this grid sits hidden behind it, and mounting a
               // shell's panel twice would attach one xterm to one session twice.
-              const pins = (active?.panes ?? []).filter((pn) => termView !== 'full' || !pn.term)
+              const pins = (
+                browsing.folder || (active && isExplorerTab(active)) ? [] : (active?.panes ?? [])
+              ).filter(
+                (pn) => termView !== 'full' || !pn.term
+              )
               const withPlayers = (
                 <>
                   {players}
@@ -3580,7 +4213,9 @@ export default function App(): JSX.Element {
                       area={areas.pinned[i]}
                       dir={pn.dir}
                       term={pn.term}
-                      termRoot={pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined}
+                      termRoot={
+                        pn.term ? (termRoots.current.get(pn.term) ?? active?.root ?? '') : undefined
+                      }
                       shellId={pn.term ? savedShellId() : undefined}
                       onMove={(d) => (pn.term ? pinTermAsPane(pn.term, d) : pinSplit(pn.path, d))}
                       onClose={() => unpinSplitId(pn.id)}
@@ -3669,6 +4304,7 @@ export default function App(): JSX.Element {
               return (
                 <div
                   className="grid min-h-0 min-w-0 flex-1 gap-px bg-[var(--p-divider)]"
+                  data-workspace-term-grid
                   style={{ gridTemplateRows: '1fr 1fr', gridTemplateColumns: '1fr 1fr' }}
                 >
                   <div className="flex min-h-0 min-w-0" style={{ gridArea: ta.live }}>
@@ -3907,6 +4543,138 @@ export default function App(): JSX.Element {
         />
       )}
 
+      {browseMenu && (
+        <ContextMenu
+          x={browseMenu.x}
+          y={browseMenu.y}
+          onClose={() => setBrowseMenu(null)}
+          items={[
+            {
+              label: 'Open',
+              icon: <FileMenuIcon name="open" />,
+              hint: 'Enter',
+              onPick: () => {
+                if (browseMenu.entry.isFolder) void browsing.navigate(browseMenu.entry.path)
+                else if (browseMenu.entry.file) void browsing.openFile(browseMenu.entry.file)
+              }
+            },
+            ...(browseMenu.entry.isFolder
+              ? [{ label: 'New terminal here', icon: <FileMenuIcon name="terminal" />, onPick: () => termTabAt(browseMenu.entry.path) }]
+              : [
+                  {
+                    label: 'Show in preview',
+                    icon: <FileMenuIcon name="split" />,
+                    onPick: () => {
+                      pinSplit(browseMenu.entry.path)
+                    }
+                  }
+                ]),
+            { label: 'Open in new tab', icon: <FileMenuIcon name="new-tab" />, onPick: () => openInNewTab(browseMenu.entry.path, browseMenu.entry.isFolder) },
+            { label: 'Open as project', icon: <FileMenuIcon name="project" />, onPick: () => openAsProject(browseMenu.entry) },
+            {
+              label: 'Cut',
+              icon: <FileMenuIcon name="cut" />,
+              hint: 'Ctrl+X',
+              onPick: () => void copyFilePaths([browseMenu.entry.path], true)
+            },
+            {
+              label: 'Copy',
+              icon: <FileMenuIcon name="copy" />,
+              hint: 'Ctrl+C',
+              onPick: () => void copyFilePaths([browseMenu.entry.path])
+            },
+            {
+              label: 'Paste',
+              icon: <FileMenuIcon name="paste" />,
+              hint: 'Ctrl+V',
+              disabled: !browseMenu.canPaste,
+              onPick: () => {
+                const directory = browseMenu.entry.isFolder
+                  ? browseMenu.entry.path : browseParent(browseMenu.entry.path)
+                if (directory) void pasteFiles(directory)
+              }
+            },
+            {
+              label: quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path))
+                ? 'Unpin from Quick access'
+                : 'Pin to Quick access',
+              icon: <FileMenuIcon name={quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)) ? 'unpin' : 'pin'} />,
+              onPick: () => {
+                if (quickAccess.some((pin) => sameQuickAccessPath(pin.path, browseMenu.entry.path)))
+                  unpinQuickAccess(browseMenu.entry.path)
+                else
+                  pinQuickAccess([
+                    {
+                      path: browseMenu.entry.path,
+                      label: browseMenu.entry.name,
+                      isFolder: browseMenu.entry.isFolder
+                    }
+                  ])
+              }
+            },
+            ...(!browseMenu.entry.isFolder
+              ? [
+                  fileAppMenu(browseMenu.entry.path, browseMenu.apps ?? null),
+                  {
+                    label: 'Duplicate',
+                    icon: <FileMenuIcon name="duplicate" />,
+                    onPick: () => {
+                      void window.prism.duplicateFile(browseMenu.entry.path).then((copy) => {
+                        if (copy) {
+                          noteUndo({ kind: 'duplicate', source: browseMenu.entry.path, path: copy })
+                          setRefreshKey((key) => key + 1)
+                        }
+                      })
+                    }
+                  }
+                ]
+              : []),
+            { label: 'Rename', icon: <FileMenuIcon name="rename" />, hint: 'F2', onPick: () => setBrowseRename(browseMenu.entry) },
+            {
+              label: 'Delete',
+              icon: <FileMenuIcon name="delete" />,
+              hint: 'Del',
+              danger: true,
+              onPick: () =>
+                setAsk({
+                  kind: 'delete',
+                  path: browseMenu.entry.path,
+                  name: browseMenu.entry.name,
+                  isFolder: browseMenu.entry.isFolder
+                })
+            },
+            ...fileVerbs(browseMenu.entry.path).map((item) => ({
+              ...item,
+              icon: <FileMenuIcon name={item.label === 'Copy path' ? 'path' : 'folder'} />
+            })),
+            { label: 'Properties', icon: <FileMenuIcon name="properties" />, onPick: () => setBrowseProps(browseMenu.entry) }
+          ].filter(
+            (item) =>
+              browseMenu.source !== 'more' ||
+              !['Open', 'Copy', 'Rename', 'Delete'].includes(item.label ?? '')
+          )}
+        />
+      )}
+      {browseProps && active && (
+        <PropertiesDialog
+          root={active.browse.path}
+          path={browseProps.path}
+          name={browseProps.name}
+          kind={browseProps.file?.kind ?? 'other'}
+          isFolder={browseProps.isFolder}
+          onClose={() => setBrowseProps(null)}
+        />
+      )}
+      {browseRename && (
+        <BrowseRename
+          name={browseRename.name}
+          onCancel={() => setBrowseRename(null)}
+          onSave={(name) => {
+            void runRename(browseRename.path, name, 'ask')
+            setBrowseRename(null)
+          }}
+        />
+      )}
       {ask?.kind === 'close-tab' && (
         <Dialog
           title={
@@ -3933,9 +4701,8 @@ export default function App(): JSX.Element {
               onPick: () => {
                 const tab = tabs.find((t) => t.id === ask.id)
                 if (tab) {
-                  const r = tab.root.toLowerCase()
                   for (const key of [...buffers.current.keys()]) {
-                    if (key.startsWith(r)) buffers.current.delete(key)
+                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
                   }
                   syncDirty()
                 }
@@ -3991,9 +4758,8 @@ export default function App(): JSX.Element {
               onPick: () => {
                 const tab = tabs.find((t) => t.id === ask.id)
                 if (tab) {
-                  const r = tab.root.toLowerCase()
                   for (const key of [...buffers.current.keys()]) {
-                    if (key.startsWith(r)) buffers.current.delete(key)
+                    if (bufferBelongsTo(tab, key)) buffers.current.delete(key)
                   }
                   syncDirty()
                 }

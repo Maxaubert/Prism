@@ -11,8 +11,9 @@ import {
 import { IconFull } from './icons'
 import { loadImage, type LoadedImage } from '../lib/imageLoader'
 import { clampPan, panBounds } from '../lib/imagePan'
-import { chromeClass, useAutoHideChrome } from '../lib/autoHideChrome'
+import { chromeClass, useAutoHideChrome, type ChromeActivityClock } from '../lib/autoHideChrome'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { FileMenuIcon } from './FileMenuIcon'
 import { fileVerbs, tickIf } from '../lib/fileVerbs'
 import { encodeCopy, pngFromBlob } from '../lib/copyImage'
 import {
@@ -52,6 +53,7 @@ export function ImageView({
   onStep,
   canStep,
   status,
+  chromeActivity,
   fullscreen = false
 }: {
   url: string
@@ -70,16 +72,19 @@ export function ImageView({
    *  (owner, 2026-09-02) - a second pill stacked above this one was twice the
    *  chrome for one line of text. */
   status?: ReactNode
+  chromeActivity?: ChromeActivityClock
   /** Fullscreen paints the stage black and shows no checkerboard: the same
    *  rule the film follows, for the same reason. */
   fullscreen?: boolean
 }): JSX.Element {
+  const stageRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   // Pinned while the pointer is on the bar, or while the right-click menu is
   // open - an invisible menu would keep eating clicks and the first Escape.
   const { shown: chromeShown, leaving: chromeLeaving } = useAutoHideChrome(
+    stageRef,
     useCallback(
-      () => !!menu || !!document.querySelector('[data-viewer-chrome]:hover'),
+      () => !!menu || !!stageRef.current?.querySelector('[data-viewer-chrome]:hover'),
       [menu]
     ),
     undefined,
@@ -87,7 +92,8 @@ export function ImageView({
     // and doing the thing you came to do should not summon the controls. Every
     // other key still does, because +, -, 0, 1 and R all change what the bar is
     // showing.
-    useCallback((e: KeyboardEvent) => !e.key.startsWith('Arrow'), [])
+    useCallback((e: KeyboardEvent) => !e.key.startsWith('Arrow'), []),
+    chromeActivity
   )
   /**
    * What the ELEMENT says it is, when the header parser could not say.
@@ -103,7 +109,6 @@ export function ImageView({
   const [copyNote, setCopyNote] = useState<string | null>(null)
   const [slideshow, setSlideshow] = useState(false)
   const [slideSecs, setSlideSecs] = useState<SlideSeconds>(() => loadSlideSeconds())
-  const stageRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(1)
   const [tx, setTx] = useState(0)
   const [ty, setTy] = useState(0)
@@ -421,6 +426,7 @@ export function ImageView({
       // as the picture, so 'r' rotated it mid-word and '0' reset the zoom
       // under someone searching for "r0ma" (2026-08-28).
       const el = e.target as HTMLElement | null
+      if (e.defaultPrevented) return
       if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
       switch (e.key) {
         case '+':
@@ -433,11 +439,16 @@ export function ImageView({
         case 'R': setRot((d) => (d + 90) % 360); break
         case 'f':
         case 'F': onToggleFullscreen(); break
-        // The menu advertises this in its shortcut column, so it has to exist.
-        // A text selection keeps its own copy: only an untouched page gets it.
+        // Project viewers retain pixel copy. Focused file rows and Explorer's
+        // own file-copy shortcut keep their clipboard operation.
         case 'c':
         case 'C':
-          if (e.ctrlKey && !window.getSelection()?.toString()) {
+          if (
+            e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
+            (el === document.body || (el !== null && stageRef.current?.contains(el))) &&
+            !el?.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor') &&
+            !window.getSelection()?.toString()
+          ) {
             e.preventDefault()
             void copyImage()
           }
@@ -464,25 +475,26 @@ export function ImageView({
    *
    * What is left is what you cannot do another way with a pointer: turn the
    * picture, take the PIXELS (which for a HEIC or a RAW is the one thing
-   * Windows itself cannot do), and get to the file. No icons: this is a short
-   * list of verbs, not a toolbar.
+   * Windows itself cannot do), and get to the file. Shared action icons keep
+   * the menu consistent with the Explorer and project menus.
    */
   const menuItems = (): MenuItem[] => [
-    { label: 'Rotate', onPick: () => setRot((d) => (d + 90) % 360) },
+    { label: 'Rotate', icon: <FileMenuIcon name="rotate" />, onPick: () => setRot((d) => (d + 90) % 360) },
     // The pixels go to the OS clipboard and the copy through main's save
     // dialog: neither exists on the phone (#106), so the rows are left out
     // rather than offered and refused.
     ...(window.prism.capabilities.clipboard
-      ? [{ label: 'Copy image', hint: 'Ctrl+C', disabled: !img, onPick: () => void copyImage() }]
+      ? [{ label: 'Copy image', icon: <FileMenuIcon name="copy" />, disabled: !img, onPick: () => void copyImage() }]
       : []),
     ...(window.prism.capabilities.write
       ? [
           {
             label: 'Save a copy',
+            icon: <FileMenuIcon name="save" />,
             disabled: !img,
             children: [
-              { label: 'PNG', onPick: () => void saveCopy('png') },
-              { label: 'JPEG', onPick: () => void saveCopy('jpeg') }
+              { label: 'PNG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('png') },
+              { label: 'JPEG', icon: <FileMenuIcon name="image" />, onPick: () => void saveCopy('jpeg') }
             ]
           }
         ]
@@ -491,6 +503,7 @@ export function ImageView({
       ? [
           {
             label: slideshow ? 'Stop slideshow' : 'Slideshow',
+            icon: <FileMenuIcon name={slideshow ? 'stop' : 'slideshow'} />,
             // The interval hangs off the same row, so starting one and saying
             // how fast it goes are one gesture rather than two.
             onPick: () => setSlideshow((on) => !on),
@@ -506,7 +519,7 @@ export function ImageView({
           } as MenuItem
         ]
       : []),
-    ...(path ? fileVerbs(path) : [])
+    ...(path ? fileVerbs(path, { icons: true }) : [])
   ]
 
   return (
