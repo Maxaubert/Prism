@@ -54,6 +54,7 @@ export interface FolderBrowserProps {
   sort: BrowseSort
   canBack: boolean
   canForward: boolean
+  previewEnabled: boolean
   previewVisible: boolean
   preview?: ReactNode
   terminalControls?: ReactNode

@@ -2625,7 +2625,7 @@ export default function App(): JSX.Element {
     file?.path === browsing.previewFile.path
   const explorerWidths = useExplorerWidths(
     placesVisible,
-    browsing.folder && !!active?.browse.preview
+    showBrowsePreview
   )
   const quickAccessDefaults = useMemo(
     () =>
@@ -3965,11 +3965,12 @@ export default function App(): JSX.Element {
                 onContextMenu={(event, entry, source) =>
                   setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
-                previewVisible={active.browse.preview}
+                previewEnabled={active.browse.preview}
+                previewVisible={showBrowsePreview}
                 onPreviewToggle={browsing.togglePreview}
                 terminalControls={terminalBrowseControls}
               />
-              {active.browse.preview && browsing.previewFile && (
+              {showBrowsePreview && browsing.previewFile && (
                 <div className="browse-preview-actions">
                   <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
                     Open full view
@@ -3978,7 +3979,7 @@ export default function App(): JSX.Element {
               )}
             </div>
           )}
-          {browsing.folder && active?.browse.preview && !fullscreen && (
+          {showBrowsePreview && !fullscreen && (
             <ExplorerResize
               section="preview"
               bounds={explorerWidths.bounds.preview}

@@ -239,7 +239,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           className="browse-icon-button"
           aria-label="Preview pane"
           title="Preview pane"
-          aria-pressed={props.previewVisible}
+          aria-pressed={props.previewEnabled}
           onClick={props.onPreviewToggle}
         >
           <BrowseIcon name="preview" />
