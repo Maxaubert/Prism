@@ -8,9 +8,39 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: fsmedia: https:; media-src 'self' blob: fsmedia: fsaudio: https:; connect-src 'self' fsmedia: fsaudio:; object-src 'self' blob: fsmedia:; frame-src 'self' blob: fsmedia:; font-src 'self' data: blob: fsmedia:"
     />
     <title>Prism</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      #prism-boot {
+        height: 100%; display: flex; flex-direction: column;
+        background: #101215; color: #e3e6ea; font: 16px 'Segoe UI', system-ui, sans-serif;
+      }
+      [data-boot-mode='light'] #prism-boot { background: #f5f6f7; color: #202328; }
+      #prism-boot header { display: flex; align-items: center; height: 40px; -webkit-app-region: drag; }
+      #prism-boot strong { margin: 0 auto 0 20px; font-size: 14px; font-weight: 600; }
+      #prism-boot button {
+        width: 46px; height: 40px; padding: 0; border: 0; background: transparent;
+        color: inherit; -webkit-app-region: no-drag; cursor: default;
+      }
+      #prism-boot button:hover { background: #80808024; }
+      #prism-boot button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+      #prism-boot #boot-close:hover { background: #c42b1c; color: white; }
+      #prism-boot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1; }
+      #prism-boot main { display: grid; place-items: center; flex: 1; padding: 24px; }
+      #boot-status { margin: 0; max-width: 32em; text-align: center; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="prism-boot" data-testid="window-loading">
+        <header>
+          <strong>Prism</strong>
+          <button id="boot-minimize" aria-label="Minimize"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" /></svg></button>
+          <button id="boot-maximize" aria-label="Maximize"><svg viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9" /></svg></button>
+          <button id="boot-close" aria-label="Close"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m1 1 10 10M1 11 11 1" /></svg></button>
+        </header>
+        <main><p id="boot-status" role="status">Opening Prism…</p></main>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

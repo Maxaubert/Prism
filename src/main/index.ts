@@ -644,6 +644,7 @@ const preferencesReady = new Promise<void>((resolve) => {
 })
 const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
+let startupRestored = false
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
@@ -1137,6 +1138,7 @@ function applyDwmBorder(): void {
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
+    title: 'Prism',
     width: remembered.width,
     height: remembered.height,
     x: remembered.x,
@@ -1144,7 +1146,7 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 400,
     show: false,
-    ...(E2E ? { focusable: false, skipTaskbar: true } : {}),
+    ...(E2E ? { x: -4000, y: -4000, focusable: false, skipTaskbar: true } : {}),
     // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
     // frameless window, which is why a translucent style came out as a hole in
     // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
@@ -1177,7 +1179,10 @@ function createWindow(): void {
       ]
     }
   })
-  mainWindow.on('ready-to-show', () => {
+  let shown = false
+  const showWindow = (): void => {
+    if (shown) return
+    shown = true
     // Maximised is restored after the window exists rather than at construction:
     // a window created maximised has no sensible un-maximised size to go back to.
     if (remembered.maximised) mainWindow?.maximize()
@@ -1187,7 +1192,9 @@ function createWindow(): void {
     // is a pipe write and not a two-second wait.
     warmDwmHelper()
     applyDwmBorder()
-  })
+  }
+  mainWindow.once('ready-to-show', showWindow)
+  mainWindow.webContents.once('dom-ready', showWindow)
   // The border follows maximize state; fullscreen changes call applyDwmBorder
   // themselves on the way out, and applyMaterial's debounce covers the rest.
   mainWindow.on('maximize', applyDwmBorder)
@@ -1256,7 +1263,15 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
-  mainWindow.webContents.on('did-start-loading', () => winERequests.reload())
+  let restoreStarted = false
+  mainWindow.webContents.on('did-start-loading', () => {
+    restoreStarted = false
+    startupRestored = false
+    winERequests.reload()
+  })
+  // A shortcut press needs an immediate window even on a cold renderer load.
+  // Its solid background is followed by the lightweight opening screen.
+  if (winERequest(process.argv)) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) void mainWindow.loadURL(devUrl)
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1265,7 +1280,11 @@ function createWindow(): void {
   // with. Order matters: the launch file goes through the same arriving-file
   // rule as everything else, so double-clicking a photo in a folder that was
   // already open lands in that tab rather than opening a second copy of it.
-  mainWindow.webContents.on('did-finish-load', () => {
+  // The lightweight loading shell can finish its document before App loads.
+  // Start restore only once the renderer is actually listening for its files.
+  const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
+    if (event.sender !== mainWindow?.webContents || restoreStarted) return
+    restoreStarted = true
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
     // became async when listDir did, and firing them off together would let
     // the launch file race the restored tabs: the arriving-file rule folds a
@@ -1291,11 +1310,15 @@ function createWindow(): void {
       // In argv order, each through the ordinary arriving-file route, so
       // several files from one folder still fold into ONE tab and the last
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
-      for (const t of pendingOpen) await sendOpen(t)
-      pendingOpen = []
+      // New OS opens can arrive while a slow restore is still draining. Shift
+      // the shared queue so those requests are preserved in arrival order too.
+      while (pendingOpen.length) await sendOpen(pendingOpen.shift()!)
+      startupRestored = true
       winERequests.restored()
     })()
-  })
+  }
+  ipcMain.on('open:listen', restoreWhenListening)
+  mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -1325,6 +1348,7 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     const paths = pathsFromArgv(argv)
+    if (!startupRestored) pendingOpen.push(...paths)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
       // been sitting in the background for an hour, and the file it is handed
@@ -1335,9 +1359,10 @@ if (!app.requestSingleInstanceLock()) {
       // instant the handoff arrives. The opens are sequential for the same
       // reason as the launch drain above: order is what folds them into one
       // tab and leaves the last-named file in front.
-      void (async () => {
-        for (const p of paths) await sendOpen(p)
-      })()
+      if (startupRestored)
+        void (async () => {
+          for (const p of paths) await sendOpen(p)
+        })()
     }
   })
 

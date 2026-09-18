@@ -461,6 +461,7 @@ const api = {
   onOpenFile: (cb: (p: OpenPayload) => void): (() => void) => {
     const listener = (_: unknown, p: OpenPayload): void => cb(p)
     ipcRenderer.on('open:file', listener)
+    ipcRenderer.send('open:listen')
     return () => ipcRenderer.removeListener('open:file', listener)
   },
   /**

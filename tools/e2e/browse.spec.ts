@@ -3626,6 +3626,21 @@ test('held drags preserve the marked row and preview, and selected files and fol
 
     await pickUp(page, row(page, 'drag-other.txt'))
     await expect(page.locator('[data-file-drag-badge]')).toContainText('drag-other.txt')
+    await page.mouse.move(900, 400, { steps: 8 })
+    const badge = page.locator('[data-file-drag-badge]')
+    await expect.poll(async () => {
+      const box = await badge.boundingBox()
+      return !!box && box.x + box.width <= 900 && box.x + box.width >= 888 &&
+        box.y >= 404 && box.y <= 420
+    }).toBe(true)
+    await shot(page, info, 'drag-label-below-left.png', app)
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    await page.mouse.move(6, viewport.height - 6, { steps: 8 })
+    await expect.poll(async () => {
+      const box = await badge.boundingBox()
+      return !!box && box.x >= 0 && box.y >= 0 &&
+        box.x + box.width <= viewport.width && box.y + box.height <= viewport.height
+    }).toBe(true)
     await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
     await expect(row(page, 'readme.txt')).toHaveCSS('background-color', selectedBlue)
     await expect(row(page, 'drag-other.txt')).toHaveAttribute('aria-selected', 'false')
@@ -4331,5 +4346,79 @@ test('Win+E warm CLI requests open independent Explorer processes with shared pr
     if (primaryLive) await stop(h.app)
     await Promise.all(pipes.map((pipe) => pipe.close()))
     expect(cleanup.filter((result) => result.status === 'rejected'), 'Only owned child processes and profiles must be cleaned up').toEqual([])
+  }
+})
+
+test('Win+E paints a usable loading window before App loads and acknowledges only the rendered Explorer', async ({}, info) => {
+  test.skip(process.platform !== 'win32', 'The shortcut acknowledgement uses a Windows named pipe.')
+  const { createServer: createHttpServer } = await import('node:http')
+  const profile = join(tmpdir(), `prism-startup-e2e-${randomUUID()}`)
+  mkdirSync(profile, { recursive: true })
+  const incomingFile = join(profile, 'queued-open.txt')
+  writeFileSync(incomingFile, 'Opened while the loading window was visible.\n')
+  const id = randomUUID()
+  let releaseApp!: () => void
+  const heldApp = new Promise<void>((resolve) => { releaseApp = resolve })
+  let appRequested = false
+  const server = createHttpServer((request, response) => {
+    void (async () => {
+      const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
+      const path = join(ROOT, 'out/renderer', pathname === '/' ? 'index.html' : pathname)
+      if (/\/renderApp-[^/]+\.js$/.test(pathname)) {
+        appRequested = true
+        await heldApp
+      }
+      try {
+        response.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html')
+        response.setHeader('Cache-Control', 'no-store')
+        response.end(readFileSync(path))
+      } catch {
+        response.writeHead(404).end()
+      }
+    })()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as { port: number }
+  let app: ElectronApplication | undefined
+  let page: Page | undefined
+  const pipe = await winEAckPipe(id, async () => winEVisibleState(page!))
+  try {
+    const executablePath = process.env.PRISM_BROWSE_EXECUTABLE
+    app = await electron.launch({
+      ...(executablePath ? { executablePath } : {}),
+      args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', `--win-e=${id}`],
+      env: { ...process.env, ELECTRON_RENDERER_URL: `http://127.0.0.1:${address.port}/` }
+    })
+    page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await park(app)
+    await expect.poll(() => appRequested).toBe(true)
+    await expect(page.getByTestId('window-loading')).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Opening Prism…')
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true)
+    expect(pipe.messages).toEqual([])
+    await shot(page, info, 'window-loading.png', app)
+    await app.evaluate(({ app }, file) => {
+      app.emit('second-instance', {}, [process.execPath, file], process.cwd())
+    }, incomingFile)
+    await page.getByRole('button', { name: 'Maximize', exact: true }).click()
+    await expect.poll(() => app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(true)
+    await page.getByRole('button', { name: 'Maximize', exact: true }).click()
+    await expect.poll(() => app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(false)
+    await page.evaluate(() => localStorage.setItem('prism.onboarded', '1'))
+    releaseApp()
+    await expect(page.getByTestId('window-loading')).toHaveCount(0)
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect.poll(() => pipe.messages).toEqual([id])
+    expect(await pipe.observations[0]).toMatchObject({ role: 'explorer', pinned: true, folderVisible: true })
+    await expect.poll(() => savedTabs(join(profile, 'tabs.json'))?.tabs.some((tab) => tab.file === incomingFile)).toBe(true)
+    await ordinaryTabs(page).last().click()
+    await expect(page.getByRole('textbox').filter({ hasText: 'Opened while the loading window was visible.' })).toBeVisible()
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+  } finally {
+    releaseApp()
+    if (app) await stop(app)
+    await pipe.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 })

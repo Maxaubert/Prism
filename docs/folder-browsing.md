@@ -38,8 +38,8 @@ strip and keeps desktop browsing separate from phone sharing.
   menu. Pin choices and order persist, including a deliberately empty list. File pins open the
   existing viewer; folder pins navigate. Pinning does not add phone shares.
 - Drag files or folders from Explorer or the project tree onto a folder, breadcrumb or drive.
-  Starting a drag preserves the current selection and preview. Its label stays close to the cursor,
-  attached at its lower-left edge and kept inside the window. A selected source stays blue
+  Starting a drag preserves the current selection and preview. Its label hangs just below and
+  to the left of the hand cursor and stays inside the window. A selected source stays blue
   when dragged over itself; that row is not a destination.
   Dropping in an Explorer list's empty area moves them into its displayed folder; a file row
   targets that file's containing folder. Hold the mouse button and use Ctrl+Tab or Ctrl+Shift+Tab
