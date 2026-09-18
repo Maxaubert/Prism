@@ -4,7 +4,8 @@ import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { createIndexerRuntime, initializeIndexerRuntime } from './indexerRuntime'
 import { getIndexedFolderSizes, searchEverythingBrowse } from './everythingBrowse'
-import { execFileSync } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
+import { promisify } from 'util'
 
 async function smoke(service: boolean): Promise<void> {
   if (service && process.env.PRISM_INDEXER_TEST_REQUIRE_NONADMIN === '1') {
@@ -40,6 +41,25 @@ async function smoke(service: boolean): Promise<void> {
     const endpoint = await runtime.ensureReady(root)
     expect(endpoint?.exe).toBe(join(options.binaryDirectory, 'es.exe'))
     expect(endpoint?.instance).toMatch(/^Prism-/)
+    if (service) {
+      // A clean runner must build its first volume index. Wait for database
+      // readiness explicitly before testing normal short query deadlines.
+      await promisify(execFile)(
+        runtime.endpoint.exe,
+        [
+          '-instance',
+          runtime.endpoint.instance,
+          '-timeout',
+          '120000',
+          '-json',
+          '-n',
+          '1',
+          '-search*',
+          '*'
+        ],
+        { windowsHide: true, windowsVerbatimArguments: true, timeout: 125000 }
+      )
+    }
     await expect
       .poll(
         async () =>
@@ -98,17 +118,18 @@ async function smoke(service: boolean): Promise<void> {
       ['-json', '-n', '3', '-path', `"${root}"`, '-search*', '*']
     ]) {
       try {
-        console.error(
-          'Indexer diagnostic',
-          args,
-          execFileSync(runtime.endpoint.exe, ['-instance', runtime.endpoint.instance, ...args], {
+        const diagnostic = await promisify(execFile)(
+          runtime.endpoint.exe,
+          ['-instance', runtime.endpoint.instance, ...args],
+          {
             windowsHide: true,
             windowsVerbatimArguments: true,
             encoding: 'utf8',
             timeout: 3000,
             maxBuffer: 65536
-          })
+          }
         )
+        console.error('Indexer diagnostic', args, diagnostic.stdout)
       } catch (failure) {
         const failed = failure as { status?: number; stdout?: string; stderr?: string }
         console.error(
@@ -138,5 +159,5 @@ it.skipIf(
 )(
   'bundled engine uses the protected private service for NTFS search and folder totals',
   () => smoke(true),
-  180000
+  240000
 )
