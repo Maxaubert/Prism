@@ -85,6 +85,42 @@ async function smoke(service: boolean): Promise<void> {
     expect(
       (await readFile(join(options.storageDirectory, 'Everything.db'))).length
     ).toBeGreaterThan(0)
+  } catch (error) {
+    console.error('Private indexer status:', runtime.status())
+    console.error(
+      await readFile(join(options.storageDirectory, 'Everything.ini'), 'utf8').catch(
+        () => 'No indexer config'
+      )
+    )
+    for (const args of [
+      ['-get-everything-version'],
+      ['-json', '-n', '3', '-search*', '*'],
+      ['-json', '-n', '3', '-path', `"${root}"`, '-search*', '*']
+    ]) {
+      try {
+        console.error(
+          'Indexer diagnostic',
+          args,
+          execFileSync(runtime.endpoint.exe, ['-instance', runtime.endpoint.instance, ...args], {
+            windowsHide: true,
+            windowsVerbatimArguments: true,
+            encoding: 'utf8',
+            timeout: 3000,
+            maxBuffer: 65536
+          })
+        )
+      } catch (failure) {
+        const failed = failure as { status?: number; stdout?: string; stderr?: string }
+        console.error(
+          'Indexer diagnostic failed',
+          args,
+          failed.status,
+          String(failed.stdout ?? '').slice(0, 1000),
+          String(failed.stderr ?? '').slice(0, 1000)
+        )
+      }
+    }
+    throw error
   } finally {
     await second?.dispose()
     await runtime.dispose()
