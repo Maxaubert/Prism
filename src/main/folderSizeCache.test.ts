@@ -1,9 +1,14 @@
 import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'fs/promises'
+import * as fs from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FolderSizeResult } from '@shared/folderSize'
 import { FolderSizeCache } from './folderSizeCache'
+
+vi.mock('fs/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('fs/promises')>())
+}))
 
 let box: string
 let root: string
@@ -26,10 +31,27 @@ beforeEach(async () => {
   await writeFile(join(root, 'data'), Buffer.alloc(13))
 })
 afterEach(async () => {
+  vi.restoreAllMocks()
   await rm(box, { recursive: true, force: true })
 })
 
 describe('persistent folder size cache', () => {
+  it('accepts canonical spelling changes and shares invalidation across path aliases', async () => {
+    const realpath = fs.realpath
+    const realRoot = await realpath(root)
+    const canonical = join(await realpath(box), 'Canonical Folder Name')
+    vi.spyOn(fs, 'realpath').mockImplementation(async (...args) => {
+      const resolved = await realpath(...args)
+      return String(resolved).replace(realRoot, canonical)
+    })
+    const scan = vi.fn().mockResolvedValue(result(13))
+    const cache = new FolderSizeCache({ directory, scan })
+    expect(await cache.get(root, controller().signal)).toMatchObject({ bytes: 13, stale: false })
+    await cache.invalidate([join(canonical, 'deleted-file')])
+    expect((await cache.readCached([root]))[root]).toMatchObject({ bytes: 13, stale: true })
+    expect(scan).toHaveBeenCalledOnce()
+  })
+
   it('reuses a saved total in another process instance without scanning', async () => {
     const first = new FolderSizeCache({ directory })
     expect(await first.get(root, controller().signal)).toMatchObject({
@@ -72,7 +94,7 @@ describe('persistent folder size cache', () => {
     await first.get(root, controller().signal)
     await first.get(other, controller().signal)
     const second = new FolderSizeCache({ directory })
-    await second.invalidate([join(root, 'data')])
+    await second.invalidate([join(await fs.realpath(root), 'data')])
     const cached = await first.readCached([root, other])
     expect(cached[root].stale).toBe(true)
     expect(cached[other].stale).toBe(false)

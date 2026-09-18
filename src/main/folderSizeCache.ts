@@ -43,6 +43,21 @@ function key(path: string): string {
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 
+async function canonicalKey(path: string): Promise<string> {
+  let ancestor = resolve(path)
+  const missing: string[] = []
+  for (;;) {
+    try {
+      return key(join(await realpath(ancestor), ...missing))
+    } catch {
+      const parent = dirname(ancestor)
+      if (parent === ancestor) return key(path)
+      missing.unshift(ancestor.slice(parent.length).replace(/^[/\\]+/, ''))
+      ancestor = parent
+    }
+  }
+}
+
 function intersects(target: string, changed: string): boolean {
   return (
     target === changed ||
@@ -145,7 +160,7 @@ export class FolderSizeCache {
 
   private async generation(path: string): Promise<string> {
     const snapshot = await this.invalidations()
-    const target = key(path)
+    const target = await canonicalKey(path)
     const markers = snapshot.markers
       .filter(({ path: changed }) => intersects(target, changed))
       .map(({ id }) => id)
@@ -154,7 +169,7 @@ export class FolderSizeCache {
   }
 
   private async indexIsSettling(path: string): Promise<boolean> {
-    const target = key(path)
+    const target = await canonicalKey(path)
     const snapshot = await this.invalidations()
     if (snapshot.globalAt !== undefined && this.now() - snapshot.globalAt < 5000) return true
     // Index notifications can lag a successful rename/write. Verify recent
@@ -205,7 +220,18 @@ export class FolderSizeCache {
     if (!isAbsolute(path)) return false
     try {
       const info = await lstat(path)
-      return info.isDirectory() && !info.isSymbolicLink() && key(await realpath(path)) === key(path)
+      if (!info.isDirectory() || info.isSymbolicLink()) return false
+      if (key(await realpath(path)) === key(path)) return true
+      // Windows realpath expands ordinary 8.3 names (RUNNER~1) too. A changed
+      // spelling is safe when no ancestor is a junction or symbolic link.
+      let ancestor = dirname(resolve(path))
+      for (;;) {
+        const parentInfo = await lstat(ancestor)
+        if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink()) return false
+        const parent = dirname(ancestor)
+        if (parent === ancestor) return true
+        ancestor = parent
+      }
     } catch {
       return false
     }
@@ -270,8 +296,9 @@ export class FolderSizeCache {
   async invalidate(paths: readonly string[]): Promise<void> {
     if (!paths.length) return
     const directory = join(this.options.directory, 'invalidations')
+    const normalized = await Promise.all(paths.filter(isAbsolute).map(canonicalKey))
     await Promise.all(
-      [...new Set(paths.filter(isAbsolute).map(key))].map((path) =>
+      [...new Set(normalized)].map((path) =>
         this.atomicWrite(
           join(directory, createHash('sha256').update(path).digest('hex') + '.json'),
           JSON.stringify({ path, id: randomUUID(), at: this.now() })
