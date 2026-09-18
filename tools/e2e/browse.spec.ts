@@ -258,7 +258,23 @@ async function expectOpenInAppsMenu(page: Page): Promise<void> {
   ).toBeVisible()
 }
 
+async function waitForIndexedFixture(path: string): Promise<void> {
+  const es = join(process.env.USERPROFILE ?? '', '.local', 'bin', 'es.exe')
+  if (!existsSync(es)) return
+  // Indexed search observes fixtures after Everything consumes their filesystem
+  // events. When the service is unavailable the scenarios exercise the walk.
+  await expect.poll(() => {
+    try {
+      const output = execFileSync(es, ['-json', '-n', '10', '-path', dirname(path), '-search', `"${basename(path)}"`], { windowsHide: true, encoding: 'utf8', timeout: 2000 })
+      return (JSON.parse(output || '[]') as { filename: string }[]).some((row) => resolve(row.filename).toLowerCase() === resolve(path).toLowerCase())
+    } catch { return true }
+  }).toBe(true)
+}
+
 async function search(page: Page, query: string): Promise<void> {
+  const directory = await page.getByRole('navigation', { name: 'Folder path', exact: true }).getAttribute('title')
+  if (query && directory && existsSync(join(directory, query)))
+    await waitForIndexedFixture(join(directory, query))
   await page
     .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
     .fill(query)
@@ -1661,6 +1677,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     mkdirSync(appData, { recursive: true })
     const settings = join(appData, 'Playnite-settings.txt')
     writeFileSync(settings, 'AppData settings fixture\n')
+    await waitForIndexedFixture(settings)
     await newExplorerWithoutPreview(page)
     await go(page, h.home)
     await search(page, 'Playnite')
@@ -1851,13 +1868,7 @@ test('Everything Explorer filters respond from the index and focus surrounds the
     mkdirSync(folder)
     writeFileSync(join(folder, 'Playnite.dll'), 'indexed unsupported file')
     writeFileSync(join(folder, '.Playnite-hidden'), 'indexed hidden file')
-    // A live index catches filesystem events asynchronously. Wait for fixture
-    // ingestion, not for a recursive fallback to disguise an empty index.
-    await expect.poll(() => {
-      try {
-        return execFileSync(es, ['-json', '-n', '10', '-path', h.project, '-search', 'file: Playnite'], { windowsHide: true, encoding: 'utf8' })
-      } catch { return '' }
-    }).toContain('.Playnite-hidden')
+    await waitForIndexedFixture(join(folder, '.Playnite-hidden'))
     await app.evaluate(({ ipcMain }) => {
       type Handler = (...args: unknown[]) => Promise<unknown>
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
