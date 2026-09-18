@@ -36,10 +36,15 @@ describe('Everything Explorer adapter', () => {
       expect.arrayContaining([
         '-path',
         'C:\\Root',
-        '-search',
+        '-search*',
         '<folder: "a b" | file: ext:dll !installer>'
       ]),
-      expect.objectContaining({ signal, windowsHide: true, timeout: 2000 }),
+      expect.objectContaining({
+        signal,
+        windowsHide: true,
+        windowsVerbatimArguments: true,
+        timeout: 2000
+      }),
       expect.any(Function)
     )
     answer('[]')
@@ -58,6 +63,26 @@ describe('Everything Explorer adapter', () => {
       await searchEverythingBrowse('C:\\Root', 'missing', 1, new AbortController().signal)
     ).toBeNull()
     expect(execFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('quotes a spaced scope independently of the literal query tail', async () => {
+    answer(
+      JSON.stringify([{ filename: 'C:\\Root & $literal\\Saved Games\\notes.txt', attributes: 32 }])
+    )
+    await searchEverythingBrowse(
+      'C:\\Root & $literal\\Saved Games',
+      '"-n 1" | "saved games"',
+      10,
+      new AbortController().signal
+    )
+    expect(vi.mocked(execFile).mock.calls[0][1]).toEqual(
+      expect.arrayContaining([
+        '-path',
+        '"C:\\Root & $literal\\Saved Games"',
+        '-search*',
+        '<"-n 1" | "saved games">'
+      ])
+    )
   })
 
   it('falls back for unindexed drives and caches covered roots for empty queries', async () => {

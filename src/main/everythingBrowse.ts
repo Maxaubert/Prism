@@ -17,10 +17,23 @@ export interface IndexedEntry {
 
 function run(exe: string, args: string[], signal: AbortSignal): Promise<IndexedEntry[]> {
   return new Promise((resolve, reject) => {
+    // ES uses a legacy command-line parser. -search* consumes the remaining
+    // command line literally, so Node must not backslash-escape query quotes.
+    // Fixed options precede it; the query cannot become another CLI switch.
+    // This is CreateProcess through execFile, never a shell command.
+    const commandArgs = args.map((arg, index) =>
+      index < args.length - 1 && /\s/.test(arg) ? `"${arg}"` : arg
+    )
     execFile(
       exe,
-      args,
-      { windowsHide: true, signal, timeout: 2000, maxBuffer: 4 * 1024 * 1024 },
+      commandArgs,
+      {
+        windowsHide: true,
+        windowsVerbatimArguments: true,
+        signal,
+        timeout: 2000,
+        maxBuffer: 4 * 1024 * 1024
+      },
       (error, output) => {
         if (error) return reject(error)
         try {
@@ -49,8 +62,6 @@ export async function searchEverythingBrowse(
 ): Promise<IndexedEntry[] | null> {
   const exe = await findEverything()
   if (!exe || signal.aborted) return null
-  // -search consumes one normal argv value. Positional queries preserve the
-  // CLI's surrounding quotes and can accidentally be interpreted as switches.
   const args = [
     '-json',
     '-attributes',
@@ -62,7 +73,7 @@ export async function searchEverythingBrowse(
     'name-ascending',
     '-path',
     root,
-    '-search',
+    '-search*',
     `<${nativeBrowseQuery(query)}>`
   ]
   let instance: string[] = []
@@ -92,7 +103,7 @@ export async function searchEverythingBrowse(
         '1',
         '-path',
         root,
-        '-search',
+        '-search*',
         '*'
       ])
       if (!probe.some(underRoot)) return null

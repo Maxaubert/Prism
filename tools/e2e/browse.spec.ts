@@ -265,7 +265,7 @@ async function waitForIndexedFixture(path: string): Promise<void> {
   // events. When the service is unavailable the scenarios exercise the walk.
   await expect.poll(() => {
     try {
-      const output = execFileSync(es, ['-json', '-n', '10', '-path', dirname(path), '-search', `"${basename(path)}"`], { windowsHide: true, encoding: 'utf8', timeout: 2000 })
+      const output = execFileSync(es, ['-json', '-n', '10', '-path', `"${dirname(path)}"`, '-search*', `"${basename(path)}"`], { windowsHide: true, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 2000 })
       return (JSON.parse(output || '[]') as { filename: string }[]).some((row) => resolve(row.filename).toLowerCase() === resolve(path).toLowerCase())
     } catch { return true }
   }).toBe(true)
@@ -1866,6 +1866,7 @@ test('Everything Explorer filters respond from the index and focus surrounds the
   try {
     const folder = join(h.project, 'Playnite')
     mkdirSync(folder)
+    mkdirSync(join(folder, 'Saved Games'))
     writeFileSync(join(folder, 'Playnite.dll'), 'indexed unsupported file')
     writeFileSync(join(folder, '.Playnite-hidden'), 'indexed hidden file')
     await waitForIndexedFixture(join(folder, '.Playnite-hidden'))
@@ -1894,6 +1895,10 @@ test('Everything Explorer filters respond from the index and focus surrounds the
     await search(page, 'file: ext:dll size:>1')
     await expect(row(page, 'Playnite.dll')).toBeVisible()
     await expect(row(page, '.Playnite-hidden')).toHaveCount(0)
+    await search(page, '"Playnite.dll"')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await search(page, 'folder:"Saved Games"')
+    await expect(row(page, 'Saved Games')).toBeVisible()
     await search(page, '<folder: Playnite> | <file: ext:dll>')
     await expect(row(page, 'Playnite')).toBeVisible()
     await expect(row(page, 'Playnite.dll')).toBeVisible()
