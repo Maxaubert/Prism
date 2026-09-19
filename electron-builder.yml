@@ -30,6 +30,11 @@ asarUnpack:
 # @electron/rebuild insists on recompiling from source and dies in node-gyp.
 npmRebuild: false
 extraResources:
+  - from: vendor/everything
+    to: everything
+    filter:
+      - '**/*'
+      - '!.source'
   - from: vendor/win-e
     to: win-e
     filter:

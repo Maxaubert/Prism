@@ -3,6 +3,7 @@ import type {
   BrowseDirectory,
   BrowseSearchProgress,
   BrowseSearchResult,
+  BrowseSearchWindowRequest,
   BrowseShortcut,
   SavedBrowse,
   SavedPane
@@ -41,9 +42,10 @@ const api = {
     tabId: string,
     path: string,
     query: string,
-    requestId: string
+    requestId: string,
+    window?: BrowseSearchWindowRequest
   ): Promise<BrowseSearchResult> =>
-    ipcRenderer.invoke('browse:search', tabId, path, query, requestId),
+    ipcRenderer.invoke('browse:search', tabId, path, query, requestId, window),
   browseSearchCancel: (tabId: string, requestId: string): void =>
     ipcRenderer.send('browse:search-cancel', tabId, requestId),
   onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {
@@ -227,6 +229,20 @@ const api = {
     ipcRenderer.invoke('file:stat', path),
   folderSize: (path: string, requestId: string): Promise<FolderSizeResult | null> =>
     ipcRenderer.invoke('folder:size', path, requestId),
+  folderSizesCached: (paths: string[]): Promise<Record<string, FolderSizeResult>> =>
+    ipcRenderer.invoke('folder:sizes-cached', paths),
+  refreshFolderSizes: (path: string): Promise<void> =>
+    ipcRenderer.invoke('folder:sizes-refresh', path),
+  onFolderSizeProgress: (
+    cb: (progress: { requestId: string; result: FolderSizeResult }) => void
+  ): (() => void) => {
+    const listener = (
+      _: unknown,
+      progress: { requestId: string; result: FolderSizeResult }
+    ): void => cb(progress)
+    ipcRenderer.on('folder:size-progress', listener)
+    return () => ipcRenderer.removeListener('folder:size-progress', listener)
+  },
   cancelFolderSize: (requestId: string): void => ipcRenderer.send('folder:size-cancel', requestId),
   /** Sidecar subtitle tracks for a video (same name beside it, or in Subs/). */
   subsFor: (path: string): Promise<Array<{ path: string; label: string }>> =>

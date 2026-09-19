@@ -1,0 +1,14 @@
+Prism includes Everything 1.4.1.1032 (x64) by David Carpenter / voidtools
+and the Everything command-line interface ES 1.1.0.38 (x64).
+
+Everything: https://www.voidtools.com/
+ES source: https://github.com/voidtools/es
+
+Redistribution notices are in Everything-LICENSE.txt and ES-LICENSE.txt.
+The Everything notice also covers its bundled Perl-Compatible Regular Expressions.
+
+Prism uses its own named index and Windows service. It does not change an existing
+Everything installation, settings, index, service, shortcuts, or startup entries.
+The optional privileged service executable lives in Program Files, separate from
+the per-user Prism application. Declining Windows administrator approval keeps
+Prism usable with its own unprivileged folder index and filesystem fallback.

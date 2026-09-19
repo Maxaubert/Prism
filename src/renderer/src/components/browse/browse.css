@@ -187,6 +187,13 @@
   color: var(--p-text);
   height: 100%;
 }
+.browse-search:focus-within {
+  outline: 2px solid var(--p-accent-hi);
+  outline-offset: -2px;
+}
+.browse-toolbar .browse-search input:focus-visible {
+  outline: none;
+}
 .browse-search input::placeholder {
   color: var(--p-dim);
   opacity: 1;
@@ -294,33 +301,25 @@
   outline: 0 none !important;
 }
 body[data-internal-file-drag] :focus-visible,
-body[data-internal-file-drag] .browse-path:focus-within {
+body[data-internal-file-drag] .browse-path:focus-within,
+body[data-internal-file-drag] .browse-search:focus-within {
   outline: 0 none !important;
   box-shadow: none !important;
 }
 .browse-search-status {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--p-divider);
-  color: var(--p-text-soft);
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.browse-search-status > div {
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
-.browse-search-detail {
-  color: var(--p-dim);
+.browse-search-status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .browse-search-status button {
   flex-shrink: 0;
-  min-height: 36px;
+  min-height: 24px;
   padding: 0 8px;
   border-radius: 3px;
   color: var(--p-text);
@@ -339,6 +338,10 @@ body[data-internal-file-drag] .browse-path:focus-within {
   border-bottom: 1px solid var(--p-divider);
   color: var(--p-dim);
   font-size: 13px;
+}
+.browse-column-viewport {
+  overflow: hidden;
+  flex-shrink: 0;
 }
 .browse-columns button {
   display: flex;
@@ -408,9 +411,6 @@ body[data-internal-file-drag] .browse-path:focus-within {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.browse-list-area[data-searching] .browse-row {
-  height: 60px;
-}
 .browse-result-location {
   color: var(--p-dim);
   font-size: 13px;
@@ -426,6 +426,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
   opacity: 0.45;
 }
 .browse-row .browse-column-type,
+.browse-row .browse-column-path,
 .browse-row .browse-column-size,
 .browse-row .browse-column-modified {
   color: var(--p-dim);
@@ -445,6 +446,7 @@ body[data-internal-file-drag] .browse-path:focus-within {
 }
 .browse-row:is([data-selected], [data-menu]) .browse-name,
 .browse-row:is([data-selected], [data-menu]) .browse-column-type,
+.browse-row:is([data-selected], [data-menu]) .browse-column-path,
 .browse-row:is([data-selected], [data-menu]) .browse-column-size,
 .browse-row:is([data-selected], [data-menu]) .browse-column-modified {
   color: inherit;
@@ -544,4 +546,18 @@ body[data-internal-file-drag] .browse-path:focus-within {
   .browse-path-form {
     min-width: 70px;
   }
+}
+
+/* Search keeps the regular row height and dedicates the middle column to location. */
+.browse-list-area[data-searching] :is(.browse-columns, .browse-row) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
+}
+.browse-list-area[data-searching] :is(.browse-columns, .browse-row-space) {
+  min-width: 470px;
+}
+.browse-list-area[data-searching] .browse-column-size {
+  display: block !important;
+}
+.browse-list-area[data-searching] .browse-columns .browse-column-size {
+  display: flex !important;
 }

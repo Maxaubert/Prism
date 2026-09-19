@@ -2625,7 +2625,7 @@ export default function App(): JSX.Element {
     file?.path === browsing.previewFile.path
   const explorerWidths = useExplorerWidths(
     placesVisible,
-    browsing.folder && !!active?.browse.preview
+    showBrowsePreview
   )
   const quickAccessDefaults = useMemo(
     () =>
@@ -3928,6 +3928,7 @@ export default function App(): JSX.Element {
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}
+                onSearchRange={browsing.searchRange}
                 onCancelSearch={browsing.cancelSearch}
                 selectedPath={browsing.location.selected}
                 scrollTop={browsing.location.scrollTop}
@@ -3961,15 +3962,23 @@ export default function App(): JSX.Element {
                     isFolder: entry.isFolder
                   })
                 }
-                onRefresh={() => setRefreshKey((key) => key + 1)}
+                onRefresh={() => {
+                  void window.prism
+                    .refreshFolderSizes(active.browse.path)
+                    .catch(() => {})
+                    .finally(() => {
+                      setRefreshKey((key) => key + 1)
+                    })
+                }}
                 onContextMenu={(event, entry, source) =>
                   setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
-                previewVisible={active.browse.preview}
+                previewEnabled={active.browse.preview}
+                previewVisible={showBrowsePreview}
                 onPreviewToggle={browsing.togglePreview}
                 terminalControls={terminalBrowseControls}
               />
-              {active.browse.preview && browsing.previewFile && (
+              {showBrowsePreview && browsing.previewFile && (
                 <div className="browse-preview-actions">
                   <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
                     Open full view
@@ -3978,7 +3987,7 @@ export default function App(): JSX.Element {
               )}
             </div>
           )}
-          {browsing.folder && active?.browse.preview && !fullscreen && (
+          {showBrowsePreview && !fullscreen && (
             <ExplorerResize
               section="preview"
               bounds={explorerWidths.bounds.preview}
