@@ -46,10 +46,10 @@ import {
   saveTermSize,
   type DockEdge
 } from './lib/termDock'
-import { savedShellId } from './lib/termPrefs'
+import { savedShellId } from 'prism-term-core/renderer/lib/termPrefs'
 import { confirmCloseMode } from './lib/tabPrefs'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
-import { forgetRoot, rememberRoot } from './lib/recentRoots'
+import { forgetRoot, rememberRoot } from 'prism-term-core/renderer/lib/recentRoots'
 import {
   activitySuppressed,
   idleAtPrompt,
@@ -58,12 +58,12 @@ import {
   markBorn,
   markResume,
   startupOutput
-} from './lib/termActivity'
-import { onCwd, onTitle } from './lib/termBus'
-import { forgetAgentTitle, readAgentTitle } from './lib/agentTitle'
+} from 'prism-term-core/renderer/lib/termActivity'
+import { onCwd, onTitle } from 'prism-term-core/renderer/lib/termBus'
+import { forgetAgentTitle, readAgentTitle } from 'prism-term-core/renderer/lib/agentTitle'
 import { ancestorChain } from './lib/fileTree'
-import { decideFollow } from '@shared/termCwd'
-import { humanFor, noteWorking, workingFor } from './lib/agentClock'
+import { decideFollow } from 'prism-term-core/shared/termCwd'
+import { humanFor, noteWorking, workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
 // same lazy boundary, so xterm stays out of the launch bundle.

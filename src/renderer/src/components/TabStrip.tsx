@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs'
 import { useAgentColor, useAgentDoneColor, useAgentIndicator } from '../lib/termLook'
-import { contrastRatio } from '../lib/termAnsi'
-import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from '../lib/recentRoots'
+import { contrastRatio } from 'prism-term-core/renderer/lib/termAnsi'
+import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
 

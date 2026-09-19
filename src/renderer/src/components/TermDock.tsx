@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
-import { quotePaths } from '../lib/termPaste'
+import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { pasteInto } from '../lib/termBus'
+import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { tickIf } from '../lib/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.

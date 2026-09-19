@@ -20,7 +20,7 @@ import {
 } from '../lib/vizStore'
 import { VizPreview } from './VizPreview'
 import { StyleMini } from './StyleMini'
-import { savedShellId, saveShellId } from '../lib/termPrefs'
+import { savedShellId, saveShellId } from 'prism-term-core/renderer/lib/termPrefs'
 import { setConfirmCloseMode, useConfirmCloseMode, type ConfirmClose } from '../lib/tabPrefs'
 import {
   setNewTabMode,
@@ -57,7 +57,7 @@ import {
   type CustomTermTheme
 } from '../lib/termLook'
 import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
-import { deriveAnsi, luminance, normalizeColor } from '../lib/termAnsi'
+import { deriveAnsi, luminance, normalizeColor } from 'prism-term-core/renderer/lib/termAnsi'
 import {
   setAutoScroll,
   setTreeSide,
