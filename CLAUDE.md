@@ -1868,8 +1868,13 @@ Filesmith's conventions.
   failure points due to its larger footprint"). It builds and runs every scenario the terminal
   can break (terminal, termOptions, termCwd, agentTitle, handoffOverTerm, promptLayout, tabs, sort,
   pinRecent; about four minutes) and is REQUIRED, green, in any PR that moves the `prism-term-core`
-  tag, before the usual full e2e. A core release is never pulled in unasked: the owner is asked
-  first (same decision).
+  tag, before the usual full e2e. **IT ALSO RUNS IN CI** (`.github/workflows/terminal-gate.yml`, #164;
+  owner, 2026-09-19: "we need automated tests to confirm it never conflicts"): on any PR that moves
+  the pin or touches the terminal's wiring, on a GitHub Windows runner, MEASURED green 3 runs of 3
+  (173 checks, about six minutes, real dictation included). That is what lets PrismTerminal's
+  `core-release` workflow open a bump PR that proves itself. KEEP THE GATE RUNNER-SAFE: nothing in
+  those scenarios may assume this machine (a real `claude` CLI is skipped where absent; no path may
+  be expected to sit under the Users folder).
 - **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
   is synced and part of the core and should be the same in normal Prism, with dictation as its own
   tab there too"). Hold Right Alt over a SHOWING terminal, speak, release: the words are pasted at

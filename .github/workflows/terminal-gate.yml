@@ -7,6 +7,12 @@
 # the one reason a core bump could not prove itself. Owner, 2026-09-19: "we need
 # automated tests to confirm it never conflicts. that's important."
 #
+# MEASURED 2026-09-19 on windows-latest: 3 runs of 3 green, 173 checks each, about
+# six minutes, the dictation scenario included. Two things in the suite had
+# assumed the owner's machine and were fixed on the way: a real `claude` CLI
+# (now skipped, loudly, where there is none) and a repo path under the Users
+# folder of drive C.
+#
 # It runs when the pin can have moved (package.json / the lockfile), when the
 # terminal's own wiring changes, and on demand. A GitHub Windows runner has a
 # real desktop session, so Electron gets a real window; the suite parks it
@@ -23,8 +29,6 @@ on:
       - src/renderer/src/components/TermDock.tsx
       - tools/e2e/**
       - .github/workflows/terminal-gate.yml
-  push:
-    branches: ['ci/**']
 
 concurrency:
   group: terminal-gate-${{ github.ref }}
