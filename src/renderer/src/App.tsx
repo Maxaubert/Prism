@@ -77,7 +77,6 @@ import { useFolderBrowsing } from './lib/useFolderBrowsing'
 import { browseParent } from './lib/browse'
 import { terminalRestoreOrder } from './lib/terminalRestore'
 import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrowser'
-import { BrowsePlaces } from './components/browse/BrowsePlaces'
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
@@ -253,7 +252,7 @@ function TopBar({
   onToggleSettings: () => void
   /** The left-hand panel of whatever is on screen: the tree, or the rail. */
   panelOpen: boolean
-  onTogglePanel: () => void
+  onTogglePanel?: () => void
   /** First-run setup is up: the bar keeps the name and the window buttons, and
    *  drops the controls for an app you haven't met yet. */
   setup: boolean
@@ -285,7 +284,7 @@ function TopBar({
     >
       {/* One button, one idea: collapse the panel on the left. Over Settings the
           tree isn't there, so it collapses that page's rail to its glyphs. */}
-      {!setup && (
+      {!setup && onTogglePanel && (
         <button
           className={`no-drag grid h-7 w-8 place-items-center rounded transition-colors hover:bg-white/10 ${
             panelOpen
@@ -1113,11 +1112,13 @@ export default function App(): JSX.Element {
   }, [])
   const togglePanel = useCallback(() => {
     if (settingsOpen) toggleRail()
-    else if (active && isExplorerTab(active))
+    else if (active && isExplorerTab(active)) {
+      if (active.browse.surface !== 'folder') return
       setPlacesVisible((visible) => {
         localStorage.setItem('prism.explorer.places', visible ? '0' : '1')
         return !visible
       })
+    }
     else toggleSidebar()
   }, [settingsOpen, active, toggleRail, toggleSidebar])
   const pickTransport = useCallback((s: TransportStyle) => {
@@ -3582,7 +3583,7 @@ export default function App(): JSX.Element {
           panelOpen={
             settingsOpen ? !compactRail : active && isExplorerTab(active) ? placesVisible : sidebar
           }
-          onTogglePanel={togglePanel}
+          onTogglePanel={viewingFile && !settingsOpen ? undefined : togglePanel}
           setup={setup}
           wash={washed}
           // Only markdown takes the pencil. Code and plain text have no
@@ -3659,33 +3660,13 @@ export default function App(): JSX.Element {
         {/* The job chip floats when the panel is shut (2026-09-03): the sidebar
             footer is its home, and a paste must stay visible either way. */}
         {active && active.kind !== 'settings' && !fullscreen && !sidebar && <JobChip floating />}
-        {active && isExplorerTab(active) && !fullscreen && placesVisible && (
+        {active && isExplorerTab(active) && browsing.folder && !fullscreen && placesVisible && (
           <ExplorerResize
             section="places"
             bounds={explorerWidths.bounds.places}
             onResize={(width) => explorerWidths.resize('places', width)}
             right={!browsing.folder && treeSide === 'right'}
           />
-        )}
-        {active && isExplorerTab(active) && !browsing.folder && !fullscreen && placesVisible && (
-          <div className="browse-viewer-places">
-            <BrowsePlaces
-              places={browsePlaces}
-              onDropInto={onBrowseDropInto}
-              quickAccess={quickAccess}
-              onQuickAccessFile={(path, full) => void openBrowseFile(path, full ?? !active?.browse.preview)}
-              onUnpinQuickAccess={unpinQuickAccess}
-              onMoveQuickAccess={moveQuickAccess}
-              onPinQuickAccessPaths={(paths, beforePath) =>
-                void pinQuickAccessPaths(paths, beforePath)
-              }
-              directory={active.browse.path}
-              onNavigate={(path) => void browsing.navigate(path)}
-              onNewTerminal={termTabAt}
-              onOpenProject={openAsProject}
-              onOpenNewTab={openInNewTab}
-            />
-          </div>
         )}
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
