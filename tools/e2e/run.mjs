@@ -2843,6 +2843,48 @@ async function extractCancelScenario() {
       existsSync(join(box, 'corrupt', 'a-good.txt')),
       'the member that extracted before the failure is kept'
     )
+
+    // ---- and the error can be closed FROM THE KEYBOARD --------------------
+    // Cancel and Close are two elements, so a failure arriving while the focus
+    // was on Cancel dropped it onto `body`, where the key guard swallows Tab,
+    // Enter and Space: an error only a mouse could close. The corrupt archive
+    // fails inside a few milliseconds, far too fast to Tab in by hand, so the
+    // focus is planted on Cancel from inside the page at the instant it
+    // mounts, which is where a person's Tab would have put it.
+    await win.evaluate(() => {
+      window.__cancelHadFocus = false
+      const obs = new MutationObserver(() => {
+        const b = document.querySelector('[data-extract-cancel]')
+        // Cancel has gone: that is the failure, and the last word on where
+        // the focus was stays as it is.
+        if (!b) return window.__cancelHadFocus ? obs.disconnect() : undefined
+        if (document.activeElement !== b) b.focus()
+        window.__cancelHadFocus = document.activeElement === b
+      })
+      obs.observe(document.body, { childList: true, subtree: true, attributes: true })
+    })
+    await win.click('button:has-text("Extract here")')
+    await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
+    ok(
+      (await win.evaluate(() => window.__cancelHadFocus)) === true,
+      'the second failure arrived with the focus on Cancel'
+    )
+    ok(
+      (await win.waitForFunction(
+        (sel) => !!document.activeElement?.closest(sel),
+        XWIN,
+        { timeout: 5000 }
+      ).then(() => true, () => false)) === true,
+      'and the focus is back inside the window, not lost on the body'
+    )
+    await win.keyboard.press('Tab')
+    ok(
+      (await win.evaluate(() => document.activeElement?.hasAttribute('data-extract-close'))) === true,
+      'Tab reaches Close'
+    )
+    await win.keyboard.press('Enter')
+    await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
+    ok(true, 'and Enter closes the error: no mouse needed')
   } finally {
     await app.close()
     rmSync(box, { recursive: true, force: true })

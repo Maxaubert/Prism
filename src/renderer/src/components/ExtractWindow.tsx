@@ -63,6 +63,21 @@ export function ExtractWindow(): JSX.Element | null {
     }
   }, [up])
 
+  // THE KEYBOARD MUST NOT BE LEFT OUTSIDE. Cancel and Close are two elements
+  // (keyed, see below), so somebody who had Tabbed onto Cancel when the
+  // extraction failed was left with the focus on `body`: the button they were
+  // on had gone. From there the key guard swallows Tab, Enter and Space alike,
+  // since it lets them through only when they are aimed INSIDE the window, and
+  // the error could then be closed with a mouse and with nothing else. So at
+  // every change of phase the focus is brought back to the box if it is not
+  // already somewhere inside it. The box and not Close, for the reason above:
+  // a held Enter must not be what dismisses an error nobody has read yet.
+  useEffect(() => {
+    if (s.phase === 'idle') return
+    const el = box.current
+    if (el && !el.contains(document.activeElement)) el.focus()
+  }, [s.phase])
+
   if (s.phase === 'idle') return null
 
   const failed = s.phase === 'failed'
