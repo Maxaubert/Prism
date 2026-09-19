@@ -10,7 +10,8 @@ import {
   nativeTheme,
   utilityProcess,
   Menu,
-  powerSaveBlocker
+  powerSaveBlocker,
+  session
 } from 'electron'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 import {
@@ -23,7 +24,7 @@ import {
   writeFileSync
 } from 'fs'
 import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
-import { networkInterfaces, tmpdir } from 'os'
+import { homedir, networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
 import {
@@ -76,11 +77,12 @@ import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
 import { CODEX_RESUME, claudeSessions } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
+import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
 import { killAll, killWarm } from 'prism-term-core/main/terminal'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
-import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
+import { FIRST_AUDIO, ffmpegDirs, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
 import { decodableImages, decodeImage, needsImageDecode, tiffPages } from './imageDecode'
 import {
   cancelAllConversions,
@@ -180,6 +182,15 @@ app.commandLine.appendSwitch('disable-direct-composition')
  * sound is the point.
  */
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
+// THE E2E SPEAKS THROUGH A FAKE MICROPHONE (#162): Chromium plays a WAV into
+// getUserMedia, so the dictation scenario runs the real capture, the real
+// engine and the real paste with nobody in the room. Only under --e2e.
+if (process.argv.includes('--e2e') && process.env.PRISM_E2E_MIC) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.PRISM_E2E_MIC)
+}
 
 // Archive members extracted to temp for viewing: each grant is one exact
 // path, made when archive:extract writes it. The reads that honour the root
@@ -659,6 +670,8 @@ const pickedSubs = new Set<string>()
 
 /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
 let editorDirty = false
+/** Kills dictation's children (the speech server, the media helper). */
+let stopDictation: () => void = () => {}
 /** Mirrored from the renderer: an agent is MID-ANSWER in some shell. Holds the
  *  window exactly as unsaved text does (prism-term-core's close rule, #154). */
 let agentBusy = false
@@ -1416,6 +1429,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     markExplorerWindow(app.getPath('userData'), true)
     stopDwmHelper()
+    stopDictation()
     killAll()
     killSidecars()
     cancelAllConversions()
@@ -1900,6 +1914,44 @@ if (!app.requestSingleInstanceLock()) {
       spawnDir: async (dir) => (insideWall(dir) ? dir : null),
       mayPrewarm: async (dir) => insideWall(dir),
       mayCd: insideWall
+    })
+
+    // DICTATION (#162) is prism-term-core's, the same feature Prism Terminal
+    // has. What is Prism's own: where ITS installer put the speech engine, the
+    // folder the two apps share for models, and the GPU question, answered by
+    // Electron's own adapter list. Nothing starts until the user switches
+    // dictation on and presses the key.
+    stopDictation = registerDictationIpc({
+      ipcMain,
+      send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
+      cpuEngineDir: () => {
+        const dirs = process.env.PRISM_WHISPER_DIR
+          ? [process.env.PRISM_WHISPER_DIR]
+          : ffmpegDirs(app.isPackaged, process.resourcesPath, app.getAppPath()).map((d) =>
+              // ffmpeg's own lookup, one folder over: resources/bin -> bin/whisper,
+              // vendor/ffmpeg -> vendor/whisper.
+              app.isPackaged ? join(d, 'whisper') : join(dirname(d), 'whisper')
+            )
+        return dirs.find((d) => existsSync(join(d, 'whisper-server.exe'))) ?? null
+      },
+      sharedRoot:
+        process.env.PRISM_DICTATION_ROOT ??
+        join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'PrismDictation'),
+      hasNvidia: async () => {
+        if (process.env.PRISM_E2E_NVIDIA) return process.env.PRISM_E2E_NVIDIA === '1'
+        const info = (await app.getGPUInfo('basic')) as { gpuDevice?: Array<{ vendorId?: number }> }
+        return (info.gpuDevice ?? []).some((d) => d.vendorId === 0x10de)
+      }
+    })
+    // The page may now ask for the MICROPHONE, so the answer is written down:
+    // audio capture, for Prism's own windows. Everything else keeps Electron's
+    // default (granted), because this app leans on several of them and a
+    // closed list here would be a guess; the CAMERA is the one thing refused.
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+      if (permission !== 'media') return callback(true)
+      const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
+      const ours = BrowserWindow.getAllWindows().some((w) => w.webContents === wc)
+      callback(ours && types.length > 0 && types.every((t) => t === 'audio'))
     })
 
     // The renderer owns the tab list; main persists it. The root wall is NOT
