@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'child_process'
+import { execFile, spawn, type ChildProcess } from 'child_process'
 
 /**
  * Every 7-Zip call is ASYNC (2026-08-26), and that is not a style preference.
@@ -23,7 +23,7 @@ function run(
   })
 }
 import { existsSync, mkdtempSync } from 'fs'
-import { cp, rm } from 'fs/promises'
+import { cp, mkdtemp, rename, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { ArchiveEntry, MemberFail } from './archive'
@@ -176,10 +176,16 @@ export function countFiles(chunk: string): number {
 }
 
 /** The percentage out of a 7-Zip progress line, or null. `-bsp1` writes them
- *  to stdout as " 42% 17 - some/file.jpg", carriage-returned over each other. */
+ *  to stdout as " 42% 17 - some/file.jpg", carriage-returned over each other.
+ *
+ *  Read only at the START of a line (2026-09-19). MEASURED: the name of each
+ *  member arrives on a line of its own ("- in\file 1.bin"), and a member
+ *  called "50% off.jpg" was a percentage as far as the old anywhere-match
+ *  could tell, which now that the window shows the bar to everyone is a bar
+ *  that jumps about. */
 export function readPercent(chunk: string): number | null {
   let last: number | null = null
-  for (const m of chunk.matchAll(/(\d{1,3})%/g)) {
+  for (const m of chunk.matchAll(/(?:^|[\r\n])[ \t]*(\d{1,3})%/g)) {
     const n = Number(m[1])
     if (n >= 0 && n <= 100) last = n
   }
@@ -187,21 +193,56 @@ export function readPercent(chunk: string): number | null {
 }
 
 /**
+ * The member 7-Zip is writing, out of its `-bb1` log, or null.
+ *
+ * MEASURED on 7-Zip 25.00 with stdout redirected: each member is one line,
+ * "- in\sub dir\deep.bin", after the carriage return that wipes the progress
+ * indicator, and the archive's own header prints a bare "--" which is not
+ * one (there is no space and no name after it). The LAST one in the chunk,
+ * since a chunk is often many files. Forward slashes, as Prism names members
+ * everywhere else.
+ */
+export function readFileName(chunk: string): string | null {
+  let last: string | null = null
+  for (const m of chunk.matchAll(/(?:^|[\r\n])[ \t]*(?:\d{1,3}%[ \t]+(?:\d+[ \t]+)?)?- ([^\r\n]+)/g)) {
+    const name = m[1].trim()
+    if (name) last = name.replace(/\\/g, '/')
+  }
+  return last
+}
+
+/**
+ * Who is watching an extraction (2026-09-19, #166): the window's progress,
+ * and the job that has to be able to STOP it.
+ */
+export interface SevenWatch {
+  /** `pct` is null when the chunk carried a name and no percentage, and
+   *  `file` is null the other way about. */
+  onProgress?: (pct: number | null, file: string | null) => void
+  /** How many files are coming, so a count of them is a fraction of
+   *  something when 7-Zip prints no percentage at all. */
+  total?: number
+  /** The process, the moment there is one, so Cancel has something to kill. */
+  onChild?: (child: ChildProcess) => void
+}
+
+/**
  * The same extraction, reporting how far along it is.
  *
- * A 2GB archive takes minutes, and a button that says "Extracting..." for
- * minutes is indistinguishable from one that has hung. `-bsp1` puts 7-Zip's
- * own percentage on stdout, so this spawns rather than execFile's buffer-it-
+ * A 2GB archive takes minutes, and a window that says nothing for minutes is
+ * indistinguishable from one that has hung. `-bsp1` puts 7-Zip's own
+ * percentage on stdout, so this spawns rather than execFile's buffer-it-
  * all, and streams.
  */
 function runWithProgress(
   exe: string,
   args: string[],
-  onPercent: (pct: number) => void,
-  total = 0
+  watch: SevenWatch
 ): Promise<{ ok: true } | { ok: false; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(exe, args, { windowsHide: true })
+    watch.onChild?.(child)
+    const total = watch.total ?? 0
     let err = ''
     let out = ''
     let done = 0
@@ -211,15 +252,14 @@ function runWithProgress(
       // of both is kept: a failure that says only "failed" is a failure
       // nobody can act on.
       out = (out + d).slice(-4000)
-      const pct = readPercent(d)
-      if (pct !== null) {
-        onPercent(pct)
-        return
-      }
+      const file = readFileName(d)
+      done += countFiles(d)
+      let pct = readPercent(d)
       // No percentage in this chunk: fall back to counting files done, which
       // is the only signal on an archive whose members are few and huge.
-      done += countFiles(d)
-      if (total > 0 && done > 0) onPercent(Math.min(99, Math.floor((done / total) * 100)))
+      if (pct === null && total > 0 && done > 0)
+        pct = Math.min(99, Math.floor((done / total) * 100))
+      if (pct !== null || file !== null) watch.onProgress?.(pct, file)
     })
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (d: string) => {
@@ -299,12 +339,11 @@ export async function extractAllSeven(
   file: string,
   dir: string,
   password = '',
-  onPercent?: (pct: number) => void,
-  total = 0
+  watch?: SevenWatch
 ): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
   const args = extractAllArgs(file, dir, password)
-  const r = onPercent
-    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent, total)
+  const r = watch
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], watch)
     : await run(exe, args, 3600000)
   if (r.ok) return { ok: true }
   return {
@@ -382,7 +421,7 @@ export async function extractSevenSubtree(
   prefix: string,
   dir: string,
   password = '',
-  onPercent?: (pct: number) => void
+  watch?: SevenWatch
 ): Promise<{ ok: true } | { ok: false; reason: MemberFail; message?: string }> {
   const clean = prefix
     .replace(/[\\/]+$/, '')
@@ -404,8 +443,8 @@ export async function extractSevenSubtree(
     clean,
     `${clean}/*`
   ]
-  const r = onPercent
-    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], onPercent)
+  const r = watch
+    ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], watch)
     : await run(exe, args, 3600000)
   if (r.ok) return { ok: true }
   return {
@@ -415,36 +454,69 @@ export async function extractSevenSubtree(
   }
 }
 
+/**
+ * STAGED IN THE DESTINATION, and landed by RENAME (2026-09-19, #166).
+ *
+ * This used to stage in the temp directory and `cp` each entry across, which
+ * was two problems once the extraction got a Cancel button. A copy of a big
+ * folder cannot be stopped half way by anything Node offers, and it is a
+ * second full write of data 7-Zip has already written once. Staging inside
+ * the destination folder is the rule "Extract folder here" learned on
+ * 2026-08-31 (`fs.rename` cannot cross volumes, and temp is on C: while the
+ * archive very often is not): the rename is same-volume, so it is instant
+ * whatever the folder weighs, and until it happens everything half-written
+ * lives in ONE folder that is Prism's own to remove. The staging name starts
+ * with a dot, which the tree's listing and its watcher both skip, so it never
+ * shows up in the sidebar while the work runs. The copy survives as the
+ * fallback for a rename that is refused.
+ *
+ * `watch.cancelled` is asked after 7-Zip returns and between landings. What
+ * had already landed is taken back, which is safe because every landing is
+ * at a name that was free: nothing that was there before is ever touched.
+ */
 export async function extractSevenTo(
   exe: string,
   file: string,
   entryPaths: readonly string[],
   destDir: string,
-  password = ''
-): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
+  password = '',
+  watch?: SevenWatch & { cancelled?: () => boolean }
+): Promise<
+  | { ok: true; written: number }
+  | { ok: false; reason: MemberFail | 'cancelled'; message?: string }
+> {
   if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
-  // The listing is only consulted to fail EARLY on a container that cannot be
-  // read at all (a wrong password, encrypted names): 7-Zip's own filters do
-  // the member matching below.
+  // The listing fails EARLY on a container that cannot be read at all (a
+  // wrong password, encrypted names), and counts what is coming so the
+  // file-count fallback has something to be a fraction of. 7-Zip's own
+  // filters do the member matching below.
   const listed = await listSeven(exe, file, password)
   if (!listed.ok) return { ok: false, reason: listed.reason }
   const clean = (e: string): string => e.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const wanted = entryPaths.map(clean)
   const base = resolve(destDir)
+  const cancelled = (): boolean => watch?.cancelled?.() ?? false
   let written = 0
+  const filters: string[] = []
+  for (const w of wanted) {
+    if (!w || w.split('/').some((s) => s === '..') || /^[a-z]:/i.test(w)) continue
+    filters.push(w, `${w}/*`)
+  }
+  if (!filters.length) return { ok: true, written: 0 }
   // ONE call into a staging folder, not one per member (2026-08-31). The
   // old loop spawned a 7-Zip per file and each re-opened the container:
   // dragging a 561-file folder out of a 2GB archive was hundreds of full
   // re-reads, which is the same defect "Extract folder here" had. Everything
   // wanted is named in a single command line instead.
-  const stage = mkdtempSync(join(tmpdir(), 'prism-arcout-'))
+  let stage: string
   try {
-    const filters: string[] = []
-    for (const w of wanted) {
-      if (!w || w.split('/').some((s) => s === '..') || /^[a-z]:/i.test(w)) continue
-      filters.push(w, `${w}/*`)
-    }
-    if (!filters.length) return { ok: true, written: 0 }
+    stage = await mkdtemp(join(base, '.prism-extract-'))
+  } catch {
+    return { ok: false, reason: 'failed', message: 'That folder cannot be written to.' }
+  }
+  const landed: string[] = []
+  const gone = { recursive: true, force: true, maxRetries: 12, retryDelay: 150 }
+  try {
     const args = [
       'x',
       `-o${stage}`,
@@ -454,17 +526,30 @@ export async function extractSevenTo(
       file,
       ...filters
     ]
-    const r = await run(exe, args, 3600000)
+    const total = listed.entries.filter((e) =>
+      wanted.some((w) => e.path === w || e.path.startsWith(w + '/'))
+    ).length
+    const r = watch
+      ? await runWithProgress(exe, [...PROGRESS_ARGS, ...args], { ...watch, total })
+      : await run(exe, args, 3600000)
+    // A killed 7-Zip and a failed one look the same from here, so the
+    // question is asked before the answer is read.
+    if (cancelled()) return { ok: false, reason: 'cancelled' }
     if (!r.ok) {
       return {
         ok: false,
-        reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+        reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+        message: sevenMessage(r.stderr)
       }
     }
     // Each wanted entry now sits at `stage/<entry>`. Landing keeps the shape
     // BELOW it and drops the parents above it, which is the rule the panel
     // has always followed for a drag.
     for (const w of wanted) {
+      if (cancelled()) {
+        for (const t of landed) await rm(t, gone).catch(() => {})
+        return { ok: false, reason: 'cancelled' }
+      }
       const from = resolve(stage, ...w.split('/'))
       if (!existsSync(from)) continue
       let target = resolve(base, basename(w))
@@ -477,13 +562,18 @@ export async function extractSevenTo(
       )
         continue
       if (existsSync(target)) target = join(base, uniqueName(base, basename(w)))
-      // AWAITED: main is one thread, and a 2GB folder copied synchronously
-      // freezes every window and the Range handler a playing film depends on.
-      await cp(from, target, { recursive: true })
+      try {
+        await rename(from, target)
+      } catch {
+        // AWAITED: main is one thread, and a 2GB folder copied synchronously
+        // freezes every window and the Range handler a playing film depends on.
+        await cp(from, target, { recursive: true })
+      }
+      landed.push(target)
       written += 1
     }
     return { ok: true, written }
   } finally {
-    await rm(stage, { recursive: true, force: true }).catch(() => {})
+    await rm(stage, gone).catch(() => {})
   }
 }

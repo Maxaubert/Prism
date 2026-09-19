@@ -5,6 +5,7 @@ import {
   isSevenArchive,
   listArgs,
   parseListing,
+  readFileName,
   readPercent,
   safeMemberPath,
   sevenMessage,
@@ -197,6 +198,43 @@ describe('the progress percentage 7-Zip prints', () => {
   it('ignores a number that is not a percentage', () => {
     // A member whose NAME has a percent in it must not move the bar.
     expect(readPercent('Extracting  discount 200% off.jpg')).toBeNull()
+  })
+})
+
+describe('a percentage is read at the start of a line only (#166)', () => {
+  it('is not fooled by a member whose name holds one', () => {
+    // MEASURED shape: the name arrives on a line of its own, after the
+    // carriage return that wiped the indicator.
+    expect(readPercent('\r- Sale/50% off.jpg\r\n')).toBeNull()
+    expect(readPercent(' 27% 3\r       \r- Sale/50% off.jpg\r\n')).toBe(27)
+  })
+})
+
+describe('the member 7-Zip is writing, out of its -bb1 log', () => {
+  // Real stdout of 7-Zip 25.00 with `-bb1 -bsp1`, redirected, kept verbatim.
+  const REAL_X =
+    'Extracting archive: t.7z\r\n--\r\nPath = t.7z\r\nType = 7z\r\n\r\n' +
+    '  0%\r    \r- in\\\r\n  0%\r    \r- in\\sub dir\\\r\n  0% 1\r      \r- in\\file 1.bin\r\n' +
+    ' 27% 3\r       \r- in\\file 3.bin\r\n 54% 4\r       \r- in\\sub dir\\deep.bin\r\n' +
+    ' 81% 5\r       \rEverything is Ok\r\n'
+
+  it('names the LAST member in a chunk, with forward slashes', () => {
+    expect(readFileName(REAL_X)).toBe('in/sub dir/deep.bin')
+    expect(readPercent(REAL_X)).toBe(81)
+  })
+
+  it('reads the one-line form too', () => {
+    expect(readFileName(' 42% 17 - Comics/issue 01.cbz')).toBe('Comics/issue 01.cbz')
+    expect(readFileName('- plain.txt')).toBe('plain.txt')
+  })
+
+  it("does not mistake the header's bare -- for a member", () => {
+    expect(readFileName('Extracting archive: t.7z\r\n--\r\nPath = t.7z\r\n')).toBeNull()
+  })
+
+  it('answers null when there is no name in it', () => {
+    expect(readFileName('Everything is Ok\r\nSize: 12-34')).toBeNull()
+    expect(readFileName(' 55% 12')).toBeNull()
   })
 })
 

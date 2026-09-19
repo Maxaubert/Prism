@@ -6,6 +6,8 @@ import './lib/windowPreferences'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { ExtractWindow } from './components/ExtractWindow'
+import { installExtractionGuard } from './lib/extractionGuard'
 import './index.css'
 
 // Recording hook, off unless --demo was passed. The showcase needs the window to
@@ -36,8 +38,17 @@ if (window.prism.demo) {
   })
 }
 
+// BEFORE React renders anything, because the order is the point: listeners on
+// one target run in the order they were added, and this one has to be ahead of
+// every window-level key handler the app is about to install (#166).
+installExtractionGuard()
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    {/* Beside App and not inside it: the extraction window belongs to no tab
+        and no panel, and App has nothing to tell it. It draws on `body`
+        through a portal, because `#root` goes inert while it is up. */}
+    <ExtractWindow />
   </StrictMode>
 )

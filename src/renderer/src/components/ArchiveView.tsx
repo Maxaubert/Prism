@@ -9,7 +9,6 @@ import { useSysIcon } from '../lib/sysIcon'
 import { fileKind } from '@shared/fileKind'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { Dialog } from './Dialog'
-import { endJob, startJob, updateJob } from '../lib/jobs'
 import { ImageView } from './ImageView'
 import { VideoView } from './VideoView'
 import { AudioView } from './AudioView'
@@ -271,8 +270,8 @@ function ArchiveInner({
    *  A member is copied out of the container before it can be shown, and on a
    *  big one - the inner zip of a 3GB game rip, say - that is seconds to
    *  minutes with nothing on screen. Silence there reads as the app having
-   *  hung rather than as it working, which is the same reason the extract-all
-   *  button says "Extracting..." rather than nothing. */
+   *  hung rather than as it working, which is the same reason an extraction
+   *  to disk has a window with a bar in it (#166). */
   const [opening, setOpening] = useState<string | null>(null)
   /** The member overlay, so Escape can tell whether a DEEPER one is inside it. */
   const memberBox = useRef<HTMLDivElement>(null)
@@ -306,7 +305,6 @@ function ArchiveInner({
     setSel(emptySelection)
   }, [])
   const [oops, setOops] = useState<string | null>(null)
-  /** Where "Extract all" put things, so the note can offer to show you. */
   /**
    * Just finished, for about two seconds.
    *
@@ -314,7 +312,9 @@ function ArchiveInner({
    * lot of ceremony for "the thing you asked for happened". But a multi-minute
    * extraction that ends in silence is not much better, so the button you
    * pressed says so and then goes back to what it was. No new element, so
-   * nothing moves.
+   * nothing moves. It still holds under the extraction window (2026-09-19,
+   * #166): that window closes by itself on success and raises nothing in its
+   * place, so this is still the only word said about having finished.
    */
   const [justDone, setJustDone] = useState(false)
   useEffect(() => {
@@ -322,7 +322,14 @@ function ArchiveInner({
     const t = window.setTimeout(() => setJustDone(false), 2200)
     return () => window.clearTimeout(t)
   }, [justDone])
-  const [busy, setBusy] = useState<'extract' | 'add' | null>(null)
+  /**
+   * The panel's own slow verbs: copying a folder to the clipboard, and adding
+   * files. NOT extracting (2026-09-19, #166): an extraction puts a modal
+   * window over the whole app, so there is nothing left to disable and no
+   * button that needs to say "Extracting...", which is what this used to be
+   * for.
+   */
+  const [busy, setBusy] = useState<'copy' | 'add' | null>(null)
   /** Renaming the archive itself, from the verb row. */
   const [renamingSelf, setRenamingSelf] = useState(false)
   /** The drag-select band, in the panel box's own coordinates. */
@@ -428,21 +435,21 @@ function ArchiveInner({
   /** Members OUT to a real folder (2026-09-03, owner: "Extract here" and
    *  "Extract to..." on a member row, file or folder alike). `here` lands
    *  beside the archive, inside the root; otherwise main's dialog picks,
-   *  which is the consent that lets it write anywhere. Both run as a job on
-   *  the chip. `label` names what is going, for the chip. */
+   *  which is the consent that lets it write anywhere.
+   *
+   *  The extraction window is main's (2026-09-19, #166): it opens when the
+   *  work starts, and a failure is ITS error to show, so nothing but a
+   *  password is left for this to react to. That one it still asks for,
+   *  which is why the call says `asksPassword`: the window then closes
+   *  quietly on a wrong password instead of putting an error up underneath
+   *  the question. */
   const extractMembers = useCallback(
     (entry: Entry, entries: string[], here: boolean): void => {
-      const label = entry.path.split('/').filter(Boolean).pop() ?? entry.path
-      const job = startJob('extract', 'Extracting ' + label)
       withPassword(entry, (pw) =>
         (here
-          ? window.prism.archiveExtractTo(file.path, entries, besideArchive, pw)
+          ? window.prism.archiveExtractTo(file.path, entries, besideArchive, pw, true)
           : window.prism.archiveExtractMembersTo(file.path, entries, pw)
-        ).then((r) => {
-          endJob(job)
-          if (r.ok) return 'ok'
-          return r.reason === 'cancelled' ? 'ok' : r.reason
-        })
+        ).then((r) => (!r.ok && r.reason === 'password' ? 'password' : 'ok'))
       )
     },
     [file.path, besideArchive, withPassword]
@@ -555,7 +562,7 @@ function ArchiveInner({
    */
   const copyFolder = useCallback(
     (entry: string): void => {
-      setBusy('extract')
+      setBusy('copy')
       void window.prism.archiveExtractDir(file.path, entry).then((r) => {
         setBusy(null)
         if (r.ok) void copyFilePaths([r.path])
@@ -573,26 +580,12 @@ function ArchiveInner({
     },
     [file.path]
   )
-  /** One folder from inside the archive, out beside the archive itself. */
+  /** One folder from inside the archive, out beside the archive itself.
+   *  The window, its progress and its error are all main's (#166). */
   const extractFolderHere = useCallback(
     (entry: string): void => {
-      setBusy('extract')
-      const job = startJob(
-        'extract',
-        'Extracting ' + (entry.split('/').filter(Boolean).pop() ?? entry)
-      )
       void window.prism.archiveExtractDir(file.path, entry, true).then((r) => {
-        endJob(job)
-        setBusy(null)
         if (r.ok) setJustDone(true)
-        else if (r.reason === 'password' || r.reason === 'aes')
-          setOops('That folder is password protected. Open a member first to unlock the archive.')
-        else
-          setOops(
-            r.message
-              ? `That folder couldn't be extracted. ${r.message}`
-              : "That folder couldn't be extracted."
-          )
       })
     },
     [file.path]
@@ -629,32 +622,16 @@ function ArchiveInner({
    *  contents in a folder named after the archive. */
   const extractAll = useCallback(
     (here = false): void => {
-      setBusy('extract')
-      // A job on the CHIP (2026-09-03, owner), not a popup and not a bar under
-      // the verbs: the same readout the sidebar's verb uses, and a second
-      // archive queues behind this one instead of waiting for it.
-      const job = startJob('extract', 'Extracting ' + file.name)
-      const off = window.prism.onArchiveProgress((m) => {
-        if (m.path.toLowerCase() === file.path.toLowerCase()) updateJob(job, m.pct)
-      })
+      // THE EXTRACTION WINDOW (2026-09-19, #166), superseding the chip this
+      // ran on since 2026-09-03 and the "Extracting..." the button used to
+      // read. Owner: "I would like it to just be one kind of view that
+      // appears, and I want it to be a pop-up window that you can't close,
+      // kind of like it is with WinRAR." Main opens it once its own folder
+      // dialog is answered, feeds it, and turns it into the error when there
+      // is one (7-Zip's own line included), so every route looks the same
+      // because no route draws anything.
       void window.prism.archiveExtractAll(file.path, here).then((r) => {
-        off()
-        endJob(job)
-        setBusy(null)
         if (r.ok) setJustDone(true)
-        else if (r.reason === 'cancelled') return
-        else if (r.reason === 'password')
-          setOops(
-            'This archive is password protected. Open a member first to unlock it, then extract.'
-          )
-        // The line 7-Zip actually printed, when there is one: "couldn't be
-        // extracted" on its own is a failure nobody can act on.
-        else
-          setOops(
-            r.message
-              ? `That archive couldn't be extracted. ${r.message}`
-              : "That archive couldn't be extracted."
-          )
       })
     },
     [file.path]
@@ -902,7 +879,15 @@ function ArchiveInner({
             {
               label: 'Extract folder to…',
               disabled: n === 0,
-              onPick: () => extractMembers(entry, members, false)
+              // The FOLDER, not the files inside it (2026-09-19, found by
+              // #166's e2e). Handing over each member's own path made every
+              // one of them its own landing, and the landing rule drops the
+              // parents above what was asked for: "Collection/sub/two.txt"
+              // arrived as a bare "two.txt", so the verb that says "folder"
+              // delivered a flat pile, which is the very thing Copy folder
+              // was fixed for on 2026-08-31. Named as one entry, the shape
+              // below it is kept, exactly as a dragged folder's is.
+              onPick: () => extractMembers(entry, [entry.path], false)
             }
           ]
         : []),
@@ -1038,7 +1023,7 @@ function ArchiveInner({
           <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
             {caps.write && (
               <ArcVerb
-                label={busy === 'extract' ? 'Extracting…' : justDone ? 'Extracted' : 'Extract here'}
+                label={justDone ? 'Extracted' : 'Extract here'}
                 disabled={busy !== null}
                 onClick={() => extractAll(true)}
                 path="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"
@@ -1085,9 +1070,11 @@ function ArchiveInner({
         )}
         {/* The inline track is GONE (2026-09-03, owner): the sidebar's
             extract verb showed a popup while this panel drew a bar under the
-            verbs, and two looks for the same wait read as two apps. The
-            popup below is the one look - bar plus percentage, leaving by
-            itself when the work lands. */}
+            verbs, and two looks for the same wait read as two apps. The one
+            look is the extraction window now (2026-09-19, #166,
+            `ExtractWindow`), which belongs to the app and not to this panel:
+            a bar, a percentage, the file being written and Cancel, leaving
+            by itself when the work lands. */}
         <div className="mt-3.5 flex min-h-0 w-full max-w-[1280px] flex-1 flex-col">
           {/* The crumb row is always present, root included: the archive
                 itself is the first crumb wherever you stand, so the path

@@ -1,8 +1,11 @@
 import AdmZip from 'adm-zip'
 import { execFile } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { crc32, inflateRaw } from 'zlib'
+import { Made } from './extractJob'
 import { uniqueName } from './fileOps'
 
 // The simple archive integration (2026-08-22, #68): zip only, via adm-zip.
@@ -100,9 +103,10 @@ async function sevenExtract(
 }
 
 type ZipEntryLike = {
-  header: { size: number; flags: number; method: number }
+  header: { size: number; flags: number; method: number; crc: number }
   isDirectory: boolean
   getData: (pass?: string) => Buffer
+  getCompressedData: () => Buffer
 }
 
 /** A member name is a plain filename: no separators, no traversal, not empty. */
@@ -420,27 +424,92 @@ export function moveMembers(
   }
 }
 
+const DEFLATED = 8
+
+/**
+ * One member's bytes, WITHOUT stopping main for the length of the inflate
+ * (2026-09-19, #166).
+ *
+ * `getData` inflates synchronously, and extracting a 500MB zip through it was
+ * main's one thread doing nothing else for the whole job: no IPC, so no
+ * progress reached the window and no Cancel reached main until it was over.
+ * A plain deflated member, which is nearly all of them, is inflated on the
+ * libuv pool instead, and checked against the central directory's CRC exactly
+ * as adm-zip checks it.
+ *
+ * NOT adm-zip's own `getDataAsync`, and that was read rather than assumed: its
+ * inflater (methods/inflater.js) attaches no 'error' listener to the stream,
+ * so one corrupt member is an unhandled 'error' event, which takes the whole
+ * app down rather than failing one extraction. A stored member is a buffer
+ * copy, and a ZipCrypto one has to be decrypted by adm-zip's own (synchronous)
+ * code first, so both of those stay with `getData`.
+ */
+function memberData(e: ZipEntryLike, password?: string): Promise<Buffer> {
+  const plain = (e.header.flags & 1) === 0
+  if (!plain || e.header.method !== DEFLATED) return Promise.resolve(e.getData(password))
+  return new Promise((done, fail) => {
+    // The cap is what the container itself declared, so a member that lies
+    // about its size cannot inflate without limit.
+    const opts = e.header.size > 0 ? { maxOutputLength: e.header.size } : {}
+    inflateRaw(e.getCompressedData(), opts, (err, data) => {
+      if (err) return fail(err)
+      if (crc32(data) !== e.header.crc >>> 0) return fail(new Error('bad crc'))
+      done(data)
+    })
+  })
+}
+
+/** Who is watching an in-process extraction: the window's progress, and the
+ *  question the loop asks between members. */
+export interface ExtractWatch {
+  /** `done` of `total` files are written; `file` is the one just finished. */
+  onProgress?: (pct: number, file: string) => void
+  cancelled?: () => boolean
+}
+
 /**
  * Extract members OUT to a real folder, keeping the shape below a dragged
  * folder. Encrypted members need the password, exactly as viewing one does.
+ *
+ * ASYNCHRONOUS AND CANCELLABLE (2026-09-19, #166). The container is read with
+ * `fs/promises`, each member is inflated off main's thread and written with
+ * an awaited `writeFile`, so the event loop turns between every member: that
+ * is what lets a progress message out and a Cancel in. Progress is a COUNT of
+ * members written against the count wanted, which is as real as it gets for
+ * an engine with no percentage of its own.
+ *
+ * A Cancel takes back exactly what this call made (`Made`): the files it
+ * wrote, each under a name that was free, and the folders it created, which
+ * go only if they are empty afterwards. Nothing that was in the destination
+ * before is touched. A FAILURE keeps what had already been written, as it
+ * always has: those files are good, and the user asked for them.
  */
 export async function extractTo(
   zipPath: string,
   entryPaths: readonly string[],
   destDir: string,
-  password?: string
-): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail }> {
+  password?: string,
+  watch?: ExtractWatch
+): Promise<{ ok: true; written: number } | { ok: false; reason: MemberFail | 'cancelled' }> {
+  const made = new Made()
   try {
     if (!existsSync(destDir)) return { ok: false, reason: 'failed' }
     const base = resolve(destDir)
-    const zip = new AdmZip(zipPath)
+    // A Buffer, read without blocking: `new AdmZip(path)` is a readFileSync
+    // of up to the 600MB cap.
+    const zip = new AdmZip(await readFile(zipPath))
     const wanted = entryPaths.map(norm)
+    const hitOf = (p: string): string | undefined =>
+      wanted.find((w) => p === w || p.startsWith(w + '/'))
+    const members = zip.getEntries().filter((e) => !e.isDirectory && hitOf(norm(e.entryName)) !== undefined)
     let written = 0
-    for (const e of zip.getEntries()) {
-      if (e.isDirectory) continue
+    for (const e of members) {
+      if (watch?.cancelled?.()) {
+        await made.undo()
+        return { ok: false, reason: 'cancelled' }
+      }
       const p = norm(e.entryName)
-      const hit = wanted.find((w) => p === w || p.startsWith(w + '/'))
-      if (hit === undefined) continue
+      const hit = hitOf(p) as string
       const parent = hit.includes('/') ? hit.slice(0, hit.lastIndexOf('/')) : ''
       const rel = parent ? p.slice(parent.length + 1) : p
       // Zip Slip: a member can be named anything at all, so the only safe test
@@ -456,12 +525,12 @@ export async function extractTo(
         isAbsolute(inside)
       )
         continue
+      await made.mkdir(dirname(target))
       // Never overwrite what is already there: an extraction is a copy out,
       // and a member sharing a name with the user's own file must not destroy
       // it. "name (2)" is the same answer the folder verbs give.
       if (existsSync(target)) {
         const dir = dirname(target)
-        mkdirSync(dir, { recursive: true })
         target = join(dir, uniqueName(dir, basename(target)))
       }
       const like = e as unknown as ZipEntryLike
@@ -470,18 +539,25 @@ export async function extractTo(
         if (!password) return { ok: false, reason: 'password' }
         const r = await sevenExtract(zipPath, p, password)
         if (!r.ok) return { ok: false, reason: r.reason }
-        data = readFileSync(r.path)
+        data = await readFile(r.path)
       } else {
         try {
-          data = like.getData(password)
+          data = await memberData(like, password)
           if (!data?.length && e.header.size > 0) throw new Error('no data')
         } catch {
           return { ok: false, reason: failOf(like, !!password) }
         }
       }
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, data)
+      // Recorded BEFORE the write: a file that a Cancel finds half written
+      // is still one this call created.
+      made.file(target)
+      await writeFile(target, data)
       written += 1
+      watch?.onProgress?.(Math.floor((written / members.length) * 100), p)
+    }
+    if (watch?.cancelled?.()) {
+      await made.undo()
+      return { ok: false, reason: 'cancelled' }
     }
     return { ok: true, written }
   } catch {

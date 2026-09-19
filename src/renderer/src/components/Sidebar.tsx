@@ -927,36 +927,17 @@ export function Sidebar({
    * verb row - this is a second way in, not a second implementation.
    */
   const extract = useCallback(
-    (path: string, name: string, here: boolean): void => {
-      // A job on the CHIP (2026-09-03, owner), not a popup: you can keep
-      // working, and a second archive queues behind the first. Progress
-      // arrives keyed by the archive's path and is routed to its job.
-      const job = startJob('extract', 'Extracting ' + name)
-      const off = window.prism.onArchiveProgress((m) => {
-        if (m.path.toLowerCase() === path.toLowerCase()) updateJob(job, m.pct)
-      })
+    (path: string, here: boolean): void => {
+      // THE EXTRACTION WINDOW (2026-09-19, #166, owner: "one kind of view
+      // that appears ... a pop-up window that you can't close, kind of like
+      // it is with WinRAR"), superseding the chip this verb ran on since
+      // 2026-09-03. Main opens it, feeds it and turns it into the error when
+      // there is one, so this verb has nothing to show and nothing to say:
+      // all that is left here is the tree.
       void window.prism.archiveExtractAll(path, here).then((r) => {
-        off()
-        endJob(job)
-        if (r.ok) {
-          // The extracted folder is a change Prism made, so the tree hears
-          // about it from here rather than from the watcher.
-          void load(parentDir(path), true)
-        } else if (r.reason === 'cancelled') return
-        else
-          setArcJob({
-            path,
-            name,
-            pct: null,
-            error:
-              r.reason === 'password' || r.reason === 'aes'
-                ? 'That archive is password protected. Open it first to unlock it, then extract.'
-                : // 7-Zip's own line when there is one: "couldn't be extracted"
-                  // on its own is a failure nobody can act on.
-                  r.message
-                  ? `That archive couldn't be extracted. ${r.message}`
-                  : "That archive couldn't be extracted."
-          })
+        // The extracted folder is a change Prism made, so the tree hears
+        // about it from here rather than from the watcher.
+        if (r.ok) void load(parentDir(path), true)
       })
     },
     [load]
@@ -1586,8 +1567,10 @@ export function Sidebar({
       {arcJob && (
         // Failures only (2026-09-03): the running job is on the chip, and a
         // job that finishes simply leaves. A failure still has to speak.
+        // Adding to a zip is the one verb left here: an extraction's failure
+        // is the extraction window's own to show (#166).
         <Dialog
-          title="Extract"
+          title="Add to archive"
           body={arcJob.error ?? 'Something went wrong.'}
           onCancel={() => setArcJob(null)}
           choices={[{ label: 'Close', primary: true, onPick: () => setArcJob(null) }]}
@@ -1758,12 +1741,12 @@ export function Sidebar({
                     // same reasoning, as the archive panel's verb row.
                     label: 'Extract here',
                     icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M4.5 16v3.5h15V16" />,
-                    onPick: () => extract(menu.path, menu.name, true)
+                    onPick: () => extract(menu.path, true)
                   },
                   {
                     label: 'Extract to…',
                     icon: <MenuIcon d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M2.5 15.5h6.2l2 2.6h10.8" />,
-                    onPick: () => extract(menu.path, menu.name, false)
+                    onPick: () => extract(menu.path, false)
                   },
                   ...(menu.arc?.write
                     ? [

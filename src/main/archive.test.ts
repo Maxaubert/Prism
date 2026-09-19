@@ -244,3 +244,74 @@ describe('zip slip', () => {
     expect(readFileSync(join(dest, 'good.txt'), 'utf8')).toBe('fine')
   })
 })
+
+describe('extracting out, watched (#166)', () => {
+  it('counts members written, and names each one, so the window has a real bar', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-watch-'))
+    const seen: Array<[number, string]> = []
+    const r = await extractTo(zipPath, ['docs', 'readme.txt'], out, undefined, {
+      onProgress: (pct, file) => seen.push([pct, file])
+    })
+    expect(r).toEqual({ ok: true, written: 3 })
+    expect(seen.map(([p]) => p)).toEqual([33, 66, 100])
+    expect(seen.map(([, f]) => f).sort()).toEqual(['docs/guide.md', 'docs/img/logo.png', 'readme.txt'])
+  })
+
+  it('a Cancel takes back what it wrote and NOTHING that was there before', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-cancel-'))
+    // The user's own folder and file, sharing names with what is coming.
+    mkdirSync(join(out, 'docs'))
+    writeFileSync(join(out, 'docs', 'guide.md'), 'MINE')
+    writeFileSync(join(out, 'keep.txt'), 'untouched')
+    let written = 0
+    const r = await extractTo(zipPath, ['docs', 'readme.txt'], out, undefined, {
+      onProgress: () => (written += 1),
+      // Pressed while the second member is on its way.
+      cancelled: () => written >= 2
+    })
+    expect(r).toEqual({ ok: false, reason: 'cancelled' })
+    expect(written).toBe(2)
+    expect(readFileSync(join(out, 'docs', 'guide.md'), 'utf8')).toBe('MINE')
+    expect(readFileSync(join(out, 'keep.txt'), 'utf8')).toBe('untouched')
+    // The member that clashed had landed as "guide (2).md"; it is gone again,
+    // and so is the folder the extraction created inside the user's own.
+    expect(existsSync(join(out, 'docs', 'guide (2).md'))).toBe(false)
+    expect(existsSync(join(out, 'docs', 'img'))).toBe(false)
+    expect(existsSync(join(out, 'readme.txt'))).toBe(false)
+    expect(existsSync(join(out, 'docs'))).toBe(true)
+  })
+
+  it('a Cancel before the first member writes nothing at all', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'prism-cancel0-'))
+    const r = await extractTo(zipPath, ['docs'], out, undefined, { cancelled: () => true })
+    expect(r).toEqual({ ok: false, reason: 'cancelled' })
+    expect(existsSync(join(out, 'docs'))).toBe(false)
+  })
+
+  it('a corrupt member fails the extraction instead of taking the process down', async () => {
+    // Deflated data, so it takes the off-thread inflate. adm-zip's own async
+    // inflater has no error listener, which is why Prism does not use it.
+    const zip = new AdmZip()
+    zip.addFile('big.txt', Buffer.from('compress me '.repeat(500)))
+    const bad = join(mkdtempSync(join(tmpdir(), 'prism-bad-')), 'bad.zip')
+    zip.writeZip(bad)
+    const raw = readFileSync(bad)
+    // Stamp on the member's data, which starts after the 30-byte local header
+    // and the 7-byte name.
+    raw.fill(0xff, 40, 60)
+    writeFileSync(bad, raw)
+    const out = mkdtempSync(join(tmpdir(), 'prism-bad-out-'))
+    expect(await extractTo(bad, ['big.txt'], out)).toEqual({ ok: false, reason: 'failed' })
+  })
+
+  it('a deflated member comes out byte for byte', async () => {
+    const zip = new AdmZip()
+    const body = Buffer.from('the same line again and again\n'.repeat(2000))
+    zip.addFile('log.txt', body)
+    const z = join(mkdtempSync(join(tmpdir(), 'prism-defl-')), 'd.zip')
+    zip.writeZip(z)
+    const out = mkdtempSync(join(tmpdir(), 'prism-defl-out-'))
+    expect(await extractTo(z, ['log.txt'], out)).toEqual({ ok: true, written: 1 })
+    expect(readFileSync(join(out, 'log.txt')).equals(body)).toBe(true)
+  })
+})

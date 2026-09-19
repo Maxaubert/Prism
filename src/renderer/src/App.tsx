@@ -3134,18 +3134,17 @@ export default function App(): JSX.Element {
       }
       // Members out of an archive: extracted where they were dropped, with the
       // password the archive view already asked for, if it needed one.
+      //
+      // This route used to show NOTHING while it ran (2026-09-19, #166,
+      // owner: "the progress bar works differently based on like how you
+      // extracted"), and then a dialog of its own when it failed. It is a job
+      // like the other four now: main opens the extraction window, and a
+      // failure is that window's error, password sentence included. A
+      // cancelled drag still refreshes nothing, because nothing landed.
       void window.prism
         .archiveExtractTo(payload.archive, payload.entries, dest, archivePassword(payload.archive))
         .then((r) => {
           if (r.ok) setRefreshKey((n) => n + 1)
-          else
-            setAsk({
-              kind: 'failed',
-              message:
-                r.reason === 'password'
-                  ? 'That archive is password protected. Open one of its files first to unlock it, then drag again.'
-                  : "Those members couldn't be extracted here."
-            })
         })
     },
     [runMove]

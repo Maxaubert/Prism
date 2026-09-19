@@ -8,6 +8,13 @@
  * shows the oldest with a count of the rest. A job that fails still speaks
  * through its own dialog; a job that finishes simply leaves.
  *
+ * EXTRACTIONS LEFT THE CHIP (2026-09-19, #166). The owner asked for the
+ * opposite of what the chip is for: "a pop-up window that you can't close,
+ * kind of like it is with WinRAR, where you just see the progress bar, and
+ * you just have to wait until it's done extracting." They have a window and
+ * a store of their own (`lib/extraction`); pastes and adding to a zip are
+ * still jobs here, and nothing about the chip changed.
+ *
  * Module state with a tiny subscription, the same shape as `tabVolume` and
  * `playState`: the jobs belong to the session, not to any one component, and
  * the chip renders in two places (the sidebar footer, or floating when the
@@ -15,12 +22,12 @@
  */
 import { useSyncExternalStore } from 'react'
 
-export type JobKind = 'paste' | 'extract' | 'add'
+export type JobKind = 'paste' | 'add'
 
 export interface Job {
   id: string
   kind: JobKind
-  /** What the chip says: "Copying", "Extracting story.cbz". */
+  /** What the chip says: "Copying", "Adding to story.zip". */
   label: string
   /** 0-100, or null while the worker has not said (indeterminate). */
   pct: number | null

@@ -11,6 +11,7 @@ import type {
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
+import type { ExtractEvent } from '@shared/extraction'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
@@ -378,15 +379,25 @@ const api = {
     destFolder: string
   ): Promise<'ok' | 'encrypted' | 'failed'> =>
     ipcRenderer.invoke('archive:move-members', zip, entries, destFolder),
-  /** Extract members OUT to a real folder, keeping the shape under a folder. */
+  /** Extract members OUT to a real folder, keeping the shape under a folder.
+   *  The extraction window (#166) is main's to open; `asksPassword` says this
+   *  caller will ask for a password and try again, so a `password` ending
+   *  closes the window rather than becoming its error. 'cancelled' is the
+   *  window's Cancel, and 'busy' is a second extraction while one is up. */
   archiveExtractTo: (
     zip: string,
     entries: string[],
     destDir: string,
-    password?: string
+    password?: string,
+    asksPassword = false
   ): Promise<
-    { ok: true; written: number } | { ok: false; reason: 'password' | 'aes' | 'failed' }
-  > => ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password),
+    | { ok: true; written: number }
+    | {
+        ok: false
+        reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
+        message?: string
+      }
+  > => ipcRenderer.invoke('archive:extract-to', zip, entries, destDir, password, asksPassword),
 
   /** Members out to a folder the user picks in main's dialog (the consent
    *  that lets it write outside every root). 'cancelled' is the dialog. */
@@ -396,7 +407,11 @@ const api = {
     password?: string
   ): Promise<
     | { ok: true; dest: string; written: number }
-    | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed' }
+    | {
+        ok: false
+        reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
+        message?: string
+      }
   > => ipcRenderer.invoke('archive:extract-members-picked', zip, entries, password),
 
   /** The system's own icon for this file's type (the user's association),
@@ -431,7 +446,11 @@ const api = {
     here = false
   ): Promise<
     | { ok: true; dest: string }
-    | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed'; message?: string }
+    | {
+        ok: false
+        reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
+        message?: string
+      }
   > => ipcRenderer.invoke('archive:extract-all', path, here),
   /** A FOLDER inside the archive, extracted whole to a temp copy, shape
    *  intact - so copying a folder gives you the folder and not a flat pile
@@ -442,7 +461,11 @@ const api = {
     here = false
   ): Promise<
     | { ok: true; path: string }
-    | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+    | {
+        ok: false
+        reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
+        message?: string
+      }
   > => ipcRenderer.invoke('archive:extract-dir', path, entry, here),
   /** Extract one member to temp for viewing. 'password' means one is needed
    *  or the given one is wrong; 'aes' encryption cannot be opened at all. */
@@ -498,14 +521,23 @@ const api = {
     ipcRenderer.on('dir:changed', listener)
     return () => ipcRenderer.removeListener('dir:changed', listener)
   },
-  /** How far an archive extraction has got, 0-100. Only the 7-Zip path
-   *  reports: the adm-zip one is capped at 600MB and finishes too fast to
-   *  be worth a bar. */
-  onArchiveProgress: (cb: (m: { path: string; pct: number }) => void): (() => void) => {
-    const listener = (_: unknown, m: { path: string; pct: number }): void => cb(m)
-    ipcRenderer.on('archive:progress', listener)
-    return () => ipcRenderer.removeListener('archive:progress', listener)
+  /**
+   * THE EXTRACTION WINDOW'S ONE CHANNEL (2026-09-19, #166): an extraction
+   * started, how far it has got, how it ended. Every route that writes
+   * extracted files to a folder the user can see speaks on it, both engines
+   * alike, so there is one listener and one window. It replaces
+   * `onArchiveProgress`, which only the 7-Zip path of two of the five routes
+   * ever fed.
+   */
+  onExtractEvent: (cb: (e: ExtractEvent) => void): (() => void) => {
+    const listener = (_: unknown, e: ExtractEvent): void => cb(e)
+    ipcRenderer.on('extract:event', listener)
+    return () => ipcRenderer.removeListener('extract:event', listener)
   },
+  /** The window's Cancel. Resolves once main has stopped the work, waited
+   *  for the process to be gone and removed what was half written; false
+   *  when the job had already finished. */
+  extractCancel: (id: string): Promise<boolean> => ipcRenderer.invoke('extract:cancel', id),
   /** A followed file grew (or was truncated, which is `reset`). */
   onFileAppended: (cb: (e: TailEvent) => void): (() => void) => {
     const listener = (_: unknown, e: TailEvent): void => cb(e)

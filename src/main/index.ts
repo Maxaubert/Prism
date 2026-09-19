@@ -100,6 +100,7 @@ import {
   isSevenArchive,
   listSeven
 } from './sevenZip'
+import { ExtractJobs, Made, pruneEmpty, type ExtractJob } from './extractJob'
 import { convertDoc, docKind } from './docConvert'
 import { findFluid, isMidi, renderMidi } from './midi'
 import { createShellVerbSetting } from './shellVerbSetting'
@@ -2792,17 +2793,114 @@ if (!app.requestSingleInstanceLock()) {
         return moveMembers(zip, entries, typeof destFolder === 'string' ? destFolder : '')
       }
     )
-    ipcMain.handle(
-      'archive:extract-to',
-      (_e, zip: string, entries: string[], destDir: string, password?: string) => {
-        if (!archiveOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
-          return { ok: false, reason: 'failed' }
-        const pw = typeof password === 'string' ? password : ''
+    /**
+     * THE ONE EXTRACTION WINDOW (2026-09-19, #166).
+     *
+     * Owner: "When you extract something, the progress bar works differently
+     * based on like how you extracted ... I would like it to just be one kind
+     * of view that appears, and I want it to be a pop-up window that you
+     * can't close, kind of like it is with WinRAR." Asked the same day: it
+     * gets a Cancel button, which stops the extraction and cleans up what was
+     * half written.
+     *
+     * Every route below that writes extracted files to a folder the user can
+     * see opens a JOB, and the job is what talks to the window: one channel,
+     * whatever the engine and whatever the landing rule. The routes that
+     * extract to temp so a member can be VIEWED or put on the clipboard open
+     * none and stay silent, as they always were.
+     */
+    const extractJobs = new ExtractJobs((e) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('extract:event', e)
+    })
+    ipcMain.handle('extract:cancel', (_e, id: string) =>
+      typeof id === 'string' ? extractJobs.cancel(id) : false
+    )
+    // No orphaned 7-Zip left writing into somebody's folder after the app
+    // has gone.
+    app.on('will-quit', () => extractJobs.killAll())
+    /** The second job while one is up. The modal makes it unreachable from
+     *  the UI; refused here too, so the rule is not the renderer's to keep. */
+    const BUSY = { ok: false as const, reason: 'busy' as const }
+    /**
+     * A request main will not even start (the wall, a path that is not an
+     * archive) is still a failure SOMEBODY has to show, and since #166 the
+     * callers show none of their own: the window is where an extraction's
+     * error lives. So a refusal opens the window straight into its error,
+     * and the five routes keep one way of saying no.
+     */
+    const refused = (zip: unknown, dest: unknown): { ok: false; reason: 'failed' } => {
+      extractJobs
+        .begin({
+          archive: typeof zip === 'string' ? basename(zip) : 'archive',
+          dest: typeof dest === 'string' ? dest : ''
+        })
+        ?.end('failed', 'failed')
+      return { ok: false, reason: 'failed' }
+    }
+    /** What the engines hand a job: its progress, its child, its question. */
+    const watching = (
+      job: ExtractJob
+    ): {
+      onProgress: (pct: number | null, file: string | null) => void
+      onChild: (child: import('child_process').ChildProcess) => void
+      cancelled: () => boolean
+    } => ({
+      onProgress: (pct, file) => job.progress(pct, file),
+      onChild: (child) => job.attach(child),
+      cancelled: () => job.cancelled
+    })
+
+    /** Members out to `destDir`, as a job. Both engines take back what they
+     *  made when cancelled, so there is nothing left for this to remove. */
+    async function membersOut(
+      zip: string,
+      entries: string[],
+      destDir: string,
+      pw: string,
+      asksPassword: boolean
+    ): Promise<
+      | { ok: true; written: number }
+      | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'; message?: string }
+    > {
+      const job = extractJobs.begin({ archive: basename(zip), dest: destDir, asksPassword })
+      if (!job) return BUSY
+      try {
         // A .7z/.rar/.iso is not a zip: adm-zip cannot read one, so dragging a
         // member out of one always failed (2026-08-28).
         const exe = seven(zip)
-        if (exe) return extractSevenTo(exe, zip, entries, destDir, pw)
-        return extractTo(zip, entries, destDir, pw || undefined)
+        const out = exe
+          ? await extractSevenTo(exe, zip, entries, destDir, pw, watching(job))
+          : await extractTo(zip, entries, destDir, pw || undefined, watching(job))
+        if (out.ok) job.end('done')
+        else if (out.reason === 'cancelled') job.end('cancelled')
+        else
+          job.end(
+            'failed',
+            out.reason,
+            // 7-Zip's own line; the in-process engine has none to give.
+            'message' in out && typeof out.message === 'string' ? out.message : undefined
+          )
+        return out
+      } catch {
+        job.end('failed', 'failed')
+        return { ok: false, reason: 'failed' }
+      }
+    }
+
+    ipcMain.handle(
+      'archive:extract-to',
+      (
+        _e,
+        zip: string,
+        entries: string[],
+        destDir: string,
+        password?: string,
+        asksPassword?: boolean
+      ) => {
+        if (!archiveOk(zip) || !Array.isArray(entries) || !insideDesktop(destDir))
+          return refused(zip, destDir)
+        const pw = typeof password === 'string' ? password : ''
+        return membersOut(zip, entries, destDir, pw, !!asksPassword)
       }
     )
 
@@ -2810,20 +2908,21 @@ if (!app.requestSingleInstanceLock()) {
      * Members OUT to a folder the user PICKS (2026-09-03, owner: "Extract
      * to..." on a member row). Main's dialog is the consent, exactly as
      * extract-all's is, which is why the destination is not bound by the
-     * root wall; everything else is the extract-to above.
+     * root wall; everything else is the extract-to above. The job opens
+     * AFTER the dialog is answered: the window is for the work, not for the
+     * question.
      */
     ipcMain.handle(
       'archive:extract-members-picked',
       async (_e, zip: string, entries: string[], password?: string) => {
-        if (!archiveOk(zip) || !Array.isArray(entries)) return { ok: false, reason: 'failed' }
+        if (!archiveOk(zip) || !Array.isArray(entries)) return refused(zip, '')
         const r = await openDialog({ properties: ['openDirectory', 'createDirectory'] })
         if (r.canceled || !r.filePaths.length) return { ok: false, reason: 'cancelled' }
         const destDir = r.filePaths[0]
         const pw = typeof password === 'string' ? password : ''
-        const exe = seven(zip)
-        const out = exe
-          ? await extractSevenTo(exe, zip, entries, destDir, pw)
-          : await extractTo(zip, entries, destDir, pw || undefined)
+        // The archive panel is the only caller, and it asks for a password
+        // and tries again.
+        const out = await membersOut(zip, entries, destDir, pw, true)
         return out.ok ? { ok: true, dest: destDir, written: out.written } : out
       }
     )
@@ -2956,34 +3055,28 @@ if (!app.requestSingleInstanceLock()) {
     /** Extract the whole archive into `into`, which must already exist. */
     async function extractWhole(
       p: string,
-      into: string
+      into: string,
+      job: ExtractJob
     ): Promise<
-      { ok: true } | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+      | { ok: true }
+      | { ok: false; reason: 'password' | 'aes' | 'failed' | 'cancelled'; message?: string }
     > {
       const pw = archivePasswords.get(p) ?? ''
       const exe = seven(p)
       if (exe) {
-        // 7-Zip's own percentage, forwarded to the panel: a 2GB archive takes
-        // minutes, and a button reading "Extracting..." for minutes is
+        // 7-Zip's own percentage, forwarded to the window: a 2GB archive takes
+        // minutes, and a window that says nothing for minutes is
         // indistinguishable from one that has hung.
-        // How many members there are, so the file-count fallback has
-        // something to be a fraction OF. One extra 7z listing, measured at
-        // 88ms on a 1.9GB archive - nothing against the minutes that follow.
+        // How many entries there are, so the file-count fallback has
+        // something to be a fraction OF. Folders included, because `-bb1`
+        // logs a line for each of those as well. One extra 7z listing,
+        // measured at 88ms on a 1.9GB archive - nothing against the minutes
+        // that follow.
         const listed = await listSeven(exe, p, pw)
-        const total = listed.ok ? listed.entries.filter((e) => !e.dir).length : 0
-        let last = -1
-        const s7 = await extractAllSeven(
-          exe,
-          p,
-          into,
-          pw,
-          (pct) => {
-            if (pct === last) return
-            last = pct
-            mainWindow?.webContents.send('archive:progress', { path: p, pct })
-          },
-          total
-        )
+        const total = listed.ok ? listed.entries.length : 0
+        const s7 = await extractAllSeven(exe, p, into, pw, { ...watching(job), total })
+        // A killed 7-Zip and a failed one look the same from here.
+        if (job.cancelled) return { ok: false, reason: 'cancelled' }
         return s7.ok ? { ok: true } : { ok: false, reason: s7.reason, message: s7.message }
       }
       // Every top-level entry: extractTo matches members by prefix, and the
@@ -2991,7 +3084,7 @@ if (!app.requestSingleInstanceLock()) {
       const tops = listArchive(p)
         .filter((e) => !e.path.includes('/'))
         .map((e) => e.path)
-      const out = await extractTo(p, tops, into, pw || undefined)
+      const out = await extractTo(p, tops, into, pw || undefined, watching(job))
       return out.ok ? { ok: true } : { ok: false, reason: out.reason }
     }
 
@@ -3105,9 +3198,13 @@ if (!app.requestSingleInstanceLock()) {
         here?: boolean
       ): Promise<
         | { ok: true; dest: string }
-        | { ok: false; reason: 'cancelled' | 'password' | 'aes' | 'failed'; message?: string }
+        | {
+            ok: false
+            reason: 'cancelled' | 'password' | 'aes' | 'failed' | 'busy'
+            message?: string
+          }
       > => {
-        if (!archiveOk(p)) return { ok: false, reason: 'failed' }
+        if (!archiveOk(p)) return refused(p, '')
         let parent = dirname(p)
         if (!here) {
           // The dialog IS the consent: it is why the destination does not have
@@ -3122,12 +3219,41 @@ if (!app.requestSingleInstanceLock()) {
           parent = r.filePaths[0]
         }
         const dest = landingDir(p, parent)
+        // The landing folder is what a Cancel removes WHOLE, so it has to be
+        // one this job made. `landingDir` gives up after "name (99)", and
+        // extracting into a folder that was already there would make the
+        // clean-up a delete of somebody's files.
+        if (existsSync(dest)) return refused(p, parent)
+        // Opened AFTER the dialog: the window is for the work, not for the
+        // question. It names the folder that was chosen, which is where the
+        // result lands whether or not the one-folder rule unwraps it.
+        const job = extractJobs.begin({ archive: basename(p), dest: parent })
+        if (!job) return BUSY
+        const made = new Made()
         try {
           mkdirSync(dest, { recursive: true })
-          const out = await extractWhole(p, dest)
-          if (!out.ok) return out
-          return { ok: true, dest: await unwrapSingleFolder(dest, parent) }
+          made.tree(dest)
+          const out = await extractWhole(p, dest, job)
+          if (!out.ok) {
+            if (out.reason === 'cancelled') {
+              // 7-Zip has closed by now (its promise resolves on `close`), so
+              // nothing is still holding what is about to be removed.
+              await made.undo()
+              job.end('cancelled')
+              return out
+            }
+            // A FAILURE keeps what came out, as it always has: those files
+            // are good. Only a landing folder with nothing in it goes, which
+            // is what a wrong password used to leave behind.
+            await pruneEmpty(dest)
+            job.end('failed', out.reason, out.message)
+            return out
+          }
+          const landed = await unwrapSingleFolder(dest, parent)
+          job.end('done')
+          return { ok: true, dest: landed }
         } catch {
+          job.end('failed', 'failed')
           return { ok: false, reason: 'failed' }
         }
       }
@@ -3150,10 +3276,28 @@ if (!app.requestSingleInstanceLock()) {
         here?: boolean
       ): Promise<
         | { ok: true; path: string }
-        | { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string }
+        | {
+            ok: false
+            reason: 'password' | 'aes' | 'failed' | 'cancelled' | 'busy'
+            message?: string
+          }
       > => {
         if (!archiveOk(p) || typeof entry !== 'string' || !entry) {
-          return { ok: false, reason: 'failed' }
+          return here ? refused(p, '') : { ok: false, reason: 'failed' }
+        }
+        // `here` writes beside the archive, where the user can see it, so it
+        // is a job with the window (#166). The temp copy that "Copy folder"
+        // puts on the clipboard is not, and stays silent.
+        const job = here ? extractJobs.begin({ archive: basename(p), dest: dirname(p) }) : null
+        if (here && !job) return BUSY
+        const made = new Made()
+        /** Say how it ended, to the window and to the caller, in one place. */
+        const fail = (
+          reason: 'password' | 'aes' | 'failed',
+          message?: string
+        ): { ok: false; reason: 'password' | 'aes' | 'failed'; message?: string } => {
+          job?.end('failed', reason, message)
+          return { ok: false, reason, ...(message ? { message } : {}) }
         }
         try {
           const clean = entry.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
@@ -3176,33 +3320,72 @@ if (!app.requestSingleInstanceLock()) {
           const dir = here
             ? mkdtempSync(join(dirname(p), '.prism-extract-'))
             : mkdtempSync(join(tmpdir(), 'prism-arcdir-'))
+          // The staging folder is this call's own, whole: it is what a
+          // Cancel removes, and nothing else is.
+          if (here) made.tree(dir)
           const pw = archivePasswords.get(p) ?? ''
           const exe = seven(p)
-          let made = join(dir, name)
+          let out1 = join(dir, name)
           if (exe) {
             // ONE 7-Zip call for the whole subtree. The member-at-a-time
             // route spawns a process per file, each re-opening the container:
             // measured on a 2GB zip, a 25-file folder came out in 0.41s as
             // one call, and the folder next to it holds 561 files. That is
             // what "Extract folder here" was failing on.
-            let last = -1
-            const s7 = await extractSevenSubtree(exe, p, clean, dir, pw, (pct) => {
-              if (pct === last) return
-              last = pct
-              mainWindow?.webContents.send('archive:progress', { path: p, pct })
-            })
-            if (!s7.ok) return { ok: false, reason: s7.reason, message: s7.message }
+            let total = 0
+            if (job) {
+              // What the folder holds, so a count of files is a fraction of
+              // something when 7-Zip prints no percentage.
+              const listed = await listSeven(exe, p, pw)
+              if (listed.ok)
+                total = listed.entries.filter(
+                  (e) => e.path === clean || e.path.startsWith(clean + '/')
+                ).length
+            }
+            const s7 = await extractSevenSubtree(
+              exe,
+              p,
+              clean,
+              dir,
+              pw,
+              job ? { ...watching(job), total } : undefined
+            )
+            if (job?.cancelled) {
+              await made.undo()
+              job.end('cancelled')
+              return { ok: false, reason: 'cancelled' }
+            }
+            if (!s7.ok) {
+              await made.undo()
+              return fail(s7.reason, s7.message)
+            }
             // 7-Zip keeps the full path under -o, so the folder is as deep as
             // its name was.
-            made = join(dir, ...clean.split('/'))
+            out1 = join(dir, ...clean.split('/'))
           } else {
-            const out = await extractTo(p, [clean], dir, pw || undefined)
-            if (!out.ok) return { ok: false, reason: out.reason }
+            const out = await extractTo(
+              p,
+              [clean],
+              dir,
+              pw || undefined,
+              job ? watching(job) : undefined
+            )
+            if (!out.ok) {
+              await made.undo()
+              if (out.reason === 'cancelled') {
+                job?.end('cancelled')
+                return { ok: false, reason: 'cancelled' }
+              }
+              return fail(out.reason)
+            }
           }
-          if (!existsSync(made)) return { ok: false, reason: 'failed' }
+          if (!existsSync(out1)) {
+            await made.undo()
+            return fail('failed')
+          }
           if (!here) {
-            extractedPaths.add(made)
-            return { ok: true, path: made }
+            extractedPaths.add(out1)
+            return { ok: true, path: out1 }
           }
           // `here` lands it beside the archive, which is inside a root, so it
           // needs no dialog to consent to. Extracted to staging first and
@@ -3213,18 +3396,23 @@ if (!app.requestSingleInstanceLock()) {
           for (let n = 2; existsSync(out2) && n < 100; n += 1) out2 = join(parent, `${name} (${n})`)
           const fs = await import('fs/promises')
           try {
-            await fs.rename(made, out2)
+            await fs.rename(out1, out2)
           } catch (e) {
             // Belt and braces: if the stage ever does end up on another
             // volume, copy across rather than answering "failed" for work
             // that has already been done.
             if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
-            await fs.cp(made, out2, { recursive: true })
+            await fs.cp(out1, out2, { recursive: true })
           }
           await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+          job?.end('done')
           return { ok: true, path: out2 }
         } catch {
-          return { ok: false, reason: 'failed' }
+          // The staging folder goes whatever went wrong: it has a dot name
+          // the tree never shows, so left behind it is clutter nobody can
+          // see to remove.
+          await made.undo()
+          return fail('failed')
         }
       }
     )
