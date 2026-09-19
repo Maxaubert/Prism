@@ -26,7 +26,14 @@ import { copyFile, readFile, rm, stat, writeFile } from 'fs/promises'
 import { networkInterfaces, tmpdir } from 'os'
 import { execFile, spawn } from 'child_process'
 import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
-import { hwndOf, setBorder, setCornersRounded, stopDwmHelper, warmDwmHelper } from './dwmHelper'
+import {
+  borderColourForWindow,
+  hwndOf,
+  setBorder,
+  setCornersRounded,
+  stopDwmHelper,
+  warmDwmHelper
+} from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
 import { createWinEShortcut } from './winEShortcut'
@@ -952,8 +959,9 @@ function applyMaterial(fullscreen: boolean): void {
   // Chromium rewrites DWM window attributes when the backdrop changes, which
   // silently restores the 1px border this app strips (measured: the strip at
   // ready-to-show read back as default once the theme handshake had run). So
-  // the strip rides behind every material application, debounced past the
-  // rewrite.
+  // Remove it immediately as well as after the rewrite. Waiting for the
+  // debounce alone leaves a visible edge during the fullscreen fade.
+  applyDwmBorder()
   if (borderStrip) clearTimeout(borderStrip)
   borderStrip = setTimeout(() => {
     borderStrip = null
@@ -1132,8 +1140,15 @@ function applyDwmBorder(): void {
   if (!win) return
   try {
     const hwnd = hwndOf(win.getNativeWindowHandle())
-    const visible = !win.isMaximized() && !isFs()
-    setBorder(hwnd, visible ? (wantedMaterial.light ? '#c9ccd3' : '#34373d') : 'none')
+    setBorder(
+      hwnd,
+      borderColourForWindow({
+        maximized: win.isMaximized(),
+        fullscreen: isFs(),
+        transitioning: fsTransition,
+        light: !!wantedMaterial.light
+      })
+    )
   } catch {
     /* cosmetic */
   }
@@ -3307,6 +3322,10 @@ if (!app.requestSingleInstanceLock()) {
           fsShroud = new BrowserWindow({
             show: false,
             frame: false,
+            // Keep Electron's default thick frame. Disabling it on this
+            // opacity-animated cover switches Chromium to software compositing
+            // and stalls hardware-decoded HEVC. Strip the visible edge via DWM.
+            roundedCorners: false,
             backgroundColor: '#000000',
             skipTaskbar: true,
             focusable: false,
@@ -3320,6 +3339,9 @@ if (!app.requestSingleInstanceLock()) {
           fsShroud.setMenu(null)
         }
         const shroud = fsShroud
+        // The fading cover is itself a native window. Its frame must never
+        // outline the display while the main window changes maximize state.
+        setBorder(hwndOf(shroud.getNativeWindowHandle()), 'none')
         if (!shroud.isVisible()) shroud.setOpacity(0)
         shroud.setBounds(screen.getDisplayMatching(win.getBounds()).bounds)
         shroud.setAlwaysOnTop(true, 'screen-saver')

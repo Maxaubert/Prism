@@ -745,11 +745,11 @@ test('Explorer stays pinned, new tabs browse immediately, and places and path co
     await row(page, 'notes.txt').dblclick()
     await expect(page.getByTestId('folder-browser')).toHaveCount(0)
     const locations = page.getByRole('complementary', { name: 'Locations', exact: true })
-    await expect(locations).toBeVisible()
-    await shot(page, info, 'explorer-viewer-places.png', h.app)
+    await expect(locations).toHaveCount(0)
+    await shot(page, info, 'explorer-viewer-without-places.png', h.app)
     await page.keyboard.press('Control+b')
     await expect(locations).toHaveCount(0)
-    await page.keyboard.press('Control+b')
+    await returnToFolder(page)
     await expect(locations).toBeVisible()
     const homePlace = locations.getByRole('button', { name: 'Home', exact: true })
     const homePath = await homePlace.getAttribute('title')
@@ -973,7 +973,7 @@ test('Quick access supports empty defaults, file and folder pins, reordering and
       return contents.getZoomFactor()
     })
     await expect(page.getByTestId('browse-toolbar').locator('.browse-file-crumb')).toBeInViewport()
-    await expect(quick.getByRole('button', { name: 'notes.txt', exact: true })).toBeInViewport()
+    await expect(quick).toHaveCount(0)
     await page.getByRole('button', { name: 'Edit folder path', exact: true }).hover()
     await shot(page, info, 'path-bar-quick-access-zoom200.png', app)
   } finally {
@@ -1685,6 +1685,7 @@ test('missing file pins recover on a valid choice and late failures stay out of 
     await expect(page.getByTestId('folder-browser')).toHaveCount(0)
     const missing = join(h.project, 'entry-000.txt')
     unlinkSync(missing)
+    await returnToFolder(page)
     await quick.getByRole('button', { name: 'entry-000.txt', exact: true }).click()
     const errorText = 'This file cannot be opened. It may have moved or been deleted.'
     await expect(page.getByText(errorText, { exact: true })).toBeVisible()
@@ -1693,6 +1694,7 @@ test('missing file pins recover on a valid choice and late failures stay out of 
     await expect(page.getByText(errorText, { exact: true })).toHaveCount(0)
     await expect(page.getByRole('textbox').filter({ hasText: 'Original notes' })).toBeVisible()
 
+    await returnToFolder(page)
     await app.evaluate(({ ipcMain }, target) => {
       type Handler = (...args: unknown[]) => unknown
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })
@@ -2378,6 +2380,18 @@ test('preview uses one player and dirty text survives folder browsing and tab ch
     await expect(page.getByTestId('folder-browser')).toBeVisible()
     await page.getByRole('button', { name: 'Open full view', exact: true }).click()
     await expect(page.getByTestId('folder-browser')).not.toBeVisible()
+    await expect(page.locator('.browse-places')).toHaveCount(0)
+    await expect(page.getByRole('separator', { name: 'Resize Quick access', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Toggle file tree', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('navigation', { name: 'Folder path', exact: true })).toBeVisible()
+    const fullViewer = await page.locator('[data-workspace-viewer]').boundingBox()
+    const workspace = await page.locator('.browse-workspace').boundingBox()
+    expect(fullViewer!.x).toBeCloseTo(workspace!.x, 0)
+    expect(fullViewer!.width).toBeCloseTo(workspace!.width, 0)
+    const placesPreference = await page.evaluate(() => localStorage.getItem('prism.explorer.places'))
+    await page.keyboard.press('Control+b')
+    expect(await page.evaluate(() => localStorage.getItem('prism.explorer.places'))).toBe(placesPreference)
+    await shot(page, info, 'explorer-full-video-without-sidebar.png', h.app)
     expect(
       await player!.evaluate(
         (video) => video.isConnected && video === document.querySelector('video')
@@ -2878,13 +2892,14 @@ test('Explorer section widths drag and persist with slim usable scrollbars at no
     await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
     await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
 
-    // The same locations width applies while a file occupies the full main area.
+    // Full file view hides places; returning restores the saved section widths.
     await page.getByRole('button', { name: 'Open full view', exact: true }).click()
-    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
+    await expect(places()).toHaveCount(0)
     await expect(
       page.getByRole('separator', { name: 'Resize Quick access', exact: true })
-    ).toBeVisible()
+    ).toHaveCount(0)
     await returnToFolder(page)
+    await expect.poll(() => width(places())).toBeCloseTo(afterDrag.places, 0)
     await expect.poll(() => width(viewer())).toBeCloseTo(afterDrag.preview, 0)
     await expect
       .poll(() => savedTabs(join(h.profile, 'tabs.json'))?.tabs[1]?.browse?.preview)
@@ -4314,7 +4329,7 @@ test('Explorer hides title filenames while a collapsed project still names its f
     await row(page, 'readme.txt').dblclick()
     await expect(page.getByTestId('folder-browser')).toHaveCount(0)
     await expect(title).toHaveText('')
-    await page.getByRole('button', { name: 'Toggle file tree', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Toggle file tree', exact: true })).toHaveCount(0)
     await expect(title).toHaveText('')
     await returnToFolder(page)
     await go(page, h.home)
