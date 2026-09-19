@@ -67,7 +67,7 @@ import { humanFor, noteWorking, workingFor } from 'prism-term-core/renderer/lib/
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
 // same lazy boundary, so xterm stays out of the launch bundle.
-const TerminalPanelLazy = lazy(() => import('./components/TerminalPanel'))
+const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
 import { ContextMenu } from './components/ContextMenu'
 import { FileMenuIcon } from './components/FileMenuIcon'
 import { tickIf, fileVerbs } from './lib/fileVerbs'
@@ -92,7 +92,7 @@ import {
 import { BrowseRename } from './components/browse/BrowseRename'
 import { PropertiesDialog } from './components/PropertiesDialog'
 import './components/browse/workspace.css'
-import { focusTermSession } from './components/TerminalPanel'
+import { focusTermSession } from 'prism-term-core/renderer/components/TerminalPanel'
 import { sortFiles, useSort } from './lib/sortPrefs'
 import { useTreeSide } from './lib/treePrefs'
 import { VideoView } from './components/VideoView'
@@ -175,7 +175,7 @@ const nextTermId = (): string => `term-${(termSeq += 1)}`
 /** The renderer half of ending a shell. Lazy: if a session exists, the chunk
  *  that owns the store is already loaded, so this import is always a cache hit. */
 const disposeSession = (id: string): void => {
-  void import('./components/TerminalPanel').then((m) => m.disposeTermSession(id))
+  void import('prism-term-core/renderer/components/TerminalPanel').then((m) => m.disposeTermSession(id))
 }
 
 // Phase 0/1 shell: a dark frameless window that opens a file (launch arg, drag,
@@ -1200,7 +1200,7 @@ export default function App(): JSX.Element {
           // session spawns NOW, tab in front or not - every tab's conversation
           // resumes at launch, not when its tab is first visited.
           if (p.agentResume) markResume(termId, p.agentResume)
-          void import('./components/TerminalPanel').then((m) =>
+          void import('prism-term-core/renderer/components/TerminalPanel').then((m) =>
             m.ensureTermSession(termId, spawnAt, savedShellId())
           )
           tabs = setTabTerm(tabs, target.id, { id: termId, view: p.term })
@@ -1259,7 +1259,7 @@ export default function App(): JSX.Element {
     return () => clearTimeout(t)
   }, [active])
   useEffect(() => {
-    const t = setTimeout(() => void import('./components/TerminalPanel'), 4000)
+    const t = setTimeout(() => void import('prism-term-core/renderer/components/TerminalPanel'), 4000)
     return () => clearTimeout(t)
   }, [])
 

@@ -8,10 +8,10 @@ import { tickIf } from '../lib/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
 // No xterm imports here - the heavy chunk stays behind the lazy boundary.
-const TerminalPanel = lazy(() => import('./TerminalPanel'))
+const TerminalPanel = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
 // Same chunk as the panel, so the find bar's import of the session store
 // costs the launch bundle nothing.
-const TermFind = lazy(() => import('./TermFind'))
+const TermFind = lazy(() => import('prism-term-core/renderer/components/TermFind'))
 
 // Under a "Split view position" parent (owner, 2026-09-03: a submenu, so the
 // menu does not bloat), so the labels are bare edges.
