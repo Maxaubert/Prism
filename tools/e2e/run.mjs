@@ -240,6 +240,23 @@ async function launch(file, keepTabs = false) {
   throw last
 }
 
+/**
+ * Is there a real `claude` CLI on this machine? The terminal scenario starts one
+ * to prove the PROCESS POLL finds an agent in a shell's tree. A CI runner has
+ * none (#164), and waiting sixty seconds for a program that is not installed is
+ * a failure of the wait, not of the terminal. Where it is missing that section
+ * is skipped, loudly; the agent's TITLE path, which needs no CLI, is proved by
+ * `agentTitle` everywhere.
+ */
+const HAS_CLAUDE = (() => {
+  try {
+    execFileSync('where.exe', ['claude'], { stdio: 'ignore', windowsHide: true })
+    return true
+  } catch {
+    return false
+  }
+})()
+
 /** Extra environment for the NEXT launches; a scenario sets it and clears it. */
 let EXTRA_ENV = {}
 
@@ -3307,8 +3324,20 @@ async function tabsScenario(fixtures) {
     await win.locator(`${strip} [aria-label="New tab"]`).click()
     await sleep(700)
     ok((await tabRows().count()) === 2, 'the + spawns a tab without a dialog')
-    const home = (await tabRows().last().getAttribute('title')) ?? ''
-    ok(/Users/i.test(home), `and roots it at the user folder (said: "${home}")`)
+    // Rooted where "New tabs open in" says. The profile is SEEDED with the
+    // fixtures folder (seedProfile: so the bundled index never scans a real
+    // home), so that is the folder to expect. This used to assert /Users/ and
+    // call it "the user folder", which passed on the owner's machine only
+    // because the repo lives under C:\Users; on a CI runner (D:\a\...) the same
+    // correct behaviour failed (#164). Waited for, not slept for: the tab exists
+    // at once and its folder is resolved a moment later.
+    const seeded = join(ROOT, '.e2e', 'fixtures').toLowerCase()
+    let where = ''
+    for (let i = 0; i < 40 && where.toLowerCase() !== seeded; i += 1) {
+      where = (await tabRows().last().getAttribute('title')) ?? ''
+      if (where.toLowerCase() !== seeded) await sleep(250)
+    }
+    ok(where.toLowerCase() === seeded, `and roots it at the folder "New tabs open in" names (said: "${where}")`)
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
@@ -4204,45 +4233,48 @@ async function terminalScenario(fixtures) {
       'even sustained streaming lights nothing without an agent'
     )
 
-    // A real agent: claude starts, the poll finds it in the shell's process
-    // tree, a dot appears; leaving claude retires it. Nothing is submitted.
-    await win.keyboard.type('claude')
-    await win.keyboard.press('Enter')
-    // Detection is invisible while idle now: presence is a data attribute,
-    // and the tab PAINTS only while the agent genuinely works.
-    // Sixty seconds, not thirty: this waits for a REAL claude CLI to start,
-    // and on a busy machine thirty is not always enough - which reads as a
-    // failure of the indicator rather than of the wait.
-    await win.waitForSelector('[data-agent-present]', { timeout: 60000 })
-    ok(true, 'claude in the shell is detected')
-    await sleep(1500)
-    ok(
-      (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
-      'and an idle claude leaves the tab looking default'
-    )
-    await win.keyboard.press('Escape')
-    await sleep(400)
-    // Exit can need more than one nudge (a double-Ctrl+C confirm, focus
-    // wobble); keep nudging until the process is genuinely gone.
-    let dotGone = false
-    for (let i = 0; i < 6 && !dotGone; i += 1) {
-      await win.locator('.xterm').click()
-      await win.keyboard.press('Control+c')
-      await sleep(500)
-      await win.keyboard.press('Control+c')
-      dotGone = await win
-        .waitForFunction(() => !document.querySelector('[data-agent-present]'), null, {
-          timeout: 7000
-        })
-        .then(() => true)
-        .catch(() => false)
-    }
-    if (!dotGone)
-      console.log(
-        '  TERM TAIL:',
-        JSON.stringify(((await win.locator('.xterm').textContent()) ?? '').slice(-400))
+    if (!HAS_CLAUDE) console.log('  skip  the real-CLI agent checks: no `claude` on this machine (a CI runner)')
+    else {
+      // A real agent: claude starts, the poll finds it in the shell's process
+      // tree, a dot appears; leaving claude retires it. Nothing is submitted.
+      await win.keyboard.type('claude')
+      await win.keyboard.press('Enter')
+      // Detection is invisible while idle now: presence is a data attribute,
+      // and the tab PAINTS only while the agent genuinely works.
+      // Sixty seconds, not thirty: this waits for a REAL claude CLI to start,
+      // and on a busy machine thirty is not always enough - which reads as a
+      // failure of the indicator rather than of the wait.
+      await win.waitForSelector('[data-agent-present]', { timeout: 60000 })
+      ok(true, 'claude in the shell is detected')
+      await sleep(1500)
+      ok(
+        (await win.evaluate(() => document.querySelectorAll('[data-activity="working"]').length)) === 0,
+        'and an idle claude leaves the tab looking default'
       )
-    ok(dotGone, 'claude leaving clears the detection')
+      await win.keyboard.press('Escape')
+      await sleep(400)
+      // Exit can need more than one nudge (a double-Ctrl+C confirm, focus
+      // wobble); keep nudging until the process is genuinely gone.
+      let dotGone = false
+      for (let i = 0; i < 6 && !dotGone; i += 1) {
+        await win.locator('.xterm').click()
+        await win.keyboard.press('Control+c')
+        await sleep(500)
+        await win.keyboard.press('Control+c')
+        dotGone = await win
+          .waitForFunction(() => !document.querySelector('[data-agent-present]'), null, {
+            timeout: 7000
+          })
+          .then(() => true)
+          .catch(() => false)
+      }
+      if (!dotGone)
+        console.log(
+          '  TERM TAIL:',
+          JSON.stringify(((await win.locator('.xterm').textContent()) ?? '').slice(-400))
+        )
+      ok(dotGone, 'claude leaving clears the detection')
+    }
 
     // The paste rule, text half: Ctrl+V with text on the clipboard pastes it.
     await app.evaluate(({ clipboard }) => clipboard.writeText('echo paste-marker'))
