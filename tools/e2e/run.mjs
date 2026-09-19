@@ -4494,7 +4494,22 @@ async function terminalScenario(fixtures) {
     await win.locator('[role="menuitem"]:has-text("Terminal 1")').last().click()
     await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 2, null, { timeout: 10000 })
     ok((await win.locator('[data-pane="pinned"] .xterm').count()) === 1, 'the original shell pins beside the new session')
-    ok((await win.locator('[data-pane="pinned"] .xterm').textContent())?.includes('separate-terminal-survives'), 'the original shell retains its scrollback')
+    // WAITED FOR, not read once. The pinned shell's xterm is re-attached into
+    // the pane and repaints its rows a frame or two later, so read at once its
+    // text is sometimes still empty. This was the suite's one intermittent
+    // failure from the day the terminal gate existed (it failed on untouched
+    // main too), and it BLOCKED the first automatic core bump (#165): a flaky
+    // check is a broken gate. Ten seconds is generous; scrollback that is really
+    // lost never comes back, so this still fails when it should.
+    const kept = await win
+      .waitForFunction(
+        () => (document.querySelector('[data-pane="pinned"] .xterm')?.textContent ?? '').includes('separate-terminal-survives'),
+        null,
+        { timeout: 10000 }
+      )
+      .then(() => true)
+      .catch(() => false)
+    ok(kept, 'the original shell retains its scrollback')
     ok((await win.locator('[data-pane="live"]').count()) === 0, 'the full terminal split has no file pane')
     await termBtn().click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })

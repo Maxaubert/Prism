@@ -1874,7 +1874,14 @@ Filesmith's conventions.
   (173 checks, about six minutes, real dictation included). That is what lets PrismTerminal's
   `core-release` workflow open a bump PR that proves itself. KEEP THE GATE RUNNER-SAFE: nothing in
   those scenarios may assume this machine (a real `claude` CLI is skipped where absent; no path may
-  be expected to sit under the Users folder).
+  be expected to sit under the Users folder). BUMPS MERGE THEMSELVES when every check is green (owner,
+  2026-09-19; PrismTerminal's `PRISM_AUTO_MERGE`), so THE GATE IS THE ONLY REVIEWER, and the
+  owner's rule for it is a ratchet: "if it ever creates a bug in only one app, we'll make a test
+  that it needs to pass, so the automation gets more and more secure over time." A bug that
+  reaches Prism through a core bump FIRST becomes a scenario here that fails on the broken build
+  (in `e2e:terminal`, runner-safe), THEN gets fixed. And a FLAKY check in the gate is a bug in the
+  gate: fix the race, never retry around it. The first automatic bump (#165) was held by exactly
+  one, a scrollback check that read a re-attached xterm before it repainted.
 - **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
   is synced and part of the core and should be the same in normal Prism, with dictation as its own
   tab there too"). Hold Right Alt over a SHOWING terminal, speak, release: the words are pasted at
