@@ -1,4 +1,5 @@
 import { WinEShortcutSetting } from './WinEShortcutSetting'
+import { DictationSettings } from 'prism-term-core/renderer/settings/Dictation'
 import { TerminalAppearanceSettings } from 'prism-term-core/renderer/settings/TerminalAppearance'
 import { AgentIndicatorSetting, ShellSetting } from 'prism-term-core/renderer/settings/TerminalBehaviour'
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
@@ -1336,7 +1337,7 @@ function ColourControls({
 
 /* ---------- tabs shell ---------- */
 
-type TabId = 'style' | 'general' | 'terminal' | 'player' | 'visualizer' | 'about'
+type TabId = 'style' | 'general' | 'terminal' | 'dictation' | 'player' | 'visualizer' | 'about'
 
 const Ico = ({ d }: { d: string }): JSX.Element => (
   <svg
@@ -1377,6 +1378,14 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
     title: 'Terminal',
     icon: <Ico d="M4 5h16v14H4zM7.5 9.5l3 2.5-3 2.5M13 15h4" />
   },
+  // The terminal's dictation (#162): a page of its own, as in Prism Terminal
+  // (owner, 2026-09-19), because a model manager does not fit under Terminal.
+  {
+    id: 'dictation',
+    label: 'Dictation',
+    title: 'Dictation',
+    icon: <Ico d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+  },
   {
     id: 'player',
     label: 'Progress bar',
@@ -1400,7 +1409,7 @@ const TABS: Array<{ id: TabId; label: string; title: string; icon: ReactNode }> 
 // The rail is grouped rather than one flat list: five entries split two ways
 // says more about where a setting lives than five in a row does.
 const RAIL_GROUPS: Array<{ name: string; tabs: TabId[] }> = [
-  { name: 'Behaviour', tabs: ['general', 'terminal'] },
+  { name: 'Behaviour', tabs: ['general', 'terminal', 'dictation'] },
   { name: 'Look', tabs: ['style', 'visualizer', 'player'] },
   { name: '', tabs: ['about'] }
 ]
@@ -1522,6 +1531,10 @@ export function Settings({
               <GeneralTab />
             ) : tab === 'terminal' ? (
               <TerminalTab />
+            ) : tab === 'dictation' ? (
+              // THE CORE'S PAGE, whole: the same settings Prism Terminal shows,
+              // with this app's own values (the model files are shared).
+              <DictationSettings />
             ) : tab === 'player' ? (
               <PlayerTab
                 transportStyle={transportStyle}

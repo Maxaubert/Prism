@@ -10,6 +10,7 @@ import type {
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import { createTermApi } from 'prism-term-core/preload/api'
+import { createDictationApi } from 'prism-term-core/preload/dictationApi'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
@@ -531,6 +532,8 @@ const api = {
   // main now (synchronously, as the key handler that asks has to be), which is
   // what lets the same bridge serve a sandboxed preload too.
   ...createTermApi(ipcRenderer),
+  // ...and dictation's (#162), the same way.
+  ...createDictationApi(ipcRenderer),
 
   // frameless window controls
   minimize: (): void => ipcRenderer.send('window:minimize'),

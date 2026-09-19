@@ -1,3 +1,4 @@
+import { DictationTabMark } from 'prism-term-core/renderer/components/DictationTabMark'
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
@@ -439,6 +440,7 @@ export function TabStrip({
               )}
             </span>
             )}
+            {t.term && <DictationTabMark sessionId={t.term.id} />}
             <button
               role="tab"
               aria-selected={on}
