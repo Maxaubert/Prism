@@ -547,7 +547,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   that key is how other terminals break image paste), copied files paste as quoted paths,
   text is bracketed paste, Shift+Enter sends the backslash-CR continuation, and a file
   dropped on the panel types its path instead of opening. Prism claims only Ctrl+\` and
-  F11 over a focused shell: Escape stays vim's, Ctrl+W stays delete-word.
+  F11 over a focused shell, plus the tab chords (Ctrl+T / W / B, Ctrl+Tab, Ctrl+1-9): Escape
+  stays vim's. **Ctrl+W closes a tab over a focused shell, in BOTH apps** (owner, 2026-09-19);
+  the shell loses delete-word on that chord, knowingly, and Ctrl+Backspace does the same job.
 - **Reaching the terminal, and leaving it alone** (2026-08-31). Ctrl+` is THREE-WAY,
   VS Code's rule: a terminal that is showing but does not have the keyboard gets the
   keyboard, and only a press from INSIDE it hides. The old two-way toggle meant that
@@ -578,7 +580,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   close question now NAMES what it interrupts:
   `lib/agentClock.ts` times how long an agent has been working, which `outputRuns`
   cannot - its `start` resets on a 1.5s silence, so it measures a burst, deliberately.
-  'Off' still means off: a confirmation that appears anyway is a setting that lies.
+  **THE CLOSE QUESTION IS ONE RULE, NOT A SETTING** (owner, 2026-09-19, #154: "remove the
+  setting but just have it on smart mode by default"). It is the core's `agentClose`, the same
+  in Prism Terminal: a plain shell closes unasked; a tab whose shell HOSTS an agent asks,
+  working or idle, in any of the tab's shells; the WINDOW is held only while one is mid-answer
+  (main mirrors `agentBusy` beside `editorDirty`, the renderer asks about unsaved text first
+  and the agent second, and an update install goes through the same question). The Agents /
+  Off setting and `lib/tabPrefs` went with it. Unsaved text still asks, always.
 - **The terminal and the sidebar stay in step** (2026-09-04, #99). The shell REPORTS its
   folder at every prompt, Windows Terminal's way: the pwsh bootstrap wraps whatever `prompt`
   the profile installed (oh-my-posh and starship survive) to print OSC 9;9 for the FileSystem
@@ -1840,12 +1848,28 @@ Filesmith's conventions.
   PrismTerminal's CI; Prism's gate on it is `tsc` and the terminal e2e scenarios. PRISM IS A HOST
   of the core: `src/renderer/src/termHost.ts` (imported FIRST by `main.tsx`, since App's module
   graph is evaluated before `main.tsx`'s body) declares every place Prism differs from Prism
-  Terminal, and each value there is what Prism already did: the terminal follows the app style,
-  acrylic on, the full orange indicator, the dock paints the ground, Prism's own chords. The
-  panel, find, `termLook`, `termTheme`, the agent poll, the resume lookup and the bridge to main
-  (`createTermApi` in the preload, `registerTermIpc` in main, which takes Prism's WALL as three
-  small answers) all come from the core. Still Prism's own, each waiting on an owner answer: the
-  agent indicator wiring in `App.tsx`, the Settings terminal tab and `TabStrip` (see #154).
+  Terminal. What differs is only what MUST: the terminal follows the app style by default
+  (styles exist only here), "acrylic" means letting the style's material show through and has no
+  opacity slider (the style owns the glass), and Prism's own chords. Everything else is the same
+  by owner decision (2026-09-19): the indicator is MINIMAL by default and its colours follow the
+  accent, the panel paints the ground (so the dock paints nothing behind it), and a theme pick
+  never resets Minimal / Full nor does a saved theme carry it. The panel, find, `termLook`,
+  `termTheme`, the agent poll, the resume lookup, the bridge to main (`createTermApi` in the
+  preload, `registerTermIpc` in main, which takes Prism's WALL as three small answers), the
+  indicator's rules (`useAgentIndicator`, which was lifted out of this App), its colours
+  (`useAgentColors`), the close rule (`agentClose`) and **the terminal's SETTINGS** all come from
+  the core. Settings > Terminal is the core's `ShellSetting`, `AgentIndicatorSetting` and
+  `TerminalAppearanceSettings` and nothing else: "the setting names, types, how they function"
+  are shared, the VALUES are this app's own. A terminal row written here instead of there is a
+  fork, and the e2e `termOptions` goes red on it (it compares the page with the core's
+  `settings/options.ts`, as Prism Terminal's `options` does).
+  **BUMPING THE PIN HAS ITS OWN GATE: `npm run e2e:terminal`** (owner, 2026-09-19: "we need to
+  run some automated tests that confirm that the terminal in Prism still works, since it has more
+  failure points due to its larger footprint"). It builds and runs every scenario the terminal
+  can break (terminal, termOptions, termCwd, agentTitle, handoffOverTerm, promptLayout, tabs, sort,
+  pinRecent; about four minutes) and is REQUIRED, green, in any PR that moves the `prism-term-core`
+  tag, before the usual full e2e. A core release is never pulled in unasked: the owner is asked
+  first (same decision).
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
   would also power Filesmith's previews, but it has not been extracted: `ImageView`,

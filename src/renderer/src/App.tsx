@@ -47,23 +47,24 @@ import {
   type DockEdge
 } from './lib/termDock'
 import { savedShellId } from 'prism-term-core/renderer/lib/termPrefs'
-import { confirmCloseMode } from './lib/tabPrefs'
+import {
+  AGENT_NAMES,
+  asksBeforeClosingTab,
+  closeQuestionTitle,
+  holdsWindowClose
+} from 'prism-term-core/renderer/lib/agentClose'
+import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from 'prism-term-core/renderer/lib/recentRoots'
 import {
-  activitySuppressed,
   idleAtPrompt,
-  inputEcho,
   isTouched,
-  markBorn,
   markResume,
-  startupOutput
 } from 'prism-term-core/renderer/lib/termActivity'
-import { onCwd, onTitle } from 'prism-term-core/renderer/lib/termBus'
-import { forgetAgentTitle, readAgentTitle } from 'prism-term-core/renderer/lib/agentTitle'
+import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
-import { humanFor, noteWorking, workingFor } from 'prism-term-core/renderer/lib/agentClock'
+import { humanFor, workingFor } from 'prism-term-core/renderer/lib/agentClock'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
 // same lazy boundary, so xterm stays out of the launch bundle.
@@ -194,19 +195,12 @@ const RAIL_KEY = 'prism.settings.rail'
 const SETUP_KEY = 'prism.onboarded'
 
 /** A question Prism has to put to the user before (or instead of) touching a file. */
-/** An agent that is mid-answer in the tab about to close: what it is, and
- *  how long it has been at it. Null when nothing is working. */
+/** The agent a close is about to end: what it is, and how long it has been
+ *  mid-answer. `forMs` is null when it is only present, waiting at its own
+ *  prompt - still a conversation the close ends. */
 interface AgentBusy {
   kind: 'claude' | 'codex' | 'other'
-  forMs: number
-}
-
-/** What to call it in the sentence. 'other' is anything main recognised as an
- *  agent without knowing which - it still deserves a question. */
-const AGENT_NAMES: Record<AgentBusy['kind'], string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  other: 'An agent'
+  forMs: number | null
 }
 
 type Ask =
@@ -222,7 +216,10 @@ type Ask =
   | { kind: 'close-tab'; id: string; names: readonly string[] }
   // The plain "sure?" for a clean tab, on by default and switchable in
   // Settings. Dirty tabs take the unsaved-changes question above instead.
-  | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy | null }
+  | { kind: 'close-tab-confirm'; id: string; label: string; agent: AgentBusy }
+  // The WINDOW, while an agent is mid-answer. `others` is how many more
+  // shells are working too; `then` carries an update install through.
+  | { kind: 'close-window-agent'; label: string; agent: AgentBusy; others: number; then?: 'install' }
   | { kind: 'file-changed'; path: string; name: string }
   // Pointing a tab at a different folder strands its unsaved text exactly as
   // closing it would, so it asks the same question and carries the payload it
@@ -898,6 +895,22 @@ export default function App(): JSX.Element {
   const [restoring, setRestoring] = useState(true)
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
+  /**
+   * WHICH SHELLS HOST AN AGENT, WHICH ARE MID-ANSWER, WHICH FINISHED BEHIND
+   * YOUR BACK: prism-term-core's rules, the same code Prism Terminal runs
+   * (#154; owner, 2026-09-19: "Prism Terminal's indicator rules in both").
+   * The title reader, the birth rule and the output fallback lived here until
+   * then and were the original of that hook. A session is "in front" when it is
+   * the active tab's current shell. Up here because the reroot and the close
+   * path below both ask it.
+   */
+  const {
+    agentIds,
+    workingIds,
+    doneIds,
+    agentKinds,
+    forget: forgetAgent
+  } = useAgentIndicator(active?.term?.id ?? null)
   const rawIndex = active?.index ?? -1
   const settingsOpen = active?.kind === 'settings'
   const toggleSettings = useCallback(() => {
@@ -1416,7 +1429,8 @@ export default function App(): JSX.Element {
   // up: lift the veil over it.
   useEffect(() => liftVeil(veilGen.current), [fullscreen, liftVeil])
   // Main held the window open because the editor is dirty; ask, then answer it.
-  useEffect(() => window.prism.onAskClose(() => setAsk({ kind: 'close-dirty' })), [])
+  const askClose = useRef<() => void>(() => {})
+  useEffect(() => window.prism.onAskClose(() => askClose.current()), [])
 
   // The update offer and its progress through install. Phase lives here (not
   // in the bar) so the chip survives the bar re-rendering under it.
@@ -1448,14 +1462,44 @@ export default function App(): JSX.Element {
       if (!ok) setUpdatePhase('idle')
     })
   }, [update])
+  /**
+   * LEAVING THE APP - closing the window, or the quit an update install ends
+   * in - once unsaved text has been settled. prism-term-core's rule, the same
+   * in Prism Terminal (owner, 2026-09-19): the window is held only while an
+   * agent is MID-ANSWER, since an idle one comes back at the next launch.
+   */
+  const leave = useCallback(
+    (then?: 'install') => {
+      const busy = [...workingIds]
+      if (!holdsWindowClose(busy.length)) {
+        if (then === 'install') runInstall()
+        else window.prism.close(true)
+        return
+      }
+      const root = tabs.find((t) => t.terms.includes(busy[0]))?.root ?? ''
+      setAsk({
+        kind: 'close-window-agent',
+        label: root.split(/[\\/]/).filter(Boolean).pop() ?? root,
+        agent: { kind: agentKinds.current.get(busy[0]) ?? 'other', forMs: workingFor(busy[0]) },
+        others: busy.length - 1,
+        then
+      })
+    },
+    [agentKinds, runInstall, tabs, workingIds]
+  )
+  useEffect(() => {
+    askClose.current = () => (dirtyPaths.size ? setAsk({ kind: 'close-dirty' }) : leave())
+  }, [dirtyPaths, leave])
+  // Main holds every route out of the window while this is true.
+  useEffect(() => window.prism.setAgentBusy(holdsWindowClose(workingIds.size)), [workingIds])
   const installUpdate = useCallback(() => {
     if (!update || update.mock) return
     // Installing ends in a quit, and unsaved text vetoes a quit - so the same
     // question closing asks is asked here, BEFORE the download (2026-08-28).
     // Main refuses the install outright while anything is dirty.
     if (dirtyPaths.size) setAsk({ kind: 'close-dirty', then: 'install' })
-    else runInstall()
-  }, [update, dirtyPaths, runInstall])
+    else leave('install')
+  }, [update, dirtyPaths, leave])
 
   // Where the active tab is rooted, for handlers that must stay stable (the
   // + is handed to main once and must not be rebuilt whenever a tab changes).
@@ -1536,9 +1580,6 @@ export default function App(): JSX.Element {
       tab.panes.some((pane) => pane.path.toLowerCase() === key)
     )
   }, [])
-  /** Which agent each session hosts - resume is claude-only. Up here because
-   *  the reroot below asks it before writing into a shell. */
-  const agentKinds = useRef(new Map<string, 'claude' | 'codex' | 'other'>())
   /** Where each shell last said it was (#99): its prompt's own report. A
    *  shell that has never reported (WSL, a shell still starting) is absent,
    *  and absent means Prism does not know, so it does not act. */
@@ -1587,7 +1628,7 @@ export default function App(): JSX.Element {
       return next
     })
     setHasNavigated(false)
-  }, [])
+  }, [agentKinds])
   /**
    * The sidebar's folder button: this tab becomes that folder, rather than a new
    * tab beside it. The strip's `+` is the one that accumulates.
@@ -1606,14 +1647,6 @@ export default function App(): JSX.Element {
       else applyReroot(activeId, p)
     })
   }, [activeId, applyReroot, dirtyUnder, tabs])
-  // Which sessions host a live agent (Claude, codex and kin). Declared up
-  // here because the close path below consults it; the polling effect that
-  // feeds it lives with the rest of the terminal wiring.
-  const [agentIds, setAgentIds] = useState<ReadonlySet<string>>(new Set())
-  // Which of those are mid-answer right now, and which agent each one is.
-  // Up here for the same reason as `agentIds`: the close path asks what it
-  // is about to interrupt. Scored by the polling effect further down.
-  const [workingIds, setWorkingIds] = useState<ReadonlySet<string>>(new Set())
   /** Close a tab, asking first when that would strand unsaved text. */
   const closeOneTab = useCallback(
     (id: string) => {
@@ -1631,31 +1664,29 @@ export default function App(): JSX.Element {
         .map((b) => baseName(b.path))
       if (names.length) setAsk({ kind: 'close-tab', id, names })
       else {
-        const mode = confirmCloseMode()
-        // ANY of the tab's shells (2026-09-03): a working agent in a hidden
-        // second terminal is exactly what the question exists to protect.
-        const agentLive = tab.terms.some((id) => agentIds.has(id))
-        // What is actually at stake, so the question can say it: an agent
-        // that is WORKING (not merely present) and how long it has been at
-        // it. 'never' still means never - it is an explicit choice, and a
-        // confirmation that appears anyway is a setting that lies.
-        const workingId = tab.terms.find((id) => workingIds.has(id))
-        const busy = workingId ? workingFor(workingId) : null
-        const agent: AgentBusy | null =
-          busy === null || !workingId
-            ? null
-            : { kind: agentKinds.current.get(workingId) ?? 'other', forMs: busy }
-        if (agentLive && mode !== 'never')
+        // THE CLOSE QUESTION IS ONE RULE, NOT A SETTING (owner, 2026-09-19;
+        // prism-term-core's agentClose, the same in Prism Terminal): a plain
+        // shell closes unasked, a tab whose shell HOSTS an agent asks, working
+        // or idle. It replaced the Agents / Off setting that lived here.
+        // ANY of the tab's shells (2026-09-03): an agent in a hidden second
+        // terminal is exactly what the question exists to protect; a working
+        // one is named ahead of an idle one, being what is most at stake.
+        const hostId =
+          tab.terms.find((t) => workingIds.has(t)) ?? tab.terms.find((t) => agentIds.has(t))
+        if (hostId === undefined || !asksBeforeClosingTab(true)) forceCloseTab(id)
+        else
           setAsk({
             kind: 'close-tab-confirm',
             id,
             label: tab.root.split(/[\\/]/).filter(Boolean).pop() ?? tab.root,
-            agent
+            agent: {
+              kind: agentKinds.current.get(hostId) ?? 'other',
+              forMs: workingIds.has(hostId) ? workingFor(hostId) : null
+            }
           })
-        else forceCloseTab(id)
       }
     },
-    [agentIds, bufferBelongsTo, forceCloseTab, tabs, workingIds]
+    [agentIds, agentKinds, bufferBelongsTo, forceCloseTab, tabs, workingIds]
   )
   const closeActiveTab = useCallback(() => {
     if (activeId) closeOneTab(activeId)
@@ -1818,118 +1849,6 @@ export default function App(): JSX.Element {
     if (active && isExplorerTab(active)) termTabAt(active.browse.path)
     else applyTermView((term, id) => (term ? { ...term, view: 'full' } : { id, view: 'full' }))
   }, [active, termTabAt, applyTermView])
-  /**
-   * Tab activity, Tabby-style: a pty is SILENT at an idle prompt and streams
-   * continuously while an AI CLI works (its spinner repaints). The dots are
-   * AGENT-SCOPED: main polls each shell's process tree for Claude Code and
-   * kin, and a plain terminal never shows one (the bell was tried and
-   * abandoned - PSReadLine dings on every invalid key). With an agent
-   * present: blue while streaming is SUSTAINED (over 1.2s without a 1.5s
-   * gap, so banners, redraws and echoes never light it), amber while quiet -
-   * a finished answer, waiting.
-   */
-  const outputRuns = useRef(new Map<string, { start: number; last: number }>())
-  /** Sessions whose agent reports its state through the title (Claude). */
-  const titled = useRef(new Set<string>())
-  /** The one clearing timer per fallback-scored session. */
-  const fallbackTimers = useRef(new Map<string, number>())
-  const stopFallback = (id: string): void => {
-    const t = fallbackTimers.current.get(id)
-    if (t !== undefined) {
-      clearTimeout(t)
-      fallbackTimers.current.delete(id)
-    }
-  }
-  useEffect(
-    () =>
-      window.prism.onTermAgent((id, present, kind) => {
-        if (present && (kind === 'claude' || kind === 'codex' || kind === 'other'))
-          agentKinds.current.set(id, kind)
-        else if (!present) {
-          agentKinds.current.delete(id)
-          // The agent left: its title state and any working mark go with it,
-          // and the next agent in this shell starts on the fallback again.
-          titled.current.delete(id)
-          forgetAgentTitle(id)
-          stopFallback(id)
-          setWorkingIds((prev) => {
-            if (!prev.has(id)) return prev
-            const next = new Set(prev)
-            next.delete(id)
-            return next
-          })
-        }
-        if (present) {
-          // An agent's BIRTH state is idle: its startup paint (banner, welcome
-          // box, the loading spinners after it) is a stream, but it is not the
-          // agent answering anything. Wipe the run, and score nothing until
-          // the FIRST SILENCE after the agent appeared (2026-09-04): the 4s
-          // clock this replaced guessed at how late the poll noticed the
-          // agent and how long the machine took to boot it, and at app start
-          // with several tabs resuming at once the paint outlasted it - so
-          // the tail of a startup lit the tab as an answer underway.
-          outputRuns.current.delete(id)
-          markBorn(id)
-          setWorkingIds((prev) => {
-            if (!prev.has(id)) return prev
-            const next = new Set(prev)
-            next.delete(id)
-            return next
-          })
-        }
-        setAgentIds((prev) => {
-          if (present === prev.has(id)) return prev
-          const next = new Set(prev)
-          if (present) next.add(id)
-          else next.delete(id)
-          return next
-        })
-      }),
-    []
-  )
-  useEffect(
-    () =>
-      window.prism.onTermData((id) => {
-        // A session whose agent SAYS what it is doing (through the title,
-        // see onTitle below) is never scored from its output: the agent's
-        // own word is exact, and its repaints would only second-guess it.
-        if (titled.current.has(id)) return
-        // Output on the heels of a keystroke is that keystroke's echo (the TUI
-        // repainting its input box), so typing at an idle agent never scores.
-        // Every chunk is shown to the birth rule (it tracks the gaps), and
-        // only then is the rest of the scoring asked.
-        const startup = startupOutput(id)
-        if (!startup && !activitySuppressed(id) && !inputEcho(id)) {
-          const now = Date.now()
-          const run = outputRuns.current.get(id)
-          if (!run || now - run.last > 1500) outputRuns.current.set(id, { start: now, last: now })
-          else run.last = now
-          const r = outputRuns.current.get(id)!
-          // EVENT-DRIVEN, no loop (owner, 2026-09-04): the chunk that carries
-          // the run past the sustain sets working right then, and ONE timer
-          // armed on the latest chunk clears it after the silence - a debounce
-          // in place of the 700ms tick that used to add up to a tick of lag
-          // to both ends.
-          if (r.last - r.start > 1200) {
-            setWorkingIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
-            stopFallback(id)
-            fallbackTimers.current.set(
-              id,
-              window.setTimeout(() => {
-                fallbackTimers.current.delete(id)
-                setWorkingIds((prev) => {
-                  if (!prev.has(id)) return prev
-                  const next = new Set(prev)
-                  next.delete(id)
-                  return next
-                })
-              }, 2000)
-            )
-          }
-        }
-      }),
-    []
-  )
   // Tell main what is open, whenever it changes: persistence for next launch.
   // The root wall is deliberately NOT rebuilt from this snapshot. A report
   // races payloads still in flight (a restore, plus a file Explorer just
@@ -2000,73 +1919,8 @@ export default function App(): JSX.Element {
         folderTabs.findIndex((t) => t.id === activeId)
       )
     )
-  }, [tabs, activeId, agentIds, cwdRevision, termFolder])
+  }, [tabs, activeId, agentIds, agentKinds, cwdRevision, termFolder])
 
-  /**
-   * The agent's OWN word (2026-09-04, owner: "instant, and event-driven").
-   * Claude Code writes its state into the terminal title - "✳ …" idle, a
-   * spinner glyph while working, MEASURED at 30ms after Enter and at the
-   * instant an answer lands - so the indicator follows the title and nothing
-   * else for such a session. Codex has a dialect of its own (a braille
-   * spinner before the folder name, the bare name at rest) and the reader
-   * knows both; a spinner before the agent's first rest is it STARTING,
-   * which is present and not working. A Claude title is also the agent
-   * being present, NOW, ahead of the process poll that would have said so
-   * up to 2.5s later. A braille spinner is common currency (ora, and
-   * every CLI built on it), so the Codex dialect is acted on only once the
-   * poll has found an agent in the shell; the poll notices either leaving.
-   * Sessions with no title state at all keep the output fallback above.
-   */
-  useEffect(
-    () =>
-      onTitle((id, title) => {
-        const r = readAgentTitle(id, title)
-        if (!r) return
-        if (r.kind === 'codex' && !agentKinds.current.has(id)) return
-        if (!titled.current.has(id)) {
-          titled.current.add(id)
-          outputRuns.current.delete(id)
-          stopFallback(id)
-        }
-        if (!agentKinds.current.has(id)) agentKinds.current.set(id, r.kind)
-        setAgentIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
-        const working = r.state === 'working'
-        setWorkingIds((prev) => {
-          if (prev.has(id) === working) return prev
-          const next = new Set(prev)
-          if (working) next.add(id)
-          else next.delete(id)
-          return next
-        })
-      }),
-    []
-  )
-  // Finished-while-away: an agent that STOPS working on a background tab
-  // leaves a mark that stays until the tab is visited (or work restarts).
-  // An answer that lands while you are watching needs no flag; one that
-  // lands behind another tab is news the strip should carry.
-  const [doneIds, setDoneIds] = useState<ReadonlySet<string>>(new Set())
-  const prevWorking = useRef<ReadonlySet<string>>(new Set())
-  useEffect(() => {
-    // The one place that sees the transition, so the one place that can time
-    // it: `outputRuns.start` is a burst length, not a work duration.
-    noteWorking(workingIds)
-    const was = prevWorking.current
-    prevWorking.current = workingIds
-    const activeTerm = tabs.find((t) => t.id === activeId)?.term?.id
-    setDoneIds((prev) => {
-      let next: Set<string> | null = null
-      const mut = (): Set<string> => (next ??= new Set(prev))
-      for (const id of was) {
-        // Stopped, still an agent session, and its tab is in the background.
-        if (!workingIds.has(id) && agentIds.has(id) && id !== activeTerm) mut().add(id)
-      }
-      for (const id of prev) {
-        if (workingIds.has(id) || id === activeTerm) mut().delete(id)
-      }
-      return next ?? prev
-    })
-  }, [workingIds, tabs, activeId, agentIds])
 
   // The shell ended: typed exit, or died. App owns this rather than the panel,
   // because it must be heard even while the panel is hidden or another tab is
@@ -2075,17 +1929,8 @@ export default function App(): JSX.Element {
     () =>
       window.prism.onTermExit((id) => {
         disposeSession(id)
-        outputRuns.current.delete(id)
-        titled.current.delete(id)
-        forgetAgentTitle(id)
-        stopFallback(id)
+        forgetAgent(id)
         termRoots.current.delete(id)
-        setAgentIds((prev) => {
-          if (!prev.has(id)) return prev
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
         setTabState((s) => {
           // Out of the LIST, not only out of the current slot (2026-09-03):
           // a dead id left in `terms` was handed the dock back the moment
@@ -2098,7 +1943,7 @@ export default function App(): JSX.Element {
           return { ...s, tabs: removeTerm(tabs, tab.id, id) }
         })
       }),
-    []
+    [forgetAgent]
   )
   /** Step the active tab by `delta`, wrapping, so Ctrl+Tab cycles. */
   const stepTab = useCallback((delta: number) => {
@@ -2544,7 +2389,7 @@ export default function App(): JSX.Element {
       tabs: setTabTerm(s.tabs, active.id, { id: termId, view: 'full' })
     }))
     setPaneFocus('term')
-  }, [active, agentIds, closeTermId, termTabAt])
+  }, [active, agentIds, agentKinds, closeTermId, termTabAt])
 
   const toggleFullscreen = useCallback(() => setFs(!fullscreen), [fullscreen, setFs])
 
@@ -4459,8 +4304,7 @@ export default function App(): JSX.Element {
                 buffers.current.clear()
                 syncDirty()
                 setAsk(null)
-                if (then === 'install') runInstall()
-                else window.prism.close(true)
+                leave(then)
               }
             },
             {
@@ -4480,8 +4324,7 @@ export default function App(): JSX.Element {
                   }
                   const then = ask.kind === 'close-dirty' ? ask.then : undefined
                   setAsk(null)
-                  if (then === 'install') runInstall()
-                  else window.prism.close(true)
+                  leave(then)
                 })()
               }
             }
@@ -4523,25 +4366,31 @@ export default function App(): JSX.Element {
         />
       )}
 
-      {ask?.kind === 'close-tab-confirm' && (
+      {(ask?.kind === 'close-tab-confirm' || ask?.kind === 'close-window-agent') && (
         <Dialog
-          title={ask.agent ? 'Stop the agent and close?' : 'Close this tab?'}
+          title={closeQuestionTitle(
+            ask.kind === 'close-window-agent' ? 'window' : 'tab',
+            ask.agent.forMs
+          )}
           body={
-            ask.agent ? (
-              // Naming the work is the whole point of asking (2026-08-31).
-              // "its shell (if one is running) goes with it" is true of an
-              // idle prompt and of an agent eleven minutes into an answer,
-              // and only one of those is worth a keystroke's hesitation.
+            // Naming the work is the whole point of asking (2026-08-31): an
+            // idle prompt and an agent eleven minutes into an answer are not
+            // the same close. The wording is Prism Terminal's, on purpose.
+            ask.agent.forMs === null ? (
               <>
-                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> has been
-                working for {humanFor(ask.agent.forMs)} in{' '}
+                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> is running in{' '}
                 <span className="text-[#d7dae1]">{ask.label}</span>. Closing the tab kills the
-                shell, and the answer with it.
+                shell, and the session with it.
               </>
             ) : (
               <>
-                <span className="text-[#d7dae1]">{ask.label}</span> closes, and its shell (if one is
-                running) goes with it. Settings can turn this question off.
+                <span className="text-[#d7dae1]">{AGENT_NAMES[ask.agent.kind]}</span> has been
+                working for {humanFor(ask.agent.forMs)} in{' '}
+                <span className="text-[#d7dae1]">{ask.label}</span>
+                {ask.kind === 'close-window-agent' &&
+                  ask.others > 0 &&
+                  `, and ${ask.others} other ${ask.others === 1 ? 'shell is' : 'shells are'} working too`}
+                . Closing kills the shell, and the answer with it.
               </>
             )
           }
@@ -4549,11 +4398,13 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             {
-              label: 'Close tab',
+              label: ask.kind === 'close-window-agent' ? 'Close window' : 'Close tab',
               primary: true,
               onPick: () => {
                 setAsk(null)
-                forceCloseTab(ask.id)
+                if (ask.kind === 'close-tab-confirm') forceCloseTab(ask.id)
+                else if (ask.then === 'install') runInstall()
+                else window.prism.close(true)
               }
             }
           ]}

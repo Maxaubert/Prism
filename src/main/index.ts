@@ -652,6 +652,9 @@ const pickedSubs = new Set<string>()
 
 /** The renderer's editor holds unsaved text. Mirrored here so `close` can ask. */
 let editorDirty = false
+/** Mirrored from the renderer: an agent is MID-ANSWER in some shell. Holds the
+ *  window exactly as unsaved text does (prism-term-core's close rule, #154). */
+let agentBusy = false
 /** The user has answered the "unsaved changes" question: let the close through. */
 let closeConfirmed = false
 
@@ -852,9 +855,11 @@ function watchWindowState(win: BrowserWindow): void {
   win.on('close', save)
   win.on('close', flushTabs)
   // Every route out of the window ends here: the title bar's X, Alt+F4, the
-  // taskbar, Escape. Unsaved text stops all of them until the user answers.
+  // taskbar, Escape. Unsaved text stops all of them until the user answers,
+  // and so does an agent that is mid-answer: the renderer knows which of the
+  // two it is, and asks about the text first.
   win.on('close', (e) => {
-    if (!editorDirty || closeConfirmed) return
+    if ((!editorDirty && !agentBusy) || closeConfirmed) return
     e.preventDefault()
     win.webContents.send('app:ask-close')
     // A minimised or background window can't show its own dialog usefully.
@@ -3210,6 +3215,9 @@ if (!app.requestSingleInstanceLock()) {
     // already answered it.
     ipcMain.on('editor:dirty', (_e, d: boolean) => {
       editorDirty = !!d
+    })
+    ipcMain.on('window:agent-busy', (_e, busy: boolean) => {
+      agentBusy = busy === true
     })
     ipcMain.on('window:close', (_e, force?: boolean) => {
       if (force) closeConfirmed = true

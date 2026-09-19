@@ -98,7 +98,7 @@ async function seedProfile() {
   await offscreen(app)
   await win.evaluate((kv) => {
     for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v)
-  }, { 'prism.onboarded': '1', 'prism.sidebar': '1', 'prism.tabs.confirmClose': '0' })
+  }, { 'prism.onboarded': '1', 'prism.sidebar': '1' })
   await sleep(300)
   await app.close()
   await sleep(900) // let the single-instance lock go
@@ -767,6 +767,53 @@ async function sortScenario(fixtures) {
       (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').count()) === 0,
       'the Settings tab closes like any other'
     )
+  } finally {
+    await app.close()
+  }
+}
+
+/**
+ * THE TERMINAL'S SETTINGS ARE prism-term-core's (#154). Prism Terminal runs the
+ * same check against the same list, which is what keeps the two apps' terminal
+ * settings the same settings: a row in one app and not the other turns one of
+ * the two suites red.
+ */
+async function termOptionsScenario(fixtures) {
+  console.log('terminal options')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    const src = readFileSync(join(process.cwd(), 'node_modules/prism-term-core/renderer/settings/options.ts'), 'utf8')
+    // Prism's window material belongs to the app STYLE, so the one row the
+    // list marks as window-acrylic-only (the opacity slider) is not shown here.
+    const rows = [...src.matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g)]
+    const wanted = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1]).sort()
+    ok(wanted.length >= 8 && rows.length === wanted.length + 1, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Terminal")')
+    await win.waitForSelector('[data-terminal-settings]', { timeout: 5000 })
+    // The shell row appears once main has answered with the shells it found.
+    await win.waitForSelector('[data-pref="term-shell"]', { timeout: 8000 }).catch(() => {})
+    const shown = (await win.evaluate(() =>
+      [...document.querySelectorAll('[data-terminal-settings] [data-pref]')].map((e) => e.getAttribute('data-pref'))
+    )).sort()
+    ok(JSON.stringify(shown) === JSON.stringify(wanted), `the Terminal page shows exactly that list (shown: ${JSON.stringify(shown)})`)
+    ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
+    await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
+    // Untouched, the indicator is MINIMAL and its colours follow the accent.
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.term.agentIndicator'))) === null &&
+        (await win.locator('[data-pref="agent-indicator"] [aria-pressed="true"], [data-pref="agent-indicator"] [aria-checked="true"]').first().textContent().catch(() => '') ?? '').includes('Minimal'),
+      'an untouched indicator reads Minimal'
+    )
+    // The close question is one rule and no setting, on every page.
+    let closeRows = 0
+    for (const name of ['General', 'Terminal']) {
+      await win.click(`button:has-text("${name}")`)
+      await sleep(250)
+      closeRows += await win.locator('text=/Ask before closing/i').count()
+    }
+    ok(closeRows === 0, 'and the close question is not a setting any more')
   } finally {
     await app.close()
   }
@@ -3162,9 +3209,8 @@ async function tabsScenario(fixtures) {
     await sleep(500)
     ok((await tabRows().count()) === 2, 'and closes again')
 
-    // The former always-confirm option now protects agents only. Ordinary
-    // project tabs close immediately, with no unsaved changes to protect.
-    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
+    // The close question is one rule and no setting (#154): it protects
+    // agents only. Ordinary project tabs close immediately.
     // Aim Ctrl+W at the code tab, so the fixtures tab (which the rest of the
     // scenario leans on) stays put.
     await tabRows().last().click()
@@ -3173,7 +3219,6 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await win.locator('[role="dialog"]').count()) === 0, 'ordinary project tabs do not ask for confirmation')
     ok((await tabRows().count()) === 1, 'Ctrl+W closes the ordinary tab immediately')
-    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
     // recreate the second tab, restoring the order the flow below expects.
     // The SIBLING root, not a subfolder: a subfolder folds into the tab that
     // holds it now and would leave the strip with one tab, not two.
@@ -3863,7 +3908,6 @@ async function terminalScenario(fixtures) {
 
     // Ctrl+W protects an agent while its terminal is focused. The title
     // fixture is the same deterministic signal used by agentTitleScenario.
-    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '1'))
     await win.locator('.xterm').click()
     await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x2733) Claude Code"')
     await win.keyboard.press('Enter')
@@ -3871,12 +3915,32 @@ async function terminalScenario(fixtures) {
     await win.keyboard.press('Control+w')
     await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
     ok(
-      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close this tab?'),
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Close the tab and end the agent?'),
       'Ctrl+W asks from inside an agent terminal'
     )
     await win.locator('[role="dialog"] button:has-text("Cancel")').click()
     await sleep(300)
-    await win.evaluate(() => localStorage.setItem('prism.tabs.confirmClose', '0'))
+    // THE WINDOW is held only while an agent is MID-ANSWER (#154, the core's
+    // close rule): an idle one comes back at the next launch, so closing over
+    // it asks nothing - which is why this is checked with a working title.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x25D0) Claude Code"')
+    await win.keyboard.press('Enter')
+    await win.waitForSelector('[data-agent-state="working"]', { timeout: 5000 })
+    await win.evaluate(() => window.prism.close())
+    await win.waitForSelector('[role="dialog"]', { timeout: 5000 })
+    ok(
+      ((await win.locator('[role="dialog"]').textContent()) ?? '').includes('Stop the agent and close the window?'),
+      'closing the window over a working agent asks first'
+    )
+    await win.screenshot({ path: join(SHOTS, 'terminal-close-window.png') })
+    await win.locator('[role="dialog"] button:has-text("Cancel")').click()
+    await sleep(300)
+    ok((await win.locator('.xterm').count()) >= 1, 'and Cancel leaves the window and its shell alone')
+    await win.locator('.xterm').click()
+    await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x2733) Claude Code"')
+    await win.keyboard.press('Enter')
+    await win.waitForFunction(() => !document.querySelector('[data-agent-state="working"]'), null, { timeout: 5000 })
     await win.locator('.xterm').click()
 
     // The terminal button's own menu: split, and CLOSE (owner, 2026-09-03 -
@@ -6450,7 +6514,15 @@ const fixtures = buildFixtures()
  * which is what makes iterating on one of them bearable.
  */
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))
-const chosen = (name) => !only.length || only.some((o) => name.toLowerCase().includes(o.toLowerCase()))
+// `=name` is an exact match: the terminal gate lists scenarios, and a bare
+// "terminal" or "tabs" would spill into every scenario containing the word.
+const chosen = (name) =>
+  !only.length ||
+  only.some((o) =>
+    o.startsWith('=')
+      ? name.toLowerCase() === o.slice(1).toLowerCase()
+      : name.toLowerCase().includes(o.toLowerCase())
+  )
 const results = []
 
 async function run(fn, gap = 900) {
@@ -6493,6 +6565,7 @@ await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
+await run(termOptionsScenario)
 await run(pinRecentScenario)
 await run(termCwdScenario)
 await run(agentTitleScenario)
