@@ -98,7 +98,7 @@
     "globals": "^17.7.0",
     "playwright-core": "^1.62.1",
     "prettier": "^3.9.5",
-    "prism-term-core": "github:Maxaubert/PrismTerminal#core-v0.2.0-rc.5",
+    "prism-term-core": "github:Maxaubert/PrismTerminal#core-v0.2.0-rc.6",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0",
