@@ -159,8 +159,8 @@ export interface OpenPayload {
    *  own tab - the arriving-file rule folds same-root payloads into one, and
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
-  /** A FOLDER arrived from outside (Explorer's "Open in Prism" on a folder, or
-   *  "Open Prism here" on its background). The tab roots there, and what it
+  /** A FOLDER arrived from outside (Explorer's "Open as project", on a folder
+   *  or on its background). The tab roots there, and what it
    *  SHOWS is the "New tabs show" setting's business - first file, a terminal,
    *  or nothing - exactly as the + would do it. */
   folder?: boolean

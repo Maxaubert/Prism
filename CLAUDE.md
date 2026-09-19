@@ -1488,13 +1488,34 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   MINUTE counts as watched: the position is neither saved nor restored there, so a film never
   reopens into its own credits. Video and audio share the rule, so audiobooks and long mixes
   resume and songs do not.
-- **"Open in Prism" in Explorer's menu** (2026-08-24, `shellVerb.ts`), ON by default since
+- **"Open file" and "Open as project" in Explorer's menu** (2026-08-24, `shellVerb.ts`;
+  RELABELLED 2026-09-19, #167, superseding "Open in Prism" and "Open Prism here". Owner:
+  "Prism is split now into File Explorer and Project ... maybe just say Open As Project ...
+  and don't have any of them mention Prism, you can see that by the logo." Decided the same
+  day: a folder AND a folder's empty space read "Open as project", a single file reads "Open
+  file". The icon beside the row is Prism's own, so the name was being said twice, and what
+  the row never said was what the click DOES. The registry KEYS keep the name `OpenWithPrism`:
+  a key is an identity, not copy, and renaming it would orphan every entry already written
+  and fall out of step with the uninstaller. Only the words moved; how an arriving file or
+  folder is ROUTED is untouched and is a separate task. EXISTING INSTALLS ARE RELABELLED AT
+  LAUNCH (`relabelVerb`), because the verb is on by default, so nearly every machine carried
+  the old text, and everything else here leaves a working verb alone: the new words would
+  have reached fresh installs and nobody else. The rule is narrow: the entry must be ON (all
+  three keys), pointing at THIS exe, and its label READ and found different; then the LABEL
+  VALUE ALONE is rewritten, never the command, never the icon. `reg add <key> /ve` CREATES a
+  missing key, so without the "on" check a relabel would put a dead, commandless row into
+  the menu of somebody who switched the verb off. Never in dev, under `--e2e` or from a
+  preview (`automatic`, the same gate the startup repair has), never for somebody who said
+  no, once per launch rather than on every Settings open (six reg.exe spawns), and inside
+  the setting's one queue so an explicit off cannot race it. It compares against the CURRENT
+  label rather than a list of old ones, so the next rewording needs nothing new.)
+  ON by default since
   2026-08-31 (owner decision), switched in Settings > General. Applied ONCE, and the marker
   file in userData is the whole design: a default that reapplied itself every launch would be
   a setting that lies - turn the verb off and it would be back tomorrow. Never in dev and
   never under `--e2e`, where `app.getPath('exe')` is a throwaway build and writing those keys
   would repoint the real installed Prism's verb at it. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
-  `Directory\Background`, where it reads "Open Prism here" and takes `%V` rather than `%1`
+  `Directory\Background`, where it takes `%V` rather than `%1`
   (which is empty on a background click) - per user, no
   elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way
   roots a tab and then obeys "New tabs show" - first file, a terminal, or nothing - exactly

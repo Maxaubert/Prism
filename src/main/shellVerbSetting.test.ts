@@ -17,7 +17,8 @@ function fixture(automatic = true) {
     remove: vi.fn(async () => {
       state.present = state.owned = false
       return true
-    })
+    }),
+    relabel: vi.fn(async () => true)
   }
   const setting = createShellVerbSetting({ exe: 'Prism.exe', marker: 'unused', automatic }, deps)
   return { state, deps, setting }
@@ -98,6 +99,91 @@ describe('Explorer menu setting', () => {
     expect(await setting.set(true)).toBe(false)
     expect(deps.install).not.toHaveBeenCalled()
     expect(await setting.set(true)).toBe(true)
+  })
+
+  /**
+   * Relabelling (2026-09-19, #167). The labels changed ("Open file", "Open as
+   * project") and a working verb is otherwise left alone, so an existing
+   * install would carry the old text for ever. `relabelVerb` holds the rule
+   * about WHICH entries may be touched (on, this exe, stale); what is tested
+   * here is WHEN it is allowed to run at all.
+   */
+  it('relabels an existing registration at launch', async () => {
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    expect(await setting.status()).toBe(true)
+    expect(deps.relabel).toHaveBeenCalledOnce()
+    expect(deps.install).not.toHaveBeenCalled()
+  })
+
+  it('never relabels from a development, e2e or preview build', async () => {
+    // `automatic` is false for all of them. Under --e2e the exe is a throwaway
+    // build, and no write of any kind may reach the owner's real menu from it.
+    const { state, setting, deps } = fixture(false)
+    state.present = state.owned = true
+    expect(await setting.status()).toBe(true)
+    expect(deps.relabel).not.toHaveBeenCalled()
+  })
+
+  it('does not relabel what the user turned off', async () => {
+    const { state, setting, deps } = fixture()
+    state.off = true
+    expect(await setting.status()).toBe(false)
+    expect(deps.relabel).not.toHaveBeenCalled()
+    expect(deps.install).not.toHaveBeenCalled()
+    // Even with keys still there (a removal that failed, or a hand-made
+    // entry): somebody who said no gets no registry write from Prism at all.
+    state.present = state.owned = true
+    expect(await setting.status()).toBe(true)
+    expect(deps.relabel).not.toHaveBeenCalled()
+  })
+
+  it('does not relabel a verb it has just written, which is current by construction', async () => {
+    const { setting, deps } = fixture()
+    expect(await setting.status()).toBe(true)
+    expect(deps.install).toHaveBeenCalledOnce()
+    expect(deps.relabel).not.toHaveBeenCalled()
+  })
+
+  it('looks once per launch, not every time Settings asks for the status', async () => {
+    // Settings reads the status each time the page opens, and a relabel check
+    // is six reg.exe spawns to learn what the first one already settled.
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    await setting.status()
+    await setting.status()
+    await setting.status()
+    expect(deps.relabel).toHaveBeenCalledOnce()
+  })
+
+  it('still reports the verb as on when the relabel itself fails', async () => {
+    // The switch reports what the REGISTRY says. A label that could not be
+    // rewritten is an old label on a working verb, not a verb that is off.
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    deps.relabel.mockRejectedValueOnce(new Error('Access denied'))
+    expect(await setting.status()).toBe(true)
+  })
+
+  it('queues the relabel with everything else, so an explicit off cannot race it', async () => {
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    let finish!: () => void
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    deps.relabel.mockImplementationOnce(async () => {
+      await gate
+      return true
+    })
+    const startup = setting.status()
+    const off = setting.set(false)
+    await vi.waitFor(() => expect(deps.relabel).toHaveBeenCalledOnce())
+    expect(deps.remove).not.toHaveBeenCalled()
+    finish()
+    expect(await startup).toBe(true)
+    expect(await off).toBe(true)
+    expect(state).toEqual({ present: false, owned: false, off: true })
   })
 
   it('does not report an unverified registration as enabled', async () => {
