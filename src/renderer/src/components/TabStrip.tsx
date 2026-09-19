@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs'
-import { useAgentColorChoice, useAgentDoneColorChoice, useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
+import { useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
+import { useAgentColors } from 'prism-term-core/renderer/lib/agentColors'
 import { contrastRatio } from 'prism-term-core/renderer/lib/termAnsi'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
@@ -92,8 +93,9 @@ export function TabStrip({
   wash: boolean
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
-  const agentColor = useAgentColorChoice()
-  const doneColor = useAgentDoneColorChoice()
+  // The user's pick where there is one, else the app style's accent and the
+  // theme's green (termHost.ts): the same rule as Prism Terminal.
+  const { working: agentColor, finished: doneColor } = useAgentColors()
   // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
   // contrast maths picks black on the default orange, but white-on-orange is
   // the look; black only wins on genuinely light fills (contrast vs black of

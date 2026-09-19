@@ -120,7 +120,12 @@ export function TermDock({
     <div
       ref={panel}
       data-term-panel
-      className={`group relative flex bg-[var(--p-bg)] ${vertical ? 'flex-col' : 'flex-row'} ${
+      // NO GROUND HERE (2026-09-19, #154): the terminal PANEL paints --p-bg now
+      // (prism-term-core, `paintsGround`), because xterm sizes itself in whole
+      // rows and the strip under the last row was never its to paint. One
+      // coat per pixel: a second, translucent one here is a visibly darker
+      // terminal than the rest of an acrylic window.
+      className={`group relative flex ${vertical ? 'flex-col' : 'flex-row'} ${
         full
           ? 'min-h-0 min-w-0 flex-1'
           : `shrink-0 border-[var(--p-divider)] ${

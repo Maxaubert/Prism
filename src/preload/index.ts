@@ -539,9 +539,12 @@ const api = {
   close: (force = false): void => ipcRenderer.send('window:close', force),
   /** Keep main in step with the editor, so closing can ask before it discards. */
   setDirty: (dirty: boolean): void => ipcRenderer.send('editor:dirty', dirty),
+  /** An agent is mid-answer in some shell: main holds the window's close
+   *  until the renderer has asked, as it does for unsaved text. */
+  setAgentBusy: (busy: boolean): void => ipcRenderer.send('window:agent-busy', busy),
   /** Something is playing: hold the screen awake until told otherwise. */
   setAwake: (on: boolean): void => ipcRenderer.send('power:awake', on),
-  /** Main blocked a close because the editor is dirty: put the question up. */
+  /** Main blocked a close (unsaved text, or a working agent): ask. */
   onAskClose: (cb: () => void): (() => void) => {
     const listener = (): void => cb()
     ipcRenderer.on('app:ask-close', listener)
