@@ -127,7 +127,13 @@ import {
   type ArchiveStat
 } from './archive'
 import { insideSelf, moveEntries } from './moveOps'
-import { installUpdate, watchForUpdates, type UpdateInfo } from './update'
+import { installUpdate, updateCalls, watchForUpdates, type UpdateInfo } from './update'
+import {
+  previewUpdate,
+  runPreviewInstall,
+  wantsPreview
+} from 'prism-term-core/main/updatePreview'
+import pkg from '../../package.json'
 import { fileKind } from '@shared/fileKind'
 import type {
   ArchiveListing,
@@ -630,6 +636,17 @@ async function folderPayload(dir: string): Promise<OpenPayload | null> {
 
 let mainWindow: BrowserWindow | null = null
 let installingUpdate = false
+/** The newest update offer (#168), remembered so a page that loads after it
+ *  was made still hears about it (`update:announce`), and so `update:install`
+ *  can tell a preview from a release by what main ITSELF offered, never by what
+ *  the page sent. Up here, beside the lifecycle, because a SECOND launch can
+ *  ask for the preview too (`Prism.exe --preview-update` while Prism is
+ *  resident, which is the likely way the flag gets used). */
+let pendingUpdate: UpdateInfo | null = null
+function offerUpdate(info: UpdateInfo): void {
+  pendingUpdate = info
+  mainWindow?.webContents.send('update:available', info)
+}
 const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
 const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
@@ -1390,6 +1407,11 @@ if (!app.requestSingleInstanceLock()) {
         })
       return
     }
+    // `Prism.exe --preview-update` while Prism is already running (it is
+    // resident, so it usually is) ends here, not at the launch branch. Only
+    // when nothing is on offer: a preview never replaces a real update, nor one
+    // that is part way through its install.
+    if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
     const paths = pathsFromArgv(argv)
     if (!startupRestored) pendingOpen.push(...paths)
     if (mainWindow) {
@@ -1767,12 +1789,34 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // The update check: watch GitHub Releases, remember the newest offer so a
-    // renderer that loads after the tick still hears about it.
-    let pendingUpdate: UpdateInfo | null = null
-    watchForUpdates((info) => {
-      pendingUpdate = info
-      mainWindow?.webContents.send('update:available', info)
-    })
+    // renderer that loads after the tick still hears about it (`offerUpdate`
+    // and `pendingUpdate` are up beside the lifecycle).
+    //
+    // A PREVIEW (#168; owner, 2026-09-19: "I would want to see how the Update
+    // banner looks in both apps, so if you could enable it and make like a fake
+    // update"): `--preview-update`, in the INSTALLED app as well, announces the
+    // core's fake offer at once and the real watcher is never started, so the
+    // network is never touched. An unpackaged build previews without being
+    // asked, which is what the inert mock chip used to be for. Under --e2e
+    // NEITHER happens unless the flag is there: the suite must never ask
+    // GitHub, and its title bar is measured with no chip in it (until this
+    // change the mock was there in every scenario, asserted by none).
+    if (wantsPreview(process.argv) || (!app.isPackaged && !E2E))
+      offerUpdate(previewUpdate(pkg.version))
+    else if (!E2E) watchForUpdates(offerUpdate)
+    // The e2e's updateGuard: a REAL-shaped offer (not a mock, so Install goes
+    // through the unsaved-text and working-agent questions) whose url
+    // `installUpdate` refuses before it sends anything, because it is not one
+    // of this repo's release assets. That is what lets the guard and the
+    // failure line be driven with no network and no installer. The notes are
+    // the scenario's to choose: it hands over a hostile body, to prove in the
+    // real page that none of it is rendered.
+    else if (process.env.PRISM_E2E_UPDATE_OFFER)
+      offerUpdate({
+        version: '99.0.0',
+        url: process.env.PRISM_E2E_UPDATE_OFFER,
+        notes: process.env.PRISM_E2E_UPDATE_NOTES ?? ''
+      })
     ipcMain.on('update:announce', (e) => {
       if (pendingUpdate) e.sender.send('update:available', pendingUpdate)
     })
@@ -1781,6 +1825,14 @@ if (!app.requestSingleInstanceLock()) {
     // would run over a live exe while a save dialog waited (2026-08-28). The
     // renderer answers Cancel / Discard / Save all before the download starts.
     ipcMain.handle('update:install', async (_e, url: string) => {
+      // WHAT IS ON OFFER decides, never what the page sent (#168): while the
+      // offer is a preview there is nothing this handler will download,
+      // whatever url it is handed. The fake runs the chip's progress and
+      // answers false, "nothing was installed", which is true. No fetch, no
+      // file, no installer, no quit, and the close question is NOT
+      // pre-answered: `closeConfirmed` and `installingUpdate` stay as they are.
+      if (pendingUpdate?.mock)
+        return runPreviewInstall((pct) => mainWindow?.webContents.send('update:progress', pct))
       if (typeof url !== 'string') return false
       // Unsaved text VETOES the quit this ends in (win.on('close') below), so
       // installing over it would run NSIS against a live exe while a dialog
@@ -1816,6 +1868,18 @@ if (!app.requestSingleInstanceLock()) {
       }
       return ok
     })
+    // The e2e's updateWindow reads this (through `app.evaluate`, as it reaches
+    // the indexer) after a whole preview, fake install included: release
+    // checks sent and installs attempted. Both must still be 0.
+    if (E2E)
+      (
+        globalThis as typeof globalThis & { __prismUpdateCalls?: typeof updateCalls }
+      ).__prismUpdateCalls = updateCalls
+    // package.json's, not app.getVersion(): the e2e and dev launch electron at
+    // a script, and there that one answers with ELECTRON's own version (SEEN:
+    // the old mock chip read "Update 43.2.0" in the e2e's own screenshots), so
+    // the update window would say "You have 43.2.0".
+    ipcMain.handle('app:version', () => pkg.version)
 
     ipcMain.handle('open:dialog', async (): Promise<OpenPayload | null> => {
       const r = await openDialog({ properties: ['openFile'] })

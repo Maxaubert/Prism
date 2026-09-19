@@ -1547,6 +1547,58 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Update chip** (title bar, right of the file name): one shape for every state, and it never
   changes width - the chip IS the progress bar, filling with accent from the left as the
   download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
+  **A CLICK OPENS THE UPDATE WINDOW, IT NO LONGER INSTALLS** (2026-09-19, #168; owner: "when
+  you click the Update badge, it opens like a pop window, which shows the change log or like
+  patch notes for the new update, and then you can choose cancel or install"). This SUPERSEDES
+  the click-to-install of "in-app update check against GitHub Releases (click to install)":
+  until now a click downloaded an installer and quit the app with nothing said about what was
+  in it. The chip, the window (`UpdateDialog`), their reducer (`updateFlow` / `useUpdateFlow`)
+  and the notes parser are **prism-term-core's**, the same in Prism Terminal (owner, same day:
+  "yes keep the core"); a chip or a dialog written here instead of there is a fork. The core
+  chip was built to keep THIS bar's rule, and found that the old inline chip did not: the
+  shape was one but the WIDTH was not, since the pill was sized by a label that went from
+  "Update 0.56.0" to "7%". Every label is laid out in one grid cell now and only the one that
+  applies is visible; `updateWindow` samples the width through a whole install (111.007px in
+  every phase, left edge never moving). What is PRISM'S OWN:
+  - **Where to look**: `src/main/update.ts` (the repo, the installer's name, the other-windows
+    guard). It returns the release BODY as `notes`, RAW, only the head of it
+    (`MAX_BODY_CHARS`), anything but a string read as no notes.
+  - **THE NOTES ARE PLAIN TEXT, NEVER HTML, NEVER MARKDOWN, NEVER A LINK.** They are text off
+    the network shown in a window that can reach `window.prism`. `parseReleaseNotes` reduces
+    them to strings and the dialog prints each as a text node; there is no markdown renderer
+    and no `dangerouslySetInnerHTML` on this path and there must not be. `updateGuard` hands
+    the real page a hostile body (img onerror, script, iframe, anchors) and asserts the DOM:
+    no such element, the handler never ran, no url and no "by @" printed.
+  - **THE GUARD, UNCHANGED.** Install in the window comes to App's `installGuard` before a
+    byte is downloaded, and that is the path the chip's click always took: unsaved text first
+    (`close-dirty` with `then: 'install'`, 2026-08-28), then `leave('install')` for an agent
+    that is mid-answer (`close-window-agent`), and main still refuses while anything is
+    dirty. The core hands the guard a `start`; never calling it is the cancel. The agent
+    question reads "Stop the agent and install the update?" / "Install and restart" now (the
+    core's wording): it used to borrow "close the window?", a question about something the
+    user did not ask for. ONE QUESTION AT A TIME: any `ask` raised while the update window is
+    up closes it, because a question mounted under it took the focus where nobody could see it.
+  - **`--preview-update`** (owner: "I would want to see how the Update banner looks in both
+    apps ... make like a fake update"): the core's fake offer, announced at once, in the
+    INSTALLED app too and on a SECOND launch into the resident one (only when nothing real is
+    on offer). What the flag promises and `updateWindow` holds it to: never the network, never
+    a download, never an installer, never a quit; Install runs a fake progress and ends on
+    "Preview only: nothing was installed", and it asks none of the guard's questions, because
+    it closes nothing. Main decides by what IT offered (`pendingUpdate.mock`), never by the url
+    the page sent. An unpackaged build previews without the flag (this replaced the inert mock
+    chip, which read "Update 43.2.0": `app.getVersion()` is Electron's under `electron
+    <script>`, so the version shown is package.json's, over `app:version`). Under `--e2e`
+    there is NO chip without the flag, and nothing asks GitHub (`updateQuiet`).
+  - Two things the e2e found on the way, both older than this change: **Settings closed under
+    a modal on the same Escape** (its capture-phase listener was registered first and
+    `stopPropagation` does not silence a sibling listener on the window; it yields to
+    `[role="dialog"][aria-modal="true"]` now, NOT to `data-owns-escape`, which things under
+    the page wear too), and `Dialog`'s key listener re-registered on every render, which
+    Prism Terminal MEASURED losing an Escape about one run in five; it registers once and
+    reads the latest `onCancel` from a ref.
+  `updateWindow`, `updateGuard` and `updateQuiet` are in `npm run e2e:terminal`, runner-safe
+  (the agent is a shell speaking through its title, and the poll's first answer is WAITED for,
+  not slept for: it arrives seconds after a spawn and takes a titled session's state with it).
 - **One icon per kind** (2026-08-30, #74): the ProgIDs used to point `DefaultIcon` at
   `Prism.exe,0`, so a .zip and a .mkv opened with Prism were the same picture in Explorer.
   Each now has its own .ico in `resources/icons`, generated by `tools/icons/build_icons.py`.
@@ -1973,7 +2025,8 @@ Filesmith's conventions.
   run some automated tests that confirm that the terminal in Prism still works, since it has more
   failure points due to its larger footprint"). It builds and runs every scenario the terminal
   can break (terminal, termOptions, termCwd, agentTitle, handoffOverTerm, promptLayout, tabs, sort,
-  pinRecent; about four minutes) and is REQUIRED, green, in any PR that moves the `prism-term-core`
+  pinRecent, and since #168 updateWindow, updateGuard and updateQuiet, because the update chip and
+  its window come from the same core; about four minutes, plus 50s MEASURED for those three) and is REQUIRED, green, in any PR that moves the `prism-term-core`
   tag, before the usual full e2e. **IT ALSO RUNS IN CI** (`.github/workflows/terminal-gate.yml`, #164;
   owner, 2026-09-19: "we need automated tests to confirm it never conflicts"): on any PR that moves
   the pin or touches the terminal's wiring, on a GitHub Windows runner, MEASURED green 3 runs of 3

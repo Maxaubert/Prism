@@ -1442,6 +1442,17 @@ export function Settings({
     if (!open) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        // A MODAL QUESTION OVER THIS PAGE OWNS ESCAPE (2026-09-20, #168; found
+        // by the updateWindow e2e). The update window can be opened from the
+        // title bar while Settings is up, and one Escape closed BOTH: every
+        // Escape listener here sits on the window in the capture phase, where
+        // stopPropagation does not silence a sibling listener, and this one
+        // was registered first. It yields by inspection, as App's does. The
+        // test is the modal dialog itself and NOT `data-owns-escape`: that
+        // attribute is also worn by things UNDER this page (an editor whose
+        // caret is in the file, a player's open menu), and yielding to those
+        // would leave Settings with no way to be closed from the keyboard.
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
         e.stopPropagation()
         onClose()
       }
