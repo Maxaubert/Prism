@@ -3,6 +3,7 @@ import type { DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
+import type { BrowseSearchResult } from '@shared/browse'
 
 export interface BrowsePlace {
   path: string
@@ -19,11 +20,15 @@ export interface BrowseEntry {
 }
 
 export interface BrowseSort {
-  key: 'name' | 'type' | 'size' | 'modified'
+  key: 'name' | 'path' | 'type' | 'size' | 'modified'
   direction: 'asc' | 'desc'
 }
 
 export interface BrowseSearchState {
+  window?: BrowseSearchResult['window']
+  windows?: NonNullable<BrowseSearchResult['window']>[]
+  source?: 'everything' | 'filesystem'
+  notice?: string
   running: boolean
   scanned: number
   unreadable: number
@@ -52,6 +57,7 @@ export interface FolderBrowserProps {
   sort: BrowseSort
   canBack: boolean
   canForward: boolean
+  previewEnabled: boolean
   previewVisible: boolean
   preview?: ReactNode
   terminalControls?: ReactNode
@@ -68,6 +74,7 @@ export interface FolderBrowserProps {
   onOpenProject?: (entry: BrowseEntry) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
   onCancelSearch?: () => void
+  onSearchRange?: (first: number) => void
   onPreviewToggle: () => void
   onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void
   onRename?: (entry: BrowseEntry) => void

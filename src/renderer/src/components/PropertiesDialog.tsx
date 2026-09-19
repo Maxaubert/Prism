@@ -40,10 +40,14 @@ export function PropertiesDialog({
           },
           ...(folderSize
             ? [
-                {
-                  label: 'Contents',
-                  value: `${folderSize.files.toLocaleString()} files, ${folderSize.folders.toLocaleString()} folders (including subfolders)`
-                },
+                ...(folderSize.countsKnown === false
+                  ? []
+                  : [
+                      {
+                        label: 'Contents',
+                        value: `${folderSize.files.toLocaleString()} files, ${folderSize.folders.toLocaleString()} folders (including subfolders)`
+                      }
+                    ]),
                 { label: 'Coverage', value: folderSizeCoverage(folderSize) }
               ]
             : [])

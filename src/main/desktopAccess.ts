@@ -39,6 +39,14 @@ function directlyWithin(dir: string, path: string): boolean {
 }
 
 export function insideDesktop(path: string): boolean {
+  // Search grants many result parents. Resolve only a matching direct grant
+  // before the alias-aware fallback; probing every unrelated grant with native
+  // realpath for every size row made large result sets block the main thread.
+  const parent = dirname(path)
+  for (const grants of directories.values()) {
+    if (grants.has(path)) return true
+    if (grants.has(parent) && isInsideRoot(parent, path)) return true
+  }
   return (
     insideAnyRoot(path) ||
     [...directories.values()].some((grants) => [...grants].some((dir) => directlyWithin(dir, path)))

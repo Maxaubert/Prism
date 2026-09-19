@@ -20,7 +20,87 @@ import AdmZip from 'adm-zip'
 
 const ROOT = resolve(__dirname, '../..')
 const MAIN = join(ROOT, 'out/main/index.js')
+const pageApps = new WeakMap<Page, ElectronApplication>()
 const quotePS = (value: string): string => `'${value.replace(/'/g, "''")}'`
+
+test('a ready existing index serves Explorer without starting a private scan', async ({}, info) => {
+  test.skip(process.env.PRISM_E2E_EXISTING_INDEX !== '1', 'Opt-in read-only test of a running local index')
+  const profile = join(ROOT, '.e2e', `existing-index-${randomUUID()}`)
+  mkdirSync(profile, { recursive: true })
+  const path = process.env.PRISM_E2E_EXISTING_ROOT ?? 'C:\\'
+  const query = process.env.PRISM_E2E_EXISTING_QUERY ?? 'playnite'
+  writeFileSync(join(profile, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+    id: 'existing-index', role: 'explorer', pinned: true, root: path,
+    browse: { path, history: [{ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: false }, panes: [], open: [path]
+  }] }))
+  const { app, page } = await start(profile)
+  try {
+    await page.evaluate(() => localStorage.setItem('prism.onboarded', '1'))
+    await page.reload()
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const timings: number[] = []
+      const windows: Array<{ total: number; rows: number }> = []
+      Object.assign(globalThis, { existingIndexTimings: timings, existingIndexWindows: windows })
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (...args: unknown[]) => {
+        const started = Date.now()
+        const result = await original(...args)
+        timings.push(Date.now() - started)
+        const answer = result as { window?: { total: number }; listing: { files: unknown[]; folders: unknown[] } }
+        if (answer.window) windows.push({ total: answer.window.total, rows: answer.listing.files.length + answer.listing.folders.length })
+        return result
+      })
+    })
+    const field = page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    await expect(field).toBeVisible()
+    for (const value of [query, `folder: ${query}`, query]) {
+      await field.fill('')
+      await expect(page.getByTestId('browse-search-status')).toHaveCount(0)
+      const started = Date.now()
+      await field.fill(value)
+      const status = page.getByTestId('browse-search-status')
+      await expect(status).toContainText('Search results')
+      await expect(status).toHaveAttribute('data-source', 'everything')
+      await expect(page.locator('.browse-row').first()).toBeVisible()
+      const elapsed = Date.now() - started
+      console.log('Search IPC timings', await app.evaluate(() => (globalThis as unknown as { existingIndexTimings: number[] }).existingIndexTimings))
+      expect(elapsed).toBeLessThan(2000)
+      console.log(`Existing index UI query ${JSON.stringify(value)}: ${elapsed} ms`)
+    }
+    const windows = await app.evaluate(() => (globalThis as unknown as { existingIndexWindows: Array<{ total: number; rows: number }> }).existingIndexWindows)
+    expect(windows.length).toBeGreaterThan(0)
+    expect(windows.every((window) => window.rows <= 512)).toBe(true)
+    console.log('Existing index result windows', JSON.stringify(windows))
+    if (query === 'play') {
+      expect(windows.some((window) => window.total > 1000)).toBe(true)
+      const list = page.getByTestId('browse-list')
+      await list.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight })
+      await expect(list).toHaveAttribute('aria-busy', 'false')
+      await expect.poll(() => list.locator('[role="option"]').count()).toBeGreaterThan(0)
+      expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+      const delays = await page.evaluate(async () => {
+        const values: number[] = []
+        let previous = performance.now()
+        for (let step = 0; step < 30; step++) {
+          await new Promise((done) => setTimeout(done, 10))
+          const now = performance.now()
+          values.push(now - previous)
+          previous = now
+        }
+        return values
+      })
+      console.log('Broad search settled UI maximum 10ms timer interval:', Math.max(...delays))
+      expect(Math.max(...delays)).toBeLessThan(250)
+    }
+    expect(existsSync(join(profile, 'search-index', 'Everything.ini'))).toBe(false)
+    await shot(page, info, 'existing-index-results.png', app)
+  } finally {
+    await stop(app)
+  }
+})
 
 /** The app writes on a debounce; a poll may land while Windows holds the file open. */
 function savedTabs(path: string): {
@@ -67,9 +147,11 @@ async function start(profile: string, extraArgs: string[] = []): Promise<{ app: 
   const executablePath = process.env.PRISM_BROWSE_EXECUTABLE
   const app = await electron.launch({
     ...(executablePath ? { executablePath } : {}),
+    env: { ...process.env, PRISM_E2E_INDEX_ROOT: join(ROOT, '.e2e') },
     args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', ...extraArgs]
   })
   const page = await app.firstWindow()
+  pageApps.set(page, app)
   await page.waitForLoadState('domcontentloaded')
   await park(app)
   return { app, page }
@@ -78,6 +160,9 @@ async function start(profile: string, extraArgs: string[] = []): Promise<{ app: 
 /** Only this test's Electron process tree is eligible for fallback cleanup. */
 async function stop(app: ElectronApplication): Promise<void> {
   const child = app.process()
+  await app.evaluate(async () => {
+    await (globalThis as unknown as { __prismIndexer?: { dispose(): Promise<void> } }).__prismIndexer?.dispose()
+  }).catch(() => {})
   await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
   if (child.exitCode === null) {
     await Promise.race([
@@ -117,6 +202,14 @@ async function setup(): Promise<Harness> {
     writeFileSync(join(project, `entry-${String(i).padStart(3, '0')}.txt`), `${i}\n`)
   writeFileSync(join(movies, 'readme.txt'), 'A different browsing location.\n')
   const profile = join(tmpdir(), `prism-browse-e2e-${key}`)
+  mkdirSync(profile, { recursive: true })
+  // Start inside this fixture. A fresh real home could contain millions of
+  // entries and is deliberately outside this isolated UI test's index.
+  writeFileSync(join(profile, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+    id: `fixture-explorer-${key}`, role: 'explorer', pinned: true, root: project,
+    browse: { path: project, history: [{ path: project, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: true },
+    panes: [], open: [project]
+  }] }))
   const { app, page } = await start(profile)
   try {
     await page.evaluate((folder) => {
@@ -258,7 +351,25 @@ async function expectOpenInAppsMenu(page: Page): Promise<void> {
   ).toBeVisible()
 }
 
+async function waitForIndexedFixture(page: Page, path: string): Promise<void> {
+  const app = pageApps.get(page)
+  if (!app) throw new Error('Missing private indexer test harness')
+  const endpoint = await app.evaluate(async (_electron, root) => {
+    const runtime = (globalThis as unknown as { __prismIndexer: { ensureReady(root: string): Promise<{ exe: string; instance: string } | null> } }).__prismIndexer
+    return runtime.ensureReady(root)
+  }, dirname(path))
+  expect(endpoint, 'Bundled private indexer must start without an external Everything installation').not.toBeNull()
+  await expect.poll(() => {
+    try {
+      const output = execFileSync(endpoint!.exe, ['-instance', endpoint!.instance, '-json', '-n', '10', '-path', `"${dirname(path)}"`, '-search*', `"${basename(path)}"`], { windowsHide: true, windowsVerbatimArguments: true, encoding: 'utf8', timeout: 2000 })
+      return (JSON.parse(output || '[]') as { filename: string }[]).some((row) => resolve(row.filename).toLowerCase() === resolve(path).toLowerCase())
+    } catch { return false }
+  }, { timeout: 30000 }).toBe(true)
+}
 async function search(page: Page, query: string): Promise<void> {
+  const directory = await page.getByRole('navigation', { name: 'Folder path', exact: true }).getAttribute('title')
+  if (query && directory && existsSync(join(directory, query)))
+    await waitForIndexedFixture(page, join(directory, query))
   await page
     .getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
     .fill(query)
@@ -408,6 +519,118 @@ test('folder navigation retains history state and lists dotfiles and unsupported
     await shot(page, info, 'zoom200.png', h.app)
   } finally {
     await stop(h.app)
+  }
+})
+
+test('Explorer displays all file types independently of viewer support', async () => {
+  const h = await setup()
+  try {
+    const folder = join(h.home, 'All file types')
+    mkdirSync(folder)
+    const names = ['library.dll', 'driver.sys', 'program.exe', 'data.bin', 'unknown.xyz123', 'no-extension', '.hidden', 'desktop.ini']
+    for (const name of names) writeFileSync(join(folder, name), Buffer.from([0, 1, 2, 255]))
+    await go(h.page, folder)
+    for (const name of names) await expect(row(h.page, name)).toBeVisible()
+    await expect(h.page.getByTestId('browse-list').getByRole('option')).toHaveCount(names.length)
+    await search(h.page, 'ext:dll')
+    await expect(row(h.page, 'library.dll')).toBeVisible()
+    await row(h.page, 'library.dll').dblclick()
+    await expect(h.page.getByRole('button', { name: 'Show the bytes', exact: true })).toBeVisible()
+  } finally {
+    await stop(h.app)
+  }
+})
+
+test('returning Up shows visited folder rows while a slow refresh discovers new files', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await row(page, 'Nested').dblclick()
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    writeFileSync(join(h.project, '.new-while-away.dll'), 'new file')
+    await app.evaluate(({ ipcMain }, target) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:directory')!
+      let release!: () => void
+      const gate = new Promise<void>((done) => { release = done })
+      const delayed = { calls: 0, fail: false, release }
+      Object.assign(globalThis, { folderRefreshDelay: delayed })
+      ipcMain.removeHandler('browse:directory')
+      ipcMain.handle('browse:directory', async (...args: unknown[]) => {
+        if (args[2] === target) {
+          delayed.calls++
+          await gate
+          if (delayed.fail) return null
+        }
+        return original(...args)
+      })
+    }, h.project)
+    await page.getByRole('button', { name: 'Up', exact: true }).click()
+    await expect(page.getByRole('navigation', { name: 'Folder path' })).toHaveAttribute('title', h.project)
+    await expect(row(page, 'Nested')).toBeVisible()
+    await expect(page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(page.getByText('Loading folder…', { exact: true })).toHaveCount(0)
+    await expect(row(page, '.new-while-away.dll')).toHaveCount(0)
+    await expect.poll(() => app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { calls: number } }).folderRefreshDelay.calls
+    )).toBe(1)
+    await app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { release: () => void } }).folderRefreshDelay.release()
+    )
+    await expect(row(page, '.new-while-away.dll')).toBeVisible()
+    expect(await app.evaluate(() =>
+      (globalThis as unknown as { folderRefreshDelay: { calls: number } }).folderRefreshDelay.calls
+    )).toBe(1)
+    await row(page, 'Nested').dblclick()
+    await expect(row(page, 'inside.txt')).toBeVisible()
+    await app.evaluate(() => {
+      (globalThis as unknown as { folderRefreshDelay: { fail: boolean } }).folderRefreshDelay.fail = true
+    })
+    await page.getByRole('button', { name: 'Up', exact: true }).click()
+    await expect(page.getByText('This folder cannot be opened. Check the path or choose another location.', { exact: true })).toBeVisible()
+    await expect(row(page, 'Nested')).toHaveCount(0)
+  } finally {
+    await stop(app)
+  }
+})
+
+test('a new refresh sees filesystem changes without waiting for an older folder response', async () => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    await app.evaluate(({ ipcMain }, target) => {
+      type Handler = (...args: unknown[]) => unknown
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:directory')!
+      let release!: () => void
+      const gate = new Promise<void>((done) => { release = done })
+      const delayed = { calls: 0, captured: false, release }
+      Object.assign(globalThis, { oldFolderResponse: delayed })
+      ipcMain.removeHandler('browse:directory')
+      ipcMain.handle('browse:directory', async (...args: unknown[]) => {
+        const hold = args[2] === target && ++delayed.calls === 1
+        const result = await original(...args)
+        if (hold) {
+          delayed.captured = true
+          await gate
+        }
+        return result
+      })
+    }, h.project)
+    await page.getByRole('button', { name: 'Refresh folder', exact: true }).click()
+    await expect.poll(() => app.evaluate(() =>
+      (globalThis as unknown as { oldFolderResponse: { captured: boolean } }).oldFolderResponse.captured
+    )).toBe(true)
+    writeFileSync(join(h.project, '.created-during-read.dll'), 'new file')
+    await page.getByRole('button', { name: 'Refresh folder', exact: true }).click()
+    await expect(row(page, '.created-during-read.dll')).toBeVisible()
+    await app.evaluate(() =>
+      (globalThis as unknown as { oldFolderResponse: { release: () => void } }).oldFolderResponse.release()
+    )
+    await expect(row(page, '.created-during-read.dll')).toBeVisible()
+  } finally {
+    await stop(app)
   }
 })
 
@@ -1100,6 +1323,11 @@ test('recursive folder sizes sort by totals, refresh nested changes and agree wi
   const { app, page } = h
   const large = join(h.movies, 'Large folder')
   try {
+    // Exercise the recursive fallback and its exact descendant counts here.
+    // The bundled-index case below verifies indexed totals separately.
+    await app.evaluate(async () => {
+      await (globalThis as unknown as { __prismIndexer: { dispose(): Promise<void> } }).__prismIndexer.dispose()
+    })
     for (const path of [
       join(large, 'Nested', 'Deep'),
       join(large, 'Empty within'),
@@ -1154,6 +1382,59 @@ test('recursive folder sizes sort by totals, refresh nested changes and agree wi
     await expect(property('Contents')).toHaveText('0 files, 0 folders (including subfolders)')
   } finally {
     await stop(app)
+  }
+})
+
+test('bundled folder totals survive restart and cached sizes appear before fresh requests finish', async () => {
+  const h = await setup()
+  let current = { app: h.app, page: h.page }
+  try {
+    await waitForIndexedFixture(current.page, join(h.nested, 'inside.txt'))
+    await go(current.page, h.movies)
+    // Adding Movies can restart the private folder index. This case tests an
+    // indexed cache, so wait for that expansion before requesting its totals.
+    await waitForIndexedFixture(current.page, join(h.movies, 'readme.txt'))
+    await go(current.page, h.project)
+    await expect.poll(async () => {
+      const cached = await current.page.evaluate((path) => window.prism.folderSizesCached([path]), h.nested)
+      return cached[h.nested]?.source
+    }).toBe('index')
+    await expect(row(current.page, 'Nested').locator('.browse-column-size')).toHaveText('≈ 14 B')
+    await stop(current.app)
+    current = await start(h.profile)
+    // Hold fresh requests to prove that the renderer can hydrate the persisted
+    // batch cache without waiting for a scan or a newly started indexing engine.
+    await current.app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('folder:size')
+      ipcMain.handle('folder:size', () => new Promise(() => {}))
+    })
+    await current.page.reload()
+    await expect(current.page.getByTestId('browse-list')).toHaveAttribute('aria-busy', 'false')
+    await expect(row(current.page, 'Nested').locator('.browse-column-size')).toHaveText('≈ 14 B')
+    const cached = await current.page.evaluate((path) => window.prism.folderSizesCached([path]), h.nested)
+    expect(cached[h.nested]).toMatchObject({ bytes: 14, source: 'index', countsKnown: false })
+  } finally {
+    await stop(current.app)
+  }
+})
+
+test('closing the final Prism window releases its private bundled engine', async () => {
+  const h = await setup()
+  const child = h.app.process()
+  try {
+    await waitForIndexedFixture(h.page, join(h.nested, 'inside.txt'))
+    const pidFile = join(h.profile, 'search-index', 'engine-pid')
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    expect(pid).toBeGreaterThan(0)
+    await h.page.evaluate(() => window.prism.close(true))
+    await expect.poll(() => child.exitCode).not.toBeNull()
+    await expect.poll(() => {
+      try { process.kill(pid, 0); return true } catch { return false }
+    }).toBe(false)
+    expect(existsSync(pidFile)).toBe(false)
+  } finally {
+    if (child.exitCode === null) await stop(h.app)
+    else for (const stream of child.stdio) stream?.destroy()
   }
 })
 
@@ -1325,8 +1606,20 @@ test('new Explorer tabs preview clicks and arrow selections by default while dou
     ).toHaveCount(0)
     await go(page, h.movies)
     const preview = page.locator('[data-browse-preview="true"]')
+    await expect(page.locator('.browse-preview-slot')).toHaveCount(0)
+    await expect(page.getByRole('separator', { name: 'Resize Explorer preview', exact: true })).toHaveCount(0)
+    await expect(page.getByTestId('folder-browser')).not.toHaveAttribute('data-preview', 'true')
+    const emptyListWidth = (await page.getByTestId('browse-list').boundingBox())!.width
+    await toggle.click()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.browse-preview-slot')).toHaveCount(0)
+    await shot(page, info, 'explorer-preview-enabled-empty.png', app)
     await row(page, 'a.txt').click()
     await expect(preview.locator('.cm-content')).toHaveText('First preview')
+    await expect(page.locator('.browse-preview-slot')).toBeVisible()
+    await expect(page.getByRole('separator', { name: 'Resize Explorer preview', exact: true })).toBeVisible()
+    expect((await page.getByTestId('browse-list').boundingBox())!.width).toBeLessThan(emptyListWidth)
     await expect(page.getByTestId('browse-list')).toBeVisible()
     await page.keyboard.press('ArrowDown')
     await expect(row(page, 'b.txt')).toHaveAttribute('aria-selected', 'true')
@@ -1549,6 +1842,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     mkdirSync(appData, { recursive: true })
     const settings = join(appData, 'Playnite-settings.txt')
     writeFileSync(settings, 'AppData settings fixture\n')
+    await waitForIndexedFixture(page, settings)
     await newExplorerWithoutPreview(page)
     await go(page, h.home)
     await search(page, 'Playnite')
@@ -1557,9 +1851,7 @@ test('recursive Explorer search finds AppData and opens files and folders as sep
     await expect(row(page, 'Playnite-settings.txt').locator('.browse-result-location')).toHaveText(
       appData
     )
-    await expect(page.getByTestId('browse-search-status')).toContainText(
-      'This folder and subfolders'
-    )
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('title', /This folder and subfolders/)
     await shot(page, info, 'recursive-appdata-search.png', app)
 
     const explorer = ordinaryTabs(page).nth(1)
@@ -1727,6 +2019,111 @@ test('renaming an Explorer preview keeps the same tab and role', async () => {
   } finally {
     await stop(h.app)
   }
+})
+
+test('Everything Explorer filters respond from the index and focus surrounds the complete field', async ({}, info) => {
+  const h = await setup()
+  const { app, page } = h
+  try {
+    const folder = join(h.project, 'Playnite')
+    mkdirSync(folder)
+    mkdirSync(join(folder, 'Saved Games'))
+    writeFileSync(join(folder, 'Playnite.dll'), 'indexed unsupported file')
+    writeFileSync(join(folder, '.Playnite-hidden'), 'indexed hidden file')
+    await waitForIndexedFixture(page, join(folder, '.Playnite-hidden'))
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const timings: { query: string; ms: number }[] = []
+      let waitingForIndex = true
+      ;(globalThis as unknown as { __searchTimings: typeof timings }).__searchTimings = timings
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (...args: unknown[]) => {
+        const start = performance.now()
+        const result = await original(...args)
+        timings.push({ query: String(args[3]), ms: Math.round(performance.now() - start) })
+        // Reproduce a query arriving just before Everything consumes a newly
+        // created folder. The unchanged query must fill in quietly afterward.
+        if (args[3] === 'folder: Playnite' && waitingForIndex) {
+          waitingForIndex = false
+          return { ...(result as Record<string, unknown>), listing: { folders: [], files: [] } }
+        }
+        return result
+      })
+    })
+    const normalHeight = await page.locator('.browse-row').first().evaluate((el) => el.getBoundingClientRect().height)
+    await search(page, 'folder: Playnite')
+    await expect(page.locator('.browse-columns button')).toHaveText(['Name', 'Path', 'Size'])
+    await expect(page.locator('.browse-list-area > .browse-search-status')).toHaveCount(0)
+    await expect(page.locator('.browse-status .browse-search-status')).toHaveCount(1)
+    expect(await row(page, 'Playnite').evaluate((el) => el.getBoundingClientRect().height)).toBe(normalHeight)
+    await expect(row(page, 'Playnite')).toBeVisible()
+    await expect(row(page, 'Playnite.dll')).toHaveCount(0)
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('data-source', 'everything')
+    await search(page, 'file: Playnite')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await expect(row(page, '.Playnite-hidden')).toBeVisible()
+    await expect(row(page, 'Playnite')).toHaveCount(0)
+    await search(page, 'file: ext:dll size:>1')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await expect(row(page, '.Playnite-hidden')).toHaveCount(0)
+    await search(page, '"Playnite.dll"')
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await search(page, 'folder:"Saved Games"')
+    await expect(row(page, 'Saved Games')).toBeVisible()
+    await search(page, '<folder: Playnite> | <file: ext:dll>')
+    await expect(row(page, 'Playnite')).toBeVisible()
+    await expect(row(page, 'Playnite.dll')).toBeVisible()
+    await search(page, 'prism-no-such-indexed-result-152')
+    await expect(page.getByTestId('browse-list').locator('[role="option"]')).toHaveCount(0)
+    await expect(page.getByTestId('browse-search-status')).toHaveAttribute('data-source', 'everything')
+    await search(page, 'file: Playnite')
+    for (const zoom of [1, 2]) {
+      await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom)
+      const field = page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+      await field.focus()
+      await expect(field).toBeFocused()
+      await expect(field).toHaveCSS('outline-style', 'none')
+      await expect(field.locator('..')).toHaveCSS('outline-style', 'solid')
+      expect(await field.locator('..').evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth))).toBeGreaterThan(1)
+      const result = row(page, 'Playnite.dll')
+      await expect(result.locator('.browse-column-path')).toHaveText(folder)
+      await expect(result).toHaveCSS('height', '40px')
+      const cells = await result.locator(':scope > span').evaluateAll((elements) => elements.map((el) => {
+        const rect = el.getBoundingClientRect()
+        return { x: rect.x, right: rect.right, y: rect.y, height: rect.height, width: rect.width }
+      }))
+      expect(cells).toHaveLength(3)
+      expect(cells.every((cell) => cell.width > 0)).toBe(true)
+      expect(cells[0].right).toBeLessThan(cells[1].x)
+      expect(cells[1].right).toBeLessThan(cells[2].x)
+      await shot(page, info, `search-focus-${zoom}.png`, app)
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+    await page.locator('.browse-list-area').evaluate((element) => { (element as HTMLElement).style.width = '240px' })
+    const list = page.getByTestId('browse-list')
+    expect(await row(page, 'Playnite.dll').locator('.browse-column-name').evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(150)
+    expect(await row(page, 'Playnite.dll').locator('.browse-name-text').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await list.evaluate((element) => { element.scrollLeft = 120 })
+    await expect.poll(() => page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)).toBe(120)
+    await expect(row(page, 'Playnite.dll').locator('.browse-column-path')).toBeVisible()
+    await list.evaluate((element) => { element.scrollLeft = 0 })
+    await expect.poll(() => page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)).toBe(0)
+    await page.getByRole('button', { name: 'Sort by size', exact: true }).focus()
+    await expect.poll(async () => {
+      const headerLeft = await page.locator('.browse-column-viewport').evaluate((el) => el.scrollLeft)
+      const bodyLeft = await list.evaluate((el) => el.scrollLeft)
+      return headerLeft > 0 && headerLeft === bodyLeft
+    }).toBe(true)
+    await page.locator('.browse-list-area').evaluate((element) => { (element as HTMLElement).style.removeProperty('width') })
+    const timings = await app.evaluate(() => (globalThis as unknown as { __searchTimings: { query: string; ms: number }[] }).__searchTimings)
+    console.log('Indexed Explorer timings:', JSON.stringify(timings))
+    await info.attach('indexed-search-timings', { body: JSON.stringify(timings, null, 2), contentType: 'application/json' })
+    expect(timings.length).toBeGreaterThanOrEqual(5)
+    // Generous regression limit. Exact measured latency is attached separately.
+    expect(timings.every((timing) => timing.ms < 1500)).toBe(true)
+  } finally { await stop(app) }
 })
 
 test('cancel search reaches the matching request and a fresh query can run afterward', async () => {
@@ -3626,6 +4023,21 @@ test('held drags preserve the marked row and preview, and selected files and fol
 
     await pickUp(page, row(page, 'drag-other.txt'))
     await expect(page.locator('[data-file-drag-badge]')).toContainText('drag-other.txt')
+    await page.mouse.move(900, 400, { steps: 8 })
+    const badge = page.locator('[data-file-drag-badge]')
+    await expect.poll(async () => {
+      const box = await badge.boundingBox()
+      return !!box && box.x + box.width <= 900 && box.x + box.width >= 888 &&
+        box.y >= 404 && box.y <= 420
+    }).toBe(true)
+    await shot(page, info, 'drag-label-below-left.png', app)
+    const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    await page.mouse.move(6, viewport.height - 6, { steps: 8 })
+    await expect.poll(async () => {
+      const box = await badge.boundingBox()
+      return !!box && box.x >= 0 && box.y >= 0 &&
+        box.x + box.width <= viewport.width && box.y + box.height <= viewport.height
+    }).toBe(true)
     await expect(row(page, 'readme.txt')).toHaveAttribute('aria-selected', 'true')
     await expect(row(page, 'readme.txt')).toHaveCSS('background-color', selectedBlue)
     await expect(row(page, 'drag-other.txt')).toHaveAttribute('aria-selected', 'false')
@@ -4213,7 +4625,9 @@ async function stopWinEChild(child: WinEChild, owner: string): Promise<void> {
           expect(live.ExecutablePath.toLowerCase()).toBe(child.executable.toLowerCase())
           expect(live.CommandLine).toContain(`--user-data-dir=${expected}`)
           expect(live.CommandLine).toContain(`--explorer-window=${child.id}`)
-          await promisify(execFile)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+          // A descendant can exit while taskkill enumerates the tree. The
+          // exited-PID assertion below, rather than its exit code, is decisive.
+          await promisify(execFile)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }).catch(() => {})
         }
         await expect.poll(() => processIsAlive(child.pid!)).toBe(false)
       }
@@ -4332,4 +4746,175 @@ test('Win+E warm CLI requests open independent Explorer processes with shared pr
     await Promise.all(pipes.map((pipe) => pipe.close()))
     expect(cleanup.filter((result) => result.status === 'rejected'), 'Only owned child processes and profiles must be cleaned up').toEqual([])
   }
+})
+
+test('Win+E paints a usable loading window before App loads and acknowledges only the rendered Explorer', async ({}, info) => {
+  test.skip(process.platform !== 'win32', 'The shortcut acknowledgement uses a Windows named pipe.')
+  const { createServer: createHttpServer } = await import('node:http')
+  const profile = join(tmpdir(), `prism-startup-e2e-${randomUUID()}`)
+  mkdirSync(profile, { recursive: true })
+  const incomingFile = join(profile, 'queued-open.txt')
+  writeFileSync(incomingFile, 'Opened while the loading window was visible.\n')
+  const id = randomUUID()
+  let releaseApp!: () => void
+  const heldApp = new Promise<void>((resolve) => { releaseApp = resolve })
+  let appRequested = false
+  const server = createHttpServer((request, response) => {
+    void (async () => {
+      const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
+      const path = join(ROOT, 'out/renderer', pathname === '/' ? 'index.html' : pathname)
+      if (/\/renderApp-[^/]+\.js$/.test(pathname)) {
+        appRequested = true
+        await heldApp
+      }
+      try {
+        response.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html')
+        response.setHeader('Cache-Control', 'no-store')
+        response.end(readFileSync(path))
+      } catch {
+        response.writeHead(404).end()
+      }
+    })()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address() as { port: number }
+  let app: ElectronApplication | undefined
+  let page: Page | undefined
+  const pipe = await winEAckPipe(id, async () => winEVisibleState(page!))
+  try {
+    const executablePath = process.env.PRISM_BROWSE_EXECUTABLE
+    app = await electron.launch({
+      ...(executablePath ? { executablePath } : {}),
+      args: [...(executablePath ? [] : [MAIN]), `--user-data-dir=${profile}`, '--preview', '--e2e', `--win-e=${id}`],
+      env: { ...process.env, PRISM_E2E_INDEX_ROOT: profile, ELECTRON_RENDERER_URL: `http://127.0.0.1:${address.port}/` }
+    })
+    page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await park(app)
+    await expect.poll(() => appRequested).toBe(true)
+    await expect(page.getByTestId('window-loading')).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Opening Prism…')
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible())).toBe(true)
+    expect(pipe.messages).toEqual([])
+    await shot(page, info, 'window-loading.png', app)
+    await app.evaluate(({ app }, file) => {
+      app.emit('second-instance', {}, [process.execPath, file], process.cwd())
+    }, incomingFile)
+    await page.getByRole('button', { name: 'Maximize', exact: true }).click()
+    await expect.poll(() => app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(true)
+    await page.getByRole('button', { name: 'Maximize', exact: true }).click()
+    await expect.poll(() => app!.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized())).toBe(false)
+    await page.evaluate(() => localStorage.setItem('prism.onboarded', '1'))
+    // Hold initial session messages after React mounts, reproducing slow folder
+    // discovery without depending on disk speed or delaying the App chunk again.
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      const send = contents.send.bind(contents)
+      const queued: Array<[string, ...unknown[]]> = []
+      contents.send = (channel, ...args) => {
+        if (['open:file', 'open:restored', 'win-e:open'].includes(channel)) queued.push([channel, ...args])
+        else send(channel, ...args)
+      }
+      Object.assign(globalThis, {
+        releaseStartupMessages: () => {
+          contents.send = send
+          for (const [channel, ...args] of queued) send(channel, ...args)
+        }
+      })
+    })
+    releaseApp()
+    await expect(page.getByTestId('window-loading')).toHaveCount(0)
+    await expect(page.getByTestId('window-restoring')).toBeVisible()
+    await expect(page.getByRole('status')).toHaveText('Opening Prism…')
+    await expect(page.getByText('Open a file or folder to view it', { exact: true })).toHaveCount(0)
+    expect(pipe.messages).toEqual([])
+    await shot(page, info, 'window-restoring.png', app)
+    await app.evaluate(() => {
+      const state = globalThis as typeof globalThis & { releaseStartupMessages?: () => void }
+      state.releaseStartupMessages!()
+      delete state.releaseStartupMessages
+    })
+    await expect(page.getByTestId('folder-browser')).toBeVisible()
+    await expect(page.getByTestId('window-restoring')).toHaveCount(0)
+    await expect.poll(() => pipe.messages).toEqual([id])
+    expect(await pipe.observations[0]).toMatchObject({ role: 'explorer', pinned: true, folderVisible: true })
+    await expect.poll(() => savedTabs(join(profile, 'tabs.json'))?.tabs.some((tab) => tab.file === incomingFile)).toBe(true)
+    await ordinaryTabs(page).last().click()
+    await expect(page.getByRole('textbox').filter({ hasText: 'Opened while the loading window was visible.' })).toBeVisible()
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+  } finally {
+    releaseApp()
+    if (app) await stop(app)
+    await pipe.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
+test('indexed search exposes every match with bounded viewport work, keyboard jumps and global sorting', async ({}, info) => {
+  const h = await setup()
+  h.page.on('pageerror', (error) => console.log('Viewport page error', error.message))
+  try {
+    await h.app.evaluate(({ ipcMain }, project) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const requests: Array<{ offset: number; limit: number; total: number }> = []
+      Object.assign(globalThis, { viewportRequests: requests })
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (event, tabId, path, query, requestId, window) => {
+        if (!['broad', 'huge'].includes(query)) return original(event, tabId, path, query, requestId, window)
+        const total = query === 'huge' ? 2000003 : 200003
+        const offset = window.offset
+        const length = Math.max(0, Math.min(window.limit, total - offset))
+        requests.push({ offset, limit: window.limit, total })
+        const files = Array.from({ length }, (_, slot) => {
+          const index = window.sort.direction === 'desc' ? total - offset - slot - 1 : offset + slot
+          const name = `match-${String(index).padStart(7, '0')}.txt`
+          return { name, path: `${project}\\${name}`, ext: '.txt', kind: 'text', size: index, mtimeMs: 0 }
+        })
+        return {
+          path, source: 'everything', listing: { folders: [], files },
+          scanned: length, unreadable: 0, skippedLinks: 0, truncated: false, cancelled: false,
+          window: { total, offset, paths: files.map((file, slot) => offset + slot === 1 ? null : file.path), folderSizes: {} }
+        }
+      })
+    }, h.project)
+    await search(h.page, 'broad')
+    const list = h.page.getByTestId('browse-list')
+    await expect(h.page.locator('.browse-status > span').first()).toHaveText('200003 items')
+    await expect(list.locator('[data-browse-index="0"]')).toContainText('match-0000000.txt')
+    expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+    await list.focus()
+    await h.page.keyboard.press('End')
+    const last = list.locator('[data-browse-index="200002"]')
+    await expect(last).toHaveAttribute('aria-selected', 'true')
+    await expect(last).toBeVisible()
+    await h.page.keyboard.press('ArrowUp')
+    await expect(list.locator('[data-browse-index="200001"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.keyboard.press('Home')
+    await expect(list.locator('[data-browse-index="0"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.keyboard.press('ArrowDown')
+    await expect(list.locator('[data-browse-index="2"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.getByRole('button', { name: 'Sort by size', exact: true }).click()
+    await h.page.getByRole('button', { name: 'Sort by size, ascending', exact: true }).click()
+    await expect(list.locator('[data-browse-index="0"]')).toContainText('match-0200002.txt')
+    await search(h.page, 'huge')
+    await expect(h.page.locator('.browse-status > span').first()).toHaveText('2000003 items')
+    await list.focus()
+    await h.page.keyboard.press('End')
+    await expect(list.locator('[data-browse-index="2000002"]')).toHaveAttribute('aria-selected', 'true')
+    await expect(list.locator('[data-browse-index="2000002"]')).toBeVisible()
+    await h.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
+    await list.focus()
+    await h.page.keyboard.press('End')
+    await expect(list.locator('[data-browse-index="2000002"]')).toBeInViewport()
+    const requests = await h.app.evaluate(() => (globalThis as unknown as {
+      viewportRequests: Array<{ offset: number; limit: number; total: number }>
+    }).viewportRequests)
+    expect(requests.every((request) => request.limit <= 512)).toBe(true)
+    expect(requests.some((request) => request.offset > 1000000)).toBe(true)
+    expect(requests.length).toBeLessThan(14)
+    expect(await h.page.getByRole('button', { name: /Show.*more/i }).count()).toBe(0)
+    expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+    await shot(h.page, info, 'indexed-million-results.png', h.app)
+  } finally { await stop(h.app) }
 })

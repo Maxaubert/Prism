@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, type JSX } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
+import { BrowseSearchStatus } from './BrowseSearchStatus'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
 import { browseEntries } from './entries'
@@ -23,6 +24,14 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
+  const [visibleFolders, setVisibleFolders] = useState<string[]>([])
+  const onVisibleFolders = useCallback((paths: string[]) => {
+    setVisibleFolders((previous) =>
+      previous.length === paths.length && previous.every((path, index) => path === paths[index])
+        ? previous
+        : paths
+    )
+  }, [])
   const focusList = (): void => {
     shell.current?.querySelector<HTMLElement>('.browse-list')?.focus({ preventScroll: true })
   }
@@ -38,13 +47,40 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     () => props.listing?.folders.map((folder) => folder.path) ?? [],
     [props.listing]
   )
-  const folderSizes = useFolderSizes(folderPaths, !props.loading && !props.searchState?.running)
+  const folderSizes = useFolderSizes(
+    folderPaths,
+    !props.loading && !props.searchState?.running && !props.searchState?.window,
+    visibleFolders
+  )
   const entries = useMemo(
     () =>
       browseEntries(props.listing, props.searchState ? '' : props.query, props.sort, folderSizes),
     [props.listing, props.query, props.sort, props.searchState, folderSizes]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
+  const searchWindow = props.searchState?.window
+  const searchWindows = props.searchState?.windows
+  const indexedRows = useMemo(() => {
+    if (!searchWindow) return undefined
+    const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+    const rows = new Map<number, BrowseEntry | null>()
+    for (const window of searchWindows ?? []) {
+      window.paths.forEach((path, index) => {
+        const entry = path ? byPath.get(path) : null
+        rows.set(
+          window.offset + index,
+          entry
+            ? {
+                ...entry,
+                folderSize: window.folderSizes?.[entry.path] ?? null
+              }
+            : null
+        )
+      })
+    }
+    return rows
+  }, [entries, searchWindow, searchWindows])
+  const total = props.searchState?.window?.total ?? entries.length
   const activate = (entry: BrowseEntry): void => {
     if (entry.isFolder) {
       retainListFocus()
@@ -56,7 +92,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     : props.error ||
       (props.listing?.unreadable
         ? 'This folder could not be read. Try another location.'
-        : !entries.length
+        : !total
           ? props.query.trim()
             ? props.searchState?.running
               ? 'Searching this folder and subfolders…'
@@ -238,7 +274,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           className="browse-icon-button"
           aria-label="Preview pane"
           title="Preview pane"
-          aria-pressed={props.previewVisible}
+          aria-pressed={props.previewEnabled}
           onClick={props.onPreviewToggle}
         >
           <BrowseIcon name="preview" />
@@ -247,8 +283,11 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       <BrowseList
         {...props}
         entries={props.loading ? [] : entries}
+        indexedRows={indexedRows}
+        total={total}
         onActivate={activate}
         message={message}
+        onVisibleFolders={onVisibleFolders}
       />
       {props.previewVisible && (
         <aside className="browse-preview-slot" aria-label="File preview">
@@ -256,13 +295,12 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </aside>
       )}
       <div className="browse-status" role="status">
-        <span>
-          {props.loading
-            ? 'Loading…'
-            : `${entries.length} ${entries.length === 1 ? 'item' : 'items'}`}
-        </span>
+        <span>{props.loading ? 'Loading…' : `${total} ${total === 1 ? 'item' : 'items'}`}</span>
         {selected && (
           <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+        )}
+        {!!props.query.trim() && (
+          <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
         )}
       </div>
     </div>

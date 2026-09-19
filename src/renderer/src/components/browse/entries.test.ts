@@ -26,6 +26,23 @@ const listing: DirListing = {
 }
 
 describe('folder browser entries', () => {
+  it('sorts search locations by parent path with a natural name tie-breaker', () => {
+    const results: DirListing = {
+      folders: [],
+      files: [
+        { ...file('a.dll', 'other', 1), path: 'C:\\Zebra\\a.dll' },
+        { ...file('item 10.dll', 'other', 1), path: 'C:\\Alpha\\item 10.dll' },
+        { ...file('item 2.dll', 'other', 1), path: 'C:\\Alpha\\item 2.dll' }
+      ]
+    }
+    expect(
+      browseEntries(results, '', { key: 'path', direction: 'asc' }).map((entry) => entry.name)
+    ).toEqual(['item 2.dll', 'item 10.dll', 'a.dll'])
+    expect(
+      browseEntries(results, '', { key: 'path', direction: 'desc' }).map((entry) => entry.name)
+    ).toEqual(['a.dll', 'item 10.dll', 'item 2.dll'])
+  })
+
   it('keeps unsupported files and sorts numeric names with folders first', () => {
     expect(
       browseEntries(listing, '', { key: 'name', direction: 'asc' }).map((entry) => entry.name)

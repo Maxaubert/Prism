@@ -49,8 +49,11 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
-import { browseSearch, cancelBrowseSearch } from './browseSearch'
-import { folderSize } from './folderSize'
+import { browseSearch, cancelBrowseSearch, normalizeSearchWindow } from './browseSearch'
+import { FolderSizeCache } from './folderSizeCache'
+import { getIndexedFolderSizes } from './everythingBrowse'
+import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
+import { findRunningEverything } from './existingEverything'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -638,12 +641,37 @@ let installingUpdate = false
 const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
 const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
+const indexDirectory = join(preferencesOwner, 'search-index')
+const sizeCacheDirectory = join(preferencesOwner, 'folder-sizes')
+const indexer = initializeIndexerRuntime({
+  binaryDirectory: app.isPackaged
+    ? join(process.resourcesPath, 'everything')
+    : join(__dirname, '..', '..', 'vendor', 'everything'),
+  storageDirectory: indexDirectory,
+  useExistingIndex: !process.argv.includes('--e2e') || process.env.PRISM_E2E_EXISTING_INDEX === '1',
+  allowedRoot: process.argv.includes('--e2e') ? process.env.PRISM_E2E_INDEX_ROOT : undefined,
+  allowService:
+    app.isPackaged && !process.argv.includes('--e2e') && !process.argv.includes('--preview'),
+  serviceInstance: indexerInstance(dirname(app.getPath('exe')))
+})
+async function warmIndexer(root?: string): Promise<void> {
+  if (indexer.useExistingIndex && (await findRunningEverything(indexer.endpoint.exe))) return
+  await indexer.ensureReady(root)
+}
+if (process.argv.includes('--e2e')) {
+  ;(globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
+}
+const folderSizes = new FolderSizeCache({
+  directory: sizeCacheDirectory,
+  indexedSizes: getIndexedFolderSizes
+})
 let preferencesLoaded!: () => void
 const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
 const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
 let pendingOpen: Array<{ path: string; dir: boolean }> = []
+let startupRestored = false
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
  *  consent the root wall exists to ask for. */
@@ -1015,12 +1043,29 @@ const E2E = process.argv.includes('--e2e')
  * open and close and this is the only thing that starts or stops a watch, so
  * it can never drift onto a path the renderer named.
  */
+function folderChanged(change: { root: string; dirs: string[] }): void {
+  // Our index and cache writes must not invalidate themselves recursively.
+  const directories = change.dirs.filter((path) =>
+    [indexDirectory, sizeCacheDirectory].every((privatePath) => {
+      const rel = relative(privatePath, path)
+      return rel !== '' && (rel.startsWith('..' + sep) || rel === '..' || isAbsolute(rel))
+    })
+  )
+  void folderSizes
+    .invalidate(directories)
+    .catch(() => {})
+    .finally(() => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.webContents.send('dir:changed', change)
+    })
+}
+
 onRootsChanged((root, open) => {
   if (!open) {
     unwatchRoot(root)
     return
   }
-  watchRoot(root, (change) => mainWindow?.webContents.send('dir:changed', change), isSkipped)
+  watchRoot(root, folderChanged, isSkipped)
 })
 
 /**
@@ -1033,6 +1078,12 @@ onRootsChanged((root, open) => {
 function ownWrite(...paths: Array<string | null | undefined>): void {
   const now = Date.now()
   for (const p of paths) if (typeof p === 'string' && p) muteDir(dirname(p), now)
+}
+
+async function written(...paths: Array<string | null | undefined>): Promise<void> {
+  await folderSizes
+    .invalidate(paths.filter((p): p is string => typeof p === 'string' && !!p))
+    .catch(() => {})
 }
 
 app.setAppUserModelId('com.prism.viewer')
@@ -1137,6 +1188,7 @@ function applyDwmBorder(): void {
 function createWindow(): void {
   const remembered = readWindowState()
   mainWindow = new BrowserWindow({
+    title: 'Prism',
     width: remembered.width,
     height: remembered.height,
     x: remembered.x,
@@ -1144,7 +1196,7 @@ function createWindow(): void {
     minWidth: 560,
     minHeight: 400,
     show: false,
-    ...(E2E ? { focusable: false, skipTaskbar: true } : {}),
+    ...(E2E ? { x: -4000, y: -4000, focusable: false, skipTaskbar: true } : {}),
     // Not `frame: false`: DWM refuses to composite acrylic or mica behind a
     // frameless window, which is why a translucent style came out as a hole in
     // the screen. 'hidden' drops the caption but keeps the frame DWM needs, and
@@ -1177,7 +1229,10 @@ function createWindow(): void {
       ]
     }
   })
-  mainWindow.on('ready-to-show', () => {
+  let shown = false
+  const showWindow = (): void => {
+    if (shown) return
+    shown = true
     // Maximised is restored after the window exists rather than at construction:
     // a window created maximised has no sensible un-maximised size to go back to.
     if (remembered.maximised) mainWindow?.maximize()
@@ -1187,7 +1242,9 @@ function createWindow(): void {
     // is a pipe write and not a two-second wait.
     warmDwmHelper()
     applyDwmBorder()
-  })
+  }
+  mainWindow.once('ready-to-show', showWindow)
+  mainWindow.webContents.once('dom-ready', showWindow)
   // The border follows maximize state; fullscreen changes call applyDwmBorder
   // themselves on the way out, and applyMaterial's debounce covers the rest.
   mainWindow.on('maximize', applyDwmBorder)
@@ -1256,7 +1313,15 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
 
-  mainWindow.webContents.on('did-start-loading', () => winERequests.reload())
+  let restoreStarted = false
+  mainWindow.webContents.on('did-start-loading', () => {
+    restoreStarted = false
+    startupRestored = false
+    winERequests.reload()
+  })
+  // A shortcut press needs an immediate window even on a cold renderer load.
+  // Its solid background is followed by the lightweight opening screen.
+  if (winERequest(process.argv)) showWindow()
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) void mainWindow.loadURL(devUrl)
   else void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -1265,7 +1330,15 @@ function createWindow(): void {
   // with. Order matters: the launch file goes through the same arriving-file
   // rule as everything else, so double-clicking a photo in a folder that was
   // already open lands in that tab rather than opening a second copy of it.
-  mainWindow.webContents.on('did-finish-load', () => {
+  // The lightweight loading shell can finish its document before App loads.
+  // Start restore only once the renderer is actually listening for its files.
+  const restoreWhenListening = (event: Electron.IpcMainEvent): void => {
+    if (event.sender !== mainWindow?.webContents) return
+    if (restoreStarted) {
+      if (startupRestored) event.sender.send('open:restored')
+      return
+    }
+    restoreStarted = true
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
     // became async when listDir did, and firing them off together would let
     // the launch file race the restored tabs: the arriving-file rule folds a
@@ -1291,11 +1364,21 @@ function createWindow(): void {
       // In argv order, each through the ordinary arriving-file route, so
       // several files from one folder still fold into ONE tab and the last
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
-      for (const t of pendingOpen) await sendOpen(t)
-      pendingOpen = []
+      // New OS opens can arrive while a slow restore is still draining. Shift
+      // the shared queue so those requests are preserved in arrival order too.
+      while (pendingOpen.length) await sendOpen(pendingOpen.shift()!)
       winERequests.restored()
     })()
-  })
+      .catch((error: unknown) => console.error('Could not restore the startup session:', error))
+      .finally(() => {
+        startupRestored = true
+        // A genuinely empty or failed restore may show the ordinary empty state.
+        // Until this signal, no tabs means the initial folders are still loading.
+        if (!event.sender.isDestroyed()) event.sender.send('open:restored')
+      })
+  }
+  ipcMain.on('open:listen', restoreWhenListening)
+  mainWindow.once('closed', () => ipcMain.removeListener('open:listen', restoreWhenListening))
 }
 
 // Single instance: a second launch (opening another file) forwards its path to
@@ -1325,6 +1408,7 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     const paths = pathsFromArgv(argv)
+    if (!startupRestored) pendingOpen.push(...paths)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
       // been sitting in the background for an hour, and the file it is handed
@@ -1335,9 +1419,10 @@ if (!app.requestSingleInstanceLock()) {
       // instant the handoff arrives. The opens are sequential for the same
       // reason as the launch drain above: order is what folds them into one
       // tab and leaves the last-named file in front.
-      void (async () => {
-        for (const p of paths) await sendOpen(p)
-      })()
+      if (startupRestored)
+        void (async () => {
+          for (const p of paths) await sendOpen(p)
+        })()
     }
   })
 
@@ -1346,7 +1431,20 @@ if (!app.requestSingleInstanceLock()) {
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 
   // Every shell dies with the app; a pty with no window is an orphan.
-  app.on('will-quit', () => {
+  let indexerStopped = false
+  let stoppingIndexer = false
+  app.on('will-quit', (event) => {
+    if (!indexerStopped) {
+      event.preventDefault()
+      if (!stoppingIndexer) {
+        stoppingIndexer = true
+        void indexer.dispose().finally(() => {
+          indexerStopped = true
+          app.quit()
+        })
+      }
+      return
+    }
     markExplorerWindow(app.getPath('userData'), true)
     stopDwmHelper()
     killAll()
@@ -1365,6 +1463,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     void cleanExplorerWindows(preferencesOwner)
+    // Reuse a ready index before starting private background indexing.
+    void warmIndexer()
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send('window-preferences:changed', snapshot)
@@ -1804,6 +1904,7 @@ if (!app.requestSingleInstanceLock()) {
           // Muted so the folder watcher does not report Prism's own write.
           ownWrite(r.filePath)
           await writeFile(r.filePath, Buffer.from(bytes))
+          await written(r.filePath)
           return r.filePath
         } catch {
           return null
@@ -1939,23 +2040,45 @@ if (!app.requestSingleInstanceLock()) {
     // cached as unreadable. Additions stay main's (the payload builders);
     // removals arrive explicitly below, and a snapshot cannot remove what it
     // never knew about.
-    ipcMain.handle('browse:directory', (_e, tabId: string, path: string) =>
-      browseDirectory(tabId, path)
-    )
+    const warmFolderSizes = (paths: string[]): void => {
+      void folderSizes.prefetchIndexed(paths.filter(insideDesktop)).catch(() => {})
+    }
+    ipcMain.handle('browse:directory', async (_e, tabId: string, path: string) => {
+      const directory = await browseDirectory(tabId, path)
+      if (directory && !directory.listing.unreadable) {
+        void warmIndexer(directory.path)
+        warmFolderSizes(directory.listing.folders.map((folder) => folder.path))
+      }
+      return directory
+    })
     ipcMain.handle(
       'browse:search',
-      (event, tabId: string, path: string, query: string, requestId: string) =>
-        browseSearch(tabId, path, query, requestId, (progress) => {
+      async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {
+        const result = await browseSearch(tabId, path, query, requestId, (progress) => {
           if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
-        })
+        }, {}, normalizeSearchWindow(window))
+        return result
+      }
     )
     ipcMain.on('browse:search-cancel', (_e, tabId: string, requestId: string) =>
       cancelBrowseSearch(tabId, requestId)
     )
     ipcMain.handle('browse:watch', (_e, tabId: string, path: string | null) =>
-      browseWatch(tabId, path, (change) => mainWindow?.webContents.send('dir:changed', change))
+      browseWatch(tabId, path, folderChanged)
     )
     ipcMain.handle('browse:locations', () => browseLocations((key) => app.getPath(key)))
+    ipcMain.handle('folder:sizes-cached', async (_event, paths: unknown) => {
+      if (!Array.isArray(paths) || paths.length > 10000) return {}
+      const authorized = paths.filter(
+        (path): path is string => typeof path === 'string' && insideDesktop(path)
+      )
+      const cached = await folderSizes.readCached(authorized)
+      return Object.fromEntries(Object.entries(cached).filter(([path]) => insideDesktop(path)))
+    })
+    ipcMain.handle('folder:sizes-refresh', async (_event, path: unknown) => {
+      if (typeof path !== 'string' || !insideDesktop(path)) return
+      await folderSizes.invalidate([path])
+    })
     const folderSizeRequests = new Map<number, Map<string, AbortController>>()
     ipcMain.handle('folder:size', async (event, path: string, requestId: string) => {
       if (
@@ -1983,7 +2106,10 @@ if (!app.requestSingleInstanceLock()) {
       const controller = new AbortController()
       requests.set(requestId, controller)
       try {
-        const result = await folderSize(path, controller.signal)
+        const result = await folderSizes.get(path, controller.signal, (result) => {
+          if (!controller.signal.aborted && !event.sender.isDestroyed() && insideDesktop(path))
+            event.sender.send('folder:size-progress', { requestId, result })
+        })
         return insideDesktop(path) && !controller.signal.aborted ? result : null
       } finally {
         if (requests.get(requestId) === controller) requests.delete(requestId)
@@ -2049,6 +2175,7 @@ if (!app.requestSingleInstanceLock()) {
           return { ok: false, reason: 'failed', message: 'That folder is the one Prism opened in.' }
         await holders.release([p]) // a rename is refused for the same reason a move is (#127)
         const r = await renameFile(p, name, onClash, (t) => shell.trashItem(t))
+        await written(p, r.ok ? r.path : dirname(p))
         // The file's memory follows it (#124): its place and its choices.
         if (r.ok) void positions.rename(p, r.path)
         return r
@@ -2062,6 +2189,8 @@ if (!app.requestSingleInstanceLock()) {
         return true
       } catch {
         return false
+      } finally {
+        await written(p)
       }
     })
     // The same wall as every other handler. A text file only ever reaches the
@@ -2145,6 +2274,8 @@ if (!app.requestSingleInstanceLock()) {
           reason: 'failed',
           message: String((e as NodeJS.ErrnoException)?.code ?? '')
         }
+      } finally {
+        await written(p)
       }
     })
 
@@ -2550,10 +2681,11 @@ if (!app.requestSingleInstanceLock()) {
         const src = clipboard.paths
         if (!src.length) return { pasted: 0, failed: 0, empty: true, paths: [] }
         const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
-        const moving = clipboard.cut ?? (
-          Array.isArray(cut) &&
-          cut.length === src.length &&
-          cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
+        const moving =
+          clipboard.cut ??
+          (Array.isArray(cut) &&
+            cut.length === src.length &&
+            cut.every((c) => src.some((f) => norm(f) === norm(String(c)))))
         ownWrite(join(destDir, 'x'))
         const fs = await import('fs/promises')
         const total = moving
@@ -2603,6 +2735,7 @@ if (!app.requestSingleInstanceLock()) {
             failed += 1
           }
         }
+        await written(destDir, ...(moving ? src : []))
         return { pasted, failed, paths, moved: moving }
       }
     )
@@ -2632,7 +2765,7 @@ if (!app.requestSingleInstanceLock()) {
     // rather than InvokeVerb, because the Restore verb's NAME is localised
     // and the namespace move is not. Best effort: an item the user has since
     // emptied simply is not there any more.
-    ipcMain.handle('file:restore', (_e, paths: string[]): Promise<boolean> => {
+    ipcMain.handle('file:restore', async (_e, paths: string[]): Promise<boolean> => {
       ownWrite(...(Array.isArray(paths) ? paths : []))
       if (!Array.isArray(paths) || !paths.length || !paths.every((p) => insideDesktop(p)))
         return Promise.resolve(false)
@@ -2653,14 +2786,14 @@ if (!app.requestSingleInstanceLock()) {
         // happened (an emptied Recycle Bin is the common case).
         'if ($missing) { exit 1 }'
       ].join('; ')
-      return new Promise((done) => {
+      return new Promise<boolean>((done) => {
         execFile(
           'powershell.exe',
           ['-NoProfile', '-Command', script],
           { windowsHide: true, timeout: 20000 },
           (err) => done(!err)
         )
-      })
+      }).finally(() => written(...paths))
     })
 
     /* ----- drag and drop (#70): move, add to a zip, extract out of one ----- */
@@ -2711,7 +2844,7 @@ if (!app.requestSingleInstanceLock()) {
         await holders.release(wanted)
         const r = await moveEntries(wanted, destDir, onClash === 'ask' ? 'ask' : onClash, (t) =>
           shell.trashItem(t)
-        )
+        ).finally(() => written(destDir, ...wanted))
         // Each file's memory follows it (#124).
         for (const m of r.moved) void positions.rename(m.from, m.to)
         return r
@@ -3212,6 +3345,7 @@ if (!app.requestSingleInstanceLock()) {
         // drive root, and slicing past it ate the name's first character.
         const copy = join(dir, uniqueName(dir, basename(p)))
         await copyFile(p, copy)
+        await written(copy)
         return copy
       } catch {
         return null
