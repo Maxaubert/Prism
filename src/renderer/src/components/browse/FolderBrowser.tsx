@@ -49,7 +49,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   )
   const folderSizes = useFolderSizes(
     folderPaths,
-    !props.loading && !props.searchState?.running,
+    !props.loading && !props.searchState?.running && !props.searchState?.window,
     visibleFolders
   )
   const entries = useMemo(
@@ -58,6 +58,29 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     [props.listing, props.query, props.sort, props.searchState, folderSizes]
   )
   const selected = entries.find((entry) => entry.path === props.selectedPath)
+  const searchWindow = props.searchState?.window
+  const searchWindows = props.searchState?.windows
+  const indexedRows = useMemo(() => {
+    if (!searchWindow) return undefined
+    const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+    const rows = new Map<number, BrowseEntry | null>()
+    for (const window of searchWindows ?? []) {
+      window.paths.forEach((path, index) => {
+        const entry = path ? byPath.get(path) : null
+        rows.set(
+          window.offset + index,
+          entry
+            ? {
+                ...entry,
+                folderSize: window.folderSizes?.[entry.path] ?? null
+              }
+            : null
+        )
+      })
+    }
+    return rows
+  }, [entries, searchWindow, searchWindows])
+  const total = props.searchState?.window?.total ?? entries.length
   const activate = (entry: BrowseEntry): void => {
     if (entry.isFolder) {
       retainListFocus()
@@ -69,7 +92,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     : props.error ||
       (props.listing?.unreadable
         ? 'This folder could not be read. Try another location.'
-        : !entries.length
+        : !total
           ? props.query.trim()
             ? props.searchState?.running
               ? 'Searching this folder and subfolders…'
@@ -260,6 +283,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       <BrowseList
         {...props}
         entries={props.loading ? [] : entries}
+        indexedRows={indexedRows}
+        total={total}
         onActivate={activate}
         message={message}
         onVisibleFolders={onVisibleFolders}
@@ -270,11 +295,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </aside>
       )}
       <div className="browse-status" role="status">
-        <span>
-          {props.loading
-            ? 'Loading…'
-            : `${entries.length} ${entries.length === 1 ? 'item' : 'items'}`}
-        </span>
+        <span>{props.loading ? 'Loading…' : `${total} ${total === 1 ? 'item' : 'items'}`}</span>
         {selected && (
           <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
         )}

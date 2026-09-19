@@ -3,7 +3,7 @@ import * as fs from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { browseSearch, cancelBrowseSearch } from './browseSearch'
+import { browseSearch, cancelBrowseSearch, normalizeSearchWindow } from './browseSearch'
 import {
   grantDesktopDirectory,
   insideDesktop,
@@ -12,9 +12,12 @@ import {
 } from './desktopAccess'
 import { addRoot, insideAnyRoot, openRoots, resetRoots } from './roots'
 import type { BrowseSearchProgress } from '@shared/browse'
-import { searchEverythingBrowse } from './everythingBrowse'
+import { searchEverythingBrowse, searchEverythingBrowseWindow } from './everythingBrowse'
 
-vi.mock('./everythingBrowse', () => ({ searchEverythingBrowse: vi.fn(async () => null) }))
+vi.mock('./everythingBrowse', () => ({
+  searchEverythingBrowse: vi.fn(async () => null),
+  searchEverythingBrowseWindow: vi.fn(async () => null)
+}))
 
 vi.mock('fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('fs/promises')>())
@@ -25,6 +28,7 @@ let home: string
 let playnite: string
 beforeEach(() => {
   vi.mocked(searchEverythingBrowse).mockResolvedValue(null)
+  vi.mocked(searchEverythingBrowseWindow).mockResolvedValue(null)
   box = mkdtempSync(join(tmpdir(), 'prism-browse-search-'))
   home = join(box, 'Admin')
   playnite = join(home, 'AppData', 'Roaming', 'Playnite')
@@ -43,6 +47,125 @@ afterEach(() => {
 })
 
 describe('recursive desktop Explorer search', () => {
+  it('bounds hostile viewport requests and validates native sort keys', () => {
+    expect(normalizeSearchWindow(undefined)).toBeUndefined()
+    expect(normalizeSearchWindow('all')).toBeUndefined()
+    expect(normalizeSearchWindow([])).toBeUndefined()
+    expect(
+      normalizeSearchWindow({
+        offset: Infinity,
+        limit: NaN,
+        sort: { key: '-exit', direction: 'anything' }
+      })
+    ).toEqual({ offset: 0, limit: 512, sort: { key: 'name', direction: 'asc' } })
+    expect(normalizeSearchWindow({ offset: 1e20, limit: 1e20 })).toMatchObject({
+      offset: 0xffffffff,
+      limit: 512
+    })
+    expect(
+      normalizeSearchWindow({ offset: -1, limit: 0, sort: { key: 'size', direction: 'desc' } })
+    ).toEqual({ offset: 0, limit: 1, sort: { key: 'size', direction: 'desc' } })
+  })
+
+  it('returns a globally positioned window without validating or granting undisplayed candidates', async () => {
+    const request = {
+      offset: 9000,
+      limit: 128,
+      sort: { key: 'name' as const, direction: 'asc' as const }
+    }
+    const file = join(playnite, 'Playnite.exe')
+    const missing = join(home, 'gone.dll')
+    vi.mocked(searchEverythingBrowseWindow).mockResolvedValue({
+      offset: 9000,
+      total: 77296,
+      rows: [
+        null,
+        { filename: file, attributes: 32, size: 123 },
+        { filename: playnite, attributes: 16, size: 456 },
+        { filename: missing, attributes: 32 },
+        { filename: join(box, 'private'), attributes: 16 }
+      ]
+    })
+    const stats = vi.spyOn(fs, 'stat')
+    const walk = vi.spyOn(fs, 'opendir')
+    const progress = vi.fn()
+    const result = await browseSearch('explorer', home, 'play', 'window', progress, {}, request)
+    expect(result.window).toMatchObject({
+      offset: 9000,
+      total: 77296,
+      paths: [null, file, playnite, ...Array(125).fill(null)]
+    })
+    expect(result.window?.folderSizes?.[playnite]).toMatchObject({
+      bytes: 456,
+      source: 'index',
+      countsKnown: false
+    })
+    expect(result.listing.files).toHaveLength(1)
+    expect(result.listing.folders).toHaveLength(1)
+    expect(result.truncated).toBe(false)
+    expect(stats).not.toHaveBeenCalled()
+    expect(walk).not.toHaveBeenCalled()
+    expect(progress).not.toHaveBeenCalled()
+    expect(insideAnyRoot(file)).toBe(false)
+    expect(insideDesktop(file)).toBe(true)
+    expect(vi.mocked(searchEverythingBrowseWindow).mock.calls.at(-1)?.[2]).toEqual(request)
+  })
+
+  it('falls back to a bounded filesystem search when no windowed index is available', async () => {
+    const result = await browseSearch(
+      'explorer',
+      home,
+      'play',
+      'fallback-window',
+      undefined,
+      { maxEntries: 1 },
+      { offset: 0, limit: 512, sort: { key: 'name', direction: 'asc' } }
+    )
+    expect(result).toMatchObject({ source: 'filesystem', truncated: true, scanned: 1 })
+    expect(result.window).toBeUndefined()
+  })
+
+  it('does not replace a distant viewport with a filesystem scan when its index is unavailable', async () => {
+    const walk = vi.spyOn(fs, 'opendir')
+    const result = await browseSearch(
+      'explorer',
+      home,
+      'play',
+      'lost-index',
+      undefined,
+      {},
+      { offset: 10000, limit: 512, sort: { key: 'name', direction: 'asc' } }
+    )
+    expect(result.notice).toContain('temporarily unavailable')
+    expect(result.window).toBeUndefined()
+    expect(walk).not.toHaveBeenCalled()
+  })
+
+  it('discards a cancelled viewport before validating paths or granting access', async () => {
+    let finish!: (result: Awaited<ReturnType<typeof searchEverythingBrowseWindow>>) => void
+    vi.mocked(searchEverythingBrowseWindow).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          finish = done
+        })
+    )
+    const pending = browseSearch(
+      'explorer',
+      home,
+      'play',
+      'cancel-window',
+      undefined,
+      {},
+      { offset: 10000, limit: 512, sort: { key: 'name', direction: 'asc' } }
+    )
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    cancelBrowseSearch('explorer', 'cancel-window')
+    const file = join(playnite, 'Playnite.exe')
+    finish({ offset: 10000, total: 10001, rows: [{ filename: file, attributes: 32 }] })
+    expect((await pending).cancelled).toBe(true)
+    expect(insideDesktop(file)).toBe(false)
+  })
+
   it('uses indexed metadata for hidden and unsupported entries without walking or stat calls', async () => {
     const walk = vi.spyOn(fs, 'opendir')
     const stats = vi.spyOn(fs, 'stat')

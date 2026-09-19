@@ -42,12 +42,15 @@ test('a ready existing index serves Explorer without starting a private scan', a
       const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
       const original = handlers.get('browse:search')!
       const timings: number[] = []
-      Object.assign(globalThis, { existingIndexTimings: timings })
+      const windows: Array<{ total: number; rows: number }> = []
+      Object.assign(globalThis, { existingIndexTimings: timings, existingIndexWindows: windows })
       ipcMain.removeHandler('browse:search')
       ipcMain.handle('browse:search', async (...args: unknown[]) => {
         const started = Date.now()
         const result = await original(...args)
         timings.push(Date.now() - started)
+        const answer = result as { window?: { total: number }; listing: { files: unknown[]; folders: unknown[] } }
+        if (answer.window) windows.push({ total: answer.window.total, rows: answer.listing.files.length + answer.listing.folders.length })
         return result
       })
     })
@@ -66,6 +69,31 @@ test('a ready existing index serves Explorer without starting a private scan', a
       console.log('Search IPC timings', await app.evaluate(() => (globalThis as unknown as { existingIndexTimings: number[] }).existingIndexTimings))
       expect(elapsed).toBeLessThan(2000)
       console.log(`Existing index UI query ${JSON.stringify(value)}: ${elapsed} ms`)
+    }
+    const windows = await app.evaluate(() => (globalThis as unknown as { existingIndexWindows: Array<{ total: number; rows: number }> }).existingIndexWindows)
+    expect(windows.length).toBeGreaterThan(0)
+    expect(windows.every((window) => window.rows <= 512)).toBe(true)
+    console.log('Existing index result windows', JSON.stringify(windows))
+    if (query === 'play') {
+      expect(windows.some((window) => window.total > 1000)).toBe(true)
+      const list = page.getByTestId('browse-list')
+      await list.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight })
+      await expect(list).toHaveAttribute('aria-busy', 'false')
+      await expect.poll(() => list.locator('[role="option"]').count()).toBeGreaterThan(0)
+      expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+      const delays = await page.evaluate(async () => {
+        const values: number[] = []
+        let previous = performance.now()
+        for (let step = 0; step < 30; step++) {
+          await new Promise((done) => setTimeout(done, 10))
+          const now = performance.now()
+          values.push(now - previous)
+          previous = now
+        }
+        return values
+      })
+      console.log('Broad search settled UI maximum 10ms timer interval:', Math.max(...delays))
+      expect(Math.max(...delays)).toBeLessThan(250)
     }
     expect(existsSync(join(profile, 'search-index', 'Everything.ini'))).toBe(false)
     await shot(page, info, 'existing-index-results.png', app)
@@ -4820,4 +4848,73 @@ test('Win+E paints a usable loading window before App loads and acknowledges onl
     await pipe.close()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
+})
+test('indexed search exposes every match with bounded viewport work, keyboard jumps and global sorting', async ({}, info) => {
+  const h = await setup()
+  h.page.on('pageerror', (error) => console.log('Viewport page error', error.message))
+  try {
+    await h.app.evaluate(({ ipcMain }, project) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const requests: Array<{ offset: number; limit: number; total: number }> = []
+      Object.assign(globalThis, { viewportRequests: requests })
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (event, tabId, path, query, requestId, window) => {
+        if (!['broad', 'huge'].includes(query)) return original(event, tabId, path, query, requestId, window)
+        const total = query === 'huge' ? 2000003 : 200003
+        const offset = window.offset
+        const length = Math.max(0, Math.min(window.limit, total - offset))
+        requests.push({ offset, limit: window.limit, total })
+        const files = Array.from({ length }, (_, slot) => {
+          const index = window.sort.direction === 'desc' ? total - offset - slot - 1 : offset + slot
+          const name = `match-${String(index).padStart(7, '0')}.txt`
+          return { name, path: `${project}\\${name}`, ext: '.txt', kind: 'text', size: index, mtimeMs: 0 }
+        })
+        return {
+          path, source: 'everything', listing: { folders: [], files },
+          scanned: length, unreadable: 0, skippedLinks: 0, truncated: false, cancelled: false,
+          window: { total, offset, paths: files.map((file, slot) => offset + slot === 1 ? null : file.path), folderSizes: {} }
+        }
+      })
+    }, h.project)
+    await search(h.page, 'broad')
+    const list = h.page.getByTestId('browse-list')
+    await expect(h.page.locator('.browse-status > span').first()).toHaveText('200003 items')
+    await expect(list.locator('[data-browse-index="0"]')).toContainText('match-0000000.txt')
+    expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+    await list.focus()
+    await h.page.keyboard.press('End')
+    const last = list.locator('[data-browse-index="200002"]')
+    await expect(last).toHaveAttribute('aria-selected', 'true')
+    await expect(last).toBeVisible()
+    await h.page.keyboard.press('ArrowUp')
+    await expect(list.locator('[data-browse-index="200001"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.keyboard.press('Home')
+    await expect(list.locator('[data-browse-index="0"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.keyboard.press('ArrowDown')
+    await expect(list.locator('[data-browse-index="2"]')).toHaveAttribute('aria-selected', 'true')
+    await h.page.getByRole('button', { name: 'Sort by size', exact: true }).click()
+    await h.page.getByRole('button', { name: 'Sort by size, ascending', exact: true }).click()
+    await expect(list.locator('[data-browse-index="0"]')).toContainText('match-0200002.txt')
+    await search(h.page, 'huge')
+    await expect(h.page.locator('.browse-status > span').first()).toHaveText('2000003 items')
+    await list.focus()
+    await h.page.keyboard.press('End')
+    await expect(list.locator('[data-browse-index="2000002"]')).toHaveAttribute('aria-selected', 'true')
+    await expect(list.locator('[data-browse-index="2000002"]')).toBeVisible()
+    await h.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2))
+    await list.focus()
+    await h.page.keyboard.press('End')
+    await expect(list.locator('[data-browse-index="2000002"]')).toBeInViewport()
+    const requests = await h.app.evaluate(() => (globalThis as unknown as {
+      viewportRequests: Array<{ offset: number; limit: number; total: number }>
+    }).viewportRequests)
+    expect(requests.every((request) => request.limit <= 512)).toBe(true)
+    expect(requests.some((request) => request.offset > 1000000)).toBe(true)
+    expect(requests.length).toBeLessThan(14)
+    expect(await h.page.getByRole('button', { name: /Show.*more/i }).count()).toBe(0)
+    expect(await list.locator('[role="option"]').count()).toBeLessThan(80)
+    await shot(h.page, info, 'indexed-million-results.png', h.app)
+  } finally { await stop(h.app) }
 })

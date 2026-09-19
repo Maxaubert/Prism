@@ -39,9 +39,12 @@ type Props = Pick<
   | 'query'
   | 'searchState'
   | 'onCancelSearch'
+  | 'onSearchRange'
   | 'onDropInto'
 > & {
   entries: BrowseEntry[]
+  indexedRows?: Map<number, BrowseEntry | null>
+  total: number
   onActivate: (entry: BrowseEntry) => void
   message: string | null
   loading: boolean
@@ -57,6 +60,8 @@ export function BrowseList(props: Props): JSX.Element {
   const columnScroller = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(600)
   const typed = useRef({ text: '', at: 0 })
+  const pendingFocus = useRef<number | null>(null)
+  const selectionPosition = useRef({ path: '', index: -1 })
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node) return
@@ -68,56 +73,165 @@ export function BrowseList(props: Props): JSX.Element {
     if (scroller.current && !props.loading) scroller.current.scrollTop = props.scrollTop
   }, [props.directory, props.scrollTop, props.loading])
 
-  const selectedIndex = props.entries.findIndex((entry) => entry.path === props.selectedPath)
-  const first = Math.max(0, Math.floor(props.scrollTop / rowHeight) - OVERSCAN)
-  const end = Math.min(
-    props.entries.length,
-    Math.ceil((props.scrollTop + height) / rowHeight) + OVERSCAN
-  )
-  const rendered = props.entries.slice(first, end)
-  const onVisibleFolders = props.onVisibleFolders
+  const count = props.total
+  // Chromium caps element dimensions. Compress only the offscreen space for
+  // very large indexes; visible rows keep their normal size and hit targets.
+  const spaceHeight = Math.min(count * rowHeight, 4000000)
+  const scale = Math.max(1, (count * rowHeight - height) / Math.max(1, spaceHeight - height))
+  const logicalTop =
+    props.scrollTop >= spaceHeight - height - 1
+      ? Math.max(0, count * rowHeight - height)
+      : props.scrollTop * scale
+  const loadedSelectedIndex = props.indexedRows
+    ? ([...props.indexedRows].find(([, entry]) => entry?.path === props.selectedPath)?.[0] ?? -1)
+    : props.entries.findIndex((entry) => entry.path === props.selectedPath)
+  const selectedIndex = loadedSelectedIndex
   useLayoutEffect(() => {
-    const top = Math.floor(props.scrollTop / rowHeight)
-    const count = Math.ceil(height / rowHeight) + 1
-    onVisibleFolders?.(
-      props.entries
-        .slice(top, top + count)
-        .filter((entry) => entry.isFolder)
-        .map((entry) => entry.path)
-    )
-  }, [props.entries, props.scrollTop, height, onVisibleFolders])
-  const focusRow = (index: number): void => {
-    const entry = props.entries[index]
+    if (loadedSelectedIndex >= 0 && props.selectedPath)
+      selectionPosition.current = { path: props.selectedPath, index: loadedSelectedIndex }
+  }, [loadedSelectedIndex, props.selectedPath])
+  const first = Math.max(0, Math.floor(logicalTop / rowHeight) - OVERSCAN)
+  const end = Math.min(count, Math.ceil((logicalTop + height) / rowHeight) + OVERSCAN)
+  const rowAt = (index: number): BrowseEntry | null | undefined =>
+    props.indexedRows ? props.indexedRows.get(index) : props.entries[index]
+  const rendered = Array.from({ length: Math.max(0, end - first) }, (_, index) =>
+    rowAt(first + index)
+  )
+  const onVisibleFolders = props.onVisibleFolders
+  const onSearchRange = props.onSearchRange
+  const indexed = !!props.indexedRows
+  useLayoutEffect(() => {
     const node = scroller.current
-    if (!entry || !node) return
-    props.onSelect(entry.path)
-    const top = index * rowHeight
-    if (top < node.scrollTop) node.scrollTop = top
-    else if (top + rowHeight > node.scrollTop + node.clientHeight)
-      node.scrollTop = top + rowHeight - node.clientHeight
-    props.onScroll(node.scrollTop)
+    if (!node || scale === 1) return
+    const wheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.shiftKey || !event.deltaY) return
+      event.preventDefault()
+      const unit = event.deltaMode === 1 ? rowHeight : event.deltaMode === 2 ? height : 1
+      node.scrollTop += (event.deltaY * unit) / scale
+    }
+    node.addEventListener('wheel', wheel, { passive: false })
+    return () => node.removeEventListener('wheel', wheel)
+  }, [scale, height])
+  useLayoutEffect(() => {
+    if (indexed) onSearchRange?.(Math.floor(logicalTop / rowHeight))
+  }, [indexed, logicalTop, onSearchRange])
+  useLayoutEffect(() => {
+    const top = Math.floor(logicalTop / rowHeight)
+    const visibleCount = Math.ceil(height / rowHeight) + 1
+    onVisibleFolders?.(
+      indexed
+        ? []
+        : props.entries
+            .slice(top, top + visibleCount)
+            .filter((entry) => entry.isFolder)
+            .map((entry) => entry.path)
+    )
+  }, [props.entries, logicalTop, height, onVisibleFolders, indexed])
+  const onSelect = props.onSelect
+  const onScroll = props.onScroll
+  const scrollTop = props.scrollTop
+  useLayoutEffect(() => {
+    const pending = pendingFocus.current
+    const node = scroller.current
+    if (pending === null || !count || !node) return
+    let index = pending === Infinity ? count - 1 : Math.min(pending, count - 1)
+    let entry = props.indexedRows ? props.indexedRows.get(index) : props.entries[index]
+    const direction = pending === Infinity ? -1 : 1
+    while (entry === null && index >= 0 && index < count) {
+      index += direction
+      entry = props.indexedRows?.get(index)
+    }
+    if (index < 0 || index >= count) {
+      pendingFocus.current = null
+      return
+    }
+    // The initiating key already positioned the scroll bar. A queued End
+    // pressed before results existed needs one positioning pass, never a
+    // repeated correction of fractional native scroll coordinates.
+    if (pending === Infinity) {
+      node.scrollTop = Math.max(0, (count * rowHeight - height) / scale)
+      if (node.scrollTop !== scrollTop) onScroll(node.scrollTop)
+    }
+    if (entry === undefined) {
+      pendingFocus.current = index
+      onSearchRange?.(Math.floor((node.scrollTop * scale) / rowHeight))
+      return
+    }
+    pendingFocus.current = null
+    onSelect(entry!.path)
     requestAnimationFrame(() =>
       node
         .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
         ?.focus({ preventScroll: true })
     )
+  }, [props.indexedRows, props.entries, onSelect, onScroll, onSearchRange, count, scale, scrollTop, height])
+  useLayoutEffect(() => {
+    pendingFocus.current = null
+    selectionPosition.current = { path: '', index: -1 }
+  }, [props.directory, props.query, props.sort])
+  const focusRow = (index: number): void => {
+    const node = scroller.current
+    if (!node) return
+    const direction = index === 0 ? 1 : index < selectedIndex || index === count - 1 ? -1 : 1
+    while (index >= 0 && index < count && rowAt(index) === null) index += direction
+    if (index < 0 || index >= count) return
+    const top = index * rowHeight
+    const visibleTop = node.scrollTop * scale
+    if (top < visibleTop) node.scrollTop = top / scale
+    else if (top + rowHeight > visibleTop + node.clientHeight)
+      node.scrollTop = (top + rowHeight - node.clientHeight) / scale
+    props.onScroll(node.scrollTop)
+    const entry = rowAt(index)
+    if (entry) {
+      pendingFocus.current = null
+      props.onSelect(entry.path)
+      requestAnimationFrame(() =>
+        node
+          .querySelector<HTMLElement>(`[data-browse-index="${index}"]`)
+          ?.focus({ preventScroll: true })
+      )
+    } else {
+      pendingFocus.current = index
+      node.focus({ preventScroll: true })
+      props.onSearchRange?.(Math.floor((node.scrollTop * scale) / rowHeight))
+    }
   }
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.altKey || e.ctrlKey || e.metaKey) return
-    const count = props.entries.length
-    if (!count) return
+    if (!count) {
+      if (
+        props.searchState?.running &&
+        ['Home', 'End', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageUp'].includes(e.key)
+      ) {
+        e.preventDefault()
+        e.stopPropagation()
+        pendingFocus.current = e.key === 'End' ? Infinity : 0
+      }
+      return
+    }
     const page = Math.max(1, Math.floor(height / rowHeight) - 1)
+    const rememberedIndex =
+      selectedIndex >= 0
+        ? selectedIndex
+        : selectionPosition.current.path === props.selectedPath
+          ? selectionPosition.current.index
+          : -1
+    const currentIndex =
+      pendingFocus.current ??
+      (rememberedIndex < 0 ? Math.floor(logicalTop / rowHeight) - 1 : rememberedIndex)
     let next: number
-    if (e.key === 'ArrowDown') next = Math.min(count - 1, selectedIndex + 1)
-    else if (e.key === 'ArrowUp') next = Math.max(0, selectedIndex - 1)
+    if (e.key === 'ArrowDown') next = Math.min(count - 1, currentIndex + 1)
+    else if (e.key === 'ArrowUp') next = Math.max(0, currentIndex - 1)
     else if (e.key === 'Home') next = 0
     else if (e.key === 'End') next = count - 1
-    else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, selectedIndex) + page)
-    else if (e.key === 'PageUp') next = Math.max(0, selectedIndex - page)
-    else if ((e.key === 'Enter' || e.key === ' ') && selectedIndex >= 0) {
+    else if (e.key === 'PageDown') next = Math.min(count - 1, Math.max(0, currentIndex) + page)
+    else if (e.key === 'PageUp') next = Math.max(0, currentIndex - page)
+    else if ((e.key === 'Enter' || e.key === ' ') && props.selectedPath) {
       e.preventDefault()
       e.stopPropagation()
-      if (e.key === 'Enter') props.onActivate(props.entries[selectedIndex])
+      const entry =
+        rowAt(selectedIndex) ?? props.entries.find((entry) => entry.path === props.selectedPath)
+      if (e.key === 'Enter' && entry) props.onActivate(entry)
       return
     } else if (e.key.length === 1 && !e.shiftKey) {
       const now = performance.now()
@@ -132,7 +246,11 @@ export function BrowseList(props: Props): JSX.Element {
         entry.name.toLowerCase().startsWith(typed.current.text)
       )
       if (match < 0) return
-      next = match
+      const matched = props.entries[match]
+      next = props.indexedRows
+        ? ([...props.indexedRows].find(([, entry]) => entry?.path === matched.path)?.[0] ?? -1)
+        : match
+      if (next < 0) return
     } else return
     e.preventDefault()
     e.stopPropagation()
@@ -210,13 +328,30 @@ export function BrowseList(props: Props): JSX.Element {
         ) : (
           <div
             className="browse-row-space"
-            style={{ height: props.entries.length * rowHeight }}
+            style={{ height: spaceHeight }}
             onClick={(e) => {
               if (e.target === e.currentTarget) props.onSelect(null)
             }}
           >
-            <div style={{ transform: `translateY(${first * rowHeight}px)` }}>
+            <div
+              style={{
+                transform: `translateY(${props.scrollTop + first * rowHeight - logicalTop}px)`
+              }}
+            >
               {rendered.map((entry, offset) => {
+                if (!entry)
+                  return (
+                    <div
+                      key={`pending-${first + offset}`}
+                      className="browse-row"
+                      aria-hidden="true"
+                      data-striped={(first + offset) % 2 === 1 || undefined}
+                    >
+                      <span className="browse-column-name browse-name">
+                        {entry === null ? 'Item unavailable' : 'Loading\u2026'}
+                      </span>
+                    </div>
+                  )
                 const selected = entry.path === props.selectedPath
                 const highlighted = selected || entry.path === props.menuPath
                 return (
@@ -225,7 +360,7 @@ export function BrowseList(props: Props): JSX.Element {
                     role="option"
                     aria-selected={selected}
                     aria-posinset={first + offset + 1}
-                    aria-setsize={props.entries.length}
+                    aria-setsize={count}
                     tabIndex={selected ? 0 : -1}
                     className="browse-row"
                     data-cut={cut.has(entry.path.toLowerCase()) || undefined}

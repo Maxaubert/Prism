@@ -54,7 +54,9 @@ strip and keeps desktop browsing separate from phone sharing.
 - The list includes dotfiles, unsupported files and folders normally hidden from the viewer tree.
   Folders precede files. Search matches names in the current folder and its descendants, including
   AppData, with the shared query operators. Results show containing paths and stream while the
-  search runs. Cancel, inaccessible folders, skipped links and partial results are visible. A walk
+  search runs. Indexed searches expose all matches through automatic viewport requests,
+  with global sorting and a bounded row cache rather than manual pagination. Only visible
+  rows are rendered. Cancel, inaccessible folders, skipped links and partial results are visible. A fallback walk
   stops after 250,000 entries, 1,000 matches or 30 seconds; it never presents this as complete.
   Name, type, size and modified-time sorting are available. Search is literal, not typo-correcting.
   Folder sizes include files in subfolders and calculate in the background, with at most two

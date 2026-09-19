@@ -49,7 +49,7 @@ import {
   validDesktopRoot
 } from './desktopAccess'
 import { browseDirectory, browseLocations, browseWatch } from './browse'
-import { browseSearch, cancelBrowseSearch } from './browseSearch'
+import { browseSearch, cancelBrowseSearch, normalizeSearchWindow } from './browseSearch'
 import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
@@ -2053,12 +2053,10 @@ if (!app.requestSingleInstanceLock()) {
     })
     ipcMain.handle(
       'browse:search',
-      async (event, tabId: string, path: string, query: string, requestId: string) => {
+      async (event, tabId: string, path: string, query: string, requestId: string, window?: unknown) => {
         const result = await browseSearch(tabId, path, query, requestId, (progress) => {
           if (!event.sender.isDestroyed()) event.sender.send('browse:search-progress', progress)
-        })
-        if (result && !result.cancelled)
-          warmFolderSizes(result.listing.folders.map((folder) => folder.path))
+        }, {}, normalizeSearchWindow(window))
         return result
       }
     )

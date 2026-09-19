@@ -75,7 +75,15 @@ export function useFolderBrowsing(
     isExplorerTab(active) &&
     active.browse.surface === 'folder' &&
     (!active.term || active.term.view === 'hidden')
-  const search = useBrowseSearch(id, path, location?.query ?? '', folder, refreshKey + revision)
+  const search = useBrowseSearch(
+    id,
+    path,
+    location?.query ?? '',
+    folder,
+    refreshKey + revision,
+    location?.sort ?? { key: 'name', direction: 'asc' },
+    location?.selected ?? null
+  )
 
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
@@ -327,6 +335,7 @@ export function useFolderBrowsing(
     error: error ?? search.error,
     searchState: search.state,
     cancelSearch: search.cancel,
+    searchRange: search.requestRange,
     navigate,
     travel,
     patch,

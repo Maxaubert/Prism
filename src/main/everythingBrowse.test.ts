@@ -4,7 +4,8 @@ import { findEverything } from './everything'
 import {
   clearEverythingBrowseCache,
   getIndexedFolderSizes,
-  searchEverythingBrowse
+  searchEverythingBrowse,
+  searchEverythingBrowseWindow
 } from './everythingBrowse'
 import { managedIndexerRuntime } from './indexerRuntime'
 import { findRunningEverything } from './existingEverything'
@@ -31,6 +32,90 @@ function answer(output: string, error: Error | null = null): void {
 }
 
 describe('Everything Explorer adapter', () => {
+  it('requests an uncapped total and native viewport with global sort, preserving malformed slots', async () => {
+    answer('77296\r\n')
+    answer(JSON.stringify([{ filename: 'C:\\Root\\a.dll', attributes: 32 }, {}, null]))
+    const signal = new AbortController().signal
+    expect(
+      await searchEverythingBrowseWindow(
+        'C:\\Root',
+        'play',
+        { offset: 9000, limit: 128, sort: { key: 'size', direction: 'desc' } },
+        signal
+      )
+    ).toEqual({
+      offset: 9000,
+      total: 77296,
+      rows: [{ filename: 'C:\\Root\\a.dll', attributes: 32 }, null, null]
+    })
+    const count = vi.mocked(execFile).mock.calls[0]
+    const viewport = vi.mocked(execFile).mock.calls[1]
+    expect(count[1]).toContain('-get-result-count')
+    expect(count[1]).not.toContain('-n')
+    expect(viewport[1]).toEqual(
+      expect.arrayContaining([
+        '-viewport-offset',
+        '9000',
+        '-viewport-count',
+        '128',
+        '-sort',
+        'size-descending'
+      ])
+    )
+    expect(viewport[1]).not.toContain('-n')
+    for (const command of [count[1], viewport[1]]) {
+      const args = command as string[]
+      expect(args.slice(args.indexOf('-count'), args.indexOf('-count') + 2)).toEqual([
+        '-count',
+        '18446744073709551615'
+      ])
+    }
+    expect(viewport[2]).toMatchObject({ signal, windowsHide: true })
+  })
+
+  it('resets inherited count settings without removing an explicit count filter from the query', async () => {
+    answer('50')
+    answer(JSON.stringify([{ filename: 'C:\\Root\\play.dll', attributes: 32 }]))
+    await searchEverythingBrowseWindow(
+      'C:\\Root',
+      'play count:50',
+      { offset: 0, limit: 128, sort: { key: 'name', direction: 'asc' } },
+      new AbortController().signal
+    )
+    expect(vi.mocked(execFile).mock.calls).toHaveLength(2)
+    for (const call of vi.mocked(execFile).mock.calls) {
+      const args = call[1] as string[]
+      expect(args.slice(args.indexOf('-count'), args.indexOf('-count') + 2)).toEqual([
+        '-count',
+        '18446744073709551615'
+      ])
+      expect(args.slice(-2)).toEqual(['-search*', '<play count:50>'])
+    }
+  })
+
+  it('keeps empty tail windows and rejects invalid count responses', async () => {
+    answer('500')
+    answer('[]')
+    expect(
+      await searchEverythingBrowseWindow(
+        'C:\\Root',
+        'play',
+        { offset: 600, limit: 128, sort: { key: 'path', direction: 'asc' } },
+        new AbortController().signal
+      )
+    ).toEqual({ offset: 600, total: 500, rows: [] })
+    answer('NaN')
+    answer('[]')
+    expect(
+      await searchEverythingBrowseWindow(
+        'C:\\Root',
+        'play',
+        { offset: 0, limit: 128, sort: { key: 'name', direction: 'asc' } },
+        new AbortController().signal
+      )
+    ).toBeNull()
+  })
+
   function useExisting(): void {
     vi.mocked(managedIndexerRuntime).mockReturnValue({
       useExistingIndex: true,

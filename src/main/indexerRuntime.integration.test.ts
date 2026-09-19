@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { createIndexerRuntime, initializeIndexerRuntime } from './indexerRuntime'
-import { getIndexedFolderSizes, searchEverythingBrowse } from './everythingBrowse'
+import {
+  getIndexedFolderSizes,
+  searchEverythingBrowse,
+  searchEverythingBrowseWindow
+} from './everythingBrowse'
 import { execFile, execFileSync } from 'child_process'
 import { promisify } from 'util'
 
@@ -74,6 +78,18 @@ async function smoke(service: boolean): Promise<void> {
         timeout: service ? 60000 : 30000
       })
       .toBe(444)
+    const viewport = await searchEverythingBrowseWindow(
+      root,
+      'file:',
+      { offset: 1, limit: 1, sort: { key: 'size', direction: 'asc' } },
+      new AbortController().signal
+    )
+    expect(viewport).toMatchObject({
+      offset: 1,
+      total: 2,
+      rows: [{ filename: join(folder, 'sample.dll'), size: 321 }]
+    })
+    expect(viewport?.rows).toHaveLength(1)
     const ini = await readFile(join(options.storageDirectory, 'Everything.ini'), 'utf8')
     expect(ini).toContain('show_tray_icon=0')
     expect(ini).toContain(`auto_include_fixed_volumes=${service ? 1 : 0}`)

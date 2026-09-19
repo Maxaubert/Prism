@@ -3,6 +3,7 @@ import type {
   BrowseDirectory,
   BrowseSearchProgress,
   BrowseSearchResult,
+  BrowseSearchWindowRequest,
   BrowseShortcut,
   SavedBrowse,
   SavedPane
@@ -41,9 +42,10 @@ const api = {
     tabId: string,
     path: string,
     query: string,
-    requestId: string
+    requestId: string,
+    window?: BrowseSearchWindowRequest
   ): Promise<BrowseSearchResult> =>
-    ipcRenderer.invoke('browse:search', tabId, path, query, requestId),
+    ipcRenderer.invoke('browse:search', tabId, path, query, requestId, window),
   browseSearchCancel: (tabId: string, requestId: string): void =>
     ipcRenderer.send('browse:search-cancel', tabId, requestId),
   onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {

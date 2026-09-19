@@ -3,6 +3,7 @@ import type { DirListing, ViewerFile } from '@shared/types'
 import type { QuickAccessPin } from '../../lib/quickAccess'
 import type { DragPayload } from '../../lib/dragDrop'
 import type { FolderSizeResult } from '@shared/folderSize'
+import type { BrowseSearchResult } from '@shared/browse'
 
 export interface BrowsePlace {
   path: string
@@ -24,6 +25,8 @@ export interface BrowseSort {
 }
 
 export interface BrowseSearchState {
+  window?: BrowseSearchResult['window']
+  windows?: NonNullable<BrowseSearchResult['window']>[]
   source?: 'everything' | 'filesystem'
   notice?: string
   running: boolean
@@ -71,6 +74,7 @@ export interface FolderBrowserProps {
   onOpenProject?: (entry: BrowseEntry) => void
   onOpenNewTab?: (path: string, isFolder?: boolean) => void
   onCancelSearch?: () => void
+  onSearchRange?: (first: number) => void
   onPreviewToggle: () => void
   onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void
   onRename?: (entry: BrowseEntry) => void

@@ -3928,6 +3928,7 @@ export default function App(): JSX.Element {
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}
+                onSearchRange={browsing.searchRange}
                 onCancelSearch={browsing.cancelSearch}
                 selectedPath={browsing.location.selected}
                 scrollTop={browsing.location.scrollTop}
