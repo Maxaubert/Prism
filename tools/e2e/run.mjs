@@ -3865,14 +3865,24 @@ async function agentTitleScenario(fixtures) {
   try {
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
-    await sleep(3500) // a cold pwsh takes a moment to prompt
+    // WAITED FOR, not slept for (#165). This slept 3.5 s "for a cold pwsh to
+    // prompt" and then typed; on a slow runner the prompt was not there yet, the
+    // keystrokes landed in a shell still starting, and the title was never set.
+    // The gate merges core bumps by itself now, so a check that depends on how
+    // fast the machine is today is a hole in it.
+    await win.waitForFunction(
+      () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
+      null,
+      { timeout: 45000 }
+    )
+    await win.locator('.xterm').click()
     ok((await state()) === null, 'a plain shell shows no agent state')
 
     // Claude's birth title is idle; a spinner BEFORE any idle would be the
     // agent starting, which is present and not working.
     await say('2733', 'Claude Code') // ✳
-    await sleep(600)
-    ok((await attr('data-agent-present')) !== null && (await state()) === null, 'the idle birth title marks the agent present and nothing else')
+    const present = await waitUntil(async () => (await attr('data-agent-present')) !== null, 10000)
+    ok(present && (await state()) === null, 'the idle birth title marks the agent present and nothing else')
 
     const t1 = await say('25D0', 'Claude Code') // ◐
     await win.waitForFunction(
