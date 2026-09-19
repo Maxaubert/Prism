@@ -1497,10 +1497,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the row never said was what the click DOES. The registry KEYS keep the name `OpenWithPrism`:
   a key is an identity, not copy, and renaming it would orphan every entry already written
   and fall out of step with the uninstaller. Only the words moved; how an arriving file or
-  folder is ROUTED is untouched and is a separate task. EXISTING INSTALLS ARE RELABELLED AT
-  LAUNCH (`relabelVerb`), because the verb is on by default, so nearly every machine carried
-  the old text, and everything else here leaves a working verb alone: the new words would
-  have reached fresh installs and nobody else. The rule is narrow: the entry must be ON (all
+  folder is ROUTED is untouched and is a separate task. A REGISTRATION THAT SURVIVES IS
+  RELABELLED AT LAUNCH (`relabelVerb`). The verb is on by default, so nearly every machine
+  carried the old text. An ordinary upgrade gets the new words without it: the old
+  uninstaller deletes the three keys and the startup repair writes them back, current by
+  construction. But everything else here leaves a WORKING verb alone, so keys that survive
+  into the new build (an uninstaller skipped or cut short, an exe replaced in place) would
+  keep the old text for ever. The rule is narrow: the entry must be ON (all
   three keys), pointing at THIS exe, and its label READ and found different; then the LABEL
   VALUE ALONE is rewritten, never the command, never the icon. `reg add <key> /ve` CREATES a
   missing key, so without the "on" check a relabel would put a dead, commandless row into
@@ -1510,16 +1513,24 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the setting's one queue so an explicit off cannot race it. It compares against the CURRENT
   label rather than a list of old ones, so the next rewording needs nothing new.)
   ON by default since
-  2026-08-31 (owner decision), switched in Settings > General. Applied ONCE, and the marker
-  file in userData is the whole design: a default that reapplied itself every launch would be
-  a setting that lies - turn the verb off and it would be back tomorrow. Never in dev and
+  2026-08-31 (owner decision), switched in Settings > General. THE ONE FACT STORED IS THE NO
+  (`shell-verb-off` in userData, since 2026-09-03, #93; corrected here 2026-09-20, this
+  passage still described the first design): a default that reapplied itself over a NO
+  would be a setting that lies - turn the verb off and it would be back tomorrow. The
+  first design stored the YES ("the default has been applied") and that was the wrong
+  fact, because every upgrade runs the old uninstaller, which deletes the keys, while
+  userData survives: the marker said done over an empty registry and the verb had to be
+  switched on by hand after every build. Without a NO, an absent verb is simply put back
+  at launch. Never in dev and
   never under `--e2e`, where `app.getPath('exe')` is a throwaway build and writing those keys
   would repoint the real installed Prism's verb at it. A classic HKCU verb under `*`, `Directory` and (2026-08-25)
   `Directory\Background`, where it takes `%V` rather than `%1`
   (which is empty on a background click) - per user, no
   elevation - added and removed with `reg.exe` (argv only). A FOLDER handed over this way
-  roots a tab and then obeys "New tabs show" - first file, a terminal, or nothing - exactly
-  as the + does; main's argv reader used to demand a FILE, so the folder verb was present
+  roots a project tab and then obeys "New projects show" - the folder browser (the default
+  since #148), the first file, or a terminal. That setting was "New tabs show" and was
+  shared with the + until #148, since when the + and Ctrl+T always open an Explorer tab;
+  main's argv reader used to demand a FILE, so the folder verb was present
   and did nothing (fixed 2026-08-25). A folder a tab already holds switches to that tab. On Windows 11 it appears under
   "Show more options", because the short menu is built from IExplorerCommand COM handlers and
   those need a registered DLL; the hint in Settings says so rather than leaving it to be

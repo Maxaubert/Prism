@@ -160,9 +160,9 @@ export interface OpenPayload {
    *  folding a restore silently deletes a tab the user had. */
   restore?: boolean
   /** A FOLDER arrived from outside (Explorer's "Open as project", on a folder
-   *  or on its background). The tab roots there, and what it
-   *  SHOWS is the "New tabs show" setting's business - first file, a terminal,
-   *  or nothing - exactly as the + would do it. */
+   *  or on its background). The tab roots there, and what it SHOWS is the
+   *  "New projects show" setting's business: the folder browser (the default
+   *  since #148), the first file, or a terminal. */
   folder?: boolean
   /** Restore only: the folders that were open in this tab's tree, so the
    *  sidebar comes back as it was left rather than collapsed to the root. */

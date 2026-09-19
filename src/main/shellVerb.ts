@@ -92,6 +92,13 @@ export function labelQueryArgs(key: string): string[] {
  * apart, and the label has spaces of its own, so it is everything after the
  * type to the end of that line. The value's NAME is not matched, because
  * "(Default)" is localised and the type is not.
+ *
+ * A key with NO default value still answers, with a placeholder in the label's
+ * place (MEASURED the same day: "(value not set)", and that text is localised
+ * too). It is deliberately not special-cased: it reads as a label that differs,
+ * and since `relabelVerb` only gets here for a verb that is on and is this
+ * exe's, writing the label is right. Explorer shows such a row under its KEY
+ * name, "OpenWithPrism", which is the one wording the owner ruled out.
  */
 export function labelOf(output: string): string | null {
   const match = /\bREG_SZ[ \t]+(.*?)[ \t]*\r?$/m.exec(output)
@@ -177,10 +184,15 @@ export async function verbRegistered(
  * Bring the labels of an EXISTING registration up to date. True when a label
  * was rewritten.
  *
- * The verb is on by default, so when the labels changed (2026-09-19, #167)
- * nearly every machine already carried the old text, and everything else in
- * this file leaves a working verb alone: the new words would have reached
- * fresh installs and nobody else. The rule is narrow on purpose:
+ * The labels changed on 2026-09-19 (#167), and the verb is on by default, so
+ * nearly every machine carried the old text. AN UPGRADE THROUGH THE INSTALLER
+ * DOES NOT NEED THIS: the old uninstaller deletes the three keys on the way
+ * (see `shouldWriteVerb`), the startup repair writes them back, and what it
+ * writes carries the current labels by construction. This is for the
+ * registration that SURVIVES into a build with new words, which everything
+ * else in this file leaves alone precisely because it works: an uninstaller
+ * that was skipped or cut short, an exe replaced in place. There the old text
+ * would otherwise stay for ever. The rule is narrow on purpose:
  *
  * - the entry must be ON, all three keys, and pointing at THIS exe. `reg add
  *   <key> /ve` CREATES a missing key, so without that check a relabel would put

@@ -52,8 +52,11 @@ export function createShellVerbSetting(
         if (await deps.registered()) {
           // RELABEL AN EXISTING INSTALL (2026-09-19, #167). The labels became
           // "Open file" and "Open as project", and a working verb is otherwise
-          // left alone, so without this the old text stays for ever on every
-          // machine that already had the verb, which is most of them. Only
+          // left alone, so a registration that survives into this build (an
+          // upgrade whose uninstaller was skipped, an exe replaced in place)
+          // would keep the old text for ever. An ordinary upgrade does not
+          // come through here: its uninstaller deleted the keys, and the
+          // install below writes them back with the current words. Only
           // where the startup repair itself may write: never in dev, under
           // --e2e or from a preview (`automatic`), and never for somebody who
           // said no, even if keys are somehow still there. `relabelVerb` holds

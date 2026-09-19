@@ -165,8 +165,10 @@ describe('complete live menu registration', () => {
  *
  * The verb is on by default, so nearly every machine already carries the old
  * text ("Open in Prism", "Open Prism here"), and `shouldWriteVerb` leaves a
- * working verb alone: without this the new labels would reach only fresh
- * installs. The rule is narrow on purpose. The entry must be ON, all three
+ * working verb alone. An upgrade through the installer gets the new words
+ * anyway (the old uninstaller deletes the keys and the startup repair writes
+ * them back); this covers the registration that SURVIVES into the new build,
+ * where the old text would otherwise stay. The rule is narrow on purpose. The entry must be ON, all three
  * keys, and pointing at THIS exe; then only the label value is rewritten,
  * never the command and never the icon. A relabel can therefore not turn on
  * what somebody turned off, and cannot take a verb away from another copy.
@@ -292,6 +294,30 @@ describe('a stale label is rewritten, and nothing else is', () => {
     const { run, writes } = registry({ missing: [key] })
     expect(await relabelVerb(EXE, run)).toBe(false)
     expect(writes).toEqual([])
+  })
+
+  it('labels a verb whose label value is missing, which Explorer shows as "OpenWithPrism"', async () => {
+    // MEASURED on this machine (2026-09-20), on a key with no default value:
+    // reg.exe still answers, with "(value not set)" where the label would be,
+    // and that placeholder is localised. It is not special-cased: it reads as
+    // a label that differs, and on a verb that is on and ours the write is
+    // right, because Explorer falls back to the KEY's name for such a row,
+    // which names Prism.
+    expect(labelOf('\r\nHKEY_CURRENT_USER\\x\r\n    (Default)    REG_SZ    (value not set)\r\n\r\n')).toBe(
+      '(value not set)'
+    )
+    const [file] = verbKeys()
+    const current = Object.fromEntries(verbKeys().map((k) => [k, verbSpec(k).label]))
+    const { run, writes, labels } = registry({ labels: { ...current, [file]: '(value not set)' } })
+    expect(await relabelVerb(EXE, run)).toBe(true)
+    expect(writes.map((w) => w[1])).toEqual([file])
+    expect(labels[file]).toBe('Open file')
+  })
+
+  it('reads an EMPTY label as empty, not as unreadable', () => {
+    // A default value that exists and is "" prints nothing after the type. It
+    // must come back as '' (a label that differs) and not as null (left alone).
+    expect(labelOf('\r\nHKEY_CURRENT_USER\\x\r\n    (Default)    REG_SZ    \r\n\r\n')).toBe('')
   })
 
   it('leaves a label it could not read alone', async () => {
