@@ -1301,6 +1301,7 @@
 ; the Explorer verb behind. It belongs here, in the file installer.nsh includes
 ; unconditionally for exactly this reason.
 !macro customUnInstall
+  !insertmacro PRISM_UNINSTALL_INDEXER
   !insertmacro PRISM_UNREGISTER_WIN_E
   !insertmacro PRISM_UNREGISTER_TYPES
 !macroend

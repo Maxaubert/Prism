@@ -57,6 +57,8 @@ jobs:
       # binaries are not in git; this fetches the pinned LGPL build and checks
       # its SHA-256 before electron-builder copies it into resources/bin.
       - run: npm run fetch:bin
+      - run: npm run test:everything-bundle
+      - run: npm run build:win-e
       - run: npm run build
       - run: npx electron-builder --win --publish never
 

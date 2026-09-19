@@ -1,6 +1,7 @@
 import type { DirListing } from '@shared/types'
 import { matchesQuery, parseQuery } from '@shared/searchQuery'
 import { sortFiles } from '../../lib/sortPrefs'
+import { browseParent } from '../../lib/browse'
 import type { BrowseEntry, BrowseSort } from './types'
 import type { FolderSizes } from '../../lib/folderSize'
 
@@ -18,6 +19,12 @@ export function browseEntries(
     !query.trim() || matchesQuery(entry.name, terms)
   const direction = sort.key === 'name' && sort.direction === 'desc' ? -1 : 1
   const folders = listing.folders.filter(matches).sort((a, b) => {
+    if (sort.key === 'path')
+      return (
+        (sort.direction === 'asc' ? 1 : -1) *
+        (names.compare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
+          names.compare(a.name, b.name))
+      )
     if (sort.key === 'size') {
       const left = sizes[a.path]?.bytes
       const right = sizes[b.path]?.bytes
@@ -29,7 +36,17 @@ export function browseEntries(
     }
     return direction * names.compare(a.name, b.name)
   })
-  const files = sortFiles(listing.files.filter(matches), sort.key, sort.direction)
+  const files =
+    sort.key === 'path'
+      ? listing.files
+          .filter(matches)
+          .sort(
+            (a, b) =>
+              (sort.direction === 'asc' ? 1 : -1) *
+              (names.compare(browseParent(a.path) ?? a.path, browseParent(b.path) ?? b.path) ||
+                names.compare(a.name, b.name))
+          )
+      : sortFiles(listing.files.filter(matches), sort.key, sort.direction)
   return [
     ...folders.map((folder) => ({ ...folder, isFolder: true, folderSize: sizes[folder.path] })),
     ...files.map((file) => ({ path: file.path, name: file.name, isFolder: false, file }))

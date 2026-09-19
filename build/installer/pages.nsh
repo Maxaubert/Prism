@@ -33,6 +33,7 @@
   ; Offer Prism for every type it can show. Offering is all Windows permits: the
   ; default itself is the user's to give, in Settings, one click per type.
   !insertmacro PRISM_REGISTER_TYPES
+  !insertmacro PRISM_INSTALL_INDEXER
   SetAutoClose true
 !macroend
 

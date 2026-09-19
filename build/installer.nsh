@@ -16,6 +16,8 @@
   ManifestDPIAware true
 !macroend
 
+!include "installer\indexer.nsh"
+
 ; The uninstaller is compiled from this same script with BUILD_UNINSTALLER set,
 ; and it has none of these pages. Without the guard its pass would resize a
 ; window it never draws, and warn about every function it does not call.

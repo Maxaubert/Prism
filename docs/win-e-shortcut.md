@@ -6,6 +6,11 @@ Prism itself can close normally. Each distinct Win+E press opens a new Explorer
 window, preserving existing windows, project files and terminals. Holding the keys
 does not create repeated windows.
 
+The window shows a lightweight opening screen while the interface loads, with
+working minimize, maximize and close controls. Loading feedback does not count
+as a successful launch: the shortcut still waits for a rendered Explorer folder
+before acknowledging readiness. Files opened during startup wait for the interface.
+
 Additional windows use separate working profiles so tabs, terminals, browsing grants
 and phone pairings cannot leak between windows. Appearance and other preferences are
 inherited from the shared preference store when a window opens. Shared preference

@@ -115,7 +115,7 @@ export function parseBrowse(raw: unknown): SavedBrowse | undefined {
           : 0,
       query: typeof location.query === 'string' ? location.query.slice(0, 1000) : '',
       sort: {
-        key: ['name', 'type', 'size', 'modified'].includes(location.sort?.key)
+        key: ['name', 'path', 'type', 'size', 'modified'].includes(location.sort?.key)
           ? location.sort.key
           : 'name',
         direction: location.sort?.direction === 'desc' ? 'desc' : 'asc'

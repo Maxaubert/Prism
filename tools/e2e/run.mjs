@@ -11,6 +11,7 @@
  */
 import { _electron as electron } from 'playwright-core'
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import electronPath from 'electron'
 import {
   appendFileSync,
@@ -37,6 +38,37 @@ const SHOTS = join(ROOT, '.e2e', 'shots')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let failures = 0
+
+function seedExplorerTab() {
+  const directory = join(ROOT, '.e2e', 'fixtures')
+  writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+    id: 'fixture-explorer', role: 'explorer', pinned: true, root: directory,
+    browse: { path: directory, history: [{ path: directory, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: true },
+    panes: [], open: [directory]
+  }] }))
+}
+
+async function launchTestApp(options) {
+  const app = await electron.launch(options)
+  // Teardown must release the private engine before closing the debugging
+  // connection. Kill fallback is restricted to this test process tree.
+  app.close = async () => {
+    const child = app.process()
+    await app.evaluate(async () => { await globalThis.__prismIndexer?.dispose() }).catch(() => {})
+    await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    if (child.exitCode === null) {
+      await Promise.race([
+        new Promise((done) => child.once('exit', done)),
+        sleep(2000)
+      ])
+    }
+    if (child.exitCode === null && child.pid) {
+      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }) } catch { /* exited meanwhile */ }
+    }
+    if (child.exitCode !== null) for (const stream of child.stdio) stream?.destroy()
+  }
+  return app
+}
 const ok = (cond, name) => {
   if (cond) console.log(`  pass  ${name}`)
   else {
@@ -49,7 +81,19 @@ const ok = (cond, name) => {
  *  seeding is its own launch (peek.mjs's trick): the file a scenario opens is
  *  delivered on first load, so the scenario launch must not reload. */
 async function seedProfile() {
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'] })
+  // Seed before the first renderer loads, so the bundled index never scans
+  // the developer's home while this disposable profile is being initialized.
+  const preferences = join(PROFILE, 'window-preferences')
+  const directory = join(ROOT, '.e2e', 'fixtures')
+  mkdirSync(preferences, { recursive: true })
+  for (const [key, value] of Object.entries({
+    'prism.newtab.mode': 'folder',
+    'prism.newtab.folder': directory
+  })) {
+    writeFileSync(join(preferences, createHash('sha256').update(key).digest('hex') + '.json'), JSON.stringify({ key, value }))
+  }
+  seedExplorerTab()
+  const app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e'] })
   const win = await app.firstWindow()
   await offscreen(app)
   await win.evaluate((kv) => {
@@ -201,8 +245,8 @@ async function launchOnce(file, keepTabs = false) {
   // scenario's strip would restore into this one and change what the tree
   // counts. Forgetting it is the isolation; the tab scenario opts out, because
   // surviving a restart is the thing it is checking.
-  if (!keepTabs) rmSync(join(PROFILE, 'tabs.json'), { force: true })
-  const app = await electron.launch({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file] })
+  if (!keepTabs) seedExplorerTab()
+  const app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file] })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
@@ -1773,7 +1817,11 @@ async function rowPasteScenario(fixtures) {
     await rowFor('movable.txt').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
     await win.locator('[role="menu"] >> text="Copy"').first().click()
-    await sleep(1200)
+    await win.waitForFunction(
+      () => window.prism.clipboardHasFiles(),
+      undefined,
+      { timeout: 10000 }
+    )
 
     // NOW it appears, on a FILE row, and near the top.
     await rowFor('anchor.txt').click({ button: 'right' })

@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { join, sep } from 'path'
 import { tmpdir } from 'os'
 import { isInsideRoot, isRoot, listDir, searchFiles } from './dirList'
+
+// These fixtures exercise the filesystem fallback. Real private indexing has
+// its own integration test and must not depend on this machine's PATH or index.
+vi.mock('./everything', () => ({ searchEverything: vi.fn(async () => null) }))
 
 // A real temp folder, since both functions are about the filesystem.
 function fixture(): string {

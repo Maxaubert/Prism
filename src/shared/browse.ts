@@ -1,7 +1,16 @@
 import type { DirListing } from './types'
+import type { FolderSizeResult } from './folderSize'
+
+export const SEARCH_WINDOW_MAX = 512
+
+export interface BrowseSearchWindowRequest {
+  offset: number
+  limit: number
+  sort: BrowseSort
+}
 
 export interface BrowseSort {
-  key: 'name' | 'type' | 'size' | 'modified'
+  key: 'name' | 'path' | 'type' | 'size' | 'modified'
   direction: 'asc' | 'desc'
 }
 
@@ -29,6 +38,15 @@ export interface BrowseDirectory {
 /** Recursive desktop results. Counts expose incomplete coverage rather than
  * presenting a stopped or partly inaccessible walk as an exhaustive answer. */
 export interface BrowseSearchResult extends BrowseDirectory {
+  window?: {
+    offset: number
+    total: number
+    /** Native result positions. Rejected or stale entries never disclose a path. */
+    paths: Array<string | null>
+    folderSizes?: Record<string, FolderSizeResult>
+  }
+  source?: 'everything' | 'filesystem'
+  notice?: string
   scanned: number
   unreadable: number
   skippedLinks: number

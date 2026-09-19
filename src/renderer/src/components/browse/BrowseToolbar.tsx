@@ -178,7 +178,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
             aria-label="Search this folder and subfolders"
             placeholder="Search folder and subfolders"
             title={
-              'Search names in this folder and all subfolders\nWords, "phrases", *.mp4, ext:mp4, -raw'
+              'Search this folder and all subfolders\nWords, "phrases", *.mp4, folder: music, file: notes, ext:mp4;mkv\nEverything search syntax is available when Everything is running.'
             }
             value={props.query}
             onChange={(e) => props.onQueryChange(e.target.value)}

@@ -63,9 +63,9 @@ export function useInternalFileDrag(stepTab: (delta: number) => void): void {
       const action = effect === 'move' ? 'Move' : effect === 'copy' ? 'Copy' : ''
       carry.badge.textContent = action ? `${action} ${carry.label}` : carry.label
       const { width, height } = carry.badge.getBoundingClientRect()
-      // Keep the lower-left edge beside the pointer without covering its target.
-      carry.badge.style.left = `${Math.max(4, Math.min(carry.x + 4, window.innerWidth - width - 4))}px`
-      carry.badge.style.top = `${Math.max(4, Math.min(carry.y - height - 4, window.innerHeight - height - 4))}px`
+      // Hang the label below and left of the hand, keeping its drop target clear.
+      carry.badge.style.left = `${Math.max(4, Math.min(carry.x - width - 4, window.innerWidth - width - 4))}px`
+      carry.badge.style.top = `${Math.max(4, Math.min(carry.y + 12, window.innerHeight - height - 4))}px`
     }
     const tick = (): void => {
       if (!carry) return

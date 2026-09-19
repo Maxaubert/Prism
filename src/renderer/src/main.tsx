@@ -1,39 +1,24 @@
 import './lib/windowPreferences'
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import App from './App'
-import './index.css'
 
-// Recording hook, off unless --demo was passed. The showcase needs the window to
-// change its look mid-playback, and driving that through Settings would put the
-// settings panel over the very thing being shown. Two setters, no more.
-if (window.prism.demo) {
-  void Promise.all([import('./lib/theme'), import('./lib/vizStore')]).then(([theme, viz]) => {
-    ;(window as unknown as { prismDemo: unknown }).prismDemo = {
-      setStyle: theme.setStyle,
-      setMode: theme.setMode,
-      // A visualizer is a PRESET, not a shape: each one carries its own height,
-      // position, width and palette, and the grounded ones sit low on purpose.
-      // Setting the shape alone leaves the previous geometry behind, which makes
-      // Halo render at Caps's height and the bars render where a ring belongs.
-      // This is the same call a click in Settings makes.
-      setPreset: (name: string) => {
-        const found = viz
-          .vizState()
-          .presets.find((p) => p.id === name || p.name.toLowerCase() === name.toLowerCase())
-        if (!found) throw new Error(`no visualizer preset called ${name}`)
-        viz.applyPreset(found)
-      },
-      listPresets: () => viz.vizState().presets.map((p) => ({ id: p.id, name: p.name })),
-      setViz: viz.setStyle,
-      setVizTheme: viz.setTheme,
-      setVizGlow: viz.setGlow
-    }
-  })
+// This entry stays small so the existing window can paint before React and the
+// viewers load. Window controls work during that wait, including a slow disk.
+document.getElementById('boot-minimize')?.addEventListener('click', () => window.prism.minimize())
+document.getElementById('boot-maximize')?.addEventListener('click', () => window.prism.toggleMaximize())
+document.getElementById('boot-close')?.addEventListener('click', () => window.prism.close())
+try {
+  if (localStorage.getItem('prism.mode') === 'light')
+    document.documentElement.dataset.bootMode = 'light'
+} catch {
+  // A blocked preference store must not prevent the window from opening.
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-)
+// Give the browser a paint opportunity before evaluating the heavier app chunk.
+requestAnimationFrame(() => {
+  setTimeout(() => {
+    performance.mark('prism-boot-visible')
+    void import('./renderApp').catch(() => {
+      const status = document.getElementById('boot-status')
+      if (status) status.textContent = 'Prism could not finish opening. Close this window and try again.'
+    })
+  }, 0)
+})

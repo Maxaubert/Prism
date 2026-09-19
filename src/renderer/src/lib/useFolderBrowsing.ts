@@ -23,6 +23,11 @@ import {
 } from './tabs'
 import { browseLocation, browseParent } from './browse'
 import { useBrowseSearch } from './useBrowseSearch'
+import {
+  createDirectoryRequests,
+  createVisitedDirectories,
+  directoryKey
+} from './visitedDirectories'
 
 function pauseTab(tabId: string): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
@@ -43,20 +48,42 @@ export function useFolderBrowsing(
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
   const serial = useRef(new Map<string, number>())
+  const visited = useRef(createVisitedDirectories())
+  const readDirectory = useRef(
+    createDirectoryRequests((tabId, target) => window.prism.browseDirectory(tabId, target))
+  )
+  const delivered = useRef<{
+    tabId: string
+    path: string
+    refreshKey: number
+    revision: number
+    request: number
+  } | null>(null)
   const location = active ? browseLocation(active.browse) : null
   const path = location?.path
   const id = active?.id
   const visibleId = useRef(id)
+  const latestRefresh = useRef({ refreshKey, revision })
   useLayoutEffect(() => {
     visibleId.current = id
-  }, [id])
+    visited.current.use(id)
+    latestRefresh.current = { refreshKey, revision }
+  }, [id, refreshKey, revision])
   const error = errorState && errorState.tabId === id ? errorState.message : undefined
   const folder =
     !!active &&
     isExplorerTab(active) &&
     active.browse.surface === 'folder' &&
     (!active.term || active.term.view === 'hidden')
-  const search = useBrowseSearch(id, path, location?.query ?? '', folder, refreshKey + revision)
+  const search = useBrowseSearch(
+    id,
+    path,
+    location?.query ?? '',
+    folder,
+    refreshKey + revision,
+    location?.sort ?? { key: 'name', direction: 'asc' },
+    location?.selected ?? null
+  )
 
   useEffect(() => {
     void window.prism.browseLocations().then(setLocations)
@@ -75,26 +102,45 @@ export function useFolderBrowsing(
     }
   }, [folder, id, path])
   useEffect(() => {
+    const fresh = delivered.current
+    delivered.current = null
     if (!folder || !id || !path) return
+    if (
+      fresh?.tabId === id &&
+      directoryKey(fresh.path) === directoryKey(path) &&
+      fresh.refreshKey === refreshKey &&
+      fresh.revision === revision &&
+      fresh.request === serial.current.get(id)
+    ) {
+      void window.prism.browseWatch(id, path)
+      return
+    }
     let cancelled = false
-    void window.prism
-      .browseDirectory(id, path)
+    const request = serial.current.get(id)
+    void readDirectory
+      .current(id, path, `${refreshKey}:${revision}`)
       .then((next) => {
         if (cancelled) return
-        setLoading(false)
-        if (next) {
+        if (serial.current.get(id) === request) setLoading(false)
+        if (next && !next.listing.unreadable) {
+          visited.current.remember(id, next)
           setResult({ ...next, tabId: id })
           setError(undefined)
           void window.prism.browseWatch(id, path)
-        } else
+        } else {
+          visited.current.forget(id, path)
+          setResult(null)
           setError({
             tabId: id,
             message: 'This folder cannot be opened. Check the path or choose another location.'
           })
+        }
       })
       .catch(() => {
         if (!cancelled) {
-          setLoading(false)
+          visited.current.forget(id, path)
+          setResult(null)
+          if (serial.current.get(id) === request) setLoading(false)
           setError({ tabId: id, message: 'This folder cannot be read. Try another location.' })
         }
       })
@@ -109,25 +155,50 @@ export function useFolderBrowsing(
       pauseTab(tabId)
       const request = (serial.current.get(tabId) ?? 0) + 1
       serial.current.set(tabId, request)
+      const cached = visited.current.get(tabId, target)
+      // Start the real read before committing a cached cursor. Its location
+      // effect joins this same promise instead of scanning the folder twice.
+      const reading = readDirectory
+        .current(tabId, target, `${refreshKey}:${revision}`)
+        .catch(() => null)
       if (visibleId.current === tabId) {
-        setLoading(true)
+        setLoading(!cached)
         setError(undefined)
+        if (cached) setResult({ ...cached, tabId })
       }
-      const next = await window.prism.browseDirectory(tabId, target).catch(() => null)
+      if (cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, cached.path) }))
+      const next = await reading
       if (serial.current.get(tabId) !== request) return
+      // The cached cursor is already committed. A later watch/explicit refresh
+      // owns its new contents; this earlier scan must not overwrite that result.
+      if (
+        cached &&
+        (latestRefresh.current.refreshKey !== refreshKey ||
+          latestRefresh.current.revision !== revision)
+      )
+        return
       if (visibleId.current === tabId) setLoading(false)
       if (!next || next.listing.unreadable) {
-        if (visibleId.current === tabId)
+        visited.current.forget(tabId, target)
+        if (visibleId.current === tabId) {
+          if (cached) setResult(null)
           setError({
             tabId,
             message: 'This folder cannot be opened. Check the path or choose another location.'
           })
+        }
         return
       }
-      if (visibleId.current === tabId) setResult({ ...next, tabId })
-      setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, next.path) }))
+      if (visibleId.current === tabId) {
+        visited.current.remember(tabId, next)
+        setResult({ ...next, tabId })
+        setError(undefined)
+        if (!folder || !path || directoryKey(path) !== directoryKey(next.path))
+          delivered.current = { tabId, path: next.path, refreshKey, revision, request }
+      }
+      if (!cached) setState((s) => ({ ...s, tabs: navigateBrowse(s.tabs, tabId, next.path) }))
     },
-    [id, setState]
+    [id, path, folder, refreshKey, revision, setState]
   )
   const travel = useCallback(
     (delta: number) => {
@@ -136,10 +207,16 @@ export function useFolderBrowsing(
       if (id) {
         serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
         pauseTab(id)
+        if (active) {
+          const { history, cursor } = active.browse
+          const next = Math.max(0, Math.min(history.length - 1, cursor + Math.trunc(delta)))
+          const cached = visited.current.get(id, history[next]?.path)
+          if (cached) setResult({ ...cached, tabId: id })
+        }
         setState((s) => ({ ...s, tabs: travelBrowse(s.tabs, id, delta) }))
       }
     },
-    [id, setState]
+    [active, id, setState]
   )
   const patch = useCallback(
     (patch: Partial<Omit<BrowseLocation, 'path'>>) => {
@@ -153,9 +230,11 @@ export function useFolderBrowsing(
     if (id) {
       serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       pauseTab(id)
+      const cached = visited.current.get(id, path)
+      if (cached) setResult({ ...cached, tabId: id })
       setState((s) => ({ ...s, tabs: setBrowseSurface(s.tabs, id, 'folder') }))
     }
-  }, [id, setState])
+  }, [id, path, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   const openFile = useCallback(
     async (file: ViewerFile | string, full = true) => {
@@ -246,10 +325,7 @@ export function useFolderBrowsing(
     },
     [active, id, setState, openFile]
   )
-  const previewFile = useMemo(
-    () => active?.files[active.index],
-    [active?.files, active?.index]
-  )
+  const previewFile = useMemo(() => active?.files[active.index], [active?.files, active?.index])
   return {
     folder,
     location,
@@ -259,6 +335,7 @@ export function useFolderBrowsing(
     error: error ?? search.error,
     searchState: search.state,
     cancelSearch: search.cancel,
+    searchRange: search.requestRange,
     navigate,
     travel,
     patch,

@@ -10,13 +10,18 @@ export function folderSizePartial(size: FolderSizeResult): boolean {
 export function folderSizeLabel(size: FolderSizeResult | null | undefined): string {
   if (size === undefined) return 'Calculating…'
   if (size === null) return 'Unavailable'
-  return `${folderSizePartial(size) ? '≥ ' : ''}${formatBytes(size.bytes)}`
+  return `${size.stale || size.source === 'index' ? '≈ ' : folderSizePartial(size) ? '≥ ' : ''}${formatBytes(size.bytes)}`
 }
 
 export function folderSizeCoverage(size: FolderSizeResult): string {
   const notes: string[] = []
+  if (size.stale) notes.push('Saved size; refreshing')
+  if (size.source === 'index')
+    notes.push('Indexed files only; excluded or unindexed files are not counted')
   if (size.unreadable) notes.push(`${size.unreadable} unreadable items`)
   if (size.skippedLinks) notes.push(`${size.skippedLinks} links skipped`)
   if (size.truncated) notes.push('Scan limit reached')
-  return notes.length ? `Partial total: ${notes.join('; ')}` : 'Includes files in all subfolders'
+  return notes.length
+    ? `${folderSizePartial(size) ? 'Partial total: ' : ''}${notes.join('; ')}`
+    : 'Includes files in all subfolders'
 }

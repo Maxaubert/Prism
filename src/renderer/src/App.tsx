@@ -895,6 +895,7 @@ export default function App(): JSX.Element {
   // the life of the window. `open` in particular is handed to main once, through
   // onOpenFile, and must not be rebuilt whenever a tab changes.
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activeId: null })
+  const [restoring, setRestoring] = useState(true)
   const { tabs, activeId } = tabState
   const active = useMemo(() => tabs.find((t) => t.id === activeId) ?? null, [tabs, activeId])
   const rawIndex = active?.index ?? -1
@@ -1281,7 +1282,7 @@ export default function App(): JSX.Element {
     },
     [open]
   )
-  useEffect(() => window.prism.onOpenFile(arrive), [arrive])
+  useEffect(() => window.prism.onOpenFile(arrive, () => setRestoring(false)), [arrive])
 
   useEffect(() => window.prism.onFullscreen(setFullscreen), [])
   /**
@@ -2624,7 +2625,7 @@ export default function App(): JSX.Element {
     file?.path === browsing.previewFile.path
   const explorerWidths = useExplorerWidths(
     placesVisible,
-    browsing.folder && !!active?.browse.preview
+    showBrowsePreview
   )
   const quickAccessDefaults = useMemo(
     () =>
@@ -3927,6 +3928,7 @@ export default function App(): JSX.Element {
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}
+                onSearchRange={browsing.searchRange}
                 onCancelSearch={browsing.cancelSearch}
                 selectedPath={browsing.location.selected}
                 scrollTop={browsing.location.scrollTop}
@@ -3960,15 +3962,23 @@ export default function App(): JSX.Element {
                     isFolder: entry.isFolder
                   })
                 }
-                onRefresh={() => setRefreshKey((key) => key + 1)}
+                onRefresh={() => {
+                  void window.prism
+                    .refreshFolderSizes(active.browse.path)
+                    .catch(() => {})
+                    .finally(() => {
+                      setRefreshKey((key) => key + 1)
+                    })
+                }}
                 onContextMenu={(event, entry, source) =>
                   setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
-                previewVisible={active.browse.preview}
+                previewEnabled={active.browse.preview}
+                previewVisible={showBrowsePreview}
                 onPreviewToggle={browsing.togglePreview}
                 terminalControls={terminalBrowseControls}
               />
-              {active.browse.preview && browsing.previewFile && (
+              {showBrowsePreview && browsing.previewFile && (
                 <div className="browse-preview-actions">
                   <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
                     Open full view
@@ -3977,7 +3987,7 @@ export default function App(): JSX.Element {
               )}
             </div>
           )}
-          {browsing.folder && active?.browse.preview && !fullscreen && (
+          {showBrowsePreview && !fullscreen && (
             <ExplorerResize
               section="preview"
               bounds={explorerWidths.bounds.preview}
@@ -4151,6 +4161,13 @@ export default function App(): JSX.Element {
                 // There IS a file here; the player above is drawing it.
                 null : active ? (
                   <NoFileState />
+                ) : restoring ? (
+                  <div
+                    data-testid="window-restoring"
+                    className="flex h-full items-center justify-center text-[var(--p-dim)]"
+                  >
+                    <p role="status">Opening Prism…</p>
+                  </div>
                 ) : (
                   <EmptyState onNewTab={newTab} onOpenFolder={rerootHere} />
                 )
