@@ -1831,15 +1831,21 @@ Filesmith's conventions.
   purpose: electron-vite compiles dev dependencies INTO the app, so it ships as part of the bundle
   and nothing extra is packaged). It is TypeScript source, compiled by Prism's own Vite and checked
   by Prism's own tsc. **Do not recreate a local copy of a file the core owns** (`terminal`, `shells`,
-  `termPrompt`, `agentDetect`, `termCwd`, and the renderer libs `agentTitle`, `agentClock`,
+  `termPrompt`, `agentDetect`, `termCwd`, `TerminalPanel`, `TermFind`, `termLook`, `termTheme`, and
+  the renderer libs `agentTitle`, `agentClock`,
   `termActivity`, `termAnsi`, `termBus`, `termPaste`, `termPrefs`, `recentRoots`): a terminal fix is
   made in PrismTerminal's `core/`, released as a tag, and picked up here by bumping the pin. Its
   contract, and the build lines it needs here (`resolve.dedupe`, `optimizeDeps.exclude`, the
   `@source` line in `index.css`), are in that repo's `core/README.md`. The core's unit tests run in
-  PrismTerminal's CI; Prism's gate on it is `tsc` and the terminal e2e scenarios. Adoption is
-  incremental: `TerminalPanel`, `termLook`, `termTheme`, the agent indicator wiring in `App.tsx` and
-  the Settings terminal tab are still Prism's own, each waiting on an owner answer about where the
-  two apps should differ (see #154).
+  PrismTerminal's CI; Prism's gate on it is `tsc` and the terminal e2e scenarios. PRISM IS A HOST
+  of the core: `src/renderer/src/termHost.ts` (imported FIRST by `main.tsx`, since App's module
+  graph is evaluated before `main.tsx`'s body) declares every place Prism differs from Prism
+  Terminal, and each value there is what Prism already did: the terminal follows the app style,
+  acrylic on, the full orange indicator, the dock paints the ground, Prism's own chords. The
+  panel, find, `termLook`, `termTheme`, the agent poll, the resume lookup and the bridge to main
+  (`createTermApi` in the preload, `registerTermIpc` in main, which takes Prism's WALL as three
+  small answers) all come from the core. Still Prism's own, each waiting on an owner answer: the
+  agent indicator wiring in `App.tsx`, the Settings terminal tab and `TabStrip` (see #154).
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
   would also power Filesmith's previews, but it has not been extracted: `ImageView`,
