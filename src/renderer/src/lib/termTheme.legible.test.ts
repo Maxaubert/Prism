@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TERM_PRESETS, resolveTermTheme } from './termTheme'
-import { ANSI_CONTRAST_FLOOR, contrastRatio, legiblePalette, type Ansi16 } from './termAnsi'
+import { ANSI_CONTRAST_FLOOR, contrastRatio, legiblePalette, type Ansi16 } from 'prism-term-core/renderer/lib/termAnsi'
 
 const KEYS: Array<keyof Ansi16> = [
   'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',

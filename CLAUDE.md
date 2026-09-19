@@ -1825,6 +1825,22 @@ plan live in `docs/superpowers/`.
 Standard Electron three-layer split (`src/main`, `src/preload`, `src/renderer`), mirroring
 Filesmith's conventions.
 
+- **THE TERMINAL COMES FROM `prism-term-core`** (2026-09-19, #154; owner: the terminal in Prism and
+  the sibling app Prism Terminal "should be synced"). The core is the `core/` folder of
+  github.com/Maxaubert/PrismTerminal, consumed as a DEV dependency pinned to a `core-v*` tag (dev on
+  purpose: electron-vite compiles dev dependencies INTO the app, so it ships as part of the bundle
+  and nothing extra is packaged). It is TypeScript source, compiled by Prism's own Vite and checked
+  by Prism's own tsc. **Do not recreate a local copy of a file the core owns** (`terminal`, `shells`,
+  `termPrompt`, `agentDetect`, `termCwd`, and the renderer libs `agentTitle`, `agentClock`,
+  `termActivity`, `termAnsi`, `termBus`, `termPaste`, `termPrefs`, `recentRoots`): a terminal fix is
+  made in PrismTerminal's `core/`, released as a tag, and picked up here by bumping the pin. Its
+  contract, and the build lines it needs here (`resolve.dedupe`, `optimizeDeps.exclude`, the
+  `@source` line in `index.css`), are in that repo's `core/README.md`. The core's unit tests run in
+  PrismTerminal's CI; Prism's gate on it is `tsc` and the terminal e2e scenarios. Adoption is
+  incremental: `TerminalPanel`, `termLook`, `termTheme`, the agent indicator wiring in `App.tsx` and
+  the Settings terminal tab are still Prism's own, each waiting on an owner answer about where the
+  two apps should differ (see #154).
+
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
   would also power Filesmith's previews, but it has not been extracted: `ImageView`,
   `VideoView`, `AudioView`, `Visualizer` and the `fsmedia://` protocol are all in this repo

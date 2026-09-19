@@ -4,9 +4,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
-import { decidePaste } from '../lib/termPaste'
-import { registerPaste, reportCwd, reportTitle } from '../lib/termBus'
-import { parseOsc9 } from '@shared/termCwd'
+import { decidePaste } from 'prism-term-core/renderer/lib/termPaste'
+import { registerPaste, reportCwd, reportTitle } from 'prism-term-core/renderer/lib/termBus'
+import { parseOsc9 } from 'prism-term-core/shared/termCwd'
 import { resolveTermTheme, watchTermTheme } from '../lib/termTheme'
 import {
   onTermLookChange,
@@ -22,7 +22,7 @@ import {
   markTouched,
   suppressActivity,
   takeResume
-} from '../lib/termActivity'
+} from 'prism-term-core/renderer/lib/termActivity'
 import '@xterm/xterm/css/xterm.css'
 
 // The terminal surface. This module is a lazy chunk (xterm is ~350KB the

@@ -67,7 +67,7 @@ import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
-import { detectShells } from './shells'
+import { detectShells } from 'prism-term-core/main/shells'
 import {
   killAll,
   cdTerm,
@@ -79,8 +79,8 @@ import {
   resizeTerm,
   spawnTerm,
   writeTerm
-} from './terminal'
-import { parseProcLines, treeAgentKind } from './agentDetect'
+} from 'prism-term-core/main/terminal'
+import { parseProcLines, treeAgentKind } from 'prism-term-core/main/agentDetect'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'

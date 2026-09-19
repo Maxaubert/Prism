@@ -1,4 +1,8 @@
 @import 'tailwindcss';
+/* The terminal is a dependency (prism-term-core), and Tailwind generates NOTHING
+   from a dependency's markup until told to look: measured, its utilities were
+   simply absent from the CSS. */
+@source '../../../node_modules/prism-term-core';
 
 @theme {
   --color-ink: #eef0f4;
