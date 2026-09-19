@@ -72,6 +72,18 @@ export function setBorder(hwnd: string, colour: 'none' | 'default' | `#${string}
   send(hwnd, 34, colorrefOf(colour))
 }
 
+/** The fullscreen fade includes transient restored bounds, even when both
+ * endpoints cover the display. Keep the edge hidden until the fade finishes. */
+export function borderColourForWindow(state: {
+  maximized: boolean
+  fullscreen: boolean
+  transitioning: boolean
+  light: boolean
+}): 'none' | `#${string}` {
+  if (state.maximized || state.fullscreen || state.transitioning) return 'none'
+  return state.light ? '#c9ccd3' : '#34373d'
+}
+
 /** A CSS hex colour as a Win32 COLORREF, which is 0x00BBGGRR - red in the
  *  LOW byte, the reverse of the hex string. Pure, and tested, because a
  *  swapped channel is a border that is quietly the wrong colour. */

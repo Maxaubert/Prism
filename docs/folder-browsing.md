@@ -69,8 +69,9 @@ strip and keeps desktop browsing separate from phone sharing.
   Double-click, Enter and Open enter full view, including when the preview is visible.
   Show in preview in a file's context menu restores the pane and previews that file.
   Further selections replace that viewer; they never add pinned panes or hide the list. Folder
-  navigation keeps the current file in the viewer. Open full view also hides the list;
-  returning restores the preview. The preview setting and displayed file survive restart.
+  navigation keeps the current file in the viewer. Open full view hides the list and Quick
+  access so the file fills the content area, while keeping the path bar and navigation.
+  Returning restores the sidebar and preview. The preview setting and displayed file survive restart.
   The viewer header keeps Open full view without repeating the selected filename. The existing
   preview toggle opens and closes the pane. Project split views retain their existing behavior.
   Unsupported files retain the existing fallback.
