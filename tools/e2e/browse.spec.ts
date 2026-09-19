@@ -23,6 +23,57 @@ const MAIN = join(ROOT, 'out/main/index.js')
 const pageApps = new WeakMap<Page, ElectronApplication>()
 const quotePS = (value: string): string => `'${value.replace(/'/g, "''")}'`
 
+test('a ready existing index serves Explorer without starting a private scan', async ({}, info) => {
+  test.skip(process.env.PRISM_E2E_EXISTING_INDEX !== '1', 'Opt-in read-only test of a running local index')
+  const profile = join(ROOT, '.e2e', `existing-index-${randomUUID()}`)
+  mkdirSync(profile, { recursive: true })
+  const path = process.env.PRISM_E2E_EXISTING_ROOT ?? 'C:\\'
+  const query = process.env.PRISM_E2E_EXISTING_QUERY ?? 'playnite'
+  writeFileSync(join(profile, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+    id: 'existing-index', role: 'explorer', pinned: true, root: path,
+    browse: { path, history: [{ path, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: false }, panes: [], open: [path]
+  }] }))
+  const { app, page } = await start(profile)
+  try {
+    await page.evaluate(() => localStorage.setItem('prism.onboarded', '1'))
+    await page.reload()
+    await app.evaluate(({ ipcMain }) => {
+      type Handler = (...args: unknown[]) => Promise<unknown>
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, Handler> })._invokeHandlers
+      const original = handlers.get('browse:search')!
+      const timings: number[] = []
+      Object.assign(globalThis, { existingIndexTimings: timings })
+      ipcMain.removeHandler('browse:search')
+      ipcMain.handle('browse:search', async (...args: unknown[]) => {
+        const started = Date.now()
+        const result = await original(...args)
+        timings.push(Date.now() - started)
+        return result
+      })
+    })
+    const field = page.getByRole('searchbox', { name: 'Search this folder and subfolders', exact: true })
+    await expect(field).toBeVisible()
+    for (const value of [query, `folder: ${query}`, query]) {
+      await field.fill('')
+      await expect(page.getByTestId('browse-search-status')).toHaveCount(0)
+      const started = Date.now()
+      await field.fill(value)
+      const status = page.getByTestId('browse-search-status')
+      await expect(status).toContainText('Search results')
+      await expect(status).toHaveAttribute('data-source', 'everything')
+      await expect(page.locator('.browse-row').first()).toBeVisible()
+      const elapsed = Date.now() - started
+      console.log('Search IPC timings', await app.evaluate(() => (globalThis as unknown as { existingIndexTimings: number[] }).existingIndexTimings))
+      expect(elapsed).toBeLessThan(2000)
+      console.log(`Existing index UI query ${JSON.stringify(value)}: ${elapsed} ms`)
+    }
+    expect(existsSync(join(profile, 'search-index', 'Everything.ini'))).toBe(false)
+    await shot(page, info, 'existing-index-results.png', app)
+  } finally {
+    await stop(app)
+  }
+})
+
 /** The app writes on a debounce; a poll may land while Windows holds the file open. */
 function savedTabs(path: string): {
   active: number
@@ -1312,6 +1363,9 @@ test('bundled folder totals survive restart and cached sizes appear before fresh
   try {
     await waitForIndexedFixture(current.page, join(h.nested, 'inside.txt'))
     await go(current.page, h.movies)
+    // Adding Movies can restart the private folder index. This case tests an
+    // indexed cache, so wait for that expansion before requesting its totals.
+    await waitForIndexedFixture(current.page, join(h.movies, 'readme.txt'))
     await go(current.page, h.project)
     await expect.poll(async () => {
       const cached = await current.page.evaluate((path) => window.prism.folderSizesCached([path]), h.nested)

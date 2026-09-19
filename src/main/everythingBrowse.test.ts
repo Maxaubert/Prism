@@ -7,16 +7,19 @@ import {
   searchEverythingBrowse
 } from './everythingBrowse'
 import { managedIndexerRuntime } from './indexerRuntime'
+import { findRunningEverything } from './existingEverything'
 
 vi.mock('child_process', () => ({ execFile: vi.fn() }))
 vi.mock('./everything', () => ({ findEverything: vi.fn(async () => 'es.exe') }))
 vi.mock('./indexerRuntime', () => ({ managedIndexerRuntime: vi.fn(() => undefined) }))
+vi.mock('./existingEverything', () => ({ findRunningEverything: vi.fn(async () => null) }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   clearEverythingBrowseCache()
   vi.mocked(findEverything).mockResolvedValue('es.exe')
   vi.mocked(managedIndexerRuntime).mockReturnValue(undefined)
+  vi.mocked(findRunningEverything).mockResolvedValue(null)
 })
 
 function answer(output: string, error: Error | null = null): void {
@@ -28,6 +31,55 @@ function answer(output: string, error: Error | null = null): void {
 }
 
 describe('Everything Explorer adapter', () => {
+  function useExisting(): void {
+    vi.mocked(managedIndexerRuntime).mockReturnValue({
+      useExistingIndex: true,
+      endpoint: { instance: 'Prism-private', exe: 'es.exe' }
+    } as ReturnType<typeof managedIndexerRuntime>)
+    vi.mocked(findRunningEverything).mockResolvedValue({ exe: 'es.exe', instance: '1.5a' })
+  }
+
+  it('uses the running index without waiting for or starting the private engine', async () => {
+    useExisting()
+    const rows = [{ filename: 'C:\\Root\\playnite.exe', attributes: 32, size: 42 }]
+    answer(JSON.stringify(rows))
+    expect(
+      await searchEverythingBrowse('C:\\Root', 'playnite', 100, new AbortController().signal)
+    ).toEqual(rows)
+    expect(findEverything).not.toHaveBeenCalled()
+    expect(vi.mocked(execFile).mock.calls[0][1]).toContain('1.5a')
+    answer(JSON.stringify([{ filename: 'C:\\Root\\Games', attributes: 16, size: 42 }]))
+    expect(await getIndexedFolderSizes(['C:\\Root\\Games'])).toEqual(
+      new Map([['C:\\Root\\Games', { bytes: 42 }]])
+    )
+    expect(findEverything).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the bundled index when the running index does not cover the drive', async () => {
+    useExisting()
+    answer('[]')
+    answer('[]')
+    const rows = [{ filename: 'X:\\Root\\playnite.exe', attributes: 32 }]
+    answer(JSON.stringify(rows))
+    expect(
+      await searchEverythingBrowse('X:\\Root', 'playnite', 100, new AbortController().signal)
+    ).toEqual(rows)
+    expect(findEverything).toHaveBeenCalledOnce()
+    expect(vi.mocked(execFile).mock.calls[2][1]).toContain('Prism-private')
+  })
+
+  it('does not treat another index coverage as proof that an empty result is complete', async () => {
+    useExisting()
+    answer(JSON.stringify([{ filename: 'C:\\Root\\known.txt', attributes: 32 }]))
+    await searchEverythingBrowse('C:\\Root', '*', 100, new AbortController().signal)
+    vi.mocked(findRunningEverything).mockResolvedValue(null)
+    answer('[]')
+    answer('[]')
+    expect(
+      await searchEverythingBrowse('C:\\Root', '*', 100, new AbortController().signal)
+    ).toBeNull()
+  })
+
   it('passes native syntax as one query argument, including quotes and command-looking text', async () => {
     answer('[{"filename":"C:\\\\Root\\\\hidden.dll","attributes":34,"size":42}]')
     const signal = new AbortController().signal

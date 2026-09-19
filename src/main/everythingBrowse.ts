@@ -2,11 +2,23 @@ import { execFile } from 'child_process'
 import { findEverything } from './everything'
 import { nativeBrowseQuery } from '@shared/browseQuery'
 import { dirname, resolve, sep } from 'path'
-import { managedIndexerRuntime } from './indexerRuntime'
+import { managedIndexerRuntime, type IndexerEndpoint } from './indexerRuntime'
+import { findRunningEverything } from './existingEverything'
 
 const indexedRoots = new Map<string, number>()
 export function clearEverythingBrowseCache(): void {
   indexedRoots.clear()
+}
+
+async function* queryEndpoints(root: string, signal: AbortSignal): AsyncGenerator<IndexerEndpoint> {
+  const managed = managedIndexerRuntime()
+  if (managed?.useExistingIndex) {
+    const existing = await findRunningEverything(managed.endpoint.exe, signal)
+    if (existing && !signal.aborted) yield existing
+  }
+  if (signal.aborted) return
+  const exe = await findEverything(root, signal)
+  if (exe && !signal.aborted) yield { exe, instance: managed?.endpoint.instance ?? '' }
 }
 
 /** Indexed totals cover indexed descendants; callers label them as indexed estimates. */
@@ -16,10 +28,19 @@ export async function getIndexedFolderSizes(
 ): Promise<Map<string, { bytes: number }> | null> {
   if (!paths.length) return new Map()
   if (signal.aborted) return null
-  const exe = await findEverything(dirname(paths[0]))
-  if (!exe || signal.aborted) return null
-  const managed = managedIndexerRuntime()
-  const instance = managed ? ['-instance', managed.endpoint.instance] : []
+  for await (const endpoint of queryEndpoints(dirname(paths[0]), signal)) {
+    const values = await folderSizesFrom(endpoint, paths, signal)
+    if (values?.size) return values
+  }
+  return null
+}
+
+async function folderSizesFrom(
+  { exe, instance: name }: IndexerEndpoint,
+  paths: readonly string[],
+  signal: AbortSignal
+): Promise<Map<string, { bytes: number }> | null> {
+  const instance = name ? ['-instance', name] : []
   const values = new Map<string, { bytes: number }>()
   try {
     for (let offset = 0; offset < paths.length; offset += 32) {
@@ -113,8 +134,20 @@ export async function searchEverythingBrowse(
   maxHits: number,
   signal: AbortSignal
 ): Promise<IndexedEntry[] | null> {
-  const exe = await findEverything(root)
-  if (!exe || signal.aborted) return null
+  for await (const endpoint of queryEndpoints(root, signal)) {
+    const rows = await searchEndpoint(endpoint, root, query, maxHits, signal)
+    if (rows !== null) return rows
+  }
+  return null
+}
+
+async function searchEndpoint(
+  { exe, instance: name }: IndexerEndpoint,
+  root: string,
+  query: string,
+  maxHits: number,
+  signal: AbortSignal
+): Promise<IndexedEntry[] | null> {
   const args = [
     '-json',
     '-attributes',
@@ -130,20 +163,22 @@ export async function searchEverythingBrowse(
     `<${nativeBrowseQuery(query)}>`
   ]
   const managed = managedIndexerRuntime()
-  let instance: string[] = managed ? ['-instance', managed.endpoint.instance] : []
+  let instance: string[] = name ? ['-instance', name] : []
   const request = async (args: string[]): Promise<IndexedEntry[]> => {
     try {
       return await run(exe, [...instance, ...args], signal)
     } catch (error) {
-      if (signal.aborted || (error as { code?: number }).code !== 8 || instance.length) throw error
+      if (signal.aborted || (error as { code?: number }).code !== 8 || instance.length || managed)
+        throw error
       instance = ['-instance', '1.5a']
       return run(exe, [...instance, ...args], signal)
     }
   }
   try {
     const rows = await request(args)
-    const key = resolve(root).toLowerCase()
-    const prefix = key.endsWith(sep) ? key : key + sep
+    const directory = resolve(root).toLowerCase()
+    const key = `${exe}|${name}|${directory}`
+    const prefix = directory.endsWith(sep) ? directory : directory + sep
     const underRoot = (entry: IndexedEntry): boolean =>
       resolve(entry.filename).toLowerCase().startsWith(prefix)
     const covered = (indexedRoots.get(key) ?? 0) > Date.now() || rows.some(underRoot)

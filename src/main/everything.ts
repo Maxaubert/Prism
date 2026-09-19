@@ -1,6 +1,7 @@
 /**
  * Prism starts a bundled, private Everything index through indexerRuntime.
- * Every managed query targets its named instance, never a personal installation.
+ * Project queries target its named instance. Explorer can reuse a running index
+ * read-only through everythingBrowse before falling back to this private engine.
  * Standalone legacy callers can still discover an existing ES client; production
  * initializes the managed runtime before registering search IPC.
  */
@@ -17,9 +18,9 @@ import { isSkipped } from '@shared/listRules'
 let esPath: string | null | undefined
 
 /** Where es.exe is, or null. Looked up once per run. */
-export function findEverything(root?: string): Promise<string | null> {
+export function findEverything(root?: string, signal?: AbortSignal): Promise<string | null> {
   const managed = managedIndexerRuntime()
-  if (managed) return managed.ensureReady(root).then((endpoint) => endpoint?.exe ?? null)
+  if (managed) return managed.queryEndpoint(root, signal).then((endpoint) => endpoint?.exe ?? null)
   if (esPath !== undefined) return Promise.resolve(esPath)
   const home = process.env.USERPROFILE ?? ''
   const fixed = [

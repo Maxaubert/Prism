@@ -10,6 +10,9 @@ export interface IndexerOptions {
   allowService?: boolean
   serviceInstance?: string
   initialRoots?: string[]
+  useExistingIndex?: boolean
+  /** Optional index boundary for isolated harnesses, applied to every entry point. */
+  allowedRoot?: string
 }
 
 export interface IndexerEndpoint {
@@ -143,6 +146,8 @@ export function createIndexerRuntime(
   const instance = indexerInstance(directory)
   const engine = join(options.binaryDirectory, 'Everything.exe')
   const endpoint: IndexerEndpoint = { exe: join(options.binaryDirectory, 'es.exe'), instance }
+  const rootAllowed = (root: string): boolean =>
+    !options.allowedRoot || contains(options.allowedRoot, root)
   const config = join(directory, 'Everything.ini')
   const rootFile = join(directory, 'roots.json')
   const processFile = join(directory, 'engine-pid')
@@ -156,6 +161,8 @@ export function createIndexerRuntime(
   let readyUntil = 0
   let knownRoots: string[] = []
   let pending: Promise<IndexerEndpoint | null> | undefined
+  let queuedRoots: string[] = []
+  let retryAfter = 0
   let state: 'starting' | 'ready' | 'unavailable' | 'stopped' = 'starting'
 
   async function locked<T>(action: () => Promise<T>): Promise<T> {
@@ -209,7 +216,7 @@ export function createIndexerRuntime(
     await unlink(processFile).catch(() => {})
   }
 
-  async function prepare(root?: string): Promise<IndexerEndpoint | null> {
+  async function prepare(additions: readonly string[]): Promise<IndexerEndpoint | null> {
     try {
       await Promise.all([access(engine), access(endpoint.exe)])
       return await locked(async () => {
@@ -219,9 +226,12 @@ export function createIndexerRuntime(
         const saved = await readFile(rootFile, 'utf8')
           .then((data) => JSON.parse(data) as string[])
           .catch(() => [])
-        const previous = Array.isArray(saved) ? saved.filter((s) => typeof s === 'string') : []
-        const requested = [...(options.initialRoots ?? []), ...(root ? [root] : [])]
+        const previous = Array.isArray(saved)
+          ? saved.filter((s) => typeof s === 'string' && rootAllowed(s))
+          : []
+        const requested = [...(options.initialRoots ?? []), ...additions].filter(rootAllowed)
         if (
+          JSON.stringify(saved) === JSON.stringify(previous) &&
           requested.every((path) => previous.some((parent) => contains(parent, path))) &&
           (await running())
         ) {
@@ -232,7 +242,7 @@ export function createIndexerRuntime(
         }
         let pipe: string | undefined
         let volumes: string[] = []
-        if (options.allowService && options.serviceInstance) {
+        if (!options.allowedRoot && options.allowService && options.serviceInstance) {
           const candidate = `\\\\.\\PIPE\\Prism Search ${options.serviceInstance.replace(/^Prism-/, '')}`
           if (await (deps.serviceAvailable ?? serviceAvailable)(candidate)) {
             pipe = candidate
@@ -296,19 +306,65 @@ export function createIndexerRuntime(
   }
 
   async function ensureReady(root?: string): Promise<IndexerEndpoint | null> {
-    if (disposed) return null
+    if (disposed || (root && !rootAllowed(root))) return null
     if (readyUntil > Date.now() && (!root || knownRoots.some((parent) => contains(parent, root))))
       return endpoint
-    if (pending) {
-      await pending
-      return ensureReady(root)
+    if (root) queuedRoots = mergeIndexRoots(queuedRoots, [root])
+    if (!pending) {
+      if (retryAfter > Date.now()) return null
+      pending = (async () => {
+        for (;;) {
+          const additions = queuedRoots
+          queuedRoots = []
+          const result = await prepare(additions)
+          if (!result) {
+            queuedRoots = mergeIndexRoots(queuedRoots, additions)
+            return null
+          }
+          // Navigation can request another location during startup. Drain those
+          // requests together after success, without retrying a failed attempt.
+          queuedRoots = queuedRoots.filter(
+            (path) => !knownRoots.some((parent) => contains(parent, path))
+          )
+          if (!queuedRoots.length || disposed) return result
+        }
+      })()
+        .then((result) => {
+          retryAfter = result ? 0 : Date.now() + 2000
+          return result
+        })
+        .finally(() => {
+          pending = undefined
+        })
     }
-    pending = prepare(root)
-    try {
-      return await pending
-    } finally {
-      pending = undefined
-    }
+    // A failure ends this shared attempt. Recursing here made failed startup turn
+    // concurrent folder-size requests into a long serial chain of fresh retries.
+    const result = await pending
+    return result && (!root || knownRoots.some((parent) => contains(parent, root))) ? result : null
+  }
+
+  /** A search never waits for an initial index or an unrelated root expansion. */
+  async function queryEndpoint(
+    root?: string,
+    signal?: AbortSignal
+  ): Promise<IndexerEndpoint | null> {
+    if (disposed || signal?.aborted) return null
+    return new Promise((done) => {
+      let finished = false
+      const finish = (result: IndexerEndpoint | null): void => {
+        if (finished) return
+        finished = true
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abort)
+        done(result)
+      }
+      const abort = (): void => finish(null)
+      const timer = setTimeout(() => finish(null), 250)
+      signal?.addEventListener('abort', abort, { once: true })
+      // Preparation belongs to the shared index, so cancelling one search must
+      // not kill work another tab/window is using. Only this caller stops waiting.
+      void ensureReady(root).then(finish)
+    })
   }
 
   async function dispose(): Promise<void> {
@@ -328,7 +384,16 @@ export function createIndexerRuntime(
     state = 'stopped'
   }
 
-  return { ensureReady, dispose, status: () => state, endpoint }
+  return {
+    ensureReady,
+    queryEndpoint,
+    dispose,
+    status: () => state,
+    endpoint,
+    get useExistingIndex(): boolean {
+      return options.useExistingIndex ?? false
+    }
+  }
 }
 
 export type IndexerRuntime = ReturnType<typeof createIndexerRuntime>

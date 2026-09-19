@@ -53,6 +53,7 @@ import { browseSearch, cancelBrowseSearch } from './browseSearch'
 import { FolderSizeCache } from './folderSizeCache'
 import { getIndexedFolderSizes } from './everythingBrowse'
 import { initializeIndexerRuntime, indexerInstance } from './indexerRuntime'
+import { findRunningEverything } from './existingEverything'
 import { DEFAULT_PORT, PhoneServer, type ExtractResult } from './phone/server'
 import { HlsJobs } from './phone/jobs'
 import { PhoneLog } from './phone/diag'
@@ -647,24 +648,18 @@ const indexer = initializeIndexerRuntime({
     ? join(process.resourcesPath, 'everything')
     : join(__dirname, '..', '..', 'vendor', 'everything'),
   storageDirectory: indexDirectory,
+  useExistingIndex: !process.argv.includes('--e2e') || process.env.PRISM_E2E_EXISTING_INDEX === '1',
+  allowedRoot: process.argv.includes('--e2e') ? process.env.PRISM_E2E_INDEX_ROOT : undefined,
   allowService:
     app.isPackaged && !process.argv.includes('--e2e') && !process.argv.includes('--preview'),
   serviceInstance: indexerInstance(dirname(app.getPath('exe')))
 })
+async function warmIndexer(root?: string): Promise<void> {
+  if (indexer.useExistingIndex && (await findRunningEverything(indexer.endpoint.exe))) return
+  await indexer.ensureReady(root)
+}
 if (process.argv.includes('--e2e')) {
-  (globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
-  // Real child-window tests inherit this bound, so visiting Home or a drive
-  // never starts a background crawl of the developer's personal files.
-  const fixtureRoot = process.env.PRISM_E2E_INDEX_ROOT
-  if (fixtureRoot) {
-    const ensureReady = indexer.ensureReady.bind(indexer)
-    indexer.ensureReady = (root) => {
-      const rel = root ? relative(fixtureRoot, root) : ''
-      return rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)
-        ? Promise.resolve(null)
-        : ensureReady(root)
-    }
-  }
+  ;(globalThis as typeof globalThis & { __prismIndexer?: typeof indexer }).__prismIndexer = indexer
 }
 const folderSizes = new FolderSizeCache({
   directory: sizeCacheDirectory,
@@ -1468,9 +1463,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     void cleanExplorerWindows(preferencesOwner)
-    // Restore the private index in the background. Directory navigation adds
-    // roots without delaying the listing or scanning an unrelated test profile.
-    void indexer.ensureReady()
+    // Reuse a ready index before starting private background indexing.
+    void warmIndexer()
     const stopPreferencesWatch = windowPreferences.watch((snapshot) => {
       if (mainWindow && !mainWindow.isDestroyed())
         mainWindow.webContents.send('window-preferences:changed', snapshot)
@@ -2052,7 +2046,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle('browse:directory', async (_e, tabId: string, path: string) => {
       const directory = await browseDirectory(tabId, path)
       if (directory && !directory.listing.unreadable) {
-        void indexer.ensureReady(directory.path)
+        void warmIndexer(directory.path)
         warmFolderSizes(directory.listing.folders.map((folder) => folder.path))
       }
       return directory

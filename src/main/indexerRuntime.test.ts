@@ -159,6 +159,129 @@ describe('private bundled indexer', () => {
     })
   })
 
+  it('shares one failed startup attempt across concurrent callers without recursive retry chains', async () => {
+    const { options, deps } = await setup()
+    deps.start.mockRejectedValue(new Error('Engine cannot start'))
+    const runtime = createIndexerRuntime(options, deps)
+    expect(
+      await Promise.all(
+        Array.from({ length: 12 }, (_, index) => runtime.ensureReady(`C:\\Fixture${index}`))
+      )
+    ).toEqual(Array(12).fill(null))
+    expect(deps.start).toHaveBeenCalledTimes(1)
+    expect(await runtime.ensureReady('C:\\Fixture')).toBeNull()
+    expect(deps.start).toHaveBeenCalledTimes(1)
+    await runtime.dispose()
+  })
+
+  it('coalesces locations visited during rootless startup into a successful follow-up', async () => {
+    const { options, deps } = await setup()
+    let release!: () => void
+    let entered!: () => void
+    const blocked = new Promise<void>((done) => {
+      release = done
+    })
+    const probing = new Promise<void>((done) => {
+      entered = done
+    })
+    const run = deps.run.getMockImplementation()!
+    deps.run.mockImplementationOnce(async (exe, args) => {
+      entered()
+      await blocked
+      return run(exe, args)
+    })
+    const runtime = createIndexerRuntime(options, deps)
+    const startup = runtime.ensureReady()
+    await probing
+    const first = runtime.ensureReady('C:\\Fixture')
+    const nested = runtime.ensureReady('C:\\Fixture\\nested')
+    const other = runtime.ensureReady('D:\\Other')
+    release()
+    expect(await Promise.all([startup, first, nested, other])).toEqual(
+      Array(4).fill(runtime.endpoint)
+    )
+    expect(
+      JSON.parse(await readFile(join(options.storageDirectory, 'roots.json'), 'utf8'))
+    ).toEqual(['C:\\Fixture', 'D:\\Other'])
+    expect(deps.start).toHaveBeenCalledTimes(2)
+    expect(await runtime.queryEndpoint('D:\\Other')).toEqual(runtime.endpoint)
+    expect(deps.start).toHaveBeenCalledTimes(2)
+    await runtime.dispose()
+  })
+
+  it('enforces a fixture boundary through direct startup and the query closure', async () => {
+    const { options, deps } = await setup()
+    const serviceAvailable = vi.fn(async () => true)
+    const runtime = createIndexerRuntime(
+      {
+        ...options,
+        allowedRoot: 'C:\\Fixture',
+        initialRoots: ['C:\\Users', 'C:\\Fixture\\initial'],
+        allowService: true,
+        serviceInstance: 'Prism-install123'
+      },
+      { ...deps, serviceAvailable }
+    )
+    expect(await runtime.ensureReady('C:\\Users')).toBeNull()
+    expect(await runtime.queryEndpoint('C:\\Fixture-other')).toBeNull()
+    expect(deps.start).not.toHaveBeenCalled()
+    expect(await runtime.queryEndpoint('C:\\Fixture\\nested')).toEqual(runtime.endpoint)
+    expect(serviceAvailable).not.toHaveBeenCalled()
+    expect(
+      JSON.parse(await readFile(join(options.storageDirectory, 'roots.json'), 'utf8'))
+    ).toEqual(['C:\\Fixture\\initial', 'C:\\Fixture\\nested'])
+    expect(await runtime.queryEndpoint('D:\\Other')).toBeNull()
+    await runtime.dispose()
+  })
+
+  it('reconciles an already running broader index before reusing a bounded profile', async () => {
+    const { options, deps } = await setup()
+    const savedRoots = ['C:\\Users', 'C:\\Fixture']
+    await mkdir(options.storageDirectory)
+    await writeFile(join(options.storageDirectory, 'roots.json'), JSON.stringify(savedRoots))
+    await writeFile(join(options.storageDirectory, 'Everything.ini'), indexerConfig(savedRoots))
+    await deps.start()
+    deps.start.mockClear()
+    const runtime = createIndexerRuntime({ ...options, allowedRoot: 'C:\\Fixture' }, deps)
+    expect(await runtime.ensureReady()).toEqual(runtime.endpoint)
+    expect(deps.run.mock.calls.filter(([, args]) => args.includes('-exit'))).toHaveLength(1)
+    expect(deps.start).toHaveBeenCalledTimes(1)
+    expect(
+      JSON.parse(await readFile(join(options.storageDirectory, 'roots.json'), 'utf8'))
+    ).toEqual(['C:\\Fixture'])
+    expect(await readFile(join(options.storageDirectory, 'Everything.ini'), 'utf8')).toBe(
+      indexerConfig(['C:\\Fixture'])
+    )
+    expect(await runtime.queryEndpoint('C:\\Users')).toBeNull()
+    await runtime.dispose()
+  })
+
+  it('bounds a query wait while shared preparation continues and observes cancellation immediately', async () => {
+    const { options, deps } = await setup()
+    let release!: () => void
+    const blocked = new Promise<void>((done) => {
+      release = done
+    })
+    const run = deps.run.getMockImplementation()!
+    deps.run.mockImplementation(async (exe, args) => {
+      await blocked
+      return run(exe, args)
+    })
+    const runtime = createIndexerRuntime(options, deps)
+    const first = runtime.queryEndpoint('C:\\Fixture')
+    const controller = new AbortController()
+    const cancelled = runtime.queryEndpoint('C:\\Fixture', controller.signal)
+    controller.abort()
+    expect(await cancelled).toBeNull()
+    expect(await first).toBeNull()
+    expect(deps.start).not.toHaveBeenCalled()
+    release()
+    expect(await runtime.ensureReady('C:\\Fixture')).toEqual(runtime.endpoint)
+    expect(deps.start).toHaveBeenCalledTimes(1)
+    expect(await runtime.queryEndpoint('C:\\Fixture')).toEqual(runtime.endpoint)
+    await runtime.dispose()
+  })
+
   it('uses only its owned service pipe and avoids folder-scanning native indexed volumes', async () => {
     const { options, deps } = await setup()
     const original = deps.run.getMockImplementation()!

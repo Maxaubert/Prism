@@ -4,6 +4,11 @@ Prism packages the stable Everything engine and ES query client. `fetch:everythi
 verifies pinned archive hashes and includes both license notices. A normal install
 does not require a separate Everything installation.
 
+When Everything is already running, Explorer first queries that ready index using
+the bundled client. Discovery and queries are read-only. Unindexed locations or
+unavailable instances fall back to Prism's bundled engine. Private startup runs
+in the background, with bounded and cancellable waits for search callers.
+
 The installer offers Windows elevation for a private NTFS metadata service. Its
 verified executable lives in an Administrators-owned Program Files directory.
 The per-user app and its named indexing process remain unelevated. If elevation
@@ -28,3 +33,8 @@ opt-in real-engine test (`PRISM_INDEXER_INTEGRATION=1`). The `bundled-indexer` C
 job additionally installs the service on a disposable Windows runner, checks its
 ACLs, queries it from a temporary nonadministrator account, and uninstalls it.
 The privileged lifecycle test refuses to run on a developer desktop.
+
+The optional Explorer test `a ready existing index` exercises an already-running
+local index read-only when `PRISM_E2E_EXISTING_INDEX=1`; it verifies visible search
+latency and that no private scan starts. Other tests keep private indexing bounded
+to fixture roots. The default suite never depends on the developer's index.
