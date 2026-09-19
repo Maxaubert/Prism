@@ -54,6 +54,7 @@ import {
   holdsWindowClose
 } from 'prism-term-core/renderer/lib/agentClose'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
+import { useDictationArm } from 'prism-term-core/renderer/lib/useDictation'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from 'prism-term-core/renderer/lib/recentRoots'
 import {
@@ -910,6 +911,10 @@ export default function App(): JSX.Element {
     agentKinds,
     forget: forgetAgent
   } = useAgentIndicator(active?.term?.id ?? null)
+  // DICTATION (#162) is armed with the shell that is SHOWING, or with nothing:
+  // a hidden terminal is not something to speak into, and this window is a
+  // media viewer most of the time. It renders nothing and re-renders nothing.
+  useDictationArm(active?.term && active.term.view !== 'hidden' ? active.term.id : null)
   const rawIndex = active?.index ?? -1
   const settingsOpen = active?.kind === 'settings'
   const toggleSettings = useCallback(() => {

@@ -1,3 +1,4 @@
+import { DictationPill } from 'prism-term-core/renderer/components/DictationPill'
 import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
@@ -171,7 +172,10 @@ export function TermDock({
           </svg>
         </button>
       )}
-      <div className="min-h-0 min-w-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1">
+        {/* What dictation is doing, over the shell it is dictating into (#162).
+            The core's; absolutely placed, so the rows never move. */}
+        <DictationPill sessionId={sessionId} />
         <Suspense
           fallback={
             <div className="grid h-full place-items-center text-sm text-[var(--p-dim)]">

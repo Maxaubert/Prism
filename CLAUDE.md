@@ -1870,6 +1870,30 @@ Filesmith's conventions.
   pinRecent; about four minutes) and is REQUIRED, green, in any PR that moves the `prism-term-core`
   tag, before the usual full e2e. A core release is never pulled in unasked: the owner is asked
   first (same decision).
+- **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
+  is synced and part of the core and should be the same in normal Prism, with dictation as its own
+  tab there too"). Hold Right Alt over a SHOWING terminal, speak, release: the words are pasted at
+  the shell's cursor, never sent, transcribed on this PC by whisper.cpp. Every rule of it (off means
+  off, local only, pinned checksums, Right Alt as a solo hold because it is AltGr on a Norwegian
+  keyboard, live text shown and only the final pasted) is written down ONCE, in PrismTerminal's
+  CLAUDE.md under DICTATION; do not restate or fork them here. What is Prism's own:
+  - **A media viewer first.** App arms the core with the shell that is SHOWING, or with null, so
+    Right Alt over a film, a PDF or the tree does nothing (`useDictationArm` in App.tsx; the e2e
+    holds the key with no terminal up and asserts no pill and no process).
+  - **Settings > Dictation**, its own page under Behaviour, is the core's `DictationSettings` whole.
+    Values are this app's; the model files are shared with Prism Terminal in
+    `%LOCALAPPDATA%\PrismDictation`, so a model downloaded there is installed here.
+  - **The engine ships in the installer**: `npm run fetch:whisper` runs the CORE's script
+    (`node_modules/prism-term-core/tools/fetch-whisper.mjs`) into `vendor/whisper`, packaged as
+    `resources/bin/whisper` (a folder of its own: its ggml DLLs must not sit among ffmpeg's). It
+    carries Microsoft's C++ runtime app-local. It is the terminal's THIRD bundled binary reason
+    after ffmpeg and 7-Zip, and like them is never committed.
+  - **The microphone is the one new permission.** Main grants `media` for audio only, to Prism's
+    own windows; the camera is refused. Everything else keeps Electron's default, deliberately: a
+    closed list in an app this size would be a guess.
+  - The pill lives in `TermDock`'s terminal box, the mic mark in `TabStrip`; both are core
+    components that read the dictation store themselves, so speaking re-renders neither App nor
+    the strip. `dictation` and `dictationPage` are in `npm run e2e:terminal`.
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
   would also power Filesmith's previews, but it has not been extracted: `ImageView`,

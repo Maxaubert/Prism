@@ -68,6 +68,10 @@ configureTermCore({
   // only decides whether the terminal lets it show through, and there is no
   // opacity slider: two alphas over one sheet of glass would fight (owner).
   acrylic: { kind: 'style' },
+  // DICTATION (#162), the core's. A press only counts while a terminal is
+  // SHOWING: App hands the controller null otherwise, so Right Alt over a film,
+  // a PDF or the tree does nothing at all.
+  dictation: { api: window.prism, canDictate: () => true },
   ownsKey: (e) => {
     if (!e.ctrlKey || e.altKey) return false
     // Find in the scrollback: with SHIFT, so the shell keeps plain Ctrl+F.

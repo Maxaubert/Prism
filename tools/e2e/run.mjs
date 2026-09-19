@@ -22,6 +22,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  truncateSync,
   writeFileSync
 } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -239,6 +240,9 @@ async function launch(file, keepTabs = false) {
   throw last
 }
 
+/** Extra environment for the NEXT launches; a scenario sets it and clears it. */
+let EXTRA_ENV = {}
+
 async function launchOnce(file, keepTabs = false) {
   // Every scenario but the tab one expects a single-root world. The profile is
   // shared across scenarios (it is wiped once, at the start), so last
@@ -246,7 +250,10 @@ async function launchOnce(file, keepTabs = false) {
   // counts. Forgetting it is the isolation; the tab scenario opts out, because
   // surviving a restart is the thing it is checking.
   if (!keepTabs) seedExplorerTab()
-  const app = await launchTestApp({ args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file] })
+  const app = await launchTestApp({
+    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file],
+    env: { ...process.env, ...EXTRA_ENV }
+  })
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
@@ -816,6 +823,204 @@ async function termOptionsScenario(fixtures) {
     ok(closeRows === 0, 'and the close question is not a setting any more')
   } finally {
     await app.close()
+  }
+}
+
+/* ---------- dictation (#162): the core's feature, proved in THIS app ---------- */
+
+const E2E_CACHE = join(ROOT, '.e2e', 'cache')
+const JFK = {
+  url: 'https://raw.githubusercontent.com/ggml-org/whisper.cpp/b0a11594aec50892a02cd8d129eee2dfe93a8bb8/samples/jfk.wav',
+  sha256: '59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e'
+}
+const CATALOG = join(ROOT, 'node_modules/prism-term-core/shared/dictationCatalog.ts')
+const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+async function cachedDownload(name, url, sha256) {
+  mkdirSync(E2E_CACHE, { recursive: true })
+  const file = join(E2E_CACHE, name)
+  if (existsSync(file) && sha256Of(file) === sha256) return file
+  console.log(`  (fetching ${name} into .e2e/cache, once)`)
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${name}: download failed (${res.status})`)
+  writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+  if (sha256Of(file) !== sha256) throw new Error(`${name}: SHA-256 mismatch`)
+  return file
+}
+/** One catalog entry, read out of the core's own file: the e2e fetches exactly
+ *  what the app would. */
+function catalogItem(id) {
+  const src = readFileSync(CATALOG, 'utf8')
+  const commit = src.match(/const MODELS_COMMIT = '([0-9a-f]{40})'/)?.[1]
+  const block = src.slice(src.indexOf(`id: '${id}'`))
+  const file = block.match(/url:\s*model\('([^']+)'\)/)?.[1]
+  return {
+    url: file ? `https://huggingface.co/ggerganov/whisper.cpp/resolve/${commit}/${file}` : null,
+    bytes: Number(block.match(/bytes:\s*(\d+)/)[1]),
+    sha256: block.match(/sha256:\s*\n?\s*'([0-9a-f]{64})'/)[1]
+  }
+}
+/** Speech servers started out of THIS checkout's engine folder, and no others:
+ *  the owner's own dictation tool runs a whisper-server of its own. */
+function ourSpeechServers() {
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "Name='whisper-server.exe'" | Where-Object { $_.ExecutablePath -like '*\\vendor\\whisper\\*' } | Measure-Object).Count`],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    return Number(out.trim()) || 0
+  } catch {
+    return -1
+  }
+}
+const waitUntil = async (fn, ms = 20000) => {
+  const end = Date.now() + ms
+  for (;;) {
+    const v = await fn()
+    if (v || Date.now() > end) return v
+    await sleep(150)
+  }
+}
+
+/**
+ * DICTATION, REALLY. A fake microphone plays a known sentence, the real bundled
+ * engine hears it with the Tiny model, and the words must arrive on the prompt
+ * line of Prism's terminal with no Enter. And, because this window is a media
+ * viewer first: with NO terminal showing, the key must do nothing at all.
+ */
+async function dictationScenario(fixtures) {
+  console.log('dictation')
+  const tiny = catalogItem('tiny')
+  const model = await cachedDownload('ggml-tiny.bin', tiny.url, tiny.sha256)
+  const clip = await cachedDownload('jfk.wav', JFK.url, JFK.sha256)
+  const root = join(tmpdir(), `${PROFILE_NAME}-dictation`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(join(root, 'models'), { recursive: true })
+  copyFileSync(model, join(root, 'models', 'tiny.bin'))
+  const engine = join(ROOT, 'vendor', 'whisper')
+  ok(existsSync(join(engine, 'whisper-server.exe')) && existsSync(join(engine, 'vcomp140.dll')), 'the speech engine and its C++ runtime were fetched into vendor/whisper')
+  EXTRA_ENV = { PRISM_E2E_MIC: clip, PRISM_DICTATION_ROOT: root, PRISM_WHISPER_DIR: engine, PRISM_E2E_NVIDIA: '0' }
+  let app
+  try {
+    const started = await launch(join(fixtures, 'README.md'))
+    app = started.app
+    const win = started.win
+    const pill = () => win.locator('[data-dictation-pill]')
+    await win.evaluate(() => {
+      localStorage.setItem('prism.dictation.enabled', '1')
+      localStorage.setItem('prism.dictation.model', 'tiny')
+      localStorage.setItem('prism.dictation.sounds', '0')
+    })
+    // The page's own switch arms it (a bare localStorage write notifies nobody).
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Dictation")')
+    await win.waitForSelector('[data-dictation-settings]', { timeout: 8000 })
+    ok((await win.locator('[data-pref="dictation-enabled"] [role="switch"]').getAttribute('aria-checked')) === 'true', 'Settings has a Dictation page of its own, and it reads the setting')
+    await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
+    await win.locator('[data-pref="dictation-enabled"] [role="switch"]').click()
+    await win.screenshot({ path: join(SHOTS, 'dictation-settings.png') })
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(400)
+
+    // A MEDIA VIEWER FIRST: no terminal showing, so Right Alt is nobody's key.
+    await win.keyboard.down('AltRight')
+    await sleep(700)
+    ok((await pill().count()) === 0, 'with no terminal showing, holding Right Alt does nothing')
+    await win.keyboard.up('AltRight')
+    ok(ourSpeechServers() === 0, 'and no speech server was started')
+
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(() => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()), null, { timeout: 45000 })
+    await win.locator('.xterm').click()
+    const text = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+    const rowsTop = () => win.evaluate(() => Math.round(document.querySelector('.xterm .xterm-rows')?.getBoundingClientRect().top ?? -1))
+    const topBefore = await rowsTop()
+
+    await win.keyboard.down('AltRight')
+    ok(await waitUntil(async () => (await pill().getAttribute('data-dictation-pill').catch(() => null)) === 'listening', 8000), 'over a terminal, holding Right Alt opens the pill: Listening')
+    ok((await win.locator('[data-dictation-mark]').count()) === 1, 'and the tab wears the mic mark')
+    ok((await rowsTop()) === topBefore, 'the pill does not move the terminal')
+    const live = await waitUntil(async () => ((await win.locator('[data-dictation-live]').textContent().catch(() => '')) ?? '').trim(), 15000)
+    ok(!!live, `live text appears while still listening ("${live}")`)
+    await sleep(4000)
+    await win.screenshot({ path: join(SHOTS, 'dictation-listening.png') })
+    await sleep(5000)
+    const before = await text()
+    await win.keyboard.up('AltRight')
+    const heard = await waitUntil(async () => /ask not what your country/i.test((await text()).replace(/\s+/g, ' ')), 30000)
+    ok(heard, 'the spoken sentence arrives on the prompt line')
+    ok(await waitUntil(async () => (await pill().count()) === 0, 5000), 'and the pill goes away')
+    ok(((await text()).match(/PS [^>]*>/g) ?? []).length === (before.match(/PS [^>]*>/g) ?? []).length, 'NO ENTER was sent: there is no new prompt')
+    ok(ourSpeechServers() === 1, 'one speech server is resident while dictation is on')
+
+    // Hiding the terminal mid-way is "not showing" again.
+    await win.keyboard.press('Escape')
+    await win.keyboard.press('Control+`')
+    await sleep(500)
+    await win.keyboard.press('Control+`')
+    await sleep(500)
+    if ((await win.locator('.xterm').count()) > 0) await win.keyboard.press('Control+`')
+    await sleep(500)
+    await win.keyboard.down('AltRight')
+    await sleep(700)
+    ok((await pill().count()) === 0, 'with the terminal hidden again, the key does nothing')
+    await win.keyboard.up('AltRight')
+  } finally {
+    EXTRA_ENV = {}
+    await app?.close()
+  }
+  ok(await waitUntil(() => ourSpeechServers() === 0, 8000), 'and no speech server outlives the app')
+}
+
+/** THE DICTATION PAGE IS THE CORE'S (#162): the same option list Prism Terminal
+ *  shows, and the model manager in the states a user lives in. */
+async function dictationPageScenario(fixtures) {
+  console.log('dictation page')
+  const root = join(tmpdir(), `${PROFILE_NAME}-dictation-page`)
+  rmSync(root, { recursive: true, force: true })
+  mkdirSync(join(root, 'models'), { recursive: true })
+  const base = join(root, 'models', 'base.bin')
+  writeFileSync(base, '')
+  truncateSync(base, catalogItem('base').bytes)
+  const gpu = catalogItem('gpu-pack')
+  const pack = join(root, 'engines', `gpu-pack-${gpu.sha256.slice(0, 12)}`)
+  mkdirSync(join(pack, 'Release'), { recursive: true })
+  writeFileSync(join(pack, 'Release', 'whisper-server.exe'), '')
+  writeFileSync(join(pack, 'prism-installed.json'), JSON.stringify({ id: 'gpu-pack', bytes: gpu.bytes, sha256: gpu.sha256 }))
+  EXTRA_ENV = { PRISM_DICTATION_ROOT: root, PRISM_E2E_NVIDIA: '1' }
+  let app
+  try {
+    const started = await launch(join(fixtures, 'README.md'))
+    app = started.app
+    const win = started.win
+    await win.evaluate(() => localStorage.setItem('prism.dictation.model', 'base'))
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Dictation")')
+    await win.waitForSelector('[data-dictation-item="gpu-pack"][data-state="installed"]', { timeout: 8000 })
+    const src = readFileSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/dictationOptions.ts'), 'utf8')
+    const wanted = [...src.matchAll(/\{\s*id: '([a-z-]+)'/g)].map((m) => m[1]).sort()
+    const shown = (await win.evaluate(() => [...document.querySelectorAll('[data-dictation-settings] [data-pref], [data-dictation-settings][data-pref]')].map((e) => e.getAttribute('data-pref')))).sort()
+    ok(wanted.length >= 9 && JSON.stringify(shown) === JSON.stringify(wanted), `the Dictation page shows exactly the core's option list (${JSON.stringify(shown)})`)
+    const names = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-item-name]')].map((e) => e.textContent.trim()))
+    ok(names.slice(0, 4).every((n) => n.startsWith('Whisper ')), `models carry their full names (${JSON.stringify(names)})`)
+    const marks = await win.evaluate(() => [...document.querySelectorAll('[data-dictation-item] [data-vendor]')].map((e) => e.getAttribute('data-vendor')))
+    ok(marks.filter((m) => m === 'openai').length === 4 && marks.filter((m) => m === 'nvidia').length === 1, 'every row leads with its vendor\'s mark')
+    const row = await win.evaluate(() => {
+      const r = document.querySelector('[data-dictation-item="base"]')
+      return { pad: parseFloat(getComputedStyle(r).paddingTop), w: Math.round(r.getBoundingClientRect().width) }
+    })
+    ok(row.pad >= 8 && row.w > 400, `the model manager is laid out, Tailwind saw the core (${JSON.stringify(row)})`)
+    ok(((await win.locator('[data-dictation-item="base"] [data-item-badge]').textContent()) ?? '').trim() === 'Active', 'the model in use says Active')
+    ok(((await win.locator('[data-dictation-item="gpu-pack"] [data-gpu-toggle]').textContent()) ?? '').trim() === 'Disable', 'the GPU engine, installed, offers Disable')
+    await win.screenshot({ path: join(SHOTS, 'dictation-models.png') })
+    await win.locator('[data-dictation-item="gpu-pack"] [data-gpu-toggle]').click()
+    ok(await waitUntil(async () => !existsSync(pack), 8000), 'and Disable takes it off the disk')
+  } finally {
+    EXTRA_ENV = {}
+    await app?.close()
   }
 }
 
@@ -6566,6 +6771,8 @@ await run(synthAndRawScenario)
 await run(tabsScenario)
 await run(terminalScenario)
 await run(termOptionsScenario)
+await run(dictationScenario)
+await run(dictationPageScenario)
 await run(pinRecentScenario)
 await run(termCwdScenario)
 await run(agentTitleScenario)
