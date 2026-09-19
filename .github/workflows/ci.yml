@@ -2,9 +2,11 @@
 # unit tests. Same three that release.yml runs before it ships, so a green PR
 # cannot turn red on merge.
 #
-# The e2e suite deliberately does NOT run here. It drives real windows, real
-# shells and a real claude CLI on the dev machine, none of which a runner has;
-# it stays the local pre-PR gate (CLAUDE.md). Media binaries are not fetched.
+# The FULL e2e suite deliberately does not run here: it leans on the real
+# clipboard, media fixtures and a real claude CLI on the dev machine, and stays
+# the local pre-PR gate (CLAUDE.md). Its TERMINAL subset does run on a runner,
+# in terminal-gate.yml (#164), because a bump of the shared terminal core has to
+# be able to prove itself without anyone's PC. Media binaries are not fetched here.
 # A separate job verifies the bundled search engine and private service on a
 # disposable runner, including queries from an unelevated account.
 name: ci
