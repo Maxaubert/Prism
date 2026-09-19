@@ -9,6 +9,7 @@ import type {
   SavedPane
 } from '@shared/browse'
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
+import { createTermApi } from 'prism-term-core/preload/api'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
 import type {
@@ -21,7 +22,6 @@ import type {
   OpenWithApp,
   RenameResult,
   SearchResult,
-  ShellDef,
   MediaProbe,
   PhoneState,
   TailEvent,
@@ -525,64 +525,12 @@ const api = {
 
   /* ----- the terminal ----- */
 
-  /** The shells main detected; the only things term:spawn will ever launch. */
-  termShells: (): Promise<ShellDef[]> => ipcRenderer.invoke('term:shells'),
-  termSpawn: (id: string, root: string, shellId?: string, resume?: string): Promise<boolean> =>
-    ipcRenderer.invoke('term:spawn', id, root, shellId, resume),
-  termInput: (id: string, data: string): void => ipcRenderer.send('term:input', id, data),
-  /** Move a shell to a root it should follow (#99); main writes the line. */
-  termCd: (id: string, path: string): void => ipcRenderer.send('term:cd', id, path),
-  termResize: (id: string, cols: number, rows: number): void =>
-    ipcRenderer.send('term:resize', id, cols, rows),
-  termKill: (id: string): void => ipcRenderer.send('term:kill', id),
-  /** Start the active root's shell ahead of the click. Best-effort. */
-  termPrewarm: (root: string, shellId?: string): void =>
-    ipcRenderer.send('term:prewarm', root, shellId),
-  onTermData: (cb: (id: string, data: string) => void): (() => void) => {
-    const listener = (_: unknown, id: string, data: string): void => cb(id, data)
-    ipcRenderer.on('term:data', listener)
-    return () => ipcRenderer.removeListener('term:data', listener)
-  },
-  /** An AI CLI (Claude Code, codex...) appeared or left a session's shell. */
-  onTermAgent: (
-    cb: (id: string, present: boolean, kind?: 'claude' | 'codex' | 'other' | null) => void
-  ): (() => void) => {
-    const listener = (
-      _: unknown,
-      id: string,
-      present: boolean,
-      kind?: 'claude' | 'codex' | 'other' | null
-    ): void => cb(id, present, kind)
-    ipcRenderer.on('term:agent', listener)
-    return () => ipcRenderer.removeListener('term:agent', listener)
-  },
-  onTermExit: (cb: (id: string) => void): (() => void) => {
-    const listener = (_: unknown, id: string): void => cb(id)
-    ipcRenderer.on('term:exit', listener)
-    return () => ipcRenderer.removeListener('term:exit', listener)
-  },
-  /**
-   * What the clipboard holds RIGHT NOW, for the terminal's paste rule. An
-   * image forwards the ^V key (a clipboard-aware TUI like Claude Code reads
-   * the image itself); text becomes a bracketed paste; copied files paste as
-   * quoted paths. The decision itself is pure and lives in lib/termPaste.
-   */
-  readClipboard: (): { image: boolean; text: string; files: string[] } => {
-    const formats = clipboard.availableFormats()
-    const files = formats.includes('FileNameW')
-      ? clipboard
-          .readBuffer('FileNameW')
-          .toString('ucs2')
-          .replace(/\0+$/, '')
-          .split('\0')
-          .filter(Boolean)
-      : []
-    return { image: formats.some((f) => f.startsWith('image/')), text: clipboard.readText(), files }
-  },
-  /** The web-links addon's click-through: external URLs go to the OS browser. */
-  openExternal: (url: string): void => {
-    if (/^https?:/i.test(url)) ipcRenderer.send('shell:open-external', url)
-  },
+  // THE TERMINAL'S BRIDGE IS THE CORE'S (prism-term-core/preload/api, #154): the
+  // member names, their signatures and the channel names exist once, for Prism
+  // and for Prism Terminal. The clipboard read for the paste rule goes through
+  // main now (synchronously, as the key handler that asks has to be), which is
+  // what lets the same bridge serve a sandboxed preload too.
+  ...createTermApi(ipcRenderer),
 
   // frameless window controls
   minimize: (): void => ipcRenderer.send('window:minimize'),

@@ -33,7 +33,7 @@ import {
 import {
   FONT_PCTS,
   TERM_FONTS,
-  TERM_EXTRA_DEFAULTS,
+  termExtraDefaults,
   applyCustomExtras,
   resetTermExtras,
   saveCustomTermTheme,
@@ -45,8 +45,8 @@ import {
   setTermFontPct,
   setTermThemeId,
   termThemeId,
-  useAgentColor,
-  useAgentDoneColor,
+  useAgentColorChoice,
+  useAgentDoneColorChoice,
   useAgentIndicator,
   useCustomTermTheme,
   useTermAcrylic,
@@ -55,8 +55,8 @@ import {
   useTermThemeId,
   type AgentIndicator,
   type CustomTermTheme
-} from '../lib/termLook'
-import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from '../lib/termTheme'
+} from 'prism-term-core/renderer/lib/termLook'
+import { readTermTheme, resolveTermTheme, TERM_PRESETS, watchTermTheme } from 'prism-term-core/renderer/lib/termTheme'
 import { deriveAnsi, luminance, normalizeColor } from 'prism-term-core/renderer/lib/termAnsi'
 import {
   setAutoScroll,
@@ -1315,8 +1315,8 @@ function TerminalTab(): JSX.Element {
   const fontId = useTermFontId()
   const agentInd = useAgentIndicator()
   const acrylicOn = useTermAcrylic()
-  const agentCol = useAgentColor()
-  const doneCol = useAgentDoneColor()
+  const agentCol = useAgentColorChoice()
+  const doneCol = useAgentDoneColorChoice()
   // The follow-style card mirrors the LIVE style, derived ANSI included, and
   // repaints when the style does.
   const [styleTheme, setStyleTheme] = useState(() => readTermTheme())
@@ -1372,14 +1372,14 @@ function TerminalTab(): JSX.Element {
   const baseline =
     themeId === 'custom' && custom
       ? {
-          font: custom.font ?? TERM_EXTRA_DEFAULTS.font,
-          fontPct: custom.fontPct ?? TERM_EXTRA_DEFAULTS.fontPct,
-          indicator: custom.indicator ?? TERM_EXTRA_DEFAULTS.indicator,
-          indicatorColor: custom.indicatorColor ?? TERM_EXTRA_DEFAULTS.indicatorColor,
-          doneColor: custom.doneColor ?? TERM_EXTRA_DEFAULTS.doneColor,
-          acrylic: custom.acrylic ?? TERM_EXTRA_DEFAULTS.acrylic
+          font: custom.font ?? termExtraDefaults().font,
+          fontPct: custom.fontPct ?? termExtraDefaults().fontPct,
+          indicator: custom.indicator ?? termExtraDefaults().indicator,
+          indicatorColor: custom.indicatorColor ?? termExtraDefaults().indicatorColor,
+          doneColor: custom.doneColor ?? termExtraDefaults().doneColor,
+          acrylic: custom.acrylic ?? termExtraDefaults().acrylic
         }
-      : TERM_EXTRA_DEFAULTS
+      : termExtraDefaults()
   const termDirty = JSON.stringify(extras) !== JSON.stringify(baseline)
   const saveTermSetup = (): void => {
     saveCustomTermTheme(buildTermSetup())

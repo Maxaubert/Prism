@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './vizStore'
-import { resetTermExtras, setTermThemeId } from './termLook'
+import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the

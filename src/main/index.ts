@@ -1,4 +1,5 @@
 import {
+  clipboard,
   app,
   protocol,
   shell,
@@ -18,7 +19,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   statSync,
   writeFileSync
 } from 'fs'
@@ -67,20 +67,10 @@ import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
+import { CODEX_RESUME, claudeSessions } from 'prism-term-core/main/agentResume'
+import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { detectShells } from 'prism-term-core/main/shells'
-import {
-  killAll,
-  cdTerm,
-  killTerm,
-  killWarm,
-  livePids,
-  ptyOutputTicks,
-  prewarmShell,
-  resizeTerm,
-  spawnTerm,
-  writeTerm
-} from 'prism-term-core/main/terminal'
-import { parseProcLines, treeAgentKind } from 'prism-term-core/main/agentDetect'
+import { killAll, killWarm } from 'prism-term-core/main/terminal'
 import { documentImages, isMarkdownPath } from './docImages'
 import { AUDIO_SCHEME, killSidecars, serveSidecarAudio } from './audioSidecar'
 import { FIRST_AUDIO, findFfmpeg, needsSidecar, probeMedia, type MediaInfo } from './ffmpeg'
@@ -210,23 +200,6 @@ const MEDIA_SCHEME = 'fsmedia'
  *  crosses the bridge as one string and lands in one CodeMirror doc. */
 const TEXT_MAX_BYTES = 64 * 1024 * 1024
 
-/* ------------------------------------------------------------------ *
- * The agent poll's shape. See the poll itself for why it is like this.
- * ------------------------------------------------------------------ */
-const AGENT_POLL_MIN = 2500
-const AGENT_POLL_MAX = 20000
-/**
- * "pid ppid" for everything, plus the command line only where a cheap word
- * match hits. The full dump with every command line was megabytes; this is a
- * few KB. The prefilter is deliberately BROAD - the strict signatures live in
- * agentDetect, which sees whatever this lets through.
- */
-const AGENT_QUERY =
-  'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CommandLine | ' +
-  'ForEach-Object { if ($_.CommandLine -and $_.CommandLine -match ' +
-  "'claude|codex|aider|gemini') " +
-  '{ "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" } ' +
-  'else { "$($_.ProcessId) $($_.ParentProcessId)" } }'
 protocol.registerSchemesAsPrivileged([
   {
     scheme: MEDIA_SCHEME,
@@ -694,30 +667,6 @@ async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')
 /** The phone switch, its port and the paired phones (#104). */
 const PHONE_STATE = (): string => join(app.getPath('userData'), 'phone.json')
-
-/**
- * The newest Claude session recorded for `root`, from claude's own store:
- * ~/.claude/projects/<encoded-cwd>/<session-id>.jsonl. The encoding is
- * claude's (every non-alphanumeric character becomes a dash). Null when the
- * folder has no sessions - then nothing is resumed.
- */
-/** The marker that means "codex, continue this folder's newest session". Not
- *  an id: codex finds it itself. */
-const CODEX_RESUME = 'codex:last'
-
-function claudeSessions(root: string): string[] {
-  const enc = root.replace(/[^A-Za-z0-9]/g, '-')
-  const dir = join(app.getPath('home'), '.claude', 'projects', enc)
-  try {
-    return readdirSync(dir)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => ({ id: f.slice(0, -'.jsonl'.length), m: statSync(join(dir, f)).mtimeMs }))
-      .sort((a, b) => b.m - a.m)
-      .map((s) => s.id)
-  } catch {
-    return []
-  }
-}
 
 /** Restore last session's strip: register each surviving root so the wall
  *  accepts it, then hand the renderer the payloads to rebuild the tabs from. */
@@ -1915,122 +1864,22 @@ if (!app.requestSingleInstanceLock()) {
 
     // Sessions are keyed by renderer-assigned ids, like tabs. The one check on
     // spawn: the shell STARTS in an open root (it may leave; that is a shell).
-    ipcMain.handle('term:shells', () => detectShells())
-    ipcMain.handle(
-      'term:spawn',
-      async (_e, id: string, root: string, shellId?: string, resume?: string) => {
-        if (!insideDesktop(root) && !isAnyRoot(root)) return false
-        // The resume id came from main's own scan of ~/.claude/projects, but it
-        // crossed the renderer on the way back - shape-check it again before it
-        // goes anywhere near a command line.
-        const safeResume =
-          resume === CODEX_RESUME || (resume && /^[0-9a-f][0-9a-f-]{6,62}[0-9a-f]$/i.test(resume))
-            ? resume
-            : undefined
-        const ok = await spawnTerm(
-          id,
-          root,
-          shellId,
-          (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
-          safeResume
-        )
-        // Warm the agent-poll pipeline now: the first CIM query is the slow one
-        // (cold WMI), and running it while the user is still typing their first
-        // command means the dot can appear on the poll that actually matters.
-        if (ok) setTimeout(pollAgents, 300)
-        return ok
-      }
-    )
-    ipcMain.on('term:input', (_e, id: string, d: string) => writeTerm(id, d))
-    // The tab rerooted and its shell should follow (#99). The destination is
-    // a root, so it is inside the wall by construction; main composes the
-    // line, the renderer decided whether now was a safe moment to write it.
-    ipcMain.on('term:cd', (_e, id: string, path: string) => {
-      if (isAnyRoot(path) || insideDesktop(path)) cdTerm(id, path)
-    })
-    ipcMain.on('term:resize', (_e, id: string, c: number, r: number) => resizeTerm(id, c, r))
-    ipcMain.on('term:kill', (_e, id: string) => killTerm(id))
-    // The renderer says which root is in front and shell-less; main starts
-    // its shell ahead of the click. Best-effort, walled like term:spawn.
-    ipcMain.on('term:prewarm', (_e, root: string, shellId?: string) => {
-      if (insideDesktop(root) || isAnyRoot(root)) void prewarmShell(root, shellId)
-    })
-
-    /**
-     * The agent poll behind the tab dots (rewritten 2026-08-28).
-     *
-     * It used to spawn a PowerShell and dump EVERY process on the machine,
-     * with command lines, into a 32MB buffer, every 2.5 seconds, for as long
-     * as a terminal existed. That is a process launch and a megabyte or two of
-     * JSON a few times a minute, forever, to answer a question whose answer
-     * almost never changes.
-     *
-     * Three things fix it without giving up the feature:
-     *
-     *  - ASK ONLY WHEN SOMETHING COULD HAVE CHANGED. An agent cannot start or
-     *    finish in a shell that has printed nothing, so a poll is skipped
-     *    entirely unless a pty has produced output since the last look.
-     *  - BACK OFF WHILE THE ANSWER HOLDS. Same answer twice, look half as
-     *    often, up to 20s; a changed answer goes back to 2.5s.
-     *  - CARRY LESS. The query returns plain "pid ppid" lines, with the
-     *    command line only on rows a cheap prefilter matched. The strict
-     *    decision stays in agentDetect, on the few rows that reach it.
-     */
-    const agentState = new Map<string, boolean>()
-    let agentBusy = false
-    let agentSeenTicks = -1
-    let agentEvery = AGENT_POLL_MIN
-    let agentNext = 0
-    const pollAgents = (): void => {
-      const pids = livePids()
-      if (!pids.length || agentBusy) return
-      const ticks = ptyOutputTicks()
-      const quiet = ticks === agentSeenTicks
-      const known = pids.every((s) => agentState.has(s.id))
-      // A shell that has said nothing since the last look, whose answer we
-      // already have, cannot have changed its mind.
-      if (quiet && known) return
-      // The backoff is for an answer that keeps coming back the same; a
-      // session nobody has asked about yet has no answer to hold, so it is
-      // not made to wait 20 seconds for its first one (2026-08-28).
-      const now = Date.now()
-      if (known && now < agentNext) return
-      agentBusy = true
-      execFile(
-        'powershell.exe',
-        ['-NoProfile', '-Command', AGENT_QUERY],
-        { windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
-        (err, stdout) => {
-          agentBusy = false
-          // Only a query that actually answered counts as having looked: a
-          // failed one used to consume the activity tick, so a shell that then
-          // fell quiet kept a stale dot until it printed again (2026-08-28).
-          if (err || !stdout) return
-          const rows = parseProcLines(stdout)
-          if (!rows.length) return
-          agentSeenTicks = ticks
-          let changed = false
-          for (const { id, pid } of livePids()) {
-            const kind = treeAgentKind(rows, pid)
-            const has = kind !== null
-            if (agentState.get(id) !== has) {
-              agentState.set(id, has)
-              changed = true
-              mainWindow?.webContents.send('term:agent', id, has, kind)
-            }
-          }
-          // forget sessions that ended
-          const live = new Set(livePids().map((s) => s.id))
-          for (const id of [...agentState.keys()]) if (!live.has(id)) agentState.delete(id)
-          agentEvery = changed ? AGENT_POLL_MIN : Math.min(AGENT_POLL_MAX, agentEvery * 2)
-          agentNext = Date.now() + agentEvery
-        }
-      )
-    }
-    setInterval(pollAgents, AGENT_POLL_MIN)
-    // The terminal's clickable links. http(s) only, checked on both sides.
-    ipcMain.on('shell:open-external', (_e, url: string) => {
-      if (/^https?:/i.test(url)) void shell.openExternal(url)
+    // THE TERMINAL'S BRIDGE IS THE CORE'S (prism-term-core/main/ipc, #154): the
+    // channels, the argument checks, the resume shape check, the clipboard
+    // read, the link opener (http(s) only, checked on both sides) and the
+    // agent poll are registered there, once, for Prism and for Prism Terminal.
+    // What is PRISM'S OWN is the wall: a shell STARTS in an open root or on
+    // the desktop (it may leave; that is a shell), and only such a folder is
+    // warmed ahead of the click or written into a used shell (#99).
+    const insideWall = (dir: string): boolean => insideDesktop(dir) || isAnyRoot(dir)
+    registerTermIpc({
+      ipcMain,
+      send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
+      clipboard,
+      openExternal: (url) => void shell.openExternal(url),
+      spawnDir: async (dir) => (insideWall(dir) ? dir : null),
+      mayPrewarm: async (dir) => insideWall(dir),
+      mayCd: insideWall
     })
 
     // The renderer owns the tab list; main persists it. The root wall is NOT
