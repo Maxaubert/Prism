@@ -21,9 +21,14 @@ import AdmZip from 'adm-zip'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'vendor', 'ffmpeg')
 
-const TAG = 'autobuild-2026-09-07-15-39'
-const ASSET = 'ffmpeg-n9.0.1-27-g9b0578816c-win64-lgpl-shared-9.0.zip'
-const SHA256 = '8418fb932d233da1b889a193deff053e9b90e954425a0d3d197c5a72bff12ff8'
+// PIN AN END-OF-MONTH BUILD, NEVER A DAILY (2026-09-19, #158). BtbN deletes its
+// daily autobuild tags after about 12 days (MEASURED: the 09-07 pin was gone by
+// 09-19, and took three release builds down with it; the 08-23 one before it
+// went the same way). The last build of each month is KEPT - the release list
+// goes back two years of them - so a monthly tag is a pin that stays pinned.
+const TAG = 'autobuild-2026-08-31-13-27'
+const ASSET = 'ffmpeg-n9.0.1-11-ge47273f4d9-win64-lgpl-shared-9.0.zip'
+const SHA256 = '83a824f0729a69d143c9865125bb86988a11dd388325f0033711045522068aa0'
 const URL = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${TAG}/${ASSET}`
 
 // ffmpeg.exe imports all of these at load time, so "only what we use" is not a
@@ -59,7 +64,8 @@ if (!res.ok) {
   if (res.status === 404)
     console.error(
       'ffmpeg: that build has been rotated away upstream. Re-pin TAG, ASSET and SHA256 above from\n' +
-        '  https://github.com/BtbN/FFmpeg-Builds/releases (the win64-lgpl-shared zip of the same 9.0 line)'
+        '  https://github.com/BtbN/FFmpeg-Builds/releases (the win64-lgpl-shared zip of the same 9.0 line),\n' +
+        '  and from an END-OF-MONTH tag: the dailies are deleted after about 12 days, the monthlies are kept.'
     )
   process.exit(1)
 }
