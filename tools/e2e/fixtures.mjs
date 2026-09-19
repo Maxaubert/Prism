@@ -664,5 +664,33 @@ export async function buildBigFixtures() {
     writeFileSync(corrupt, raw)
     rmSync(src, { recursive: true, force: true })
   }
-  return { big, many, corrupt }
+
+  // PASSWORD-PROTECTED, one for each engine (found missing in review, #166):
+  // the window's two answers to a password are different on purpose. A caller
+  // that asks for one and tries again gets a window that closes QUIETLY, so
+  // the question is not asked on top of an error; every other route gets the
+  // error with the password sentence. Neither had been driven through the
+  // real app. The 7z keeps its names readable (no `-mhe`), so it lists without
+  // a password and only the content needs one, which is the common case; the
+  // zip is classic ZipCrypto, which is the one adm-zip opens in-process.
+  const locked = {}
+  for (const [key, name, args] of [
+    ['locked7z', 'locked.7z', ['-t7z', '-mx1']],
+    ['lockedZip', 'locked.zip', ['-tzip', '-mem=ZipCrypto']]
+  ]) {
+    const out = join(store, name)
+    locked[key] = out
+    if (existsSync(out)) continue
+    const src = join(BIG, 'lsrc')
+    rmSync(src, { recursive: true, force: true })
+    mkdirSync(join(src, 'vault'), { recursive: true })
+    writeFileSync(join(src, 'vault', 'secret.txt'), 'the secret, out in the open\n')
+    const made = spawnSync(seven, ['a', ...args, '-pletmein', out, join(src, 'vault')], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    rmSync(src, { recursive: true, force: true })
+    if (made.status !== 0) throw new Error(`7-Zip could not build ${name}`)
+  }
+  return { big, many, corrupt, ...locked }
 }

@@ -8,6 +8,7 @@ import {
   readFileName,
   readPercent,
   safeMemberPath,
+  sevenFailReason,
   sevenMessage,
   sevenDirs
 } from './sevenZip'
@@ -270,5 +271,47 @@ describe('the message worth showing a person', () => {
 
   it('answers empty for empty', () => {
     expect(sevenMessage('')).toBe('')
+  })
+})
+
+describe('why a run failed', () => {
+  // What 7-Zip 25.00 printed for a 7z with encrypted CONTENT and readable
+  // names, extracted with no `-p` and its stdin closed (2026-09-20), verbatim:
+  // stderr first, then the tail of stdout, which is how the runners join them.
+  const PROMPTED = [
+    '',
+    'Break signaled',
+    '',
+    'Extracting archive: locked.7z',
+    '--',
+    'Path = locked.7z',
+    'Type = 7z',
+    'Method = LZMA2:12 7zAES',
+    '',
+    '  0%    - vault\\',
+    '  0%    ',
+    'Enter password (will not be echoed):'
+  ].join('\r\n')
+
+  it('reads the password prompt as a password being wanted', () => {
+    expect(sevenFailReason(PROMPTED)).toBe('password')
+  })
+
+  it('reads a wrong password, and encrypted names, the same way', () => {
+    expect(sevenFailReason('ERROR: Wrong password : secret.txt')).toBe('password')
+    expect(sevenFailReason('ERROR: locked.7z\r\nCannot open encrypted archive. Wrong password?')).toBe(
+      'password'
+    )
+  })
+
+  it('is not fooled by a MEMBER called "enter password"', () => {
+    const raw =
+      '  4% 1 - docs\\enter password.txt\r\nERROR: CRC Failed : docs\\enter password.txt'
+    expect(sevenFailReason(raw)).toBe('failed')
+  })
+
+  it('calls everything else a plain failure', () => {
+    expect(sevenFailReason('ERROR: There is not enough space on the disk')).toBe('failed')
+    expect(sevenFailReason('')).toBe('failed')
   })
 })

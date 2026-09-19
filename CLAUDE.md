@@ -298,7 +298,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   installed BEFORE React renders, because listeners on one target run in the order they were
   added and `stopImmediatePropagation` only reaches the ones behind it. Focus lands on the
   BOX, not on Cancel: the verb is often picked with Enter, and that key must not cancel what
-  it started. A window up for under 700ms lingers, full, for the remainder - a small zip
+  it started. AND IT IS BROUGHT BACK TO THE BOX AT EVERY CHANGE OF PHASE (found in review the
+  same day): Cancel and Close are two keyed elements, so a failure arriving while the focus
+  was on Cancel dropped it onto `body`, where the guard swallows Tab, Enter and Space alike,
+  and the error could be closed with a mouse and with nothing else. A window up for under 700ms lingers, full, for the remainder - a small zip
   extracts inside a frame, and the chip met the same thing on 2026-09-03.
   CANCEL WAITS AND THEN CLEANS. `kill` returns before the handles are gone (the `holders.ts`
   lesson), so main waits for 7-Zip to CLOSE, the adm-zip loop checks a flag between members,
@@ -310,6 +313,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   window into the error with 7-Zip's own line, and only Close removes that; a refusal main
   will not even start (the wall) opens the window straight into its error, since the callers
   show none of their own any more. One visible extraction at a time, refused in main as well.
+  **7-ZIP ASKS FOR A PASSWORD ON STDIN, AND WAITED FOR EVER** (2026-09-20, found reviewing
+  #166, MEASURED on 7-Zip 25.00). A 7z whose CONTENT is encrypted but whose names are not
+  (the common case) lists without a password, so nothing fails early; extracted with no `-p`,
+  which is how Prism says "no password", 7-Zip prints "Enter password (will not be echoed):"
+  and reads stdin, which for a Node child is an open pipe nobody writes to. It sat there for
+  the hour the timeout allows. Before #166 that was a chip that never finished; under #166 it
+  was a modal window over the whole app with a bar that never moved, and the archive panel's
+  own password question was never asked, because the 'password' answer it waits for never
+  came. Every 7-Zip run has its stdin CLOSED now, so the prompt reads end-of-file and 7-Zip
+  stops at once ("Break signaled"), and `sevenFailReason` reads the prompt, matched whole, as
+  a password being wanted. The e2e drives both engines through it: the verb row shows the
+  window's error with the password sentence, and a member row's verb closes the window
+  quietly, asks, asks again on a wrong answer, and extracts on the right one.
   The e2e's big archive is slow by CODEC, not by size, MEASURED: 800MB of stored random data
   extracts here in 534ms, which is a race; 160MB of base64 packed with PPMd, whose decoder is
   as slow as its encoder, takes twenty seconds whatever the disk does. Built once under

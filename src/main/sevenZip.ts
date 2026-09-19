@@ -13,14 +13,59 @@ function run(
   timeout: number
 ): Promise<{ ok: true; out: string } | { ok: false; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       exe,
       args,
       { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 64 << 20 },
-      (err, stdout, stderr) =>
-        resolve(err ? { ok: false, stderr: String(stderr ?? '') } : { ok: true, out: stdout })
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ ok: true, out: stdout })
+        // Both streams: 7-Zip's password prompt is on STDOUT, and it is what
+        // says why a run with no password stopped. The TAIL of stdout, as the
+        // progress runner keeps: a listing can be megabytes.
+        const said = [String(stderr ?? ''), String(stdout ?? '').slice(-4000)]
+        resolve({ ok: false, stderr: said.join('\n').trim() })
+      }
     )
+    // NOBODY IS GOING TO TYPE (2026-09-20, see `NO_STDIN`).
+    child.stdin?.end()
   })
+}
+
+/**
+ * 7-ZIP ASKS FOR A PASSWORD ON STDIN, AND WAITS FOR EVER (2026-09-20, found
+ * reviewing #166, MEASURED on 7-Zip 25.00).
+ *
+ * A 7z whose CONTENT is encrypted but whose names are not (the common case:
+ * "encrypt file names" is an extra tick) lists without a password, so nothing
+ * fails early. Extracted with no `-p`, which is how Prism says "no password",
+ * 7-Zip creates the first folder, prints "Enter password (will not be
+ * echoed):" on stdout and READS STDIN. Node's default stdin for a child is an
+ * open pipe nobody writes to, so the process sat there: eight seconds in the
+ * probe before it was killed, and an hour in the app, which is the timeout.
+ * Before #166 that was a chip that never finished. Under #166 it is a modal
+ * window over the whole app with a bar that never moves, and the archive
+ * panel's own password question never got asked, because the answer it waits
+ * for ('password') never came back.
+ *
+ * With stdin closed the prompt reads end-of-file and 7-Zip stops at once with
+ * "Break signaled", MEASURED, which `sevenFailReason` reads as the password
+ * being wanted.
+ */
+const NO_STDIN: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe']
+
+/**
+ * Why a 7-Zip run failed, from everything it printed.
+ *
+ * "Enter password" is the prompt above, which only appears when 7-Zip wanted
+ * a password it had not been given. The other two are its words for a wrong
+ * one, and for an archive whose names are encrypted as well. The prompt is
+ * matched WHOLE, brackets and all: with `-bb1` the same text carries member
+ * names, and a member called "enter password.txt" in a run that failed for
+ * some other reason must not turn that failure into a password question.
+ */
+export function sevenFailReason(raw: string): 'password' | 'failed' {
+  const wanted = /wrong password|cannot open encrypted|enter password \(will not be echoed\)/i
+  return wanted.test(raw) ? 'password' : 'failed'
 }
 import { existsSync, mkdtempSync } from 'fs'
 import { cp, mkdtemp, rename, rm } from 'fs/promises'
@@ -240,7 +285,7 @@ function runWithProgress(
   watch: SevenWatch
 ): Promise<{ ok: true } | { ok: false; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(exe, args, { windowsHide: true })
+    const child = spawn(exe, args, { windowsHide: true, stdio: NO_STDIN })
     watch.onChild?.(child)
     const total = watch.total ?? 0
     let err = ''
@@ -298,7 +343,7 @@ export async function listSeven(
   if (r.ok) return { ok: true, entries: parseListing(r.out, basename(file)) }
   return {
     ok: false,
-    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+    reason: sevenFailReason(r.stderr)
   }
 }
 
@@ -348,7 +393,7 @@ export async function extractAllSeven(
   if (r.ok) return { ok: true }
   return {
     ok: false,
-    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    reason: sevenFailReason(r.stderr),
     // The line 7-Zip actually printed, so a failure can be acted on rather
     // than only noticed.
     message: sevenMessage(r.stderr)
@@ -380,7 +425,7 @@ export async function extractSeven(
   if (!r.ok) {
     return {
       ok: false,
-      reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed'
+      reason: sevenFailReason(r.stderr)
     }
   }
   const out = join(dir, safe.replace(/\//g, sep))
@@ -449,7 +494,7 @@ export async function extractSevenSubtree(
   if (r.ok) return { ok: true }
   return {
     ok: false,
-    reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+    reason: sevenFailReason(r.stderr),
     message: sevenMessage(r.stderr)
   }
 }
@@ -538,7 +583,7 @@ export async function extractSevenTo(
     if (!r.ok) {
       return {
         ok: false,
-        reason: /wrong password|cannot open encrypted/i.test(r.stderr) ? 'password' : 'failed',
+        reason: sevenFailReason(r.stderr),
         message: sevenMessage(r.stderr)
       }
     }

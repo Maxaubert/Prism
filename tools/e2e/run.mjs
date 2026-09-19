@@ -2634,7 +2634,7 @@ function treeOf(dir, rel = '') {
  */
 async function extractCancelScenario() {
   console.log('cancelling an extraction, and one that fails')
-  const { big, many, corrupt } = await buildBigFixtures()
+  const { big, many, corrupt, locked7z, lockedZip } = await buildBigFixtures()
   const box = join(BIG, 'box')
   rmSync(box, { recursive: true, force: true })
   mkdirSync(join(box, 'Big'), { recursive: true })
@@ -2646,7 +2646,9 @@ async function extractCancelScenario() {
   for (const [from, name] of [
     [big, 'big.7z'],
     [many, 'many.zip'],
-    [corrupt, 'corrupt.7z']
+    [corrupt, 'corrupt.7z'],
+    [locked7z, 'locked.7z'],
+    [lockedZip, 'locked.zip']
   ])
     copyFileSync(from, join(box, name))
   const before = treeOf(box)
@@ -2885,6 +2887,78 @@ async function extractCancelScenario() {
     await win.keyboard.press('Enter')
     await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
     ok(true, 'and Enter closes the error: no mouse needed')
+
+    // ---- A PASSWORD, on both engines (found missing in review) -------------
+    // The window answers a password two ways, on purpose. A route that cannot
+    // ask (the verb row's Extract here) shows the ERROR, with the sentence
+    // that says where a password is typed. A route that asks and tries again
+    // (a member row) must see the window close QUIETLY, so the question is
+    // not put up on top of an error. The 7z half is also the proof that
+    // 7-Zip is never left waiting at its own "Enter password" prompt, which
+    // with stdin open it did for ever: the window would sit in `running`
+    // until the waits below timed out.
+    const PASS = 'input[aria-label="Archive password"]'
+    for (const name of ['locked.7z', 'locked.zip']) {
+      const mark = treeOf(box)
+      await win.locator('aside [role="treeitem"]', { hasText: name }).first().click()
+      await win.waitForSelector('[data-arc-row]:has-text("vault")', { timeout: 15000 })
+
+      await win.click('button:has-text("Extract here")')
+      await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
+      const why = (await win.locator('[data-extract-error]').textContent()) ?? ''
+      ok(
+        /password protected/i.test(why),
+        `${name}, Extract here with no password: the window says it is protected (${why})`
+      )
+      await win.locator('[data-extract-close]').click()
+      await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
+      const strays = treeOf(box).filter((p) => !mark.includes(p))
+      ok(
+        strays.length === 0,
+        `${name}: and the refused extraction left nothing behind (${strays.join(', ')})`
+      )
+
+      await win.locator('[data-arc-row]', { hasText: 'vault' }).first().dblclick()
+      await win.waitForSelector('[data-arc-row]:has-text("secret.txt")', { timeout: 5000 })
+      await armExtractProbe(win)
+      await openMemberMenu(win, 'secret.txt')
+      await win.locator('[role="menu"] >> text="Extract here"').click()
+      await win.waitForSelector(PASS, { timeout: 30000 })
+      const seen = await win.evaluate(() => window.__xw.phases)
+      ok(
+        !seen.includes('failed'),
+        `${name}, a member's Extract here: the password is ASKED, with no error under the question (${seen.join(' > ')})`
+      )
+      ok(
+        (await win.locator(XWIN).count()) === 0 && (await win.locator('[role="dialog"]').count()) === 1,
+        `${name}: and the question is the only thing up`
+      )
+      await win.fill(PASS, 'nope')
+      await win.keyboard.press('Enter')
+      await win.waitForFunction(() => /didn't open/.test(document.body.innerText), null, {
+        timeout: 30000
+      })
+      ok(true, `${name}: a wrong password asks again, and says so`)
+      ok(
+        !existsSync(join(box, 'secret.txt')),
+        `${name}: and nothing was written with the wrong one`
+      )
+      await win.fill(PASS, 'letmein')
+      await win.keyboard.press('Enter')
+      const landed = await until(
+        () =>
+          existsSync(join(box, 'secret.txt')) &&
+          /the secret, out in the open/.test(readFileSync(join(box, 'secret.txt'), 'utf8')),
+        30000
+      )
+      ok(landed === true, `${name}: the right password extracts the member`)
+      await win.waitForSelector(XWIN, { state: 'detached', timeout: 10000 })
+      ok(
+        (await win.locator('[role="dialog"]').count()) === 0,
+        `${name}: and the window closes by itself afterwards, with nothing in its place`
+      )
+      rmSync(join(box, 'secret.txt'), { force: true })
+    }
   } finally {
     await app.close()
     rmSync(box, { recursive: true, force: true })
