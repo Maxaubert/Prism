@@ -304,6 +304,25 @@ describe('extracting out, watched (#166)', () => {
     expect(await extractTo(bad, ['big.txt'], out)).toEqual({ ok: false, reason: 'failed' })
   })
 
+  it('a member that fails leaves no empty folder behind in the destination', async () => {
+    // The folder used to be made just before the write. Moved ahead of the
+    // read (so a Cancel could account for it), a member that could not be
+    // read, which is what a wrong or missing password is every time, left an
+    // empty "sub" in a folder of the user's own choosing, with nothing to say
+    // where it came from.
+    const zip = new AdmZip()
+    zip.addFile('sub/big.txt', Buffer.from('compress me '.repeat(500)))
+    const bad = join(mkdtempSync(join(tmpdir(), 'prism-bad-')), 'bad.zip')
+    zip.writeZip(bad)
+    const raw = readFileSync(bad)
+    // The data starts after the 30-byte local header and the 11-byte name.
+    raw.fill(0xff, 44, 64)
+    writeFileSync(bad, raw)
+    const out = mkdtempSync(join(tmpdir(), 'prism-bad-out-'))
+    expect(await extractTo(bad, ['sub'], out)).toEqual({ ok: false, reason: 'failed' })
+    expect(existsSync(join(out, 'sub'))).toBe(false)
+  })
+
   it('a deflated member comes out byte for byte', async () => {
     const zip = new AdmZip()
     const body = Buffer.from('the same line again and again\n'.repeat(2000))

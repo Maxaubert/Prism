@@ -525,7 +525,6 @@ export async function extractTo(
         isAbsolute(inside)
       )
         continue
-      await made.mkdir(dirname(target))
       // Never overwrite what is already there: an extraction is a copy out,
       // and a member sharing a name with the user's own file must not destroy
       // it. "name (2)" is the same answer the folder verbs give.
@@ -548,6 +547,13 @@ export async function extractTo(
           return { ok: false, reason: failOf(like, !!password) }
         }
       }
+      // The folder is made HERE, once there are bytes to put in it, and not
+      // before the member is read: a member that cannot be read (a missing or
+      // wrong password, every time) would otherwise leave an empty folder in
+      // a destination of the user's own choosing. The free-name test above
+      // does not need it, since a name can only be taken in a folder that
+      // already exists.
+      await made.mkdir(dirname(target))
       // Recorded BEFORE the write: a file that a Cancel finds half written
       // is still one this call created.
       made.file(target)
