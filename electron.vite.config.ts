@@ -69,8 +69,17 @@ export default defineConfig({
       alias: {
         '@renderer': resolve('src/renderer/src'),
         '@shared': resolve('src/shared')
-      }
+      },
+      // THE TERMINAL COMES FROM prism-term-core (the `core/` of PrismTerminal, #154).
+      // It ships TypeScript SOURCE and is a DEV dependency on purpose, so
+      // electron-vite compiles it in and nothing extra is packaged. A linked
+      // checkout resolves react from ITS OWN node_modules: measured, two Reacts
+      // in one bundle, double the size, broken hooks.
+      dedupe: ['react', 'react-dom']
     },
+    // Served as source, never pre-bundled: a pre-bundled copy goes stale when
+    // the core is edited through a link, and reloads the page mid-session.
+    optimizeDeps: { exclude: ['prism-term-core'] },
     plugins: [react(), tailwindcss(), pdfSideData()],
     build: {
       rollupOptions: {

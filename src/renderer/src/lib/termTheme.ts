@@ -1,4 +1,4 @@
-import { deriveAnsi, legiblePalette, normalizeColor, type Ansi16 } from './termAnsi'
+import { deriveAnsi, legiblePalette, normalizeColor, type Ansi16 } from 'prism-term-core/renderer/lib/termAnsi'
 import { customTermTheme } from './termLook'
 
 // The terminal wears the style. Styles publish their surfaces as CSS custom
