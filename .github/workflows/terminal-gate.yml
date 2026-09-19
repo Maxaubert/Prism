@@ -1,0 +1,66 @@
+# THE TERMINAL GATE, ON A RUNNER (#164).
+#
+# `npm run e2e:terminal` is the required gate for any bump of the shared
+# terminal core (`prism-term-core`): it drives the BUILT app through every
+# scenario the terminal can break, dictation included (a fake microphone into
+# the real bundled speech engine). It ran only on the owner's machine, which was
+# the one reason a core bump could not prove itself. Owner, 2026-09-19: "we need
+# automated tests to confirm it never conflicts. that's important."
+#
+# It runs when the pin can have moved (package.json / the lockfile), when the
+# terminal's own wiring changes, and on demand. A GitHub Windows runner has a
+# real desktop session, so Electron gets a real window; the suite parks it
+# offscreen exactly as it does locally.
+name: terminal-gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - src/renderer/src/termHost.ts
+      - src/renderer/src/components/TermDock.tsx
+      - tools/e2e/**
+      - .github/workflows/terminal-gate.yml
+  push:
+    branches: ['ci/**']
+
+concurrency:
+  group: terminal-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The bundled binaries (ffmpeg for the fixtures, the speech engine) and the
+      # e2e's own downloads (the Tiny model, the sample clip) are all pinned by
+      # checksum, so a cache hit is exactly what a fresh fetch would produce.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            vendor
+            .e2e/cache
+          key: terminal-gate-bin-${{ hashFiles('tools/fetch-*.mjs', 'package-lock.json') }}
+
+      - name: The terminal gate
+        run: npm run e2e:terminal
+
+      - name: Keep the screenshots and the log when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-gate-shots
+          path: .e2e/shots
+          if-no-files-found: ignore
