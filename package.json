@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.57.1",
+  "version": "0.58.0",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
   "license": "MIT",
@@ -98,7 +98,7 @@
     "globals": "^17.7.0",
     "playwright-core": "^1.62.1",
     "prettier": "^3.9.5",
-    "prism-term-core": "github:Maxaubert/PrismTerminal#core-v0.4.0",
+    "prism-term-core": "github:Maxaubert/PrismTerminal#core-v0.5.0-rc.2",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0",

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -130,23 +130,31 @@ export function watchForUpdates(send: (info: UpdateInfo) => void): void {
 export async function installUpdate(
   url: string,
   onPct: (pct: number) => void,
-  canInstall: () => Promise<boolean> = async () => true
+  canInstall: () => Promise<boolean> = async () => true,
+  // The update window's Cancel (#178, the core's #32). It stops the DOWNLOAD
+  // only: the request and the write are torn down, the partial installer goes
+  // with its temp folder, and the answer is false, "nothing was installed".
+  signal?: AbortSignal
 ): Promise<boolean> {
   calls.installs += 1
   if (!isReleaseAssetUrl(url)) return false
+  let dir: string | null = null
   try {
-    const res = await fetch(url, { headers: { 'user-agent': 'Prism-update-check' } })
+    const res = await fetch(url, { headers: { 'user-agent': 'Prism-update-check' }, signal })
     if (!res.ok || !res.body) return false
     const total = Number(res.headers.get('content-length')) || 0
-    const file = join(await mkdtemp(join(tmpdir(), 'prism-update-')), 'Prism-Setup.exe')
+    dir = await mkdtemp(join(tmpdir(), 'prism-update-'))
+    const file = join(dir, 'Prism-Setup.exe')
     let got = 0
     const body = Readable.fromWeb(res.body as import('stream/web').ReadableStream)
     body.on('data', (c: Buffer) => {
       got += c.length
       if (total) onPct(Math.min(99, Math.round((got / total) * 100)))
     })
-    await pipeline(body, createWriteStream(file))
-    if (!(await canInstall())) return false
+    await pipeline(body, createWriteStream(file), { signal })
+    // A cancel that arrives after the last byte still wins: nothing has been
+    // spawned yet, and the user asked for nothing to be.
+    if (signal?.aborted || !(await canInstall())) throw new Error('not installing')
     onPct(100)
     // Single-quoted with quotes doubled, PowerShell's own escaping; both
     // paths are ours (temp dir, execPath) but interpolation stays safe anyway.
@@ -166,6 +174,8 @@ export async function installUpdate(
     setTimeout(() => app.quit(), 400)
     return true
   } catch {
+    // A failed, refused or cancelled download leaves no installer in temp.
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {})
     return false
   }
 }

@@ -610,6 +610,8 @@ const api = {
   /** Download the named installer and hand off to it; the app quits under it.
    *  False when nothing was installed, which is always the case for a preview. */
   installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
+  /** Stop the download `installUpdate` is running; it then resolves false. */
+  cancelUpdate: (): void => ipcRenderer.send('update:cancel'),
   /** The running app's version (package.json's), for the update window's
    *  "You have" line. */
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
