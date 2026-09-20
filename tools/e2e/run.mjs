@@ -681,7 +681,13 @@ async function sortScenario(fixtures) {
     // filter any more (removed 2026-08-20: a forgotten filter read as missing
     // files) - every viewable sibling is always listed.
     const fileRows = win.locator('[role="treeitem"]:not([aria-expanded])')
-    await fileRows.first().waitFor({ timeout: 10000 })
+    // A COLD RUNNER LISTS SLOWLY. Ten seconds is plenty on this machine and
+    // was not always enough on a GitHub runner, where the app boots, restores
+    // its tabs and lists the folder against a cold disk (MEASURED: this timed
+    // out twice on CI in one afternoon, on changes that touch nothing here).
+    // A longer bound costs nothing when the row is already there, and a flaky
+    // check is a bug in the gate rather than something to re-run.
+    await fileRows.first().waitFor({ timeout: 45000 })
     ok((await fileRows.count()) === 9, 'the tree lists every viewable file, unfiltered')
     ok(
       (await win.locator('[aria-label="Navigation filter"]').count()) === 0,
@@ -1482,7 +1488,7 @@ async function contextMenuScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
     const row = win.locator('[role="treeitem"][aria-selected="true"]')
-    await row.waitFor({ timeout: 10000 })
+    await row.waitFor({ timeout: 45000 })
     await row.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
 
@@ -2037,7 +2043,7 @@ async function iconSchemeScenario(fixtures) {
     }, suffix)
 
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
     // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all, and since
@@ -2132,7 +2138,7 @@ async function comicIconScenario(fixtures) {
   console.log('comic icon artwork')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const art = await win.evaluate(() => {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
@@ -2187,7 +2193,7 @@ async function treeVerbsScenario(fixtures) {
   const rowFor = (suffix) =>
     win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
     // ---- the archive verbs are on the row -------------------------------
@@ -2264,7 +2270,7 @@ async function deleteAgainScenario(fixtures) {
   const { app, win } = await launch(join(dir, 'a.txt'))
   const rows = () => win.locator('[role="treeitem"]').count()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const before = await rows()
     ok(before >= 3, `the folder has enough to delete twice (${before})`)
@@ -2525,7 +2531,7 @@ async function rowPasteScenario(fixtures) {
     win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
   const menuHas = (label) => win.locator(`[role="menu"] >> text="${label}"`).count()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
     // NOTHING ON THE CLIPBOARD: no Paste row at all.
@@ -2647,7 +2653,7 @@ async function deleteLastScenario(fixtures) {
   const dir = join(fixtures, 'lastfile')
   const { app, win } = await launch(join(dir, 'only.txt'))
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const tabs = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     const before = await tabs()
@@ -8578,7 +8584,7 @@ async function updateGuardScenario(fixtures) {
     await win.keyboard.press('Control+End')
     await win.keyboard.type('omega')
     ok(
-      await until(async () => ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 5000, 50),
+      await until(async () => ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 20000, 50),
       'a file holds unsaved text'
     )
     ok(await openUpdate(), 'the window opens')
