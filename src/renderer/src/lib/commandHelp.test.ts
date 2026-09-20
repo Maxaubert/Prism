@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { helpFront, helpStandsDown, isHelpKey } from './commandHelp'
+import { helpFront, helpShowing, helpStandsDown, isHelpKey } from './commandHelp'
 
 const key = (over: Partial<Parameters<typeof isHelpKey>[0]> = {}): Parameters<typeof isHelpKey>[0] => ({
   key: 'F1',
@@ -52,5 +52,26 @@ describe('when the popup stands down', () => {
     expect(helpStandsDown({ ...up, front: helpFront('tab-2', 'term-2', false) })).toBe(true)
     expect(helpStandsDown({ ...up, front: helpFront('tab-1', 'term-1', true) })).toBe(true)
     expect(helpStandsDown({ ...up, front: helpFront('tab-1', 'term-9', false) })).toBe(true)
+  })
+})
+
+describe('which shell is showing', () => {
+  it('is the dock while it is drawn, full or split', () => {
+    expect(helpShowing({ fullscreen: false, dock: { id: 't1', view: 'full' }, paneTerms: [] })).toBe('t1')
+    expect(helpShowing({ fullscreen: false, dock: { id: 't1', view: 'split' }, paneTerms: ['t2'] })).toBe('t1')
+  })
+
+  it('is a shell pinned as a pane when the dock is hidden: F1 is not dead there', () => {
+    expect(helpShowing({ fullscreen: false, dock: { id: 't1', view: 'hidden' }, paneTerms: ['t1'] })).toBe('t1')
+    expect(helpShowing({ fullscreen: false, dock: null, paneTerms: ['t2', 't3'] })).toBe('t2')
+  })
+
+  it('is nothing with no shell on screen: Prism is a viewer first', () => {
+    expect(helpShowing({ fullscreen: false, dock: null, paneTerms: [] })).toBeNull()
+    expect(helpShowing({ fullscreen: false, dock: { id: 't1', view: 'hidden' }, paneTerms: [] })).toBeNull()
+  })
+
+  it('is nothing in fullscreen, where no terminal is drawn', () => {
+    expect(helpShowing({ fullscreen: true, dock: { id: 't1', view: 'full' }, paneTerms: ['t2'] })).toBeNull()
   })
 })

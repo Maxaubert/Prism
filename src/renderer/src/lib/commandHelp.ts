@@ -28,6 +28,27 @@ export const isHelpKey = (e: HelpKeyEvent): boolean =>
   e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey
 
 /**
+ * WHICH SHELL IS ON SCREEN, or null when none is. Not simply "the dock is not
+ * hidden": a shell pinned as a PANE is on screen too, and pinning the tab's
+ * current shell HIDES the dock (it would otherwise be drawn twice). Read from
+ * the dock alone, a tab showing only pinned shells had a dead F1: xterm yields
+ * the key whenever the setting is on (`termHost.ts`), App took it only when the
+ * dock was showing, so it reached neither the popup nor the shell. Fullscreen
+ * draws no terminal of either sort.
+ */
+export function helpShowing(s: {
+  fullscreen: boolean
+  /** The tab's current shell and how its dock is drawn, or null with none. */
+  dock: { id: string; view: 'hidden' | 'full' | 'split' } | null
+  /** The shells pinned as panes, in the order they are drawn. */
+  paneTerms: readonly string[]
+}): string | null {
+  if (s.fullscreen) return null
+  if (s.dock && s.dock.view !== 'hidden') return s.dock.id
+  return s.paneTerms[0] ?? null
+}
+
+/**
  * What the popup was opened OVER: the tab, its shell and whether the find bar
  * is up. The app's chords keep working over the popup, and several of them put
  * something else in front (Ctrl+T, Ctrl+Tab, Ctrl+Shift+F); a terminal takes
