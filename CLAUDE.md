@@ -2026,7 +2026,9 @@ Filesmith's conventions.
   failure points due to its larger footprint"). It builds and runs every scenario the terminal
   can break (terminal, termOptions, termCwd, agentTitle, handoffOverTerm, promptLayout, tabs, sort,
   pinRecent, and since #168 updateWindow, updateGuard and updateQuiet, because the update chip and
-  its window come from the same core; about four minutes, plus 50s MEASURED for those three) and is REQUIRED, green, in any PR that moves the `prism-term-core`
+  its window come from the same core; about four minutes, plus 20s MEASURED for those three, which
+  was 50s until review found 30 of them were one `locator.click()` waiting out its timeout on a
+  notice that had already left) and is REQUIRED, green, in any PR that moves the `prism-term-core`
   tag, before the usual full e2e. **IT ALSO RUNS IN CI** (`.github/workflows/terminal-gate.yml`, #164;
   owner, 2026-09-19: "we need automated tests to confirm it never conflicts"): on any PR that moves
   the pin or touches the terminal's wiring, on a GitHub Windows runner, MEASURED green 3 runs of 3

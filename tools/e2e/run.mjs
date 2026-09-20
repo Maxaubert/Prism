@@ -7597,6 +7597,15 @@ const fixtures = buildFixtures()
  *  globalThis under --e2e. */
 const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
 
+/** Put the line under the chip away IF IT IS THERE. It leaves by itself after
+ *  eight seconds, so by the time a scenario gets here it has often gone, and a
+ *  bare `locator.click()` on an element that is gone waits out Playwright's
+ *  whole default timeout before its catch swallows the error: MEASURED in
+ *  updateGuard (review, 2026-09-20), 30015ms of every run spent clicking
+ *  nothing. The click and the count are one step in the page, so the line
+ *  cannot leave between them. */
+const putAwayNotice = (win) => win.evaluate(() => document.querySelector('[data-update-notice]')?.click())
+
 /** A style, switched the way ANOTHER WINDOW's change arrives: the keys are
  *  written and the store's own `storage` listener repaints from them. It
  *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
@@ -7815,7 +7824,7 @@ async function updateWindowScenario(fixtures) {
     ok(Math.abs(widthLight - width0) < 0.01, `the chip is the same width (${widthLight.toFixed(3)}px)`)
     // Over Settings: Prism's own capture-phase Escape closes Settings, and must
     // stand down while the update window is up (data-owns-escape).
-    await notice.click().catch(() => {})
+    await putAwayNotice(win)
     await win.click('[aria-label="Settings"]')
     ok(await until(() => win.evaluate(() => document.querySelector('[aria-label="Settings"]')?.getAttribute('aria-pressed') === 'true'), 5000, 50), 'with Settings open')
     await shot('update-chip-light')
@@ -8059,7 +8068,7 @@ async function updateGuardScenario(fixtures) {
     ok(await until(async () => (await question.count()) === 0, 4000, 50), 'Escape backs out')
     ok((await installs()) === 1 && (await chip.getAttribute('data-phase')) === 'idle', 'and nothing more was started')
 
-    await notice.click().catch(() => {})
+    await putAwayNotice(win)
     await openUpdate()
     await updateDialog.locator('[data-update-install]').click()
     await until(async () => (await question.count()) === 1, 4000, 50)
