@@ -170,6 +170,11 @@ export interface OpenPayload {
   /** Restore only: this saved tab was the ACTIVE one - it takes the front.
    *  The rest restore behind whatever is already showing. */
   restoreActive?: boolean
+  /** "Open file" from Explorer's right-click menu (#167): show THIS file in
+   *  the pinned Explorer tab instead of making its folder a project. The rest
+   *  of the payload is empty on purpose - main registered no root for it, and
+   *  the Explorer tab asks for the folder itself, through the desktop grants. */
+  explorerFile?: string
 }
 
 /** What the PC remembers about a file (#118, #124): where you had got to and

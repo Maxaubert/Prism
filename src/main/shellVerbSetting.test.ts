@@ -18,7 +18,8 @@ function fixture(automatic = true) {
       state.present = state.owned = false
       return true
     }),
-    relabel: vi.fn(async () => true)
+    relabel: vi.fn(async () => true),
+    recommand: vi.fn(async () => true)
   }
   const setting = createShellVerbSetting({ exe: 'Prism.exe', marker: 'unused', automatic }, deps)
   return { state, deps, setting }
@@ -186,6 +187,45 @@ describe('Explorer menu setting', () => {
     expect(await startup).toBe(true)
     expect(await off).toBe(true)
     expect(state).toEqual({ present: false, owned: false, off: true })
+  })
+
+  /**
+   * The command, beside the label (2026-09-20, #167). "Open file" asks for the
+   * Explorer tab through a switch in its command, so the same surviving
+   * registrations need their command brought up to date as well as their
+   * words. WHEN is the label's own rule, run in the same breath; WHICH
+   * commands may be touched is `recommandVerb`'s, tested beside it.
+   */
+  it('brings the command up to date on the same launch, once, after the label', async () => {
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    await setting.status()
+    await setting.status()
+    expect(deps.recommand).toHaveBeenCalledOnce()
+    expect(deps.relabel.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.recommand.mock.invocationCallOrder[0]
+    )
+    expect(deps.install).not.toHaveBeenCalled()
+  })
+
+  it('never rewrites a command from a preview build, nor for somebody who said no', async () => {
+    const preview = fixture(false)
+    preview.state.present = preview.state.owned = true
+    expect(await preview.setting.status()).toBe(true)
+    expect(preview.deps.recommand).not.toHaveBeenCalled()
+    const refused = fixture()
+    refused.state.off = refused.state.present = refused.state.owned = true
+    expect(await refused.setting.status()).toBe(true)
+    expect(refused.deps.recommand).not.toHaveBeenCalled()
+  })
+
+  it('still tries the command when the label could not be written, and stays on when both fail', async () => {
+    const { state, setting, deps } = fixture()
+    state.present = state.owned = true
+    deps.relabel.mockRejectedValueOnce(new Error('Access denied'))
+    deps.recommand.mockRejectedValueOnce(new Error('Access denied'))
+    expect(await setting.status()).toBe(true)
+    expect(deps.recommand).toHaveBeenCalledOnce()
   })
 
   it('does not report an unverified registration as enabled', async () => {

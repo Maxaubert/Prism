@@ -68,3 +68,33 @@ export function pathsFromArgv(
   return out
 }
 
+/**
+ * "Open file", Explorer's right-click entry on a single file, asks for the
+ * EXPLORER TAB (2026-09-20, #167; owner, asked what that entry should do: "open
+ * file ... in file explorer, thats probably best rather than a project").
+ *
+ * The verb's command line carries this switch and nothing else does, so a
+ * double-click, "Open with" and a bare command line are exactly what they
+ * were: the file's folder becomes a project. It is a SWITCH rather than a
+ * position because Chromium reorders its own switches in front of the paths on
+ * a handoff (see `ownFiles`), so "the argument before the path" is not a thing
+ * that survives a second instance. It speaks for every FILE in its argv, which
+ * from Explorer is always one: a multi-selection launches the verb once per
+ * file. A folder ignores it - "Open as project" is that row's whole meaning.
+ */
+export const EXPLORER_TAB_SWITCH = '--explorer-tab'
+
+export interface ArrivingPath {
+  path: string
+  dir: boolean
+  /** A file that asked to be shown in the pinned Explorer tab. */
+  explorer?: true
+}
+
+/** `pathsFromArgv`, with the files marked when the switch is there. */
+export function arrivalsFromArgv(argv: string[], ignore?: string[]): ArrivingPath[] {
+  const wanted = argv.includes(EXPLORER_TAB_SWITCH)
+  return pathsFromArgv(argv, ignore).map((p) =>
+    wanted && !p.dir ? { ...p, explorer: true as const } : p
+  )
+}

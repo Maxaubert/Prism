@@ -9,6 +9,7 @@ import {
   addProjectTab,
   isExplorerTab,
   isPinnedExplorer,
+  frontPinnedExplorer,
   ensurePinnedExplorer,
   closeTab,
   toggleSettingsTab,
@@ -1224,8 +1225,35 @@ export default function App(): JSX.Element {
   // play - a window full of restored tabs starting every film at once is the
   // 2026-08-28 rule, and it stands - so the intent is recorded here, on the
   // way in, for an arrival that is not a restore and not a folder.
+  //
+  // "OPEN FILE" GOES TO THE EXPLORER TAB (2026-09-20, #167). Explorer's
+  // right-click entry on a single file is the one arrival that asks for the
+  // pinned Explorer instead of a project (owner: "in file explorer, thats
+  // probably best rather than a project"), and main marks it with
+  // `explorerFile` and builds nothing else. The Explorer comes to the front
+  // HERE and the file is parked in state rather than opened, because the
+  // Explorer's own open (`browsing.openFile`) acts on the ACTIVE tab and is
+  // rebuilt when that changes: the effect further down opens the file on the
+  // render after, once the Explorer is the tab in front. It is a pick like any
+  // other, so a film or a track plays.
+  const [explorerArrival, setExplorerArrival] = useState<{ path: string } | null>(null)
+  /** The arrival the effect has already acted on. A ref, because an effect
+   *  that cleared the state itself would be a render caused by a render. */
+  const spentArrival = useRef<{ path: string } | null>(null)
   const arrive = useCallback(
     (p: OpenPayload | null) => {
+      if (p?.explorerFile) {
+        const path = p.explorerFile
+        const name = path.split(/[\\/]/).pop() ?? path
+        const kind = fileKind(/\.[^.]+$/.exec(name)?.[0] ?? '', name)
+        if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(path))
+        // Nothing else about the strip moves: no tab is made and none reused.
+        setTabState((s) => frontPinnedExplorer(s.tabs) ?? s)
+        // A fresh object every time, so the same file asked for twice is two
+        // arrivals and not one the effect has already spent.
+        setExplorerArrival({ path })
+        return
+      }
       if (p && !p.restore && !p.folder) {
         const f = p.index >= 0 ? p.files[p.index] : undefined
         if (f && (f.kind === 'video' || f.kind === 'audio'))
@@ -2037,6 +2065,32 @@ export default function App(): JSX.Element {
     },
     [active, openBrowseFile]
   )
+
+  // The second half of "Open file" (#167, see `arrive`, which has already
+  // brought the pinned Explorer to the front). Once it IS the active tab,
+  // `openBrowseFile` is the Explorer's own full-view open, the same call a
+  // Quick access file pin makes: it asks main for the file's folder through
+  // the desktop grants, walks the Explorer there (so Back returns to wherever
+  // it was) and shows the file with the folder's files as the paging list.
+  // Until then it waits, and `activeId` changing is what runs it again. No
+  // pinned Explorer at all is not a state main ever leaves the strip in; it
+  // falls back to the ordinary arriving-file route rather than dropping a file
+  // somebody asked to see. Only the newest arrival is kept: the Explorer shows
+  // one file, so an earlier one would only have been replaced.
+  useEffect(() => {
+    if (!explorerArrival || spentArrival.current === explorerArrival) return
+    const landing = frontPinnedExplorer(tabs)
+    if (landing && activeId !== landing.activeId) return
+    spentArrival.current = explorerArrival
+    if (!landing) {
+      void window.prism.openPath(explorerArrival.path).then(open)
+      return
+    }
+    const id = landing.activeId
+    void openBrowseFile(explorerArrival.path, true).then((opened) => {
+      if (opened && activeIdRef.current === id) setPaneFocus('live')
+    })
+  }, [explorerArrival, tabs, activeId, openBrowseFile, open])
 
   /** The terminal button's own context menu. */
   const openTermSplit = useCallback(

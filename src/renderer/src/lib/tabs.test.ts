@@ -5,6 +5,7 @@ import {
   addExplorerTab,
   addProjectTab,
   ensurePinnedExplorer,
+  frontPinnedExplorer,
   ancestorsWithin,
   closeTab,
   emptyTree,
@@ -637,5 +638,44 @@ describe('a tab holds several terminals (2026-09-03)', () => {
     panes = pinTermPane(panes, 'p2', 'a', 'bottom')
     expect(panes).toHaveLength(1)
     expect(panes[0].dir).toBe('bottom')
+  })
+})
+
+/**
+ * "Open file" lands in the pinned Explorer (2026-09-20, #167). The half that
+ * is pure: WHICH tab comes to the front, and that nothing else about the strip
+ * moves. Which file the Explorer then shows is its own async open, proved in
+ * the `openFileExplorer` e2e.
+ */
+describe('where "Open file" lands', () => {
+  const p = payload(SHOOT, ['C:\\shoot\\a.jpg'])
+  const explorer = addExplorerTab([], payload('C:\\Users\\me', []), 'explorer', true).tabs[0]
+
+  it('brings the pinned Explorer to the front and changes nothing else', () => {
+    const project = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    const tabs = [explorer, project]
+    const landing = frontPinnedExplorer(tabs)
+    expect(landing?.activeId).toBe('explorer')
+    expect(landing?.tabs).toEqual(tabs)
+    // The very same tab objects: no spawn, no reroot, no file list replaced.
+    expect(landing?.tabs[0]).toBe(explorer)
+    expect(landing?.tabs[1]).toBe(project)
+  })
+
+  it('does not reuse a project that already holds the folder, which receiveFile would', () => {
+    const project = tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    expect(receiveFile([explorer, project], p, 'new').activeId).toBe(project.id)
+    expect(frontPinnedExplorer([explorer, project])?.activeId).toBe('explorer')
+  })
+
+  it('passes over an ordinary Explorer tab: only the pinned one is a landing place', () => {
+    const ordinary = addExplorerTab([], p, 'ordinary').tabs[0]
+    expect(frontPinnedExplorer([ordinary])).toBeNull()
+    expect(frontPinnedExplorer([ordinary, explorer])?.activeId).toBe('explorer')
+  })
+
+  it('answers null with no pinned Explorer, so the caller can fall back', () => {
+    expect(frontPinnedExplorer([])).toBeNull()
+    expect(frontPinnedExplorer([tabOf(SHOOT, ['C:\\shoot\\a.jpg'])])).toBeNull()
   })
 })

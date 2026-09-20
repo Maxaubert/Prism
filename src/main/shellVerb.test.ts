@@ -2,10 +2,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   addArgs,
+  commandFor,
   labelOf,
   labelQueryArgs,
   pointsAt,
   queryArgs,
+  recommandVerb,
   relabelVerb,
   removeArgs,
   shouldWriteVerb,
@@ -58,8 +60,24 @@ describe('the Explorer verb', () => {
   })
 
   it('quotes the path inside the command, so a folder with spaces survives', () => {
-    const cmd = addArgs(EXE).find((a) => a[1].endsWith('\\command'))
-    expect(cmd?.[cmd.length - 2]).toBe(`"${EXE}" "%1"`)
+    const [, dir, bg] = addArgs(EXE).filter((a) => a[1].endsWith('\\command'))
+    expect(dir[dir.length - 2]).toBe(`"${EXE}" "%1"`)
+    expect(bg[bg.length - 2]).toBe(`"${EXE}" "%V"`)
+  })
+
+  it('asks for the Explorer tab from "Open file", and from nothing else', () => {
+    // Owner (#167), asked what the entry on a single file should do: "open
+    // file ... in file explorer, thats probably best rather than a project".
+    // The switch is the whole of that route, so it is pinned word for word,
+    // and the two folder verbs must never grow it: a folder IS a project.
+    const [file, dir, bg] = verbKeys()
+    expect(commandFor(EXE, file)).toBe(`"${EXE}" --explorer-tab "%1"`)
+    expect(commandFor(EXE, dir)).toBe(`"${EXE}" "%1"`)
+    expect(commandFor(EXE, bg)).toBe(`"${EXE}" "%V"`)
+    const written = addArgs(EXE)
+      .filter((a) => a[1].endsWith('\\command'))
+      .map((a) => a[a.length - 2])
+    expect(written).toEqual(verbKeys().map((key) => commandFor(EXE, key)))
   })
 
   it('names the menu item and gives it the app icon', () => {
@@ -120,6 +138,10 @@ HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\OpenWithPrism\\command
     expect(pointsAt('', EXE)).toBe(false)
   })
 
+  it('recognises its own command with the switch in it', () => {
+    expect(pointsAt(`    (Default)    REG_SZ    "${EXE}" --explorer-tab "%1"\r\n`, EXE)).toBe(true)
+  })
+
   it('does not accept a path merely mentioned in another command', () => {
     expect(pointsAt(`REG_SZ "D:\\Other\\Prism.exe" "${EXE}" "%1"`, EXE)).toBe(false)
     expect(pointsAt(`REG_SZ "${EXE}.old" "%1"`, EXE)).toBe(false)
@@ -131,12 +153,26 @@ describe('complete live menu registration', () => {
     (overrides: Record<string, string | null> = {}) =>
     async (args: string[]) => {
       const key = args[1].replace(/\\command$/, '')
-      const command = key in overrides ? overrides[key] : `"${EXE}" "${verbSpec(key).arg}"`
+      const command = key in overrides ? overrides[key] : commandFor(EXE, key)
       return {
         ok: command !== null,
         out: command === null ? '' : `    (Default)    REG_SZ    ${command}\r\n`
       }
     }
+
+  it('is installed when every command is word for word what this build writes', async () => {
+    expect(await verbInstalled(EXE, registry())).toBe(true)
+  })
+
+  it('reads an older "Open file" as ON, but not as what this build writes', async () => {
+    // Every build before 2026-09-20 wrote the file command without the switch.
+    // That menu is there and working, so Settings must say so (and a preview
+    // must not take it over); but it is not what `installVerb` writes, which
+    // is what a fresh install is checked against.
+    const old = registry({ [verbKeys()[0]]: `"${EXE}" "%1"` })
+    expect(await verbRegistered(old, () => true)).toBe(true)
+    expect(await verbInstalled(EXE, old)).toBe(false)
+  })
 
   it('reports the installed copy as enabled when viewed from a preview', async () => {
     expect(await verbRegistered(registry(), (path) => path === EXE)).toBe(true)
@@ -378,5 +414,89 @@ describe('the verb survives an upgrade', () => {
     // default that reapplies itself makes the switch a setting that lies.
     expect(shouldWriteVerb(true, false)).toBe(false)
     expect(shouldWriteVerb(true, true)).toBe(false)
+  })
+})
+
+/**
+ * Bringing an existing COMMAND up to date (2026-09-20, #167).
+ *
+ * "Open file" asks for the Explorer tab through a switch in its command. An
+ * upgrade through the installer gets it anyway (the keys are deleted and
+ * written back); this is for the registration that survives into the new
+ * build, which would otherwise go on making a project under a label that no
+ * longer says so. The rule is `relabelVerb`'s: on, all three keys, THIS exe,
+ * and then only what was read and found different is written.
+ */
+describe('a stale command is rewritten, and nothing else is', () => {
+  function registry(options: { exe?: string; commands?: Record<string, string | null> } = {}) {
+    const exe = options.exe ?? EXE
+    const commands: Record<string, string | null> = {
+      ...Object.fromEntries(verbKeys().map((key) => [key, `"${exe}" "${verbSpec(key).arg}"`])),
+      ...options.commands
+    }
+    const writes: string[][] = []
+    const run = async (args: string[]): Promise<{ ok: boolean; out: string }> => {
+      const key = args[1].replace(/\\command$/, '')
+      if (args[0] === 'add') {
+        writes.push(args)
+        commands[key] = args[args.indexOf('/d') + 1]
+        return { ok: true, out: '' }
+      }
+      const command = commands[key]
+      if (command == null) return { ok: false, out: '' }
+      return { ok: true, out: `\r\n${args[1]}\r\n    (Default)    REG_SZ    ${command}\r\n\r\n` }
+    }
+    return { run, writes, commands }
+  }
+
+  it('gives an older registration the switch, on the file verb alone', async () => {
+    const [file] = verbKeys()
+    const { run, writes, commands } = registry()
+    expect(await verbInstalled(EXE, run)).toBe(false)
+    expect(await recommandVerb(EXE, run)).toBe(true)
+    expect(writes).toEqual([
+      ['add', `${file}\\command`, '/ve', '/t', 'REG_SZ', '/d', commandFor(EXE, file), '/f']
+    ])
+    expect(commands[file]).toBe(`"${EXE}" --explorer-tab "%1"`)
+    expect(await verbInstalled(EXE, run)).toBe(true)
+  })
+
+  it('writes nothing when the commands are already current', async () => {
+    const commands = Object.fromEntries(verbKeys().map((key) => [key, commandFor(EXE, key)]))
+    const { run, writes } = registry({ commands })
+    expect(await recommandVerb(EXE, run)).toBe(false)
+    expect(writes).toEqual([])
+  })
+
+  it('takes a switch OFF a verb that should not carry one', async () => {
+    // A later build that moves the switch, then a downgrade to this one: the
+    // command is this exe's, so it is this build's to word.
+    const [file, dir] = verbKeys()
+    const { run, writes } = registry({
+      commands: { [file]: commandFor(EXE, file), [dir]: `"${EXE}" --explorer-tab "%1"` }
+    })
+    expect(await recommandVerb(EXE, run)).toBe(true)
+    expect(writes.map((w) => w[w.length - 2])).toEqual([`"${EXE}" "%1"`])
+  })
+
+  it('leaves a verb that belongs to ANOTHER copy of Prism alone', async () => {
+    const { run, writes } = registry({ exe: 'D:\\Other\\Prism.exe' })
+    expect(await recommandVerb(EXE, run)).toBe(false)
+    expect(writes).toEqual([])
+  })
+
+  it.each(verbKeys())('never turns on what is off or half there (%s missing)', async (key) => {
+    // `reg add <key>\command` CREATES the key: without the "on" check this
+    // would put an unlabelled row into the menu of someone who said no.
+    const { run, writes } = registry({ commands: { [key]: null } })
+    expect(await recommandVerb(EXE, run)).toBe(false)
+    expect(writes).toEqual([])
+  })
+
+  it('does not touch a command of some other shape, which is an edit somebody made', async () => {
+    const [file] = verbKeys()
+    const { run, writes } = registry({ commands: { [file]: `"${EXE}" --e2e "%1" --more` } })
+    expect(await recommandVerb(EXE, run)).toBe(false)
+    expect(writes).toEqual([])
   })
 })

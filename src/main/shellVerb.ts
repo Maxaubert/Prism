@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
+import { EXPLORER_TAB_SWITCH } from './argv'
 
 /**
  * Prism's entries in File Explorer's context menu: "Open file" on a file,
@@ -16,8 +17,16 @@ import { existsSync } from 'fs'
  *
  * Written to HKCU only - per user, no elevation, nothing machine-wide - as a
  * classic shell verb under `*` (any file) and `Directory` (any folder). The
- * file verb opens the file with its own folder as the root, which is what
- * Prism does with any file handed to it; the folder verb opens the folder.
+ * folder verb opens the folder as a project.
+ *
+ * "OPEN FILE" SHOWS THE FILE IN THE EXPLORER TAB (2026-09-20, #167). It used to
+ * do what Prism does with any file handed to it, which is make the file's
+ * folder a project. The owner, asked what this one entry should do: "open
+ * file, but im not sure if it should be opened in file explorer, thats
+ * probably best rather than a project". So the file verb's command carries a
+ * switch (`--explorer-tab`, read in `argv.ts`) and the other two do not. It is
+ * the ONLY thing that carries it: a double-click, "Open with" and a bare
+ * command line arrive as they always did and still make a project.
  *
  * WINDOWS 11 CAVEAT, stated rather than papered over: the short menu that
  * appears on right-click is built from IExplorerCommand handlers, which need a
@@ -40,11 +49,26 @@ const BG_KEY = 'HKCU\\Software\\Classes\\Directory\\Background\\shell\\OpenWithP
 
 export const verbKeys = (): string[] => [FILE_KEY, DIR_KEY, BG_KEY]
 
-/** What each key is called in the menu, and what Explorer substitutes for it. */
-export function verbSpec(key: string): { label: string; arg: string } {
+/** What each key is called in the menu, what Explorer substitutes for it, and
+ *  the switch its command carries (`flag`, the file verb's alone: see the top
+ *  of this file). */
+export function verbSpec(key: string): { label: string; arg: string; flag?: string } {
   if (key === BG_KEY) return { label: 'Open as project', arg: '%V' }
   if (key === DIR_KEY) return { label: 'Open as project', arg: '%1' }
-  return { label: 'Open file', arg: '%1' }
+  return { label: 'Open file', arg: '%1', flag: EXPLORER_TAB_SWITCH }
+}
+
+/** The command line a key runs. The substitution is quoted inside the value:
+ *  a path with spaces is one argument. The switch goes BEFORE the path, the
+ *  way Prism's other switches are written. */
+export function commandFor(exe: string, key: string): string {
+  const { arg, flag } = verbSpec(key)
+  return flag ? `"${exe}" ${flag} "${arg}"` : `"${exe}" "${arg}"`
+}
+
+/** The one `reg add` that sets a key's command, and nothing else about it. */
+function commandArgs(exe: string, key: string): string[] {
+  return ['add', `${key}\\command`, '/ve', '/t', 'REG_SZ', '/d', commandFor(exe, key), '/f']
 }
 
 /** The one `reg add` that sets a key's label, and nothing else about it. */
@@ -58,13 +82,10 @@ function labelArgs(key: string): string[] {
 export function addArgs(exe: string): string[][] {
   const out: string[][] = []
   for (const key of verbKeys()) {
-    const { arg } = verbSpec(key)
     // The label Explorer shows, and the icon beside it.
     out.push(labelArgs(key))
     out.push(['add', key, '/v', 'Icon', '/t', 'REG_SZ', '/d', `${exe},0`, '/f'])
-    // The substitution is quoted inside the value: a path with spaces is one
-    // argument.
-    out.push(['add', `${key}\\command`, '/ve', '/t', 'REG_SZ', '/d', `"${exe}" "${arg}"`, '/f'])
+    out.push(commandArgs(exe, key))
   }
   return out
 }
@@ -115,9 +136,12 @@ export function pointsAt(regOutput: string, exe: string): boolean {
   return commandOf(regOutput)?.exe.toLowerCase() === exe.toLowerCase()
 }
 
-function commandOf(output: string): { exe: string; arg: string } | null {
-  const match = /\bREG_SZ\s+"([^"\r\n]+)"\s+"(%1|%V)"\s*$/im.exec(output)
-  return match ? { exe: match[1], arg: match[2] } : null
+/** A command Prism wrote, read back: the exe, the switch if it carries one
+ *  (every build before #167's second half wrote none), and the substitution.
+ *  Anything of another shape is not Prism's. */
+function commandOf(output: string): { exe: string; flag?: string; arg: string } | null {
+  const match = /\bREG_SZ\s+"([^"\r\n]+)"(?:\s+(--[a-z-]+))?\s+"(%1|%V)"\s*$/im.exec(output)
+  return match ? { exe: match[1], flag: match[2], arg: match[3] } : null
 }
 
 type RegistryRunner = (args: string[]) => Promise<{ ok: boolean; out: string }>
@@ -148,17 +172,35 @@ export function shouldWriteVerb(saidNo: boolean, installed: boolean): boolean {
   return !saidNo && !installed
 }
 
-/** Is the verb registered, and pointing at this executable? */
-export async function verbInstalled(exe: string, run: RegistryRunner = reg): Promise<boolean> {
+/**
+ * Is the verb on (all three keys) and THIS executable's?
+ *
+ * `exact` also asks that every command is WORD FOR WORD what this build
+ * writes, switch included. The two questions came apart on 2026-09-20 (#167),
+ * when "Open file" gained its switch: a registration written by an older build
+ * is still on and still this exe's, which is what decides whether it may be
+ * touched at all, but it is not what `installVerb` would write, which is what
+ * a fresh install has to be checked against.
+ */
+async function verbOwned(exe: string, run: RegistryRunner, exact: boolean): Promise<boolean> {
   for (const key of verbKeys()) {
     const result = await run(queryArgs(key))
     const command = commandOf(result.out)
     if (!result.ok || !pointsAt(result.out, exe) || command?.arg !== verbSpec(key).arg) return false
+    if (exact && command.flag !== verbSpec(key).flag) return false
   }
   return true
 }
 
-/** A preview must report the installed menu without taking it over. */
+/** Is the verb registered, pointing at this executable, and exactly what this
+ *  build writes? */
+export function verbInstalled(exe: string, run: RegistryRunner = reg): Promise<boolean> {
+  return verbOwned(exe, run, true)
+}
+
+/** A preview must report the installed menu without taking it over. The
+ *  switch is not looked at: an older installed copy writes none on "Open file"
+ *  and its menu is every bit as much there. */
 export async function verbRegistered(
   run: RegistryRunner = reg,
   exists: (path: string) => boolean = existsSync
@@ -208,13 +250,46 @@ export async function verbRegistered(
  * next rewording needs nothing here.
  */
 export async function relabelVerb(exe: string, run: RegistryRunner = reg): Promise<boolean> {
-  if (!(await verbInstalled(exe, run))) return false
+  // On and ours, NOT word for word: a registration old enough to carry the
+  // old labels carries the old "Open file" command too, and demanding the
+  // current one here would skip exactly the installs this exists for.
+  if (!(await verbOwned(exe, run, false))) return false
   let rewritten = false
   for (const key of verbKeys()) {
     const result = await run(labelQueryArgs(key))
     const label = result.ok ? labelOf(result.out) : null
     if (label === null || label === verbSpec(key).label) continue
     if ((await run(labelArgs(key))).ok) rewritten = true
+  }
+  return rewritten
+}
+
+/**
+ * Bring the COMMANDS of an existing registration up to date. True when one was
+ * rewritten. `relabelVerb`'s sibling, for the same survivors and under the same
+ * narrow rule (2026-09-20, #167): "Open file" now asks for the Explorer tab
+ * through a switch in its command, and a registration that survives into this
+ * build - an uninstaller skipped or cut short, an exe replaced in place - would
+ * otherwise keep making a project for ever, under a label that no longer says
+ * so. An ordinary upgrade never gets here: its uninstaller deleted the keys
+ * and what the startup repair writes back is current by construction.
+ *
+ * - the entry must be ON, all three keys, and pointing at THIS exe, so this can
+ *   neither switch on what somebody switched off nor reword another copy's
+ *   menu;
+ * - only a command that was READ, parsed as Prism's own and found to carry a
+ *   different switch is written, and only its command value: never the label,
+ *   never the icon, and never a command of some other shape, which is
+ *   somebody's deliberate edit and theirs to keep.
+ */
+export async function recommandVerb(exe: string, run: RegistryRunner = reg): Promise<boolean> {
+  if (!(await verbOwned(exe, run, false))) return false
+  let rewritten = false
+  for (const key of verbKeys()) {
+    const result = await run(queryArgs(key))
+    const command = result.ok ? commandOf(result.out) : null
+    if (!command || command.flag === verbSpec(key).flag) continue
+    if ((await run(commandArgs(exe, key))).ok) rewritten = true
   }
   return rewritten
 }
