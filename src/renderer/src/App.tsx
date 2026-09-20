@@ -73,6 +73,13 @@ import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
 // same lazy boundary, so xterm stays out of the launch bundle.
 const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components/TerminalPanel'))
+// COMMAND HELP (#175), the core's popup. Loaded when it is first opened: it
+// brings the whole catalogue with it, several hundred entries of text that a
+// media viewer's launch has no use for.
+const HelpPanel = lazy(() => import('prism-term-core/renderer/components/HelpPanel'))
+import { termFontStack } from 'prism-term-core/renderer/lib/termLook'
+import { helpFront, isHelpKey } from './lib/commandHelp'
+import { useCommandHelp } from './lib/useCommandHelp'
 import { ContextMenu } from './components/ContextMenu'
 import { FileMenuIcon } from './components/FileMenuIcon'
 import { tickIf, fileVerbs } from './lib/fileVerbs'
@@ -2540,6 +2547,31 @@ export default function App(): JSX.Element {
    *  in App's key handler, like every other key the shell does not keep. */
   const [termFind, setTermFind] = useState(false)
 
+  // COMMAND HELP (#175): prism-term-core's popup, the one Prism Terminal shows.
+  // Prism is a media viewer FIRST and the panel is about the terminal, so it
+  // exists only while a terminal is SHOWING: the condition dictation is armed
+  // by, less fullscreen, where the dock is not drawn. Over a film, a PDF or the
+  // tree, F1 does nothing at all. The ways in are F1 and the terminal's own
+  // right-click menu; there is no title-bar button, because Prism's title bar
+  // is the viewer's.
+  const helpTermId =
+    active?.term && active.term.view !== 'hidden' && !fullscreen ? active.term.id : null
+  const {
+    enabled: helpOn,
+    open: helpOpen,
+    shell: helpShellChip,
+    toggle: toggleHelp,
+    close: closeHelp
+  } = useCommandHelp({
+    showing: helpTermId,
+    blocked: !!ask || update.state.open || !!setup,
+    front: helpFront(activeId, helpTermId, termFind),
+    // Closed by hand, the keyboard goes back to the shell it was opened over.
+    // The popup restores the focus it found, but opened from the MENU that was
+    // a menu row which no longer exists.
+    onClosed: restoreTermFocus
+  })
+
   /* ------------------------------------------------------------------ *
    * Every tab holding media keeps its player, and the strip only decides
    * which one you can SEE (2026-08-27). Handing the sound to a second,
@@ -3160,6 +3192,17 @@ export default function App(): JSX.Element {
       // The setup owns the window while it is up: none of these should reach the
       // app behind it, least of all Escape, which would close Prism mid-guide.
       if (setup) return
+      // F1 IS COMMAND HELP (#175), and only where there is a terminal to be
+      // helped with: `toggleHelp` does nothing unless one is showing, and then
+      // the key is left alone, so over a film or a PDF it is nobody's. The
+      // same test as termHost's ownsKey, so xterm yields exactly what this
+      // takes. It closes the popup too, from inside its search field.
+      if (isHelpKey(e) && helpOn && (helpTermId !== null || helpOpen)) {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleHelp()
+        return
+      }
       if (!settingsOpen && !fullscreen && !document.querySelector('[data-owns-escape]')) {
         const explorerFileFocus =
           active && isExplorerTab(active) && termView !== 'full' &&
@@ -3265,7 +3308,12 @@ export default function App(): JSX.Element {
         // you pressed it twice and got a scroll position you had not asked
         // for. `toggleTermView` itself is unchanged, and still tested.
         e.preventDefault()
-        if (termView !== 'hidden' && !inTerm) restoreTermFocus()
+        // Over the help popup (#175) the key means what it says, "the terminal":
+        // the popup goes and the shell has the keyboard. Handing the shell the
+        // focus with the popup still up is the failure the core warns about,
+        // a question typed "into the search field" landing in the shell.
+        if (helpOpen) closeHelp()
+        else if (termView !== 'hidden' && !inTerm) restoreTermFocus()
         else toggleTerm()
       } else if (
         (e.code === 'KeyF' || e.key === 'f' || e.key === 'F') &&
@@ -3406,6 +3454,11 @@ export default function App(): JSX.Element {
     fullscreen,
     go,
     hasNavigated,
+    helpOn,
+    helpOpen,
+    toggleHelp,
+    closeHelp,
+    helpTermId,
     jumpTab,
     newTab,
     openTermFull,
@@ -4099,6 +4152,8 @@ export default function App(): JSX.Element {
                   shellId={savedShellId()}
                   find={termFind}
                   onFind={setTermFind}
+                  // Only while the setting is on: off, the app offers it nowhere.
+                  onHelp={helpOn ? toggleHelp : undefined}
                 />
               )
               // TERMINALS ONLY, in full view (owner, 2026-09-03): the shells
@@ -4383,6 +4438,22 @@ export default function App(): JSX.Element {
           onInstall={update.install}
           onCancel={update.cancel}
         />
+      )}
+
+      {/* COMMAND HELP (#175), mounted once. It is handed the clipboard and
+          NOTHING ELSE: no session id, no termInput. It cannot type into a shell
+          because it has no way to reach one, which is the owner's rule (picking
+          a command does NOT insert it). The clipboard goes through main, since
+          navigator.clipboard refuses a document that does not have the focus. */}
+      {helpOpen && (
+        <Suspense fallback={null}>
+          <HelpPanel
+            shell={helpShellChip}
+            monoFont={termFontStack()}
+            onCopy={(text) => window.prism.writeClipboard(text)}
+            onClose={closeHelp}
+          />
+        </Suspense>
       )}
 
       {browseMenu && (

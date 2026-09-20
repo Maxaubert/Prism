@@ -1,6 +1,8 @@
 import { configureTermCore } from 'prism-term-core/renderer/host'
 import { contrastRatio, ensureContrast, normalizeColor } from 'prism-term-core/renderer/lib/termAnsi'
 import { resolveTermTheme } from 'prism-term-core/renderer/lib/termTheme'
+import { helpEnabled } from 'prism-term-core/renderer/lib/helpPrefs'
+import { isHelpKey } from './lib/commandHelp'
 
 /**
  * PRISM AS A HOST OF THE TERMINAL CORE (#154).
@@ -73,6 +75,13 @@ configureTermCore({
   // a PDF or the tree does nothing at all.
   dictation: { api: window.prism, canDictate: () => true },
   ownsKey: (e) => {
+    // COMMAND HELP IS A BARE F1 (#175), Prism Terminal's key. A focused shell is
+    // by definition a showing terminal, which is the only place the popup
+    // exists, so the setting is the whole test: switched off, F1 is the
+    // shell's again. Known cost, accepted there and the same here: PSReadLine's
+    // own F1 and F1 in a full-screen program under WSL (vim, htop, mc) do not
+    // arrive while it is on.
+    if (isHelpKey(e)) return helpEnabled()
     if (!e.ctrlKey || e.altKey) return false
     // Find in the scrollback: with SHIFT, so the shell keeps plain Ctrl+F.
     if (e.shiftKey && (e.key === 'f' || e.key === 'F')) return true
