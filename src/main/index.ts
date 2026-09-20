@@ -2436,7 +2436,8 @@ if (!app.requestSingleInstanceLock()) {
       return docHtmlOf(p)
     })
 
-    // "Open in Prism" in File Explorer's own context menu (HKCU only).
+    // "Open file" / "Open as project" in File Explorer's own context menu
+    // (HKCU only).
     ipcMain.handle('shell:verb-status', () => shellVerbSetting.status())
     ipcMain.handle('shell:verb-set', (_e, on: unknown): Promise<boolean> | false =>
       typeof on === 'boolean' ? shellVerbSetting.set(on) : false

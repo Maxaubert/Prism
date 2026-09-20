@@ -1120,10 +1120,10 @@ function GeneralTab(): JSX.Element {
         hint={
           verbBusy
             ? 'Asking Windows…'
-            : 'On by default. Adds "Open in Prism" to the right-click menu; on Windows 11 it sits under "Show more options" (Shift+F10).'
+            : 'On by default. Adds "Open file" and "Open as project" to the right-click menu; on Windows 11 they sit under "Show more options" (Shift+F10).'
         }
       >
-        <Switch on={verb} onChange={setVerb} label="Open in Prism in the Explorer menu" />
+        <Switch on={verb} onChange={setVerb} label="Prism in the Explorer menu" />
       </Pref>
       {/* Setup offers this once; this is where you find it afterwards. Windows
           owns the choice, so all we can do is open the page it lives on. */}

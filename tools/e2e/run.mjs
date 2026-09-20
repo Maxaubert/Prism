@@ -5215,11 +5215,14 @@ async function terminalScenario(fixtures) {
 /**
  * A FOLDER handed to Prism from outside (2026-08-25).
  *
- * This is what Explorer's "Open in Prism" on a folder, and "Open Prism here"
- * on the empty space inside one, actually do: hand over a directory as argv.
+ * This is what Explorer's "Open as project", on a folder and on the empty
+ * space inside one, actually does: hand over a directory as argv. (It read
+ * "Open in Prism" and "Open Prism here" until 2026-09-19, #167; the argv is
+ * the same, only the words in the menu moved.)
  * Main used to demand a FILE and drop it on the floor, so the menu entry was
  * there and nothing happened. The tab roots at the folder, and what it shows
- * is the "New tabs show" setting, exactly as the + decides it.
+ * is the "New projects show" setting (the folder browser by default since
+ * #148; it was "New tabs show", shared with the +, before that).
  */
 /**
  * The gear, three ways (2026-08-26): settings showing -> close them; settings
@@ -5752,18 +5755,134 @@ async function gearScenario(fixtures) {
 
 async function folderArgScenario(fixtures) {
   console.log('a folder from outside')
+  // THIS SCENARIO ASSERTS A DEFAULT, SO IT HAS TO OWN IT (2026-09-20). The
+  // profile is shared, and `tabs` leaves "New projects show" on 'file' behind
+  // it. MEASURED: that leftover is the only reason the old assertion ("one of
+  // its files is open") passed in the full suite after #148 while failing on
+  // its own, and the first rewrite of it was the mirror image, green alone and
+  // red in the suite, which is the PR gate. The folder is delivered on first
+  // load, so the setting cannot be put right after the launch that matters:
+  // it gets a short launch of its own first, and what was there is put back
+  // at the end so the scenarios after this one see what they always saw.
+  const showBefore = await (async () => {
+    const prep = await launch(join(fixtures, 'README.md'))
+    try {
+      const was = await prep.win.evaluate(() => {
+        const value = localStorage.getItem('prism.newtab.show')
+        localStorage.removeItem('prism.newtab.show')
+        return value
+      })
+      // Chromium commits localStorage to disk a moment after the call, and
+      // there is nothing on the page to wait on for that; seedProfile gives it
+      // the same 300ms. It is not trusted: the launch below CHECKS that the
+      // setting really arrived unset, so a lost write is a named failure here
+      // rather than two baffling ones further down.
+      await sleep(300)
+      return was
+    } finally {
+      await prep.app.close()
+    }
+  })()
   const { app, win } = await launch(fixtures)
   try {
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.newtab.show'))) === null,
+      '"New projects show" is at its default for this launch, whatever ran before'
+    )
     const body = (await win.textContent('body')) ?? ''
     ok(/README\.md/.test(body), 'the tree lists the folder that was handed over')
     ok((await win.locator('[data-row]').count()) > 2, 'and it is rooted there, not at a file')
-    // The default "New tabs show" is the folder's first file, which is what a
-    // payload built from a folder already carries.
+    // It opens AS A PROJECT: a tab of its own beside the pinned Explorer tab,
+    // showing what "New projects show" says. This used to assert "one of its
+    // files is open", which was that setting's default until #148 made it the
+    // folder browser ('none'); the assertion was left behind, failing on its
+    // own and passing in the suite on another scenario's leftover setting (see
+    // the top of this function). It WAITS for the settled state: a single read
+    // raced the tab's first render.
     ok(
-      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 1,
-      'and one of its files is open'
+      await win
+        .locator('[data-tab-role]:not([data-pinned]) [role="tab"][aria-selected="true"]', {
+          hasText: 'fixtures'
+        })
+        .waitFor({ timeout: 8000 })
+        .then(() => true, () => false),
+      'it opens as a project tab of its own, in front'
     )
+    ok(
+      await win
+        .getByText('No file selected')
+        .waitFor({ timeout: 8000 })
+        .then(() => true, () => false),
+      'showing the default "New projects show": the folder, with no file picked for you'
+    )
+    ok(
+      (await win.locator('[role="treeitem"][aria-selected="true"]').count()) === 0,
+      'so nothing in the tree is marked as open'
+    )
+
+    // The Explorer menu's own words (2026-09-19, #167): "Open file" and "Open
+    // as project", neither naming Prism, and Settings has to teach the words
+    // the menu actually shows. The hint reads "Asking Windows…" until main has
+    // answered, so this WAITS for the settled text rather than reading once.
+    // Nothing here writes the registry: under --e2e the setting is not
+    // `automatic`, so it only ever reports what Windows says.
+    await win.click('[aria-label="Settings"]')
+    // Settings opens on Style; the Explorer menu row lives on General.
+    await win.click('button:has-text("General")')
+    const verbRow = win.locator('label[for="explorer-verb"]')
+    await verbRow.waitFor({ timeout: 10000 })
+    await verbRow.scrollIntoViewIfNeeded()
+    const hint = await win
+      .waitForFunction(
+        () => {
+          const text =
+            document.querySelector('label[for="explorer-verb"]')?.parentElement?.querySelector('p')
+              ?.textContent ?? ''
+          return /right-click menu/.test(text) ? text : false
+        },
+        null,
+        { timeout: 10000 }
+      )
+      .then((h) => h.jsonValue())
+      .catch(() => '')
+    ok(
+      /"Open file"/.test(hint) && /"Open as project"/.test(hint),
+      'Settings names the two entries the Explorer menu shows'
+    )
+    ok(!/Open in Prism|Open Prism here/.test(hint), 'and the old labels are gone from it')
+    // A Pref's hint is ONE line and TRUNCATES (`truncate`), and the new words
+    // made this one a sixth longer, with the part a Windows 11 user needs most,
+    // "(Shift+F10)", at the very end where an ellipsis eats first. MEASURED
+    // rather than eyeballed: at the fresh profile's default window the text
+    // must fit its box. The hint is settled by now, so this reads once.
+    const clipped = await win.evaluate(() => {
+      const p = document.querySelector('label[for="explorer-verb"]')?.parentElement?.querySelector('p')
+      return p ? { text: p.scrollWidth, box: p.clientWidth } : null
+    })
+    ok(
+      !!clipped && clipped.text <= clipped.box,
+      `and the whole hint fits on its line, Shift+F10 included (${clipped?.text}px in ${clipped?.box}px)`
+    )
+    // The switch settles in the same render as the hint and then ANIMATES
+    // there; a screenshot taken on the first frame showed a switch that read
+    // as off on a machine where the verb is on. Wait for its transitions to
+    // end. Which way it points is this machine's registry and is not asserted.
+    await win
+      .waitForFunction(
+        () => {
+          const sw = document.querySelector('[role="switch"][aria-label="Prism in the Explorer menu"]')
+          return !!sw && sw.getAnimations({ subtree: true }).length === 0
+        },
+        null,
+        { timeout: 5000 }
+      )
+      .catch(() => {})
+    await win.screenshot({ path: join(SHOTS, 'explorer-verb-setting.png') })
   } finally {
+    if (showBefore !== null)
+      await win
+        .evaluate((was) => localStorage.setItem('prism.newtab.show', was), showBefore)
+        .catch(() => {})
     await app.close()
   }
 }

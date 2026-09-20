@@ -73,7 +73,7 @@ const MAX_OPEN = 400
  * closed, plus every ancestor of the file it is showing.
  *
  * The ancestors matter on their own. A file can arrive from outside (argv,
- * "Open in Prism") with no saved tree at all, and the sidebar has to be able
+ * Explorer's "Open file") with no saved tree at all, and the sidebar has to be able
  * to mark it - which it cannot do if the rows leading to it were never
  * expanded. Both halves land in one set, and duplicates are free.
  */

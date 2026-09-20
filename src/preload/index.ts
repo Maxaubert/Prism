@@ -263,7 +263,8 @@ const api = {
   /** Does this file's audio need Prism's own decoder (AC-3, DTS, TrueHD and
    *  friends, none of which Chromium can play), and where is it served. */
   probeMedia: (path: string): Promise<MediaProbe> => ipcRenderer.invoke('media:probe', path),
-  /** Is "Open in Prism" in File Explorer's context menu right now? */
+  /** Are Prism's entries ("Open file", "Open as project") in File Explorer's
+   *  context menu right now? */
   shellVerbStatus: (): Promise<boolean> => ipcRenderer.invoke('shell:verb-status'),
   /** Add or remove it. Per-user, no elevation; false means Windows refused. */
   setShellVerb: (on: boolean): Promise<boolean> => ipcRenderer.invoke('shell:verb-set', on),
