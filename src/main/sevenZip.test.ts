@@ -5,8 +5,10 @@ import {
   isSevenArchive,
   listArgs,
   parseListing,
+  readFileName,
   readPercent,
   safeMemberPath,
+  sevenFailReason,
   sevenMessage,
   sevenDirs
 } from './sevenZip'
@@ -200,6 +202,43 @@ describe('the progress percentage 7-Zip prints', () => {
   })
 })
 
+describe('a percentage is read at the start of a line only (#166)', () => {
+  it('is not fooled by a member whose name holds one', () => {
+    // MEASURED shape: the name arrives on a line of its own, after the
+    // carriage return that wiped the indicator.
+    expect(readPercent('\r- Sale/50% off.jpg\r\n')).toBeNull()
+    expect(readPercent(' 27% 3\r       \r- Sale/50% off.jpg\r\n')).toBe(27)
+  })
+})
+
+describe('the member 7-Zip is writing, out of its -bb1 log', () => {
+  // Real stdout of 7-Zip 25.00 with `-bb1 -bsp1`, redirected, kept verbatim.
+  const REAL_X =
+    'Extracting archive: t.7z\r\n--\r\nPath = t.7z\r\nType = 7z\r\n\r\n' +
+    '  0%\r    \r- in\\\r\n  0%\r    \r- in\\sub dir\\\r\n  0% 1\r      \r- in\\file 1.bin\r\n' +
+    ' 27% 3\r       \r- in\\file 3.bin\r\n 54% 4\r       \r- in\\sub dir\\deep.bin\r\n' +
+    ' 81% 5\r       \rEverything is Ok\r\n'
+
+  it('names the LAST member in a chunk, with forward slashes', () => {
+    expect(readFileName(REAL_X)).toBe('in/sub dir/deep.bin')
+    expect(readPercent(REAL_X)).toBe(81)
+  })
+
+  it('reads the one-line form too', () => {
+    expect(readFileName(' 42% 17 - Comics/issue 01.cbz')).toBe('Comics/issue 01.cbz')
+    expect(readFileName('- plain.txt')).toBe('plain.txt')
+  })
+
+  it("does not mistake the header's bare -- for a member", () => {
+    expect(readFileName('Extracting archive: t.7z\r\n--\r\nPath = t.7z\r\n')).toBeNull()
+  })
+
+  it('answers null when there is no name in it', () => {
+    expect(readFileName('Everything is Ok\r\nSize: 12-34')).toBeNull()
+    expect(readFileName(' 55% 12')).toBeNull()
+  })
+})
+
 describe('counting files out of 7-Zip -bb1 output', () => {
   it('counts one per logged member', () => {
     expect(countFiles('  0%    - a/one.jpg\r\n  0%    - a/two.jpg\r\n')).toBe(2)
@@ -232,5 +271,47 @@ describe('the message worth showing a person', () => {
 
   it('answers empty for empty', () => {
     expect(sevenMessage('')).toBe('')
+  })
+})
+
+describe('why a run failed', () => {
+  // What 7-Zip 25.00 printed for a 7z with encrypted CONTENT and readable
+  // names, extracted with no `-p` and its stdin closed (2026-09-20), verbatim:
+  // stderr first, then the tail of stdout, which is how the runners join them.
+  const PROMPTED = [
+    '',
+    'Break signaled',
+    '',
+    'Extracting archive: locked.7z',
+    '--',
+    'Path = locked.7z',
+    'Type = 7z',
+    'Method = LZMA2:12 7zAES',
+    '',
+    '  0%    - vault\\',
+    '  0%    ',
+    'Enter password (will not be echoed):'
+  ].join('\r\n')
+
+  it('reads the password prompt as a password being wanted', () => {
+    expect(sevenFailReason(PROMPTED)).toBe('password')
+  })
+
+  it('reads a wrong password, and encrypted names, the same way', () => {
+    expect(sevenFailReason('ERROR: Wrong password : secret.txt')).toBe('password')
+    expect(sevenFailReason('ERROR: locked.7z\r\nCannot open encrypted archive. Wrong password?')).toBe(
+      'password'
+    )
+  })
+
+  it('is not fooled by a MEMBER called "enter password"', () => {
+    const raw =
+      '  4% 1 - docs\\enter password.txt\r\nERROR: CRC Failed : docs\\enter password.txt'
+    expect(sevenFailReason(raw)).toBe('failed')
+  })
+
+  it('calls everything else a plain failure', () => {
+    expect(sevenFailReason('ERROR: There is not enough space on the disk')).toBe('failed')
+    expect(sevenFailReason('')).toBe('failed')
   })
 })

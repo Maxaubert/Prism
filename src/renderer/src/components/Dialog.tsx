@@ -1,4 +1,5 @@
 import { useEffect, useRef, type JSX, type ReactNode } from 'react'
+import { DIALOG_BODY, DIALOG_BOX, DIALOG_SCRIM, DIALOG_TITLE, dialogButton } from './dialogLook'
 
 // A small modal for the handful of questions Prism has to ask before touching a
 // file. Deliberately plain: a title, a line of explanation, and the choices as
@@ -44,32 +45,24 @@ export function Dialog({
   return (
     // data-owns-escape: the app's capture-phase Escape handler registered
     // first and would otherwise close the WINDOW while a dialog is up.
-    <div data-owns-escape className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-6" role="presentation" onMouseDown={onCancel}>
+    <div data-owns-escape className={DIALOG_SCRIM} role="presentation" onMouseDown={onCancel}>
       <div
         ref={box}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        // Flat surface colour: --p-title carries the window alpha on glass
-        // styles, and a question box should not be see-through.
-        className="w-full max-w-[420px] rounded-[var(--p-radius)] border border-[color:var(--p-divider)] bg-[var(--p-side-flat)] p-5 shadow-[0_24px_70px_rgba(0,0,0,.6)]"
+        className={DIALOG_BOX}
       >
-        <h2 className="text-[14.5px] font-semibold text-[var(--p-text)]">{title}</h2>
-        {body && <div className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--p-dim)]">{body}</div>}
+        <h2 className={DIALOG_TITLE}>{title}</h2>
+        {body && <div className={DIALOG_BODY}>{body}</div>}
         <div className="mt-5 flex justify-end gap-2">
           {choices.map((c) => (
             <button
               key={c.label}
               data-primary={c.primary ? 'true' : undefined}
               onClick={c.onPick}
-              className={`rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent-hi)] ${
-                c.danger
-                  ? 'bg-[#b4353f] text-[var(--p-on-accent)] hover:brightness-110'
-                  : c.primary
-                    ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)] hover:brightness-110'
-                    : 'border border-[color:var(--p-divider)] bg-[var(--p-hover)] text-[var(--p-text-soft)] hover:text-[var(--p-text)]'
-              }`}
+              className={dialogButton(c)}
             >
               {c.label}
             </button>
