@@ -259,6 +259,9 @@ const HAS_CLAUDE = (() => {
 
 /** Extra environment for the NEXT launches; a scenario sets it and clears it. */
 let EXTRA_ENV = {}
+/** Extra command-line switches for the NEXT launches, the same way (#168:
+ *  `--preview-update` is a switch, and it has to be there at launch). */
+let EXTRA_ARGS = []
 
 async function launchOnce(file, keepTabs = false) {
   // Every scenario but the tab one expects a single-root world. The profile is
@@ -268,7 +271,7 @@ async function launchOnce(file, keepTabs = false) {
   // surviving a restart is the thing it is checking.
   if (!keepTabs) seedExplorerTab()
   const app = await launchTestApp({
-    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file],
+    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', ...EXTRA_ARGS, file],
     env: { ...process.env, ...EXTRA_ENV }
   })
   const win = await app.firstWindow()
@@ -4542,6 +4545,23 @@ async function agentTitleScenario(fixtures) {
     return t
   }
   try {
+    // THE PROCESS POLL'S FIRST ANSWER IS LISTENED FOR (2026-09-20, #168), and
+    // nothing is said through the title until it has come. The poll reports a
+    // session only when its answer CHANGES, and a new shell's first answer ("no
+    // agent in this tree") is a change from nothing: it lands a few seconds
+    // after the spawn and takes a titled session's presence and its working
+    // state with it. This scenario typed its first title inside that window and
+    // won or lost on how long PowerShell took to list the processes: MEASURED
+    // on this machine with a second suite running beside it, 8 runs of 8 lost
+    // (one poll event, `false`, and no `data-agent-present` inside ten seconds),
+    // two of them on the unchanged base; 5 of 5 won with the wait. After that
+    // one answer the poll has nothing more to say about a shell that hosts no
+    // agent, so waiting for it is the whole fix. The listener goes up BEFORE the
+    // terminal is opened.
+    await win.evaluate(() => {
+      window.__agentSaid = 0
+      window.prism.onTermAgent(() => (window.__agentSaid += 1))
+    })
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
     // WAITED FOR, not slept for (#165). This slept 3.5 s "for a cold pwsh to
@@ -4553,6 +4573,10 @@ async function agentTitleScenario(fixtures) {
       () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
       null,
       { timeout: 45000 }
+    )
+    ok(
+      await waitUntil(() => win.evaluate(() => window.__agentSaid > 0), 45000),
+      'the process poll has had its first look at the shell'
     )
     await win.locator('.xterm').click()
     ok((await state()) === null, 'a plain shell shows no agent state')
@@ -7566,6 +7590,545 @@ rmSync(PROFILE, { recursive: true, force: true })
 mkdirSync(SHOTS, { recursive: true })
 const fixtures = buildFixtures()
 
+/* ----- the update window (#168) ----- */
+
+/** What main's update.ts has DONE this session (release checks, installs),
+ *  read the way the suite reaches the indexer: main parks the reader on
+ *  globalThis under --e2e. */
+const updateCalls = (app) => app.evaluate(() => globalThis.__prismUpdateCalls())
+
+/** Put the line under the chip away IF IT IS THERE. It leaves by itself after
+ *  eight seconds, so by the time a scenario gets here it has often gone, and a
+ *  bare `locator.click()` on an element that is gone waits out Playwright's
+ *  whole default timeout before its catch swallows the error: MEASURED in
+ *  updateGuard (review, 2026-09-20), 30015ms of every run spent clicking
+ *  nothing. The click and the count are one step in the page, so the line
+ *  cannot leave between them. */
+const putAwayNotice = (win) => win.evaluate(() => document.querySelector('[data-update-notice]')?.click())
+
+/** A style, switched the way ANOTHER WINDOW's change arrives: the keys are
+ *  written and the store's own `storage` listener repaints from them. It
+ *  leaves the terminal theme and the accent schemes alone (`apply(false)`),
+ *  which a click on a Settings card does not, and the profile is shared with
+ *  every scenario after this one. Returns what to hand back to restore. */
+async function switchStyle(win, style, mode) {
+  return win.evaluate(
+    ([s, m]) => {
+      const before = [localStorage.getItem('prism.style'), localStorage.getItem('prism.mode')]
+      const put = (k, v) => (v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v))
+      put('prism.style', s)
+      put('prism.mode', m)
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style', storageArea: localStorage }))
+      return before
+    },
+    [style, mode]
+  )
+}
+
+/**
+ * THE UPDATE WINDOW (#168; owner, 2026-09-19: "when you click the Update badge,
+ * it opens like a pop window, which shows the change log or like patch notes
+ * for the new update, and then you can choose cancel or install", and "make
+ * like a fake update"). Modelled on Prism Terminal's scenario of the same name,
+ * because the chip and the window are the same components out of
+ * prism-term-core. Driven through `--preview-update`, the owner's own way in,
+ * so it proves the preview and the window at once: the chip is in the title
+ * bar, a click opens the window and installs NOTHING, the notes are plain text
+ * (no anchor, no author tail, no url), every way out closes it, and Install
+ * runs the fake progress in the chip, ends on the preview line, and leaves the
+ * network, the disk and the process list exactly as they were.
+ *
+ * THE CHIP'S WIDTH IS MEASURED IN EVERY PHASE, sampled the whole way through
+ * the install rather than read once per state: Prism's rule is that it never
+ * changes (owner pick, 2026-08-24), and with the old inline chip it did, since
+ * the pill was sized by a label that went from "Update 0.56.0" to "7%".
+ * Screenshots go to .e2e/shots, in a dark style and in a light one.
+ *
+ * Runner-safe: no terminal, no CLI, no path outside the fixtures.
+ */
+async function updateWindowScenario(fixtures) {
+  console.log('update window')
+  EXTRA_ARGS = ['--preview-update']
+  let launched
+  try {
+    launched = await launch(join(fixtures, 'README.md'))
+  } finally {
+    EXTRA_ARGS = []
+  }
+  const { app, win } = launched
+  let styleBefore = null
+  try {
+    await win.waitForSelector('.p-md h1', { timeout: 15000 })
+    const current = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
+    const [major, minor] = current.split('.').map(Number)
+    const next = `${major}.${minor + 1}.0`
+    const shot = (name) => win.screenshot({ path: join(SHOTS, `${name}.png`) }).catch(() => {})
+    const chip = win.locator('[data-title-bar] [data-update-chip]')
+    const dialog = win.locator('[data-update-dialog]')
+    const shownLabel = () =>
+      win.evaluate(() => document.querySelector('[data-update-chip] [data-update-label="shown"]')?.textContent ?? '')
+    const closed = () => until(async () => (await dialog.count()) === 0, 4000, 50)
+    const opened = () => until(async () => (await dialog.count()) === 1, 4000, 50)
+
+    ok(await until(async () => (await chip.count()) === 1, 8000), 'with --preview-update the chip is in the title bar, under --e2e too')
+    ok((await shownLabel()) === `Update ${next}`, `it offers the next minor after ${current} ("${await shownLabel()}")`)
+    ok((await dialog.count()) === 0, 'and nothing opens by itself')
+    const width0 = await chip.evaluate((el) => el.getBoundingClientRect().width)
+    const left0 = await chip.evaluate((el) => el.getBoundingClientRect().left)
+    await shot('update-chip-dark')
+
+    // What an install would leave behind, read BEFORE anything is clicked.
+    const updateDirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('prism-update-')).sort().join('|')
+    // The hand-off a real install spawns names that temp folder on its command
+    // line. The query's own PowerShell names it too, so it leaves itself out.
+    const installers = () => {
+      try {
+        return execFileSync(
+          'powershell.exe',
+          ['-NoProfile', '-Command', "@(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*prism-update-*' }).Count"],
+          { encoding: 'utf8', windowsHide: true }
+        ).trim()
+      } catch {
+        return 'unknown'
+      }
+    }
+    const dirsBefore = updateDirs()
+    const installersBefore = installers()
+
+    await chip.click()
+    ok(await opened(), 'a click on the chip opens the window')
+    ok((await updateCalls(app)).installs === 0, 'and installs nothing: the click used to download and quit')
+    ok(((await dialog.locator('h2').textContent()) ?? '') === `Update to ${next}`, 'its title names the version')
+    ok(
+      ((await dialog.locator('[data-update-current]').textContent()) ?? '').trim() === `You have ${current}`,
+      `and a quiet line says what is running, package.json's version and not Electron's (${((await dialog.locator('[data-update-current]').textContent()) ?? '').trim()})`
+    )
+    const entries = await dialog.locator('[data-update-entry]').allTextContents()
+    ok(entries.length >= 5, `the sample notes are listed (${entries.length} entries)`)
+    ok(entries[0].startsWith('The update button opens a window'), `as the pull requests' titles ("${entries[0]}")`)
+    ok(entries.some((e) => /\(#\d+\)$/.test(e)), 'each keeping its number as text')
+    const text = (await dialog.textContent()) ?? ''
+    ok(!/by @/.test(text), 'no author tail ("by @") reaches the window')
+    ok(!/https?:|github\.com/.test(text), 'and no url does')
+    ok(!/Full Changelog|New Contributors|first contribution|What's Changed/.test(text), 'nor the boilerplate round the list')
+    ok((await dialog.locator('a').count()) === 0, 'there is no <a> element in it')
+    ok(
+      (await dialog
+        .locator('[data-update-notes]')
+        .evaluate((el) => [...el.querySelectorAll('*')].every((n) => ['H3', 'UL', 'LI', 'SPAN', 'P'].includes(n.tagName)))) === true,
+      'the notes are text in plain elements, nothing a body could have brought with it'
+    )
+    ok(((await dialog.locator('[data-update-preview]').textContent()) ?? '').includes('preview'), 'a preview says that it is one')
+    const look = await dialog.evaluate((el) => {
+      const notes = el.querySelector('[data-update-notes]')
+      const alpha = (c) => Number((c.match(/[\d.]+/g) ?? [])[3] ?? 1)
+      const box = el.getBoundingClientRect()
+      return {
+        alpha: alpha(getComputedStyle(el).backgroundColor),
+        notesAlpha: alpha(getComputedStyle(notes).backgroundColor),
+        overflow: getComputedStyle(notes).overflowY,
+        maxHeight: getComputedStyle(notes).maxHeight,
+        inside: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth,
+        buttons: [...el.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim()),
+        focused: (document.activeElement?.textContent ?? '').trim()
+      }
+    })
+    ok(look.alpha === 1, `the window is on the opaque surface (alpha ${look.alpha})`)
+    ok(look.overflow === 'auto' && look.maxHeight !== 'none', `the list scrolls inside a capped height (${look.overflow}, ${look.maxHeight})`)
+    ok(look.inside, 'the whole window is on screen')
+    ok(look.buttons.join('|') === 'Cancel|Install', `the choices are Cancel and Install, in that order (${look.buttons.join('|')})`)
+    ok(look.focused === 'Install', 'Install is the primary, and holds the focus')
+    await shot('update-dialog-dark')
+
+    await win.keyboard.press('Escape')
+    ok(await closed(), 'Escape closes it')
+    ok((await chip.count()) === 1 && (await shownLabel()) === `Update ${next}`, 'and the offer is still there')
+    ok(!win.isClosed() && (await win.locator('.p-md h1').count()) === 1, 'with the file still on screen: that Escape was the window\'s alone')
+    await chip.click()
+    await opened()
+    await dialog.locator('[data-update-cancel]').click()
+    ok(await closed(), 'Cancel closes it')
+    await chip.click()
+    await opened()
+    await win.mouse.click(8, 300)
+    ok(await closed(), 'and so does a press outside it')
+    ok((await updateCalls(app)).installs === 0, 'none of which installed anything')
+
+    // Install: sample the chip the whole way, so a width that moved for one
+    // frame is caught as surely as one that stayed moved.
+    await chip.click()
+    await opened()
+    await win.evaluate(() => {
+      window.__chip = []
+      window.__chipTimer = setInterval(() => {
+        const c = document.querySelector('[data-update-chip]')
+        if (!c) return
+        window.__chip.push({
+          w: c.getBoundingClientRect().width,
+          phase: c.dataset.phase,
+          label: c.querySelector('[data-update-label="shown"]')?.textContent ?? '',
+          left: c.getBoundingClientRect().left
+        })
+      }, 25)
+    })
+    await dialog.locator('[data-update-install]').click()
+    ok(await closed(), 'Install closes the window')
+    ok(
+      await until(() => win.evaluate(() => document.querySelector('[data-update-chip]')?.dataset.phase === 'downloading'), 4000, 25),
+      'and the progress starts in the chip'
+    )
+    ok((await win.locator('[role="dialog"]').count()) === 0, 'a preview asks nothing on the way: it closes nothing')
+    await until(() => win.evaluate(() => Number(document.querySelector('[data-update-chip]')?.getAttribute('aria-valuenow') ?? 0) >= 35), 6000, 25)
+    await shot('update-progress-dark')
+    const notice = win.locator('[data-update-notice]')
+    ok(await until(async () => (await notice.count()) === 1, 10000, 50), 'the fake install ends with a line under the chip')
+    ok(
+      ((await notice.textContent()) ?? '').trim() === 'Preview only: nothing was installed',
+      `which says what happened ("${((await notice.textContent()) ?? '').trim()}")`
+    )
+    await shot('update-notice-dark')
+    const samples = await win.evaluate(() => {
+      clearInterval(window.__chipTimer)
+      return window.__chip
+    })
+    const phases = [...new Set(samples.map((s) => s.phase))]
+    ok(['idle', 'downloading', 'installing'].every((p) => phases.includes(p)), `the chip went through every phase (${phases.join(', ')}; ${samples.length} samples)`)
+    const pcts = samples.filter((s) => s.phase === 'downloading').map((s) => parseInt(s.label, 10))
+    ok(pcts.length > 5 && pcts.every((p, i) => i === 0 || p >= pcts[i - 1]), `the percentage only rises (${pcts[0]}% to ${pcts.at(-1)}%)`)
+    ok(samples.some((s) => s.phase === 'installing' && s.label === 'Installing…'), 'and ends on "Installing"')
+    const widths = [...new Set(samples.map((s) => s.w.toFixed(3)))]
+    ok(
+      widths.length === 1 && Math.abs(Number(widths[0]) - width0) < 0.01,
+      `THE CHIP'S WIDTH IS IDENTICAL IN EVERY PHASE (${widths.join(', ')}px; idle ${width0.toFixed(3)}px)`
+    )
+    // It is anchored on its right, so a width that changed shows as a left edge
+    // that jumped; measured on its own because that jump is what the eye sees.
+    const lefts = [...new Set(samples.map((s) => s.left.toFixed(3)))]
+    ok(lefts.length === 1 && Math.abs(Number(lefts[0]) - left0) < 0.01, `and its left edge never moved (${lefts.join(', ')})`)
+    ok(
+      await until(async () => (await chip.getAttribute('data-phase')) === 'idle' && (await shownLabel()) === `Update ${next}`, 4000, 50),
+      'the chip is back to idle, offering the same update'
+    )
+
+    // What a preview must not have done.
+    const calls = await updateCalls(app)
+    ok(calls.checks === 0, `GitHub was never asked (${calls.checks} release checks)`)
+    ok(calls.installs === 0, `no download was started (${calls.installs} installs)`)
+    ok(updateDirs() === dirsBefore, 'no installer was downloaded: no update folder appeared in temp')
+    ok(installers() === installersBefore, `no installer process was spawned (${installersBefore} before, ${installers()} after)`)
+
+    // The same, in a light style.
+    styleBefore = await switchStyle(win, 'paper', 'light')
+    ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
+    const widthLight = await chip.evaluate((el) => el.getBoundingClientRect().width)
+    ok(Math.abs(widthLight - width0) < 0.01, `the chip is the same width (${widthLight.toFixed(3)}px)`)
+    // Over Settings: Prism's own capture-phase Escape closes Settings, and must
+    // stand down while the update window is up (data-owns-escape).
+    await putAwayNotice(win)
+    await win.click('[aria-label="Settings"]')
+    ok(await until(() => win.evaluate(() => document.querySelector('[aria-label="Settings"]')?.getAttribute('aria-pressed') === 'true'), 5000, 50), 'with Settings open')
+    await shot('update-chip-light')
+    await chip.click()
+    ok(await opened(), 'the window opens over Settings too')
+    const lightLook = await dialog.evaluate((el) => {
+      const lum = (c) => {
+        const [r, g, b] = (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+        const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+      }
+      const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+      // The notes sit on a control tint that may itself be translucent, so the
+      // ground is flattened onto the box before it is measured.
+      const parse = (c) => (c.match(/[\d.]+/g) ?? []).map(Number)
+      const [br, bg, bb] = parse(getComputedStyle(el).backgroundColor)
+      const [nr, ng, nb, na = 1] = parse(getComputedStyle(el.querySelector('[data-update-notes]')).backgroundColor)
+      const flat = `rgb(${nr * na + br * (1 - na)}, ${ng * na + bg * (1 - na)}, ${nb * na + bb * (1 - na)})`
+      const entry = lum(getComputedStyle(el.querySelector('[data-update-entry]')).color)
+      return { box: lum(getComputedStyle(el).backgroundColor), contrast: ratio(lum(flat), entry) }
+    })
+    ok(lightLook.box > 0.4, `its surface is light (luminance ${lightLook.box.toFixed(2)})`)
+    ok(lightLook.contrast >= 4.5, `and the notes read on it (${lightLook.contrast.toFixed(1)}:1)`)
+    await shot('update-dialog-light')
+    await win.keyboard.press('Escape')
+    ok(await closed(), 'Escape closes the window')
+    ok(
+      (await win.evaluate(() => document.querySelector('[aria-label="Settings"]')?.getAttribute('aria-pressed'))) === 'true',
+      'and ONLY the window: Settings, which the same key closes, is still open under it'
+    )
+    await chip.click()
+    await opened()
+    await dialog.locator('[data-update-install]').click()
+    await until(() => win.evaluate(() => Number(document.querySelector('[data-update-chip]')?.getAttribute('aria-valuenow') ?? 0) >= 35), 6000, 25)
+    await shot('update-progress-light')
+    // The label's ink, mid-install in a LIGHT style: one ink for the whole
+    // label (the accent's, which is what Prism's old chip set) is white here,
+    // over a pale remainder. The copy over the unfilled part wears the style's
+    // text, the clipped copy the accent's.
+    const ink = await win.evaluate(() => {
+      const resolve = (token) => {
+        const probe = document.createElement('span')
+        probe.style.color = `var(${token})`
+        document.body.appendChild(probe)
+        const c = getComputedStyle(probe).color
+        probe.remove()
+        return c
+      }
+      const chipEl = document.querySelector('[data-update-chip]')
+      return {
+        phase: chipEl.dataset.phase,
+        base: getComputedStyle(chipEl.querySelector('[data-update-label="shown"]')).color,
+        fill: getComputedStyle(chipEl.querySelector('[data-update-fill]')).color,
+        clip: getComputedStyle(chipEl.querySelector('[data-update-fill]')).clipPath,
+        text: resolve('--p-text'),
+        onAccent: resolve('--p-on-accent')
+      }
+    })
+    ok(ink.phase !== 'idle' && ink.base === ink.text, `mid-install the label over the unfilled part is in the style's text (${ink.base})`)
+    ok(ink.fill === ink.onAccent && /^inset\(/.test(ink.clip), `and the copy over the fill is in the accent's ink, clipped to the percentage (${ink.clip})`)
+    ok(await until(async () => (await notice.count()) === 1, 10000, 50), 'a second preview install runs to its end as well')
+    await notice.click()
+    ok(await until(async () => (await notice.count()) === 0, 3000, 50), 'and a click puts the line away')
+    // A real install quits the app 400ms after the download. Two whole fake
+    // ones later, an app that still answers is an app the preview did not quit.
+    ok((await app.windows()).length === 1 && (await win.evaluate(() => 1 + 1)) === 2, 'and the app never quit')
+    const after = await updateCalls(app)
+    ok(after.checks === 0 && after.installs === 0, `still nothing asked of the network or the installer (${after.checks} checks, ${after.installs} installs)`)
+  } finally {
+    // The profile is shared: the next scenario must get the style it expects.
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
+/**
+ * INSTALL STILL GOES THROUGH PRISM'S GUARD (#168). The chip used to call
+ * `installUpdate` in App directly; Install in the core's window calls it now,
+ * through `useUpdateFlow`'s guard, and "do not weaken it" is only true if it is
+ * driven: UNSAVED TEXT is asked about first (2026-08-28), then an agent that is
+ * MID-ANSWER, and only then does anything start. A preview asks nothing (it
+ * quits nothing), so this scenario is handed a real-shaped offer whose url the
+ * installer refuses before it sends a byte (PRISM_E2E_UPDATE_OFFER): both
+ * questions, their Cancel, the go-ahead and the line a FAILED install leaves
+ * are all driven with no network, no download and no installer.
+ *
+ * The notes of that offer are HOSTILE and over-long, so the plain-text rule is
+ * proved in Prism's real page and not only in the parser's unit tests: what is
+ * asserted is the DOM the body produced.
+ *
+ * The agent is a shell standing in for Claude through its TITLE, exactly as
+ * `agentTitle` does it: no CLI, nothing of this machine.
+ */
+async function updateGuardScenario(fixtures) {
+  console.log('update guard')
+  const hostile = [
+    "## What's Changed",
+    '* <img src=x onerror="window.__pwned = 1"> an image tag by @a in https://github.com/o/r/pull/1',
+    '* [a link](https://evil.example/login) and <a href="https://evil.example">an anchor</a> by @a in https://github.com/o/r/pull/2',
+    '* <script>window.__pwned = 2</script> a script by @a in https://github.com/o/r/pull/3',
+    '* <iframe src="https://evil.example"></iframe> a frame by @a in https://github.com/o/r/pull/4',
+    ...Array.from({ length: 26 }, (_, i) => `* Change number ${i + 5} with a title long enough to wrap onto a second line in the window by @a in https://github.com/o/r/pull/${i + 5}`),
+    '',
+    '**Full Changelog**: https://github.com/o/r/compare/v1...v2'
+  ].join('\n')
+  EXTRA_ENV = {
+    PRISM_E2E_UPDATE_OFFER: 'https://example.invalid/Prism-Setup-x64-99.0.0.exe',
+    PRISM_E2E_UPDATE_NOTES: hostile
+  }
+  const notes = join(fixtures, 'notes.txt')
+  const notesBefore = readFileSync(notes, 'utf-8')
+  let launched
+  try {
+    launched = await launch(notes)
+  } finally {
+    EXTRA_ENV = {}
+  }
+  const { app, win } = launched
+  try {
+    await win.waitForSelector('.cm-content', { timeout: 10000 })
+    const chip = win.locator('[data-update-chip]')
+    const updateDialog = win.locator('[data-update-dialog]')
+    const question = win.locator('[role="dialog"]:not([data-update-dialog])')
+    const notice = win.locator('[data-update-notice]')
+    const installs = async () => (await updateCalls(app)).installs
+    const openUpdate = async () => {
+      await chip.click()
+      return until(async () => (await updateDialog.count()) === 1, 4000, 50)
+    }
+    ok(await until(async () => (await chip.count()) === 1, 8000), 'a real-shaped offer shows the chip')
+    ok(((await chip.textContent()) ?? '').includes('Update 99.0.0'), 'naming the version on offer')
+
+    ok(await openUpdate(), 'the chip opens the window on a hostile body')
+    const dom = await updateDialog.evaluate((el) => {
+      const list = el.querySelector('[data-update-notes]')
+      const install = el.querySelector('[data-update-install]').getBoundingClientRect()
+      return {
+        forbidden: [...el.querySelectorAll('a, img, script, iframe, [onerror], [href], [src]')].length,
+        entries: el.querySelectorAll('[data-update-entry]').length,
+        more: el.querySelector('[data-update-more]')?.textContent ?? '',
+        text: el.textContent ?? '',
+        scrolls: list.scrollHeight > list.clientHeight + 1,
+        installOnScreen: install.bottom <= innerHeight && install.top >= 0,
+        preview: !!el.querySelector('[data-update-preview]'),
+        pwned: window.__pwned ?? null
+      }
+    })
+    ok(dom.forbidden === 0, `nothing the body asked for is an element (${dom.forbidden} anchors, images, scripts or frames)`)
+    ok(dom.pwned === null, 'and its handler never ran')
+    ok(!/evil\.example|https?:|by @/.test(dom.text), 'no url or author is printed either')
+    ok(/an image tag \(#1\)/.test(dom.text) && /a link and an anchor \(#2\)/.test(dom.text), 'what is left of each line is its words')
+    ok(dom.entries === 20 && dom.more === '+ 10 more', `the list is capped and counts the rest (${dom.entries} shown, "${dom.more}")`)
+    ok(dom.scrolls && dom.installOnScreen, 'the list scrolls inside the window, and Cancel and Install stay on screen under it')
+    ok(!dom.preview, 'a real offer is not called a preview')
+    await win.screenshot({ path: join(SHOTS, 'update-dialog-long.png') }).catch(() => {})
+    await win.keyboard.press('Escape')
+    await until(async () => (await updateDialog.count()) === 0, 4000, 50)
+
+    // 1. UNSAVED TEXT is asked about before anything else.
+    await win.locator('.cm-line').first().click()
+    await win.keyboard.press('Control+End')
+    await win.keyboard.type('omega')
+    ok(
+      await until(async () => ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 5000, 50),
+      'a file holds unsaved text'
+    )
+    ok(await openUpdate(), 'the window opens')
+    await updateDialog.locator('[data-update-install]').click()
+    ok(await until(async () => (await question.count()) === 1, 4000, 50), 'Install asks about the unsaved text before it does anything')
+    ok((await updateDialog.count()) === 0, 'from in front of the update window, not from behind it')
+    const dirtyAsk = (await question.textContent()) ?? ''
+    ok(/unsaved changes/i.test(dirtyAsk) && /notes\.txt/.test(dirtyAsk), `naming the file ("${dirtyAsk.slice(0, 60)}")`)
+    ok(/Installing the update restarts Prism/.test(dirtyAsk), 'and saying why an install is asking about it')
+    ok(/Cancel/.test(dirtyAsk) && /Discard/.test(dirtyAsk) && /Save all changes/.test(dirtyAsk), 'with the three answers closing has')
+    await win.screenshot({ path: join(SHOTS, 'update-unsaved-question.png') }).catch(() => {})
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await question.count()) === 0, 4000, 50), 'Escape backs out')
+    ok((await installs()) === 0 && (await chip.getAttribute('data-phase')) === 'idle', 'and nothing was started')
+    ok(((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 'with the unsaved text kept')
+
+    // The same question, answered: Discard lets the install go ahead, and the
+    // refused url makes it FAIL, which is the line under the chip.
+    await openUpdate()
+    await updateDialog.locator('[data-update-install]').click()
+    await until(async () => (await question.count()) === 1, 4000, 50)
+    await question.locator('button:has-text("Discard")').click()
+    ok(await until(async () => (await installs()) === 1, 6000, 50), 'once the question is answered the install starts')
+    ok(await until(async () => (await notice.count()) === 1, 8000, 50), 'an install that fails says so under the chip')
+    ok(/could not be downloaded/.test((await notice.textContent()) ?? ''), `in words ("${((await notice.textContent()) ?? '').trim()}")`)
+    await win.screenshot({ path: join(SHOTS, 'update-failed-notice.png') }).catch(() => {})
+    ok(await until(async () => (await chip.getAttribute('data-phase')) === 'idle', 4000, 50), 'and the chip offers the update again')
+    ok(readFileSync(notes, 'utf-8') === notesBefore, 'Discard wrote nothing to the file')
+
+    // 2. A WORKING AGENT is asked about next. A shell stands in for Claude
+    // through its title: idle first (the birth title), then mid-answer.
+    //
+    // THE PROCESS POLL'S FIRST ANSWER IS WAITED FOR, before any title is set.
+    // The poll reports a session only when its answer CHANGES, and a new
+    // shell's first answer ("no agent in this tree") is a change from nothing:
+    // it arrives a few seconds after the spawn and takes a titled session's
+    // working state with it (MEASURED here: the tab lit and went dark again
+    // within 400ms, and Install then asked nothing). After that one the poll
+    // has nothing further to say about a shell that still hosts no agent.
+    // Prism Terminal's scenario sleeps six seconds for it; this one listens.
+    await win.evaluate(() => {
+      window.__agentSaid = 0
+      window.prism.onTermAgent(() => (window.__agentSaid += 1))
+    })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(
+      () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
+      null,
+      { timeout: 45000 }
+    )
+    ok(await until(() => win.evaluate(() => window.__agentSaid > 0), 45000, 100), 'the process poll has had its first look at the shell')
+    await win.locator('.xterm').click()
+    const say = async (glyph, text) => {
+      await win.keyboard.type(`$Host.UI.RawUI.WindowTitle = "$([char]0x${glyph}) ${text}"`)
+      await win.keyboard.press('Enter')
+    }
+    const working = () =>
+      win.evaluate(() => !!document.querySelector('[role="tablist"] [data-agent-state="working"]'))
+    await say('2733', 'Claude Code') // ✳, idle
+    ok(
+      await until(() => win.evaluate(() => !!document.querySelector('[role="tablist"] [data-agent-present]')), 10000, 50),
+      'a shell stands in for Claude through its title'
+    )
+    await say('25D0', 'Claude Code') // ◐, mid-answer
+    ok(await until(working, 8000, 50), 'and is mid-answer')
+
+    ok(await openUpdate(), 'the window opens over a working terminal')
+    await updateDialog.locator('[data-update-install]').click()
+    ok(await until(async () => (await question.count()) === 1, 4000, 50), 'Install asks about the agent before it does anything')
+    const asked = (await question.textContent()) ?? ''
+    ok(asked.includes('Stop the agent and install the update?'), `in its own words ("${asked.slice(0, 40)}")`)
+    ok(/Claude/.test(asked) && /working for/.test(asked) && /Install and restart/.test(asked), 'naming the agent, how long it has worked, and what yes means')
+    ok(!/Close window/.test(asked), 'and not as the window question it used to borrow')
+    await win.screenshot({ path: join(SHOTS, 'update-agent-question.png') }).catch(() => {})
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await question.count()) === 0, 4000, 50), 'Escape backs out')
+    ok((await installs()) === 1 && (await chip.getAttribute('data-phase')) === 'idle', 'and nothing more was started')
+
+    await putAwayNotice(win)
+    await openUpdate()
+    await updateDialog.locator('[data-update-install]').click()
+    await until(async () => (await question.count()) === 1, 4000, 50)
+    await question.locator('[data-primary="true"]').click()
+    ok(await until(async () => (await installs()) === 2, 6000, 50), 'the go-ahead starts the install')
+    ok(await until(async () => (await notice.count()) === 1, 8000, 50), 'which fails, and says so')
+    ok(await until(async () => (await chip.getAttribute('data-phase')) === 'idle', 4000, 50), 'and the chip is idle again')
+    // A failed install must not leave the close question pre-answered: the
+    // agent is still working, so closing the window still asks.
+    await win.evaluate(() => window.prism.close())
+    ok(await until(async () => (await question.count()) === 1, 5000, 50), 'closing the window still asks about the agent afterwards')
+    ok(/close the window/.test((await question.textContent()) ?? ''), 'with the window question, not the install one')
+    await win.keyboard.press('Escape')
+    await until(async () => (await question.count()) === 0, 4000, 50)
+    ok(!win.isClosed(), 'and Escape keeps the window')
+
+    // ONE QUESTION AT A TIME: a question raised while the update window is up
+    // must not mount under it with the focus where nobody can see it.
+    await openUpdate()
+    await win.evaluate(() => window.prism.close())
+    ok(await until(async () => (await question.count()) === 1, 5000, 50), 'a close question raised over the update window is asked')
+    ok(await until(async () => (await updateDialog.count()) === 0, 4000, 50), 'and the update window gives way to it')
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.closest('[role="dialog"]:not([data-update-dialog])')), 4000, 50),
+      'so the focus is on the question that can be seen'
+    )
+    await win.keyboard.press('Escape')
+    await until(async () => (await question.count()) === 0, 4000, 50)
+
+    const calls = await updateCalls(app)
+    ok(calls.checks === 0, `GitHub was never asked (${calls.checks} release checks)`)
+    // End idle, so nothing holds the teardown.
+    await win.locator('.xterm').click()
+    await say('2733', 'Claude Code')
+    await until(async () => !(await working()), 8000, 50)
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
+/** Without the flag there is NO chip under --e2e, and nothing asks GitHub. The
+ *  unpackaged mock used to be in every scenario's title bar, asserted by none;
+ *  it is the core's preview now, and the suite only sees it when it asks. */
+async function updateQuietScenario(fixtures) {
+  console.log('update quiet')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    await win.waitForSelector('.p-md h1', { timeout: 15000 })
+    // The page asks main to replay an offer the moment it subscribes, so a
+    // chip that was coming would be here by the time the document has painted;
+    // the wait below is for the bar itself, the absence is read after it.
+    ok(await until(async () => (await win.locator('[data-title-bar] [aria-label="Settings"]').count()) === 1, 8000, 50), 'the title bar is up')
+    ok(!(await until(async () => (await win.locator('[data-update-chip]').count()) > 0, 1500, 50)), 'without --preview-update there is no chip under --e2e')
+    const calls = await updateCalls(app)
+    ok(calls.checks === 0 && calls.installs === 0, `and the network was never asked (${calls.checks} checks)`)
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
 /**
  * One scenario at a time, each in its own try/catch (2026-08-28).
  *
@@ -7627,6 +8190,9 @@ await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
+await run(updateWindowScenario)
+await run(updateGuardScenario)
+await run(updateQuietScenario)
 await run(terminalScenario)
 await run(termOptionsScenario)
 await run(dictationScenario)
