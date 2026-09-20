@@ -35,7 +35,8 @@ export function TermDock({
   root,
   shellId,
   find,
-  onFind
+  onFind,
+  onHelp
 }: {
   /** `full` takes the whole viewer area: no handle, no size, and the dock menu
    *  waits for split (where an edge means something). */
@@ -55,6 +56,9 @@ export function TermDock({
   /** Whether the scrollback find bar is up (Ctrl+Shift+F). */
   find: boolean
   onFind: (open: boolean) => void
+  /** Open command help (#175), or undefined while that setting is off: then
+   *  the menu has no row for it, since off means the app offers it nowhere. */
+  onHelp?: () => void
 }): JSX.Element {
   const panel = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -212,6 +216,8 @@ export function TermDock({
               onPick: () => void pasteInto(sessionId)
             },
             { label: 'Find', hint: 'Ctrl+Shift+F', onPick: () => onFind(true) },
+            // The core's popup: find a command by describing it, then copy it.
+            ...(onHelp ? ([{ label: 'Command help', hint: 'F1', onPick: onHelp }] as MenuItem[]) : []),
             ...(full
               ? []
               : ([
