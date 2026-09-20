@@ -1560,7 +1560,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   installer has the file. A cancel says nothing; a failure or a preview's end is said on the
   status line IN the window (Close / Install again), and the line under the chip survives only
   for an ending with the window hidden. Do not rebuild the chip-as-progress-bar or a window
-  that closes on Install.
+  that closes on Install. THE NOTES ARE SORTED UNDER HEADINGS (same day; owner: "headers bug
+  fixes, new features, so on... not like a git commit", "dont have the changelog inside a
+  container", and of the "This is a preview" line, "dont show this text"): the core's
+  `shared/releaseGroups` files the parser's plain strings under New features / Improvements /
+  Bug fixes / Under the hood, takes off a commit-type prefix and the trailing "(#31)", and the
+  list sits on the dialog's own ground with no box. It only moves and trims strings; the
+  plain-text rule below is untouched.
   IT LEADS THE BAR'S RIGHT-HAND GROUP (2026-09-20, #179; owner: "update button in prism should
   be the left most button, right now it has the remote button to its left"): chip, then Tools,
   then the pencil and the cog. Tools was built to its LEFT (#104) and that is superseded. The
