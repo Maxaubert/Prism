@@ -26,21 +26,41 @@ export function Dialog({
   onCancel: () => void
 }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
+  // THE LISTENER IS REGISTERED ONCE, and reads the latest onCancel from a ref
+  // (2026-09-20, #168). Every caller passes an inline arrow, so keyed on
+  // `onCancel` the effect tore the listener down and put a new one up on EVERY
+  // render of the app. That has a hole in it, MEASURED in Prism Terminal's copy
+  // of this component (its updateGuard e2e, about one run in five): when
+  // another keydown listener on the window sets state during the same Escape,
+  // React flushes this effect between the two listeners, the old listener is
+  // removed before its turn, and one added during a dispatch is not called for
+  // that event. Escape then did nothing, with the question on screen and
+  // focused. Prism's App has more window-level key listeners than the terminal
+  // does, so the same fix is carried over rather than waited for.
+  const cancel = useRef(onCancel)
+  useEffect(() => {
+    cancel.current = onCancel
+  })
+
+  // Focus lands on the primary action, so Enter confirms and Escape backs out
+  // without anyone reaching for the mouse. Again when the QUESTION changes
+  // under a dialog that stays mounted: the buttons are keyed by label, so the
+  // focused one is gone. (The re-running effect used to do this by accident.)
+  useEffect(() => {
+    box.current?.querySelector<HTMLButtonElement>('[data-primary="true"]')?.focus()
+  }, [title])
 
   useEffect(() => {
-    // Focus lands on the primary action, so Enter confirms and Escape backs out
-    // without anyone reaching for the mouse.
-    box.current?.querySelector<HTMLButtonElement>('[data-primary="true"]')?.focus()
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.stopPropagation()
         e.preventDefault()
-        onCancel()
+        cancel.current()
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [onCancel])
+  }, [])
 
   return (
     // data-owns-escape: the app's capture-phase Escape handler registered

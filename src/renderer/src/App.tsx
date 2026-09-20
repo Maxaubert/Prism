@@ -1,5 +1,5 @@
 import { useWinEOpen } from './lib/useWinEOpen'
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
 import { captureMoveViews, movedPath, releaseMoveViews, restoreMoveViews, type FileMove } from './lib/moveViews'
@@ -55,6 +55,9 @@ import {
 } from 'prism-term-core/renderer/lib/agentClose'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/useAgentIndicator'
 import { useDictationArm } from 'prism-term-core/renderer/lib/useDictation'
+import UpdateChip from 'prism-term-core/renderer/components/UpdateChip'
+import UpdateDialog from 'prism-term-core/renderer/components/UpdateDialog'
+import { useUpdateFlow } from 'prism-term-core/renderer/lib/useUpdateFlow'
 import { newTabFolder, newTabMode, newTabShow } from './lib/newTabPrefs'
 import { forgetRoot, rememberRoot } from 'prism-term-core/renderer/lib/recentRoots'
 import {
@@ -231,10 +234,7 @@ function TopBar({
   pos,
   settingsOpen,
   onToggleSettings,
-  update,
-  updatePhase,
-  updatePct,
-  onInstallUpdate,
+  chip,
   panelOpen,
   onTogglePanel,
   setup,
@@ -266,12 +266,11 @@ function TopBar({
   /** The open buffer holds unsaved text: the bar says so with a dot. */
   dirty: boolean
   onToggleEdit: () => void
-  /** A newer release exists (mock in unpackaged builds, so the chip can be
-   *  seen; the installed app only shows a real one). */
-  update: { version: string; mock?: boolean } | null
-  updatePhase: 'idle' | 'downloading' | 'installing'
-  updatePct: number
-  onInstallUpdate: () => void
+  /** The update chip, or nothing when there is no update. It is handed in,
+   *  not built here: it is prism-term-core's component since #168, and its
+   *  state lives in App beside the window it opens, so the bar only gives it
+   *  its place. */
+  chip?: ReactNode
   /** The Tools menu, opened at the button's bottom-left corner. */
   onTools: (x: number, y: number) => void
 }): JSX.Element {
@@ -281,6 +280,9 @@ function TopBar({
     // setup's mode wipe it is the one surface the still doesn't cover, and a
     // hard swap there read as a flash.
     <div
+      // Named for the e2e (updateWindow asserts the chip is IN the bar), as
+      // Prism Terminal's bar is.
+      data-title-bar
       className={`drag p-styled-font flex h-9 shrink-0 items-center gap-3 border-b border-[var(--p-divider)] bg-[var(--p-title)] px-3 text-[13px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${wash ? 'p-wash' : ''}`}
     >
       {/* One button, one idea: collapse the panel on the left. Over Settings the
@@ -357,81 +359,13 @@ function TopBar({
           </svg>
         </button>
       )}
-      {/* The update chip: quiet accent pill, present only while there is
-          something to install. A mock (unpackaged builds) is inert - it
-          exists so the chip can be seen before a real release carries it. */}
-      {!setup && update && (
-        <button
-          // The chip IS the progress bar: it never changes size, and the same
-          // shape carries "available", "42%" and "installing" without the
-          // title bar reflowing under it.
-          className="no-drag relative flex h-6 shrink-0 items-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-[11.5px] font-medium transition-[filter] hover:brightness-125"
-          style={{
-            borderColor:
-              updatePhase === 'idle'
-                ? 'color-mix(in srgb, var(--p-text) 14%, transparent)'
-                : 'color-mix(in srgb, var(--p-accent) 55%, transparent)',
-            // Working: the unfilled remainder is already accent-tinted, so the
-            // label reads against both halves of the bar.
-            background:
-              updatePhase === 'idle'
-                ? 'color-mix(in srgb, var(--p-text) 8%, transparent)'
-                : 'color-mix(in srgb, var(--p-accent) 30%, transparent)',
-            color: updatePhase === 'idle' ? 'var(--p-text)' : 'var(--p-on-accent)'
-          }}
-          onClick={onInstallUpdate}
-          disabled={updatePhase !== 'idle'}
-          title={
-            update.mock
-              ? 'Preview: the installed app only shows this when a newer release exists'
-              : `Download and install ${update.version}`
-          }
-          aria-label={`Update to ${update.version}`}
-          {...(updatePhase === 'downloading'
-            ? {
-                role: 'progressbar',
-                'aria-valuenow': updatePct,
-                'aria-valuemin': 0,
-                'aria-valuemax': 100
-              }
-            : {})}
-        >
-          <span
-            aria-hidden
-            className="absolute inset-y-0 left-0 transition-[width] duration-300 ease-out"
-            style={{
-              width:
-                updatePhase === 'idle'
-                  ? 0
-                  : updatePhase === 'installing'
-                    ? '100%'
-                    : `${updatePct}%`,
-              background: 'var(--p-accent)'
-            }}
-          />
-          <svg
-            viewBox="0 0 24 24"
-            width={11}
-            height={11}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="relative shrink-0"
-            aria-hidden
-          >
-            <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14" />
-          </svg>
-          <span className="relative whitespace-nowrap tabular-nums">
-            {updatePhase === 'downloading'
-              ? `${updatePct}%`
-              : updatePhase === 'installing'
-                ? 'Installing…'
-                : `Update ${update.version}`}
-          </span>
-        </button>
-      )}
+      {/* The update chip: a quiet pill, present only while there is something
+          to install, and the SAME component as Prism Terminal's (#168). The
+          rule it was built to keep is this bar's own (owner pick from 12
+          mockups, 2026-08-24): the chip IS the progress bar, one shape for
+          every state, and it never changes width. A click opens the update
+          window; it no longer installs. */}
+      {!setup && chip}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
           <button
@@ -1438,36 +1372,24 @@ export default function App(): JSX.Element {
   const askClose = useRef<() => void>(() => {})
   useEffect(() => window.prism.onAskClose(() => askClose.current()), [])
 
-  // The update offer and its progress through install. Phase lives here (not
-  // in the bar) so the chip survives the bar re-rendering under it.
-  const [update, setUpdate] = useState<{ version: string; url: string; mock?: boolean } | null>(
-    null
-  )
-  const [updatePhase, setUpdatePhase] = useState<'idle' | 'downloading' | 'installing'>('idle')
-  const [updatePct, setUpdatePct] = useState(0)
   // Tools > Phone (#104): the menu under the title bar's Tools button and the
   // dialog its one row opens. The dialog is handed the ACTIVE tab's root, so
   // the QR it shows pairs a phone to the folder you are looking at.
   const [toolsMenu, setToolsMenu] = useState<{ x: number; y: number } | null>(null)
   const [phoneOpen, setPhoneOpen] = useState(false)
-  useEffect(() => window.prism.onUpdate(setUpdate), [])
-  useEffect(
-    () =>
-      window.prism.onUpdateProgress((pct) => {
-        setUpdatePct(pct)
-        if (pct >= 100) setUpdatePhase('installing')
-      }),
-    []
-  )
+  /**
+   * What STARTS the install once every question has been answered. It is the
+   * core's (`useUpdateFlow` hands it to the guard below: it moves the chip to
+   * "downloading" and calls the bridge); Prism only decides WHEN it may run.
+   * Held in a ref because the questions are asked through `ask`, which carries
+   * `then: 'install'` and not a function, as it always has.
+   */
+  const installStart = useRef<(() => void) | null>(null)
   const runInstall = useCallback(() => {
-    if (!update || update.mock) return
-    setUpdatePhase('downloading')
-    setUpdatePct(0)
-    void window.prism.installUpdate(update.url).then((ok) => {
-      // On success the app quits under the installer; only failure comes back.
-      if (!ok) setUpdatePhase('idle')
-    })
-  }, [update])
+    const start = installStart.current
+    installStart.current = null
+    start?.()
+  }, [])
   /**
    * LEAVING THE APP - closing the window, or the quit an update install ends
    * in - once unsaved text has been settled. prism-term-core's rule, the same
@@ -1498,14 +1420,45 @@ export default function App(): JSX.Element {
   }, [dirtyPaths, leave])
   // Main holds every route out of the window while this is true.
   useEffect(() => window.prism.setAgentBusy(holdsWindowClose(workingIds.size)), [workingIds])
-  const installUpdate = useCallback(() => {
-    if (!update || update.mock) return
-    // Installing ends in a quit, and unsaved text vetoes a quit - so the same
-    // question closing asks is asked here, BEFORE the download (2026-08-28).
-    // Main refuses the install outright while anything is dirty.
-    if (dirtyPaths.size) setAsk({ kind: 'close-dirty', then: 'install' })
-    else leave('install')
-  }, [update, dirtyPaths, leave])
+  /**
+   * THE UPDATE CHIP AND ITS WINDOW (#168). Both are prism-term-core's, the
+   * same in Prism Terminal (owner, 2026-09-19: "yes keep the core"): a click on
+   * the chip opens a window with the release's notes, and Install in that
+   * window comes HERE before anything is downloaded. What is Prism's is this
+   * guard, and it is the path the chip's click used to take, unchanged:
+   * installing ends in a quit, and unsaved text vetoes a quit, so the same
+   * question closing asks is asked first (2026-08-28; main refuses the install
+   * outright while anything is dirty), and then `leave` asks about an agent
+   * that is mid-answer. Never calling `start` is the cancel. A PREVIEW never
+   * gets here: the core starts its fake install unguarded, because it closes
+   * nothing and asking "discard your changes?" for a demo would be the app
+   * lying to make it look real.
+   */
+  const installGuard = useCallback(
+    (start: () => void) => {
+      installStart.current = start
+      if (dirtyPaths.size) setAsk({ kind: 'close-dirty', then: 'install' })
+      else leave('install')
+    },
+    [dirtyPaths, leave]
+  )
+  const update = useUpdateFlow(window.prism, installGuard)
+  // ONE QUESTION AT A TIME, Prism Terminal's finding and the same here: the
+  // app's chords still work while the update window is up (Ctrl+W, Alt+F4), and
+  // a question raised from behind it mounts UNDER it (same z-index, earlier in
+  // the document) and takes the focus onto its primary button where nobody can
+  // see it, so Enter, pressed at what looks like Install, answers the hidden
+  // question instead. A question about losing work outranks a list of patch
+  // notes, so the window gives way.
+  const cancelUpdate = update.cancel
+  useEffect(() => {
+    if (ask) cancelUpdate()
+  }, [ask, cancelUpdate])
+  /** The running version, for the window's "You have" line. Asked once. */
+  const [appVersion, setAppVersion] = useState('')
+  useEffect(() => {
+    void window.prism.appVersion().then(setAppVersion)
+  }, [])
 
   // Where the active tab is rooted, for handlers that must stay stable (the
   // + is handed to main once and must not be rebuilt whenever a tab changes).
@@ -3598,10 +3551,16 @@ export default function App(): JSX.Element {
           editing={editMode}
           dirty={dirtyPaths.size > 0}
           onToggleEdit={() => setEditMode((v) => !v)}
-          update={update}
-          updatePhase={updatePhase}
-          updatePct={updatePct}
-          onInstallUpdate={installUpdate}
+          chip={
+            <UpdateChip
+              info={update.state.info}
+              phase={update.state.phase}
+              pct={update.state.pct}
+              onOpen={update.open}
+              notice={update.state.notice}
+              onDismissNotice={update.dismissNotice}
+            />
+          }
           onTools={(x, y) => setToolsMenu({ x, y })}
         />
       )}
@@ -4273,7 +4232,9 @@ export default function App(): JSX.Element {
               {unsavedNames.length > 1
                 ? ' are not on disk yet.'
                 : ' has changes that are not on disk yet.'}{' '}
-              Closing without saving throws them away.
+              {ask.then === 'install'
+                ? 'Installing the update restarts Prism, and restarting without saving throws them away.'
+                : 'Closing without saving throws them away.'}
             </>
           }
           onCancel={() => setAsk(null)}
@@ -4354,7 +4315,15 @@ export default function App(): JSX.Element {
       {(ask?.kind === 'close-tab-confirm' || ask?.kind === 'close-window-agent') && (
         <Dialog
           title={closeQuestionTitle(
-            ask.kind === 'close-window-agent' ? 'window' : 'tab',
+            // An install is the window question by another door (#168), and it
+            // says what it is about to do: "close the window?" over a button
+            // the user pressed to INSTALL is a question about something they
+            // did not ask for. The wording is the core's, as the rest is.
+            ask.kind === 'close-window-agent'
+              ? ask.then === 'install'
+                ? 'install'
+                : 'window'
+              : 'tab',
             ask.agent.forMs
           )}
           body={
@@ -4375,7 +4344,10 @@ export default function App(): JSX.Element {
                 {ask.kind === 'close-window-agent' &&
                   ask.others > 0 &&
                   `, and ${ask.others} other ${ask.others === 1 ? 'shell is' : 'shells are'} working too`}
-                . Closing kills the shell, and the answer with it.
+                .{' '}
+                {ask.kind === 'close-window-agent' && ask.then === 'install'
+                  ? 'Installing restarts Prism, which kills the shell, and the answer with it.'
+                  : 'Closing kills the shell, and the answer with it.'}
               </>
             )
           }
@@ -4383,7 +4355,12 @@ export default function App(): JSX.Element {
           choices={[
             { label: 'Cancel', onPick: () => setAsk(null) },
             {
-              label: ask.kind === 'close-window-agent' ? 'Close window' : 'Close tab',
+              label:
+                ask.kind === 'close-window-agent'
+                  ? ask.then === 'install'
+                    ? 'Install and restart'
+                    : 'Close window'
+                  : 'Close tab',
               primary: true,
               onPick: () => {
                 setAsk(null)
@@ -4393,6 +4370,18 @@ export default function App(): JSX.Element {
               }
             }
           ]}
+        />
+      )}
+
+      {/* The update window (#168). Mounted once, here: the chip lives in the
+          title bar, the window it opens belongs to the whole app. Not during
+          first-run setup, where the chip is not drawn either. */}
+      {update.state.open && update.state.info && (
+        <UpdateDialog
+          info={update.state.info}
+          currentVersion={appVersion}
+          onInstall={update.install}
+          onCancel={update.cancel}
         />
       )}
 

@@ -11,6 +11,7 @@ import type {
 import { clipboard, contextBridge, ipcRenderer, nativeImage, webUtils } from 'electron'
 import { createTermApi } from 'prism-term-core/preload/api'
 import { createDictationApi } from 'prism-term-core/preload/dictationApi'
+import type { UpdateInfo } from 'prism-term-core/shared/updateTypes'
 import type { ExtractEvent } from '@shared/extraction'
 import type { FolderSizeResult } from '@shared/folderSize'
 import type { WinEShortcutStatus } from '@shared/winEShortcut'
@@ -588,12 +589,13 @@ const api = {
   },
   setFullscreen: (on: boolean): void => ipcRenderer.send('window:set-fullscreen', on),
   /* ----- the update check ----- */
-  /** A newer release exists (mock: true in unpackaged builds, as a preview). */
-  onUpdate: (
-    cb: (info: { version: string; url: string; mock?: boolean }) => void
-  ): (() => void) => {
-    const listener = (_: unknown, info: { version: string; url: string; mock?: boolean }): void =>
-      cb(info)
+  // These three are the core's UpdateBridge (prism-term-core's useUpdateFlow),
+  // spelled the same in Prism Terminal's preload: the chip and its window are
+  // shared (#168), so App hands this whole object to the hook as it is.
+  /** A newer release exists, with its notes (mock: true for a preview:
+   *  `--preview-update`, or any unpackaged build outside the e2e). */
+  onUpdate: (cb: (info: UpdateInfo) => void): (() => void) => {
+    const listener = (_: unknown, info: UpdateInfo): void => cb(info)
     ipcRenderer.on('update:available', listener)
     // Ask main to replay an offer that arrived before this renderer loaded.
     ipcRenderer.send('update:announce')
@@ -605,8 +607,12 @@ const api = {
     ipcRenderer.on('update:progress', listener)
     return () => ipcRenderer.removeListener('update:progress', listener)
   },
-  /** Download the named installer and hand off to it; the app quits under it. */
+  /** Download the named installer and hand off to it; the app quits under it.
+   *  False when nothing was installed, which is always the case for a preview. */
   installUpdate: (url: string): Promise<boolean> => ipcRenderer.invoke('update:install', url),
+  /** The running app's version (package.json's), for the update window's
+   *  "You have" line. */
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   /** Open the Windows "Default apps" page, where Prism can be chosen. */
   openDefaultApps: (): void => ipcRenderer.send('app:default-apps'),
   windowPreferencesLoad: (): WindowPreferencesSnapshot | null => {
