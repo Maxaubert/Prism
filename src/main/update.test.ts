@@ -130,6 +130,57 @@ describe('latestUpdate', () => {
   })
 })
 
+describe('installUpdate, cancelled (#178)', () => {
+  it('stops the download, removes the partial installer and never spawns anything', async () => {
+    const { readdirSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const dirs = (): string =>
+      readdirSync(tmpdir())
+        .filter((n) => n.startsWith('prism-update-'))
+        .sort()
+        .join('|')
+    const before = dirs()
+    vi.resetModules()
+    const spawn = vi.fn()
+    vi.doMock('node:child_process', () => ({ spawn }))
+    const run = new AbortController()
+    // A download that hands over its first kilobyte and then waits for ever:
+    // only the cancel can end it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { signal?: AbortSignal }) => {
+        expect(init?.signal).toBe(run.signal)
+        return new Response(
+          new ReadableStream({
+            start(c) {
+              c.enqueue(new Uint8Array(1024))
+            }
+          }),
+          { headers: { 'content-length': '4096' } }
+        )
+      })
+    )
+    const { installUpdate } = await import('./update')
+    const seen: number[] = []
+    const canInstall = vi.fn(async () => true)
+    const done = installUpdate(
+      'https://github.com/Maxaubert/Prism/releases/download/v9.9.9/Prism-Setup-x64-9.9.9.exe',
+      (pct) => {
+        seen.push(pct)
+        run.abort()
+      },
+      canInstall,
+      run.signal
+    )
+    expect(await done).toBe(false)
+    expect(seen).toEqual([25])
+    expect(canInstall).not.toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+    expect(dirs()).toBe(before)
+    vi.doUnmock('node:child_process')
+  })
+})
+
 describe('watchForUpdates', () => {
   it('never asks the network from an unpackaged build, and sends nothing itself', async () => {
     // It used to SEND an inert mock from here. The preview is index.ts's to

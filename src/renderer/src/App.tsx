@@ -1455,18 +1455,17 @@ export default function App(): JSX.Element {
     },
     [dirtyPaths, leave]
   )
-  const update = useUpdateFlow(window.prism, installGuard)
   // ONE QUESTION AT A TIME, Prism Terminal's finding and the same here: the
   // app's chords still work while the update window is up (Ctrl+W, Alt+F4), and
   // a question raised from behind it mounts UNDER it (same z-index, earlier in
   // the document) and takes the focus onto its primary button where nobody can
   // see it, so Enter, pressed at what looks like Install, answers the hidden
   // question instead. A question about losing work outranks a list of patch
-  // notes, so the window gives way.
-  const cancelUpdate = update.cancel
-  useEffect(() => {
-    if (ask) cancelUpdate()
-  }, [ask, cancelUpdate])
+  // notes, so the window gives way. That is the core's `covered` since #178:
+  // it holds mid-install too, where the user cannot close the window (it stays
+  // up and draws the progress, owner 2026-09-20), and a running install's
+  // window comes back once the question has been answered.
+  const update = useUpdateFlow(window.prism, installGuard, !!ask)
   /** The running version, for the window's "You have" line. Asked once. */
   const [appVersion, setAppVersion] = useState('')
   useEffect(() => {
@@ -3641,9 +3640,9 @@ export default function App(): JSX.Element {
             <UpdateChip
               info={update.state.info}
               phase={update.state.phase}
-              pct={update.state.pct}
               onOpen={update.open}
-              notice={update.state.notice}
+              // Under the chip only while the window is not up to say it itself.
+              notice={update.state.open ? null : update.state.notice}
               onDismissNotice={update.dismissNotice}
             />
           }
@@ -4468,8 +4467,13 @@ export default function App(): JSX.Element {
         <UpdateDialog
           info={update.state.info}
           currentVersion={appVersion}
+          phase={update.state.phase}
+          pct={update.state.pct}
+          aborting={update.state.aborting}
+          notice={update.state.notice}
           onInstall={update.install}
           onCancel={update.cancel}
+          onAbort={update.abort}
         />
       )}
 

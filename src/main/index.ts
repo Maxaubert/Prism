@@ -643,6 +643,8 @@ let installingUpdate = false
  *  ask for the preview too (`Prism.exe --preview-update` while Prism is
  *  resident, which is the likely way the flag gets used). */
 let pendingUpdate: UpdateInfo | null = null
+/** The install that is running, if one is: what `update:cancel` aborts. */
+let updateRun: AbortController | null = null
 function offerUpdate(info: UpdateInfo): void {
   pendingUpdate = info
   mainWindow?.webContents.send('update:available', info)
@@ -1831,8 +1833,21 @@ if (!app.requestSingleInstanceLock()) {
       // answers false, "nothing was installed", which is true. No fetch, no
       // file, no installer, no quit, and the close question is NOT
       // pre-answered: `closeConfirmed` and `installingUpdate` stay as they are.
-      if (pendingUpdate?.mock)
-        return runPreviewInstall((pct) => mainWindow?.webContents.send('update:progress', pct))
+      if (pendingUpdate?.mock) {
+        // Cancellable like the real one (#178): a preview is where most people
+        // will ever press the window's Cancel.
+        if (updateRun) return false
+        const fake = new AbortController()
+        updateRun = fake
+        try {
+          return await runPreviewInstall(
+            (pct) => mainWindow?.webContents.send('update:progress', pct),
+            { cancelled: () => fake.signal.aborted }
+          )
+        } finally {
+          updateRun = null
+        }
+      }
       if (typeof url !== 'string') return false
       // Unsaved text VETOES the quit this ends in (win.on('close') below), so
       // installing over it would run NSIS against a live exe while a dialog
@@ -1854,11 +1869,16 @@ if (!app.requestSingleInstanceLock()) {
       if (installingUpdate || !(await canInstall())) return false
       installingUpdate = true
       closeConfirmed = true
+      const run = new AbortController()
+      updateRun = run
       const ok = await installUpdate(
         url,
         (pct) => mainWindow?.webContents.send('update:progress', pct),
-        canInstall
-      )
+        canInstall,
+        run.signal
+      ).finally(() => {
+        updateRun = null
+      })
       // A download that FAILED must not leave the close question pre-answered
       // for the rest of the session: the next Alt+F4 over unsaved text would
       // close over the top of it without asking.
@@ -1868,6 +1888,9 @@ if (!app.requestSingleInstanceLock()) {
       }
       return ok
     })
+    // The update window's Cancel (#178). It names nothing: there is one
+    // download at most, and the page has no say in which.
+    ipcMain.on('update:cancel', () => updateRun?.abort())
     // The e2e's updateWindow reads this (through `app.evaluate`, as it reaches
     // the indexer) after a whole preview, fake install included: release
     // checks sent and installs attempted. Both must still be 0.
