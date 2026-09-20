@@ -573,3 +573,124 @@ export function buildFixtures() {
   )
   return FIXTURES
 }
+
+/**
+ * ARCHIVES SLOW ENOUGH TO BE CAUGHT MID-FLIGHT (2026-09-19, #166).
+ *
+ * The extraction window has a Cancel button, and proving it needs an
+ * extraction that is still running when the button is pressed. SIZE does not
+ * give that on this machine, MEASURED: 800MB of random data, stored, comes
+ * out of a 7z in 534ms, which is a race and not a test. What gives it is
+ * PPMd, whose DECODER is as slow as its encoder: 200MB of base64 text packed
+ * with `-m0=PPMd` took 25.7s to extract here (about 8MB a second), whatever
+ * the disk does. 160MB of it is twenty seconds of extraction to press Cancel
+ * inside, and it is built once and kept.
+ *
+ * The zip is for the OTHER engine: adm-zip inflates in-process far too fast
+ * to catch by weight, so it is slow by COUNT instead. Six thousand small
+ * members are six thousand awaited writes, and Cancel is pressed at the first
+ * percent of them.
+ *
+ * Outside FIXTURES, which is rebuilt on every run, and under `.e2e`, which is
+ * ignored: twenty seconds of PPMd is worth paying once, and none of it
+ * belongs in git.
+ */
+export const BIG = join(ROOT, '.e2e', 'big')
+export const BIG_FILES = 40
+export const MANY_FILES = 6000
+
+export async function buildBigFixtures() {
+  const { randomBytes } = await import('node:crypto')
+  const seven = join(ROOT, 'vendor', '7zip', '7z.exe')
+  if (!existsSync(seven)) throw new Error('the bundled 7-Zip is missing (vendor/7zip/7z.exe)')
+  const store = join(BIG, 'store')
+  mkdirSync(store, { recursive: true })
+
+  const big = join(store, 'big.7z')
+  if (!existsSync(big)) {
+    const src = join(BIG, 'src')
+    rmSync(src, { recursive: true, force: true })
+    mkdirSync(join(src, 'Big'), { recursive: true })
+    for (let i = 0; i < BIG_FILES; i += 1)
+      writeFileSync(
+        join(src, 'Big', `part-${String(i).padStart(3, '0')}.txt`),
+        randomBytes(3 << 20).toString('base64')
+      )
+    // Written under another name and renamed: a build interrupted half way
+    // must not be found next time and read as the fixture.
+    const part = join(store, 'big.part.7z')
+    rmSync(part, { force: true })
+    const made = spawnSync(seven, ['a', '-t7z', '-m0=PPMd', '-ms=off', part, join(src, 'Big')], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    if (made.status !== 0) throw new Error('7-Zip could not build the big fixture')
+    cpSync(part, big)
+    rmSync(part, { force: true })
+    rmSync(src, { recursive: true, force: true })
+  }
+
+  const many = join(store, 'many.zip')
+  if (!existsSync(many)) {
+    const zip = new AdmZip()
+    for (let i = 0; i < MANY_FILES; i += 1)
+      zip.addFile(
+        `Many/d${String(i % 60).padStart(2, '0')}/f${String(i).padStart(4, '0')}.txt`,
+        Buffer.from(`member ${i}\n`.repeat(40))
+      )
+    zip.writeZip(many)
+  }
+
+  // A 7z that FAILS half way, for the window's error state: two stored
+  // members, and the bytes of the second one stamped on, so 7-Zip opens it,
+  // lists it, extracts the first and reports a CRC error on the other.
+  const corrupt = join(store, 'corrupt.7z')
+  if (!existsSync(corrupt)) {
+    const src = join(BIG, 'csrc')
+    rmSync(src, { recursive: true, force: true })
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'a-good.txt'), 'this one is fine\n'.repeat(2000))
+    writeFileSync(join(src, 'b-bad.txt'), 'this one gets stamped on\n'.repeat(4000))
+    const made = spawnSync(seven, ['a', '-t7z', '-mx0', '-ms=off', corrupt, join(src, '*')], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    if (made.status !== 0) throw new Error('7-Zip could not build the corrupt fixture')
+    const raw = readFileSync(corrupt)
+    // Stored members sit back to back after the 32-byte signature header, in
+    // name order: well inside the second one, and nowhere near the headers
+    // at the end of the file.
+    raw.fill(0x58, 32 + 34000 + 20000, 32 + 34000 + 20400)
+    writeFileSync(corrupt, raw)
+    rmSync(src, { recursive: true, force: true })
+  }
+
+  // PASSWORD-PROTECTED, one for each engine (found missing in review, #166):
+  // the window's two answers to a password are different on purpose. A caller
+  // that asks for one and tries again gets a window that closes QUIETLY, so
+  // the question is not asked on top of an error; every other route gets the
+  // error with the password sentence. Neither had been driven through the
+  // real app. The 7z keeps its names readable (no `-mhe`), so it lists without
+  // a password and only the content needs one, which is the common case; the
+  // zip is classic ZipCrypto, which is the one adm-zip opens in-process.
+  const locked = {}
+  for (const [key, name, args] of [
+    ['locked7z', 'locked.7z', ['-t7z', '-mx1']],
+    ['lockedZip', 'locked.zip', ['-tzip', '-mem=ZipCrypto']]
+  ]) {
+    const out = join(store, name)
+    locked[key] = out
+    if (existsSync(out)) continue
+    const src = join(BIG, 'lsrc')
+    rmSync(src, { recursive: true, force: true })
+    mkdirSync(join(src, 'vault'), { recursive: true })
+    writeFileSync(join(src, 'vault', 'secret.txt'), 'the secret, out in the open\n')
+    const made = spawnSync(seven, ['a', ...args, '-pletmein', out, join(src, 'vault')], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    rmSync(src, { recursive: true, force: true })
+    if (made.status !== 0) throw new Error(`7-Zip could not build ${name}`)
+  }
+  return { big, many, corrupt, ...locked }
+}

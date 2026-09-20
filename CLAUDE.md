@@ -216,7 +216,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   25-file folder came out in 279ms and the 561-file one in 1.2s, against hundreds of spawns.
   Dragging a folder OUT works the same way now - one call into a staging folder, then each
   wanted entry moved into place - which is where the landing rule lives (the shape BELOW the
-  dragged folder is kept, the parents above it dropped). The member filters come from the
+  dragged folder is kept, the parents above it dropped). That staging folder is INSIDE THE
+  DESTINATION since 2026-09-19 (#166), a dot-named `.prism-extract-*` the tree's listing and
+  watcher both skip, and the landing is a RENAME: it was in temp with a `cp` across, which is
+  a second full write of what 7-Zip had just written and a copy nothing can stop half way,
+  and the extraction has a Cancel button now. The copy survives as the fallback for a rename
+  that is refused. The member filters come from the
   archive's own listing and are still refused for `..` or a drive letter before 7-Zip is
   spawned, because `-o` is the only thing keeping the write inside a folder Prism made.
   7-Zip path reports its own percentage, and getting it to say ANYTHING was measured rather
@@ -226,10 +231,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the percentages back, so it is the PAIR that works and neither alone; a file COUNT out of
   the listing's total is the fallback for an archive of a few huge members. Exit code 1 is
   7-Zip's WARNING, not a failure - treating it as one threw away a working extraction - and
-  a real failure now carries 7-Zip's own line up to the panel, because "couldn't be
-  extracted" on its own is a failure nobody can act on. `-p` is omitted entirely when there
+  a real failure now carries 7-Zip's own line up to the extraction window, because "couldn't
+  be extracted" on its own is a failure nobody can act on. The percentage is read only at
+  the START of a line (2026-09-19): the member's name arrives on a line of its own, and a
+  member called "50% off.jpg" was a percentage as far as the old anywhere-match could tell. `-p` is omitted entirely when there
   is no password, since `-p` with nothing after it is an EMPTY password rather than none.
-  All of it matters because a button reading "Extracting..." for the minutes a 2GB archive
+  All of it matters because a window saying nothing for the minutes a 2GB archive
   takes is indistinguishable from one that has hung. **A ZIP RECORDS ITS FOLDERS OPTIONALLY** and plenty of writers
   leave them out (Google Takeout, `zip -D`, most Java tooling), which made such an archive
   read as EMPTY: the panel lists one level at a time by matching each member's parent, and
@@ -251,12 +258,79 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   the row read as a path. Rows run EDGE TO EDGE with no radius, so the stripe and the
   selection fill reach both borders rather than floating as tiles in a gutter - the scroller
   gives up its horizontal padding and the rows carry the inset themselves, at the same px-4
-  the column header uses, so the columns still line up. The
-  extraction progress track is ALWAYS in the layout and only fades in, because inserting it
-  when the work began pushed the member list down and pulled it back up; the e2e measures
-  that the list does not move. And finishing raises NO popup (owner decision) - the button
-  you pressed says "Extracted" for two seconds and goes back, which is closure without
-  ceremony. A FAILURE still speaks, and carries 7-Zip's own line. Properties on a zip reports what it
+  the column header uses, so the columns still line up.
+  **ONE EXTRACTION WINDOW, FOR EVERY WAY OF EXTRACTING** (2026-09-19, #166). Owner: "When
+  you extract something, the progress bar works differently based on like how you extracted
+  ... there are so many options to extract, and some use different methods. I would like it
+  to just be one kind of view that appears, and I want it to be a pop-up window that you
+  can't close, kind of like it is with WinRAR, where you just see the progress bar, and you
+  just have to wait until it's done extracting." Asked the same day: it gets a CANCEL
+  button; no X, and Escape and a click outside do nothing. This SUPERSEDES two recorded
+  decisions and keeps a third. Superseded: the in-layout progress track that was "ALWAYS in
+  the layout and only fades in" (2026-08-31, itself removed 2026-09-03), and the JOB CHIP
+  extractions ran on from 2026-09-03, which was chosen so you could keep working past a long
+  job - the owner has now chosen the opposite for this one verb. Pastes and adding to a zip
+  stay on the chip; `lib/jobs` is otherwise untouched. KEPT: finishing raises NO popup
+  (2026-08-31). Success closes the window silently, there is no second dialog, and the
+  verb row's button still says "Extracted" for two seconds.
+  There were five routes and three looks (a chip with a percentage, a chip with none, and
+  NOTHING AT ALL for members dragged onto a sidebar folder). Now MAIN tells the story and no
+  route draws anything: every route that writes extracted files to a folder the user can see
+  (Extract here, Extract to..., the panel's and the tree row's menus, a folder row's Extract
+  folder here / to..., a member row's pair, the drag) opens a job in `src/main/extractJob.ts`,
+  and the job is the one thing that speaks on ONE channel, `extract:event` (start, progress,
+  end: `shared/extraction.ts`). The job starts AFTER main's own folder dialog is answered,
+  which is why the start has to come from main. The renderer has one listener, one PURE
+  reducer (`lib/extraction.ts`, tested) and one window (`ExtractWindow`, mounted beside App).
+  The temp extractions that VIEW a member or put one on the clipboard open no job and stay
+  silent. Progress is REAL on both engines: 7-Zip's percentage, the file count as its
+  fallback, and the member being written (`readFileName`, out of the same `-bb1` log); for
+  adm-zip a count of members written. That needed the adm-zip loop made ASYNCHRONOUS:
+  `getData` inflates on main's thread, so no progress got out and no Cancel got in until it
+  was over. A deflated member is inflated on the libuv pool now and CRC-checked as adm-zip
+  checks it - and NOT through adm-zip's own `getDataAsync`, read rather than assumed: its
+  inflater attaches no 'error' listener, so one corrupt member is an unhandled 'error'
+  event that takes the app down.
+  IT CANNOT BE DISMISSED, in three layers, because any one alone leaks: the scrim swallows
+  the mouse; `#root` goes `inert` (so the window is a portal on `body`); and `inert` stops
+  focus but NOT keystrokes, which still reach the window-level listeners - Ctrl+W would
+  close the tab, Delete would bin a file - so `lib/extractionGuard` swallows them. It is
+  installed BEFORE React renders, because listeners on one target run in the order they were
+  added and `stopImmediatePropagation` only reaches the ones behind it. Focus lands on the
+  BOX, not on Cancel: the verb is often picked with Enter, and that key must not cancel what
+  it started. AND IT IS BROUGHT BACK TO THE BOX AT EVERY CHANGE OF PHASE (found in review the
+  same day): Cancel and Close are two keyed elements, so a failure arriving while the focus
+  was on Cancel dropped it onto `body`, where the guard swallows Tab, Enter and Space alike,
+  and the error could be closed with a mouse and with nothing else. A window up for under 700ms lingers, full, for the remainder - a small zip
+  extracts inside a frame, and the chip met the same thing on 2026-09-03.
+  CANCEL WAITS AND THEN CLEANS. `kill` returns before the handles are gone (the `holders.ts`
+  lesson), so main waits for 7-Zip to CLOSE, the adm-zip loop checks a flag between members,
+  and the window says it is cancelling until main reports the end. What is removed is what
+  `Made` recorded and nothing else: a staging or landing folder that is the job's whole, a
+  file the job wrote under a name that was free, and a folder the job created - with
+  `rmdir`, which refuses one that holds anything. A cancelled extraction never costs a file
+  that was there before. A FAILURE keeps what came out, as it always has, turns the SAME
+  window into the error with 7-Zip's own line, and only Close removes that; a refusal main
+  will not even start (the wall) opens the window straight into its error, since the callers
+  show none of their own any more. One visible extraction at a time, refused in main as well.
+  **7-ZIP ASKS FOR A PASSWORD ON STDIN, AND WAITED FOR EVER** (2026-09-20, found reviewing
+  #166, MEASURED on 7-Zip 25.00). A 7z whose CONTENT is encrypted but whose names are not
+  (the common case) lists without a password, so nothing fails early; extracted with no `-p`,
+  which is how Prism says "no password", 7-Zip prints "Enter password (will not be echoed):"
+  and reads stdin, which for a Node child is an open pipe nobody writes to. It sat there for
+  the hour the timeout allows. Before #166 that was a chip that never finished; under #166 it
+  was a modal window over the whole app with a bar that never moved, and the archive panel's
+  own password question was never asked, because the 'password' answer it waits for never
+  came. Every 7-Zip run has its stdin CLOSED now, so the prompt reads end-of-file and 7-Zip
+  stops at once ("Break signaled"), and `sevenFailReason` reads the prompt, matched whole, as
+  a password being wanted. The e2e drives both engines through it: the verb row shows the
+  window's error with the password sentence, and a member row's verb closes the window
+  quietly, asks, asks again on a wrong answer, and extracts on the right one.
+  The e2e's big archive is slow by CODEC, not by size, MEASURED: 800MB of stored random data
+  extracts here in 534ms, which is a race; 160MB of base64 packed with PPMd, whose decoder is
+  as slow as its encoder, takes twenty seconds whatever the disk does. Built once under
+  `.e2e/big`. Found on the way: "Extract folder to..." handed over each member's path, so the
+  landing rule flattened the folder into a pile of files; it names the folder now. Properties on a zip reports what it
   holds, how much it saved, and its encryption (2026-08-22).
 - **Folder navigation**: from the opened file, page through sibling viewable files (arrow
   keys). The navigation-scope filter (all / group / per-type, 2026-07-31) was REMOVED

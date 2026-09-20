@@ -28,7 +28,7 @@ import {
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
-import { buildFixtures, OTHER_ROOT } from './fixtures.mjs'
+import { BIG, buildBigFixtures, buildFixtures, OTHER_ROOT } from './fixtures.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -1767,13 +1767,17 @@ async function treeVerbsScenario(fixtures) {
     // ---- and it actually extracts ---------------------------------------
     await rowFor('wrapped.zip').click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    await win.locator('[role="menu"] >> text="Extract here"').click()
-    // No popup any more (owner, 2026-09-03): the job reports in the
-    // sidebar's chip, which shows while it runs and steps down when done.
-    await win.waitForSelector('[data-job-chip]', { timeout: 8000 })
-    ok(true, 'Extract here runs and reports in the chip')
-    await win.waitForSelector('[data-job-chip]', { state: 'detached', timeout: 30000 })
-    await sleep(600)
+    // The extraction WINDOW (owner, 2026-09-19, #166), superseding the chip
+    // of 2026-09-03: the tree row's verb is one more way in to the same
+    // window every other route raises, and it is held to the same things.
+    await throughTheWindow(win, 'the tree row, Extract here', 'wrapped.zip', () =>
+      win.locator('[role="menu"] >> text="Extract here"').click()
+    )
+    ok(
+      (await win.locator('[data-job-chip]').count()) === 0,
+      'and it no longer reports in the job chip'
+    )
+    await win.waitForSelector('[role="treeitem"][data-row$="Collection" i]', { timeout: 8000 })
     // `Collection`, not `wrapped`: the ONE-FOLDER RULE hoists an archive whose
     // whole content is a single top-level folder rather than burying it under
     // another named after the archive.
@@ -2286,6 +2290,681 @@ async function comicScenario(fixtures) {
  * Uses "Extract here", which needs no dialog: the archive's own folder is
  * already inside a root, so there is nothing to consent to.
  */
+/* ----- the extraction window (#166) ----- */
+
+const XWIN = '[data-extract-window]'
+
+/**
+ * Watch the extraction window from INSIDE the page, armed before the verb is
+ * pressed.
+ *
+ * A small fixture extracts in a few milliseconds, so the window is up for its
+ * minimum showing (700ms) and no longer: a test that waits for it and THEN
+ * presses Escape is racing the window's own exit, and passes or fails on the
+ * machine's mood. So the probe does its poking at the instant of the mount:
+ * an Escape aimed at the box and one at the body, and a press on the scrim
+ * outside the box, through the same listeners a real key and a real mouse
+ * reach. Then it notes whether the window was still up two frames later, every
+ * phase it went through, and when it left. The big-archive scenario does the
+ * same with REAL input, where there is time for it.
+ */
+async function armExtractProbe(win) {
+  await win.evaluate((sel) => {
+    window.__xw?.obs?.disconnect()
+    const x = (window.__xw = { phases: [], error: null })
+    const look = () => {
+      const el = document.querySelector(sel)
+      if (el) {
+        const phase = el.getAttribute('data-phase')
+        if (x.phases[x.phases.length - 1] !== phase) x.phases.push(phase)
+        if (phase === 'failed') x.error = el.querySelector('[data-extract-error]')?.textContent ?? ''
+      }
+      if (el && !x.mounted) {
+        x.mounted = performance.now()
+        x.title = el.querySelector('h2')?.textContent ?? ''
+        x.dest = el.querySelector('[data-extract-dest]')?.textContent ?? ''
+        x.inert = document.getElementById('root')?.hasAttribute('inert') ?? false
+        for (const target of [el, document.body])
+          target.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+          )
+        const scrim = el.parentElement
+        for (const type of ['mousedown', 'mouseup', 'click'])
+          scrim.dispatchEvent(
+            new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 6, clientY: 6 })
+          )
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            x.survived = !!document.querySelector(sel)
+          })
+        )
+      }
+      if (!el && x.mounted && !x.gone) x.gone = performance.now()
+    }
+    x.obs = new MutationObserver(look)
+    x.obs.observe(document.body, { childList: true, subtree: true, attributes: true })
+    look()
+  }, XWIN)
+}
+
+/** Wait for the probed window to have come AND gone, and say what it saw. */
+async function extractProbe(win, timeout = 60000) {
+  await win.waitForFunction(() => !!window.__xw?.gone, null, { timeout })
+  return win.evaluate(() => {
+    const { obs, ...rest } = window.__xw
+    obs.disconnect()
+    return { ...rest, shownFor: rest.gone - rest.mounted }
+  })
+}
+
+/**
+ * One route, start to finish: the window appears, cannot be dismissed, names
+ * the archive, and closes BY ITSELF with no error. What landed on disk is the
+ * caller's to check, since every route lands somewhere different.
+ */
+async function throughTheWindow(win, label, archiveName, trigger) {
+  await armExtractProbe(win)
+  await trigger()
+  let r
+  try {
+    r = await extractProbe(win)
+  } catch {
+    const seen = await win.evaluate(() => JSON.stringify({ ...window.__xw, obs: undefined }))
+    ok(false, `${label}: the extraction window appears and then leaves (${seen})`)
+    return null
+  }
+  ok(!!r.mounted, `${label}: the extraction window appears`)
+  ok(
+    r.title === `Extracting ${archiveName}`,
+    `${label}: and names the archive (${JSON.stringify(r.title)})`
+  )
+  ok(/^to .+/.test(r.dest), `${label}: and where it is going (${JSON.stringify(r.dest)})`)
+  ok(r.inert === true, `${label}: the app behind it is inert`)
+  ok(r.survived === true, `${label}: Escape and a press outside leave it up`)
+  // 700ms is the window's own minimum showing. Dismissed by the probe it
+  // would have gone inside a frame, so this is the same assertion again from
+  // the other side, read off the design constant and not off a sleep.
+  ok(r.shownFor >= 650, `${label}: it stayed until the work let it go (${Math.round(r.shownFor)}ms)`)
+  ok(
+    !r.phases.includes('failed') && !r.phases.includes('cancelling'),
+    `${label}: and closed by itself, with no error (${r.phases.join(' > ')}${r.error ? ': ' + r.error : ''})`
+  )
+  ok((await win.locator('[role="dialog"]').count()) === 0, `${label}: finishing raises no second dialog`)
+  return r
+}
+
+/** Main's folder picker, answered: "Extract to..." asks in a native dialog,
+ *  which nothing can drive, so the answer is planted in main instead. */
+async function answerFolderDialog(app, dir) {
+  await app.evaluate(({ dialog }, d) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [d] })
+  }, dir)
+}
+
+/** The row menu of one archive member, opened. */
+async function openMemberMenu(win, name) {
+  await win.locator('[data-arc-row]', { hasText: name }).first().click({ button: 'right' })
+  await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+}
+
+/**
+ * EVERY WAY OF EXTRACTING, ONE WINDOW (2026-09-19, #166).
+ *
+ * Owner: "there are so many options to extract, and some use different
+ * methods. I would like it to just be one kind of view that appears." Each
+ * route is driven through the control a person uses (the verb row, the row
+ * menus, the panel's own menu, main's folder dialog answered for the two that
+ * ask), on BOTH engines, and each is held to the same five things. The tree
+ * row's verb is in `treeVerbs` and the drag onto a sidebar folder is in
+ * `drag`, beside the rest of what those scenarios prove.
+ */
+async function extractWindowScenario(fixtures) {
+  console.log('one extraction window, every route')
+  const zips = join(fixtures, 'zips')
+  const picked = join(fixtures, 'zips', 'picked')
+  const leftovers = () =>
+    readdirSync(zips).filter((n) => n.startsWith('.prism-extract-'))
+  const clean = () => {
+    rmSync(picked, { recursive: true, force: true })
+    for (const n of readdirSync(zips))
+      if (/^(Collection|one|sub|note|wrapped|read-only)( \(\d+\))?(\.txt)?$/.test(n))
+        rmSync(join(zips, n), { recursive: true, force: true })
+  }
+  clean()
+  mkdirSync(picked, { recursive: true })
+
+  // ---- a zip: the in-process engine ------------------------------------
+  {
+    const { app, win } = await launch(join(zips, 'wrapped.zip'))
+    try {
+      await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+      await answerFolderDialog(app, picked)
+
+      await throughTheWindow(win, 'zip, Extract to… on the verb row', 'wrapped.zip', () =>
+        win.click('button:has-text("Extract to")')
+      )
+      ok(
+        existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
+        'and the archive landed in the folder that was picked'
+      )
+
+      // The panel's own menu, on its dead space.
+      const list = await win.locator('[data-arc-list]').boundingBox()
+      await throughTheWindow(win, "zip, Extract here on the panel's menu", 'wrapped.zip', async () => {
+        await win.mouse.click(list.x + list.width / 2, list.y + list.height - 12, { button: 'right' })
+        await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+        await win.locator('[role="menu"] >> text="Extract here"').click()
+      })
+      ok(existsSync(join(zips, 'Collection', 'one.txt')), 'and it landed beside the archive')
+
+      // A FOLDER row: "Extract folder here" stages beside the archive and
+      // renames across, which is a different route from the members' one.
+      await throughTheWindow(win, 'zip, Extract folder here', 'wrapped.zip', async () => {
+        await openMemberMenu(win, 'Collection')
+        await win.locator('[role="menu"] >> text="Extract folder here"').click()
+      })
+      ok(
+        existsSync(join(zips, 'Collection (2)', 'sub', 'two.txt')),
+        'the folder landed beside the first, never over it'
+      )
+
+      // Into an EMPTY picked folder, so what is asserted is the route and not
+      // how a name that is already taken gets resolved.
+      rmSync(join(picked, 'Collection'), { recursive: true, force: true })
+      await throughTheWindow(win, 'zip, Extract folder to…', 'wrapped.zip', async () => {
+        await openMemberMenu(win, 'Collection')
+        await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+      })
+      ok(
+        existsSync(join(picked, 'Collection', 'sub', 'two.txt')),
+        'and the folder landed in the picked one, shape intact'
+      )
+
+      // A FILE row, both verbs. Walk into the folder first.
+      await win.locator('[data-arc-row]', { hasText: 'Collection' }).first().dblclick()
+      await win.waitForSelector('[data-arc-row]:has-text("one.txt")', { timeout: 5000 })
+      await throughTheWindow(win, 'zip, Extract here on a member', 'wrapped.zip', async () => {
+        await openMemberMenu(win, 'one.txt')
+        await win.locator('[role="menu"] >> text="Extract here"').click()
+      })
+      ok(
+        readFileSync(join(zips, 'one.txt'), 'utf8') === 'first',
+        'the member landed beside the archive, byte for byte'
+      )
+      await throughTheWindow(win, 'zip, Extract to… on a member', 'wrapped.zip', async () => {
+        await openMemberMenu(win, 'one.txt')
+        await win.locator('[role="menu"] >> text="Extract to…"').click()
+      })
+      ok(existsSync(join(picked, 'one.txt')), 'and in the picked folder')
+      ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
+      ok(
+        (await win.locator('[data-job-chip]').count()) === 0,
+        'and none of it went near the job chip, which is for pastes now'
+      )
+    } finally {
+      await app.close()
+    }
+  }
+  await sleep(900)
+
+  // ---- a 7z: the bundled 7-Zip -----------------------------------------
+  clean()
+  mkdirSync(picked, { recursive: true })
+  {
+    const { app, win } = await launch(join(zips, 'read-only.7z'))
+    try {
+      await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+      await answerFolderDialog(app, picked)
+
+      await throughTheWindow(win, '7z, Extract here on the verb row', 'read-only.7z', () =>
+        win.click('button:has-text("Extract here")')
+      )
+      ok(
+        existsSync(join(zips, 'read-only', 'note.txt')) &&
+          existsSync(join(zips, 'read-only', 'sub', 'deep.txt')),
+        'the whole 7z landed in a folder named after it'
+      )
+
+      await throughTheWindow(win, '7z, Extract to… on the verb row', 'read-only.7z', () =>
+        win.click('button:has-text("Extract to")')
+      )
+      ok(existsSync(join(picked, 'read-only', 'sub', 'deep.txt')), 'and in the picked folder')
+
+      await throughTheWindow(win, '7z, Extract folder here', 'read-only.7z', async () => {
+        await openMemberMenu(win, 'sub')
+        await win.locator('[role="menu"] >> text="Extract folder here"').click()
+      })
+      ok(existsSync(join(zips, 'sub', 'deep.txt')), 'the folder landed beside the archive')
+
+      // The members' route on 7-Zip stages INSIDE the destination and lands by
+      // rename, so what is checked is the file AND that the staging has gone.
+      await throughTheWindow(win, '7z, Extract here on a member', 'read-only.7z', async () => {
+        await openMemberMenu(win, 'note.txt')
+        await win.locator('[role="menu"] >> text="Extract here"').click()
+      })
+      ok(
+        /hello from inside a 7z/.test(readFileSync(join(zips, 'note.txt'), 'utf8')),
+        'the member landed beside the archive'
+      )
+      await throughTheWindow(win, '7z, Extract folder to…', 'read-only.7z', async () => {
+        await openMemberMenu(win, 'sub')
+        await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+      })
+      ok(existsSync(join(picked, 'sub', 'deep.txt')), 'and a folder in the picked one')
+      ok(leftovers().length === 0, `no staging folder is left behind (${leftovers().join(', ')})`)
+      ok(
+        readdirSync(picked).filter((n) => n.startsWith('.prism-extract-')).length === 0,
+        'in the picked folder either'
+      )
+
+      // The temp extraction that VIEWS a member stays silent: no window.
+      await armExtractProbe(win)
+      await win.locator('[data-arc-row]', { hasText: 'note.txt' }).first().dblclick()
+      await win.waitForFunction(() => /hello from inside a 7z/.test(document.body.innerText), null, {
+        timeout: 15000
+      })
+      ok(
+        (await win.evaluate(() => !window.__xw.mounted)) === true,
+        'viewing a member raises no extraction window: that one is not a write the user can see'
+      )
+    } finally {
+      await app.close()
+      clean()
+    }
+  }
+}
+
+/** Our own 7-Zip children: the ones working on the big box, not every 7z on
+ *  the machine. */
+function sevenZipsOnTheBox() {
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Get-CimInstance Win32_Process -Filter "Name='7z.exe'" | ` +
+          `Where-Object { $_.CommandLine -like '*e2e*big*box*' } | Measure-Object | ` +
+          '%{ $_.Count }'
+      ],
+      { encoding: 'utf8', windowsHide: true }
+    )
+    return Number(out.trim()) || 0
+  } catch {
+    return -1
+  }
+}
+
+/** Poll until `fn()` is truthy. A condition, never a sleep-then-look. */
+async function until(fn, timeout = 15000, every = 150) {
+  const end = Date.now() + timeout
+  for (;;) {
+    const v = await fn()
+    if (v) return v
+    if (Date.now() > end) return v
+    await sleep(every)
+  }
+}
+
+/** Every path under `dir`, relative, sorted: what "the disk is as it was"
+ *  is compared on. */
+function treeOf(dir, rel = '') {
+  const out = []
+  for (const e of readdirSync(join(dir, rel), { withFileTypes: true })) {
+    const p = rel ? `${rel}/${e.name}` : e.name
+    out.push(p)
+    if (e.isDirectory()) out.push(...treeOf(dir, p))
+  }
+  return out.sort()
+}
+
+/**
+ * CANCEL, AND THE ERROR (2026-09-19, #166), on archives slow enough to be
+ * caught in the act (`buildBigFixtures`: PPMd, twenty seconds to extract).
+ *
+ * Owner, of the button asked for the same day: no X, Escape and clicking
+ * outside do nothing, and Cancel stops the extraction and cleans up what was
+ * half written. So with REAL keys and a REAL mouse this time: the window
+ * shows real progress, shrugs off Escape, a click outside and the shortcuts
+ * that would have reached the app behind it; then Cancel, on each of the three
+ * shapes of clean-up (a landing folder, a staging folder beside the archive, a
+ * staging folder inside a picked destination) and on the in-process engine;
+ * and after each one the 7-Zip process is gone and the folder is, path for
+ * path, what it was before, the user's own files included.
+ */
+async function extractCancelScenario() {
+  console.log('cancelling an extraction, and one that fails')
+  const { big, many, corrupt, locked7z, lockedZip } = await buildBigFixtures()
+  const box = join(BIG, 'box')
+  rmSync(box, { recursive: true, force: true })
+  mkdirSync(join(box, 'Big'), { recursive: true })
+  mkdirSync(join(box, 'picked', 'Big'), { recursive: true })
+  // The user's OWN files, under the very names the archives are about to use.
+  writeFileSync(join(box, 'keep.txt'), 'mine, and staying')
+  writeFileSync(join(box, 'Big', 'mine.txt'), 'in a folder the archive also has')
+  writeFileSync(join(box, 'picked', 'Big', 'mine.txt'), 'and one in the picked folder')
+  for (const [from, name] of [
+    [big, 'big.7z'],
+    [many, 'many.zip'],
+    [corrupt, 'corrupt.7z'],
+    [locked7z, 'locked.7z'],
+    [lockedZip, 'locked.zip']
+  ])
+    copyFileSync(from, join(box, name))
+  const before = treeOf(box)
+  const untouched = (label) => {
+    const now = treeOf(box)
+    const extra = now.filter((p) => !before.includes(p))
+    const lost = before.filter((p) => !now.includes(p))
+    ok(extra.length === 0, `${label}: nothing half-written is left (${extra.slice(0, 4).join(', ')})`)
+    ok(lost.length === 0, `${label}: and nothing that was there is gone (${lost.join(', ')})`)
+    ok(
+      readFileSync(join(box, 'keep.txt'), 'utf8') === 'mine, and staying' &&
+        readFileSync(join(box, 'Big', 'mine.txt'), 'utf8') === 'in a folder the archive also has' &&
+        readFileSync(join(box, 'picked', 'Big', 'mine.txt'), 'utf8') === 'and one in the picked folder',
+      `${label}: the files that were there before are byte for byte what they were`
+    )
+  }
+  const pctNow = (win) =>
+    win.evaluate((sel) => Number(document.querySelector(sel)?.getAttribute('data-extract-pct') || -1), XWIN)
+  /** Wait until the window is up and the bar has MOVED, then press Cancel and
+   *  wait for the window to go. Answers the phases it went through. */
+  const cancelMidFlight = async (win, label, { seven }) => {
+    await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
+    await win.waitForFunction(
+      (sel) => Number(document.querySelector(sel)?.getAttribute('data-extract-pct') || 0) >= 1,
+      XWIN,
+      { timeout: 30000 }
+    )
+    if (seven)
+      ok((await until(() => sevenZipsOnTheBox() > 0, 8000)) > 0, `${label}: 7-Zip is running`)
+    const at = await pctNow(win)
+    ok(at >= 1 && at < 100, `${label}: caught mid-flight, at ${at}%`)
+    await win.locator('[data-extract-cancel]').click()
+    // The window says it is cancelling until main has finished cleaning up,
+    // or goes at once when that took no time at all: either is right, and
+    // what must NOT appear is an error.
+    await win.waitForSelector(XWIN, { state: 'detached', timeout: 30000 })
+    ok(
+      (await win.locator('[role="dialog"]').count()) === 0,
+      `${label}: Cancel closes the window, with no error in its place`
+    )
+    if (seven)
+      ok(
+        (await until(() => sevenZipsOnTheBox() === 0, 8000)) === true,
+        `${label}: and the 7-Zip process is gone (${sevenZipsOnTheBox()} left)`
+      )
+    untouched(label)
+  }
+
+  const { app, win } = await launch(join(box, 'big.7z'))
+  try {
+    await win.waitForSelector('[data-arc-row]', { timeout: 15000 })
+    await answerFolderDialog(app, join(box, 'picked'))
+    const tabs = () => win.locator('[role="tablist"] [role="tab"]').count()
+    const tabsBefore = await tabs()
+
+    // ---- it cannot be dismissed: real keys, a real mouse ------------------
+    await win.click('button:has-text("Extract here")')
+    await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
+    // Progress is REAL: a number, that grows, and the member being written.
+    await win.waitForFunction(
+      (sel) => Number(document.querySelector(sel)?.getAttribute('data-extract-pct') || 0) >= 1,
+      XWIN,
+      { timeout: 30000 }
+    )
+    const first = await pctNow(win)
+    await win.waitForFunction(
+      ([sel, was]) => Number(document.querySelector(sel)?.getAttribute('data-extract-pct') || 0) > was,
+      [XWIN, first],
+      { timeout: 30000 }
+    )
+    ok(true, `the percentage is real and it grows (${first}% -> ${await pctNow(win)}%)`)
+    const fileLine = (await win.locator('[data-extract-file]').textContent()) ?? ''
+    ok(/part-\d+\.txt/.test(fileLine), `the member being written is named (${fileLine})`)
+    const fill = await win.evaluate(() => {
+      const f = document.querySelector('[data-extract-fill]').getBoundingClientRect()
+      const t = document.querySelector('[role="progressbar"]').getBoundingClientRect()
+      return f.width / t.width
+    })
+    ok(fill > 0 && fill < 1, `and the bar is part full (${(fill * 100).toFixed(0)}% of its track)`)
+    await win.screenshot({ path: join(SHOTS, 'extract-window-running.png') })
+
+    const size = await win.evaluate(() => ({ w: innerWidth, h: innerHeight }))
+    await win.keyboard.press('Escape')
+    await win.mouse.click(12, size.h - 12)
+    await win.mouse.click(size.w - 12, size.h - 12)
+    await win.keyboard.press('Escape')
+    // The shortcuts that would have reached the app behind it: close the tab,
+    // bin the row, open a new tab, hide the sidebar.
+    for (const k of ['Control+w', 'Delete', 'Control+t', 'Control+b', 'Backspace'])
+      await win.keyboard.press(k)
+    ok(
+      (await win.locator(`${XWIN}[data-phase="running"]`).count()) === 1,
+      'Escape, clicks outside and the app shortcuts leave it up and running'
+    )
+    ok((await tabs()) === tabsBefore, 'Ctrl+W and Ctrl+T did not reach the tabs behind it')
+    ok((await win.locator('aside').count()) === 1, 'and Ctrl+B did not hide the sidebar')
+    ok((await win.locator('[role="dialog"]').count()) === 1, 'Delete raised no question behind it')
+    ok(
+      await win.evaluate(() => document.getElementById('root').hasAttribute('inert')),
+      'the app behind it is inert'
+    )
+    // The verb row is under the scrim: a click aimed at "Extract to…" lands
+    // on the scrim and starts nothing.
+    const under = await win.evaluate((sel) => {
+      const b = [...document.querySelectorAll('button')].find((x) => /Extract to/.test(x.textContent))
+      const r = b.getBoundingClientRect()
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      return !!hit?.closest(sel)?.parentElement || !!hit?.querySelector(sel)
+    }, XWIN)
+    ok(under, 'a click aimed at a verb behind it lands on the window instead')
+    ok(
+      (await win.locator(`${XWIN} button`).count()) === 1 &&
+        (await win.locator(`${XWIN} button`).textContent()) === 'Cancel',
+      'and its one control is Cancel: no X'
+    )
+
+    // ---- Cancel: the landing folder (Extract here, whole archive) ---------
+    await cancelMidFlight(win, 'Extract here', { seven: true })
+
+    // ---- Cancel: staging beside the archive (Extract folder here) ---------
+    await openMemberMenu(win, 'Big')
+    await win.locator('[role="menu"] >> text="Extract folder here"').click()
+    await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
+    ok(
+      (await until(() => readdirSync(box).some((n) => n.startsWith('.prism-extract-')), 8000)) === true,
+      'Extract folder here: it stages beside the archive while it works'
+    )
+    await cancelMidFlight(win, 'Extract folder here', { seven: true })
+
+    // ---- Cancel: staging inside the picked folder (Extract folder to…) ----
+    await openMemberMenu(win, 'Big')
+    await win.locator('[role="menu"] >> text="Extract folder to…"').click()
+    await win.waitForSelector(`${XWIN}[data-phase="running"]`, { timeout: 20000 })
+    ok(
+      (await until(
+        () => readdirSync(join(box, 'picked')).some((n) => n.startsWith('.prism-extract-')),
+        8000
+      )) === true,
+      'Extract folder to…: it stages inside the destination while it works'
+    )
+    await cancelMidFlight(win, 'Extract folder to…', { seven: true })
+
+    // ---- Cancel: the in-process engine, slow by count ---------------------
+    await win.locator('aside [role="treeitem"]', { hasText: 'many.zip' }).first().click()
+    await win.waitForSelector('[data-arc-row]:has-text("Many")', { timeout: 15000 })
+    await win.click('button:has-text("Extract here")')
+    await cancelMidFlight(win, 'a zip, Extract here', { seven: false })
+
+    // ---- a FAILURE turns the same window into the error -------------------
+    await win.locator('aside [role="treeitem"]', { hasText: 'corrupt.7z' }).first().click()
+    await win.waitForSelector('[data-arc-row]:has-text("b-bad.txt")', { timeout: 15000 })
+    await win.click('button:has-text("Extract here")')
+    await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
+    const title = (await win.locator(`${XWIN} h2`).textContent()) ?? ''
+    const said = (await win.locator('[data-extract-error]').textContent()) ?? ''
+    ok(title === "Couldn't extract corrupt.7z", `a failure is the same window, retitled (${title})`)
+    ok(/ERROR|CRC|Data Error/i.test(said), `and it carries 7-Zip's own line (${said})`)
+    ok(
+      (await win.locator(`${XWIN} button`).count()) === 1 &&
+        (await win.locator(`${XWIN} button`).textContent()) === 'Close',
+      'its one control is Close'
+    )
+    // Close reads as a button from the FIRST frame. The first screenshot of
+    // this state showed grey text on the accent: the node had been Cancel a
+    // moment before, and its colour was still fading across.
+    const closeLook = await win.evaluate(() => {
+      const b = document.querySelector('[data-extract-close]')
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--p-on-accent)'
+      document.body.appendChild(probe)
+      const want = getComputedStyle(probe).color
+      probe.remove()
+      return { got: getComputedStyle(b).color, want }
+    })
+    ok(
+      closeLook.got === closeLook.want,
+      `Close wears the on-accent colour at once, not Cancel's fading out (${closeLook.got} vs ${closeLook.want})`
+    )
+    await win.screenshot({ path: join(SHOTS, 'extract-window-error.png') })
+    await win.keyboard.press('Escape')
+    await win.mouse.click(12, size.h - 12)
+    ok(
+      (await win.locator(`${XWIN}[data-phase="failed"]`).count()) === 1,
+      'Escape and a click outside leave the error up as well'
+    )
+    await win.locator('[data-extract-close]').click()
+    await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
+    ok(
+      !(await win.evaluate(() => document.getElementById('root').hasAttribute('inert'))),
+      'Close takes it away, and the app is live again'
+    )
+    // A failure keeps what came out before it: that file is good.
+    ok(
+      existsSync(join(box, 'corrupt', 'a-good.txt')),
+      'the member that extracted before the failure is kept'
+    )
+
+    // ---- and the error can be closed FROM THE KEYBOARD --------------------
+    // Cancel and Close are two elements, so a failure arriving while the focus
+    // was on Cancel dropped it onto `body`, where the key guard swallows Tab,
+    // Enter and Space: an error only a mouse could close. The corrupt archive
+    // fails inside a few milliseconds, far too fast to Tab in by hand, so the
+    // focus is planted on Cancel from inside the page at the instant it
+    // mounts, which is where a person's Tab would have put it.
+    await win.evaluate(() => {
+      window.__cancelHadFocus = false
+      const obs = new MutationObserver(() => {
+        const b = document.querySelector('[data-extract-cancel]')
+        // Cancel has gone: that is the failure, and the last word on where
+        // the focus was stays as it is.
+        if (!b) return window.__cancelHadFocus ? obs.disconnect() : undefined
+        if (document.activeElement !== b) b.focus()
+        window.__cancelHadFocus = document.activeElement === b
+      })
+      obs.observe(document.body, { childList: true, subtree: true, attributes: true })
+    })
+    await win.click('button:has-text("Extract here")')
+    await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
+    ok(
+      (await win.evaluate(() => window.__cancelHadFocus)) === true,
+      'the second failure arrived with the focus on Cancel'
+    )
+    ok(
+      (await win.waitForFunction(
+        (sel) => !!document.activeElement?.closest(sel),
+        XWIN,
+        { timeout: 5000 }
+      ).then(() => true, () => false)) === true,
+      'and the focus is back inside the window, not lost on the body'
+    )
+    await win.keyboard.press('Tab')
+    ok(
+      (await win.evaluate(() => document.activeElement?.hasAttribute('data-extract-close'))) === true,
+      'Tab reaches Close'
+    )
+    await win.keyboard.press('Enter')
+    await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
+    ok(true, 'and Enter closes the error: no mouse needed')
+
+    // ---- A PASSWORD, on both engines (found missing in review) -------------
+    // The window answers a password two ways, on purpose. A route that cannot
+    // ask (the verb row's Extract here) shows the ERROR, with the sentence
+    // that says where a password is typed. A route that asks and tries again
+    // (a member row) must see the window close QUIETLY, so the question is
+    // not put up on top of an error. The 7z half is also the proof that
+    // 7-Zip is never left waiting at its own "Enter password" prompt, which
+    // with stdin open it did for ever: the window would sit in `running`
+    // until the waits below timed out.
+    const PASS = 'input[aria-label="Archive password"]'
+    for (const name of ['locked.7z', 'locked.zip']) {
+      const mark = treeOf(box)
+      await win.locator('aside [role="treeitem"]', { hasText: name }).first().click()
+      await win.waitForSelector('[data-arc-row]:has-text("vault")', { timeout: 15000 })
+
+      await win.click('button:has-text("Extract here")')
+      await win.waitForSelector(`${XWIN}[data-phase="failed"]`, { timeout: 30000 })
+      const why = (await win.locator('[data-extract-error]').textContent()) ?? ''
+      ok(
+        /password protected/i.test(why),
+        `${name}, Extract here with no password: the window says it is protected (${why})`
+      )
+      await win.locator('[data-extract-close]').click()
+      await win.waitForSelector(XWIN, { state: 'detached', timeout: 5000 })
+      const strays = treeOf(box).filter((p) => !mark.includes(p))
+      ok(
+        strays.length === 0,
+        `${name}: and the refused extraction left nothing behind (${strays.join(', ')})`
+      )
+
+      await win.locator('[data-arc-row]', { hasText: 'vault' }).first().dblclick()
+      await win.waitForSelector('[data-arc-row]:has-text("secret.txt")', { timeout: 5000 })
+      await armExtractProbe(win)
+      await openMemberMenu(win, 'secret.txt')
+      await win.locator('[role="menu"] >> text="Extract here"').click()
+      await win.waitForSelector(PASS, { timeout: 30000 })
+      const seen = await win.evaluate(() => window.__xw.phases)
+      ok(
+        !seen.includes('failed'),
+        `${name}, a member's Extract here: the password is ASKED, with no error under the question (${seen.join(' > ')})`
+      )
+      ok(
+        (await win.locator(XWIN).count()) === 0 && (await win.locator('[role="dialog"]').count()) === 1,
+        `${name}: and the question is the only thing up`
+      )
+      await win.fill(PASS, 'nope')
+      await win.keyboard.press('Enter')
+      await win.waitForFunction(() => /didn't open/.test(document.body.innerText), null, {
+        timeout: 30000
+      })
+      ok(true, `${name}: a wrong password asks again, and says so`)
+      ok(
+        !existsSync(join(box, 'secret.txt')),
+        `${name}: and nothing was written with the wrong one`
+      )
+      await win.fill(PASS, 'letmein')
+      await win.keyboard.press('Enter')
+      const landed = await until(
+        () =>
+          existsSync(join(box, 'secret.txt')) &&
+          /the secret, out in the open/.test(readFileSync(join(box, 'secret.txt'), 'utf8')),
+        30000
+      )
+      ok(landed === true, `${name}: the right password extracts the member`)
+      await win.waitForSelector(XWIN, { state: 'detached', timeout: 10000 })
+      ok(
+        (await win.locator('[role="dialog"]').count()) === 0,
+        `${name}: and the window closes by itself afterwards, with nothing in its place`
+      )
+      rmSync(join(box, 'secret.txt'), { force: true })
+    }
+  } finally {
+    await app.close()
+    rmSync(box, { recursive: true, force: true })
+  }
+}
+
 async function extractScenario(fixtures) {
   console.log('extracting')
   const zip = join(fixtures, 'zips', 'wrapped.zip')
@@ -2302,16 +2981,16 @@ async function extractScenario(fixtures) {
       (await win.locator('button:has-text("Extract to")').count()) === 1,
       'and Extract to... beside it'
     )
-    // The inline track is GONE (2026-09-03, owner): extraction progress is
-    // the same self-dismissing popup the sidebar's verb shows, so the layout
-    // has nothing to move. Still measured, because "it looks fine" is
-    // exactly how the jump got shipped the first time.
+    // The inline track is GONE (2026-09-03, owner), and since 2026-09-19
+    // (#166) extraction progress is ONE window over the app, whichever verb
+    // started it, so the layout has nothing to move. Still measured, because
+    // "it looks fine" is exactly how the jump got shipped the first time.
     const listTop = async () =>
       win.evaluate(() => document.querySelector('[data-arc-row]').getBoundingClientRect().top)
     const beforeTop = await listTop()
     ok(
       (await win.locator('[role="progressbar"]').count()) === 0,
-      'no inline progress track: the popup is the one look'
+      'no inline progress track: the extraction window is the one look'
     )
     // The first row starts ON the header's hairline: no gutter above it.
     const gap = await win.evaluate(() => {
@@ -2320,13 +2999,13 @@ async function extractScenario(fixtures) {
       return row.getBoundingClientRect().top - list.getBoundingClientRect().top
     })
     ok(Math.abs(gap) < 0.6, `the first row sits on the header hairline (${gap.toFixed(2)}px)`)
-    await win.click('button:has-text("Extract here")')
-    await win.waitForFunction(
-      () => !document.body.textContent.includes('Extracting'),
-      null,
-      { timeout: 30000 }
+    await throughTheWindow(win, 'zip, Extract here on the verb row', 'wrapped.zip', () =>
+      win.click('button:has-text("Extract here")')
     )
-    await sleep(600)
+    ok(
+      (await win.locator('button:has-text("Extracting")').count()) === 0,
+      'no button reads "Extracting...": the window is the one thing that says so'
+    )
     const afterTop = await listTop()
     ok(
       Math.abs(afterTop - beforeTop) < 0.5,
@@ -5517,11 +6196,14 @@ async function dragScenario(fixtures) {
     try {
       await win.waitForSelector('[role="listbox"] [role="option"]', { timeout: 10000 })
       await sleep(600)
-      await win
-        .locator('[role="listbox"] [role="option"]', { hasText: 'carry.txt' })
-        .first()
-        .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
-      await sleep(1800)
+      // The drag used to show NOTHING while it extracted (#166): it is the
+      // same window now as every other way of extracting.
+      await throughTheWindow(win, 'a member dragged onto a sidebar folder', 'dragzip.zip', () =>
+        win
+          .locator('[role="listbox"] [role="option"]', { hasText: 'carry.txt' })
+          .first()
+          .dragTo(win.locator('aside [role="treeitem"]:has-text("out")').first())
+      )
       ok(existsSync(join(out, 'carry.txt')), 'a member dragged out of the zip landed in the folder')
       // A FOLDER dragged onto the tab strip opens as a tab of its own.
       const tabsBefore = await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
@@ -6837,6 +7519,8 @@ await run(handoffOverTermScenario)
 await run(promptLayoutScenario)
 await run(archiveScenario)
 await run(extractScenario)
+await run(extractWindowScenario)
+await run(extractCancelScenario)
 await run(flatZipScenario)
 await run(comicScenario)
 await run(folderArgScenario)

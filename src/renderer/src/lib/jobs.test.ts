@@ -9,7 +9,7 @@ describe('the job queue behind the chip (2026-09-03)', () => {
   afterEach(() => vi.useRealTimers())
 
   it('jobs queue in the order they started and leave when they end', () => {
-    const a = startJob('extract', 'Extracting one.zip')
+    const a = startJob('add', 'Adding to one.zip')
     const b = startJob('paste', 'Copying')
     expect(listJobs().map((j) => j.id)).toEqual([a, b])
     vi.advanceTimersByTime(MIN_SHOW_MS + 1)
@@ -20,8 +20,8 @@ describe('the job queue behind the chip (2026-09-03)', () => {
   })
 
   it('progress lands on the right job and starts indeterminate', () => {
-    const a = startJob('extract', 'Extracting one.zip')
-    const b = startJob('extract', 'Extracting two.zip')
+    const a = startJob('add', 'Adding to one.zip')
+    const b = startJob('add', 'Adding to two.zip')
     expect(listJobs()[0].pct).toBeNull()
     updateJob(b, 40)
     expect(listJobs().find((j) => j.id === a)?.pct).toBeNull()
@@ -32,12 +32,12 @@ describe('the job queue behind the chip (2026-09-03)', () => {
     expect(chipSummary([])).toBeNull()
     const a = startJob('paste', 'Copying')
     updateJob(a, 12)
-    startJob('extract', 'Extracting story.cbz')
+    startJob('add', 'Adding to story.cbz')
     startJob('add', 'Adding to bundle.zip')
     expect(chipSummary(listJobs())).toEqual({ label: 'Copying', pct: 12, more: 2 })
     vi.advanceTimersByTime(MIN_SHOW_MS + 1)
     endJob(a)
-    expect(chipSummary(listJobs())).toEqual({ label: 'Extracting story.cbz', pct: null, more: 1 })
+    expect(chipSummary(listJobs())).toEqual({ label: 'Adding to story.cbz', pct: null, more: 1 })
   })
 
   it('a job that finishes inside a frame still shows for the minimum, at 100%', () => {
@@ -69,7 +69,7 @@ describe('the job queue behind the chip (2026-09-03)', () => {
   })
 
   it('a job that ran long enough leaves at once', () => {
-    const a = startJob('extract', 'Extracting big.7z')
+    const a = startJob('add', 'Adding to big.7z')
     vi.advanceTimersByTime(MIN_SHOW_MS * 3)
     endJob(a)
     expect(listJobs()).toHaveLength(0)
