@@ -1547,6 +1547,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Update chip** (title bar, right of the file name): one shape for every state, and it never
   changes width - the chip IS the progress bar, filling with accent from the left as the
   download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
+  IT LEADS THE BAR'S RIGHT-HAND GROUP (2026-09-20, #179; owner: "update button in prism should
+  be the left most button, right now it has the remote button to its left"): chip, then Tools,
+  then the pencil and the cog. Tools was built to its LEFT (#104) and that is superseded. The
+  chip is the one control there that comes and goes, and between two that stay its arrival
+  moved Tools sideways; at the head it takes room only from the file's name, which truncates.
+  `updateWindow` measures the order off the boxes.
   **A CLICK OPENS THE UPDATE WINDOW, IT NO LONGER INSTALLS** (2026-09-19, #168; owner: "when
   you click the Update badge, it opens like a pop window, which shows the change log or like
   patch notes for the new update, and then you can choose cancel or install"). This SUPERSEDES

@@ -8098,6 +8098,22 @@ async function updateWindowScenario(fixtures) {
     ok((await dialog.count()) === 0, 'and nothing opens by itself')
     const width0 = await chip.evaluate((el) => el.getBoundingClientRect().width)
     const left0 = await chip.evaluate((el) => el.getBoundingClientRect().left)
+    // The chip LEADS the bar's right-hand group (owner, 2026-09-20, #179: "right
+    // now it has the remote button to its left"). Measured off the boxes rather
+    // than read off the markup's order, since a flex `order` or a reversed row
+    // would move one without the other.
+    const order = await win.evaluate(() => {
+      const bar = document.querySelector('[data-title-bar]')
+      const box = (sel) => bar?.querySelector(sel)?.getBoundingClientRect() ?? null
+      const c = box('[data-update-chip]')
+      const t = box('[aria-label="Tools"]')
+      const s = box('[aria-label="Settings"]')
+      return c && t && s ? { chipRight: c.right, toolsLeft: t.left, toolsRight: t.right, settingsLeft: s.left } : null
+    })
+    ok(
+      order !== null && order.chipRight <= order.toolsLeft && order.toolsRight <= order.settingsLeft,
+      `the chip is the leftmost of the group: chip, then Tools, then Settings (${JSON.stringify(order)})`
+    )
     await shot('update-chip-dark')
 
     // What an install would leave behind, read BEFORE anything is clicked.

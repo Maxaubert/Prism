@@ -335,10 +335,23 @@ function TopBar({
         />
       )}
       {pos && <span className="text-[var(--p-dim)]">{pos}</span>}
+      {/* The update chip: a quiet pill, present only while there is something
+          to install, and the SAME component as Prism Terminal's (#168). The
+          rule it was built to keep is this bar's own (owner pick from 12
+          mockups, 2026-08-24): the chip IS the progress bar, one shape for
+          every state, and it never changes width. A click opens the update
+          window; it no longer installs. IT LEADS THE GROUP (owner,
+          2026-09-20, #179: "update button in prism should be the left most
+          button, right now it has the remote button to its left"): the one
+          control in the bar that comes and goes should not sit BETWEEN two
+          that stay, where its arrival pushes Tools sideways from under the
+          pointer. At the head of the group it only ever takes room from the
+          file's name, which truncates. */}
+      {!setup && chip}
       {/* Tools (2026-09-06, #104): a menu of things that are not about the
           open file. One row today, Phone; the button exists so the next
-          one has a home. Left of the update chip, glyph only like its
-          neighbours. */}
+          one has a home. Glyph only like its neighbours, and RIGHT of the
+          update chip since 2026-09-20 (#179): it was built to its left. */}
       {!setup && (
         <button
           className="no-drag grid h-7 w-8 shrink-0 place-items-center rounded text-[var(--p-icon)] transition-colors hover:bg-white/10 hover:text-[var(--p-text)]"
@@ -366,13 +379,6 @@ function TopBar({
           </svg>
         </button>
       )}
-      {/* The update chip: a quiet pill, present only while there is something
-          to install, and the SAME component as Prism Terminal's (#168). The
-          rule it was built to keep is this bar's own (owner pick from 12
-          mockups, 2026-08-24): the chip IS the progress bar, one shape for
-          every state, and it never changes width. A click opens the update
-          window; it no longer installs. */}
-      {!setup && chip}
       <div className="no-drag flex items-center gap-1">
         {!setup && editable && (
           <button
