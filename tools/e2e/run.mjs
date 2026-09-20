@@ -989,6 +989,7 @@ async function helpPanelScenario(fixtures) {
     const look = await win.evaluate(() => {
       const el = document.querySelector('[data-help-panel]')
       const code = document.querySelector('[data-help-id="ps-biggest-files"] [data-help-command]')
+      void code
       const copy = document.querySelector('[data-help-copy="ps-biggest-files#0"]').getBoundingClientRect()
       const box = el.getBoundingClientRect()
       const alpha = (c) => Number((c.match(/[\d.]+/g) ?? [])[3] ?? 1)
@@ -999,7 +1000,11 @@ async function helpPanelScenario(fixtures) {
         alpha: alpha(getComputedStyle(el).backgroundColor),
         // Tailwind generates nothing for a class it never saw: index.css names
         // the core package as a source, and these are what that buys.
-        codePad: parseFloat(getComputedStyle(code).paddingLeft),
+        // The core is a TABLE since 2026-09-20 (PrismTerminal #34), so the
+        // proof that Tailwind generated its classes moved off the old command
+        // box onto the row: `h-[34px]` and `px-4` are the core's own.
+        rowH: Math.round(document.querySelector('[data-help-row]').getBoundingClientRect().height),
+        rowPad: parseFloat(getComputedStyle(document.querySelector('[data-help-row]')).paddingLeft),
         copyW: Math.round(copy.width),
         copyH: Math.round(copy.height)
       }
@@ -1007,14 +1012,17 @@ async function helpPanelScenario(fixtures) {
     ok(look.w >= 480 && look.w <= 780 && look.h >= 320, `the popup is a popup-sized box (${look.w}x${look.h})`)
     ok(look.inside, 'wholly inside the window')
     ok(look.alpha === 1, `on an opaque surface (alpha ${look.alpha})`)
-    ok(look.codePad >= 8 && look.copyW >= 28 && look.copyH >= 28, `the core's classes are styled here (command padding ${look.codePad}px, copy button ${look.copyW}x${look.copyH})`)
+    ok(
+      look.rowH >= 28 && look.rowPad >= 12 && look.copyW >= 26 && look.copyH >= 26,
+      `the core's classes are styled here (row ${look.rowH}px tall, ${look.rowPad}px padding, copy button ${look.copyW}x${look.copyH})`
+    )
 
     /* ----- copy ----- */
-    const want = await win.locator('[data-help-id="ps-biggest-files"] [data-help-variant="0"] [data-help-command]').textContent()
+    const want = await win.locator('[data-help-id="ps-biggest-files"][data-help-variant="0"] [data-help-command]').textContent()
     await win.locator('[data-help-copy="ps-biggest-files#0"]').click()
     ok(
-      await until(async () => (await win.locator('[data-help-id="ps-biggest-files"] [data-help-copied]').count()) === 1, 4000, 25),
-      'the copy button answers in place'
+      await until(async () => (await win.locator('[data-help-copy="ps-biggest-files#0"]').getAttribute('title')) === 'Copied', 4000, 25),
+      'the copy button answers in place, in the button itself'
     )
     ok(
       !!want && /Sort-Object/.test(want) && (await until(async () => (await clip()) === want, 4000, 50)),
@@ -1022,20 +1030,17 @@ async function helpPanelScenario(fixtures) {
     )
     // Enter copies the highlighted entry, from the search field.
     await win.locator('[data-help-search]').focus()
+    const markedAt = () => win.evaluate(() => Number(document.querySelector('[data-help-active]')?.getAttribute('data-help-index') ?? -1))
+    const markedBefore = await markedAt()
     await win.keyboard.press('ArrowDown')
-    const second = await until(
-      () =>
-        win.evaluate(() => {
-          const a = document.querySelector('[data-help-active]')
-          return a?.getAttribute('data-help-index') === '1' ? a.getAttribute('data-help-id') : null
-        }),
-      4000,
-      50
-    )
-    ok(!!second, `Down moves to the second result (${second})`)
-    const wantSecond = await win.locator(`[data-help-id="${second}"] [data-help-variant="0"] [data-help-command]`).textContent()
+    const to = await until(async () => {
+      const n = await markedAt()
+      return n >= 0 && n !== markedBefore ? n : null
+    }, 4000, 50)
+    ok(to === markedBefore + 1 || (markedBefore === -1 && to === 0), `Down moves the mark one row (${markedBefore} -> ${to})`)
+    const wantSecond = await win.locator(`[data-help-index="${to}"] [data-help-command]`).textContent()
     await win.keyboard.press('Enter')
-    ok(!!wantSecond && (await until(async () => (await clip()) === wantSecond, 4000, 50)), "Enter copies the highlighted entry's command")
+    ok(!!wantSecond && (await until(async () => (await clip()) === wantSecond, 4000, 50)), "Enter copies the marked row's command")
 
     /* ----- nothing was typed into the shell ----- */
     ok((await termText()) === termBefore, 'the terminal is EXACTLY as it was: nothing was typed or run')
@@ -1131,10 +1136,15 @@ async function helpPanelScenario(fixtures) {
     await shot('help-browse-light')
     await win.keyboard.type('delete a folder')
     ok(await until(async () => (await firstId()) === 'ps-delete-folder', 6000, 50), `"delete a folder" finds it (${await firstId()})`)
-    const danger = ((await win.locator('[data-help-id="ps-delete-folder"] [data-help-danger]').textContent()) ?? '').trim()
+    // The warning is a MARK on the row since the core became a table: one row
+    // per command, so every variant of a destructive entry carries it. The
+    // sentence is still there, for the pointer and for a screen reader.
+    const dangerMark = win.locator('[data-help-id="ps-delete-folder"][data-help-variant="0"] [data-help-danger]')
+    const danger = ((await dangerMark.textContent()) ?? '').trim()
     ok(/^Careful\./.test(danger), 'and it carries its warning')
+    ok((await dangerMark.locator('svg').count()) === 1, 'drawn as a mark, not a paragraph')
     await win.locator('[data-help-copy="ps-delete-folder#0"]').click()
-    await until(async () => (await win.locator('[data-help-copied]').count()) === 1, 4000, 25)
+    await until(async () => (await win.locator('[data-help-copy="ps-delete-folder#0"]').getAttribute('title')) === 'Copied', 4000, 25)
     await shot('help-results-light')
     const ink = await win.evaluate(() => {
       const lum = (c) => {
@@ -2030,7 +2040,12 @@ async function iconSchemeScenario(fixtures) {
     await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
     await sleep(700)
 
-    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all. bundle.zip is
+    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all, and since
+    // 2026-09-20 that colour is the STYLE'S: --p-tree-zip, which IS the folder
+    // token (owner: "just like folders, they should follow the same setting").
+    // Read as the token rather than a hex, because the point is that it moves
+    // with the style; the unit tests measure what the token resolves to.
+    // bundle.zip is
     // the open row, so it is selected and must be the fallback; the others are
     // not, and must be coloured.
     const open = await icon('bundle.zip')
@@ -2040,7 +2055,17 @@ async function iconSchemeScenario(fixtures) {
 
     const zip = await icon('wrapped.zip')
     ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
-    ok(zip.page === '#8b8be2', `and takes the archive colour (${zip.page})`)
+    ok(zip.page === 'var(--p-tree-zip)', `and takes the style's own container colour (${zip.page})`)
+    const sameAsFolders = await win.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement)
+      return {
+        zip: cs.getPropertyValue('--p-tree-zip').trim(),
+        folder: cs.getPropertyValue('--p-tree-folder').trim(),
+        ink: cs.getPropertyValue('--p-tree-zip-ink').trim()
+      }
+    })
+    ok(sameAsFolders.zip === sameAsFolders.folder && !!sameAsFolders.zip, `which is the FOLDER colour, the same setting (${sameAsFolders.zip})`)
+    ok(/^#[0-9a-f]{6}$/i.test(sameAsFolders.ink), `with a measured ink for the seam on it (${sameAsFolders.ink})`)
     ok(zip.band === '#000000', `on a black band (${zip.band})`)
     ok(zip.label === 'ZIP', `carrying its own extension (${zip.label})`)
 
@@ -2056,7 +2081,7 @@ async function iconSchemeScenario(fixtures) {
     // on its band.
     const disc = await icon('disc.iso')
     ok(disc !== null && disc.masked, 'a .iso is coloured like the other archives')
-    ok(disc.page === '#8b8be2' && disc.label === 'ISO', `in the archive colour with ISO on the band (${disc?.page}, ${disc?.label})`)
+    ok(disc.page === 'var(--p-tree-zip)' && disc.label === 'ISO', `in the same container colour with ISO on the band (${disc?.page}, ${disc?.label})`)
     const round = await win.evaluate(() => {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')

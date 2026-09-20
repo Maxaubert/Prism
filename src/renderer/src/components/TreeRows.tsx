@@ -5,6 +5,7 @@ import { sortFiles, useSort } from '../lib/sortPrefs'
 import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/dragDrop'
 import {
+  ACCENT_LED,
   ICON_COLOURS,
   COMIC_ART,
   COMIC_PAGE,
@@ -206,6 +207,15 @@ export function KindIcon({
     (ICON_ALWAYS_COLOUR.includes(ident) ||
       (scheme === 'colour' && ICON_FULL_COLOUR.includes(ident)))
   const body = colour ? c.page : color
+  // THE CONTAINER IS THE STYLE'S (owner, 2026-09-20; see --p-tree-zip in
+  // theme.ts). In the monochrome scheme a zip and a disc take the FOLDER
+  // colour and the ink that reads on it, instead of the coloured set's indigo.
+  // The COLOURED scheme is left exactly as it is: there every kind is a colour
+  // of its own, matching the .ico Explorer draws, and that parity is its point.
+  // The band stays black under both, so the extension on it is unaffected.
+  const accentLed = colour && scheme !== 'colour' && ACCENT_LED.includes(ident)
+  const pageFill = accentLed ? 'var(--p-tree-zip)' : c.page
+  const markFill = accentLed ? 'var(--p-tree-zip-ink)' : c.mark
   // One mask id per instance. A shared id works right up until the element
   // that defines it unmounts and takes every other icon's silhouette with it.
   const uid = useId()
@@ -285,7 +295,7 @@ export function KindIcon({
             </linearGradient>
           </defs>
           <g mask={`url(#${maskId})`}>
-            <rect x="0" y="0" width="24" height="24" fill={c.page} />
+            <rect x="0" y="0" width="24" height="24" fill={pageFill} />
             <rect x="0" y="0" width="24" height="24" fill={`url(#${glintId})`} />
             {/* THE BAND GOES ON LAST, which is the order the .ico composites in
                 and not a detail. The ARCHIVE's mark is the zip seam and pull,
@@ -294,8 +304,8 @@ export function KindIcon({
                 stops at 10.46 where the band starts at 11.62, so nothing there
                 ever reaches it and the wrong order looks perfectly fine on six
                 of the seven. */}
-            {markPath ? <path d={markPath} fill={c.mark} /> : null}
-            {hiPath ? <path d={hiPath} fill={c.page} /> : null}
+            {markPath ? <path d={markPath} fill={markFill} /> : null}
+            {hiPath ? <path d={hiPath} fill={pageFill} /> : null}
             <path d={g.bleed} fill={c.band} />
           </g>
         </>

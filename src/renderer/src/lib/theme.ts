@@ -78,6 +78,16 @@ export interface Style {
   base?: string
 }
 
+/**
+ * EVERY SHIPPED STYLE SETS IN THE SYSTEM FACE (owner, 2026-09-20: "update all
+ * themes to use the system font by default"). Four of them named one of their
+ * own - Void in Segoe, Terminal in Cascadia Mono, Driftwood and Sandstone in
+ * Calibri, Lilac in Trebuchet - so picking a style silently changed the face
+ * the whole app set in, which is a second decision hidden inside the first.
+ * The FONTS table and the picker are untouched: choosing a face is still the
+ * user's, it is simply no longer made for them. A new preset ships with
+ * `font: 'system'` unless there is a reason in writing here.
+ */
 export type FontId =
   | 'system'
   | 'segoe'
@@ -123,11 +133,15 @@ export const STYLES: Style[] = [
   {
     id: 'aurora',
     name: 'Aurora',
-    blurb: "Glass over deep space. Prism's default.",
+    blurb: "Deep space. Prism's default.",
     mode: 'dark',
-    material: 'acrylic',
-    // 0.6575 is 35 on the Acrylic slider.
-    glass: 0.6575,
+    // SOLID since 2026-09-20 (owner: "update this theme to be non acrylic by
+    // default"). It shipped as acrylic at 35 on the slider, so Prism's own
+    // default style let the desktop through the window it was showing a film
+    // in. The Acrylic control is untouched and starts at 0 here: glass is a
+    // thing to turn on, not a thing to turn off. `glass` is dropped with the
+    // material, since it means nothing on a solid style.
+    material: 'solid',
     bg: '#0b0d12',
     // One surface for the whole window. Turning the glass off shouldn't hand
     // the panel a tone of its own - separation here is the material, or the
@@ -182,7 +196,7 @@ export const STYLES: Style[] = [
     iconMode: 'dim',
     icon: '#8a8e99',
     accent: 's-indigo',
-    font: 'segoe',
+    font: 'system',
     size: '12.5',
     corners: '2',
     // On true black the edge lines are all the separation there is.
@@ -191,7 +205,7 @@ export const STYLES: Style[] = [
   {
     id: 'terminal',
     name: 'Terminal',
-    blurb: 'Mono, green, square.',
+    blurb: 'Green, square.',
     mode: 'dark',
     material: 'solid',
     bg: '#0b0f14',
@@ -201,7 +215,7 @@ export const STYLES: Style[] = [
     iconMode: 'custom',
     icon: '#3f9d54',
     accent: 's-green',
-    font: 'mono',
+    font: 'system',
     size: '12.5',
     corners: '2',
     borders: 'faint'
@@ -219,7 +233,7 @@ export const STYLES: Style[] = [
     iconMode: 'custom',
     icon: '#a1885f',
     accent: 'copper',
-    font: 'calibri',
+    font: 'system',
     size: '12.5',
     corners: '8',
     borders: 'faint'
@@ -228,19 +242,28 @@ export const STYLES: Style[] = [
   {
     id: 'acrylic-red',
     name: 'Ruby',
-    blurb: 'Solid night blue, round corners, crimson.',
+    blurb: 'Near-black, round corners, red.',
     mode: 'dark',
     // Solid since 2026-08-21 (the id predates the change and stays: it is a
     // saved-settings key, not a description).
     material: 'solid',
-    bg: '#101420',
-    side: '#141821',
-    title: '#1a1f2b',
+    // REPAINTED 2026-09-20, the owner's own picks off the Style page: it was a
+    // night blue (#101420) with a crimson accent, and the blue was doing the
+    // work a red style should do itself. Near-black lets the red be the only
+    // colour in the window. bg, side and title are one value because the
+    // material is solid and the one-surface rule derives the panel and the bar
+    // from bg anyway (no sideOwn, no titleOwn): the two below are what the
+    // schematic cards draw.
+    bg: '#0d0d0d',
+    side: '#0d0d0d',
+    title: '#0d0d0d',
     text: '#eceef5',
-    folderIcon: '#ff7092', // owner pick, 2026-08-22
+    // A hex rather than a scheme id: s-crimson is #e01e4a, which is pink
+    // beside this red. Both are the owner's picks.
+    folderIcon: '#dc5656',
     iconMode: 'kind',
     icon: '#8a8e99',
-    accent: 's-crimson',
+    accent: '#e01f1f',
     font: 'system',
     size: '12.5',
     corners: '14',
@@ -305,7 +328,7 @@ const LIGHT: Style[] = [
     iconMode: 'custom',
     icon: '#8a6d45',
     accent: 'd-bronze',
-    font: 'calibri',
+    font: 'system',
     size: '12.5',
     corners: '8',
     borders: 'faint'
@@ -324,7 +347,7 @@ const LIGHT: Style[] = [
     iconMode: 'custom',
     icon: '#6b21a8',
     accent: 'd-plum',
-    font: 'trebuchet',
+    font: 'system',
     size: '12.5',
     corners: '14',
     borders: 'faint'
@@ -641,6 +664,22 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     '--p-tree-folder': folderIconOf(style),
     '--p-tree-file': fileIconOf(style),
     '--p-tree-archive': archiveIconOf(style),
+    // THE CONTAINER FOLLOWS THE FOLDER COLOUR (owner, 2026-09-20: "the zip file
+    // icon should have dynamically adjusting colours based on the accent, just
+    // like folders, they should follow the same setting. and not be hardcoded
+    // blue"). A zip kept ICON_COLOURS' indigo page while every other icon in
+    // the tree was monochrome, so one row in a folder wore a colour nothing in
+    // the style had chosen. It is the FOLDER token itself rather than a second
+    // derivation of the accent: a zip is a container, and "the same setting" is
+    // what was asked for, so the Folder icons picker moves both.
+    '--p-tree-zip': folderIconOf(style),
+    // What is drawn ON that page: the seam and the pull, white or near-black,
+    // THE BETTER OF THE TWO. Not `readableOn`, which is the rule for TEXT on
+    // the accent and leans towards white by 1.4x: on Ruby's own #dc5656 that
+    // leaning picks white at 3.8:1 where near-black reads at 5.0:1, and this
+    // is a mark on an icon rather than a word. The scheme's flat black would
+    // vanish outright the moment somebody picked a dark folder colour.
+    '--p-tree-zip-ink': zipInkOn(folderIconOf(style)),
     '--p-hover': rgba(ink, style.mode === 'light' ? 0.07 : 0.06),
     // The held highlight (a row whose context menu is open): the hover look,
     // five points stronger, so it reads as "this one" rather than "passing by".
@@ -757,6 +796,13 @@ export const fileIconOf = (s: Style): string => {
  *  folder colour - covers the moment before it loads and machines where
  *  Windows has none to give. Not user-facing; the picker was removed
  *  (owner decision 2026-08-22) once the system icon became the icon. */
+/** The ink for a mark drawn on a chosen colour: white or near-black, whichever
+ *  measures better on it. The floor a GRAPHIC has to clear is 3:1, not text's
+ *  4.5:1, and the better of the two clears it on anything the folder picker
+ *  can hand over (a mid-grey, the worst case, measures about 4.4:1). */
+export const zipInkOn = (bg: string): string =>
+  contrast('#ffffff', bg) >= contrast('#0b0d12', bg) ? '#ffffff' : '#0b0d12'
+
 export const archiveIconOf = (s: Style): string => {
   const ground = sideOf(s)
   let c = '#d9a53f'
