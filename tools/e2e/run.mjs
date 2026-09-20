@@ -8097,7 +8097,6 @@ async function updateWindowScenario(fixtures) {
     ok((await shownLabel()) === `Update ${next}`, `it offers the next minor after ${current} ("${await shownLabel()}")`)
     ok((await dialog.count()) === 0, 'and nothing opens by itself')
     const width0 = await chip.evaluate((el) => el.getBoundingClientRect().width)
-    const left0 = await chip.evaluate((el) => el.getBoundingClientRect().left)
     // The chip LEADS the bar's right-hand group (owner, 2026-09-20, #179: "right
     // now it has the remote button to its left"). Measured off the boxes rather
     // than read off the markup's order, since a flex `order` or a reversed row
@@ -8115,6 +8114,58 @@ async function updateWindowScenario(fixtures) {
       `the chip is the leftmost of the group: chip, then Tools, then Settings (${JSON.stringify(order)})`
     )
     await shot('update-chip-dark')
+    // AND THE GROUP STAYS PUT WHEN THE CHIP COMES OR GOES, which is the reason
+    // the comment in TopBar gives for the chip leading it. Measured rather
+    // than argued: the chip's own flex item is taken out of the row and Tools
+    // must not have moved a pixel. (The preview's chip never leaves by itself,
+    // so it is hidden by hand and put back in the same breath.)
+    const toolsShift = await win.evaluate(() => {
+      const bar = document.querySelector('[data-title-bar]')
+      const tools = bar?.querySelector('[aria-label="Tools"]')
+      let item = bar?.querySelector('[data-update-chip]') ?? null
+      while (item && item.parentElement !== bar) item = item.parentElement
+      if (!bar || !tools || !item) return null
+      const withChip = tools.getBoundingClientRect().left
+      const display = item.style.display
+      item.style.display = 'none'
+      const without = tools.getBoundingClientRect().left
+      item.style.display = display
+      return { withChip, without, back: tools.getBoundingClientRect().left }
+    })
+    ok(
+      toolsShift !== null && toolsShift.withChip === toolsShift.without && toolsShift.back === toolsShift.withChip,
+      `Tools does not move when the chip goes or comes back (${JSON.stringify(toolsShift)})`
+    )
+    // AT THE NARROWEST WINDOW PRISM ALLOWS TOO (minWidth 560): the order holds,
+    // nothing in the group overlaps, and the chip has not been pushed over the
+    // "Prism" word to its left. The name is what gives way, as it should.
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(560, 400))
+    await until(() => win.evaluate(() => window.innerWidth <= 600), 4000, 50)
+    const narrow = await win.evaluate(() => {
+      const bar = document.querySelector('[data-title-bar]')
+      const box = (el) => el?.getBoundingClientRect() ?? null
+      const c = box(bar?.querySelector('[data-update-chip]'))
+      const t = box(bar?.querySelector('[aria-label="Tools"]'))
+      const s = box(bar?.querySelector('[aria-label="Settings"]'))
+      const n = box(bar?.querySelector('[data-testid="titlebar-file-name"]'))
+      return c && t && s && n
+        ? { inner: window.innerWidth, nameLeft: n.left, chipLeft: c.left, chipRight: c.right, toolsLeft: t.left, toolsRight: t.right, settingsLeft: s.left }
+        : null
+    })
+    ok(
+      narrow !== null &&
+        narrow.nameLeft <= narrow.chipLeft &&
+        narrow.chipRight <= narrow.toolsLeft &&
+        narrow.toolsRight <= narrow.settingsLeft,
+      `and at the minimum window width: name, chip, Tools, Settings, none overlapping (${JSON.stringify(narrow)})`
+    )
+    await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setSize(w, h), sizeBefore)
+    await until(() => win.evaluate((w) => window.innerWidth >= w - 40, sizeBefore[0]), 4000, 50)
+    // Read AFTER the window is back: on a scaled display a size set and read
+    // back lands a pixel or two off, and what the phases below must not move
+    // is the chip against THIS layout, not against the one before the resize.
+    const left0 = await chip.evaluate((el) => el.getBoundingClientRect().left)
 
     // What an install would leave behind, read BEFORE anything is clicked.
     const updateDirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('prism-update-')).sort().join('|')
