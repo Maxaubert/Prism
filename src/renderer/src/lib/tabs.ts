@@ -408,6 +408,27 @@ export function receiveFile(tabs: readonly Tab[], p: OpenPayload, id: string): T
 }
 
 /**
+ * Where "Open file" lands (#167): the PINNED EXPLORER, brought to the front.
+ *
+ * Explorer's right-click entry on a single file is the one arrival that does
+ * not go through `receiveFile` (owner, asked what it should do: "open file ...
+ * in file explorer, thats probably best rather than a project"). Nothing is
+ * spawned, no project is reused and no root is made: the strip is exactly what
+ * it was, with the Explorer in front. WHICH file that tab then shows is not
+ * decided here - the Explorer opens files through its own desktop grants, and
+ * that is an async ask to main - so this is only the half that is pure.
+ *
+ * Null when there is no pinned Explorer to land in. Main always sends one at
+ * startup and it cannot be closed, so that is not a state anybody should meet;
+ * the caller falls back to the ordinary arriving-file rule rather than
+ * dropping a file somebody asked to see.
+ */
+export function frontPinnedExplorer(tabs: readonly Tab[]): TabState | null {
+  const pinned = tabs.find(isPinnedExplorer)
+  return pinned ? { tabs: tabs.slice(), activeId: pinned.id } : null
+}
+
+/**
  * Point one tab at a different folder, in place.
  *
  * This is what the sidebar's folder button does, as against the strip's `+`:

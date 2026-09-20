@@ -1,5 +1,12 @@
 import { access, rm, writeFile } from 'fs/promises'
-import { installVerb, relabelVerb, removeVerb, verbInstalled, verbRegistered } from './shellVerb'
+import {
+  installVerb,
+  recommandVerb,
+  relabelVerb,
+  removeVerb,
+  verbInstalled,
+  verbRegistered
+} from './shellVerb'
 
 interface Dependencies {
   saidNo: () => Promise<boolean>
@@ -9,6 +16,7 @@ interface Dependencies {
   install: () => Promise<boolean>
   remove: () => Promise<boolean>
   relabel: () => Promise<boolean>
+  recommand: () => Promise<boolean>
 }
 
 /** Startup repair, status and explicit changes share one queue. */
@@ -34,7 +42,8 @@ export function createShellVerbSetting(
     installed: () => verbInstalled(options.exe),
     install: () => installVerb(options.exe),
     remove: () => removeVerb(),
-    relabel: () => relabelVerb(options.exe)
+    relabel: () => relabelVerb(options.exe),
+    recommand: () => recommandVerb(options.exe)
   }
   // Whether this launch has already settled what the labels say. Settings asks
   // for the status every time its page opens, and a relabel check is six
@@ -64,12 +73,18 @@ export function createShellVerbSetting(
           // inside the queue, so an explicit off cannot race it. A failure is
           // swallowed: the switch reports what the REGISTRY says, and an old
           // label on a working verb is still a verb that is on.
+          //
+          // AND ITS COMMAND (2026-09-20, #167): "Open file" asks for the
+          // Explorer tab through a switch in its command, and the same
+          // survivors would keep the command that makes a project. Same gate,
+          // same launch, same queue, and `recommandVerb` holds the same narrow
+          // rule. Each is tried on its own, so a label that could not be
+          // written does not cost the command its turn.
           if (options.automatic && !labelsSettled) {
             labelsSettled = true
-            try {
-              if (!(await deps.saidNo())) await deps.relabel()
-            } catch {
-              /* an old label on a working verb: see above */
+            if (!(await deps.saidNo().catch(() => true))) {
+              await deps.relabel().catch(() => false)
+              await deps.recommand().catch(() => false)
             }
           }
           return true

@@ -540,7 +540,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   empty window. EXACT ROOT ONLY (owner, 2026-09-04, reversing 2026-09-01's containing-root
   fold): that fold put a Downloads file into a tab rooted at the user's folder and moved
   that tab's view, and an agent's tab is the one you least want moved under you. A file
-  from a subfolder of an open tab opens its own tab; separate folders, separate tabs. Tabs persist
+  from a subfolder of an open tab opens its own tab; separate folders, separate tabs. (ONE door
+  is excepted since 2026-09-20, #167: Explorer's right-click "Open file" shows the file in the
+  pinned Explorer tab and makes no project. See the shell verb's passage.) Tabs persist
   in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
   (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
   collapses everything - a file six folders down came back in the viewer with NOTHING marked
@@ -1512,6 +1514,34 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   no, once per launch rather than on every Settings open (six reg.exe spawns), and inside
   the setting's one queue so an explicit off cannot race it. It compares against the CURRENT
   label rather than a list of old ones, so the next rewording needs nothing new.)
+  **AND "OPEN FILE" SHOWS THE FILE IN THE EXPLORER TAB** (2026-09-20, #167 part two; owner,
+  asked what that entry should do: "open file, but im not sure if it should be opened in file
+  explorer, thats probably best rather than a project"). THAT ONE ENTRY AND NOTHING ELSE: a
+  double-click, "Open with", a bare command line and a drop still make the file's folder a
+  project, and the arriving-file rule and EXACT ROOT ONLY govern them as before. The four
+  doors used to share one command line, so Prism could not tell them apart; the file verb's
+  command now carries a switch, `"Prism.exe" --explorer-tab "%1"` (`argv.ts`, read by PRESENCE
+  because Chromium reorders switches on a handoff), and the two folder verbs never do. Main
+  BUILDS NOTHING for it - `buildPayload` registers the folder as a root, which is a project's
+  folder and a phone share, and the route exists so that looking at one file makes neither -
+  and sends `{ explorerFile }`; the window brings the PINNED Explorer to the front
+  (`frontPinnedExplorer`, pure) and makes the Explorer's own full-view open, the call a Quick
+  access file pin makes. So the Explorer WALKS to the file's folder (Back returns, then Back
+  again to where it was), a second file replaces the first, no tab is made, nothing new comes
+  back next launch and no terminal is warmed there. A film still plays (#139). ALWAYS the
+  Explorer, even with a project on that folder open: one answer is easier to learn than two,
+  and it is an open question in the PR. The changed command means `verbInstalled` (word for
+  word what THIS build writes) and `verbRegistered` (a working Prism menu, switch or not)
+  came apart, and a surviving registration gets its one stale command rewritten by
+  `recommandVerb`, `relabelVerb`'s twin under the same narrow rule (on, all three keys, this
+  exe, and only a command that was read and recognised as Prism's own). The options not
+  taken, every file from outside and none at all, and what the first would break (about
+  eighty e2e launches wait for a selected TREE row) are in
+  `docs/superpowers/specs/2026-09-19-open-file-in-explorer.md`. Proved in `openFileExplorer`,
+  both halves: the switch lands in the Explorer as a handoff and as a cold start, and a plain
+  launch and a plain handoff afterwards still make a project. The real menu entry is NOT
+  proved by any test, since nothing may write the owner's registry: the e2e starts Prism with
+  the entry's exact command line and the unit tests pin its text.
   ON by default since
   2026-08-31 (owner decision), switched in Settings > General. THE ONE FACT STORED IS THE NO
   (`shell-verb-off` in userData, since 2026-09-03, #93; corrected here 2026-09-20, this

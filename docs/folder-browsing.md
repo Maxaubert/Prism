@@ -22,6 +22,11 @@ strip and keeps desktop browsing separate from phone sharing.
   action starts empty regardless of the startup preference, and stays empty after restart until
   a file is selected. For a file, its containing folder becomes the project
   and that file opens. Explorer location and existing sessions stay where they were.
+- "Open file" in Windows' right-click menu shows the file in the pinned Explorer's full view and
+  walks that Explorer to the file's folder; Back returns to the folder with the file selected.
+  No project tab is made. A double-click, Open with and the command line still open the file
+  in a project rooted at its folder. The options considered are in
+  [the #167 note](superpowers/specs/2026-09-19-open-file-in-explorer.md).
 - The sidebar button toggles places and drives in Explorer, and the folder tree in project tabs.
   Project files and terminals retain the original viewer layout, without the path bar, folder
   browser or terminal browsing controls. Restored project browse state cannot expose Explorer.

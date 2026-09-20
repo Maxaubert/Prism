@@ -36,7 +36,7 @@ import {
   warmDwmHelper
 } from './dwmHelper'
 import { Readable } from 'stream'
-import { pathsFromArgv } from './argv'
+import { arrivalsFromArgv, type ArrivingPath } from './argv'
 import { createWinEShortcut } from './winEShortcut'
 import { createWinERequests, winERequest } from './winERequests'
 import {
@@ -679,7 +679,7 @@ const preferencesReady = new Promise<void>((resolve) => {
   preferencesLoaded = resolve
 })
 const winERequests = createWinERequests((id) => mainWindow?.webContents.send('win-e:open', id))
-let pendingOpen: Array<{ path: string; dir: boolean }> = []
+let pendingOpen: ArrivingPath[] = []
 let startupRestored = false
 /** Subtitle files the user chose in the dialog: reading those is allowed
  *  wherever they live, because choosing them in main's own dialog is the
@@ -696,7 +696,25 @@ let agentBusy = false
 /** The user has answered the "unsaved changes" question: let the close through. */
 let closeConfirmed = false
 
-async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
+async function sendOpen(target: ArrivingPath): Promise<void> {
+  // "Open file" from Explorer's menu (#167): the file is for the pinned
+  // Explorer tab, not for a project. NOTHING IS BUILT HERE, and that is the
+  // point: `buildPayload` registers the file's folder as a ROOT, which is a
+  // project's folder and a phone share, and this route exists so that looking
+  // at one file makes neither. The renderer takes the path to its Explorer
+  // tab, which asks for that folder through the desktop grants the way a
+  // Quick access file pin does. `root` is filled in only so the payload keeps
+  // its shape; nothing reads it on this route.
+  if (target.explorer && !target.dir) {
+    if (existsSync(target.path) && mainWindow)
+      mainWindow.webContents.send('open:file', {
+        files: [],
+        index: -1,
+        root: dirname(target.path),
+        explorerFile: resolve(target.path)
+      } satisfies OpenPayload)
+    return
+  }
   // Came from outside: it becomes the root. A folder roots there and tells the
   // renderer so, which is what lets the "New tabs show" setting decide whether
   // that lands on the first file, a terminal, or nothing.
@@ -1412,7 +1430,7 @@ if (!app.requestSingleInstanceLock()) {
     // when nothing is on offer: a preview never replaces a real update, nor one
     // that is part way through its install.
     if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
-    const paths = pathsFromArgv(argv)
+    const paths = arrivalsFromArgv(argv)
     if (!startupRestored) pendingOpen.push(...paths)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
@@ -1431,7 +1449,7 @@ if (!app.requestSingleInstanceLock()) {
     }
   })
 
-  pendingOpen = pathsFromArgv(process.argv)
+  pendingOpen = arrivalsFromArgv(process.argv)
   const shortcutRequest = winERequest(process.argv)
   if (shortcutRequest) winERequests.enqueue(shortcutRequest)
 

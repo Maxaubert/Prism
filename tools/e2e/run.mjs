@@ -278,13 +278,19 @@ async function launchOnce(file, keepTabs = false) {
   await win.waitForLoadState('domcontentloaded')
   await offscreen(app)
   const want = /[^\\/]*$/.exec(file)?.[0] ?? file
+  // "Open file" (#167) lands in the pinned Explorer, which has no tree and so
+  // no selected tree row to wait for: left on the ordinary wait, that launch
+  // would sit out the whole fifteen seconds and then carry on as if settled.
+  // Its own sign of arrival is the file's name at the end of the path bar.
+  const inExplorer = EXTRA_ARGS.includes('--explorer-tab')
   await win
     .waitForFunction(
-      (name) =>
-        document
-          .querySelector('[role="treeitem"][aria-selected="true"]')
-          ?.textContent?.includes(name) ?? false,
-      want,
+      ([name, explorer]) =>
+        (explorer
+          ? document.querySelector('.browse-file-crumb')
+          : document.querySelector('[role="treeitem"][aria-selected="true"]')
+        )?.textContent?.includes(name) ?? false,
+      [want, inExplorer],
       { timeout: 15000 }
     )
     .catch(() => {})
@@ -3939,10 +3945,12 @@ async function stillsAndSubsScenario(fixtures) {
  * exits. Nothing test-only is involved, which is the point - this IS the route
  * a new tab is supposed to come in through.
  */
-async function handoff(file) {
-  const child = spawn(electronPath, [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', file], {
-    stdio: 'ignore'
-  })
+async function handoff(file, switches = []) {
+  const child = spawn(
+    electronPath,
+    [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', ...switches, file],
+    { stdio: 'ignore' }
+  )
   await new Promise((done) => {
     child.on('exit', done)
     setTimeout(done, 6000) // it should quit on its own; never hang the suite
@@ -5774,6 +5782,138 @@ async function gearScenario(fixtures) {
     ok((await tabCount()) === withSettings, 'never a second settings tab')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * "Open file", Explorer's right-click entry on a single file, shows the file
+ * in the pinned EXPLORER tab (2026-09-20, #167); everything else that hands
+ * Prism a file still makes its folder a project.
+ *
+ * Both halves are asserted, because the second is the one that matters to
+ * everybody who never touches that menu entry: the route is one switch on one
+ * command line (`--explorer-tab`, which is exactly what the registry command
+ * carries - shellVerb.test.ts pins the text), and a launch WITHOUT it has to
+ * be what it always was. Nothing here touches the registry: the scenario
+ * launches Prism the way the verb would, which is all the verb does.
+ */
+async function openFileExplorerScenario(fixtures) {
+  console.log('"Open file" lands in the Explorer tab; a plain launch does not')
+  const settled = (locator, timeout = 10000) =>
+    locator.waitFor({ timeout }).then(() => true, () => false)
+  const projectTabs = (win) => win.locator('[data-tab-role="project"]').count()
+  const frontTab = (win) =>
+    win.evaluate(() => {
+      const tab = document.querySelector('[role="tab"][aria-selected="true"]')
+      const cell = tab?.closest('[data-tab-role]')
+      return {
+        role: cell?.getAttribute('data-tab-role') ?? null,
+        pinned: cell?.hasAttribute('data-pinned') ?? false,
+        label: tab?.textContent?.trim() ?? '',
+        at: tab?.getAttribute('title') ?? ''
+      }
+    })
+
+  // 1. A PLAIN LAUNCH IS UNCHANGED: the file's folder becomes a project, the
+  //    tree marks the file, and the Explorer tab stays where it was, behind.
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    ok(
+      await settled(win.locator('[role="treeitem"][aria-selected="true"]', { hasText: 'README.md' })),
+      'a plain launch still marks the file in a project tree'
+    )
+    let front = await frontTab(win)
+    ok(front.role === 'project' && !front.pinned, 'in a project tab, in front')
+    ok(front.label === 'fixtures', 'rooted at the folder the file is in')
+    ok((await projectTabs(win)) === 1, 'one project tab, beside the pinned Explorer')
+    ok((await win.locator('[data-pinned]').count()) === 1, 'and the Explorer tab is still there')
+
+    // 2. THE SAME HANDOFF WITH THE SWITCH: the verb's own command line. The
+    //    file is in ANOTHER folder, which under the ordinary rule would spawn
+    //    a project tab called "code".
+    await handoff(join(fixtures, 'code', 'main.py'), ['--explorer-tab'])
+    ok(
+      await settled(win.locator('[data-pinned] [role="tab"][aria-selected="true"]')),
+      '"Open file" brings the pinned Explorer to the front'
+    )
+    ok(
+      await settled(win.locator('.browse-file-crumb', { hasText: 'main.py' })),
+      'showing the file, named at the end of the path bar'
+    )
+    ok(await settled(win.locator('.cm-content')), 'in the ordinary viewer for its kind')
+    ok(
+      (await win.getByTestId('folder-browser').count()) === 0,
+      'in full view: the file has the room, not the folder list'
+    )
+    front = await frontTab(win)
+    ok(/[\\/]code$/i.test(front.at), 'and the Explorer has walked to the folder the file is in')
+    ok((await projectTabs(win)) === 1, 'NO project tab was made for that folder')
+    ok(
+      (await win.locator('[role="tab"]', { hasText: /^code$/ }).count()) === 0,
+      'nothing in the strip is called "code"'
+    )
+    await win.screenshot({ path: join(SHOTS, 'open-file-explorer.png') })
+
+    // The folder is one Back away, with the file marked in it: the Explorer
+    // was walked there, not replaced.
+    await win.getByTestId('browse-toolbar').getByRole('button', { name: 'Back', exact: true }).click()
+    ok(await settled(win.getByTestId('folder-browser')), 'Back returns to the folder the file is in')
+    ok(
+      await settled(win.locator('[data-browse-path$="main.py"][aria-selected="true"]')),
+      'with that file selected in the list'
+    )
+    await win.screenshot({ path: join(SHOTS, 'open-file-explorer-folder.png') })
+    // And one more Back is where the Explorer was before the file arrived:
+    // the walk is an entry in its history, so nothing was lost by it.
+    await win.getByTestId('browse-toolbar').getByRole('button', { name: 'Back', exact: true }).click()
+    ok(
+      await settled(win.locator('[data-pinned] [role="tab"][title$="fixtures"]')),
+      'and Back again is where the Explorer was before the file arrived'
+    )
+
+    // 3. AND A PLAIN HANDOFF AFTERWARDS IS STILL A PROJECT, from the very
+    //    folder the Explorer was just walked to: the switch is the route, not
+    //    a mode the app was left in.
+    await handoff(join(fixtures, 'code', 'hello.sh'))
+    ok(
+      await settled(win.locator('[role="treeitem"][aria-selected="true"]', { hasText: 'hello.sh' })),
+      'a plain handoff afterwards still marks its file in a project tree'
+    )
+    front = await frontTab(win)
+    ok(front.role === 'project' && front.label === 'code', 'in a project tab of its own, "code"')
+    ok((await projectTabs(win)) === 2, 'which makes two projects: nothing was folded into the Explorer')
+  } finally {
+    await app.close()
+  }
+
+  // 4. A COLD START WITH THE SWITCH, which is the order that could go wrong:
+  //    the file is queued in main before the renderer exists, and has to wait
+  //    for the restored Explorer tab it lands in. A film, because a file
+  //    Windows hands over is a pick and a pick PLAYS (#139) on this route too.
+  await sleep(900) // let the single-instance lock go
+  EXTRA_ARGS = ['--explorer-tab']
+  let cold
+  try {
+    cold = await launch(join(fixtures, 'ep1.mp4'))
+  } finally {
+    EXTRA_ARGS = []
+  }
+  try {
+    const w = cold.win
+    ok(
+      await settled(w.locator('[data-pinned] [role="tab"][aria-selected="true"]')),
+      'a cold "Open file" starts in the pinned Explorer'
+    )
+    ok(await settled(w.locator('.browse-file-crumb', { hasText: 'ep1.mp4' })), 'showing the film')
+    ok((await projectTabs(w)) === 0, 'and the strip holds no project at all')
+    ok(
+      await w
+        .waitForFunction(() => document.querySelector('video')?.paused === false, null, { timeout: 10000 })
+        .then(() => true, () => false),
+      'playing: it was picked, not restored'
+    )
+  } finally {
+    await cold.app.close()
   }
 }
 
@@ -8209,6 +8349,7 @@ await run(extractCancelScenario)
 await run(flatZipScenario)
 await run(comicScenario)
 await run(folderArgScenario)
+await run(openFileExplorerScenario)
 await run(gearScenario)
 await run(pauseScenario)
 await run(playOnOpenScenario)
