@@ -1545,8 +1545,34 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   activating it instead of pressing what it landed on. The brief always-on-top is the
   documented way past that, and it is dropped in the same breath.
 - **Update chip** (title bar, right of the file name): one shape for every state, and it never
-  changes width - the chip IS the progress bar, filling with accent from the left as the
-  download runs (owner pick from 12 mockups, 2026-08-24). Only shown when an update exists.
+  changes width. Only shown when an update exists. It WAS the progress bar, filling with accent
+  from the left (owner pick from 12 mockups, 2026-08-24); that is SUPERSEDED:
+  **IT IS FILLED IN THE ACCENT, AND THE UPDATE WINDOW STAYS FOR THE INSTALL AND DRAWS THE BAR**
+  (2026-09-20, #178, the core's #32; owner: "have the update available button be accented
+  colour. and when you click install keep me with the panel open and have the progress bar
+  straight there, kind of like the way extract works for zip files in prism"). The chip is one
+  label at one width, filled with `--p-sel-bg` (the accent moved until `--p-on-accent` clears
+  4.5:1; the raw accent is only held to 3:1). The window's track is always in the layout and
+  only fades in, the archive panel's own rule: `updateWindow` samples the box every 25ms through
+  a whole install and it never changes size. While it runs the USER cannot put it away; Cancel
+  cancels the DOWNLOAD (`update:cancel`: one AbortController per run in main, passed to fetch
+  and the write, the partial installer removed with its temp folder) and is disabled once the
+  installer has the file. A cancel says nothing; a failure or a preview's end is said on the
+  status line IN the window (Close / Install again), and the line under the chip survives only
+  for an ending with the window hidden. Do not rebuild the chip-as-progress-bar or a window
+  that closes on Install. THE NOTES ARE SORTED UNDER HEADINGS (same day; owner: "headers bug
+  fixes, new features, so on... not like a git commit", "dont have the changelog inside a
+  container", and of the "This is a preview" line, "dont show this text"): the core's
+  `shared/releaseGroups` files the parser's plain strings under New features / Improvements /
+  Bug fixes / Under the hood, takes off a commit-type prefix and the trailing "(#31)", and the
+  list sits on the dialog's own ground with no box. It only moves and trims strings; the
+  plain-text rule below is untouched.
+  IT LEADS THE BAR'S RIGHT-HAND GROUP (2026-09-20, #179; owner: "update button in prism should
+  be the left most button, right now it has the remote button to its left"): chip, then Tools,
+  then the pencil and the cog. Tools was built to its LEFT (#104) and that is superseded. The
+  chip is the one control there that comes and goes, and between two that stay its arrival
+  moved Tools sideways; at the head it takes room only from the file's name, which truncates.
+  `updateWindow` measures the order off the boxes.
   **A CLICK OPENS THE UPDATE WINDOW, IT NO LONGER INSTALLS** (2026-09-19, #168; owner: "when
   you click the Update badge, it opens like a pop window, which shows the change log or like
   patch notes for the new update, and then you can choose cancel or install"). This SUPERSEDES
@@ -1558,8 +1584,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   chip was built to keep THIS bar's rule, and found that the old inline chip did not: the
   shape was one but the WIDTH was not, since the pill was sized by a label that went from
   "Update 0.56.0" to "7%". Every label is laid out in one grid cell now and only the one that
-  applies is visible; `updateWindow` samples the width through a whole install (111.007px in
-  every phase, left edge never moving). What is PRISM'S OWN:
+  applies is visible (one label only since #178, which is the same rule kept more simply);
+  `updateWindow` samples the width through a whole install, left edge never moving. What is
+  PRISM'S OWN:
   - **Where to look**: `src/main/update.ts` (the repo, the installer's name, the other-windows
     guard). It returns the release BODY as `notes`, RAW, only the head of it
     (`MAX_BODY_CHARS`), anything but a string read as no notes.
@@ -1577,7 +1604,10 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
     question reads "Stop the agent and install the update?" / "Install and restart" now (the
     core's wording): it used to borrow "close the window?", a question about something the
     user did not ask for. ONE QUESTION AT A TIME: any `ask` raised while the update window is
-    up closes it, because a question mounted under it took the focus where nobody could see it.
+    up hides it, because a question mounted under it took the focus where nobody could see it.
+    Since #178 that is `useUpdateFlow`'s `covered` argument: it is the ONE way the window leaves
+    mid-install (the host's, never the user's), and a running install's window comes back when
+    the question has gone.
   - **`--preview-update`** (owner: "I would want to see how the Update banner looks in both
     apps ... make like a fake update"): the core's fake offer, announced at once, in the
     INSTALLED app too and on a SECOND launch into the resident one (only when nothing real is
