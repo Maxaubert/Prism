@@ -907,8 +907,11 @@ async function helpPanelScenario(fixtures) {
   const folderTab = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first()
 
   // The clipboard is the owner's: what it held is put back at the end. Text
-  // (with its html and rtf forms) and an image can be restored faithfully;
-  // copied FILES cannot, so a run says so.
+  // (with its html and rtf forms) and an image go back through Electron.
+  // Copied FILES are a CF_HDROP, which Electron's clipboard can neither read
+  // nor write, so they go through PowerShell both ways, as Prism's own "Copy
+  // file" does. It used to say "cannot be put back" and clear them, and a run
+  // on the owner's machine did exactly that to files he had just copied.
   const held = await app.evaluate(({ clipboard }) => {
     const img = clipboard.readImage()
     return {
@@ -919,6 +922,19 @@ async function helpPanelScenario(fixtures) {
       image: img.isEmpty() ? '' : img.toDataURL()
     }
   })
+  const PS = ['-NoProfile', '-NonInteractive', '-STA', '-Command']
+  let heldFiles = ''
+  if (held.formats.some((f) => /FileName|uri-list/i.test(f))) {
+    try {
+      heldFiles = execFileSync(
+        'powershell.exe',
+        [...PS, '(Get-Clipboard -Format FileDropList | ForEach-Object { $_.FullName }) -join "`n"'],
+        { encoding: 'utf8', windowsHide: true, timeout: 20000 }
+      ).trim()
+    } catch {
+      heldFiles = ''
+    }
+  }
   let styleBefore = null
 
   try {
@@ -1056,6 +1072,57 @@ async function helpPanelScenario(fixtures) {
     ok(await closed(), 'and its own X closes it')
     ok(await until(focusIsShell, 5000, 50), 'handing the keyboard back to the shell, though it was opened from a menu')
 
+    /* ----- over a SPLIT, its keys are its own ----- */
+    // A click on a copy button, which is what the popup is for, leaves the
+    // focus on that button and not in the search field. Both key listeners are
+    // on window in the capture phase, so the popup's stopPropagation does not
+    // silence App's, and App shielded its chords only while a TEXT FIELD had the
+    // keyboard: from a copy button Ctrl+W closed the tab under the popup (this
+    // check failed on it before App learned that the popup is one). Driven in a
+    // split, the document beside the shell, because that is where App still
+    // reads the vertical keys and there is a document to lose.
+    await win.locator('[role="treeitem"]:has-text("README.md")').click()
+    await until(async () => (await win.locator('.xterm').count()) === 0, 8000, 50)
+    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
+    const readmeUp = () => win.locator('.p-md h1').first().isVisible().catch(() => false)
+    ok(
+      await until(async () => (await win.locator('.xterm').count()) === 1 && (await readmeUp()), 15000, 50),
+      'a split: the document AND the terminal'
+    )
+    await win.locator('.xterm').click()
+    await until(focusIsShell, 5000, 50)
+    await win.keyboard.press('F1')
+    ok(await opened(), 'F1 opens the popup over a split terminal too')
+    await win.locator('[data-help-list] [data-help-copy]').first().click()
+    ok(
+      await until(() => win.evaluate(() => !!document.activeElement?.hasAttribute('data-help-copy')), 4000, 50),
+      'a click on a copy button leaves the focus on that button'
+    )
+    const activeIndex = () =>
+      win.evaluate(() => Number(document.querySelector('[data-help-active]')?.getAttribute('data-help-index') ?? -1))
+    const from = await activeIndex()
+    await win.keyboard.press('ArrowDown')
+    await win.keyboard.press('ArrowDown')
+    ok(await until(async () => (await activeIndex()) === from + 2, 4000, 50), `Down moves the popup's highlight from there (${from} to ${await activeIndex()})`)
+    // Opening the next file is an IPC round trip, so this is a bounded wait for
+    // the document to LEAVE, which it must not.
+    ok(!(await until(async () => !(await readmeUp()), 1500, 50)), 'and pages NOTHING behind it: the document is still the README')
+    const tabsInSplit = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
+    await win.keyboard.press('Control+w')
+    ok(
+      (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsInSplit && (await panel.count()) === 1,
+      'Ctrl+W from a copy button reaches no tab either, the same as from the search field'
+    )
+    await win.keyboard.press('Escape')
+    ok(await closed(), 'Escape closes it from a button')
+    ok(await until(focusIsShell, 5000, 50), 'and the split shell has the keyboard back')
+    // Back to the full terminal the rest of this scenario is written against.
+    await win.locator('[aria-label="Remove the file from the split"]').click()
+    await until(async () => (await win.locator('.xterm').count()) === 1 && !(await readmeUp()), 8000, 50)
+    await win.locator('.xterm').click()
+
     /* ----- a light style, looked at ----- */
     styleBefore = await switchStyle(win, 'paper', 'light')
     await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light'), 6000, 50)
@@ -1183,8 +1250,21 @@ async function helpPanelScenario(fixtures) {
         else clipboard.clear()
       }, held)
       .catch(() => {})
-    if (held.formats.some((f) => /FileName|uri-list/i.test(f)))
-      console.log('  (the clipboard held copied FILES, which cannot be put back; it is empty now)')
+    if (heldFiles) {
+      // The list rides in the environment, so no path is ever quoted into a
+      // command line. A file deleted meanwhile is left out: Set-Clipboard
+      // refuses the whole list over one missing path.
+      try {
+        execFileSync(
+          'powershell.exe',
+          [...PS, '$p = @($env:PRISM_E2E_CLIP -split "`n" | Where-Object { Test-Path -LiteralPath $_ }); if ($p.Count) { Set-Clipboard -LiteralPath $p }'],
+          { env: { ...process.env, PRISM_E2E_CLIP: heldFiles }, windowsHide: true, timeout: 20000 }
+        )
+      } catch {
+        console.log('  (the clipboard held copied FILES and they could not be put back; it is empty now)')
+      }
+    } else if (held.formats.some((f) => /FileName|uri-list/i.test(f)))
+      console.log('  (the clipboard held copied FILES that could not be read, so they are not put back; it is empty now)')
     await app.close()
   }
 }

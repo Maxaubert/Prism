@@ -78,7 +78,7 @@ const TerminalPanelLazy = lazy(() => import('prism-term-core/renderer/components
 // media viewer's launch has no use for.
 const HelpPanel = lazy(() => import('prism-term-core/renderer/components/HelpPanel'))
 import { termFontStack } from 'prism-term-core/renderer/lib/termLook'
-import { helpFront, isHelpKey } from './lib/commandHelp'
+import { helpFront, helpShowing, isHelpKey } from './lib/commandHelp'
 import { useCommandHelp } from './lib/useCommandHelp'
 import { ContextMenu } from './components/ContextMenu'
 import { FileMenuIcon } from './components/FileMenuIcon'
@@ -2547,15 +2547,28 @@ export default function App(): JSX.Element {
    *  in App's key handler, like every other key the shell does not keep. */
   const [termFind, setTermFind] = useState(false)
 
+  const restoreHelpFocus = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (!document.activeElement?.closest('.xterm')) restoreTermFocus()
+    })
+  }, [restoreTermFocus])
   // COMMAND HELP (#175): prism-term-core's popup, the one Prism Terminal shows.
   // Prism is a media viewer FIRST and the panel is about the terminal, so it
   // exists only while a terminal is SHOWING: the condition dictation is armed
   // by, less fullscreen, where the dock is not drawn. Over a film, a PDF or the
   // tree, F1 does nothing at all. The ways in are F1 and the terminal's own
   // right-click menu; there is no title-bar button, because Prism's title bar
-  // is the viewer's.
-  const helpTermId =
-    active?.term && active.term.view !== 'hidden' && !fullscreen ? active.term.id : null
+  // is the viewer's. A shell pinned as a PANE counts as showing (`helpShowing`
+  // says why); the panes are the ones the grid below really draws, which a
+  // folder view and an explorer tab do not.
+  const helpTermId = helpShowing({
+    fullscreen,
+    dock: active?.term ?? null,
+    paneTerms:
+      !active || browsing.folder || isExplorerTab(active)
+        ? []
+        : active.panes.flatMap((pn) => (pn.term ? [pn.term] : []))
+  })
   const {
     enabled: helpOn,
     open: helpOpen,
@@ -2568,8 +2581,11 @@ export default function App(): JSX.Element {
     front: helpFront(activeId, helpTermId, termFind),
     // Closed by hand, the keyboard goes back to the shell it was opened over.
     // The popup restores the focus it found, but opened from the MENU that was
-    // a menu row which no longer exists.
-    onClosed: restoreTermFocus
+    // a menu row which no longer exists. Only then: opened by F1 from a shell
+    // pinned as a pane, the popup has already handed the keyboard back to THAT
+    // shell, and focusing the dock's would move it to a shell nobody was in.
+    // A frame later, because the popup gives the focus back as it unmounts.
+    onClosed: restoreHelpFocus
   })
 
   /* ------------------------------------------------------------------ *
@@ -3177,7 +3193,18 @@ export default function App(): JSX.Element {
       const el = e.target as HTMLElement | null
       // isContentEditable covers the code editor: CodeMirror types into a div,
       // not a textarea, and the arrows there belong to the caret, not the folder.
-      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)
+      // THE HELP POPUP (#175) IS A TEXT FIELD WHEREVER ITS FOCUS IS. Its search
+      // field already shielded these keys, but a click on a copy button, which
+      // is what the popup is FOR, leaves the focus on that button, and this
+      // listener hears every key the popup does (both are on window in the
+      // capture phase, where one's stopPropagation does not silence the other).
+      // MEASURED in the e2e before this line existed: Ctrl+W from a copy button
+      // closed the tab under the popup, where from the search field it does
+      // nothing. Ctrl+Z (a file move undone behind a scrim), Ctrl+T and the
+      // vertical keys are behind the same shield for the same reason.
+      const typing =
+        helpOpen ||
+        (!!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable))
       // A focused terminal is typing too (xterm's hidden textarea), but the
       // tab-management hotkeys (Ctrl+T/W/Tab/digits) and Ctrl+B (sidebar)
       // still belong to Prism there, by request - which does cost the shell

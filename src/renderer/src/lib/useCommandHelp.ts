@@ -72,6 +72,15 @@ export function useCommandHelp(opts: {
     // Read fresh, not from the hook's value: the key can arrive in the same
     // tick the switch was flipped in another window.
     if (!helpEnabled() || now.showing === null || now.blocked) return
+    // `blocked` names the questions App itself holds. The rest of the app's
+    // modal windows (the phone dialog, Properties, the extraction window) are
+    // held by whoever opened them, and with a terminal in split view F1 opened
+    // the popup UNDERNEATH one: they come later in the document at the same
+    // z-index, so the popup took the keyboard from behind a window it could not
+    // be seen through. Every one of them marks itself aria-modal, which is what
+    // the attribute is for. None can appear while the popup is up (its scrim
+    // takes the pointer), so the press that opens it is the only place to ask.
+    if (document.querySelector('[aria-modal="true"]:not([data-help-panel])')) return
     // The language of the shell in front. There always is one here (no
     // terminal showing means no popup), so unlike Prism Terminal there is no
     // start screen to fall back from and the hand-picked chip is not stored.
