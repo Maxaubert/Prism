@@ -1,5 +1,6 @@
 import { WinEShortcutSetting } from './WinEShortcutSetting'
 import { DictationSettings } from 'prism-term-core/renderer/settings/Dictation'
+import { HelpSetting } from 'prism-term-core/renderer/settings/Help'
 import { TerminalAppearanceSettings } from 'prism-term-core/renderer/settings/TerminalAppearance'
 import { AgentIndicatorSetting, ShellSetting } from 'prism-term-core/renderer/settings/TerminalBehaviour'
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
@@ -1012,6 +1013,10 @@ function TerminalTab(): JSX.Element {
       <div className={ROWS}>
         <ShellSetting />
         <AgentIndicatorSetting />
+        {/* Command help (#175): the core's row, in a list of its own
+            (helpOptions.ts). The way in is each app's, so each app says it:
+            here there is no title-bar button, and it needs a terminal on screen. */}
+        <HelpSetting opensWith="Press F1 while a terminal is showing, or right-click the terminal." />
       </div>
       <TerminalAppearanceSettings />
     </div>

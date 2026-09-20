@@ -2067,6 +2067,39 @@ Filesmith's conventions.
   - The pill lives in `TermDock`'s terminal box, the mic mark in `TabStrip`; both are core
     components that read the dictation store themselves, so speaking re-renders neither App nor
     the strip. `dictation` and `dictationPage` are in `npm run e2e:terminal`.
+- **COMMAND HELP IS THE CORE'S TOO** (2026-09-20, #175; owner: "a pop up with copy icons for easy
+  copying. searchable, natural language"). A popup over the terminal: describe what you want, read
+  the command, copy it. The popup, its catalogue, its offline search and its switch are
+  `prism-term-core`'s (`HelpPanel`, `shared/help/`, `HelpSetting`), the same code Prism Terminal
+  runs. Its rules (it NEVER types into the shell and never runs anything, copy is the exact text
+  on screen, catalogue content is gated by the core's own tests) are written down ONCE, in
+  PrismTerminal's CLAUDE.md; do not restate or fork them here. What is Prism's own:
+  - **A media viewer first.** It exists only while a terminal is SHOWING, the condition dictation
+    is armed by, less fullscreen where the dock is not drawn. Over a film, a PDF, the tree or
+    Settings, F1 does nothing (`lib/commandHelp.ts`, pure and tested; `lib/useCommandHelp.ts`).
+    A shell pinned as a PANE is showing too (`helpShowing`): pinning the current shell HIDES the
+    dock, and read from the dock alone that tab had a dead F1, yielded by xterm and taken by nobody.
+  - **Two ways in, and no title-bar button**, because the title bar is the viewer's: a bare F1
+    (Prism Terminal's key; `isHelpKey` is the ONE test, read by `termHost.ts` `ownsKey` and by
+    App's key handler, so xterm yields exactly what App takes) and a "Command help" row on the
+    terminal's right-click menu (`TermDock`). The switch is on Settings > Terminal; off means the
+    key is the shell's again and the row is gone.
+  - **It is the same layer as a question.** A question dialog, the update window or the setup
+    puts it away and it will not open over one; so does anything that changes what is in front
+    (another tab, the find bar). Ctrl+` over it closes it and hands the shell the keyboard.
+    Prism's tab chords are shielded while a text field has the keyboard, and THE WHOLE POPUP
+    counts as one (`typing` in App's key handler), so Ctrl+W, Ctrl+T and Ctrl+Z do nothing over
+    it (they work in Prism Terminal). The search field alone was not enough, MEASURED: a click
+    on a copy button leaves the focus on that button, and Ctrl+W from there closed the tab under
+    the popup. App's other modal windows (the phone dialog, Properties, the extraction window)
+    are not App's state, so the press that opens the popup looks for an `aria-modal` instead;
+    it used to open UNDERNEATH one, with the keyboard.
+  - Closed by hand, the keyboard goes back to the shell, from the menu too (`restoreTermFocus`),
+    and only when the popup's own hand-back did not already land in a shell (a pinned one).
+    The copy goes through main (`writeClipboard`, the core's bridge): `navigator.clipboard`
+    refuses a document without the focus. Proved by `helpPanel`, in `npm run e2e:terminal`;
+    `termOptions` asserts the help row against the core's `helpOptions.ts`, separately from
+    `TERMINAL_OPTIONS`.
 
 - **The viewer lives here for now.** The plan is a shared package, **`prism-core`**, which
   would also power Filesmith's previews, but it has not been extracted: `ImageView`,
