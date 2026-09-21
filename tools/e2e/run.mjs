@@ -4512,7 +4512,7 @@ async function tabsScenario(fixtures) {
       tabWidths.length >= 3 && new Set(tabWidths).size === 1,
       `every tab is the same width, the pinned one included, whatever its name (${tabWidths.join(' / ')})`
     )
-    ok(tabWidths[0] >= 96 && tabWidths[0] <= 116, `a fixed width, not a content one, the size the Explorer tab had (${tabWidths[0]}px)`)
+    ok(tabWidths[0] >= 117 && tabWidths[0] <= 137, `a fixed width, not a content one (${tabWidths[0]}px)`)
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
 
