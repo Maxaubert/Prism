@@ -2574,23 +2574,28 @@ async function rowPasteScenario(fixtures) {
       `and Cut/Copy/Paste stay together before Rename (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
+    // WAITED FOR, NOT SLEPT FOR (2026-09-21). The paste is a PowerShell read
+    // of the clipboard, a copy and a tree refresh: this used to sleep a flat
+    // 2.5s and then count, and it lost twice in one day under load (another
+    // build running beside the suite). A flaky check is a bug in the gate, so
+    // each step waits for its own condition, bounded, and says what it saw.
     const before = await win.locator('[role="treeitem"]').count()
     await win.locator('[role="menu"] >> text="Paste"').click()
-    await sleep(2500)
+    await until(async () => (await win.locator('[role="treeitem"]').count()) > before, 20000, 100)
     const after = await win.locator('[role="treeitem"]').count()
     ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
     // THE PASTED FILE IS THE MARKED ROW (2026-09-03, owner - Explorer's way).
-    await sleep(600)
-    const markedAfterPaste = await win.evaluate(() =>
-      [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|')
-    )
+    const markedText = () =>
+      win.evaluate(() => [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|'))
+    await until(async () => /movable \(2\)/.test(await markedText()), 10000, 100)
+    const markedAfterPaste = await markedText()
     ok(/movable \(2\)/.test(markedAfterPaste), `and the pasted copy is what is marked (${markedAfterPaste})`)
     // ...and it is the OPEN file too (owner, 2026-09-03): aria-selected is
     // the tree's word for what the viewer is showing.
-    await sleep(600)
-    const openAfterPaste = await win.evaluate(
-      () => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? ''
-    )
+    const openText = () =>
+      win.evaluate(() => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? '')
+    await until(async () => /movable \(2\)/.test(await openText()), 10000, 100)
+    const openAfterPaste = await openText()
     ok(/movable \(2\)/.test(openAfterPaste), `and the pasted copy is what is OPEN (${openAfterPaste})`)
 
     // CUT AND PASTE FROM THE KEYBOARD (2026-09-03, owner): Ctrl+X dims the
@@ -2598,13 +2603,15 @@ async function rowPasteScenario(fixtures) {
     await rowFor('anchor.txt').click()
     await sleep(400)
     await win.keyboard.press('Control+x')
-    await sleep(300)
-    const dimmed = await win.evaluate(
-      () =>
-        [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
-          (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
-        )?.style.opacity
-    )
+    const cutOpacity = () =>
+      win.evaluate(
+        () =>
+          [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+            (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
+          )?.style.opacity
+      )
+    await until(async () => (await cutOpacity()) === '0.45', 8000, 50)
+    const dimmed = await cutOpacity()
     ok(dimmed === '0.45', `Ctrl+X dims the cut row (opacity ${dimmed})`)
     // EXPLORER'S RULE for Ctrl+V (owner, 2026-09-03): the target is the
     // folder CONTAINING the highlighted row. First a file INSIDE `into`, so
@@ -2614,7 +2621,7 @@ async function rowPasteScenario(fixtures) {
     await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
     // the clipboard holds anchor.txt (cut) now; that is what lands in `into`
     await win.locator('[role="menu"] >> text="Paste"').click()
-    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
+    for (let i = 0; i < 100 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
     ok(existsSync(join(dir, 'into', 'anchor.txt')), 'menu Paste on a folder row lands INSIDE it, and a cut moves')
     ok(!existsSync(join(dir, 'anchor.txt')), 'so it left where it was')
     await sleep(800)
@@ -2639,7 +2646,7 @@ async function rowPasteScenario(fixtures) {
     await rowFor('into').click() // first click on a folder row only highlights it
     await sleep(300)
     await win.keyboard.press('Control+v')
-    for (let i = 0; i < 40 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
+    for (let i = 0; i < 100 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
     ok(existsSync(join(dir, 'anchor.txt')), 'Ctrl+V with a folder highlighted pastes into its PARENT')
     ok(existsSync(join(dir, 'into', 'anchor.txt')), 'and a copy leaves the original where it was')
   } finally {
