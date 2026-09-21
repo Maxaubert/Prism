@@ -552,6 +552,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   move. It is "New tab" now, instant and rooted per the "New tabs show" setting exactly as the
   + is, with the folder chooser beside it. Dropping a file still works and the line above still
   says so. `open:dialog` in main is left in place but is now reachable from nothing.
+- **EVERY TAB IS ONE WIDTH** (owner, 2026-09-21: "make tabs in both apps have a fixed size, and not
+  dynamically adjust based on the content"), the pinned Explorer tab included. A tab was as wide
+  as its label, up to 14rem, so a folder with a long name shoved every tab after it sideways.
+  Now `flex: 0 1 176px`, min 72px: one width, all of them shrinking EQUALLY only when the strip
+  runs out of room, as a browser does; the label truncates inside, the root is on the tooltip.
+  Prism Terminal's strip is the same code and the same rule. `tabs` measures the boxes.
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current

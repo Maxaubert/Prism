@@ -4493,6 +4493,19 @@ async function tabsScenario(fixtures) {
       /fixtures$/i.test((await tabRows().first().getAttribute('title')) ?? ''),
       'and the tab above it keeps ITS root'
     )
+    // EVERY TAB IS ONE WIDTH (owner, 2026-09-21: "make tabs in both apps have
+    // a fixed size, and not dynamically adjust based on the content"). Three
+    // tabs are up here - the pinned Explorer, "fixtures" and "code" - with
+    // labels of different lengths; what is measured is each tab's box.
+    const tabWidths = await win.evaluate(
+      (s) => [...document.querySelectorAll(`${s} [data-tab-fixed]`)].map((el) => Math.round(el.getBoundingClientRect().width * 10) / 10),
+      strip
+    )
+    ok(
+      tabWidths.length >= 3 && new Set(tabWidths).size === 1,
+      `every tab is the same width, the pinned one included, whatever its name (${tabWidths.join(' / ')})`
+    )
+    ok(tabWidths[0] >= 150 && tabWidths[0] <= 200, `a fixed width, not a content one (${tabWidths[0]}px)`)
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
 
