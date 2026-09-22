@@ -39,6 +39,8 @@ jobs:
 
       - run: npm test
       - run: npm run test:win-e
+      # Compiles the window-border helper and runs its self-test (#189).
+      - run: npm run build:dwm
 
   bundled-indexer:
     runs-on: windows-latest

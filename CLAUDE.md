@@ -1256,6 +1256,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   such field), so their rows keep the folder they are in as their second line. The e2e matches
   a row's size against the desktop formatter's own shape, so a second formatter rounding
   differently would show up there.
+- **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
+  takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
+  from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty
+  Electron app is ~180 ms. One thing was 850-900 ms of it: the window-border helper was a resident
+  PowerShell fed through a HELD-OPEN STDIN PIPE, and in Electron's MAIN process the first child
+  started that way blocks the UI thread for ~900 ms (a second takes 4 ms; with `stdio: 'ignore'`
+  the first takes 7 ms; plain Node 3-12 ms - so it is Electron's, not Windows' or Defender's). It
+  started inside `showWindow`, and the first frame waited on the thread it blocked. Everything
+  else was ruled out by measurement, so nobody has to redo it: main's own JS (156 ms vs 118 ms
+  empty), the page's JS (~18 ms), fonts (single ms), IPC handlers (none over 20 ms). The border
+  program is now `native/dwm/PrismDwm.cs`, compiled at BUILD time (`tools/build-dwm.mjs`, the Win+E
+  helper's route) and started per change with NO PIPE; changes in one tick share one process.
+  `startup` in the e2e fails above 800 ms to first paint (proved: 1,170 ms on the old helper, 356
+  ms on this). A new child process on the startup path takes `stdio: 'ignore'` or goes after the
+  first frame. How it was found (trace, profiles, the bare-Electron repro) is in #189.
+  STILL OPEN, for "instant" rather than "fast": anything that starts a process cannot beat
+  Electron's own floor; showing an already-running window can. That is the resident model, and it
+  is the design question for Prism Explorer (#187). The `localStorage` preference shim
+  (`lib/windowPreferences.ts`, a synchronous IPC per preference write) cost ~457 ms on a page
+  RELOAD and nothing measurable on a cold start today; watch it.
 - **Performance rules learned the hard way** (2026-08-26, all measured on this
   machine). MAIN IS ONE THREAD AND EVERYTHING SHARES IT: `execFileSync` there
   stops every window, every IPC reply, the terminals and the `fsmedia://` Range
