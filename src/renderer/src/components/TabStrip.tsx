@@ -306,13 +306,13 @@ export function TabStrip({
             // apps have a fixed size, and not dynamically adjust based on the
             // content"), the pinned Explorer tab included. A tab was as wide
             // as its label, up to 14rem, so a folder with a long name shoved
-            // every tab after it sideways. Now 127px (owner, 2026-09-21: "way smaller... around 60% of what it
+            // every tab after it sideways. Now 114px (owner, 2026-09-21/22: "way smaller... around 60% of what it
             // is now", which is what the Explorer tab used to be), shrinking - all of them
             // equally - only when the strip runs out of room, the way a browser
             // does; the label truncates inside. Prism Terminal's strip is the
             // same, on purpose.
             data-tab-fixed
-            className={`no-drag group relative flex min-w-[64px] flex-[0_1_127px] items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
+            className={`no-drag group relative flex min-w-[64px] flex-[0_1_114px] items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
               loud
                 ? ''
                 : on
