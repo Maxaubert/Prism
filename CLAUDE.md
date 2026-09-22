@@ -1978,6 +1978,12 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   indent guide with rungs rather than the stepped bars - a spine reads as structure where
   three full-width bars read as prose, which is the only way code and document stay apart
   when both are one colour.
+- **THE ADDRESS BAR ANSWERS A RIGHT-CLICK** (2026-09-22, owner: "let me right click the url bar to
+  get options to copy path or copy as text like file explorer"). Explorer's own three: Copy address,
+  Copy address as text, Edit address. A crumb's menu acts on THAT crumb's folder, the bar's on the
+  folder shown. Copy address is Explorer's PAIR in one data object - the folder as a file drop AND
+  its path as text (`file:copy-address`, `copyWindowsFiles`' `text`) - so a paste in Explorer takes
+  the folder and a paste in a text field takes the path. `browse.spec` proves both formats.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
