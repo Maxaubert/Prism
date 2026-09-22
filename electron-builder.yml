@@ -39,6 +39,12 @@ extraResources:
     to: win-e
     filter:
       - PrismShortcut.exe
+  # The window-border helper (#189): compiled at build time so launch never
+  # waits on a PowerShell's stdin pipe.
+  - from: vendor/dwm
+    to: dwm
+    filter:
+      - PrismDwm.exe
   - from: build/icon.ico
     to: icon.ico
   # One icon per ProgID, so a .zip opened with Prism does not wear the
