@@ -22,7 +22,7 @@ export function WinEShortcutSetting(): JSX.Element {
         if (mounted.current)
           setStatus((value) => ({
             ...value,
-            error: 'Could not check the Windows shortcut. Try opening Settings again.'
+            error: 'Could not check the Windows shortcut.'
           }))
       })
       .finally(() => {
@@ -44,7 +44,7 @@ export function WinEShortcutSetting(): JSX.Element {
         if (mounted.current)
           setStatus((value) => ({
             ...value,
-            error: 'Could not change the Windows shortcut. Try again.'
+            error: 'Could not change the Windows shortcut.'
           }))
       })
       .finally(() => {
@@ -62,15 +62,15 @@ export function WinEShortcutSetting(): JSX.Element {
           Open Prism with Win+E
         </label>
         <p id="win-e-shortcut-hint" className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
-          Starts a small helper at sign-in. Windows File Explorer takes over if Prism is
-          unavailable.
+          Opens Prism in place of File Explorer from the Windows shortcut. A small helper
+          starts with Windows to do this.
         </p>
         <p role="status" className="mt-0.5 text-[11.5px] text-[var(--p-dim)]">
           {busy
-            ? 'Checking Windows…'
+            ? 'Checking with Windows.'
             : status.error ||
               (status.conflict
-                ? 'Another Prism installation or profile controls Win+E.'
+                ? 'Another Prism installation or profile controls this shortcut.'
                 : status.enabled && !status.running
                   ? 'The shortcut helper is not running.'
                   : '')}
