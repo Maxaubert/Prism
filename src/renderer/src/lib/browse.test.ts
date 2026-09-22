@@ -35,7 +35,10 @@ const file: ViewerFile = {
 const payload: OpenPayload = { root, files: [file], index: 0 }
 
 describe('folder history', () => {
-  it('returns to the selected row, search, sorting and scroll position', () => {
+  it('returns to the search, sorting and scroll position, but not to an old selection', () => {
+    // Owner, 2026-09-22: "no file should be selected when I haven't clicked
+    // any". Arriving is not a click, so what an earlier visit selected is not
+    // brought back - it made the subfolder you came out of look picked.
     let state = updateBrowseLocation(newBrowse(root), {
       selected: file.path,
       query: 'notes',
@@ -46,14 +49,30 @@ describe('folder history', () => {
     state = navigateBrowseState(state, other)
     expect(browseLocation(state).sort).toEqual(left.sort)
     expect(browseLocation(state).query).toBe('')
-    state = updateBrowseLocation(state, { selected: `${other}\\film.mkv`, scrollTop: 240 })
+    expect(browseLocation(state).selected).toBeNull()
+    state = updateBrowseLocation(state, { selected: `${other}\film.mkv`, scrollTop: 240 })
     const right = browseLocation(state)
     state = travelBrowseState(state, -1)
     expect(state.path).toBe(root)
-    expect(browseLocation(state)).toEqual(left)
+    expect(browseLocation(state)).toEqual({ ...left, selected: null })
     state = travelBrowseState(state, 1)
     expect(state.path).toBe(other)
-    expect(browseLocation(state)).toEqual(right)
+    expect(browseLocation(state)).toEqual({ ...right, selected: null })
+    // A revisit by a crumb or a sidebar place is the same: nothing marked.
+    state = navigateBrowseState(state, root)
+    expect(browseLocation(state).selected).toBeNull()
+    expect(browseLocation(state).scrollTop).toBe(640)
+  })
+
+  it('marks the file on display when you arrive at its folder, and only then', () => {
+    let state = updateBrowseLocation(newBrowse(root), { selected: file.path })
+    state = navigateBrowseState(state, other, file.path)
+    expect(browseLocation(state).selected).toBeNull() // it lives in root, not here
+    state = travelBrowseState(state, -1, file.path)
+    expect(browseLocation(state).selected).toBe(file.path)
+    state = navigateBrowseState(state, other, null)
+    state = navigateBrowseState(state, root, file.path)
+    expect(browseLocation(state).selected).toBe(file.path)
   })
 
   it('branches history after going back and remembers a breadcrumb revisit', () => {

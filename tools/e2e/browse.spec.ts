@@ -481,10 +481,11 @@ test('folder navigation retains history state and lists dotfiles and unsupported
     await go(page, h.movies)
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(page.getByRole('searchbox', { name: 'Search this folder' })).toHaveValue('entry')
-    await expect(list.locator('[aria-selected="true"]')).toHaveAttribute(
-      'data-browse-path',
-      selected!
-    )
+    // Arriving back selects nothing (owner, 2026-09-22: "no file should be
+    // selected when I haven't clicked any"): the row arrowed onto on the
+    // earlier visit is not brought back.
+    expect(selected).toBeTruthy()
+    await expect(list.locator('[aria-selected="true"]')).toHaveCount(0)
     await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(top)
     await expect(
       page.getByRole('button', { name: 'Sort by name, descending', exact: true })
@@ -3238,6 +3239,11 @@ test('Explorer keyboard navigation retains focus through folder history and empt
     await expect(row(page, 'leaf.txt')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Backspace')
     await at(h.nested)
+    // Arriving marks nothing (owner, 2026-09-22), not even the folder just
+    // left, so the arrows start from the top of the list.
+    await expect(page.getByTestId('browse-list').locator('[aria-selected="true"]')).toHaveCount(0)
+    await page.keyboard.press('ArrowDown')
+    await expect(row(page, 'Deep')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('ArrowDown')
     await expect(row(page, 'Empty')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
@@ -3245,7 +3251,7 @@ test('Explorer keyboard navigation retains focus through folder history and empt
     await expect(page.getByTestId('browse-list').getByRole('option')).toHaveCount(0)
     await page.keyboard.press('Backspace')
     await at(h.nested)
-    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('Home')
     await expect(row(page, 'Deep')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
     await at(deep)
