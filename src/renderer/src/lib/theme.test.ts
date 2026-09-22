@@ -16,7 +16,7 @@ import {
   type Style,
   tabsOf,
   titleOf,
-  withChrome, isStylesOwn } from './theme'
+  withChrome, isStylesOwn, acrylicLevel } from './theme'
 import { ACCENT_THEME_ID } from './viz/styles'
 import { DEFAULT_BAR_THEME, visibleThemes } from './vizStore'
 
@@ -343,5 +343,64 @@ describe('a colour put back is not an edit (owner, 2026-09-03)', () => {
     expect(isStylesOwn(split, 'chrome', '#111111')).toBe(false)
     expect(isStylesOwn(split, 'side', '#111111')).toBe(true)
     expect(isStylesOwn(split, 'title', '#222222')).toBe(true)
+  })
+})
+
+describe("the owner's picks of 2026-09-20", () => {
+  const byId = (id: string): Style => {
+    const s = STYLES.find((x) => x.id === id)
+    if (!s) throw new Error(`no style ${id}`)
+    return s
+  }
+
+  it('sets every shipped style in the system face', () => {
+    // "update all themes to use the system font by default". Four named a face
+    // of their own, so picking a style silently changed the face the app set in.
+    for (const s of STYLES) expect(s.font, s.name).toBe('system')
+  })
+
+  it('ships Aurora solid: the default style does not let the desktop through', () => {
+    // "update this theme to be non acrylic by default", which is the slider at 0.
+    const aurora = byId('aurora')
+    expect(aurora.material).toBe('solid')
+    expect(aurora.glass).toBeUndefined()
+    expect(acrylicLevel(aurora)).toBe(0)
+  })
+
+  it('paints Ruby near-black and red, the owner\'s own values off the Style page', () => {
+    const ruby = byId('acrylic-red')
+    expect(ruby.bg).toBe('#0d0d0d')
+    // No sideOwn or titleOwn: the one-surface rule derives both from bg, which
+    // is what the Secondary well reads back.
+    expect(sideOf(ruby)).toBe('#0d0d0d')
+    expect(titleOf(ruby)).toBe('#0d0d0d')
+    expect(ruby.text).toBe('#eceef5')
+    expect(ruby.folderIcon).toBe('#dc5656')
+    expect(ruby.accent).toBe('#e01f1f')
+    expect(ruby.corners).toBe('14')
+    expect(ruby.material).toBe('solid')
+    // The blurb must not still call it night blue.
+    expect(ruby.blurb.toLowerCase()).not.toContain('blue')
+  })
+
+  it('hands the zip the folder colour, with an ink that reads on it', () => {
+    // "the zip file icon should have dynamically adjusting colours based on the
+    // accent, just like folders, they should follow the same setting".
+    for (const s of STYLES) {
+      const v = variablesFor(s)
+      expect(v['--p-tree-zip'], s.name).toBe(v['--p-tree-folder'])
+      // 3:1 is the floor for a GRAPHIC, which this is (a seam and a pull),
+      // and it is the floor every other icon ink here is held to.
+      const ink = v['--p-tree-zip-ink']
+      const other = ink === '#ffffff' ? '#0b0d12' : '#ffffff'
+      expect(contrast(ink, v['--p-tree-zip']), s.name).toBeGreaterThanOrEqual(3)
+      expect(contrast(ink, v['--p-tree-zip']), s.name).toBeGreaterThanOrEqual(
+        contrast(other, v['--p-tree-zip'])
+      )
+    }
+    // And it MOVES with the setting: a folder colour picked by hand takes the
+    // zip with it, which is what "the same setting" means.
+    const red = variablesFor({ ...STYLES[0], folderIcon: '#dc5656' })
+    expect(red['--p-tree-zip']).toBe('#dc5656')
   })
 })

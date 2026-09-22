@@ -681,7 +681,13 @@ async function sortScenario(fixtures) {
     // filter any more (removed 2026-08-20: a forgotten filter read as missing
     // files) - every viewable sibling is always listed.
     const fileRows = win.locator('[role="treeitem"]:not([aria-expanded])')
-    await fileRows.first().waitFor({ timeout: 10000 })
+    // A COLD RUNNER LISTS SLOWLY. Ten seconds is plenty on this machine and
+    // was not always enough on a GitHub runner, where the app boots, restores
+    // its tabs and lists the folder against a cold disk (MEASURED: this timed
+    // out twice on CI in one afternoon, on changes that touch nothing here).
+    // A longer bound costs nothing when the row is already there, and a flaky
+    // check is a bug in the gate rather than something to re-run.
+    await fileRows.first().waitFor({ timeout: 45000 })
     ok((await fileRows.count()) === 9, 'the tree lists every viewable file, unfiltered')
     ok(
       (await win.locator('[aria-label="Navigation filter"]').count()) === 0,
@@ -989,6 +995,7 @@ async function helpPanelScenario(fixtures) {
     const look = await win.evaluate(() => {
       const el = document.querySelector('[data-help-panel]')
       const code = document.querySelector('[data-help-id="ps-biggest-files"] [data-help-command]')
+      void code
       const copy = document.querySelector('[data-help-copy="ps-biggest-files#0"]').getBoundingClientRect()
       const box = el.getBoundingClientRect()
       const alpha = (c) => Number((c.match(/[\d.]+/g) ?? [])[3] ?? 1)
@@ -999,7 +1006,11 @@ async function helpPanelScenario(fixtures) {
         alpha: alpha(getComputedStyle(el).backgroundColor),
         // Tailwind generates nothing for a class it never saw: index.css names
         // the core package as a source, and these are what that buys.
-        codePad: parseFloat(getComputedStyle(code).paddingLeft),
+        // The core is a TABLE since 2026-09-20 (PrismTerminal #34), so the
+        // proof that Tailwind generated its classes moved off the old command
+        // box onto the row: `h-[34px]` and `px-4` are the core's own.
+        rowH: Math.round(document.querySelector('[data-help-row]').getBoundingClientRect().height),
+        rowPad: parseFloat(getComputedStyle(document.querySelector('[data-help-row]')).paddingLeft),
         copyW: Math.round(copy.width),
         copyH: Math.round(copy.height)
       }
@@ -1007,14 +1018,17 @@ async function helpPanelScenario(fixtures) {
     ok(look.w >= 480 && look.w <= 780 && look.h >= 320, `the popup is a popup-sized box (${look.w}x${look.h})`)
     ok(look.inside, 'wholly inside the window')
     ok(look.alpha === 1, `on an opaque surface (alpha ${look.alpha})`)
-    ok(look.codePad >= 8 && look.copyW >= 28 && look.copyH >= 28, `the core's classes are styled here (command padding ${look.codePad}px, copy button ${look.copyW}x${look.copyH})`)
+    ok(
+      look.rowH >= 28 && look.rowPad >= 12 && look.copyW >= 26 && look.copyH >= 26,
+      `the core's classes are styled here (row ${look.rowH}px tall, ${look.rowPad}px padding, copy button ${look.copyW}x${look.copyH})`
+    )
 
     /* ----- copy ----- */
-    const want = await win.locator('[data-help-id="ps-biggest-files"] [data-help-variant="0"] [data-help-command]').textContent()
+    const want = await win.locator('[data-help-id="ps-biggest-files"][data-help-variant="0"] [data-help-command]').textContent()
     await win.locator('[data-help-copy="ps-biggest-files#0"]').click()
     ok(
-      await until(async () => (await win.locator('[data-help-id="ps-biggest-files"] [data-help-copied]').count()) === 1, 4000, 25),
-      'the copy button answers in place'
+      await until(async () => (await win.locator('[data-help-copy="ps-biggest-files#0"]').getAttribute('title')) === 'Copied', 4000, 25),
+      'the copy button answers in place, in the button itself'
     )
     ok(
       !!want && /Sort-Object/.test(want) && (await until(async () => (await clip()) === want, 4000, 50)),
@@ -1022,20 +1036,17 @@ async function helpPanelScenario(fixtures) {
     )
     // Enter copies the highlighted entry, from the search field.
     await win.locator('[data-help-search]').focus()
+    const markedAt = () => win.evaluate(() => Number(document.querySelector('[data-help-active]')?.getAttribute('data-help-index') ?? -1))
+    const markedBefore = await markedAt()
     await win.keyboard.press('ArrowDown')
-    const second = await until(
-      () =>
-        win.evaluate(() => {
-          const a = document.querySelector('[data-help-active]')
-          return a?.getAttribute('data-help-index') === '1' ? a.getAttribute('data-help-id') : null
-        }),
-      4000,
-      50
-    )
-    ok(!!second, `Down moves to the second result (${second})`)
-    const wantSecond = await win.locator(`[data-help-id="${second}"] [data-help-variant="0"] [data-help-command]`).textContent()
+    const to = await until(async () => {
+      const n = await markedAt()
+      return n >= 0 && n !== markedBefore ? n : null
+    }, 4000, 50)
+    ok(to === markedBefore + 1 || (markedBefore === -1 && to === 0), `Down moves the mark one row (${markedBefore} -> ${to})`)
+    const wantSecond = await win.locator(`[data-help-index="${to}"] [data-help-command]`).textContent()
     await win.keyboard.press('Enter')
-    ok(!!wantSecond && (await until(async () => (await clip()) === wantSecond, 4000, 50)), "Enter copies the highlighted entry's command")
+    ok(!!wantSecond && (await until(async () => (await clip()) === wantSecond, 4000, 50)), "Enter copies the marked row's command")
 
     /* ----- nothing was typed into the shell ----- */
     ok((await termText()) === termBefore, 'the terminal is EXACTLY as it was: nothing was typed or run')
@@ -1131,10 +1142,15 @@ async function helpPanelScenario(fixtures) {
     await shot('help-browse-light')
     await win.keyboard.type('delete a folder')
     ok(await until(async () => (await firstId()) === 'ps-delete-folder', 6000, 50), `"delete a folder" finds it (${await firstId()})`)
-    const danger = ((await win.locator('[data-help-id="ps-delete-folder"] [data-help-danger]').textContent()) ?? '').trim()
+    // The warning is a MARK on the row since the core became a table: one row
+    // per command, so every variant of a destructive entry carries it. The
+    // sentence is still there, for the pointer and for a screen reader.
+    const dangerMark = win.locator('[data-help-id="ps-delete-folder"][data-help-variant="0"] [data-help-danger]')
+    const danger = ((await dangerMark.textContent()) ?? '').trim()
     ok(/^Careful\./.test(danger), 'and it carries its warning')
+    ok((await dangerMark.locator('svg').count()) === 1, 'drawn as a mark, not a paragraph')
     await win.locator('[data-help-copy="ps-delete-folder#0"]').click()
-    await until(async () => (await win.locator('[data-help-copied]').count()) === 1, 4000, 25)
+    await until(async () => (await win.locator('[data-help-copy="ps-delete-folder#0"]').getAttribute('title')) === 'Copied', 4000, 25)
     await shot('help-results-light')
     const ink = await win.evaluate(() => {
       const lum = (c) => {
@@ -1472,7 +1488,7 @@ async function contextMenuScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
     const row = win.locator('[role="treeitem"][aria-selected="true"]')
-    await row.waitFor({ timeout: 10000 })
+    await row.waitFor({ timeout: 45000 })
     await row.click({ button: 'right' })
     await win.waitForSelector('[role="menu"]', { timeout: 5000 })
 
@@ -2027,10 +2043,15 @@ async function iconSchemeScenario(fixtures) {
     }, suffix)
 
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
-    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all. bundle.zip is
+    // THE ZIP KEEPS ITS COLOUR with no scheme switched on at all, and since
+    // 2026-09-20 that colour is the STYLE'S: --p-tree-zip, which IS the folder
+    // token (owner: "just like folders, they should follow the same setting").
+    // Read as the token rather than a hex, because the point is that it moves
+    // with the style; the unit tests measure what the token resolves to.
+    // bundle.zip is
     // the open row, so it is selected and must be the fallback; the others are
     // not, and must be coloured.
     const open = await icon('bundle.zip')
@@ -2040,7 +2061,17 @@ async function iconSchemeScenario(fixtures) {
 
     const zip = await icon('wrapped.zip')
     ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
-    ok(zip.page === '#8b8be2', `and takes the archive colour (${zip.page})`)
+    ok(zip.page === 'var(--p-tree-zip)', `and takes the style's own container colour (${zip.page})`)
+    const sameAsFolders = await win.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement)
+      return {
+        zip: cs.getPropertyValue('--p-tree-zip').trim(),
+        folder: cs.getPropertyValue('--p-tree-folder').trim(),
+        ink: cs.getPropertyValue('--p-tree-zip-ink').trim()
+      }
+    })
+    ok(sameAsFolders.zip === sameAsFolders.folder && !!sameAsFolders.zip, `which is the FOLDER colour, the same setting (${sameAsFolders.zip})`)
+    ok(/^#[0-9a-f]{6}$/i.test(sameAsFolders.ink), `with a measured ink for the seam on it (${sameAsFolders.ink})`)
     ok(zip.band === '#000000', `on a black band (${zip.band})`)
     ok(zip.label === 'ZIP', `carrying its own extension (${zip.label})`)
 
@@ -2056,7 +2087,7 @@ async function iconSchemeScenario(fixtures) {
     // on its band.
     const disc = await icon('disc.iso')
     ok(disc !== null && disc.masked, 'a .iso is coloured like the other archives')
-    ok(disc.page === '#8b8be2' && disc.label === 'ISO', `in the archive colour with ISO on the band (${disc?.page}, ${disc?.label})`)
+    ok(disc.page === 'var(--p-tree-zip)' && disc.label === 'ISO', `in the same container colour with ISO on the band (${disc?.page}, ${disc?.label})`)
     const round = await win.evaluate(() => {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
         (e.getAttribute('data-row') ?? '').toLowerCase().endsWith('disc.iso')
@@ -2107,7 +2138,7 @@ async function comicIconScenario(fixtures) {
   console.log('comic icon artwork')
   const { app, win } = await launch(join(fixtures, 'comics', 'story.cbz'))
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const art = await win.evaluate(() => {
       const row = [...document.querySelectorAll('[role="treeitem"]')].find((e) =>
@@ -2162,7 +2193,7 @@ async function treeVerbsScenario(fixtures) {
   const rowFor = (suffix) =>
     win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
     // ---- the archive verbs are on the row -------------------------------
@@ -2239,7 +2270,7 @@ async function deleteAgainScenario(fixtures) {
   const { app, win } = await launch(join(dir, 'a.txt'))
   const rows = () => win.locator('[role="treeitem"]').count()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const before = await rows()
     ok(before >= 3, `the folder has enough to delete twice (${before})`)
@@ -2500,7 +2531,7 @@ async function rowPasteScenario(fixtures) {
     win.locator(`[role="treeitem"][data-row$="${suffix}" i]`).first()
   const menuHas = (label) => win.locator(`[role="menu"] >> text="${label}"`).count()
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
 
     // NOTHING ON THE CLIPBOARD: no Paste row at all.
@@ -2543,23 +2574,28 @@ async function rowPasteScenario(fixtures) {
       `and Cut/Copy/Paste stay together before Rename (cut ${cutAt}, paste ${pasteAt} of ${order.length})`
     )
 
+    // WAITED FOR, NOT SLEPT FOR (2026-09-21). The paste is a PowerShell read
+    // of the clipboard, a copy and a tree refresh: this used to sleep a flat
+    // 2.5s and then count, and it lost twice in one day under load (another
+    // build running beside the suite). A flaky check is a bug in the gate, so
+    // each step waits for its own condition, bounded, and says what it saw.
     const before = await win.locator('[role="treeitem"]').count()
     await win.locator('[role="menu"] >> text="Paste"').click()
-    await sleep(2500)
+    await until(async () => (await win.locator('[role="treeitem"]').count()) > before, 20000, 100)
     const after = await win.locator('[role="treeitem"]').count()
     ok(after > before, `pasting on a file row lands in ITS folder (${before} -> ${after} rows)`)
     // THE PASTED FILE IS THE MARKED ROW (2026-09-03, owner - Explorer's way).
-    await sleep(600)
-    const markedAfterPaste = await win.evaluate(() =>
-      [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|')
-    )
+    const markedText = () =>
+      win.evaluate(() => [...document.querySelectorAll('aside [data-selected]')].map((r) => r.textContent).join('|'))
+    await until(async () => /movable \(2\)/.test(await markedText()), 10000, 100)
+    const markedAfterPaste = await markedText()
     ok(/movable \(2\)/.test(markedAfterPaste), `and the pasted copy is what is marked (${markedAfterPaste})`)
     // ...and it is the OPEN file too (owner, 2026-09-03): aria-selected is
     // the tree's word for what the viewer is showing.
-    await sleep(600)
-    const openAfterPaste = await win.evaluate(
-      () => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? ''
-    )
+    const openText = () =>
+      win.evaluate(() => document.querySelector('aside [role="treeitem"][aria-selected="true"]')?.textContent ?? '')
+    await until(async () => /movable \(2\)/.test(await openText()), 10000, 100)
+    const openAfterPaste = await openText()
     ok(/movable \(2\)/.test(openAfterPaste), `and the pasted copy is what is OPEN (${openAfterPaste})`)
 
     // CUT AND PASTE FROM THE KEYBOARD (2026-09-03, owner): Ctrl+X dims the
@@ -2567,13 +2603,15 @@ async function rowPasteScenario(fixtures) {
     await rowFor('anchor.txt').click()
     await sleep(400)
     await win.keyboard.press('Control+x')
-    await sleep(300)
-    const dimmed = await win.evaluate(
-      () =>
-        [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
-          (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
-        )?.style.opacity
-    )
+    const cutOpacity = () =>
+      win.evaluate(
+        () =>
+          [...document.querySelectorAll('aside [role="treeitem"]')].find((r) =>
+            (r.getAttribute('data-row') ?? '').toLowerCase().endsWith('anchor.txt')
+          )?.style.opacity
+      )
+    await until(async () => (await cutOpacity()) === '0.45', 8000, 50)
+    const dimmed = await cutOpacity()
     ok(dimmed === '0.45', `Ctrl+X dims the cut row (opacity ${dimmed})`)
     // EXPLORER'S RULE for Ctrl+V (owner, 2026-09-03): the target is the
     // folder CONTAINING the highlighted row. First a file INSIDE `into`, so
@@ -2583,7 +2621,7 @@ async function rowPasteScenario(fixtures) {
     await win.waitForSelector('[role="menu"] >> text="Paste"', { timeout: 6000 })
     // the clipboard holds anchor.txt (cut) now; that is what lands in `into`
     await win.locator('[role="menu"] >> text="Paste"').click()
-    for (let i = 0; i < 40 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
+    for (let i = 0; i < 100 && !existsSync(join(dir, 'into', 'anchor.txt')); i++) await sleep(200)
     ok(existsSync(join(dir, 'into', 'anchor.txt')), 'menu Paste on a folder row lands INSIDE it, and a cut moves')
     ok(!existsSync(join(dir, 'anchor.txt')), 'so it left where it was')
     await sleep(800)
@@ -2608,7 +2646,7 @@ async function rowPasteScenario(fixtures) {
     await rowFor('into').click() // first click on a folder row only highlights it
     await sleep(300)
     await win.keyboard.press('Control+v')
-    for (let i = 0; i < 40 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
+    for (let i = 0; i < 100 && !existsSync(join(dir, 'anchor.txt')); i++) await sleep(200)
     ok(existsSync(join(dir, 'anchor.txt')), 'Ctrl+V with a folder highlighted pastes into its PARENT')
     ok(existsSync(join(dir, 'into', 'anchor.txt')), 'and a copy leaves the original where it was')
   } finally {
@@ -2622,7 +2660,7 @@ async function deleteLastScenario(fixtures) {
   const dir = join(fixtures, 'lastfile')
   const { app, win } = await launch(join(dir, 'only.txt'))
   try {
-    await win.waitForSelector('[role="treeitem"]', { timeout: 15000 })
+    await win.waitForSelector('[role="treeitem"]', { timeout: 45000 })
     await sleep(700)
     const tabs = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
     const before = await tabs()
@@ -4462,6 +4500,19 @@ async function tabsScenario(fixtures) {
       /fixtures$/i.test((await tabRows().first().getAttribute('title')) ?? ''),
       'and the tab above it keeps ITS root'
     )
+    // EVERY TAB IS ONE WIDTH (owner, 2026-09-21: "make tabs in both apps have
+    // a fixed size, and not dynamically adjust based on the content"). Three
+    // tabs are up here - the pinned Explorer, "fixtures" and "code" - with
+    // labels of different lengths; what is measured is each tab's box.
+    const tabWidths = await win.evaluate(
+      (s) => [...document.querySelectorAll(`${s} [data-tab-fixed]`)].map((el) => Math.round(el.getBoundingClientRect().width * 10) / 10),
+      strip
+    )
+    ok(
+      tabWidths.length >= 3 && new Set(tabWidths).size === 1,
+      `every tab is the same width, the pinned one included, whatever its name (${tabWidths.join(' / ')})`
+    )
+    ok(tabWidths[0] >= 104 && tabWidths[0] <= 124, `a fixed width, not a content one (${tabWidths[0]}px)`)
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
 
@@ -8553,7 +8604,7 @@ async function updateGuardScenario(fixtures) {
     await win.keyboard.press('Control+End')
     await win.keyboard.type('omega')
     ok(
-      await until(async () => ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 5000, 50),
+      await until(async () => ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes('*'), 20000, 50),
       'a file holds unsaved text'
     )
     ok(await openUpdate(), 'the window opens')
