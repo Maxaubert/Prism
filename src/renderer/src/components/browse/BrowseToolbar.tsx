@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { browseCrumbs, browseParent } from '../../lib/browse'
+import { clipboardText } from '../../lib/clipboardText'
+import { ContextMenu } from '../ContextMenu'
 import { BrowseIcon } from './BrowseIcon'
 import type { FolderBrowserProps } from './types'
 import { useFolderDrop } from './useFolderDrop'
@@ -28,6 +30,11 @@ type Props = Pick<
 export function BrowseToolbar(props: Props): JSX.Element {
   const folderDrop = useFolderDrop(props.onDropInto)
   const [editing, setEditing] = useState(false)
+  /** The address bar's right-click menu (owner, 2026-09-22: "let me right
+   *  click the url bar to get options to copy path or copy as text, like File
+   *  Explorer"), at the pointer, for one folder: the crumb right-clicked, or
+   *  the folder shown when it was the bar itself. */
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const [path, setPath] = useState(props.directory)
   const crumbs = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
@@ -136,12 +143,19 @@ export function BrowseToolbar(props: Props): JSX.Element {
           onClick={(event) => {
             if (!(event.target as HTMLElement).closest('button')) begin()
           }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            const crumb = (event.target as HTMLElement).closest<HTMLElement>('[data-crumb-path]')
+            setMenu({ x: event.clientX, y: event.clientY, path: crumb?.dataset.crumbPath ?? props.directory })
+          }}
         >
           <div className="browse-crumbs" ref={crumbs}>
             {browseCrumbs(props.directory).map((crumb, index, all) => (
               <span className="browse-crumb" key={crumb.path}>
                 <button
                   {...folderDrop(crumb.path)}
+                  data-crumb-path={crumb.path}
                   onClick={() => props.onNavigate(crumb.path)}
                   aria-current={
                     !props.fileName && index === all.length - 1 ? 'location' : undefined
@@ -166,6 +180,21 @@ export function BrowseToolbar(props: Props): JSX.Element {
             onClick={begin}
           />
         </nav>
+      )}
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            // Explorer's own words and pair: the folder itself (a paste in
+            // Explorer takes the folder, a paste in text takes the path), and
+            // the path as plain text.
+            { label: 'Copy address', onPick: () => void window.prism.copyAddress(menu.path) },
+            { label: 'Copy address as text', onPick: () => void clipboardText(menu.path) },
+            { label: 'Edit address', hint: 'Ctrl+L', onPick: begin }
+          ]}
+        />
       )}
       {props.showSearch !== false && (
         <label className="browse-search">

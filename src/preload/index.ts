@@ -337,6 +337,8 @@ const api = {
   /** A multi-selection's copy: every file lands on the clipboard together. */
   copyFilesToClipboard: (paths: string[], cut = false): Promise<boolean> =>
     ipcRenderer.invoke('file:copy-clip', paths, cut),
+  /** The address bar's "Copy address": the folder, with its path as text. */
+  copyAddress: (path: string): Promise<boolean> => ipcRenderer.invoke('file:copy-address', path),
   /** Copy the file next to itself as "name (2).ext"; resolves with the new path. */
   duplicateFile: (path: string): Promise<string | null> =>
     ipcRenderer.invoke('file:duplicate', path),
