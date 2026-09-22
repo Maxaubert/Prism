@@ -210,6 +210,18 @@ export const ICON_ALWAYS_COLOUR: readonly IconIdentity[] = [
   'comic',
 ]
 
+/**
+ * And the identities whose page is the STYLE'S, not this set's (owner,
+ * 2026-09-20: "the zip file icon should have dynamically adjusting colours
+ * based on the accent, just like folders... and not be hardcoded blue"). They
+ * are the containers, which is what a folder is, so they wear the folder
+ * colour (`--p-tree-zip`) with the ink that reads on it. IN THE APP ONLY: the
+ * .ico files Explorer draws keep this set's indigo, because those are one
+ * picture on every machine and there is no accent out there to follow. The
+ * comic is not here - it is artwork rather than a flat page.
+ */
+export const ACCENT_LED: readonly IconIdentity[] = ['archive', 'iso']
+
 // How much sheen the page carries. Drawn as a gradient over the page and
 // UNDER the band, so the extension stays crisp.
 export const ICON_GLINT = 1.0

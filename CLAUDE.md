@@ -23,6 +23,27 @@ indigo tie it to the Filesmith family without copying its light utility look. Do
 light theme or editing tools without an explicit decision. The file-tree sidebar (2026-07-31)
 was such a decision: a navigation panel bounded by the folder Prism opened in, not a library.
 
+**THE SHIPPED STYLES, AND FOUR PICKS OF 2026-09-20** (`src/renderer/src/lib/theme.ts`, pinned by
+`theme.test.ts` so none of them can be undone by accident):
+- **Every style sets in the SYSTEM face.** Owner: "update all themes to use the system font by
+  default". Void was Segoe, Terminal was Cascadia Mono, Driftwood and Sandstone were Calibri,
+  Lilac was Trebuchet, so picking a style silently changed the face the whole app set in - a
+  second decision hidden inside the first. The picker is untouched; a new preset ships
+  `font: 'system'` unless there is a reason written beside it.
+- **Aurora is SOLID.** Owner: "update this theme to be non acrylic by default". Prism's own
+  default style shipped at 35 on the Acrylic slider, so the desktop showed through the window a
+  film was playing in. Glass is a thing to turn on.
+- **Ruby is near-black and red** (`#0d0d0d`, folders `#dc5656`, accent `#e01f1f`, round corners),
+  the owner's own values read off the Style page. It was a night blue with a crimson accent, and
+  the blue was doing the work the red should do.
+- **A ZIP FOLLOWS THE FOLDER COLOUR**, not a hardcoded indigo. Owner: "the zip file icon should
+  have dynamically adjusting colours based on the accent, just like folders, they should follow
+  the same setting". `--p-tree-zip` IS `--p-tree-folder` (so the Folder icons picker moves both)
+  and `--p-tree-zip-ink` is the white-or-near-black that measures better ON it - the better of
+  the two, not `readableOn`'s text rule, which leans to white and picked 3.8:1 on Ruby's own red
+  where near-black reads at 5.0:1. In the app only, and in the MONOCHROME scheme only: the
+  COLOURED set is the picks the .ico files carry, and Explorer has no accent to follow.
+
 ## Scope
 
 **In scope (v1, the universal quick-viewer):**
@@ -531,6 +552,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   move. It is "New tab" now, instant and rooted per the "New tabs show" setting exactly as the
   + is, with the folder chooser beside it. Dropping a file still works and the line above still
   says so. `open:dialog` in main is left in place but is now reachable from nothing.
+- **EVERY TAB IS ONE WIDTH** (owner, 2026-09-21: "make tabs in both apps have a fixed size, and not
+  dynamically adjust based on the content"), the pinned Explorer tab included. A tab was as wide
+  as its label, up to 14rem, so a folder with a long name shoved every tab after it sideways.
+  Now `flex: 0 1 114px`, min 64px (the same day: 176px first, far too wide; then "way smaller...
+  around 60%", 106px; then "a bit wider like 20%", 127px; then "10% less wide", 114px): one width, all of them shrinking EQUALLY only when the strip
+  runs out of room, as a browser does; the label truncates inside, the root is on the tooltip.
+  Prism Terminal's strip is the same code and the same rule. `tabs` measures the boxes.
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
