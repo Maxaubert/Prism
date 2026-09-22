@@ -61,7 +61,11 @@ describe('the helper is a program started per change, with no pipe (#189)', () =
     vi.doMock('fs', () => ({ existsSync: (p: string) => fwd(p).endsWith('/app/vendor/dwm/PrismDwm.exe') }))
     return import('./dwmHelper')
   }
-  const fakeChild = (..._args: unknown[]) => ({ on: vi.fn(), unref: vi.fn() })
+  // Typed to take spawn's arguments, so the calls it records can be read.
+  const fakeChild = (...args: unknown[]) => {
+    void args
+    return { on: vi.fn(), unref: vi.fn() }
+  }
   const tick = () => new Promise((r) => setImmediate(r))
 
   it('finds the helper in a vendor folder above the app, and in resources when installed', async () => {
