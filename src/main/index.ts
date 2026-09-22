@@ -30,10 +30,9 @@ import { copyWindowsFiles, readWindowsFiles } from './fileClipboard'
 import {
   borderColourForWindow,
   hwndOf,
+  initDwmHelper,
   setBorder,
-  setCornersRounded,
-  stopDwmHelper,
-  warmDwmHelper
+  setCornersRounded
 } from './dwmHelper'
 import { Readable } from 'stream'
 import { pathsFromArgv } from './argv'
@@ -1087,6 +1086,7 @@ if (!E2E) Menu.setApplicationMenu(null)
 // to install one, while Prism has been shipping it in resources/bin since
 // 2026-08-24. Injected here so archive.ts stays electron-free and testable.
 setSevenExe(bundledSeven(app.isPackaged, process.resourcesPath, app.getAppPath()))
+initDwmHelper(app.isPackaged, process.resourcesPath, app.getAppPath())
 // Set once rather than on first use: the media wall consults it, and a wall
 // whose rule appears part way through a session is a rule nobody can reason
 // about.
@@ -1240,9 +1240,9 @@ function createWindow(): void {
     if (remembered.maximised) mainWindow?.maximize()
     if (E2E) mainWindow?.showInactive()
     else if (mainWindow) raise(mainWindow)
-    // The helper compiles its one P/Invoke now, so the first border change
-    // is a pipe write and not a two-second wait.
-    warmDwmHelper()
+    // No helper to warm (#189): the border program is compiled at build time
+    // and started per change with no pipe, so this costs milliseconds and the
+    // first frame no longer waits ~900 ms behind a PowerShell's stdin pipe.
     applyDwmBorder()
   }
   mainWindow.once('ready-to-show', showWindow)
@@ -1453,7 +1453,6 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     markExplorerWindow(app.getPath('userData'), true)
-    stopDwmHelper()
     stopDictation()
     killAll()
     killSidecars()

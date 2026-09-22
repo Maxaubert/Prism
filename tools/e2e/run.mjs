@@ -2654,6 +2654,40 @@ async function rowPasteScenario(fixtures) {
   }
 }
 
+/**
+ * THE WINDOW APPEARS FAST (#189). Every launch used to spend about 900 ms with
+ * the main process's UI thread blocked, before the first frame: the window
+ * border helper was a PowerShell started with a held-open stdin pipe, and the
+ * first such start in Electron's main process stalls that long. Measured on
+ * this machine: 1,188 ms from process start to a visible window before, 369 ms
+ * after. The bound below sits between the two with room either side, so it
+ * does not flake on a slower day and still fails the moment anything puts a
+ * stall like that back on the startup path. What is measured is the app's own
+ * clocks: process creation (main) to first contentful paint (the page).
+ */
+async function startupScenario(fixtures) {
+  console.log('startup time')
+  const times = []
+  for (let i = 0; i < 3; i++) {
+    const { app, win } = await launch(join(fixtures, 'README.md'))
+    try {
+      const t0 = await app.evaluate(() => process.getCreationTime())
+      await win.waitForFunction(() => !!document.querySelector('[role="treeitem"]'), null, { timeout: 45000 })
+      const p = await win.evaluate(() => ({
+        origin: performance.timeOrigin,
+        fcp: performance.getEntriesByType('paint').find((e) => e.name === 'first-contentful-paint')?.startTime ?? -1
+      }))
+      if (p.fcp >= 0) times.push(Math.round(p.origin - t0 + p.fcp))
+    } finally {
+      await app.close()
+    }
+  }
+  times.sort((a, b) => a - b)
+  const median = times[Math.floor(times.length / 2)]
+  ok(times.length === 3, `three launches measured (${times.join(', ')} ms)`)
+  ok(median < 800, `the window shows its first frame within 800 ms of the process starting (median ${median} ms; it was about 1,190 before #189)`)
+}
+
 /** Deleting the last file leaves the tab open and empty, not closed. */
 async function deleteLastScenario(fixtures) {
   console.log('delete the last file')
@@ -8799,6 +8833,7 @@ async function run(fn, gap = 900) {
 }
 
 await seedProfile()
+await run(startupScenario)
 await run(mdScenario)
 await run(pdfScenario)
 await run(pdfZoomScenario)
