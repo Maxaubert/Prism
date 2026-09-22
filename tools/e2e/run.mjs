@@ -4617,13 +4617,14 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A file from a SUBFOLDER of an open root opens a tab of its own, rooted
-    // at that folder (owner, 2026-09-04, reversing 2026-09-01): separate
-    // folders are separate tabs, and only the exact root folds. The tab it
-    // did not land in is left exactly as it was.
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // A SUBFOLDER of an open root, opened as a project, is a tab of its own,
+    // rooted there (owner, 2026-09-04, reversing 2026-09-01): separate folders
+    // are separate tabs, and only the exact root folds. The tab it did not
+    // land in is left exactly as it was. A FOLDER, since 2026-09-22: a file
+    // from outside goes to the Explorer tab and makes no project at all.
+    await handoff(join(fixtures, 'code'))
     await win.waitForSelector(strip, { timeout: 10000 })
-    ok((await tabRows().count()) === 2, 'a file from a subfolder opens a tab of its own')
+    ok(await until(async () => (await tabRows().count()) === 2), 'a subfolder opened as a project is a tab of its own')
     ok(
       /\\code$/i.test((await tabRows().last().getAttribute('title')) ?? ''),
       'rooted at the subfolder'
@@ -4650,9 +4651,8 @@ async function tabsScenario(fixtures) {
 
     // A second root, opened deliberately - a genuine sibling, since a
     // subfolder is no longer a second root at all.
-    await handoff(join(otherRoot, 'bad.json'))
-    await sleep(500)
-    ok((await tabRows().count()) === 2, 'a second root opens a second tab')
+    await handoff(otherRoot)
+    ok(await until(async () => (await tabRows().count()) === 2), 'a second root opens a second tab')
     const labels = await tabRows().allTextContents()
     ok(labels.some((l) => /other/.test(l)), 'the new tab is named for its folder')
 
@@ -4886,7 +4886,10 @@ async function pinRecentScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   const rows = () => win.locator('[role="menuitem"]')
   const rowLabels = () => rows().evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
-  const pinOf = (label) => win.locator(`[role="menuitem"]:has-text("${label}") [data-pin]`)
+  // The WHOLE label: the recents are whatever the scenarios before this one
+  // left, and "docs" is also the start of "docs2".
+  const pinOf = (label) =>
+    win.locator('[role="menuitem"]').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).locator('[data-pin]')
   const openMenu = async () => {
     await win.locator('[aria-label="New tab"]').click({ button: 'right' })
     await win.waitForSelector('[role="menuitem"]', { timeout: 5000 })
