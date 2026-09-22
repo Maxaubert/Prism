@@ -1,6 +1,5 @@
 import { WinEShortcutSetting } from './WinEShortcutSetting'
 import { DictationSettings } from 'prism-term-core/renderer/settings/Dictation'
-import { HelpSetting } from 'prism-term-core/renderer/settings/Help'
 import { TerminalAppearanceSettings } from 'prism-term-core/renderer/settings/TerminalAppearance'
 import { AgentIndicatorSetting, ShellSetting } from 'prism-term-core/renderer/settings/TerminalBehaviour'
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
@@ -33,6 +32,7 @@ import {
   type NewTabShow
 } from '../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
+import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -268,6 +268,16 @@ function Switch({
 }
 
 /** A label with its switch, sized to sit beside others on one line. */
+/** Whether a cold start reopens last time's tabs (owner, 2026-09-22). */
+function RememberTabsSetting(): JSX.Element {
+  const on = useRememberTabs()
+  return (
+    <Pref id="remember-tabs" label="Remember tabs" hint="Reopens the tabs from last time when Prism starts.">
+      <Switch on={on} onChange={setRememberTabs} label="Remember tabs" />
+    </Pref>
+  )
+}
+
 function SwitchItem({
   label,
   on,
@@ -561,10 +571,10 @@ function PlayerTab({
           label="Background"
           hint={
             transportBg === 0
-              ? 'None: the picture runs to the bottom of the frame.'
+              ? 'No band, the picture runs to the bottom of the frame.'
               : transportBg === 100
-                ? 'Opaque: the controls sit on their own band.'
-                : 'How solid the band behind the controls is, over video.'
+                ? 'A solid band behind the controls.'
+                : 'How solid the band behind the video controls is.'
           }
         >
           <div className="flex items-center gap-3">
@@ -642,13 +652,13 @@ function StyleTab(): JSX.Element {
       {/* Mode is a setting like any other, so it gets a row of its own rather
           than a control tucked into the page header. */}
       <div className={ROWS}>
-        <Pref id="mode" label="Mode" hint="Dark and light keep their own styles.">
+        <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>
       </div>
 
       <ThemeHead
-        sub="Pick a style; the controls below edit the one you are on."
+        sub="The look of the app. Changes below apply to the current style."
         save={<SaveButton dirty={dirty} onClick={savePreset} title="Keep this edit as a preset" />}
       />
 
@@ -710,7 +720,7 @@ function StyleTab(): JSX.Element {
           also keeps its own - the two tabs read the same. */}
       <Section title="This style">
         <div className={ROWS}>
-          <Pref id="c-font" label="Font" hint="The typeface the app sets in.">
+          <Pref id="c-font" label="Font" hint="The typeface used across the app.">
             <Select
               id="c-font"
               value={style.font}
@@ -718,7 +728,7 @@ function StyleTab(): JSX.Element {
               options={FONT_OPTIONS}
             />
           </Pref>
-          <Pref id="c-edges" label="Edges" hint="Hairlines between the chrome and the window.">
+          <Pref id="c-edges" label="Edges" hint="The lines between the panels and around the window.">
             <Segmented
               value={style.borders}
               onChange={(v) => setOverride('borders', v)}
@@ -757,7 +767,7 @@ function StyleTab(): JSX.Element {
           {/* PRIMARY and SECONDARY (owner, 2026-09-03): the viewer's ground,
               and the panels around it. Accent, Text and the rest stay their
               own things. */}
-          <Pref id="c-bg" label="Primary colour" hint="The viewer behind your file.">
+          <Pref id="c-bg" label="Primary colour" hint="The background behind the file being viewed.">
             <ColourWell
               id="c-bg"
               value={style.bg}
@@ -778,7 +788,7 @@ function StyleTab(): JSX.Element {
           <Pref
             id="c-chrome"
             label="Secondary colour"
-            hint="The sidebar, the title bar and the tab bar, together."
+            hint="The colour of the sidebar, title bar and tab bar."
           >
             <ColourWell
               id="c-chrome"
@@ -788,7 +798,7 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('chrome', null)}
             />
           </Pref>
-          <Pref id="c-text" label="Text" hint="File names, labels and readouts.">
+          <Pref id="c-text" label="Text" hint="The colour of file names, labels and readouts.">
             <ColourWell
               id="c-text"
               value={style.text}
@@ -797,14 +807,14 @@ function StyleTab(): JSX.Element {
               onReset={() => setOverride('text', null)}
             />
           </Pref>
-          <Pref id="c-corners" label="Corners" hint="How round the window's larger surfaces are.">
+          <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
             <Segmented
               value={style.corners}
               onChange={(v) => setOverride('corners', v)}
               options={CORNER_OPTIONS}
             />
           </Pref>
-          <Pref id="c-folder-icon" label="Folder icons" hint="The folder rows in the tree.">
+          <Pref id="c-folder-icon" label="Folder icons" hint="The colour of folder icons in the tree.">
             <ColourWell
               id="c-folder-icon"
               value={folderIconOf(style)}
@@ -828,7 +838,7 @@ function StyleTab(): JSX.Element {
           <div>
             <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
             <p className="text-[11.5px] text-[var(--p-dim)]">
-              Selection, progress bar and visualizer.
+              The colour of the selection, progress bar and visualizer.
             </p>
           </div>
           {/* One picker, like Background and Text: the accent is a colour you
@@ -1014,10 +1024,7 @@ function TerminalTab(): JSX.Element {
       <div className={ROWS}>
         <ShellSetting />
         <AgentIndicatorSetting />
-        {/* Command help (#175): the core's row, in a list of its own
-            (helpOptions.ts). The way in is each app's, so each app says it:
-            here there is no title-bar button, and it needs a terminal on screen. */}
-        <HelpSetting opensWith="Press F1 while a terminal is showing, or right-click the terminal." />
+        {/* No command help in Prism (owner, 2026-09-22): it is Prism Terminal's. */}
       </div>
       <TerminalAppearanceSettings />
     </div>
@@ -1068,7 +1075,7 @@ function GeneralTab(): JSX.Element {
   const side = useTreeSide()
   return (
     <div className={ROWS}>
-      <Pref id="tree-size" label="Font size" hint="Sidebar rows and this page.">
+      <Pref id="tree-size" label="Font size" hint="The text size of the sidebar and settings.">
         <Select
           id="tree-size"
           value={size.id}
@@ -1079,14 +1086,14 @@ function GeneralTab(): JSX.Element {
       <Pref
         id="auto-scroll"
         label="Auto scroll"
-        hint="The sidebar follows the file you are viewing."
+        hint="The sidebar scrolls to the file you are viewing."
       >
         <Switch on={follow} onChange={setAutoScroll} label="Auto scroll" />
       </Pref>
       <Pref
         id="newtab-mode"
         label="New tabs open in"
-        hint={tabMode === 'folder' && tabFolder ? tabFolder : 'Where the + and Ctrl+T land.'}
+        hint={tabMode === 'folder' && tabFolder ? 'New tabs open in the folder you chose.' : 'The folder a new tab opens in.'}
       >
         <Select
           id="newtab-mode"
@@ -1102,7 +1109,7 @@ function GeneralTab(): JSX.Element {
       <Pref
         id="newtab-show"
         label="New projects show"
-        hint="Open as project starts here. The + and Ctrl+T always open an Explorer tab."
+        hint="What a folder opened as a project shows first."
       >
         <Select
           id="newtab-show"
@@ -1120,7 +1127,7 @@ function GeneralTab(): JSX.Element {
       <Pref
         id="open-external"
         label="Files from Windows open in"
-        hint="A double-click, Open with and the Explorer menu's Open file show the file in the Explorer tab."
+        hint="Shows a file opened from Windows in the Explorer tab, as a preview or in full view."
       >
         <Segmented
           value={openAs}
@@ -1131,7 +1138,8 @@ function GeneralTab(): JSX.Element {
           ]}
         />
       </Pref>
-      <Pref id="tree-side" label="Sidebar side" hint="Which edge the file tree sits on.">
+      <RememberTabsSetting />
+      <Pref id="tree-side" label="Sidebar side" hint="The side of the window the file tree sits on.">
         <Segmented value={side} onChange={(v) => setTreeSide(v as TreeSide)} options={TREE_SIDES} />
       </Pref>
       <WinEShortcutSetting />
@@ -1142,8 +1150,8 @@ function GeneralTab(): JSX.Element {
         label="Explorer menu"
         hint={
           verbBusy
-            ? 'Asking Windows…'
-            : 'On by default. Adds "Open file" and "Open as project" to the right-click menu; on Windows 11 they sit under "Show more options" (Shift+F10).'
+            ? 'Checking with Windows.'
+            : 'Adds entries to the Explorer menu for opening files and folders in Prism.'
         }
       >
         <Switch on={verb} onChange={setVerb} label="Prism in the Explorer menu" />
@@ -1153,7 +1161,7 @@ function GeneralTab(): JSX.Element {
       <Pref
         id="default-apps"
         label="Default viewer"
-        hint="Windows keeps this choice. Opens Prism's page in Default apps."
+        hint="Chooses which file types open in Prism. Windows keeps this choice."
       >
         <button
           id="default-apps"

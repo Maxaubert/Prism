@@ -53,7 +53,7 @@ export function createWinEShortcut(options: {
       return {
         ...lastKnown,
         available: true,
-        error: 'Windows could not confirm the shortcut state. Try again.'
+        error: 'Windows could not confirm the shortcut state.'
       }
     }
   }
@@ -66,7 +66,7 @@ export function createWinEShortcut(options: {
       const verified = await command('--status')
       if (result.error) return { ...verified, error: result.error }
       if (!verified.error && (verified.enabled !== on || (on && !verified.running)))
-        return { ...verified, error: 'The shortcut change could not be confirmed. Try again.' }
+        return { ...verified, error: 'The shortcut change could not be confirmed.' }
       return verified
     })
     changes = next
