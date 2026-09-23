@@ -251,29 +251,49 @@ internal static class Launcher
 {
     // Server exists before starting Prism, including when Electron routes this invocation
     // to an existing process. No ack means Explorer opens, even if Prism stays alive.
-    internal static bool LaunchAndWait(Action<string> launch, int timeout)
+    //
+    // TWO STAGES (2026-09-22, owner: after a boot Win+E opened File Explorer until Prism had
+    // been run once). A cold Electron start after boot can take longer than `timeout`, so
+    // Prism writes "<token> started" the moment its main process has the request, keeps the
+    // pipe open, and writes "<token>" once the folder browser is on screen. `timeout` bounds
+    // the first line, so a Prism that is absent or never starts still falls back at once;
+    // after it, `patience` does. A Prism that dies closes the pipe, which reads as 0 bytes
+    // and falls back immediately rather than waiting the patience out.
+    internal static bool LaunchAndWait(Action<string> launch, int timeout, int patience = 45000)
     {
         string token = Guid.NewGuid().ToString("D");
         var clock = Stopwatch.StartNew();
+        long deadline = timeout;
         try
         {
             using (var pipe = new NamedPipeServerStream("PrismWinE." + token, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
             {
                 IAsyncResult connect = pipe.BeginWaitForConnection(null, null);
                 launch(token);
-                if (!connect.AsyncWaitHandle.WaitOne(Math.Max(0, timeout - (int)clock.ElapsedMilliseconds))) return false;
+                if (!connect.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds))) return false;
                 pipe.EndWaitForConnection(connect);
-                var bytes = new byte[64];
+                var bytes = new byte[256];
                 int total = 0;
                 while (total < bytes.Length)
                 {
                     IAsyncResult read = pipe.BeginRead(bytes, total, bytes.Length - total, null, null);
-                    if (!read.AsyncWaitHandle.WaitOne(Math.Max(0, timeout - (int)clock.ElapsedMilliseconds))) return false;
+                    if (!read.AsyncWaitHandle.WaitOne((int)Math.Max(0, deadline - clock.ElapsedMilliseconds))) return false;
                     int count = pipe.EndRead(read);
                     if (count == 0) return false;
                     total += count;
                     string received = Encoding.UTF8.GetString(bytes, 0, total);
-                    if (received.IndexOf('\n') >= 0) return received == token + "\n";
+                    int newline;
+                    while ((newline = received.IndexOf('\n')) >= 0)
+                    {
+                        string line = received.Substring(0, newline);
+                        if (line == token) return true;
+                        if (line != token + " started") return false;
+                        deadline = clock.ElapsedMilliseconds + patience;
+                        received = received.Substring(newline + 1);
+                        byte[] rest = Encoding.UTF8.GetBytes(received);
+                        Array.Copy(rest, bytes, rest.Length);
+                        total = rest.Length;
+                    }
                 }
             }
         }
@@ -567,6 +587,12 @@ internal static class SelfTests
             Check(!Launcher.LaunchAndWait(delegate { }, 100), "missing acknowledgement requests Explorer fallback");
             Check(PipeResponse(true), "renderer acknowledgement accepted over real named pipe");
             Check(!PipeResponse(false), "wrong acknowledgement requests Explorer fallback");
+            Check(PipeScript(new[] { " started", "" }, 300, 5000, 600),
+                "a started Prism is waited for past the first timeout");
+            Check(!PipeScript(new[] { " started" }, 300, 5000, 0),
+                "a started Prism whose pipe closes falls back at once");
+            Check(!PipeScript(new[] { " started", "" }, 300, 400, 900),
+                "a started Prism that never gets ready falls back after the patience");
             Check(Watcher.Matches(0x45, true, false, true, false, false, false), "plain Win+E matches");
             Check(!Watcher.Matches(0x45, true, false, true, true, false, false), "Ctrl+Win+E passes through");
             Check(!Watcher.Matches(0x45, true, false, true, false, true, false), "Alt+Win+E passes through");
@@ -636,6 +662,38 @@ internal static class SelfTests
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
+    /** Lines suffixed to the token ("" is the ready line), `pause` ms before the last. */
+    private static bool PipeScript(string[] lines, int timeout, int patience, int pause)
+    {
+        Thread client = null;
+        var clock = Stopwatch.StartNew();
+        bool result = Launcher.LaunchAndWait(delegate(string token)
+        {
+            client = new Thread(delegate()
+            {
+                try
+                {
+                    using (var pipe = new NamedPipeClientStream(".", "PrismWinE." + token, PipeDirection.Out))
+                    {
+                        pipe.Connect(1000);
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            if (i == lines.Length - 1 && i > 0) Thread.Sleep(pause);
+                            byte[] bytes = Encoding.UTF8.GetBytes(token + lines[i] + "\n");
+                            pipe.Write(bytes, 0, bytes.Length);
+                            pipe.Flush();
+                        }
+                        if (lines.Length == 1) Thread.Sleep(50);
+                    }
+                }
+                catch (Exception) { /* the server gave up first */ }
+            });
+            client.Start();
+        }, timeout, patience);
+        if (client != null) client.Join(patience + pause + 1000);
+        return result && clock.ElapsedMilliseconds < patience + pause + 1000;
+    }
+
     private static bool PipeResponse(bool valid)
     {
         Thread client = null;

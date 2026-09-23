@@ -845,22 +845,13 @@ async function termOptionsScenario(fixtures) {
     await win.waitForSelector('[data-terminal-settings]', { timeout: 5000 })
     // The shell row appears once main has answered with the shells it found.
     await win.waitForSelector('[data-pref="term-shell"]', { timeout: 8000 }).catch(() => {})
-    // COMMAND HELP (#175) KEEPS A LIST OF ITS OWN in the core (helpOptions.ts),
-    // so that adding its row there could not turn this check red before Prism
-    // had wired the popup. Now that it has, the page shows BOTH lists and
-    // nothing else, and each is asserted against its own file.
-    const helpSrc = readFileSync(join(process.cwd(), 'node_modules/prism-term-core/renderer/settings/helpOptions.ts'), 'utf8')
-    const helpWanted = [...helpSrc.matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g)].map((m) => m[1]).sort()
-    ok(helpWanted.length >= 1 && helpWanted.includes('help-enabled'), `the core lists the command help options separately (${JSON.stringify(helpWanted)})`)
+    // No command help in Prism (2026-09-22): the page is the terminal list and
+    // nothing else, the help row included.
     const onPage = (await win.evaluate(() =>
       [...document.querySelectorAll('[data-terminal-settings] [data-pref]')].map((e) => e.getAttribute('data-pref'))
     )).sort()
-    const shown = onPage.filter((id) => !helpWanted.includes(id))
-    ok(JSON.stringify(shown) === JSON.stringify(wanted), `the Terminal page shows exactly that list (shown: ${JSON.stringify(shown)})`)
-    ok(
-      JSON.stringify(onPage.filter((id) => helpWanted.includes(id))) === JSON.stringify(helpWanted),
-      `and the command help rows beside it (${JSON.stringify(helpWanted)})`
-    )
+    ok(JSON.stringify(onPage) === JSON.stringify(wanted), `the Terminal page shows exactly that list (shown: ${JSON.stringify(onPage)})`)
+    ok(!onPage.includes('help-enabled'), 'with no command help row, which is Prism Terminal only')
     ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
     await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
     // Untouched, the indicator is MINIMAL and its colours follow the accent.
@@ -883,422 +874,33 @@ async function termOptionsScenario(fixtures) {
 }
 
 /**
- * COMMAND HELP (#175; owner, 2026-09-20: "a pop up with copy icons for easy
- * copying. searchable, natural language"). The popup is prism-term-core's and
- * Prism Terminal proves the popup itself (its search, its keyboard, its
- * layout); this proves what is PRISM's: where it exists and how it is reached.
- *
- *  - Prism is a viewer first: with NO terminal showing, F1 does nothing, over
- *    a document and over Settings alike.
- *  - F1 is heard from INSIDE a focused shell (xterm has to yield it), and the
- *    terminal's own right-click menu has a row for it.
- *  - NOTHING IS TYPED INTO THE SHELL: the terminal's text is read before the
- *    popup is touched and again after every search, copy and Enter in it.
- *  - COPY IS EXACT: what lands on the clipboard is read back through
- *    Electron's clipboard in MAIN and compared character for character.
- *    Whatever the clipboard held is put back.
- *  - Closing it, by Escape, by its X or by Ctrl+`, hands the keyboard back to
- *    the shell; a chord that changes what is in front puts it away; a close
- *    question is never underneath it.
- *  - Setting off: the key is dead and the menu row is gone.
- *
- * Runner-safe: no `claude` CLI (a shell stands in for one through its title,
- * as in agentTitle), no path outside the fixtures, waits and never sleeps.
- * Screenshots go to .e2e/shots/help-*.png, in a dark style and a light one.
+ * NO COMMAND HELP IN PRISM (owner, 2026-09-22: "command help shouldn't be part
+ * of Prism the normal app, only the terminal app"). It is Prism Terminal's; in
+ * Prism F1 is the shell's, the terminal's menu has no row for it and Settings
+ * has no switch.
  */
-async function helpPanelScenario(fixtures) {
-  console.log('help panel')
+async function noCommandHelpScenario(fixtures) {
+  console.log('no command help')
   const { app, win } = await launch(join(fixtures, 'README.md'))
-  const shot = (name) => win.screenshot({ path: join(SHOTS, `${name}.png`) }).catch(() => {})
-  const panel = win.locator('[data-help-panel]')
-  const opened = () => until(async () => (await panel.count()) === 1, 8000, 50)
-  const closed = () => until(async () => (await panel.count()) === 0, 5000, 50)
-  /** A wait for something NOT to happen has to end somewhere. */
-  const staysShut = async () => !(await until(async () => (await panel.count()) === 1, 1500, 50))
-  const firstId = () =>
-    win.evaluate(() => document.querySelector('[data-help-list] [data-help-id]')?.getAttribute('data-help-id') ?? null)
-  const focusIsSearch = () => win.evaluate(() => document.activeElement?.hasAttribute('data-help-search') === true)
-  const focusIsShell = () => win.evaluate(() => !!document.activeElement?.closest('.xterm'))
-  const termText = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
-  const atPrompt = () =>
-    win.waitForFunction(
-      () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
-      null,
-      { timeout: 45000 }
-    )
-  const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
-  const menuRow = () => win.locator('[role="menu"] [role="menuitem"]', { hasText: 'Command help' })
-  const folderTab = () => win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first()
-
-  // The clipboard is the owner's: what it held is put back at the end. Text
-  // (with its html and rtf forms) and an image go back through Electron.
-  // Copied FILES are a CF_HDROP, which Electron's clipboard can neither read
-  // nor write, so they go through PowerShell both ways, as Prism's own "Copy
-  // file" does. It used to say "cannot be put back" and clear them, and a run
-  // on the owner's machine did exactly that to files he had just copied.
-  const held = await app.evaluate(({ clipboard }) => {
-    const img = clipboard.readImage()
-    return {
-      formats: clipboard.availableFormats(),
-      text: clipboard.readText(),
-      html: clipboard.readHTML(),
-      rtf: clipboard.readRTF(),
-      image: img.isEmpty() ? '' : img.toDataURL()
-    }
-  })
-  const PS = ['-NoProfile', '-NonInteractive', '-STA', '-Command']
-  let heldFiles = ''
-  if (held.formats.some((f) => /FileName|uri-list/i.test(f))) {
-    try {
-      heldFiles = execFileSync(
-        'powershell.exe',
-        [...PS, '(Get-Clipboard -Format FileDropList | ForEach-Object { $_.FullName }) -join "`n"'],
-        { encoding: 'utf8', windowsHide: true, timeout: 20000 }
-      ).trim()
-    } catch {
-      heldFiles = ''
-    }
-  }
-  let styleBefore = null
-
   try {
-    /* ----- a viewer first: no terminal, no help ----- */
-    await win.waitForSelector('.p-md h1', { timeout: 15000 })
-    await win.keyboard.press('F1')
-    ok(await staysShut(), 'with NO terminal showing, F1 opens nothing: Prism is a viewer first')
-
-    // The process poll's first answer is listened for, as in agentTitle: it
-    // clears a titled session's presence when it lands, and the close question
-    // at the end needs that presence to hold. The listener goes up BEFORE the
-    // terminal is opened.
-    await win.evaluate(() => {
-      window.__helpAgentSaid = 0
-      window.prism.onTermAgent(() => (window.__helpAgentSaid += 1))
-    })
     await win.locator('aside [aria-label="Terminal"]').click()
     await win.waitForSelector('.xterm', { timeout: 15000 })
-    await atPrompt()
-    await win.locator('.xterm').click()
-    await win.keyboard.type('echo help-$(40+2)-ready')
-    await win.keyboard.press('Enter')
-    ok(await until(async () => (await termText()).includes('help-42-ready'), 20000), 'a shell is showing')
-    // The prompt has to be back before the text is taken as the baseline.
-    await atPrompt()
-    const termBefore = await termText()
-
-    /* ----- F1, from inside a focused shell ----- */
-    ok(await until(focusIsShell, 5000, 50), 'and it has the keyboard')
-    await win.keyboard.press('F1')
-    ok(await opened(), 'F1 opens the popup over a FOCUSED shell (xterm yields the key)')
-    ok(await until(focusIsSearch, 4000, 50), 'and the search field has the focus')
-    ok(
-      (await win.locator('[data-help-shell="powershell"]').getAttribute('aria-pressed')) === 'true',
-      'the chip is the language of the shell in front (PowerShell)'
-    )
-    const browse = await win.evaluate(() => ({
-      headers: [...document.querySelectorAll('[data-help-category]')].length,
-      entries: document.querySelectorAll('[data-help-id]').length
-    }))
-    ok(browse.headers >= 2 && browse.entries >= 20, `with no question it browses by category (${browse.headers} headings, ${browse.entries} entries drawn)`)
-    await shot('help-browse-dark')
-
-    await win.keyboard.type('how do I find big files')
-    ok(
-      await until(async () => (await firstId()) === 'ps-biggest-files', 6000, 50),
-      `a plain question finds the PowerShell answer first (${await firstId()})`
-    )
-    await shot('help-results-dark')
-
-    /* ----- it is laid out in this app too ----- */
-    const look = await win.evaluate(() => {
-      const el = document.querySelector('[data-help-panel]')
-      const code = document.querySelector('[data-help-id="ps-biggest-files"] [data-help-command]')
-      void code
-      const copy = document.querySelector('[data-help-copy="ps-biggest-files#0"]').getBoundingClientRect()
-      const box = el.getBoundingClientRect()
-      const alpha = (c) => Number((c.match(/[\d.]+/g) ?? [])[3] ?? 1)
-      return {
-        w: Math.round(box.width),
-        h: Math.round(box.height),
-        inside: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth,
-        alpha: alpha(getComputedStyle(el).backgroundColor),
-        // Tailwind generates nothing for a class it never saw: index.css names
-        // the core package as a source, and these are what that buys.
-        // The core is a TABLE since 2026-09-20 (PrismTerminal #34), so the
-        // proof that Tailwind generated its classes moved off the old command
-        // box onto the row: `h-[34px]` and `px-4` are the core's own.
-        rowH: Math.round(document.querySelector('[data-help-row]').getBoundingClientRect().height),
-        rowPad: parseFloat(getComputedStyle(document.querySelector('[data-help-row]')).paddingLeft),
-        copyW: Math.round(copy.width),
-        copyH: Math.round(copy.height)
-      }
-    })
-    ok(look.w >= 480 && look.w <= 780 && look.h >= 320, `the popup is a popup-sized box (${look.w}x${look.h})`)
-    ok(look.inside, 'wholly inside the window')
-    ok(look.alpha === 1, `on an opaque surface (alpha ${look.alpha})`)
-    ok(
-      look.rowH >= 28 && look.rowPad >= 12 && look.copyW >= 26 && look.copyH >= 26,
-      `the core's classes are styled here (row ${look.rowH}px tall, ${look.rowPad}px padding, copy button ${look.copyW}x${look.copyH})`
-    )
-
-    /* ----- copy ----- */
-    const want = await win.locator('[data-help-id="ps-biggest-files"][data-help-variant="0"] [data-help-command]').textContent()
-    await win.locator('[data-help-copy="ps-biggest-files#0"]').click()
-    ok(
-      await until(async () => (await win.locator('[data-help-copy="ps-biggest-files#0"]').getAttribute('title')) === 'Copied', 4000, 25),
-      'the copy button answers in place, in the button itself'
-    )
-    ok(
-      !!want && /Sort-Object/.test(want) && (await until(async () => (await clip()) === want, 4000, 50)),
-      `the clipboard holds the EXACT command ("${await clip()}")`
-    )
-    // Enter copies the highlighted entry, from the search field.
-    await win.locator('[data-help-search]').focus()
-    const markedAt = () => win.evaluate(() => Number(document.querySelector('[data-help-active]')?.getAttribute('data-help-index') ?? -1))
-    const markedBefore = await markedAt()
-    await win.keyboard.press('ArrowDown')
-    const to = await until(async () => {
-      const n = await markedAt()
-      return n >= 0 && n !== markedBefore ? n : null
-    }, 4000, 50)
-    ok(to === markedBefore + 1 || (markedBefore === -1 && to === 0), `Down moves the mark one row (${markedBefore} -> ${to})`)
-    const wantSecond = await win.locator(`[data-help-index="${to}"] [data-help-command]`).textContent()
-    await win.keyboard.press('Enter')
-    ok(!!wantSecond && (await until(async () => (await clip()) === wantSecond, 4000, 50)), "Enter copies the marked row's command")
-
-    /* ----- nothing was typed into the shell ----- */
-    ok((await termText()) === termBefore, 'the terminal is EXACTLY as it was: nothing was typed or run')
-    await win.keyboard.press('Escape')
-    ok(await closed(), 'Escape closes it')
-    ok(await until(focusIsShell, 5000, 50), 'and the keyboard is back in the shell, with no click')
-    await win.keyboard.type('echo landed-$(1+1)')
-    await win.keyboard.press('Enter')
-    ok(await until(async () => (await termText()).includes('landed-2'), 20000), 'where the next keystroke lands')
-    await atPrompt()
-
-    /* ----- what comes to the front puts it away ----- */
-    await win.keyboard.press('F1')
-    ok(await opened(), 'the popup is up again')
-    await win.keyboard.press('Control+Shift+f')
-    ok(await until(async () => (await win.locator('[data-term-find]').count()) === 1, 5000, 50), 'Ctrl+Shift+F opens find over the popup')
-    ok(await closed(), 'and the popup leaves, so the find bar is never typed into from underneath it')
-    await win.keyboard.press('Escape')
-    ok(await until(async () => (await win.locator('[data-term-find]').count()) === 0, 5000, 50), 'Escape closes find')
     await win.locator('.xterm').click()
     await win.keyboard.press('F1')
-    ok(await opened(), 'up once more')
-    await win.keyboard.press('Control+`')
-    ok(await closed(), 'Ctrl+` over the popup puts it away')
-    ok((await win.locator('.xterm').count()) === 1 && (await until(focusIsShell, 5000, 50)), 'and the terminal stays, with the keyboard')
-
-    /* ----- the terminal's own menu ----- */
+    await sleep(800)
+    ok((await win.locator('[data-help-panel]').count()) === 0, 'F1 over a focused shell opens no help popup')
     await win.locator('[data-term-panel]').click({ button: 'right', position: { x: 200, y: 120 } })
-    ok(await until(async () => (await menuRow().count()) === 1, 5000, 50), 'the right-click menu has a Command help row')
-    await menuRow().click()
-    ok(await opened(), 'which opens it')
-    ok(await until(focusIsSearch, 4000, 50), 'with the focus in its search field')
-    await win.locator('[data-help-close]').click()
-    ok(await closed(), 'and its own X closes it')
-    ok(await until(focusIsShell, 5000, 50), 'handing the keyboard back to the shell, though it was opened from a menu')
-
-    /* ----- over a SPLIT, its keys are its own ----- */
-    // A click on a copy button, which is what the popup is for, leaves the
-    // focus on that button and not in the search field. Both key listeners are
-    // on window in the capture phase, so the popup's stopPropagation does not
-    // silence App's, and App shielded its chords only while a TEXT FIELD had the
-    // keyboard: from a copy button Ctrl+W closed the tab under the popup (this
-    // check failed on it before App learned that the popup is one). Driven in a
-    // split, the document beside the shell, because that is where App still
-    // reads the vertical keys and there is a document to lose.
-    await win.locator('[role="treeitem"]:has-text("README.md")').click()
-    await until(async () => (await win.locator('.xterm').count()) === 0, 8000, 50)
-    await win.locator('aside [aria-label="Terminal"]').click({ button: 'right' })
-    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
-    await win.locator('[role="menuitem"]:has-text("Open in split view")').click()
-    const readmeUp = () => win.locator('.p-md h1').first().isVisible().catch(() => false)
+    await win.waitForSelector('[role="menu"] [role="menuitem"]', { timeout: 5000 })
     ok(
-      await until(async () => (await win.locator('.xterm').count()) === 1 && (await readmeUp()), 15000, 50),
-      'a split: the document AND the terminal'
-    )
-    await win.locator('.xterm').click()
-    await until(focusIsShell, 5000, 50)
-    await win.keyboard.press('F1')
-    ok(await opened(), 'F1 opens the popup over a split terminal too')
-    await win.locator('[data-help-list] [data-help-copy]').first().click()
-    ok(
-      await until(() => win.evaluate(() => !!document.activeElement?.hasAttribute('data-help-copy')), 4000, 50),
-      'a click on a copy button leaves the focus on that button'
-    )
-    const activeIndex = () =>
-      win.evaluate(() => Number(document.querySelector('[data-help-active]')?.getAttribute('data-help-index') ?? -1))
-    const from = await activeIndex()
-    await win.keyboard.press('ArrowDown')
-    await win.keyboard.press('ArrowDown')
-    ok(await until(async () => (await activeIndex()) === from + 2, 4000, 50), `Down moves the popup's highlight from there (${from} to ${await activeIndex()})`)
-    // Opening the next file is an IPC round trip, so this is a bounded wait for
-    // the document to LEAVE, which it must not.
-    ok(!(await until(async () => !(await readmeUp()), 1500, 50)), 'and pages NOTHING behind it: the document is still the README')
-    const tabsInSplit = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
-    await win.keyboard.press('Control+w')
-    ok(
-      (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsInSplit && (await panel.count()) === 1,
-      'Ctrl+W from a copy button reaches no tab either, the same as from the search field'
+      (await win.locator('[role="menuitem"]', { hasText: 'Command help' }).count()) === 0,
+      "the terminal's menu offers no command help"
     )
     await win.keyboard.press('Escape')
-    ok(await closed(), 'Escape closes it from a button')
-    ok(await until(focusIsShell, 5000, 50), 'and the split shell has the keyboard back')
-    // Back to the full terminal the rest of this scenario is written against.
-    await win.locator('[aria-label="Remove the file from the split"]').click()
-    await until(async () => (await win.locator('.xterm').count()) === 1 && !(await readmeUp()), 8000, 50)
-    await win.locator('.xterm').click()
-
-    /* ----- a light style, looked at ----- */
-    styleBefore = await switchStyle(win, 'paper', 'light')
-    await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light'), 6000, 50)
-    await win.keyboard.press('F1')
-    ok(await opened(), 'it opens in a light style')
-    await shot('help-browse-light')
-    await win.keyboard.type('delete a folder')
-    ok(await until(async () => (await firstId()) === 'ps-delete-folder', 6000, 50), `"delete a folder" finds it (${await firstId()})`)
-    // The warning is a MARK on the row since the core became a table: one row
-    // per command, so every variant of a destructive entry carries it. The
-    // sentence is still there, for the pointer and for a screen reader.
-    const dangerMark = win.locator('[data-help-id="ps-delete-folder"][data-help-variant="0"] [data-help-danger]')
-    const danger = ((await dangerMark.textContent()) ?? '').trim()
-    ok(/^Careful\./.test(danger), 'and it carries its warning')
-    ok((await dangerMark.locator('svg').count()) === 1, 'drawn as a mark, not a paragraph')
-    await win.locator('[data-help-copy="ps-delete-folder#0"]').click()
-    await until(async () => (await win.locator('[data-help-copy="ps-delete-folder#0"]').getAttribute('title')) === 'Copied', 4000, 25)
-    await shot('help-results-light')
-    const ink = await win.evaluate(() => {
-      const lum = (c) => {
-        const [r, g, b] = (c.match(/[\d.]+/g) ?? []).slice(0, 3).map((v) => {
-          const s = Number(v) / 255
-          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
-        })
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
-      }
-      const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
-      const el = document.querySelector('[data-help-panel]')
-      const task = document.querySelector('[data-help-id="ps-delete-folder"] [data-help-task]')
-      return ratio(lum(getComputedStyle(task).color), lum(getComputedStyle(el).backgroundColor))
-    })
-    ok(ink >= 4.5, `on a light style the text still reads (${ink.toFixed(1)}:1)`)
-    await win.keyboard.press('Escape')
-    ok(await closed(), 'Escape closes it there too')
-    await switchStyle(win, styleBefore[0], styleBefore[1])
-    styleBefore = null
-
-    /* ----- off means off ----- */
     await win.click('[aria-label="Settings"]')
     await win.click('button:has-text("Terminal")')
-    await win.waitForSelector('[data-terminal-settings] [data-pref="help-enabled"]', { timeout: 8000 })
-    await win.keyboard.press('F1')
-    ok(await staysShut(), 'over Settings there is no terminal showing, so F1 opens nothing')
-    const sw = win.locator('[data-pref="help-enabled"] [role="switch"]')
-    ok((await sw.getAttribute('aria-checked')) === 'true', 'Settings > Terminal has the Command help switch, on by default')
-    ok(
-      /F1 while a terminal is showing/.test((await win.locator('[data-pref="help-enabled"]').textContent()) ?? ''),
-      "and the row says what this app's way in is"
-    )
-    await sw.click()
-    ok(await until(async () => (await sw.getAttribute('aria-checked')) === 'false', 4000, 50), 'it switches off')
-    await folderTab().click()
-    await win.waitForSelector('.xterm', { timeout: 15000 })
-    await win.locator('.xterm').click()
-    await win.keyboard.press('F1')
-    ok(await staysShut(), 'switched off, F1 opens nothing: the key is the shell\'s again')
-    await win.locator('[data-term-panel]').click({ button: 'right', position: { x: 200, y: 120 } })
-    await until(async () => (await win.locator('[role="menu"] [role="menuitem"]').count()) > 0, 5000, 50)
-    ok((await menuRow().count()) === 0, 'nor does the menu offer it')
-    await win.keyboard.press('Escape')
-    await until(async () => (await win.locator('[role="menu"]').count()) === 0, 4000, 50)
-    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:has-text("Settings")').click()
-    await win.waitForSelector('[data-pref="help-enabled"]', { timeout: 8000 })
-    await sw.click()
-    ok(await until(async () => (await sw.getAttribute('aria-checked')) === 'true', 4000, 50), 'switched back on')
-    await folderTab().click()
-    await win.waitForSelector('.xterm', { timeout: 15000 })
-    await win.locator('.xterm').click()
-    await win.keyboard.press('F1')
-    ok(await opened(), 'and F1 opens it again')
-    await win.keyboard.press('Escape')
-    await closed()
-
-    /* ----- one question at a time ----- */
-    // A shell stands in for a WORKING Claude through its title (agentTitle's
-    // fixture), so closing the window asks. No CLI is involved.
-    ok(
-      await waitUntil(() => win.evaluate(() => window.__helpAgentSaid > 0), 45000),
-      'the process poll has had its first look at the shell'
-    )
-    await until(focusIsShell, 5000, 50)
-    // Whatever F1 did in the shell while the setting was off is cleared first.
-    await win.keyboard.press('Escape')
-    // Idle first: a spinner BEFORE any idle title is an agent still starting,
-    // which is present and not working.
-    await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x2733) Claude Code"')
-    await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-agent-present]', { timeout: 10000 })
-    await win.keyboard.type('$Host.UI.RawUI.WindowTitle = "$([char]0x25D0) Claude Code"')
-    await win.keyboard.press('Enter')
-    await win.waitForSelector('[data-agent-state="working"]', { timeout: 10000 })
-    await win.keyboard.press('F1')
-    ok(await opened(), 'the popup is up over a tab whose agent is working')
-    // Unlike Prism Terminal, Prism shields its tab chords while a text field
-    // has the keyboard (the search box, a rename), and the popup's search field
-    // is one: Ctrl+W there closes nothing, which is the safer of the two.
-    const tabsBefore = await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()
-    await win.keyboard.press('Control+w')
-    ok(
-      (await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === tabsBefore && (await panel.count()) === 1,
-      'Ctrl+W in its search field reaches no tab'
-    )
-    // Closing the WINDOW is the question that can arrive from behind it
-    // (Alt+F4, the taskbar): main asks the page, whatever has the focus.
-    await win.evaluate(() => window.prism.close())
-    const question = win.locator('[role="dialog"]:not([data-help-panel])')
-    ok(await until(async () => (await question.count()) === 1, 5000, 50), 'closing the window over it raises the close question')
-    ok(await closed(), 'and the popup is put away, so the question is never underneath it')
-    ok(
-      await until(() => win.evaluate(() => !!document.activeElement?.closest('[role="dialog"]:not([data-help-panel])')), 4000, 50),
-      'the focus is on the question, where it can be seen'
-    )
-    await win.keyboard.press('F1')
-    ok(await staysShut(), 'and F1 does not open it over a question')
-    await question.locator('button:has-text("Cancel")').click()
-    ok(await until(async () => (await question.count()) === 0, 5000, 50), 'Cancel keeps the tab')
-    ok((await win.locator('.xterm').count()) === 1, 'and its terminal')
+    await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
+    ok((await win.locator('[data-pref="help-enabled"]').count()) === 0, 'and Settings has no command help switch')
   } finally {
-    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
-    // The profile is shared with every scenario after this one.
-    await win.evaluate(() => localStorage.removeItem('prism.help.enabled')).catch(() => {})
-    await app
-      .evaluate(({ clipboard, nativeImage }, was) => {
-        const data = {}
-        if (was.text) data.text = was.text
-        if (was.html) data.html = was.html
-        if (was.rtf) data.rtf = was.rtf
-        if (was.image) data.image = nativeImage.createFromDataURL(was.image)
-        if (Object.keys(data).length) clipboard.write(data)
-        else clipboard.clear()
-      }, held)
-      .catch(() => {})
-    if (heldFiles) {
-      // The list rides in the environment, so no path is ever quoted into a
-      // command line. A file deleted meanwhile is left out: Set-Clipboard
-      // refuses the whole list over one missing path.
-      try {
-        execFileSync(
-          'powershell.exe',
-          [...PS, '$p = @($env:PRISM_E2E_CLIP -split "`n" | Where-Object { Test-Path -LiteralPath $_ }); if ($p.Count) { Set-Clipboard -LiteralPath $p }'],
-          { env: { ...process.env, PRISM_E2E_CLIP: heldFiles }, windowsHide: true, timeout: 20000 }
-        )
-      } catch {
-        console.log('  (the clipboard held copied FILES and they could not be put back; it is empty now)')
-      }
-    } else if (held.formats.some((f) => /FileName|uri-list/i.test(f)))
-      console.log('  (the clipboard held copied FILES that could not be read, so they are not put back; it is empty now)')
     await app.close()
   }
 }
@@ -4801,6 +4403,53 @@ async function tabsScenario(fixtures) {
   }
 
   // Explorer-opens-a-file WITH saved tabs to restore: the file's folder must
+  // REMEMBER TABS, OFF (owner, 2026-09-22: "Prism should also have the option
+  // to not remember tabs"). Written where main reads it at startup, the window
+  // preferences store; a cold start then opens the Explorer tab alone, and the
+  // saved strip is left as it was, so switching it back on loses nothing.
+  const prefDir = join(PROFILE, 'window-preferences')
+  const prefFile = join(prefDir, `${createHash('sha256').update('prism.tabs.remember').digest('hex')}.json`)
+  mkdirSync(prefDir, { recursive: true })
+  writeFileSync(prefFile, JSON.stringify({ key: 'prism.tabs.remember', value: 'off' }))
+  await sleep(900)
+  ;({ app, win } = await launch(join(fixtures, 'code'), true))
+  try {
+    await win.waitForSelector(strip, { timeout: 10000 })
+    await sleep(1200)
+    const roots = await tabRows().evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''))
+    ok(
+      roots.length === 1 && /[\\/]code$/i.test(roots[0]),
+      `with Remember tabs off, only what Prism was opened with comes back (${JSON.stringify(roots)})`
+    )
+    ok((await win.locator(`${strip} [data-pinned] [role="tab"]`).count()) === 1, 'beside the Explorer tab')
+    const saved = JSON.parse(readFileSync(join(PROFILE, 'tabs.json'), 'utf8'))
+    ok(saved.tabs.length >= 2, `and last time's tabs are still saved (${saved.tabs.length})`)
+    await win.click('[aria-label="Settings"]')
+    await win.click('button:has-text("General")')
+    await win.waitForSelector('[role="switch"][aria-label="Remember tabs"]', { timeout: 8000 })
+    ok(
+      (await win.locator('[role="switch"][aria-label="Remember tabs"]').getAttribute('aria-checked')) === 'false',
+      'Settings > General shows Remember tabs switched off'
+    )
+    // Back on, the way a user would, so the scenarios after this one restore
+    // as they always did: the window's own store mirrors every prism.* key back
+    // into main's at the next launch, so deleting the file alone undoes nothing.
+    await win.locator('[role="switch"][aria-label="Remember tabs"]').click()
+    ok(
+      await until(async () => {
+        try {
+          return JSON.parse(readFileSync(prefFile, 'utf8')).value === 'on'
+        } catch {
+          return false
+        }
+      }, 5000),
+      'and switching it back on is written where main reads it'
+    )
+  } finally {
+    await app.close()
+  }
+
+  // Explorer-opens-a-file WITH saved tabs to restore: the new tab's root must
   // survive the restore traffic. This raced once: the first restored tab's
   // report replaced main's root set while the file was still in flight, its
   // listing was refused, and the sidebar cached "can't read". Since
@@ -6482,18 +6131,20 @@ async function folderArgScenario(fixtures) {
           const text =
             document.querySelector('label[for="explorer-verb"]')?.parentElement?.querySelector('p')
               ?.textContent ?? ''
-          return /right-click menu/.test(text) ? text : false
+          return /Explorer menu/.test(text) ? text : false
         },
         null,
         { timeout: 10000 }
       )
       .then((h) => h.jsonValue())
       .catch(() => '')
+    // Plain words since 2026-09-22 (owner: descriptions say what a setting
+    // does, with no symbols but commas and full stops, no keys, no tips), so
+    // the entries are described rather than quoted.
     ok(
-      /"Open file"/.test(hint) && /"Open as project"/.test(hint),
-      'Settings names the two entries the Explorer menu shows'
+      hint === 'Adds entries to the Explorer menu for opening files and folders in Prism.',
+      `Settings says what the Explorer menu row does, in plain words (${hint})`
     )
-    ok(!/Open in Prism|Open Prism here/.test(hint), 'and the old labels are gone from it')
     // A Pref's hint is ONE line and TRUNCATES (`truncate`), and the new words
     // made this one a sixth longer, with the part a Windows 11 user needs most,
     // "(Shift+F10)", at the very end where an ellipsis eats first. MEASURED
@@ -6505,7 +6156,7 @@ async function folderArgScenario(fixtures) {
     })
     ok(
       !!clipped && clipped.text <= clipped.box,
-      `and the whole hint fits on its line, Shift+F10 included (${clipped?.text}px in ${clipped?.box}px)`
+      `and the whole hint fits on its line (${clipped?.text}px in ${clipped?.box}px)`
     )
     // The switch settles in the same render as the hint and then ANIMATES
     // there; a screenshot taken on the first frame showed a switch that read
@@ -8972,7 +8623,7 @@ await run(updateGuardScenario)
 await run(updateQuietScenario)
 await run(terminalScenario)
 await run(termOptionsScenario)
-await run(helpPanelScenario)
+await run(noCommandHelpScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)

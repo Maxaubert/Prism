@@ -4429,7 +4429,7 @@ test('Win+E General setting uses confirmed Windows state and handles failures wi
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
       await expect(control).toBeDisabled()
       await expect(control).toHaveAttribute('aria-checked', 'false')
-      await expect(page.getByRole('status')).toContainText(mode === 'conflict' ? 'Another Prism installation or profile controls Win+E.' : 'Available in the installed Windows app.')
+      await expect(page.getByRole('status')).toContainText(mode === 'conflict' ? 'Another Prism installation or profile controls this shortcut.' : 'Available in the installed Windows app.')
     }
   } finally {
     await stop(app)
@@ -4477,6 +4477,7 @@ test('Win+E activates the pinned Explorer folder before acknowledging and preser
 /** A real local ACK endpoint, standing in for the helper without registering Win+E. */
 async function winEAckPipe(requestId: string, observe: () => Promise<unknown>) {
   const messages: string[] = []
+  const started: string[] = []
   const observations: Promise<unknown>[] = []
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {
@@ -4485,11 +4486,22 @@ async function winEAckPipe(requestId: string, observe: () => Promise<unknown>) {
     let text = ''
     socket.on('data', (data) => {
       text += data.toString('utf8')
-      if (!text.includes('\n')) return
-      messages.push(text.trim())
-      // Observe the rendered surface as soon as main acknowledges the request.
-      observations.push(observe())
-      socket.end()
+      // Two stages, as the real helper reads them (2026-09-22): "<id> started"
+      // the moment main has the request, then "<id>" once the browser shows,
+      // down the same connection.
+      let newline: number
+      while ((newline = text.indexOf('\n')) >= 0) {
+        const line = text.slice(0, newline).trim()
+        text = text.slice(newline + 1)
+        if (line.endsWith(' started')) {
+          started.push(line)
+          continue
+        }
+        messages.push(line)
+        // Observe the rendered surface as soon as main acknowledges the request.
+        observations.push(observe())
+        socket.end()
+      }
     })
     socket.on('error', () => {})
   })
@@ -4499,6 +4511,7 @@ async function winEAckPipe(requestId: string, observe: () => Promise<unknown>) {
   })
   return {
     messages,
+    started,
     observations,
     close: async () => {
       for (const socket of sockets) socket.destroy()
@@ -4567,6 +4580,8 @@ test('Win+E cold CLI launch restores projects and acknowledges the rendered Expl
     ;({ app: h.app, page: h.page } = await launch)
     live = true
     await expect.poll(() => pipe!.messages).toEqual([id])
+    // Main said "started" first, which is what lets the helper wait out a cold start.
+    expect(pipe!.started).toEqual([`${id} started`])
     expect(await pipe.observations[0]).toEqual({
       role: 'explorer', pinned: true, folderVisible: true, folder: h.movies, projects: 1
     })

@@ -12,8 +12,12 @@ describe('Win+E launch handoff', () => {
   it('waits for both session restoration and renderer subscription before dispatch/ack', () => {
     const dispatch = vi.fn(),
       ack = vi.fn(async () => {})
-    const requests = createWinERequests(dispatch, ack)
+    const announce = vi.fn()
+    const requests = createWinERequests(dispatch, ack, announce)
     requests.enqueue(id)
+    // "started" goes to the helper at once, long before the window is ready,
+    // so a cold start after boot is waited for rather than given up on.
+    expect(announce).toHaveBeenCalledExactlyOnceWith(id)
     requests.ready(id)
     requests.listen()
     expect(dispatch).not.toHaveBeenCalled()
@@ -27,7 +31,7 @@ describe('Win+E launch handoff', () => {
   it('deduplicates pending requests and replays only after reload is ready', () => {
     const dispatch = vi.fn(),
       ack = vi.fn(async () => {})
-    const requests = createWinERequests(dispatch, ack)
+    const requests = createWinERequests(dispatch, ack, vi.fn())
     requests.restored()
     requests.listen()
     requests.enqueue(id)
@@ -44,11 +48,11 @@ describe('Win+E launch handoff', () => {
   it('expires unacknowledged requests and rejects unsolicited replies', () => {
     vi.useFakeTimers()
     const ack = vi.fn(async () => {})
-    const requests = createWinERequests(vi.fn(), ack)
+    const requests = createWinERequests(vi.fn(), ack, vi.fn())
     requests.restored()
     requests.listen()
     requests.enqueue(id)
-    vi.advanceTimersByTime(10001)
+    vi.advanceTimersByTime(45001)
     requests.ready(id)
     expect(ack).not.toHaveBeenCalled()
   })

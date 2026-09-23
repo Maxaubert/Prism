@@ -651,6 +651,8 @@ function offerUpdate(info: UpdateInfo): void {
 const extraWindowOwner = explorerWindowOwner(app.getPath('userData'), process.argv)
 const preferencesOwner = extraWindowOwner ?? app.getPath('userData')
 const windowPreferences = createWindowPreferences(preferencesOwner, !!extraWindowOwner)
+/** The first restore of this process has happened ("Remember tabs" applies to it alone). */
+let coldRestoreDone = false
 const indexDirectory = join(preferencesOwner, 'search-index')
 const sizeCacheDirectory = join(preferencesOwner, 'folder-sizes')
 const indexer = initializeIndexerRuntime({
@@ -1357,7 +1359,14 @@ function createWindow(): void {
     // file into a tab whose root already holds it, so a launch file that
     // arrives BEFORE its own restored tab spawns a duplicate instead.
     void (async () => {
-      const restored = extraWindowOwner ? [] : await restoreTabs()
+      // "Remember tabs" (owner, 2026-09-22), off: a COLD start opens only the
+      // Explorer tab and what Prism was opened with. Once per process, so a
+      // reload of the window in the same session still gets its tabs back; the
+      // tabs are saved either way.
+      const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
+      const skip = !remember && !coldRestoreDone
+      coldRestoreDone = true
+      const restored = extraWindowOwner || skip ? [] : await restoreTabs()
       if (!restored.some((payload) => payload.role === 'explorer' && payload.pinned)) {
         const id = `explorer-home-${Date.now()}`
         const home = await browseDirectory(id, app.getPath('home'))
