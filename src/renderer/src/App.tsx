@@ -1,4 +1,5 @@
 import { useWinEOpen } from './lib/useWinEOpen'
+import { useExplorerArrival } from './lib/useExplorerArrival'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { OnClash, OpenPayload, OpenWithApp, ViewerFile } from '@shared/types'
 import { preloadImage } from './lib/imageLoader'
@@ -1051,6 +1052,11 @@ export default function App(): JSX.Element {
   }, [syncDirty])
   const [refreshKey, setRefreshKey] = useState(0)
   const browsing = useFolderBrowsing(active, setTabState, refreshKey)
+  // A file from outside goes to the Explorer tab (2026-09-22). The fullscreen
+  // exit is called when a file arrives, long after setFs exists.
+  const arriveInExplorer = useExplorerArrival(tabState, setTabState, browsing.openFile, nextTabId, () => {
+    if (fullscreen) setFs(false)
+  })
   const [ask, setAsk] = useState<Ask | null>(null)
 
   // Settings covers the tree, so over it the same control collapses that page's
@@ -1239,6 +1245,16 @@ export default function App(): JSX.Element {
   // way in, for an arrival that is not a restore and not a folder.
   const arrive = useCallback(
     (p: OpenPayload | null) => {
+      // A FILE from outside: the Explorer's, not a project's (2026-09-22). A
+      // film or a track still plays - it was picked.
+      if (p?.explorerFile) {
+        const name = p.explorerFile.split(/[\\/]/).pop() ?? ''
+        const dot = name.lastIndexOf('.')
+        const kind = fileKind(dot > 0 ? name.slice(dot).toLowerCase() : '', name)
+        if (kind === 'video' || kind === 'audio') intendToPlay(window.prism.mediaUrl(p.explorerFile))
+        arriveInExplorer(p.explorerFile)
+        return
+      }
       if (p && !p.restore && !p.folder) {
         const f = p.index >= 0 ? p.files[p.index] : undefined
         if (f && (f.kind === 'video' || f.kind === 'audio'))
@@ -1246,7 +1262,7 @@ export default function App(): JSX.Element {
       }
       open(p)
     },
-    [open]
+    [open, arriveInExplorer]
   )
   useEffect(() => window.prism.onOpenFile(arrive, () => setRestoring(false)), [arrive])
 
@@ -3563,8 +3579,16 @@ export default function App(): JSX.Element {
         })
         return
       }
+      // A FILE dropped from Windows is a file from outside, and goes where a
+      // double-click sends one: the Explorer tab (2026-09-22). A folder keeps
+      // the route it always had.
       const f = e.dataTransfer?.files?.[0]
-      if (f) void window.prism.openPath(window.prism.getDroppedPath(f)).then(open)
+      if (!f) return
+      const dropped = window.prism.getDroppedPath(f)
+      void window.prism.statFile(dropped).then((st) => {
+        if (st && !st.isFolder) arrive({ explorerFile: dropped, files: [], index: -1, root: '' })
+        else void window.prism.openPath(dropped).then(open)
+      })
     }
     // The ring clears in the CAPTURE phase (2026-09-03): a drop on a sidebar
     // row stops propagation - rightly, or the window handler would also OPEN
@@ -3585,7 +3609,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('drop', end, true)
       window.removeEventListener('dragend', end, true)
     }
-  }, [active, browsing, open, setup])
+  }, [active, arrive, browsing, open, setup])
 
   // The style's light belongs to an empty window, a visualizer, or a page of
   // Prism's own - never behind someone's photo.

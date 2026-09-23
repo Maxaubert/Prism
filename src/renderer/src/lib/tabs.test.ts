@@ -5,6 +5,7 @@ import {
   addExplorerTab,
   addProjectTab,
   ensurePinnedExplorer,
+  frontPinnedExplorer,
   ancestorsWithin,
   closeTab,
   emptyTree,
@@ -140,6 +141,30 @@ describe('Explorer and project tabs', () => {
     const extra = addExplorerTab([], payload(DOCS, []), 'extra').tabs[0]
     const project = { ...tabOf(SHOOT, []), browse: newBrowse(DOCS) }
     expect(tabLabels([first, extra, project])).toEqual(['Explorer', 'docs', 'shoot'])
+  })
+})
+
+describe('frontPinnedExplorer', () => {
+  const explorerAnd = (preview: boolean): Tab[] => {
+    const browser = addExplorerTab([], payload(DOCS, [], -1), 'explorer', true).tabs[0]
+    return [
+      { ...browser, browse: { ...browser.browse, preview }, term: { id: 's1', view: 'full' } },
+      tabOf(SHOOT, ['C:\\shoot\\a.jpg'])
+    ]
+  }
+  it('brings the pinned Explorer to the front with its terminal stepped aside', () => {
+    const tabs = explorerAnd(true)
+    const r = frontPinnedExplorer(tabs, false)!
+    expect(r.activeId).toBe('explorer')
+    expect(r.tabs[0].term?.view).toBe('hidden')
+    expect(r.tabs[1]).toBe(tabs[1])
+  })
+  it('turns the preview pane on for the Preview mode, and leaves it alone for Full view', () => {
+    expect(frontPinnedExplorer(explorerAnd(false), true)!.tabs[0].browse.preview).toBe(true)
+    expect(frontPinnedExplorer(explorerAnd(false), false)!.tabs[0].browse.preview).toBe(false)
+  })
+  it('is null when there is no pinned Explorer', () => {
+    expect(frontPinnedExplorer([tabOf(SHOOT, ['C:\\shoot\\a.jpg'])], true)).toBeNull()
   })
 })
 
