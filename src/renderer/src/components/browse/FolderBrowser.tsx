@@ -43,6 +43,15 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   useLayoutEffect(() => {
     focusList()
   }, [])
+  // While the places panel slides its column shrinks, but its contents keep
+  // the width they had open (the Sidebar's own rule), so the rows do not
+  // reflow on every frame. Read while it stands still, applied only mid-slide.
+  const sliding = !!props.placesSliding
+  useLayoutEffect(() => {
+    if (sliding || props.placesVisible === false) return
+    const width = shell.current?.querySelector<HTMLElement>('.browse-places')?.offsetWidth
+    if (width) shell.current?.style.setProperty('--browse-places-frozen', `${width}px`)
+  })
   const folderPaths = useMemo(
     () => props.listing?.folders.map((folder) => folder.path) ?? [],
     [props.listing]
@@ -108,6 +117,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       className="folder-browser"
       data-preview={props.previewVisible || undefined}
       data-places-hidden={props.placesVisible === false || undefined}
+      data-places-sliding={sliding || undefined}
       data-testid="folder-browser"
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
@@ -179,7 +189,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       }}
     >
       <BrowseToolbar {...props} />
-      {props.placesVisible !== false && (
+      {(props.placesVisible !== false || sliding) && (
         <BrowsePlaces
           places={props.places}
           onDropInto={props.onDropInto}

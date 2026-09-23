@@ -164,6 +164,7 @@ const SEARCH_HELP = [
 
 export function Sidebar({
   open,
+  sliding = false,
   root,
   tabId,
   currentPath,
@@ -198,6 +199,9 @@ export function Sidebar({
   reveal = null
 }: {
   open: boolean
+  /** Mid-slide after an open or close (App's `panelSliding`): only then does the
+   *  width animate, so a tab switch that shuts or opens it lands at once. */
+  sliding?: boolean
   root: string
   /** Which tab this sidebar is serving; the search query is kept per tab. */
   tabId: string
@@ -1173,7 +1177,7 @@ export function Sidebar({
         }
       }}
       className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
-        dragging
+        dragging || !sliding
           ? ''
           : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
