@@ -30,5 +30,27 @@ export function setTabVolume(key: string, level: Level): void {
 
 /** A closed tab takes its level with it: the id never comes back. */
 export function forgetTabVolume(key: string): void {
+  rates.delete(key)
   levels.delete(key)
+}
+
+/**
+ * SPEED rides with the level (#207; owner, 2026-09-23: "if the user mutes
+ * audio or sets speed to be 0.5 and then clicks a new video, those settings
+ * should be kept ... or dissect videos in half speed"). The player kept its
+ * speed only while it stayed mounted, and it is keyed by KIND: a photo or a
+ * track between two films, or a new tab entry, brought it back at 1x. Same
+ * scope as the level: this tab, this session, never on disk.
+ */
+export const DEFAULT_RATE = 1
+
+const rates = new Map<string, number>()
+
+export function tabRate(key: string): number {
+  return rates.get(key) ?? DEFAULT_RATE
+}
+
+export function setTabRate(key: string, rate: number): void {
+  if (!key || !(rate > 0)) return
+  rates.set(key, rate)
 }

@@ -21,13 +21,17 @@ import {
   type Tab,
   type TabState
 } from './tabs'
+import { fileKind } from '@shared/fileKind'
 import { browseLocation, browseParent } from './browse'
+import { intendToPlay } from './playState'
 import { useBrowseSearch } from './useBrowseSearch'
 import {
   createDirectoryRequests,
   createVisitedDirectories,
   directoryKey
 } from './visitedDirectories'
+
+const extOf = (name: string): string => /\.[^.]*$/.exec(name.toLowerCase())?.[0] ?? ''
 
 function pauseTab(tabId: string): void {
   for (const region of document.querySelectorAll<HTMLElement>('[data-player-tab]')) {
@@ -237,13 +241,24 @@ export function useFolderBrowsing(
   }, [id, path, setState])
   // Tree paths share the same last-action-wins sequence as folder and preview opens.
   const openFile = useCallback(
-    async (file: ViewerFile | string, full = true) => {
+    async (file: ViewerFile | string, full = true, play = true) => {
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
       if (visibleId.current === id) setError(undefined)
       const fromTree = typeof file === 'string'
       const filePath = fromTree ? file : file.path
+      // A PICK PLAYS (#139, and #207 for the Explorer; owner, 2026-09-23: "when
+      // you click a audio or video file it autoplays, the only times videos and
+      // audio shouldnt autoplay is when you open prism and a video is already in
+      // one of the tabs"). The project tree has recorded this intent since
+      // 2026-09-03; the Explorer's row click, double-click, pins and menu never
+      // did, so a film picked there sat at 0:00. Keyed by the media URL, which is
+      // what the players ask `wasPlaying`. A restore never comes through here, and
+      // callers that only SHOW a file (the preview toggle, Open full view, an
+      // arrival App has already judged) pass `play = false`.
+      const kind = fromTree ? fileKind(extOf(filePath)) : file.kind
+      if (play && (kind === 'video' || kind === 'audio')) intendToPlay(window.prism.mediaUrl(filePath))
       const root =
         fromTree && active && underRoot(active.root, filePath)
           ? active.root
@@ -312,7 +327,7 @@ export function useFolderBrowsing(
     }
     setState((s) => ({ ...s, tabs: setBrowsePreview(s.tabs, id, preview) }))
     const file = listing?.files.find((f) => f.path === location?.selected)
-    if (preview && file) void openFile(file, false)
+    if (preview && file) void openFile(file, false, false)
   }, [active, id, setState, listing, location?.selected, openFile])
   const openSplit = useCallback(
     (file: ViewerFile | string) => {

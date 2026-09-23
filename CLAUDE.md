@@ -1540,6 +1540,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   which relaunches with the film in a background tab and visits it. Whether a real
   iPad honours the attribute after a row tap is the device's own autoplay policy; the
   e2e proves it in Chromium.
+  THE EXPLORER'S PICKS PLAY TOO (#207; owner, 2026-09-23: "when you click a audio or video
+  file it autoplays, the only times videos and audio shouldnt autoplay is when you open prism
+  and a video is already in one of the tabs"). The Explorer's own opens never recorded the
+  intent, so a film clicked or double-clicked there, a pin, a menu Open sat at 0:00.
+  `useFolderBrowsing.openFile` records it now unless told `play = false`: the preview TOGGLE
+  (it shows the selection, paused) and "Open full view" (it keeps what the pane was doing).
+- **MUTE, VOLUME AND SPEED CARRY TO THE NEXT FILE** (#207; owner, 2026-09-23: "if the user
+  mutes audio or sets speed to be 0.5 and then clicks a new video, those settings should be
+  kept ... maybe the user wants to just look at videos without audio, or dissect videos in
+  half speed"). Speed joined the tab's session level (`tabRate` in `lib/tabVolume`): the
+  player is keyed by KIND, so a photo or a track between two films remounted it at 1x. Same
+  scope as the level: this tab, this session, never on disk.
+- **THE PREVIEW PANE SLIDES ON ITS TOGGLE** (#207; owner, 2026-09-23: "the same way you made
+  an animation for the sidebar in explorer, do the same for the preview window").
+  `lib/usePreviewSlide` runs it in phases, because the pane's grid column exists only while
+  it is open: an opening lays the column out at 0px once the file is on screen and widens it
+  a frame later; a closing keeps the pane laid out (`out`) while it narrows. The list's
+  column, the viewer App lays over the slot and its action bar tween together
+  (`data-preview-sliding`, `workspace.css`), the contents frozen at their open width. Only
+  the toggle slides; a tab switch, a drag or a resize lands at once. `browse.spec` samples it.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried

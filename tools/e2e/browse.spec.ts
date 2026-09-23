@@ -3756,6 +3756,85 @@ test('the places panel slides when toggled, and a tab switch slides nothing', as
   }
 })
 
+test('a picked film plays, keeps its mute and speed across files, and the preview pane slides', async () => {
+  // Owner, 2026-09-23: "when you click a audio or video file it autoplays";
+  // "if the user mutes audio or sets speed to be 0.5 and then clicks a new
+  // video, those settings should be kept"; and the preview pane slides "the
+  // same way you made an animation for the sidebar in explorer".
+  const h = await setup()
+  const { page, app } = h
+  const ffmpeg = join(ROOT, 'vendor/ffmpeg/ffmpeg.exe')
+  videoFixture(h.movies)
+  copyFileSync(join(h.movies, 'sample.mp4'), join(h.movies, 'second.mp4'))
+  execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0x446622:s=320x200', '-frames:v', '1', join(h.movies, 'still.png')], { windowsHide: true })
+  const shown = (): ReturnType<Page['locator']> => page.locator('[data-browse-preview] video:visible')
+  const state = (): Promise<{ paused: boolean; muted: boolean; rate: number } | null> =>
+    shown()
+      .first()
+      .evaluate((v: HTMLVideoElement) => ({ paused: v.paused, muted: v.muted, rate: v.playbackRate }))
+      .catch(() => null)
+  const sample = (ms: number): Promise<number[]> =>
+    page.evaluate(
+      (span) =>
+        new Promise<number[]>((done) => {
+          const seen: number[] = []
+          const end = performance.now() + span
+          const tick = (): void => {
+            const el = document.querySelector<HTMLElement>('[data-browse-preview]')
+            seen.push(el && el.offsetParent ? Math.round(el.getBoundingClientRect().width) : 0)
+            if (performance.now() < end) requestAnimationFrame(tick)
+            else done(seen)
+          }
+          requestAnimationFrame(tick)
+        }),
+      ms
+    )
+  const between = (widths: number[]): number[] => {
+    const hi = Math.max(...widths)
+    return widths.filter((w) => w > 2 && w < hi - 2)
+  }
+  try {
+    await go(page, h.movies)
+    await row(page, 'sample.mp4').click()
+    const toggle = page.getByRole('button', { name: 'Preview pane', exact: true })
+    // Turning the pane on SHOWS the selection, paused, and slides open.
+    let widths = sample(500)
+    await toggle.click()
+    await expect(shown()).toHaveCount(1)
+    expect(between(await widths).length, 'the pane slides open').toBeGreaterThanOrEqual(2)
+    await expect.poll(async () => (await state())?.paused).toBe(true)
+    // Picking a film plays it.
+    await row(page, 'second.mp4').click()
+    await expect.poll(async () => (await state())?.paused, { message: 'a picked film plays' }).toBe(false)
+    // Mute it and halve its speed with the player's own keys.
+    await shown().first().evaluate((v: HTMLVideoElement) => v.closest<HTMLElement>('[tabindex]')?.focus())
+    await shown().first().hover()
+    await page.keyboard.press('m')
+    await page.keyboard.press('<')
+    await page.keyboard.press('<')
+    await expect.poll(async () => (await state())?.muted).toBe(true)
+    const rate = (await state())!.rate
+    expect(rate).toBeLessThan(1)
+    // A new film keeps both, and so does one reached through a picture.
+    await row(page, 'sample.mp4').click()
+    await expect.poll(async () => (await state())?.paused).toBe(false)
+    expect(await state()).toMatchObject({ muted: true, rate })
+    await row(page, 'still.png').click()
+    await expect(shown()).toHaveCount(0)
+    await row(page, 'second.mp4').click()
+    await expect.poll(async () => (await state())?.paused).toBe(false)
+    expect(await state()).toMatchObject({ muted: true, rate })
+    // Closing slides shut.
+    widths = sample(500)
+    await toggle.click()
+    expect(between(await widths).length, 'the pane slides shut').toBeGreaterThanOrEqual(2)
+    await expect(page.locator('[data-browse-preview]')).toHaveCount(0)
+    // A film restored at launch still sits paused: run.mjs `playOnOpen`.
+  } finally {
+    await stop(app)
+  }
+})
+
 test('held Explorer drags cross browsing tabs and preserve their originating preview', async () => {
   const h = await setup()
   const { page, app } = h
