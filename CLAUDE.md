@@ -490,6 +490,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   over. Marks elsewhere are dropped for the same reason: right-clicking row A while B and C
   are marked leaves the verb going to A, and marks claiming otherwise are lying. Right-
   clicking INSIDE a multi-selection still acts on all of it.
+- **SETTINGS CONTROLS ARE NEUTRAL; ONLY SAVE WEARS THE ACCENT** (#202; owner, 2026-09-23: "i dont
+  want settings buttons to be affected by the accent colour... grey based on the bg colour ... same
+  colours as the drop down menus"; "the only ones to keep accented are the save buttons"). The
+  Switch (on: `--p-text-soft` track, `--p-bg` knob), the pressed Segmented option and the row
+  buttons (Default apps) use `ROW_BUTTON` / `SEGMENT_ON` / `SWITCH_ON` in `Settings.tsx`, the same
+  classes as the terminal core's `fields.tsx` (PrismTerminal #42), so the terminal half of the page
+  matches after the core bump. Selection marks (style cards, swatches, the rail) and Reset links
+  are not buttons and keep the accent. `settingsControls.test.ts` holds it.
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.
