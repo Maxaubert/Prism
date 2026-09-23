@@ -70,6 +70,7 @@ import { onCwd } from 'prism-term-core/renderer/lib/termBus'
 import { ancestorChain } from './lib/fileTree'
 import { decideFollow } from 'prism-term-core/shared/termCwd'
 import { humanFor, workingFor } from 'prism-term-core/renderer/lib/agentClock'
+import CopiedBadge from 'prism-term-core/renderer/components/CopiedBadge'
 import { TermDock } from './components/TermDock'
 // A shell pinned as a PANE renders the same panel the dock does, behind the
 // same lazy boundary, so xterm stays out of the launch bundle.
@@ -3586,6 +3587,9 @@ export default function App(): JSX.Element {
   // Outside fullscreen the panel stays mounted even when closed, so it can slide.
   return (
     <div className="prism-desktop flex h-full flex-col text-[var(--p-text)] [font-size:var(--p-size)]">
+      {/* "Copied", at the bottom centre, for every terminal copy (#215): the
+          core's badge, answering the core's copyText. */}
+      <CopiedBadge />
       {/* The fullscreen fade, OUTSIDE the fullscreen element: it covers the
           whole window - sidebar, tabs and title bar included - so everything
           darkens together rather than the picture going first and the chrome

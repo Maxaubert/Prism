@@ -346,6 +346,22 @@ input[type='color']::-webkit-color-swatch {
   /* !important because xterm.css rides the LAZY terminal chunk and lands in
      the document after this sheet - equal specificity would lose on order. */
   background-color: transparent !important;
+  /* xterm 6 scrolls with its OWN slider (below), yet its sheet still gives the
+     viewport overflow-y: scroll, so Chromium drew a second, EMPTY native bar
+     beside it (#215; found in Prism Terminal #52, owner, 2026-09-23). */
+  scrollbar-width: none;
+}
+
+/* The terminal's scrollbar, minimal (#215): xterm's own slider, 6px and round
+   like every other scrollbar here; its colours are the core's, from the theme.
+   It fades when idle and shows on a scroll or under the pointer. */
+.xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 6px !important;
+}
+.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: 0 !important;
+  width: 6px !important;
+  border-radius: 3px;
 }
 
 /* Office and ebook documents (DocView). A reading column on the viewer's own
