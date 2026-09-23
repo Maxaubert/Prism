@@ -1,6 +1,6 @@
 {
   "name": "prism",
-  "version": "0.67.0",
+  "version": "0.68.0",
   "description": "A fast, universal media viewer for Windows.",
   "author": "Max",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run --passWithNoTests",
     "e2e": "npm run fetch:bin && npm run build && node tools/e2e/run.mjs",
-    "e2e:terminal": "npm run fetch:bin && npm run build && node tools/e2e/run.mjs =terminal =termOptions =helpPanel =dictation =dictationPage =termCwd =agentTitle =handoffOverTerm =promptLayout =tabs =sort =pinRecent =updateWindow =updateGuard =updateQuiet",
+    "e2e:terminal": "npm run fetch:bin && npm run build && node tools/e2e/run.mjs =terminal =termOptions =helpPanel =dictation =dictationPage =termCwd =agentTitle =handoffOverTerm =promptLayout =termMenuCopy =tabs =sort =pinRecent =updateWindow =updateGuard =updateQuiet",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -4915,6 +4915,93 @@ async function agentTitleScenario(fixtures) {
  * PSReadLine redraws the prompt itself on Ctrl+L and after a resize, and
  * counts what it cannot parse as visible text.
  */
+/**
+ * THE TERMINAL MENU FITS WHAT WAS CLICKED (#210; owner, 2026-09-23, asked in
+ * Prism Terminal and agreed for Prism: "if i click it on a link it shows copy
+ * link, if i click it with text marked it says copy"). And Backspace over a
+ * selection on the line being edited deletes it (the core's, core-v0.11.0).
+ * A real pwsh, a real drag, the clipboard read back in main and put back.
+ */
+async function termMenuCopyScenario(fixtures) {
+  console.log('terminal menu copy')
+  const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
+  const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
+  const held = await clip()
+  const box = (needle, offset) =>
+    win.evaluate(
+      ([n, off]) => {
+        const rows = [...document.querySelectorAll('.xterm-rows > div')]
+        for (let i = rows.length - 1; i >= 0; i -= 1) {
+          const at = rows[i].textContent.lastIndexOf(n)
+          if (at < 0) continue
+          const walker = document.createTreeWalker(rows[i], NodeFilter.SHOW_TEXT)
+          let left = at + off
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (left < node.textContent.length) {
+              const range = document.createRange()
+              range.setStart(node, left)
+              range.setEnd(node, left + 1)
+              const b = range.getBoundingClientRect()
+              return { left: b.left, right: b.right, y: b.top + b.height / 2 }
+            }
+            left -= node.textContent.length
+          }
+        }
+        return null
+      },
+      [needle, offset]
+    )
+  const select = async (needle, from, to) => {
+    const a = await box(needle, from)
+    const b = await box(needle, to)
+    await win.mouse.move(a.left + 1, a.y)
+    await win.mouse.down()
+    await win.mouse.move(b.right - 1, b.y, { steps: 6 })
+    await win.mouse.up()
+    await sleep(250)
+  }
+  const rows = async () => {
+    await win.waitForSelector('[role="menu"]', { timeout: 5000 })
+    return win.locator('[role="menu"] [role="menuitem"]').allTextContents()
+  }
+  const text = () => win.evaluate(() => document.querySelector('.xterm .xterm-rows')?.textContent ?? '')
+  try {
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await sleep(3500)
+    await win.locator('.xterm').click()
+    const url = 'https://example.com/some/path?q=1'
+    await win.keyboard.type(`echo ${url}`)
+    await win.keyboard.press('Enter')
+    await sleep(1200)
+    const onLink = await box(url, 12)
+    await win.mouse.click(onLink.left + 2, onLink.y, { button: 'right' })
+    let items = await rows()
+    ok(items[0]?.includes('Copy link'), `right-click on a link leads with Copy link (${JSON.stringify(items)})`)
+    await win.locator('[role="menuitem"]:has-text("Copy link")').click()
+    ok(!!(await until(async () => (await clip()) === url, 4000)), 'and it copies the whole link')
+    await select('example.com', 0, 6)
+    const mark = await box('example.com', 2)
+    await win.mouse.click(mark.left + 2, mark.y, { button: 'right' })
+    items = await rows()
+    ok(items.some((r) => /^Copy(?! link)/.test(r)), `with text marked it offers Copy (${JSON.stringify(items)})`)
+    await win.locator('[role="menu"] [role="menuitem"]', { hasText: /^Copy(?! link)/ }).first().click()
+    ok(!!(await until(async () => (await clip()) === 'example', 4000)), `and it copies the selection exactly (${JSON.stringify(await clip())})`)
+    // Backspace over a selected word on the line being edited deletes it.
+    await win.locator('.xterm').click()
+    await win.keyboard.type('echo hello world')
+    await sleep(400)
+    await select('hello world', 6, 10)
+    await win.keyboard.press('Backspace')
+    await win.keyboard.type('there')
+    await win.keyboard.press('Enter')
+    ok(!!(await until(async () => (await text()).includes('echo hello there'), 8000)), 'Backspace over a selected word deletes it')
+  } finally {
+    await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
+    await app.close().catch(() => {})
+  }
+}
+
 async function promptLayoutScenario(fixtures) {
   console.log('prompt layout')
   const { app, win } = await launch(join(fixtures, 'code', 'bad.json'))
@@ -8643,6 +8730,7 @@ await run(agentTitleScenario)
 await run(handoffOverTermScenario)
 await run(openInExplorerScenario)
 await run(promptLayoutScenario)
+await run(termMenuCopyScenario)
 await run(archiveScenario)
 await run(extractScenario)
 await run(extractWindowScenario)

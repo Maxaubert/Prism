@@ -511,6 +511,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   classes as the terminal core's `fields.tsx` (PrismTerminal #42), so the terminal half of the page
   matches after the core bump. Selection marks (style cards, swatches, the rail) and Reset links
   are not buttons and keep the accent. `settingsControls.test.ts` holds it.
+- **THE TERMINAL MENU FITS WHAT WAS CLICKED** (#210; owner, 2026-09-23, asked in Prism Terminal
+  (#44 there) and agreed for Prism: "if i click it on a link it shows copy link, if i click it with
+  text marked it says copy"). `TermDock`'s menu leads with Copy link over a link and Copy with text
+  marked, from the core's read-only `termContextAt`, both copied exactly through main. Close
+  terminal STAYS here (it was Prism Terminal's Close TAB the owner removed). Backspace over a
+  selection on the line being edited deletes it, the core's since core-v0.11.0. The
+  `termMenuCopy` scenario proves both in a real pwsh and is in `e2e:terminal`.
   Ctrl+A (2026-08-25) marks everything in whichever surface you last pressed in:
   every row the TREE is showing (expanded folders included, never what is
   collapsed and invisible), or every member of the archive folder you are in.
