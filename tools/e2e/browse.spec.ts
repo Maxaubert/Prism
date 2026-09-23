@@ -1797,10 +1797,9 @@ test('context target uses distinct grey on both row stripes and restores blue se
       expect(Math.max(...style.channels) - Math.min(...style.channels)).toBeLessThan(20)
       if (menuBackground) expect(style.background).toBe(menuBackground)
       menuBackground = style.background
-      await expect(target).toHaveCSS('outline-style', 'solid')
-      expect(
-        await target.evaluate((el) => parseFloat(getComputedStyle(el).outlineWidth))
-      ).toBeGreaterThanOrEqual(1.5)
+      // The grey fill is the whole mark: no ring (owner, 2026-09-23: "i only
+      // want the grey bg highlighting").
+      await expect(target).toHaveCSS('outline-style', 'none')
       await expect(target.locator('.browse-name')).toHaveCSS('color', style.color)
       await expect(target.locator('.browse-column-type')).toHaveCSS('color', style.color)
       await page.getByRole('button', { name: 'New tab', exact: true }).hover()
@@ -3239,11 +3238,11 @@ test('Explorer keyboard navigation retains focus through folder history and empt
     await expect(row(page, 'leaf.txt')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Backspace')
     await at(h.nested)
-    // Arriving marks nothing (owner, 2026-09-22), not even the folder just
-    // left, so the arrows start from the top of the list.
-    await expect(page.getByTestId('browse-list').locator('[aria-selected="true"]')).toHaveCount(0)
-    await page.keyboard.press('ArrowDown')
+    // Going back marks the folder you came out of (owner, 2026-09-23: "when
+    // you move back to documents, the claude folder should be highlighted"),
+    // and the arrows carry on from it.
     await expect(row(page, 'Deep')).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('browse-list').locator('[aria-selected="true"]')).toHaveCount(1)
     await page.keyboard.press('ArrowDown')
     await expect(row(page, 'Empty')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
@@ -3680,6 +3679,79 @@ test('held drags survive Ctrl+Tab and Ctrl+Shift+Tab between Explorer and a proj
     await expectNoExplorerControls(page)
   } finally {
     await page.mouse.up().catch(() => {})
+    await stop(app)
+  }
+})
+
+test('the places panel slides when toggled, and a tab switch slides nothing', async () => {
+  // Owner, 2026-09-23: "when you collapse the explorer sidebar its not
+  // animated, it should be", and "when you switch between a project and
+  // explorer with sidebar open it has a sidebar animation on each tab change,
+  // it shouldnt". Widths are SAMPLED every animation frame, so a slide shows
+  // up as values between the two ends and a jump as none.
+  const h = await setup()
+  const { page, app } = h
+  const sample = (selector: string, ms: number): Promise<number[]> =>
+    page.evaluate(
+      ([sel, span]) =>
+        new Promise<number[]>((done) => {
+          const seen: number[] = []
+          const end = performance.now() + span
+          const tick = (): void => {
+            const el = document.querySelector<HTMLElement>(sel)
+            seen.push(el ? Math.round(el.getBoundingClientRect().width) : 0)
+            if (performance.now() < end) requestAnimationFrame(tick)
+            else done(seen)
+          }
+          requestAnimationFrame(tick)
+        }),
+      [selector, ms] as const
+    )
+  const between = (widths: number[]): number[] => {
+    const lo = Math.min(...widths)
+    const hi = Math.max(...widths)
+    return widths.filter((w) => w > lo + 2 && w < hi - 2)
+  }
+  try {
+    await go(page, h.home)
+    const places = '[data-testid="folder-browser"] .browse-places'
+    await expect(page.locator(places)).toBeVisible()
+    const toggle = page.getByRole('button', { name: 'Toggle file tree', exact: true })
+    // Closing slides, and the panel is gone once it has.
+    let widths = sample(places, 400)
+    await toggle.click()
+    expect(between(await widths).length).toBeGreaterThanOrEqual(2)
+    await expect(page.locator(places)).toHaveCount(0)
+    // Opening slides too.
+    widths = sample(places, 400)
+    await toggle.click()
+    expect(between(await widths).length).toBeGreaterThanOrEqual(2)
+    await expect(page.locator(places)).toBeVisible()
+
+    // A project tab with its sidebar open, then back and forth: no slide.
+    await row(page, 'Prism Project').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Open as project', exact: true }).click()
+    await expectEmptyProject(page, h.project, 'notes.txt')
+    const explorer = ordinaryTabs(page).first()
+    const project = ordinaryTabs(page).last()
+    const sidebar = '[data-project-sidebar]'
+    await expect(page.locator(sidebar)).toHaveAttribute('aria-hidden', 'false')
+    await page.waitForTimeout(400)
+    for (const [tab, name] of [[explorer, 'explorer'], [project, 'project'], [explorer, 'explorer'], [project, 'project']] as const) {
+      widths = sample(sidebar, 400)
+      await tab.click()
+      const mid = between(await widths)
+      expect(mid, `switching to the ${name} tab slides nothing (${mid.join(', ')})`).toHaveLength(0)
+    }
+    // And a real close and open of the project sidebar still slides.
+    await page.waitForTimeout(300)
+    for (const state of ['true', 'false']) {
+      widths = sample(sidebar, 400)
+      await toggle.click()
+      expect(between(await widths).length).toBeGreaterThanOrEqual(2)
+      await expect(page.locator(sidebar)).toHaveAttribute('aria-hidden', state)
+    }
+  } finally {
     await stop(app)
   }
 })
