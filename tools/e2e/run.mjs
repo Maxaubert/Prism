@@ -5013,6 +5013,27 @@ async function termMenuCopyScenario(fixtures) {
     ok(items.some((r) => /^Copy(?! link)/.test(r)), `with text marked it offers Copy (${JSON.stringify(items)})`)
     await win.locator('[role="menu"] [role="menuitem"]', { hasText: /^Copy(?! link)/ }).first().click()
     ok(!!(await until(async () => (await clip()) === 'example', 4000)), `and it copies the selection exactly (${JSON.stringify(await clip())})`)
+    // THE "COPIED" BADGE (#215): shown at the bottom centre, then gone.
+    const badge = () =>
+      win.evaluate(() => {
+        const el = document.querySelector('[data-copied-badge]')
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { state: el.getAttribute('data-copied-badge'), cx: r.left + r.width / 2, w: innerWidth, up: innerHeight - r.bottom }
+      })
+    const shown = await until(async () => {
+      const b = await badge()
+      return b?.state === 'shown' ? b : null
+    }, 3000, 25)
+    ok(!!shown && Math.abs(shown.cx - shown.w / 2) <= 2 && shown.up < 60, `a copy shows "Copied" at the bottom centre (${JSON.stringify(shown)})`)
+    ok(!!(await until(async () => (await badge())?.state === 'hidden', 3000, 50)), 'and it leaves by itself')
+    // THE SCROLLBAR (#215): no empty native gutter, xterm's slider 6px.
+    const bar = await win.evaluate(() => {
+      const v = document.querySelector('.xterm .xterm-viewport')
+      const s = document.querySelector('.xterm .xterm-scrollable-element > .scrollbar.vertical')
+      return { gutter: v ? v.offsetWidth - v.clientWidth : -1, slider: s ? Math.round(s.getBoundingClientRect().width) : -1 }
+    })
+    ok(bar.gutter === 0 && bar.slider === 6, `the terminal's scrollbar is one 6px slider, no gutter (${JSON.stringify(bar)})`)
     // Backspace over a selected word on the line being edited deletes it.
     await win.locator('.xterm').click()
     await win.keyboard.type('echo hello world')
