@@ -2200,6 +2200,12 @@ Filesmith's conventions.
   helper and the app ship together; an old helper would read "started" as a wrong answer, which is
   why they must. `npm run test:win-e` holds the helper's three new cases; `browse.spec`'s stand-in
   helper reads both lines.
+- **THE TERMINAL ROWS COME IN ONE ORDER, THE CORE'S** (2026-09-22, owner: the two apps' terminal
+  settings "the same in terms of order"). Prism no longer places the Agent indicator itself; the
+  core's appearance list draws it above its two colours when the host asks (`withIndicator`), which
+  is opt-in so a host that still places it never shows it twice. `termOptions` reads the page top to
+  bottom against `TERMINAL_OPTIONS`, as Prism Terminal's `options` does. The restore's claude lookup
+  is the core's async one now (`claudeSessionsAsync`), which is Prism's half of the launch freeze.
 - **SETTINGS DESCRIPTIONS ARE PLAIN WORDS** (2026-09-22, owner: "no symbols other than comma and
   dot, no mentioning of specific keys or tips, just a simple text description of what it does").
   Every hint on Prism's own pages was rewritten to that rule, the core's rows likewise in the core.
