@@ -1,7 +1,7 @@
 import { WinEShortcutSetting } from './WinEShortcutSetting'
 import { DictationSettings } from 'prism-term-core/renderer/settings/Dictation'
 import { TerminalAppearanceSettings } from 'prism-term-core/renderer/settings/TerminalAppearance'
-import { AgentIndicatorSetting, ShellSetting } from 'prism-term-core/renderer/settings/TerminalBehaviour'
+import { ShellSetting } from 'prism-term-core/renderer/settings/TerminalBehaviour'
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { TRANSPORT_STYLES, TRANSPORT_GROUPS, type TransportStyle } from '../lib/transport'
 import { ACCENT_THEME_ID, DEFAULT_THEME_ID } from '../lib/viz/styles'
@@ -1023,10 +1023,11 @@ function TerminalTab(): JSX.Element {
     <div data-terminal-settings>
       <div className={ROWS}>
         <ShellSetting />
-        <AgentIndicatorSetting />
+        {/* The Agent indicator sits with its two colours, in the core's own
+            list, so both apps show the terminal rows in one order (2026-09-22). */}
         {/* No command help in Prism (owner, 2026-09-22): it is Prism Terminal's. */}
       </div>
-      <TerminalAppearanceSettings />
+      <TerminalAppearanceSettings withIndicator />
     </div>
   )
 }

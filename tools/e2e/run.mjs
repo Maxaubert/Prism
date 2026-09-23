@@ -852,6 +852,17 @@ async function termOptionsScenario(fixtures) {
     )).sort()
     ok(JSON.stringify(onPage) === JSON.stringify(wanted), `the Terminal page shows exactly that list (shown: ${JSON.stringify(onPage)})`)
     ok(!onPage.includes('help-enabled'), 'with no command help row, which is Prism Terminal only')
+    // ONE ORDER IN BOTH APPS (owner, 2026-09-22): read top to bottom, the
+    // core's terminal rows come in the list's own order. Prism Terminal's own
+    // `options` scenario asserts the same against the same file.
+    const inOrder = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1])
+    const pageOrder = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-terminal-settings] [data-pref]')].map((e) => e.getAttribute('data-pref'))
+    )
+    ok(
+      JSON.stringify(pageOrder.filter((id) => inOrder.includes(id))) === JSON.stringify(inOrder.filter((id) => pageOrder.includes(id))),
+      `and in the shared order (${pageOrder.join(' > ')})`
+    )
     ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
     await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
     // Untouched, the indicator is MINIMAL and its colours follow the accent.
