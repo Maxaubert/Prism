@@ -2615,6 +2615,14 @@ if (!app.requestSingleInstanceLock()) {
       return copyWindowsFiles(list, cut === true)
     })
 
+    // The address bar's "Copy address" (2026-09-22): the folder as a file
+    // drop AND its path as text, Explorer's own pair. Walled like the copy
+    // above; the folder is the only thing put on the clipboard.
+    ipcMain.handle('file:copy-address', (_e, p: string): Promise<boolean> => {
+      if (typeof p !== 'string' || !insideDesktop(p)) return Promise.resolve(false)
+      return copyWindowsFiles([p], false, p)
+    })
+
     /**
      * The files on the clipboard, if any (2026-08-31).
      *
