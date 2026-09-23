@@ -5,6 +5,7 @@ import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
+import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
 import { tickIf } from '../lib/fileVerbs'
 
 // The terminal's dock: size, drag handle, right-click dock menu, drop scoping.
@@ -216,12 +217,13 @@ export function TermDock({
             // THE MENU FITS WHAT WAS CLICKED (#210; owner, 2026-09-23, asked in
             // Prism Terminal and agreed for Prism: "if i click it on a link it
             // shows copy link, if i click it with text marked it says copy").
-            // Both copy exactly, through main's clipboard.
+            // Both copy exactly through the core's copyText, which raises the
+            // "Copied" badge once the clipboard has it (#215).
             ...(menu.link
-              ? [{ label: 'Copy link', onPick: () => void window.prism.writeClipboard(menu.link!) }]
+              ? [{ label: 'Copy link', onPick: () => void copyText(menu.link!) }]
               : []),
             ...(menu.selection
-              ? [{ label: 'Copy', hint: 'Ctrl+C', onPick: () => void window.prism.writeClipboard(menu.selection) }]
+              ? [{ label: 'Copy', hint: 'Ctrl+C', onPick: () => void copyText(menu.selection) }]
               : []),
             {
               label: 'Paste',

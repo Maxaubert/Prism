@@ -519,6 +519,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   **Dynamic** (the DEFAULT, by the owner's word, so the strip fixed since 2026-09-21 goes back to
   dynamic with this update: each tab as wide as its name, capped at 14rem) or **Fixed** (every tab
   114px). The `tabs` scenario measures the default, picks Fixed, and puts Dynamic back.
+- **"COPIED" AT THE BOTTOM CENTRE, AND A THIN THEMED TERMINAL SCROLLBAR** (#215; owner,
+  2026-09-23, asked in Prism Terminal (#54, #52 there) and agreed for Prism). The core's
+  `CopiedBadge` is mounted once in App; every terminal copy (Ctrl+C over a selection, the menu's
+  Copy and Copy link) goes through the core's `copyText`, which raises it only once the clipboard
+  has the text. xterm 6 scrolls with its own slider, but its sheet left the viewport a second,
+  EMPTY native bar; `index.css` takes it away and makes the slider 6px and round (its colours
+  come from the core, off the theme). `termMenuCopy` measures both.
 - **THE TERMINAL MENU FITS WHAT WAS CLICKED** (#210; owner, 2026-09-23, asked in Prism Terminal
   (#44 there) and agreed for Prism: "if i click it on a link it shows copy link, if i click it with
   text marked it says copy"). `TermDock`'s menu leads with Copy link over a link and Copy with text
