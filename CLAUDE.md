@@ -511,6 +511,14 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   classes as the terminal core's `fields.tsx` (PrismTerminal #42), so the terminal half of the page
   matches after the core bump. Selection marks (style cards, swatches, the rail) and Reset links
   are not buttons and keep the accent. `settingsControls.test.ts` holds it.
+- **TAB WIDTH IS A SETTING** (#216; owner, 2026-09-23, asked in Prism Terminal (#56 there) and
+  agreed for Prism: "a setting for tab width, where the user can pick fixed size or dynamic").
+  Then: "put the option closer to the top of appearance, and call it dynamic ... have dynamic be
+  the default". So it is the FIRST row of Settings > Style (Prism's appearance page), above Mode
+  (`lib/tabWidthPrefs.ts`, `prism.window.tabWidth`, the same key and words as Prism Terminal's):
+  **Dynamic** (the DEFAULT, by the owner's word, so the strip fixed since 2026-09-21 goes back to
+  dynamic with this update: each tab as wide as its name, capped at 14rem) or **Fixed** (every tab
+  114px). The `tabs` scenario measures the default, picks Fixed, and puts Dynamic back.
 - **THE TERMINAL MENU FITS WHAT WAS CLICKED** (#210; owner, 2026-09-23, asked in Prism Terminal
   (#44 there) and agreed for Prism: "if i click it on a link it shows copy link, if i click it with
   text marked it says copy"). `TermDock`'s menu leads with Copy link over a link and Copy with text

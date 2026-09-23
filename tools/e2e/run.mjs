@@ -4246,19 +4246,45 @@ async function tabsScenario(fixtures) {
       /fixtures$/i.test((await tabRows().first().getAttribute('title')) ?? ''),
       'and the tab above it keeps ITS root'
     )
-    // EVERY TAB IS ONE WIDTH (owner, 2026-09-21: "make tabs in both apps have
-    // a fixed size, and not dynamically adjust based on the content"). Three
+    // TAB WIDTH (#216; owner, 2026-09-23: "fixed size or dynamic ... the user
+    // can pick", then "call it dynamic ... have dynamic be the default"). Three
     // tabs are up here - the pinned Explorer, "fixtures" and "code" - with
     // labels of different lengths; what is measured is each tab's box.
-    const tabWidths = await win.evaluate(
-      (s) => [...document.querySelectorAll(`${s} [data-tab-fixed]`)].map((el) => Math.round(el.getBoundingClientRect().width * 10) / 10),
-      strip
-    )
+    const measureTabs = (attr) =>
+      win.evaluate(
+        ([s, a]) => [...document.querySelectorAll(`${s} [${a}]`)].map((el) => ({ w: Math.round(el.getBoundingClientRect().width * 10) / 10, label: el.textContent ?? '' })),
+        [strip, attr]
+      )
+    // DYNAMIC, the default: each tab as wide as its label.
+    const dyn = await measureTabs('data-tab-dynamic')
+    const fixturesTab = dyn.find((b) => /fixtures/i.test(b.label))
+    const codeTab = dyn.find((b) => /\bcode\b/i.test(b.label))
     ok(
-      tabWidths.length >= 3 && new Set(tabWidths).size === 1,
-      `every tab is the same width, the pinned one included, whatever its name (${tabWidths.join(' / ')})`
+      !!fixturesTab && !!codeTab && fixturesTab.w > codeTab.w + 10,
+      `by default each tab is as wide as its name (${JSON.stringify(dyn)})`
     )
-    ok(tabWidths[0] >= 104 && tabWidths[0] <= 124, `a fixed width, not a content one (${tabWidths[0]}px)`)
+    // Picked at the top of Settings > Style as a user would; Settings is a tab
+    // here, so Ctrl+W puts it away again. Prism's rows are marked by their
+    // label (`for="tab-width"`), and the two segment names are unique there.
+    const pickTabWidth = async (name) => {
+      await win.click('[aria-label="Settings"]')
+      await win.click('button:has-text("Style")')
+      await win.locator('label[for="tab-width"]').waitFor({ timeout: 8000 })
+      const seg = win.getByRole('button', { name, exact: true })
+      await seg.scrollIntoViewIfNeeded()
+      await seg.click()
+      await win.keyboard.press('Control+w')
+      await sleep(400)
+    }
+    await pickTabWidth('Fixed')
+    const fixed = (await measureTabs('data-tab-fixed')).map((b) => b.w)
+    ok(
+      fixed.length >= 3 && new Set(fixed).size === 1,
+      `with Fixed every tab is the same width, the pinned one included (${fixed.join(' / ')})`
+    )
+    ok(fixed[0] >= 104 && fixed[0] <= 124, `a fixed width, not a content one (${fixed[0]}px)`)
+    await pickTabWidth('Dynamic')
+    ok((await measureTabs('data-tab-dynamic')).length >= 3, 'and Dynamic puts the names back in charge')
     await win.locator(`${strip} [aria-label^="Close"]`).last().click()
     await sleep(400)
 
