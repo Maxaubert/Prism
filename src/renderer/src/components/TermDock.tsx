@@ -57,7 +57,13 @@ export function TermDock({
   onFind: (open: boolean) => void
 }): JSX.Element {
   const panel = useRef<HTMLDivElement>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<{
+    x: number
+    y: number
+    /** What was selected when the menu opened, and the link under the point. */
+    selection: string
+    link: string | null
+  } | null>(null)
   const vertical = dockAxis(edge) === 'y'
 
   // Drag the INNER edge (the side facing the viewer), Sidebar's pattern:
@@ -140,7 +146,13 @@ export function TermDock({
         // because the menu was nothing but the four dock edges - and an edge
         // means nothing when the terminal IS the view. Paste means something
         // in both, and that is what a right-click in a terminal is for.
-        setMenu({ x: e.clientX, y: e.clientY })
+        // What was clicked (#210): the core answers, read-only. The panel's
+        // module is already loaded (it is on screen), so this resolves at once
+        // and keeps the terminal out of the main chunk.
+        const { clientX: x, clientY: y } = e
+        void import('prism-term-core/renderer/components/TerminalPanel').then((m) =>
+          setMenu({ x, y, ...m.termContextAt(sessionId, x, y) })
+        )
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -201,6 +213,16 @@ export function TermDock({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            // THE MENU FITS WHAT WAS CLICKED (#210; owner, 2026-09-23, asked in
+            // Prism Terminal and agreed for Prism: "if i click it on a link it
+            // shows copy link, if i click it with text marked it says copy").
+            // Both copy exactly, through main's clipboard.
+            ...(menu.link
+              ? [{ label: 'Copy link', onPick: () => void window.prism.writeClipboard(menu.link!) }]
+              : []),
+            ...(menu.selection
+              ? [{ label: 'Copy', hint: 'Ctrl+C', onPick: () => void window.prism.writeClipboard(menu.selection) }]
+              : []),
             {
               label: 'Paste',
               // Through the terminal's OWN paste (lib/termBus), which is
