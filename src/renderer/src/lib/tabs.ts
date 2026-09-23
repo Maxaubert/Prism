@@ -211,7 +211,7 @@ export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPa
 export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string): Tab[] {
   return tabs.map((tab) =>
     tab.id === tabId && tab.kind !== 'settings'
-      ? { ...tab, browse: navigateBrowseState(tab.browse, path), term: hideTerm(tab.term) }
+      ? { ...tab, browse: navigateBrowseState(tab.browse, path, shownFile(tab)), term: hideTerm(tab.term) }
       : tab
   )
 }
@@ -219,9 +219,17 @@ export function navigateBrowse(tabs: readonly Tab[], tabId: string, path: string
 export function travelBrowse(tabs: readonly Tab[], tabId: string, delta: number): Tab[] {
   return tabs.map((tab) => {
     if (tab.id !== tabId || tab.kind === 'settings') return tab
-    const browse = travelBrowseState(tab.browse, delta)
+    const browse = travelBrowseState(tab.browse, delta, shownFile(tab))
     return browse === tab.browse ? tab : { ...tab, browse, term: hideTerm(tab.term) }
   })
+}
+
+/** The file an Explorer tab has on display: in the preview pane (only while
+ *  the pane is on) or in full view. Arriving at its folder marks it. */
+function shownFile(tab: Tab): string | null {
+  const file = tab.index >= 0 ? tab.files[tab.index] : undefined
+  if (!file) return null
+  return tab.browse.surface === 'viewer' || tab.browse.preview ? file.path : null
 }
 
 function hideTerm(term: Tab['term']): Tab['term'] {

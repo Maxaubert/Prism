@@ -477,6 +477,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   outside the rows at all, CLEARS the marks in both surfaces: highlighting says
   "these are what I am about to act on", so it must not outlive walking away from
   them. What stays marked is the OPEN file, which is marked for being open.
+  ARRIVING NEVER SELECTS (2026-09-22, owner: "no file should be selected when I haven't
+  clicked any ... either because I clicked it or it's the current file displaying, or I've
+  navigated onto it with the arrow keys"). In the Explorer, walking into a folder by a sidebar
+  place, a crumb, Up, Back or Forward marks nothing, and in particular not what an earlier visit
+  selected - the subfolder you had come out of used to come back marked. The ONE exception is
+  the file on display (preview pane or full view), marked when you arrive at its folder
+  (`browse.ts` `arrivalMark`). Order and scroll are still remembered; the arrows start at the top.
   A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it

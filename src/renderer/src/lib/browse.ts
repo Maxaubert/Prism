@@ -33,22 +33,51 @@ export function updateBrowseLocation(
   return { ...browse, history }
 }
 
-/** Called after main has successfully resolved the folder. A failed lookup has no history entry. */
-export function navigateBrowseState(browse: SavedBrowse, path: string): SavedBrowse {
+/**
+ * What is MARKED in a folder you arrive at (owner, 2026-09-22: "no file should
+ * be selected when I haven't clicked any. The highlighted thing should either
+ * be because I clicked it or it's the current file displaying, or I've
+ * navigated onto it with the arrow keys"). Arriving - a place in the sidebar,
+ * a crumb, the parent, Back or Forward - clicks nothing, so the mark is the
+ * file on display when it lives in this folder, and nothing otherwise. What an
+ * earlier visit selected is NOT brought back: it made the subfolder you had
+ * come out of look picked. The order and the scroll are still remembered.
+ */
+function arrivalMark(path: string, shown: string | null | undefined): string | null {
+  if (!shown) return null
+  const parent = browseParent(shown)
+  return parent && folderKey(parent) === folderKey(path) ? shown : null
+}
+
+/** Called after main has successfully resolved the folder. A failed lookup has
+ *  no history entry. `shown` is the file on display, if any. */
+export function navigateBrowseState(
+  browse: SavedBrowse,
+  path: string,
+  shown?: string | null
+): SavedBrowse {
   if (folderKey(browse.path) === folderKey(path)) return { ...browse, surface: 'folder' }
-  // Revisiting a place restores its selection, order and scroll even by a breadcrumb or shortcut.
+  // Revisiting a place restores its order and scroll even by a breadcrumb or
+  // shortcut; never its selection (arrivalMark).
   const previous = browse.history.findLast((entry) => folderKey(entry.path) === folderKey(path))
   const entry = previous
-    ? { ...previous, path }
-    : { ...newBrowse(path).history[0], sort: { ...browseLocation(browse).sort } }
+    ? { ...previous, path, selected: arrivalMark(path, shown) }
+    : {
+        ...newBrowse(path).history[0],
+        selected: arrivalMark(path, shown),
+        sort: { ...browseLocation(browse).sort }
+      }
   const history = [...browse.history.slice(0, browse.cursor + 1), entry].slice(-MAX_HISTORY)
   return { ...browse, path, history, cursor: history.length - 1, surface: 'folder' }
 }
 
-export function travelBrowseState(browse: SavedBrowse, delta: number): SavedBrowse {
+export function travelBrowseState(browse: SavedBrowse, delta: number, shown?: string | null): SavedBrowse {
   const cursor = Math.max(0, Math.min(browse.history.length - 1, browse.cursor + Math.trunc(delta)))
   if (cursor === browse.cursor) return browse
-  return { ...browse, cursor, path: browse.history[cursor].path, surface: 'folder' }
+  const target = browse.history[cursor]
+  const history = browse.history.slice()
+  history[cursor] = { ...target, selected: arrivalMark(target.path, shown) }
+  return { ...browse, history, cursor, path: target.path, surface: 'folder' }
 }
 
 /** The drive or UNC share is the top, never an invalid C: or bare server name. */
