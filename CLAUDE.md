@@ -562,13 +562,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
 - **Open a folder, and project tabs** (2026-08-20): the root used to be inferred from
   whatever file arrived and there was only ever one. A title-bar button and `Ctrl+T` now
   choose a folder, and several roots stay open as tabs. **A tab is a root and a current
-  file, nothing else** - no per-tab settings, no pinning, no list you curate. A file
-  arriving from outside reuses a tab whose root IS its folder (five photos from one
-  folder is one tab), otherwise spawns one rooted at that folder, otherwise fills the
-  empty window. EXACT ROOT ONLY (owner, 2026-09-04, reversing 2026-09-01's containing-root
-  fold): that fold put a Downloads file into a tab rooted at the user's folder and moved
-  that tab's view, and an agent's tab is the one you least want moved under you. A file
-  from a subfolder of an open tab opens its own tab; separate folders, separate tabs. Tabs persist
+  file, nothing else** - no per-tab settings, no pinning, no list you curate. A FOLDER
+  arriving from outside ("Open as project") reuses a tab whose root IS that folder,
+  otherwise spawns one. EXACT ROOT ONLY (owner, 2026-09-04, reversing 2026-09-01's
+  containing-root fold): that fold moved an agent's tab under it. A FILE from outside no
+  longer makes a project at all (2026-09-22, below). Tabs persist
   in `tabs.json`; a root that is gone is dropped without a word. THE TREE PERSISTS TOO
   (2026-08-31): the folders that were open are saved with the tab, so closing Prism no longer
   collapses everything - a file six folders down came back in the viewer with NOTHING marked
@@ -743,11 +741,9 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   which keeps xterm's reflow on and its scrollback growth ConPTY-shaped; declared WITHOUT a
   build number it turns reflow off, which loses every long line. `promptLayout` in the e2e
   wraps and unwraps a prompt and types after it; it was written to reproduce this and did.
-  **A FILE ARRIVING MEANS "SHOW ME THIS FILE"** (2026-09-04), exactly as a tree click does:
-  over a FULL terminal it hides the shell (still running) and gives the file the room. It
-  used to land underneath the terminal, unseen, and - since a full terminal marks nothing in
-  the tree - unmarked too, so Explorer's double-click on a file in the tab's folder looked
-  like it had done nothing. Restores are untouched: they set the terminal view themselves.
+  **A FILE ARRIVING MEANS "SHOW ME THIS FILE"** (2026-09-04): it used to land underneath a
+  full terminal, unseen. Since 2026-09-22 it lands in the Explorer tab (below), which comes
+  to the front with its own terminal stepped aside; a project's shell is left alone.
   **THE INDICATOR IS THE AGENT'S OWN WORD** (2026-09-04, owner: "instant, and event-driven,
   no loop"). Claude Code writes its state into the terminal TITLE, MEASURED on a real
   session: "✳ Claude Code" at idle, a half-circle spinner glyph ("◐ Claude Code", cycling
@@ -1479,6 +1475,27 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   That covers a genuine remount
   (a new file, a split view opening); the tab switch itself no longer is one,
   see below.
+- **A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB** (2026-09-22, owner: "that file opened
+  in prism's explorer rather than as a project ... a setting to choose whether to open files
+  maximized or as previews ... default should be preview"; supersedes #172, which did it
+  for the right-click "Open file" alone). A double-click, "Open with", the command line,
+  Explorer's "Open file" and a file DROPPED on the window all take one route: main sends
+  `{ explorerFile }` and builds NOTHING (`buildPayload` would register the folder as a
+  root, which is a project's and a phone's), and `useExplorerArrival` brings the PINNED
+  Explorer forward, then opens the file with the Explorer's own `openFile` - the call a
+  Quick access pin makes, which grants the folder to the tab and walks there, so Back
+  returns to where the Explorer was. Two steps because `openFile` acts on the tab in
+  FRONT. Settings > General > "Files from Windows open in" (`prism.open.external`):
+  PREVIEW (default) is the list with the preview pane FORCED ON showing the file; FULL
+  VIEW is the file filling the Explorer. A project tab already open on that folder is NOT
+  used (one rule), the pinned Explorer moves rather than a tab per file, and several files
+  go one at a time so the last named is on screen. No switch on the command line: with
+  every door taking the same route there is nothing to tell apart, so the registry
+  command is unchanged. A FOLDER is unchanged ("Open as project"), and so is a restore.
+  The e2e harness therefore opens a scenario's launch file as a SEEDED project tab in
+  `tabs.json` (the state those scenarios test), not on the command line; `openInExplorer`
+  drives the real handoff in both modes. The window drop is not driven by the e2e (a
+  synthetic drop carries no OS file path); it shares `arrive` with the handoff.
 - **A PICK PLAYS, A RESTORE DOES NOT** (2026-09-14, #139; owner: "when you click on a
   video or audio file it starts immediately; the only time it shouldn't is when you open
   up Prism"). The tree's click and the arrows have played since 2026-09-03; what still

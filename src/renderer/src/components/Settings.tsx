@@ -32,6 +32,7 @@ import {
   useNewTabShow,
   type NewTabShow
 } from '../lib/newTabPrefs'
+import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -1054,6 +1055,7 @@ function GeneralTab(): JSX.Element {
   const tabMode = useNewTabMode()
   const tabFolder = useNewTabFolder()
   const tabShow = useNewTabShow()
+  const openAs = useOpenMode()
   // Picking "A chosen folder" opens the chooser right away; cancelling keeps
   // whatever was set before rather than leaving a mode with no folder.
   const pickTabMode = (v: string): void => {
@@ -1110,6 +1112,22 @@ function GeneralTab(): JSX.Element {
             { id: 'file', name: 'First file in the folder' },
             { id: 'terminal', name: 'A terminal' },
             { id: 'none', name: 'Folder browser' }
+          ]}
+        />
+      </Pref>
+      {/* Owner, 2026-09-22: a file from outside opens in the Explorer tab,
+          "maximized or as previews ... default should be preview". */}
+      <Pref
+        id="open-external"
+        label="Files from Windows open in"
+        hint="A double-click, Open with and the Explorer menu's Open file show the file in the Explorer tab."
+      >
+        <Segmented
+          value={openAs}
+          onChange={(v) => setOpenMode(v as OpenMode)}
+          options={[
+            { id: 'preview', name: 'Preview' },
+            { id: 'full', name: 'Full view' }
           ]}
         />
       </Pref>

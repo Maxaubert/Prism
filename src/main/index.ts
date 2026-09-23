@@ -698,12 +698,22 @@ let agentBusy = false
 let closeConfirmed = false
 
 async function sendOpen(target: { path: string; dir: boolean }): Promise<void> {
-  // Came from outside: it becomes the root. A folder roots there and tells the
-  // renderer so, which is what lets the "New tabs show" setting decide whether
-  // that lands on the first file, a terminal, or nothing.
-  const built = target.dir ? await folderPayload(target.path) : await buildPayload(target.path)
-  const payload = target.dir && built ? { ...built, folder: true as const } : built
-  if (payload && mainWindow) mainWindow.webContents.send('open:file', payload)
+  // A FILE from outside goes to the Explorer tab (owner, 2026-09-22: "that file
+  // opened in prism's explorer rather than as a project"). Nothing is built for
+  // it: `buildPayload` registers the folder as a root, which is a project's
+  // folder and a phone's to browse, and the Explorer grants its own folders
+  // per tab as it walks there. Same channel as everything else, so it keeps
+  // its place behind the restore.
+  if (!target.dir) {
+    const explorerFile: OpenPayload = { explorerFile: target.path, files: [], index: -1, root: dirname(target.path) }
+    mainWindow?.webContents.send('open:file', explorerFile)
+    return
+  }
+  // A FOLDER roots there and tells the renderer so, which is what lets the
+  // "New projects show" setting decide whether that lands on the first file, a
+  // terminal, or nothing.
+  const built = await folderPayload(target.path)
+  if (built && mainWindow) mainWindow.webContents.send('open:file', { ...built, folder: true as const })
 }
 
 const TABS_STATE = (): string => join(app.getPath('userData'), 'tabs.json')

@@ -40,13 +40,30 @@ const SHOTS = join(ROOT, '.e2e', 'shots')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let failures = 0
 
-function seedExplorerTab() {
+function seedExplorerTab(projectFile) {
   const directory = join(ROOT, '.e2e', 'fixtures')
-  writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: 0, tabs: [{
+  const explorer = {
     id: 'fixture-explorer', role: 'explorer', pinned: true, root: directory,
     browse: { path: directory, history: [{ path: directory, selected: null, scrollTop: 0, query: '', sort: { key: 'name', direction: 'asc' } }], cursor: 0, surface: 'folder', preview: true },
     panes: [], open: [directory]
-  }] }))
+  }
+  // A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB now (2026-09-22), so a
+  // launch that means "this file, in a project on its folder" - which is what
+  // almost every scenario is written against - is seeded as that project,
+  // saved and restored in front, rather than handed over on the command line.
+  const project = projectFile
+    ? [{ id: 'fixture-project', role: 'project', root: dirname(projectFile), file: projectFile, panes: [] }]
+    : []
+  writeFileSync(join(PROFILE, 'tabs.json'), JSON.stringify({ active: project.length, tabs: [explorer, ...project] }))
+}
+
+/** A path that is a file on disk: those open as a seeded project. */
+const isFileOnDisk = (p) => {
+  try {
+    return !!p && statSync(p).isFile()
+  } catch {
+    return false
+  }
 }
 
 async function launchTestApp(options) {
@@ -269,9 +286,10 @@ async function launchOnce(file, keepTabs = false) {
   // scenario's strip would restore into this one and change what the tree
   // counts. Forgetting it is the isolation; the tab scenario opts out, because
   // surviving a restart is the thing it is checking.
-  if (!keepTabs) seedExplorerTab()
+  const seeded = !keepTabs && isFileOnDisk(file)
+  if (!keepTabs) seedExplorerTab(seeded ? file : undefined)
   const app = await launchTestApp({
-    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', ...EXTRA_ARGS, file],
+    args: [MAIN, `--user-data-dir=${PROFILE}`, '--e2e', ...EXTRA_ARGS, ...(seeded ? [] : [file])],
     env: { ...process.env, ...EXTRA_ENV }
   })
   const win = await app.firstWindow()
@@ -4446,6 +4464,83 @@ async function handoff(file) {
 }
 
 /**
+ * A FILE FROM OUTSIDE OPENS IN THE EXPLORER TAB (owner, 2026-09-22: "that file
+ * opened in prism's explorer rather than as a project ... a setting to choose
+ * whether to open files maximized or as previews ... default should be
+ * preview"). Driven through the real second-instance handoff, the route a
+ * double-click, "Open with" and the Explorer menu's "Open file" all take - they
+ * carry the same command line. A folder still makes a project.
+ */
+async function openInExplorerScenario(fixtures) {
+  console.log('files open in the Explorer')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const projects = () => win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()
+  const explorerFront = () =>
+    win.evaluate(() => document.querySelector('[role="tablist"] [data-pinned] [role="tab"]')?.getAttribute('aria-selected') === 'true')
+  const selectedRow = () =>
+    win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')
+  const visible = (sel) => win.evaluate((s) => !!document.querySelector(s)?.getClientRects().length, sel)
+  const waitFor = async (fn, ms = 10000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await sleep(150)) if (await fn()) return true
+    return false
+  }
+  try {
+    ok((await projects()) === 1, 'the launch file is a project, the Explorer behind it')
+    const before = await projects()
+
+    // PREVIEW, the default: the list, walked to the file's folder, the file
+    // selected and in the preview pane.
+    await handoff(join(OTHER_ROOT, 'bad.json'))
+    ok(await waitFor(explorerFront), 'a file handed over brings the Explorer tab to the front')
+    ok(await waitFor(async () => /other[\\/]bad\.json$/i.test(await selectedRow())), 'walked to its folder with the file selected')
+    ok(await waitFor(() => visible('[data-browse-preview]')), 'and shown in the preview pane (the default)')
+    ok((await projects()) === before, 'no project tab was made')
+
+    // Back returns to where the Explorer was.
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(
+      await waitFor(() => win.evaluate(() => !!document.querySelector('[data-testid="browse-list"] [data-browse-path$="README.md" i]'))),
+      'Back returns to the folder the Explorer was showing before'
+    )
+
+    // FULL VIEW, once chosen: the file fills the Explorer; Backspace returns
+    // to its folder with it selected.
+    await win.evaluate(() => localStorage.setItem('prism.open.external', 'full'))
+    await handoff(join(fixtures, 'notes.txt'))
+    ok(
+      await waitFor(async () => (await visible('.cm-editor')) && !(await visible('[data-testid="folder-browser"]'))),
+      'with Full view chosen, the file fills the Explorer'
+    )
+    ok(await explorerFront(), 'still in the Explorer tab')
+    await win.locator('[data-testid="browse-toolbar"]').first().click({ position: { x: 4, y: 4 } }).catch(() => {})
+    await win.keyboard.press('Alt+ArrowLeft')
+    ok(
+      await waitFor(async () => (await visible('[data-testid="folder-browser"]')) && /notes\.txt$/i.test(await selectedRow())),
+      'Back shows its folder with the file selected'
+    )
+
+    // A film plays, both ways: it was picked.
+    await win.evaluate(() => localStorage.setItem('prism.open.external', 'preview'))
+    await handoff(join(fixtures, 'ep1.mp4'))
+    ok(
+      await waitFor(() => win.evaluate(() => {
+        const v = document.querySelector('[data-browse-preview] video')
+        return !!v && /ep1/i.test(v.currentSrc || v.src) && !v.paused
+      })),
+      'a film handed over plays in the preview pane'
+    )
+    await win.evaluate(() => document.querySelectorAll('video').forEach((v) => v.pause()))
+    ok((await projects()) === before, 'and still no project tab was made')
+
+    // A FOLDER is unchanged: "Open as project".
+    await handoff(OTHER_ROOT)
+    ok(await waitFor(async () => (await projects()) === before + 1), 'a folder handed over still becomes a project tab')
+  } finally {
+    await app.close()
+  }
+}
+
+/**
  * A file handed over by Explorer while the tab shows a FULL terminal
  * (2026-09-04): the shell hides and the file shows, marked in the tree. It
  * used to land underneath the terminal, unseen and unmarked.
@@ -4461,23 +4556,26 @@ async function handoffOverTermScenario(fixtures) {
     await win.keyboard.type('echo handoff-shell-survives')
     await win.keyboard.press('Enter')
     await win.waitForFunction(() => document.querySelector('.xterm')?.textContent?.includes('handoff-shell-survives'))
-    // File handoff shows the file inside the same project, keeping its shell.
+    // A file from outside goes to the Explorer tab now (2026-09-22), even from
+    // the project's own folder: the file is SEEN, and the project and its
+    // shell are left exactly as they were.
     await handoff(join(fixtures, 'notes.txt'))
-    await win.waitForFunction(() => document.querySelectorAll('.xterm').length === 0, null, { timeout: 8000 })
-    ok(true, 'a file arriving from Explorer hides the full terminal')
-    await win.waitForSelector('.cm-editor', { timeout: 8000 })
-    ok(true, 'and the file is what shows')
     await win.waitForFunction(
-      () => /notes\.txt$/i.test(document.querySelector('[role="treeitem"][aria-selected="true"]')?.getAttribute('data-row') ?? ''),
+      () => document.querySelector('[role="tablist"] [data-pinned] [role="tab"]')?.getAttribute('aria-selected') === 'true',
       null,
       { timeout: 8000 }
     )
-    ok(true, 'and the tree marks it')
-    ok((await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'the original project tab is reused')
-    ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').first().getAttribute('aria-selected')) === 'true', 'the arriving file activates its original tab')
-    await win.keyboard.press('Control+`')
+    ok(true, 'a file arriving from Explorer comes up in the Explorer tab, over the terminal')
+    await win.waitForFunction(
+      () => /notes\.txt$/i.test(document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? ''),
+      null,
+      { timeout: 8000 }
+    )
+    ok(true, 'and the file is what it shows, selected')
+    ok((await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'no second project tab is made')
+    await win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]').first().click()
     await win.waitForSelector('.xterm', { timeout: 8000 })
-    ok((await win.locator('.xterm').textContent())?.includes('handoff-shell-survives'), 'the original shell and its scrollback survive the handoff')
+    ok((await win.locator('.xterm').textContent())?.includes('handoff-shell-survives'), 'the project still shows its shell, scrollback and all')
   } finally {
     await app.close()
   }
@@ -4519,13 +4617,14 @@ async function tabsScenario(fixtures) {
     await sleep(400)
     ok((await tabRows().count()) === 1, 'and it closes again')
 
-    // A file from a SUBFOLDER of an open root opens a tab of its own, rooted
-    // at that folder (owner, 2026-09-04, reversing 2026-09-01): separate
-    // folders are separate tabs, and only the exact root folds. The tab it
-    // did not land in is left exactly as it was.
-    await handoff(join(fixtures, 'code', 'bad.json'))
+    // A SUBFOLDER of an open root, opened as a project, is a tab of its own,
+    // rooted there (owner, 2026-09-04, reversing 2026-09-01): separate folders
+    // are separate tabs, and only the exact root folds. The tab it did not
+    // land in is left exactly as it was. A FOLDER, since 2026-09-22: a file
+    // from outside goes to the Explorer tab and makes no project at all.
+    await handoff(join(fixtures, 'code'))
     await win.waitForSelector(strip, { timeout: 10000 })
-    ok((await tabRows().count()) === 2, 'a file from a subfolder opens a tab of its own')
+    ok(await until(async () => (await tabRows().count()) === 2), 'a subfolder opened as a project is a tab of its own')
     ok(
       /\\code$/i.test((await tabRows().last().getAttribute('title')) ?? ''),
       'rooted at the subfolder'
@@ -4552,9 +4651,8 @@ async function tabsScenario(fixtures) {
 
     // A second root, opened deliberately - a genuine sibling, since a
     // subfolder is no longer a second root at all.
-    await handoff(join(otherRoot, 'bad.json'))
-    await sleep(500)
-    ok((await tabRows().count()) === 2, 'a second root opens a second tab')
+    await handoff(otherRoot)
+    ok(await until(async () => (await tabRows().count()) === 2), 'a second root opens a second tab')
     const labels = await tabRows().allTextContents()
     ok(labels.some((l) => /other/.test(l)), 'the new tab is named for its folder')
 
@@ -4592,7 +4690,9 @@ async function tabsScenario(fixtures) {
     // Switching: the tree and the viewer both follow. Point the first tab back
     // at its README first, then switch AWAY and back, so this tests the
     // switch rather than what the last handoff happened to leave on screen.
-    await handoff(join(fixtures, 'README.md'))
+    // (By its tree row: a file handed over goes to the Explorer tab now.)
+    await tabRows().first().click()
+    await win.locator('[role="treeitem"][data-row$="README.md" i]').first().click()
     await sleep(400)
     await tabRows().last().click()
     await sleep(300)
@@ -4605,9 +4705,16 @@ async function tabsScenario(fixtures) {
     ok((await win.locator('.p-md h1').count()) >= 1, 'and its viewer')
     await win.screenshot({ path: join(SHOTS, 'tabs.png') })
 
-    // A file from a root already open reuses its tab rather than duplicating it.
+    // A file from a root already open makes no tab either (2026-09-22): it is
+    // the Explorer's, and the project is left as it was.
     await handoff(join(fixtures, 'notes.txt'))
-    ok((await tabRows().count()) === 2, 'a file from an open root reuses its tab')
+    ok(
+      await until(async () => (await win.locator(`${strip} [data-pinned] [role="tab"]`).getAttribute('aria-selected')) === 'true'),
+      'a file from an open root comes up in the Explorer tab'
+    )
+    ok((await tabRows().count()) === 2, 'and no project tab is made for it')
+    await tabRows().first().click()
+    await sleep(300)
 
     // The remembered folder still applies. Explorer ignores the legacy
     // terminal-first setting until the user explicitly opens a project.
@@ -4646,7 +4753,7 @@ async function tabsScenario(fixtures) {
     // recreate the second tab, restoring the order the flow below expects.
     // The SIBLING root, not a subfolder: a subfolder folds into the tab that
     // holds it now and would leave the strip with one tab, not two.
-    await handoff(join(otherRoot, 'bad.json'))
+    await handoff(otherRoot)
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(400)
 
@@ -4678,7 +4785,7 @@ async function tabsScenario(fixtures) {
   try {
     // Two roots means two ROOTS: the sibling, since a subfolder now folds into
     // the tab that already holds it.
-    await handoff(join(otherRoot, 'bad.json'))
+    await handoff(otherRoot)
     await win.waitForSelector(strip, { timeout: 10000 })
     await sleep(700) // the save is on a 400ms debounce
   } finally {
@@ -4693,31 +4800,28 @@ async function tabsScenario(fixtures) {
     await app.close()
   }
 
-  // Explorer-opens-a-file WITH saved tabs to restore: the new tab's root must
+  // Explorer-opens-a-file WITH saved tabs to restore: the file's folder must
   // survive the restore traffic. This raced once: the first restored tab's
-  // report replaced main's root set while the new file's payload was still in
-  // flight, its listDir was refused, and the sidebar cached "can't read".
+  // report replaced main's root set while the file was still in flight, its
+  // listing was refused, and the sidebar cached "can't read". Since
+  // 2026-09-22 the file lands in the Explorer tab, which grants its folder per
+  // tab as it walks there - the same race, a different grant, so the same
+  // question: is the folder listed and the file selected in it.
   await sleep(900)
   ;({ app, win } = await launch(join(fixtures, 'code', 'nested', 'level-two', 'buried.py'), true))
   try {
     await win.waitForSelector(strip, { timeout: 10000 })
-    await sleep(800) // let the tree load (or cache a refusal, when broken)
     ok(
-      await win
-        .locator('[role="treeitem"]:has-text("buried.py")')
-        .isVisible()
-        .catch(() => false),
-      'a file opened alongside restored tabs still gets its folder tree'
-    )
-    const note = ((await win.locator('aside').textContent()) ?? '').includes("can't read")
-    ok(!note, 'and the sidebar does not claim the folder is unreadable')
-    // A file two folders down is MARKED, not merely present: the tree opens
-    // the folders leading to it, so the row exists to be marked at all.
-    ok(
-      ((await win.locator('[role="treeitem"][aria-selected="true"]').textContent()) ?? '').includes(
-        'buried.py'
+      await until(async () =>
+        /buried\.py$/i.test(
+          (await win.evaluate(() => document.querySelector('[data-testid="browse-list"] [aria-selected="true"]')?.getAttribute('data-browse-path') ?? '')) ?? ''
+        )
       ),
-      'and the file it is showing is selected in the sidebar'
+      'a file opened alongside restored tabs is listed in its folder, and selected'
+    )
+    ok(
+      !((await win.locator('[data-testid="folder-browser"]').first().textContent()) ?? '').includes("can't read"),
+      'and the Explorer does not claim the folder is unreadable'
     )
   } finally {
     await app.close()
@@ -4754,8 +4858,11 @@ async function tabsScenario(fixtures) {
     await app.close()
   }
 
+  // The FOLDER comes back through the door, not a file: a file goes to the
+  // Explorer tab now (2026-09-22), and a folder whose tab is open brings that
+  // tab forward as it was left.
   await sleep(900)
-  ;({ app, win } = await launch(join(fixtures, 'README.md'), true))
+  ;({ app, win } = await launch(fixtures, true))
   try {
     await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
     await sleep(1200)
@@ -4772,7 +4879,7 @@ async function tabsScenario(fixtures) {
     // fetched a folder's children, so a restored tree came back open with
     // nothing in it and every row sat on "loading..." until it was collapsed
     // and reopened by hand.
-    const stuck = ((await win.locator('aside').textContent()) ?? '').includes('loading')
+    const stuck = (await win.locator('aside').allTextContents()).some((t) => t.includes('loading'))
     ok(!stuck, 'and none of them is still saying "loading"')
   } finally {
     await app.close()
@@ -4788,7 +4895,10 @@ async function pinRecentScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   const rows = () => win.locator('[role="menuitem"]')
   const rowLabels = () => rows().evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
-  const pinOf = (label) => win.locator(`[role="menuitem"]:has-text("${label}") [data-pin]`)
+  // The WHOLE label: the recents are whatever the scenarios before this one
+  // left, and "docs" is also the start of "docs2".
+  const pinOf = (label) =>
+    win.locator('[role="menuitem"]').filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) }).locator('[data-pin]')
   const openMenu = async () => {
     await win.locator('[aria-label="New tab"]').click({ button: 'right' })
     await win.waitForSelector('[role="menuitem"]', { timeout: 5000 })
@@ -5008,10 +5118,16 @@ async function termCwdScenario(fixtures) {
   await sleep(900)
   ;({ app, win } = await launch(join(root, 'bad.json'), true))
   try {
-    // The launch file activates the same project and hides its restored shell.
+    // The launch file goes to the Explorer tab (2026-09-22) and makes no
+    // second project; the restored project is picked to reach its shell.
     await win.waitForSelector('[data-tab-role]:not([data-pinned]) [role="tab"]', { timeout: 15000 })
+    await sleep(800)
     ok((await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').count()) === 1, 'restore retains one project owner for its file and shell')
-    await win.keyboard.press('Control+`')
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]').first().click()
+    await sleep(600)
+    // The project may come back WITH its shell showing; Ctrl+` there would
+    // hide it, so the key is pressed only when it is not.
+    if (!(await win.locator('.xterm').count())) await win.keyboard.press('Control+`')
     await win.waitForSelector('.xterm', { timeout: 15000 })
     const deadline = Date.now() + 20000
     let back = false
@@ -5869,16 +5985,10 @@ async function pauseScenario(fixtures) {
     await win.evaluate(() => { const v = document.querySelector('video'); v.muted = true })
     await sleep(1200)
     const paused = () => win.evaluate(() => document.querySelector('video')?.paused ?? null)
-    // A FILE WINDOWS HANDS OVER PLAYS (2026-09-14, #139): the launch above is
-    // Explorer's double-click, and that is a pick. What does NOT play is a
-    // restore (the 2026-08-28 rule) - proved in playOnOpenScenario.
-    // The fixture is two seconds long and the launch waits longer than that,
-    // so what is read is whether it PLAYED - ended, or past its start.
-    const ran = await win.evaluate(() => {
-      const v = document.querySelector('video')
-      return !!v && (!v.paused || v.ended || v.currentTime > 0.2)
-    })
-    ok(ran, 'a film Windows handed over played without a click')
+    // The launch is the harness's seeded project (2026-09-22). That a film
+    // Windows hands over PLAYS (#139) is proved where it now lands, in the
+    // Explorer tab: openInExplorerScenario.
+    ok(await win.evaluate(() => !!document.querySelector('video')), 'the film is on screen')
     await win.evaluate(() => { const v = document.querySelector('video'); v.pause(); v.currentTime = 0 })
     await sleep(300)
     ok((await paused()) === true, 'and pauses when told to')
@@ -5994,12 +6104,13 @@ async function pauseScenario(fixtures) {
 }
 
 /**
- * Play on open, and NOT on restore (2026-09-14, #139). Explorer's double-click
- * plays (asserted at the head of the pausing scenario, whose launch is that
- * handoff); this is the other half: the same film, back in a RESTORED tab
+ * Play on open, and NOT on restore (2026-09-14, #139). A pick plays - here the
+ * film's row in the tree; a file Windows hands over is proved to play in
+ * openInExplorerScenario, where it lands since 2026-09-22 - and this is the
+ * other half: the same film, back in a RESTORED tab
  * after a relaunch, sits paused - a window full of restored tabs starting
  * every film at once is what the 2026-08-28 rule exists to prevent, and it
- * stands. The relaunch arrives with a file from ANOTHER root so the restored
+ * stands. The relaunch arrives with ANOTHER root (a folder) so the restored
  * tab is a background tab, and its player mounts when the tab is visited,
  * which is the moment a user meets it.
  */
@@ -6009,19 +6120,20 @@ async function playOnOpenScenario(fixtures) {
   try {
     await win.waitForSelector('video', { timeout: 15000 })
     await win.evaluate(() => { document.querySelector('video').muted = true })
+    await win.locator('[role="treeitem"][data-row$="ep1.mp4" i]').first().click()
     let playing = true
     await win
       .waitForFunction(() => document.querySelector('video')?.paused === false, null, { timeout: 5000 })
       .catch(() => {
         playing = false
       })
-    ok(playing, 'a film handed over by Explorer plays without a click')
+    ok(playing, 'a film picked in the tree plays without another click')
     await sleep(700) // tabs.json saves on a 400ms debounce
   } finally {
     await app.close()
   }
   await sleep(900)
-  ;({ app, win } = await launch(join(OTHER_ROOT, 'bad.json'), true))
+  ;({ app, win } = await launch(OTHER_ROOT, true))
   try {
     const strip = '[role="tablist"]'
     await win.waitForSelector(strip, { timeout: 10000 })
@@ -7869,7 +7981,7 @@ async function phoneTabsScenario(fixtures) {
     // A SECOND ROOT, handed over from outside the way the tab scenario opens
     // one: a genuine sibling folder, since a subfolder of an open root is no
     // longer a second root at all.
-    await handoff(join(OTHER_ROOT, 'bad.json'))
+    await handoff(OTHER_ROOT)
     const tabs = win.locator('[role="tablist"] [data-tab-role]:not([data-pinned]) [role="tab"]')
     ok((await tabs.count()) === 2, 'the PC has two roots open')
     // Back to the fixtures tab before pairing: the code is issued for the tab
@@ -8867,6 +8979,7 @@ await run(pinRecentScenario)
 await run(termCwdScenario)
 await run(agentTitleScenario)
 await run(handoffOverTermScenario)
+await run(openInExplorerScenario)
 await run(promptLayoutScenario)
 await run(archiveScenario)
 await run(extractScenario)

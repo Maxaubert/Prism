@@ -179,6 +179,29 @@ export function ensurePinnedExplorer(tabs: readonly Tab[], p: OpenPayload, id: s
   )]
 }
 
+/**
+ * A file from outside is on its way to the pinned Explorer (2026-09-22): bring
+ * it to the front with its terminal stepped aside, and, for the Preview mode,
+ * the preview pane on - that is what the setting asked for, whatever the pane
+ * was left as. Null when there is no pinned Explorer to bring.
+ */
+export function frontPinnedExplorer(tabs: readonly Tab[], preview: boolean): TabState | null {
+  const pinned = tabs.find(isPinnedExplorer)
+  if (!pinned) return null
+  return {
+    activeId: pinned.id,
+    tabs: tabs.map((tab) =>
+      tab === pinned
+        ? {
+            ...tab,
+            browse: preview ? { ...tab.browse, preview: true } : tab.browse,
+            term: tab.term ? { ...tab.term, view: 'hidden' } : null
+          }
+        : tab
+    )
+  }
+}
+
 /** Write one tab's pinned panes; every other tab is untouched. */
 export function setTabPanes(tabs: readonly Tab[], tabId: string, panes: PinnedPane[]): Tab[] {
   return tabs.map((t) => (t.id === tabId ? { ...t, panes } : t))

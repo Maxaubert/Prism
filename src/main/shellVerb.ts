@@ -16,8 +16,8 @@ import { existsSync } from 'fs'
  *
  * Written to HKCU only - per user, no elevation, nothing machine-wide - as a
  * classic shell verb under `*` (any file) and `Directory` (any folder). The
- * file verb opens the file with its own folder as the root, which is what
- * Prism does with any file handed to it; the folder verb opens the folder.
+ * file verb shows the file in the Explorer tab, which is what Prism does with
+ * any file handed to it (2026-09-22); the folder verb opens it as a project.
  *
  * WINDOWS 11 CAVEAT, stated rather than papered over: the short menu that
  * appears on right-click is built from IExplorerCommand handlers, which need a

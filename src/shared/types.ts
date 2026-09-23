@@ -164,6 +164,11 @@ export interface OpenPayload {
    *  "New projects show" setting's business: the folder browser (the default
    *  since #148), the first file, or a terminal. */
   folder?: boolean
+  /** A FILE arrived from outside (a double-click, "Open with", the Explorer
+   *  menu's "Open file", the command line; 2026-09-22). It goes to the pinned
+   *  Explorer tab rather than becoming a project, so main builds nothing for it
+   *  and registers no root: `files` is empty, `index` -1, `root` its folder. */
+  explorerFile?: string
   /** Restore only: the folders that were open in this tab's tree, so the
    *  sidebar comes back as it was left rather than collapsed to the root. */
   open?: string[]
