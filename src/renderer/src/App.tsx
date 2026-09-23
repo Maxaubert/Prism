@@ -85,6 +85,7 @@ import { FolderBrowser, type BrowseEntry } from './components/browse/FolderBrows
 import { BrowseToolbar } from './components/browse/BrowseToolbar'
 import { ExplorerResize } from './components/browse/ExplorerResize'
 import { useExplorerWidths } from './lib/useExplorerWidths'
+import { usePreviewSlide } from './lib/usePreviewSlide'
 import { copyFilePaths, fileClipboardReady } from './lib/fileClipboard'
 import { useFilePaste } from './lib/useFilePaste'
 import {
@@ -2465,10 +2466,20 @@ export default function App(): JSX.Element {
     !!active?.browse.preview &&
     !!browsing.previewFile &&
     file?.path === browsing.previewFile.path
+  // The pane slides open and shut on its toggle (#207): `out` keeps it laid
+  // out while it closes, `widthShown` holds it at 0px for an opening's first frame.
+  const previewSlide = usePreviewSlide(showBrowsePreview, viewerBox)
   const explorerWidths = useExplorerWidths(
     placesVisible,
-    showBrowsePreview
+    previewSlide.widthShown
   )
+  const togglePreview = useCallback(() => {
+    // Only a pane that is really on screen slides shut, and only one that is
+    // really off slides open; a preview switched on over a folder shows nothing.
+    if (showBrowsePreview) previewSlide.start(true)
+    else if (!active?.browse.preview) previewSlide.start(false)
+    browsing.togglePreview()
+  }, [showBrowsePreview, active?.browse.preview, previewSlide, browsing])
   const quickAccessDefaults = useMemo(
     () =>
       browsing.locations
@@ -3676,6 +3687,7 @@ export default function App(): JSX.Element {
         inert={settingsOpen || setup}
         ref={explorerWidths.workspace}
         style={active && isExplorerTab(active) ? explorerWidths.style : undefined}
+        data-preview-sliding={previewSlide.sliding || undefined}
         className={`browse-workspace relative flex min-h-0 flex-1 ${browsing.folder ? 'is-browsing' : ''} ${treeSide === 'right' ? 'flex-row-reverse' : ''} ${
           settingsOpen || setup ? 'invisible' : ''
         }`}
@@ -3825,20 +3837,20 @@ export default function App(): JSX.Element {
                   setBrowseMenu({ x: event.clientX, y: event.clientY, entry, source })
                 }
                 previewEnabled={active.browse.preview}
-                previewVisible={showBrowsePreview}
-                onPreviewToggle={browsing.togglePreview}
+                previewVisible={previewSlide.out}
+                onPreviewToggle={togglePreview}
                 terminalControls={terminalBrowseControls}
               />
-              {showBrowsePreview && browsing.previewFile && (
+              {previewSlide.out && browsing.previewFile && (
                 <div className="browse-preview-actions">
-                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true)}>
+                  <button onClick={() => void browsing.openFile(browsing.previewFile!, true, false)}>
                     Open full view
                   </button>
                 </div>
               )}
             </div>
           )}
-          {showBrowsePreview && !fullscreen && (
+          {showBrowsePreview && !previewSlide.sliding && !fullscreen && (
             <ExplorerResize
               section="preview"
               bounds={explorerWidths.bounds.preview}
@@ -3875,12 +3887,12 @@ export default function App(): JSX.Element {
               // Full view: the terminal takes the whole area, but the viewer
               // stays MOUNTED so scroll, zoom and playback survive the visit -
               // the same reason hidden shells stay alive.
-              termView === 'full' || (browsing.folder && !fullscreen && !showBrowsePreview)
+              termView === 'full' || (browsing.folder && !fullscreen && !previewSlide.out)
                 ? 'hidden'
                 : ''
             }`}
             ref={viewerBox}
-            data-browse-preview={(showBrowsePreview && !fullscreen) || undefined}
+            data-browse-preview={(previewSlide.out && !fullscreen) || undefined}
             data-workspace-viewer
           >
             {/* the fullscreen fade-to-black, inside the fullscreen element */}

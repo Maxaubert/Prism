@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_VOLUME, forgetTabVolume, setTabVolume, tabVolume } from './tabVolume'
+import { DEFAULT_VOLUME, forgetTabVolume, setTabRate, setTabVolume, tabRate, tabVolume } from './tabVolume'
 
 beforeEach(() => {
   forgetTabVolume('a')
@@ -36,5 +36,24 @@ describe('volume per tab', () => {
   it('ignores a write with no key at all', () => {
     setTabVolume('', { vol: 0.1, muted: true })
     expect(tabVolume('').vol).toBe(1)
+  })
+})
+
+describe('tab speed (#207)', () => {
+  it('starts at 1x, keeps what the tab chose, and is the tab\'s own', () => {
+    expect(tabRate('s1')).toBe(1)
+    setTabRate('s1', 0.5)
+    expect(tabRate('s1')).toBe(0.5)
+    expect(tabRate('s2')).toBe(1)
+  })
+
+  it('goes with the tab, and refuses nonsense', () => {
+    setTabRate('s3', 1.5)
+    forgetTabVolume('s3')
+    expect(tabRate('s3')).toBe(1)
+    setTabRate('s4', 0)
+    setTabRate('', 2)
+    expect(tabRate('s4')).toBe(1)
+    expect(tabRate('')).toBe(1)
   })
 })

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject, type Syntheti
 import { rememberPaused, rememberTime, sessionTime } from './playState'
 import { positionToSave, resumeAt, RESUME_SAVE_STEP } from './resumePoint'
 import { applyVolume, idleAudioContext, wakeAudioContext } from './audio'
-import { setTabVolume, tabVolume } from './tabVolume'
+import { setTabRate, setTabVolume, tabRate, tabVolume } from './tabVolume'
 import { forgetPlayer, reportPlaying } from './awake'
 
 // The shared brain of both players. Owns playback state, exposes controls, and
@@ -133,7 +133,7 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   const [buffered, setBuffered] = useState(0)
   const [vol, setVolState] = useState(() => clampVol(tabVolume(volumeKey).vol))
   const [muted, setMuted] = useState(() => tabVolume(volumeKey).muted)
-  const [rate, setRate] = useState(1)
+  const [rate, setRate] = useState(() => tabRate(volumeKey))
   const [error, setError] = useState<string | null>(null)
 
   // Mirror volume/mute/rate onto the element; remember volume across sessions.
@@ -148,7 +148,8 @@ export function useMediaControls(ref: RefObject<HTMLMediaElement | null>, opts: 
   }, [vol, muted, forceMute, ref, volumeKey])
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate
-  }, [rate, ref])
+    setTabRate(volumeKey, rate)
+  }, [rate, ref, volumeKey])
 
   // A player that has gone away is not playing. Without this a tab closed
   // mid-film would hold the screen awake for the rest of the session, and
