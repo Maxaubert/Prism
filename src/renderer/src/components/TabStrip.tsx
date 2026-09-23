@@ -7,6 +7,7 @@ import { contrastRatio } from 'prism-term-core/renderer/lib/termAnsi'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
+import { useTabWidth } from '../lib/tabWidthPrefs'
 
 /**
  * The open projects, as a row under the title bar.
@@ -94,6 +95,7 @@ export function TabStrip({
   wash: boolean
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
+  const width = useTabWidth()
   // The user's pick where there is one, else the app style's accent and the
   // theme's green (termHost.ts): the same rule as Prism Terminal.
   const { working: agentColor, finished: doneColor } = useAgentColors()
@@ -310,9 +312,16 @@ export function TabStrip({
             // is now", which is what the Explorer tab used to be), shrinking - all of them
             // equally - only when the strip runs out of room, the way a browser
             // does; the label truncates inside. Prism Terminal's strip is the
-            // same, on purpose.
-            data-tab-fixed
-            className={`no-drag group relative flex min-w-[64px] flex-[0_1_114px] items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
+            // same, on purpose. AND IT IS A SETTING (#216; owner, 2026-09-23:
+            // "fixed size or dynamic ... the user can pick"; then "dynamic ...
+            // the default"): Tab width > Dynamic (the DEFAULT)
+            // is the strip from before, each tab as wide as its name
+            // up to 14rem (the cap is on the label).
+            data-tab-fixed={width === 'fixed' || undefined}
+            data-tab-dynamic={width === 'dynamic' || undefined}
+            className={`no-drag group relative flex items-center gap-1.5 border-r border-[color:var(--p-divider)] px-2.5 transition-colors ${
+              width === 'fixed' ? 'min-w-[64px] flex-[0_1_114px]' : 'min-w-0 shrink'
+            } ${
               loud
                 ? ''
                 : on
@@ -455,9 +464,10 @@ export function TabStrip({
               role="tab"
               aria-selected={on}
               tabIndex={on ? 0 : -1}
-              // Whatever the fixed tab leaves after its marks and the close
-              // button, truncated there.
-              className="min-w-0 flex-1 truncate py-1 text-left"
+              // Fixed: whatever the tab leaves after its marks and the close
+              // button, truncated there. Fit: the label sizes the tab, up to
+              // 14rem, as before.
+              className={`min-w-0 truncate py-1 text-left ${width === 'fixed' ? 'flex-1' : 'max-w-[14rem]'}`}
               title={isExplorerTab(t) ? t.browse.path : t.root}
               onClick={() => {
               // A press that travelled is a drag, not a pick.

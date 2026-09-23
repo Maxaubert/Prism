@@ -33,6 +33,7 @@ import {
 } from '../lib/newTabPrefs'
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
+import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -291,6 +292,26 @@ function RememberTabsSetting(): JSX.Element {
   return (
     <Pref id="remember-tabs" label="Remember tabs" hint="Reopens the tabs from last time when Prism starts.">
       <Switch on={on} onChange={setRememberTabs} label="Remember tabs" />
+    </Pref>
+  )
+}
+
+/** How wide a tab is (#216; owner, 2026-09-23: "fixed size or dynamic ... the
+ *  user can pick"), the same row as Prism Terminal's. */
+function TabWidthSetting(): JSX.Element {
+  const width = useTabWidth()
+  return (
+    <Pref id="tab-width" label="Tab width" hint="Each tab as wide as its name, or every tab the same width.">
+      <Segmented
+        value={width}
+        onChange={setTabWidth}
+        // Dynamic first: it is the default ("call it dynamic ... have dynamic
+        // be the default").
+        options={[
+          { id: 'dynamic', name: 'Dynamic' },
+          { id: 'fixed', name: 'Fixed' }
+        ]}
+      />
     </Pref>
   )
 }
@@ -669,6 +690,9 @@ function StyleTab(): JSX.Element {
       {/* Mode is a setting like any other, so it gets a row of its own rather
           than a control tucked into the page header. */}
       <div className={ROWS}>
+        {/* Tab width opens the look page (owner, 2026-09-23: "put the option
+            closer to the top of appearance"); Style is Prism's appearance. */}
+        <TabWidthSetting />
         <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>
