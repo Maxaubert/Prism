@@ -74,7 +74,7 @@ import { qrSvg } from './phone/qr'
 import { forget as forgetPhone } from './phone/pairing'
 import { closeAllWatches, muteDir, unwatchRoot, watchRoot } from './dirWatch'
 import { readTabs, restoredFileIndex, writeTabs, type SavedTabs } from './tabs'
-import { CODEX_RESUME, claudeSessions } from 'prism-term-core/main/agentResume'
+import { CODEX_RESUME, claudeSessionsAsync } from 'prism-term-core/main/agentResume'
 import { registerTermIpc } from 'prism-term-core/main/ipc'
 import { registerDictationIpc } from 'prism-term-core/main/dictationIpc'
 import { detectShells } from 'prism-term-core/main/shells'
@@ -777,7 +777,10 @@ async function restoreTabs(): Promise<OpenPayload[]> {
       else if (t.agent && t.term) {
         const key = termCwd.toLowerCase()
         const n = taken.get(key) ?? 0
-        resume = claudeSessions(termCwd)[n] ?? null
+        // OFF MAIN'S THREAD (2026-09-22, the "soft lock on first launch"): a
+        // folder claude has worked in holds thousands of transcripts, and the
+        // synchronous walk stat'ed every one while the window stood still.
+        resume = (await claudeSessionsAsync(termCwd))[n] ?? null
         if (resume) taken.set(key, n + 1)
       }
       // SAVED order, exactly: the old active-goes-last splice scrambled the
