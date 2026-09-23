@@ -239,6 +239,21 @@ function Section({
   )
 }
 
+/**
+ * SETTINGS CONTROLS ARE NEUTRAL, AND ONLY SAVE WEARS THE ACCENT (owner,
+ * 2026-09-23: "i dont want settings buttons to be affected by the accent
+ * colour... grey based on the bg colour and then a slight contrast so that it
+ * can easily be seen. same colours as the drop down menus"; "the only ones to
+ * keep accented are the save buttons"). The same classes as the terminal
+ * core's `fields.tsx`, so both halves of this page match. Every grey is a
+ * token the style derives from its own ground.
+ */
+const ROW_BUTTON =
+  'h-8 rounded-[var(--p-radius-sm)] border border-[color:var(--p-divider)] bg-[var(--p-control)] px-3 text-[12px] font-semibold text-[var(--p-text)] transition-colors hover:border-[color:var(--p-line)] hover:bg-[var(--p-hover)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none disabled:opacity-50'
+const SEGMENT_ON = 'bg-[color-mix(in_srgb,var(--p-text)_16%,var(--p-control))] text-[var(--p-text)]'
+const SWITCH_ON = 'bg-[var(--p-text-soft)]'
+const SWITCH_KNOB_ON = 'bg-[var(--p-bg)]'
+
 /** A real on/off switch: one control, one state, no pair of buttons to compare. */
 function Switch({
   on,
@@ -256,11 +271,13 @@ function Switch({
       aria-label={label}
       onClick={() => onChange(!on)}
       className={`relative h-[20px] w-[36px] shrink-0 rounded-full transition-colors ${
-        on ? 'bg-[var(--p-accent)]' : 'bg-[var(--p-track)]'
+        on ? SWITCH_ON : 'bg-[var(--p-track)]'
       }`}
     >
       <span
-        className="absolute left-[2px] top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out"
+        className={`absolute left-[2px] top-[2px] h-4 w-4 rounded-full shadow-sm transition-transform duration-150 ease-out ${
+          on ? SWITCH_KNOB_ON : 'bg-white'
+        }`}
         style={{ transform: on ? 'translateX(16px)' : 'none' }}
       />
     </button>
@@ -403,7 +420,7 @@ function Segmented<T extends string>({
             aria-pressed={on}
             className={`rounded-full px-3 py-1 text-[11.5px] font-semibold capitalize transition ${
               on
-                ? 'bg-[var(--p-accent)] text-[var(--p-on-accent)]'
+                ? SEGMENT_ON
                 : 'text-[var(--p-dim)] hover:text-[var(--p-text)]'
             }`}
           >
@@ -1167,7 +1184,7 @@ function GeneralTab(): JSX.Element {
         <button
           id="default-apps"
           onClick={() => void window.prism.openDefaultApps()}
-          className="h-8 rounded-lg border border-[color:var(--p-accent)]/45 bg-[var(--p-accent)]/10 px-3 text-[12px] font-semibold text-[var(--p-accent-hi)] transition-colors hover:border-[color:var(--p-accent)] hover:bg-[var(--p-accent)]/18 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--p-accent)]/45"
+          className={ROW_BUTTON}
         >
           Choose in Windows
         </button>
