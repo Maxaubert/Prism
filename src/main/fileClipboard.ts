@@ -19,6 +19,10 @@ $data.SetFileDropList($paths)
 $effect = if ($request.cut) { 2 } else { 1 }
 $dropEffect = [System.IO.MemoryStream]::new([BitConverter]::GetBytes([uint32]$effect))
 $data.SetData('Preferred DropEffect', $dropEffect)
+# "Copy address" (2026-09-22): the folder AND its path, in one data object,
+# as Explorer's own address bar does - a paste into Explorer takes the folder,
+# a paste into a text field takes the path.
+if ($request.text) { $data.SetText([string]$request.text) }
 $picture = $null
 $bitmap = $null
 try {
@@ -41,7 +45,7 @@ try {
 `
 
 /** Paths are data over stdin, never interpolated into PowerShell source. */
-export function copyWindowsFiles(paths: string[], cut: boolean): Promise<boolean> {
+export function copyWindowsFiles(paths: string[], cut: boolean, text?: string): Promise<boolean> {
   return new Promise((done) => {
     const child = execFile(
       'powershell.exe',
@@ -50,7 +54,7 @@ export function copyWindowsFiles(paths: string[], cut: boolean): Promise<boolean
       (error) => done(!error)
     )
     child.stdin?.on('error', () => {}) // The process callback handles an early exit.
-    child.stdin?.end(JSON.stringify({ paths, cut }), 'utf8')
+    child.stdin?.end(JSON.stringify({ paths, cut, text: text ?? null }), 'utf8')
   })
 }
 

@@ -4939,3 +4939,43 @@ test('indexed search exposes every match with bounded viewport work, keyboard ju
     await shot(h.page, info, 'indexed-million-results.png', h.app)
   } finally { await stop(h.app) }
 })
+
+test("the address bar answers a right-click with Explorer's Copy address, Copy address as text and Edit address", async () => {
+  // Owner, 2026-09-22: "let me right click the url bar to get options to copy
+  // path or copy as text like file explorer". A crumb's menu acts on THAT
+  // crumb's folder. Copy address is Explorer's pair: the folder as a file drop
+  // AND its path as text. The clipboard is the owner's: kept and put back.
+  const h = await setup()
+  const { page, app } = h
+  const restore = await keepClipboard(app)
+  try {
+    await go(page, h.movies)
+    const crumbs = page.getByRole('navigation', { name: 'Folder path' }).locator('[data-crumb-path]')
+    const parentCrumb = crumbs.nth((await crumbs.count()) - 2)
+    const parent = (await parentCrumb.getAttribute('data-crumb-path'))!
+    expect(parent.toLowerCase()).toBe(dirname(h.movies).toLowerCase())
+    const text = (): Promise<string> => app.evaluate(({ clipboard }) => clipboard.readText())
+
+    await parentCrumb.click({ button: 'right' })
+    const items = page.getByRole('menuitem')
+    await expect(items).toHaveText(['Copy address', 'Copy address as text', /Edit address/])
+    await page.getByRole('menuitem', { name: 'Copy address as text' }).click()
+    await expect.poll(text).toBe(parent)
+
+    // The bar itself (not a crumb) is the folder on screen.
+    await app.evaluate(({ clipboard }) => clipboard.writeText('before'))
+    const bar = page.getByRole('navigation', { name: 'Folder path' })
+    const box = (await bar.boundingBox())!
+    await page.mouse.click(box.x + box.width - 40, box.y + box.height / 2, { button: 'right' })
+    await page.getByRole('menuitem', { name: 'Copy address', exact: true }).click()
+    await clipboardFile(h.movies)
+    await expect.poll(text).toBe(h.movies)
+
+    await bar.click({ button: 'right', position: { x: box.width - 40, y: box.height / 2 } })
+    await page.getByRole('menuitem', { name: /Edit address/ }).click()
+    await expect(page.getByRole('textbox', { name: 'Folder path' })).toHaveValue(h.movies)
+  } finally {
+    await restore()
+    await stop(app)
+  }
+})
