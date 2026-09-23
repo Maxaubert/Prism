@@ -918,12 +918,28 @@ export default function App(): JSX.Element {
   // The file tree. Off on a fresh install: the media is the point.
   const [sidebar, setSidebar] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1')
   const treeSide = useTreeSide()
+  // A PANEL SLIDES WHEN IT IS OPENED OR CLOSED, AND ONLY THEN (owner,
+  // 2026-09-23: "when you collapse the explorer sidebar its not animated, it
+  // should be", and "when you switch between a project and explorer with
+  // sidebar open it has a sidebar animation on each tab change, it shouldnt").
+  // True for one slide after a toggle. The project Sidebar sits behind every
+  // tab and is shut on an Explorer tab, and one FolderBrowser serves every
+  // tab, so without this a tab switch, a drag of an edge or a window resize
+  // changed a width and played the slide too.
+  const [panelSliding, setPanelSliding] = useState(false)
+  const panelSlideTimer = useRef<number | undefined>(undefined)
+  const slidePanel = useCallback(() => {
+    setPanelSliding(true)
+    window.clearTimeout(panelSlideTimer.current)
+    panelSlideTimer.current = window.setTimeout(() => setPanelSliding(false), 240)
+  }, [])
   const toggleSidebar = useCallback(() => {
+    slidePanel()
     setSidebar((on) => {
       localStorage.setItem(SIDEBAR_KEY, on ? '0' : '1')
       return !on
     })
-  }, [])
+  }, [slidePanel])
   const [placesVisible, setPlacesVisible] = useState(
     () => localStorage.getItem('prism.explorer.places') !== '0'
   )
@@ -1065,13 +1081,14 @@ export default function App(): JSX.Element {
     if (settingsOpen) toggleRail()
     else if (active && isExplorerTab(active)) {
       if (active.browse.surface !== 'folder') return
+      slidePanel()
       setPlacesVisible((visible) => {
         localStorage.setItem('prism.explorer.places', visible ? '0' : '1')
         return !visible
       })
     }
     else toggleSidebar()
-  }, [settingsOpen, active, toggleRail, toggleSidebar])
+  }, [settingsOpen, active, toggleRail, toggleSidebar, slidePanel])
   const pickTransport = useCallback((s: TransportStyle) => {
     setTransportStyle(s)
     localStorage.setItem(TRANSPORT_KEY, s)
@@ -3677,6 +3694,7 @@ export default function App(): JSX.Element {
         {active && active.kind !== 'settings' && !fullscreen && (
           <Sidebar
             open={sidebar && !isExplorerTab(active)}
+            sliding={panelSliding}
             root={active.root}
             tabId={active.id}
             onOpenFolder={rerootHere}
@@ -3757,6 +3775,7 @@ export default function App(): JSX.Element {
                   void pinQuickAccessPaths(paths, beforePath)
                 }
                 placesVisible={isExplorerTab(active) ? placesVisible : false}
+                placesSliding={isExplorerTab(active) && panelSliding}
                 onOpenProject={isExplorerTab(active) ? openAsProject : undefined}
                 onOpenNewTab={openInNewTab}
                 searchState={browsing.searchState}

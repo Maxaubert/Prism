@@ -44,6 +44,8 @@ export interface FolderBrowserProps {
   error?: string
   places: BrowsePlace[]
   placesVisible?: boolean
+  /** The places panel is mid-slide after a toggle: keep it mounted and animate. */
+  placesSliding?: boolean
   quickAccess?: QuickAccessPin[]
   onQuickAccessFile?: (path: string, full?: boolean) => void
   onUnpinQuickAccess?: (path: string) => void

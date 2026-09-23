@@ -35,6 +35,42 @@ const file: ViewerFile = {
 const payload: OpenPayload = { root, files: [file], index: 0 }
 
 describe('folder history', () => {
+  it('going back or up marks the folder you came out of, and only a direct child', () => {
+    // Owner, 2026-09-23: "when you move back to documents, the claude folder
+    // should be highlighted, when you go to admin, documents should be".
+    const admin = 'C:\\Users\\Admin'
+    const documents = `${admin}\\Documents`
+    const claude = `${documents}\\Claude`
+    let state = newBrowse(admin)
+    state = navigateBrowseState(state, documents)
+    expect(browseLocation(state).selected).toBeNull() // going IN marks nothing
+    state = navigateBrowseState(state, claude)
+    state = travelBrowseState(state, -1) // Back
+    expect(state.path).toBe(documents)
+    expect(browseLocation(state).selected).toBe(claude)
+    state = travelBrowseState(state, -1)
+    expect(state.path).toBe(admin)
+    expect(browseLocation(state).selected).toBe(documents)
+    // Forward goes IN again: nothing is marked.
+    state = travelBrowseState(state, 1)
+    expect(browseLocation(state).selected).toBeNull()
+    // Up (the parent, by navigate) marks the same way.
+    state = navigateBrowseState(navigateBrowseState(state, claude), documents)
+    expect(browseLocation(state).selected).toBe(claude)
+    // A jump that is not to the direct parent marks nothing.
+    state = navigateBrowseState(navigateBrowseState(state, claude), admin)
+    expect(browseLocation(state).selected).toBeNull()
+    state = navigateBrowseState(state, other)
+    expect(browseLocation(state).selected).toBeNull()
+  })
+
+  it('the file on display wins over the folder you came out of', () => {
+    const inRoot = `${root}\\readme.md`
+    let state = navigateBrowseState(newBrowse(root), `${root}\\src`)
+    state = travelBrowseState(state, -1, inRoot)
+    expect(browseLocation(state).selected).toBe(inRoot)
+  })
+
   it('returns to the search, sorting and scroll position, but not to an old selection', () => {
     // Owner, 2026-09-22: "no file should be selected when I haven't clicked
     // any". Arriving is not a click, so what an earlier visit selected is not

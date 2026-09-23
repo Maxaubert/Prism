@@ -484,6 +484,19 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   selected - the subfolder you had come out of used to come back marked. The ONE exception is
   the file on display (preview pane or full view), marked when you arrive at its folder
   (`browse.ts` `arrivalMark`). Order and scroll are still remembered; the arrows start at the top.
+  NARROWED 2026-09-23 (#204, owner: "say you navigate admin -> documents -> claude, then you use
+  backspace to go back ... when you move back to documents, the claude folder should be
+  highlighted, when you go to admin, documents should be highlighted"): arriving at the DIRECT
+  PARENT of the folder you were in (Back or Up) marks that folder, and the arrows carry on from
+  it. Going in, Forward, and a jump anywhere else still mark nothing; the file on display wins.
+  A RIGHT-CLICK'S MARK IS THE GREY FILL ALONE (#204, owner, 2026-09-23: "it has this white outline
+  which i dont like, i only want the grey bg highlighting"): no ring, not even the focus ring.
+  THE PLACES PANEL SLIDES ONLY WHEN IT IS TOGGLED, AND A TAB SWITCH SLIDES NOTHING (#204, owner,
+  2026-09-23). Both panels animate their width (180ms) only while App's `panelSliding` is true,
+  for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
+  width while it slides. The project `Sidebar` sits behind every tab and is shut on an Explorer
+  tab, and one FolderBrowser serves every tab, so any other width change (a tab switch, a drag,
+  a window resize) lands at once. `browse.spec` samples widths every frame for all of it.
   A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it

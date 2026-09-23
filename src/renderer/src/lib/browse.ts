@@ -42,11 +42,21 @@ export function updateBrowseLocation(
  * file on display when it lives in this folder, and nothing otherwise. What an
  * earlier visit selected is NOT brought back: it made the subfolder you had
  * come out of look picked. The order and the scroll are still remembered.
+ *
+ * ONE EXCEPTION, the way out (owner, 2026-09-23: "when you move back to
+ * documents, the claude folder should be highlighted, when you go to admin,
+ * documents should be highlighted"): arriving at the DIRECT parent of the
+ * folder you were in marks that folder, so going back up shows where you came
+ * from and the arrows carry on from it. A jump anywhere else still marks
+ * nothing. The file on display, when it lives here, wins.
  */
-function arrivalMark(path: string, shown: string | null | undefined): string | null {
-  if (!shown) return null
-  const parent = browseParent(shown)
-  return parent && folderKey(parent) === folderKey(path) ? shown : null
+function arrivalMark(path: string, shown: string | null | undefined, from?: string): string | null {
+  const here = (p: string | null | undefined): boolean => {
+    const parent = p ? browseParent(p) : null
+    return !!parent && folderKey(parent) === folderKey(path)
+  }
+  if (here(shown)) return shown!
+  return from && here(from) ? from : null
 }
 
 /** Called after main has successfully resolved the folder. A failed lookup has
@@ -61,10 +71,10 @@ export function navigateBrowseState(
   // shortcut; never its selection (arrivalMark).
   const previous = browse.history.findLast((entry) => folderKey(entry.path) === folderKey(path))
   const entry = previous
-    ? { ...previous, path, selected: arrivalMark(path, shown) }
+    ? { ...previous, path, selected: arrivalMark(path, shown, browse.path) }
     : {
         ...newBrowse(path).history[0],
-        selected: arrivalMark(path, shown),
+        selected: arrivalMark(path, shown, browse.path),
         sort: { ...browseLocation(browse).sort }
       }
   const history = [...browse.history.slice(0, browse.cursor + 1), entry].slice(-MAX_HISTORY)
@@ -76,7 +86,7 @@ export function travelBrowseState(browse: SavedBrowse, delta: number, shown?: st
   if (cursor === browse.cursor) return browse
   const target = browse.history[cursor]
   const history = browse.history.slice()
-  history[cursor] = { ...target, selected: arrivalMark(target.path, shown) }
+  history[cursor] = { ...target, selected: arrivalMark(target.path, shown, browse.path) }
   return { ...browse, history, cursor, path: target.path, surface: 'folder' }
 }
 
