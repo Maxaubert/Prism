@@ -762,14 +762,16 @@ async function sortScenario(fixtures) {
       (await win.locator('button[aria-expanded="false"][aria-label^="Show all"]').count()) === 1,
       'the theme wall is collapsed to two rows behind a centred arrow'
     )
-    // The pencil lives on the SELECTED card only: select bright-lights, its
-    // pencil appears, edit, save - the one Custom slot.
+    // The pencil lives on the SELECTED card only: select a theme, its
+    // pencil appears, edit, save - the one Custom slot. Pitch, not Bright
+    // Lights: that theme is retired in core-v0.15.0 (PrismTerminal #62), and
+    // Pitch is in the list before and after it.
     await win.locator('button[aria-label^="Show all"]').click()
     await sleep(200)
-    await win.locator('[data-term-card="bright-lights"]').click()
+    await win.locator('[data-term-card="pitch"]').click()
     ok(
       (await win.locator('[data-edit-theme]').count()) === 1 &&
-        (await win.locator('[data-edit-theme="bright-lights"]').count()) === 1,
+        (await win.locator('[data-edit-theme="pitch"]').count()) === 1,
       'only the selected theme wears the pencil'
     )
     // The acrylic regression: the DEFAULT style publishes an rgba background,
@@ -787,8 +789,8 @@ async function sortScenario(fixtures) {
     await win.locator('[data-theme-editor] button:has-text("Cancel")').click()
     await sleep(300)
 
-    await win.locator('[data-term-card="bright-lights"]').click()
-    await win.locator('[data-edit-theme="bright-lights"]').click()
+    await win.locator('[data-term-card="pitch"]').click()
+    await win.locator('[data-edit-theme="pitch"]').click()
     await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
     await win.locator('[data-theme-editor] input[aria-label="Background"]').fill('#123456')
     await win.locator('button:has-text("Save as Custom")').click()
