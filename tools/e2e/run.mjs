@@ -5043,6 +5043,15 @@ async function termMenuCopyScenario(fixtures) {
     await win.keyboard.type('there')
     await win.keyboard.press('Enter')
     ok(!!(await until(async () => (await text()).includes('echo hello there'), 8000)), 'Backspace over a selected word deletes it')
+    // A CLICKED LINK NEVER REACHES THE OWNER'S BROWSER UNDER --e2e (#222;
+    // owner, 2026-09-24: "make sure that future runs don't do that in my real
+    // browser"). Clicked for real: main records it and opens nothing.
+    const linkAgain = await box(url, 12)
+    await win.mouse.click(linkAgain.left + 2, linkAgain.y)
+    ok(
+      !!(await until(async () => ((await app.evaluate(() => globalThis.__e2eOpenedLinks)) ?? []).includes(url), 4000)),
+      'a clicked link is recorded under --e2e, and no browser is opened'
+    )
   } finally {
     await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
     await app.close().catch(() => {})
