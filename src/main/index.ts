@@ -1029,6 +1029,24 @@ let borderStrip: NodeJS.Timeout | null = null
 const E2E = process.argv.includes('--e2e')
 
 /**
+ * A WEB LINK LEAVES THE APP HERE, AND NEVER UNDER --e2e (#222; owner,
+ * 2026-09-24: "make sure that future runs don't do that in my real browser").
+ * The terminal scenarios print and click https://example.com links, and every
+ * run opened them as tabs in the owner's own browser. Under --e2e the link is
+ * RECORDED on `globalThis.__e2eOpenedLinks` for the e2e to read, and nothing
+ * outside the app is started.
+ */
+const e2eOpenedLinks: string[] = []
+if (E2E) Object.assign(globalThis, { __e2eOpenedLinks: e2eOpenedLinks })
+function openLink(url: string): void {
+  if (E2E) {
+    e2eOpenedLinks.push(url)
+    return
+  }
+  void shell.openExternal(url)
+}
+
+/**
  * Two things Windows needs told before the first window exists (2026-08-30).
  *
  * The AppUserModelID is how Windows decides that a running process and a
@@ -1317,7 +1335,7 @@ function createWindow(): void {
    * for the same reason.
    */
   mainWindow.webContents.setWindowOpenHandler((d) => {
-    if (/^https?:\/\//i.test(d.url)) void shell.openExternal(d.url)
+    if (/^https?:\/\//i.test(d.url)) openLink(d.url)
     return { action: 'deny' }
   })
   // A page cannot navigate the window away from the app either: the renderer
@@ -1327,7 +1345,7 @@ function createWindow(): void {
     if (dev && url.startsWith(dev)) return
     if (url.startsWith('file://')) return
     e.preventDefault()
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) openLink(url)
   })
 
   let restoreStarted = false
@@ -2019,7 +2037,7 @@ if (!app.requestSingleInstanceLock()) {
       ipcMain,
       send: (ch, ...a) => mainWindow?.webContents.send(ch, ...a),
       clipboard,
-      openExternal: (url) => void shell.openExternal(url),
+      openExternal: openLink,
       spawnDir: async (dir) => (insideWall(dir) ? dir : null),
       mayPrewarm: async (dir) => insideWall(dir),
       mayCd: insideWall
@@ -3778,7 +3796,8 @@ if (!app.requestSingleInstanceLock()) {
       // itself: the choice lives in a signed UserChoice key precisely so that
       // no installer can help itself to it. Older builds ignore the query and
       // land on the list, which is still the right list.
-      void shell.openExternal('ms-settings:defaultapps?registeredAppUser=Prism')
+      // Never under --e2e (#222): a test run must not open Windows Settings.
+      if (!E2E) void shell.openExternal('ms-settings:defaultapps?registeredAppUser=Prism')
     })
     ipcMain.on('window:material', (_e, material: string, mode?: string) => {
       if (!mainWindow) return
