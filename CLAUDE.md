@@ -519,6 +519,11 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   **Dynamic** (the DEFAULT, by the owner's word, so the strip fixed since 2026-09-21 goes back to
   dynamic with this update: each tab as wide as its name, capped at 14rem) or **Fixed** (every tab
   114px). The `tabs` scenario measures the default, picks Fixed, and puts Dynamic back.
+- **UNDER --e2e NOTHING OPENS OUTSIDE THE APP** (#222; owner, 2026-09-24: "make sure that future
+  runs don't do that in my real browser", after a run opened four example.com tabs). Every web
+  link goes through `openLink` in main, which under `--e2e` records it on
+  `globalThis.__e2eOpenedLinks` and starts nothing; the Default apps deep link is skipped too.
+  `termMenuCopy` clicks a printed link for real and asserts it was recorded.
 - **"COPIED" AT THE BOTTOM CENTRE, AND A THIN THEMED TERMINAL SCROLLBAR** (#215; owner,
   2026-09-23, asked in Prism Terminal (#54, #52 there) and agreed for Prism). The core's
   `CopiedBadge` is mounted once in App; every terminal copy (Ctrl+C over a selection, the menu's
