@@ -5054,6 +5054,19 @@ async function termMenuCopyScenario(fixtures) {
       !!(await until(async () => ((await app.evaluate(() => globalThis.__e2eOpenedLinks)) ?? []).includes(url), 4000)),
       'a clicked link is recorded under --e2e, and no browser is opened'
     )
+    // A FILE DROPPED ON THE TERMINAL is quoted for its shell (core-v0.15.1):
+    // single quotes in PowerShell, so `$x` in a name is not expanded. A real
+    // drop, Chromium's own drag events carrying the path.
+    const dropped = join(fixtures, 'code', 'drop $x.txt')
+    writeFileSync(dropped, 'x')
+    const term = await win.locator('.xterm').boundingBox()
+    const at = { x: Math.round(term.x + term.width / 2), y: Math.round(term.y + term.height / 2) }
+    const cdp = await win.context().newCDPSession(win)
+    const data = { items: [], files: [dropped], dragOperationsMask: 1 }
+    for (const type of ['dragEnter', 'dragOver', 'drop']) await cdp.send('Input.dispatchDragEvent', { type, ...at, data })
+    const typed = await until(async () => (await text()).includes('drop $x.txt'), 8000)
+    ok(!!typed && (await text()).includes(`'${dropped}'`), `a dropped path is single-quoted for PowerShell (${(await text()).slice(-120)})`)
+    await win.keyboard.press('Escape')
   } finally {
     await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), held).catch(() => {})
     await app.close().catch(() => {})

@@ -82,6 +82,12 @@ never shipped: one small app that opens everything and looks good doing it.
   back instead of pausing; the tap after that pauses, the way every phone player behaves.
   There is one screen, the folder: the phone plays what it opens, and never drives the PC.
 
+- **A terminal beside the file** (`` Ctrl+` ``): a real shell docked to the window, opened in the
+  folder you are viewing, with themes, find, command help and local dictation. It is the
+  same terminal as [Prism Terminal](https://github.com/Maxaubert/PrismTerminal), shared code
+  rather than a copy, so a fix in one reaches the other. A file dropped on it types its path,
+  quoted for the shell it goes to.
+
 Prism is a **viewer**, not a library or editor. It stays fast, quiet, and out of the way.
 
 ## Shared engine
@@ -92,7 +98,7 @@ One engine, two apps, no duplicated code. Neither app needs the other installed.
 
 ## Install
 
-Once released: download `Prism-Setup-x64-<version>.exe` from
+Download `Prism-Setup-x64-<version>.exe` from
 [Releases](https://github.com/Maxaubert/Prism/releases/latest) and run it (per-user, no admin).
 The installer is unsigned, so Windows SmartScreen may warn on first run: **More info → Run anyway**.
 
