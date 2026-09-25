@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useRef, useState, type JSX } from 'react'
 import { clampTermSize, dockAxis, type DockEdge } from '../lib/termDock'
 import { dragPayload, droppedPaths, setDrag } from '../lib/dragDrop'
 import { quotePaths } from 'prism-term-core/renderer/lib/termPaste'
+import { shellOfShellId } from 'prism-term-core/shared/help/shells'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { pasteInto } from 'prism-term-core/renderer/lib/termBus'
 import { copyText } from 'prism-term-core/renderer/lib/copyNotice'
@@ -108,9 +109,14 @@ export function TermDock({
       const inside = dragPayload(e.dataTransfer)
       setDrag(null)
       const paths = inside?.kind === 'files' ? inside.paths : droppedPaths(e.dataTransfer)
-      if (paths.length) window.prism.termInput(sessionId, quotePaths(paths))
+      // Quoted for the SHELL it goes to (core-v0.15.1, the code review's #1):
+      // single quotes for PowerShell and bash, which expand nothing, so a
+      // file named `a $x.txt` arrives as its own name. Double quotes, the
+      // old answer, let PowerShell expand `$x`. The dock's shell is the one
+      // it was spawned with; unset is the default, PowerShell.
+      if (paths.length) window.prism.termInput(sessionId, quotePaths(paths, shellOfShellId(shellId)))
     },
-    [sessionId]
+    [sessionId, shellId]
   )
 
   // The handle paints the panel's own dark, not transparency: an unpainted
