@@ -615,18 +615,14 @@ async function pdfScenario(fixtures) {
     await win.click('button[title="Default zoom (0)"]')
     await sleep(500)
 
-    // The external one opens through the OS shell and NOT in the app. Stubbed,
-    // or thirty e2e runs would each open a browser tab.
-    await app.evaluate(({ shell }) => {
-      globalThis.__opened = []
-      shell.openExternal = (u) => {
-        globalThis.__opened.push(u)
-        return Promise.resolve()
-      }
-    })
+    // The external one leaves the app and NOT inside it. Under --e2e main
+    // RECORDS it on __e2eOpenedLinks instead of handing it to the shell (#222),
+    // so no run opens a browser tab; this read the old shell stub, which
+    // nothing calls any more, and saw an empty list.
+    const heldLinks = (await app.evaluate(() => globalThis.__e2eOpenedLinks?.length)) ?? 0
     await win.locator('[data-page="1"] .p-pdf-annots button').first().click()
     await sleep(500)
-    const opened = await app.evaluate(() => globalThis.__opened)
+    const opened = ((await app.evaluate(() => globalThis.__e2eOpenedLinks)) ?? []).slice(heldLinks)
     ok(
       opened.length === 1 && opened[0] === 'https://example.com/docs',
       `the external link goes to the shell, once, with its own url (${JSON.stringify(opened)})`
