@@ -699,7 +699,9 @@ async function pdfScenario(fixtures) {
  */
 async function bigTreeScenario() {
   console.log('big tree')
-  const dir = join(tmpdir(), 'prism-e2e-bigtree')
+  // In the repo's .e2e, beside the other big fixtures: never in %TEMP%, whose
+  // pile of leftovers is what made the owner's tree huge in the first place.
+  const dir = join(dirname(BIG), 'bigtree')
   const COUNT = 20000
   if (!existsSync(join(dir, `f${String(COUNT - 1).padStart(5, '0')}.txt`))) {
     mkdirSync(dir, { recursive: true })
