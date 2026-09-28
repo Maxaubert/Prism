@@ -78,9 +78,16 @@ exit $LASTEXITCODE
   $stdout = Join-Path $testRoot 'smoke.stdout.log'
   $stderr = Join-Path $testRoot 'smoke.stderr.log'
   Start-Service -Name seclogon
-  $child = Start-Process -FilePath (Get-Command powershell.exe).Source -Credential $credential -LoadUserProfile -WindowStyle Hidden -WorkingDirectory $testRoot -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $wrapper + '"')) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -Wait -PassThru
-  Get-Content -LiteralPath $stdout
-  Get-Content -LiteralPath $stderr
+  # BOUNDED (2026-09-28, MEASURED): with -Wait this step once hung for over an
+  # hour with no output at all, since the logs are only printed after the
+  # child exits and the job had no time limit. The smoke's own vitest limit is
+  # 4 minutes; past 10 the child is killed, and its logs are printed either way.
+  $child = Start-Process -FilePath (Get-Command powershell.exe).Source -Credential $credential -LoadUserProfile -WindowStyle Hidden -WorkingDirectory $testRoot -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $wrapper + '"')) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+  $finished = $child.WaitForExit(600000)
+  if (!$finished) { & taskkill.exe /PID $child.Id /T /F | Out-Null }
+  Get-Content -LiteralPath $stdout -ErrorAction SilentlyContinue
+  Get-Content -LiteralPath $stderr -ErrorAction SilentlyContinue
+  if (!$finished) { throw 'Standard-user service-backed native indexing smoke did not finish in 10 minutes.' }
   if ($child.ExitCode -ne 0) { throw 'Standard-user service-backed native indexing smoke failed.' }
 } finally {
   & powershell.exe -NoProfile -NonInteractive -File $helper -Action StopClient -InstallDirectory $testRoot
