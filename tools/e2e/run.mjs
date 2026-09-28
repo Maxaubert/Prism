@@ -5203,8 +5203,9 @@ async function terminalScenario(fixtures) {
   console.log('terminal')
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
-    // The base font size pref applies to new terminals (125% of 13 = 16px).
-    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '125'))
+    // The base font size pref applies to new terminals (120% of 13 = 16px). The
+    // sizes are 50% to 200% in tens since core-v0.16.0; 125% is no step now.
+    await win.evaluate(() => localStorage.setItem('prism.term.fontPct', '120'))
     // A tab's width must not change when its terminal opens: the dot slot is
     // there from birth. Measure before and after.
     const tabWidth = () =>
@@ -5216,7 +5217,7 @@ async function terminalScenario(fixtures) {
     ok(Math.abs((await tabWidth()) - widthBefore) < 1, 'opening a terminal does not widen the tab')
     ok(
       (await win.evaluate(() => document.querySelector('.xterm')?.querySelector('.xterm-rows') && getComputedStyle(document.querySelector('.xterm .xterm-rows')).fontSize)) === '16px',
-      'the Settings base font size applies (125% = 16px)'
+      'the Settings base font size applies (120% = 16px)'
     )
     // Ctrl+scroll zooms this one session, unpersisted.
     await win.locator('.xterm').hover()
