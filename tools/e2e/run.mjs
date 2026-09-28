@@ -687,6 +687,65 @@ async function pdfScenario(fixtures) {
   }
 }
 
+/**
+ * A HUGE FOLDER IN THE TREE COSTS WHAT A SMALL ONE DOES (2026-09-28; owner:
+ * "prism is super slow i click and it takes like 3 seconds for it to react").
+ * MEASURED in the owner's Prism: AppData\Local\Temp open in the tree, 47,816
+ * rows in the page, 382,000 elements, and a 1.2 s block of the renderer on
+ * every folder switch. The tree now draws only the rows in view. Here: a
+ * folder of 20,000 files, and the page must hold a window of rows, the last
+ * file must be reachable by scrolling, the arrows must still walk, and a click
+ * must not block the renderer.
+ */
+async function bigTreeScenario() {
+  console.log('big tree')
+  // In the repo's .e2e, beside the other big fixtures: never in %TEMP%, whose
+  // pile of leftovers is what made the owner's tree huge in the first place.
+  const dir = join(dirname(BIG), 'bigtree')
+  const COUNT = 20000
+  if (!existsSync(join(dir, `f${String(COUNT - 1).padStart(5, '0')}.txt`))) {
+    mkdirSync(dir, { recursive: true })
+    for (let i = 0; i < COUNT; i++) writeFileSync(join(dir, `f${String(i).padStart(5, '0')}.txt`), 'x')
+  }
+  const { app, win } = await launch(join(dir, 'f00000.txt'))
+  try {
+    const rows = win.locator('[role="tree"] [role="treeitem"]')
+    await rows.first().waitFor({ timeout: 45000 })
+    const mounted = await rows.count()
+    ok(mounted > 0 && mounted < 200, `a 20,000-file folder mounts a window of rows, not all of them (${mounted})`)
+    // Scroll the tree to its end: the last file is drawn there.
+    await win.evaluate(() => {
+      const box = document.querySelector('[role="tree"]').parentElement
+      box.scrollTop = box.scrollHeight
+    })
+    const last = win.locator('[role="treeitem"][data-row$="f19999.txt"]')
+    ok(!!(await last.waitFor({ timeout: 5000 }).then(() => true).catch(() => false)), 'scrolled to the end, the last file is there')
+    ok((await rows.count()) < 200, 'and the window stays a window')
+    // A click on a row must not block the renderer for long.
+    await win.evaluate(() => {
+      window.__long = []
+      new PerformanceObserver((l) => {
+        for (const e of l.getEntries()) window.__long.push(Math.round(e.duration))
+      }).observe({ entryTypes: ['longtask'] })
+    })
+    await last.click()
+    await sleep(800)
+    const longest = await win.evaluate(() => Math.max(0, ...window.__long))
+    ok(longest < 300, `a click in a huge tree blocks the renderer for at most ${longest} ms (under 300)`)
+    // The arrows still walk: Up from the last file lands on the one before it.
+    await win.keyboard.press('ArrowUp')
+    ok(
+      !!(await win
+        .waitForFunction(() => document.activeElement?.getAttribute('data-row')?.endsWith('f19998.txt'), null, { timeout: 3000 })
+        .then(() => true)
+        .catch(() => false)),
+      'the arrow keys still walk the rows'
+    )
+  } finally {
+    await app.close().catch(() => {})
+  }
+}
+
 async function sortScenario(fixtures) {
   console.log('sorting')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -8766,6 +8825,7 @@ await run(mdScenario)
 await run(pdfScenario)
 await run(pdfZoomScenario)
 await run(sortScenario)
+await run(bigTreeScenario)
 await run(contextMenuScenario)
 await run(editScenario)
 await run(reloadScenario)
