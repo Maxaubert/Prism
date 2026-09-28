@@ -2336,6 +2336,10 @@ entries pointing at a ProgID that no longer existed.
 Bare names (`Dockerfile`, `Makefile`) and dotfiles cannot be registered: Windows associates on
 extension and they have none.
 
+**A TEST RUN LEAVES NOTHING IN %TEMP%** (2026-09-28): `vitest.global.ts` points the run's TEMP at
+one folder and removes it after (94 folders a run leaked before; 40,809 had built up, and with Temp
+open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp freely.
+
 `npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
 off the taskbar) so it never covers what you are doing. Electron has no headless mode, and a
