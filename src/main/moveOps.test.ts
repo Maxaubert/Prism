@@ -153,18 +153,27 @@ describe('a file something holds open', () => {
     writeFileSync(film, 'x'.repeat(4096))
     const holder = spawn(
       'powershell',
-      ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${film}', 'Open', 'Read', 'Read'); Start-Sleep -Seconds 60`],
-      { windowsHide: true, stdio: 'ignore' }
+      [
+        '-NoProfile',
+        '-Command',
+        `$f = [System.IO.File]::Open('${film}', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('locked'); [Console]::Out.Flush(); Start-Sleep -Seconds 60`
+      ],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }
     )
-    // Wait until the lock is really on: a write-open fails while it is.
-    for (let i = 0; i < 100; i += 1) {
-      try {
-        closeSync(openSync(film, 'r+'))
-        await new Promise((r) => setTimeout(r, 100))
-      } catch {
-        break
-      }
-    }
+    // Wait until the lock is really on, by the holder's own word (2026-09-28):
+    // this polled for ten seconds, and on a busy GitHub runner PowerShell had
+    // not even started by then, so the move went through and the test failed
+    // the release of 0.74.7. Then prove it: a write-open fails while it holds.
+    await new Promise<void>((done, fail) => {
+      const timer = setTimeout(() => fail(new Error('the lock holder never started')), 25000)
+      holder.stdout?.on('data', (d: Buffer) => {
+        if (d.toString().includes('locked')) {
+          clearTimeout(timer)
+          done()
+        }
+      })
+    })
+    expect(() => closeSync(openSync(film, 'r+'))).toThrow()
     const trash = vi.fn(async () => {})
     try {
       const r = await moveEntries([film], join(dir, 'into'), 'ask', trash)
@@ -178,7 +187,7 @@ describe('a file something holds open', () => {
     const again = await moveEntries([film], join(dir, 'into'), 'ask', trash)
     expect(again.busy).toEqual([])
     expect(again.moved).toEqual([{ from: film, to: join(dir, 'into', 'film.bin') }])
-  }, 30000)
+  }, 60000)
 })
 
 describe('two folders of the same name merge', () => {
