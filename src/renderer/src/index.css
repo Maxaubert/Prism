@@ -581,3 +581,21 @@ input[type='color']::-webkit-color-swatch {
     min-height: 44px;
   }
 }
+
+/* A folder that opens fades its rows in (2026-09-28): the tree now draws only
+   the rows in view, so the old slide, which needed every child mounted, went
+   with the 47,816 rows it was animating. */
+@keyframes tree-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.tree-row-in {
+  animation: tree-row-in 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-row-in {
+    animation: none;
+  }
+}

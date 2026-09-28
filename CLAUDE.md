@@ -388,6 +388,13 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   viewer's sidebar is chrome.
 - **File tree sidebar** (`Ctrl+B`): collapsible panel rooted at the folder Prism was opened in;
   expand subfolders, click a file to view it. The root is a wall: main refuses paths outside it.
+  **THE TREE DRAWS ONLY THE ROWS IN VIEW** (2026-09-28; owner: "i click and it takes like 3 seconds
+  for it to react"). MEASURED: Temp open in the tree was 47,816 rows, 382,000 elements, and a 1.2 s
+  renderer block on every folder switch. `lib/treePaint.ts` flattens the tree into fixed-height rows
+  (notes included), `TreeWindow` mounts the ones in view plus `OVERSCAN`, and anything that scrolls
+  to a row does it by INDEX (`showRow`), since an offscreen row has no element. Opening a folder fades
+  its rows in; the old slide needed every child mounted. `bigTree` e2e holds it (20,000 files, under
+  200 rows in the page). Never make a tree row taller than `size.row` or of varying height.
   **Keyboard-navigable (2026-08-17)**: the arrows drive a cursor over the flattened visible rows
   (`fileTree.visibleRows` / `stepRow`, pure and tested), folders included. Up/Down step every
   row and walk into expanded folders. **UP AND DOWN ONLY** (2026-09-01): Left/Right used to
