@@ -18,6 +18,9 @@ export default defineConfig({
     environment: 'node',
     // The renderer's stores read localStorage at import time; the setup gives
     // them one so their pure logic can be tested without a browser.
-    setupFiles: ['./vitest.setup.ts']
+    setupFiles: ['./vitest.setup.ts'],
+    // Every scratch folder a test makes lands in one per-run folder, removed
+    // when the run ends (vitest.global.ts).
+    globalSetup: ['./vitest.global.ts']
   }
 })
