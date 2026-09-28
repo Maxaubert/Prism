@@ -25,7 +25,8 @@ import { copyFilePaths, fileCutPaths, clearFileCut, useFileCut, fileClipboardRea
 import { intendToPlay } from '../lib/playState'
 import { tickIf } from '../lib/fileVerbs'
 import { PropertiesDialog } from './PropertiesDialog'
-import { Rows } from './TreeRows'
+import { TreeWindow } from './TreeRows'
+import { paintRows, scrollForRow } from '../lib/treePaint'
 import { SearchResults } from './SearchResults'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
@@ -54,41 +55,6 @@ function loadWidth(): number {
   return Number.isFinite(v) && v > 0 ? clampWidth(v) : DEFAULT_W
 }
 
-/**
- * Bring the open file into view inside the tree, keeping a few rows of context
- * around it.
- *
- * Two behaviours, which is what makes it feel like following rather than
- * snapping: a row that is somewhere on screen is only nudged, and only once it
- * comes within `margin` of an edge - so paging through a folder from the top
- * doesn't move the tree at all until the selection nears the bottom. A row that
- * is off screen entirely (the sidebar was just opened on a file deep in a big
- * folder) is placed near the top, with those few rows above it rather than
- * pinned to the edge.
- */
-function revealRow(box: HTMLElement, row: HTMLElement, smooth: boolean): void {
-  const height = box.clientHeight
-  if (!height) return
-  const boxRect = box.getBoundingClientRect()
-  const rowRect = row.getBoundingClientRect()
-  const top = rowRect.top - boxRect.top + box.scrollTop
-  const bottom = top + rowRect.height
-  // Three rows of context, but never so much that it swallows a short panel.
-  const margin = Math.min(Math.max(rowRect.height * 3, 40), height * 0.35)
-  const viewTop = box.scrollTop
-  const viewBottom = viewTop + height
-
-  let next: number
-  if (bottom <= viewTop || top >= viewBottom) next = top - margin
-  else if (top < viewTop + margin) next = top - margin
-  else if (bottom > viewBottom - margin) next = bottom - height + margin
-  else return
-
-  next = Math.max(0, Math.min(next, box.scrollHeight - height))
-  if (Math.abs(next - viewTop) < 1) return
-  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  box.scrollTo({ top: next, behavior: smooth && !still ? 'smooth' : 'auto' })
-}
 
 /** A file's extension, lowercased, dot included. Same one-liner the archive
  *  panel uses; not worth a shared module for one regex. */
@@ -532,30 +498,6 @@ export function Sidebar({
     })()
   }, [state.expanded, state.children, load])
 
-  // Follow the open file. While the panel is shut nothing moves, so the scroll
-  // it wakes up with is the one it went to sleep with; the reveal then happens
-  // on the way open, for a file it hasn't been positioned for yet.
-  useEffect(() => {
-    if (!autoScroll || !open || !currentPath) return
-    if (placed.current === currentPath) return
-    const box = scroller.current
-    if (!box) return
-    // The row may not exist yet: its folder can still be loading.
-    let frame = 0
-    let tries = 0
-    const attempt = (): void => {
-      const row = box.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')
-      if (!row) {
-        if (tries++ < 40) frame = requestAnimationFrame(attempt)
-        return
-      }
-      const first = placed.current === null
-      placed.current = currentPath
-      revealRow(box, row, !first)
-    }
-    attempt()
-    return () => cancelAnimationFrame(frame)
-  }, [autoScroll, open, currentPath, state.children])
 
   // A file changed on disk: re-read every folder we're showing, so the row that
   // was renamed or removed matches reality.
@@ -710,6 +652,72 @@ export function Sidebar({
   /** The flattened visible rows, top to bottom: the order shift-ranges and
    *  shift-ranges count through. */
   const order = useMemo(() => rows.map((r) => r.path), [rows])
+  /** What the tree DRAWS, notes included, one fixed-height row each; only the
+   *  rows in view are mounted (TreeWindow). */
+  const paint = useMemo(
+    () =>
+      paintRows(root, state.expanded, state.children, {
+        orderFiles: (files) => sortFiles(files, sort.field, sort.dir),
+        foldersReversed: sort.field === 'name' && sort.dir === 'desc'
+      }),
+    [root, state.expanded, state.children, sort]
+  )
+  const paintRef = useRef(paint)
+  useEffect(() => {
+    paintRef.current = paint
+  }, [paint])
+  /**
+   * Bring a row into view by its PLACE in the list, not by its element: with
+   * only the rows in view mounted (2026-09-28), a row off screen has no
+   * element to measure or scroll to. The rule is revealRow's (nudge a row on
+   * screen, place one off screen near the top). Then, a frame later when it
+   * exists, it can take the focus. False when the tree does not show it.
+   */
+  const showRow = useCallback(
+    (path: string, opts: { smooth?: boolean; focus?: boolean } = {}): boolean => {
+      const box = scroller.current
+      const list = box?.querySelector<HTMLElement>('[role="tree"]')
+      const lower = path.toLowerCase()
+      const index = paintRef.current.findIndex((r) => r.kind !== 'note' && r.path.toLowerCase() === lower)
+      if (!box || !list || index < 0) return false
+      const next = scrollForRow(index, size.row, list.offsetTop, box.scrollTop, box.clientHeight, box.scrollHeight)
+      if (next !== null) {
+        const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        box.scrollTo({ top: next, behavior: opts.smooth && !still ? 'smooth' : 'auto' })
+      }
+      if (opts.focus)
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() =>
+            box.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)?.focus({ preventScroll: true })
+          )
+        )
+      return true
+    },
+    [size.row]
+  )
+
+  // Follow the open file. While the panel is shut nothing moves, so the scroll
+  // it wakes up with is the one it went to sleep with; the reveal then happens
+  // on the way open, for a file it hasn't been positioned for yet.
+  useEffect(() => {
+    if (!autoScroll || !open || !currentPath) return
+    if (placed.current === currentPath) return
+    const box = scroller.current
+    if (!box) return
+    // The row may not exist yet: its folder can still be loading.
+    let frame = 0
+    let tries = 0
+    const attempt = (): void => {
+      const first = placed.current === null
+      if (!showRow(currentPath, { smooth: !first })) {
+        if (tries++ < 40) frame = requestAnimationFrame(attempt)
+        return
+      }
+      placed.current = currentPath
+    }
+    attempt()
+    return () => cancelAnimationFrame(frame)
+  }, [autoScroll, open, currentPath, state.children, showRow])
 
   /**
    * Ctrl+A marks every row the tree is SHOWING - what is expanded, folders
@@ -843,11 +851,7 @@ export function Sidebar({
           setDroppedOn(r.paths)
           setSel({ anchor: r.paths[0], items: new Set(r.paths) })
           setCursor(r.paths[0])
-          requestAnimationFrame(() =>
-            scroller.current
-              ?.querySelector('[data-row="' + CSS.escape(r.paths[0]) + '"]')
-              ?.scrollIntoView({ block: 'nearest' })
-          )
+          requestAnimationFrame(() => showRow(r.paths[0]))
           // And it OPENS (owner, 2026-09-03): highlighted but still showing
           // the old film read as the paste having gone somewhere else. A
           // pasted folder is not a thing to view, so files only.
@@ -859,7 +863,7 @@ export function Sidebar({
         void load(dest, true)
       })
     },
-    [load, onOpenFile]
+    [load, onOpenFile, showRow]
   )
 
   /** Ctrl+C / Ctrl+X / Ctrl+V in the tree (2026-09-03, owner). Behind the same
@@ -890,8 +894,9 @@ export function Sidebar({
         e.preventDefault()
         const items = selRef.current.items
         if (items.size > 1 && items.has(cur)) return onDeleteMany([...items])
-        const el = scroller.current?.querySelector<HTMLElement>('[data-row="' + CSS.escape(cur) + '"]')
-        const isFolder = (el?.dataset.dropdir ?? '').toLowerCase() === cur.toLowerCase()
+        const isFolder = paintRef.current.some(
+          (r) => r.kind === 'folder' && r.path.toLowerCase() === cur.toLowerCase()
+        )
         return onDelete(cur, cur.split(/[\\/]/).filter(Boolean).pop() ?? cur, isFolder)
       }
       if (!e.ctrlKey || e.shiftKey) return
@@ -1060,15 +1065,9 @@ export function Sidebar({
       // Roving focus, so Enter and Space reach the row without any key handling
       // of our own, and so a screen reader follows the cursor. preventScroll:
       // the scroller below decides how the row is brought into view.
-      requestAnimationFrame(() => {
-        const el = scroller.current?.querySelector<HTMLElement>(
-          `[data-row="${CSS.escape(row.path)}"]`
-        )
-        el?.focus({ preventScroll: true })
-        el?.scrollIntoView({ block: 'nearest' })
-      })
+      requestAnimationFrame(() => showRow(row.path, { focus: true }))
     },
-    [openPicked]
+    [openPicked, showRow]
   )
 
   // The shell walked into a folder (#99): show it and mark it, WITHOUT taking
@@ -1087,13 +1086,9 @@ export function Sidebar({
   useEffect(() => {
     if (!reveal) return
     const path = reveal.path
-    const raf = requestAnimationFrame(() => {
-      scroller.current
-        ?.querySelector<HTMLElement>(`[data-row="${CSS.escape(path)}"]`)
-        ?.scrollIntoView({ block: 'nearest' })
-    })
+    const raf = requestAnimationFrame(() => showRow(path))
     return () => cancelAnimationFrame(raf)
-  }, [reveal])
+  }, [reveal, showRow])
 
   // The tree's answer to an arrow key. Returns false when it has nothing to
   // say, and App pages the folder the old way instead: while the panel is shut,
@@ -1384,9 +1379,7 @@ export function Sidebar({
               }}
             >
               {rootListing ? (
-                <ul role="tree" aria-label="Folder contents" className="list-none">
-                  <Rows listing={rootListing} depth={0} />
-                </ul>
+                <TreeWindow rows={paint} scroller={scroller} />
               ) : (
                 <div className="py-[5px] pl-6 text-[11.5px] italic text-[var(--p-dim2)]">
                   loading…
