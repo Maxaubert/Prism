@@ -48,21 +48,39 @@ async function smoke(service: boolean): Promise<void> {
     if (service) {
       // A clean runner must build its first volume index. Wait for database
       // readiness explicitly before testing normal short query deadlines.
-      await promisify(execFile)(
-        runtime.endpoint.exe,
-        [
-          '-instance',
-          runtime.endpoint.instance,
-          '-timeout',
-          '120000',
-          '-json',
-          '-n',
-          '1',
-          '-search*',
-          '*'
-        ],
-        { windowsHide: true, windowsVerbatimArguments: true, timeout: 125000 }
-      )
+      // ES's -timeout waits for the DATABASE, not for the IPC window: on a cold
+      // runner the client can be between windows at this moment, and ES then
+      // fails at once with "Error 8: Everything IPC not found" (2 of 30 CI
+      // runs, 2026-09-28; the diagnostics a second later answered). So Error 8
+      // alone is retried, inside the same two-minute budget; anything else
+      // still fails here.
+      const until = Date.now() + 120000
+      for (;;) {
+        try {
+          await promisify(execFile)(
+            runtime.endpoint.exe,
+            [
+              '-instance',
+              runtime.endpoint.instance,
+              '-timeout',
+              String(Math.max(1000, until - Date.now())),
+              '-json',
+              '-n',
+              '1',
+              '-search*',
+              '*'
+            ],
+            { windowsHide: true, windowsVerbatimArguments: true, timeout: 125000 }
+          )
+          break
+        } catch (error) {
+          const e = error as { code?: number; stdout?: string; stderr?: string; message?: string }
+          const ipcMissing =
+            e.code === 8 || /Error 8:/.test(`${e.stdout ?? ''}${e.stderr ?? ''}${e.message ?? ''}`)
+          if (!ipcMissing || Date.now() > until) throw error
+          await new Promise((done) => setTimeout(done, 500))
+        }
+      }
     }
     await expect
       .poll(
