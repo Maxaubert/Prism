@@ -449,11 +449,10 @@ Function PrismPickOverlay
       StrCpy $1 "licence"
     ${EndIf}
   ${Else}
-    ${If} $RunAfter = 1
-      StrCpy $1 "done"
-    ${Else}
-      StrCpy $1 "done-off"
-    ${EndIf}
+    ; one overlay whatever "Open Prism now" says: the art is rendered without its
+    ; box, which is stamped at runtime, so there is no done-off set (there never
+    ; was, and unticking the box used to make the overlay vanish)
+    StrCpy $1 "done"
   ${EndIf}
   ${If} $Hot != ""
     StrCpy $1 "$1-hot-$Hot"

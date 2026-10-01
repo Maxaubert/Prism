@@ -14,11 +14,28 @@ Electron 43, which carries Chromium, Node.js and V8. `Prism.exe` is Electron's e
 Electron's licence is `LICENSE.electron.txt`; Chromium's and those of everything it bundles are
 `LICENSES.chromium.html`, both in the install folder. https://www.electronjs.org/
 
-### ffmpeg (LGPL v2.1 or later, shared build)
+### ffmpeg (LGPL v3 or later as built, shared build)
 BtbN's LGPL shared build (`ffmpeg-n9.0.1`, pinned in `tools/fetch-ffmpeg.mjs`), in
 `resources/bin`. Shared on purpose: its DLLs can be replaced with your own build of the same
 libraries. Licence: `resources/bin/LICENSE.txt`. https://ffmpeg.org,
 https://github.com/BtbN/FFmpeg-Builds
+
+The build links these libraries into its `av*.dll` and `sw*.dll` files, as its `configuration:`
+line (`ffmpeg -version`) names them. Their own licence texts do not travel with the release zip; the
+exact source and version of each is in BtbN's build scripts (`scripts.d`) at the pinned tag
+`autobuild-2026-08-31-13-27`.
+
+- **BSD, MIT, ISC and similar permissive licences**: dav1d, libaom, SVT-AV1, rav1e, libvpx,
+  libwebp, libjxl, OpenJPEG, OpenH264, Kvazaar, vvenc, uavs3d, OpenAPV, LCEVC decoder, Opus,
+  Ogg, Vorbis, Theora, libopenmpt, libvmaf, libxml2, HarfBuzz, FreeType (FreeType Licence),
+  Fontconfig, libass, libaribcaption, librist, Snappy, zimg, LV2 (lilv, serd, sord, sratom),
+  oneVPL, nv-codec-headers and AMF headers, the Vulkan and OpenCL headers and loader
+  (Apache-2.0), opencore-amr (Apache-2.0), zlib and SDL2 (zlib licence), xz / liblzma (0BSD).
+- **MPL-2.0**: libsrt, ZeroMQ.
+- **LGPL** (v2.1 or later, or v3): libiconv, FriBidi, GMP, libssh, libbluray, Game Music Emu,
+  LAME, TwoLAME, SoX Resampler, libplacebo, OpenAL Soft, Chromaprint, aribb24, ZVBI. Because
+  aribb24 and GMP are LGPL v3, the build is configured with `--enable-version3` and ffmpeg as a
+  whole is under LGPL v3 or later.
 
 ### 7-Zip 25.00 (GNU LGPL, with the unRAR restriction; parts BSD 3-clause and 2-clause)
 Igor Pavlov. `7z.exe` and `7z.dll` in `resources/bin`. The rar code is under the unRAR licence
@@ -33,6 +50,11 @@ https://www.fluidsynth.org
 `sndfile.dll` is libsndfile, which arrives inside that FluidSynth release. libsndfile is
 LGPL v2.1 or later; its licence text does not travel with the release zip.
 https://libsndfile.github.io/libsndfile/
+
+That `sndfile.dll` (libsndfile 1.2.2) has these built in, as its version strings show: Ogg and
+Vorbis 1.3.7 and Opus 1.4 (BSD 3-clause, Xiph.Org), FLAC 1.4.2 (BSD 3-clause), and mpg123 and
+LAME 3.100 (LGPL v2.1). The build that produced it is FluidSynth's own Windows CI at `v2.6.0`.
+https://github.com/FluidSynth/fluidsynth
 
 ### FluidR3Mono General MIDI soundfont (MIT)
 FluidR3 by Frank Wen, mono conversion by Michael Cowgill, as shipped by MuseScore (pinned by
@@ -86,6 +108,17 @@ sits at `node_modules/<package>/LICENSE`.
   `cfb`, `ssf`, `codepage`, `adler-32`, `crc-32`, `frac`, `wmf` and `word` helpers), hls.js.
 - **BSD 2-clause**: mammoth, lop, option, dingbat-to-unicode, entities. **BSD 3-clause**:
   jpeg-js, sprintf-js. **BSD**: duck.
+- **pdf.js support data**, copied from `pdfjs-dist` 6.2.108 into
+  `resources/app.asar/out/renderer/pdf`, each folder with its own licence files:
+  - `cmaps`: Adobe's character maps, BSD 3-clause (Adobe Systems), `cmaps/LICENSE`.
+  - `standard_fonts`: the Foxit fonts (`*.pfb`), BSD 3-clause (PDFium Authors),
+    `LICENSE_FOXIT`; Liberation Sans (`*.ttf`), SIL Open Font License 1.1 (Google, Red Hat),
+    `LICENSE_LIBERATION`.
+  - `wasm`: OpenJPEG, BSD 2-clause (`LICENSE_OPENJPEG`); JBIG2 from PDFium, BSD 3-clause
+    (`LICENSE_JBIG2`); qcms, MIT (`LICENSE_QCMS`); Mozilla's wrappers round them, BSD and
+    Apache-2.0 (`LICENSE_PDFJS_*`); QuickJS (`quickjs-eval.wasm`), MIT (Fabrice Bellard and
+    Charlie Gordon), which carries no licence file of its own.
+  - `iccs`: the CGATS001 compatible ICC profile, CC0 1.0, `iccs/LICENSE`.
 - **ISC**: heic-convert, heic-decode and a handful of small helpers.
 - **MIT and Zlib**: pako.
 - **LGPL-3.0**: libheif-js (libheif compiled to JavaScript and WebAssembly), which decodes HEIC

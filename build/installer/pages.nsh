@@ -40,6 +40,8 @@
   ; The uninstaller's half is in assoc.nsh (customUnInstall).
   SetOutPath "$INSTDIR"
   File "/oname=LICENSE.txt" "${PROJECT_DIR}\LICENSE"
+  ; LICENSE section 4 points here, so it has to be a file a user can open
+  File "/oname=THIRD-PARTY-NOTICES.md" "${PROJECT_DIR}\THIRD-PARTY-NOTICES.md"
   SetAutoClose true
 !macroend
 
@@ -61,6 +63,11 @@ Function prismPageStart
   ${If} ${Silent}
     Abort
   ${EndIf}
+  ; Back runs no leave function, so the page we came from may still hold its
+  ; canvas: the bitmaps, the DC and the GDI+ images, which keep their PNGs
+  ; locked. Free it here so nothing leaks and nothing stays locked (Wind #263).
+  ; PrismCanvasFree zeroes its handles, so after a Next this does nothing.
+  Call PrismCanvasFree
   !insertmacro HIDE_WIZARD_BUTTONS
   nsDialogs::Create 1018
   Pop $Dialog
@@ -104,8 +111,12 @@ Function prismWelcomeCreate
   ${If} ${Silent}
     Abort
   ${EndIf}
-  InitPluginsDir
-  !insertmacro UNPACK_MEDIA
+  ; once per run: Back returns here, and the art is already unpacked (writing
+  ; it again would fail on a file a canvas still had open, Wind #263)
+  ${If} $ArtDir == ""
+    InitPluginsDir
+    !insertmacro UNPACK_MEDIA
+  ${EndIf}
   StrCpy $Screen 0
   ; what the finish screen offers, and what it offers by default
   StrCpy $RunAfter 1
