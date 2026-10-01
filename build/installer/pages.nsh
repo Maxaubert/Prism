@@ -1,5 +1,5 @@
 ;
-; Prism setup, part three: the four screens.
+; Prism setup, part three: the five screens.
 ;
 ; Each page is the same thing: an empty dialog, the canvas from video.nsh, and a
 ; timer. What differs is $Screen, which picks the overlay and decides what the
@@ -14,6 +14,7 @@
 ; ---- page order --------------------------------------------------------------
 !macro customWelcomePage
   Page custom prismWelcomeCreate prismPageLeave
+  Page custom prismLicenceCreate prismLicenceLeave
 !macroend
 
 !macro customPageAfterChangeDir
@@ -34,6 +35,11 @@
   ; default itself is the user's to give, in Settings, one click per type.
   !insertmacro PRISM_REGISTER_TYPES
   !insertmacro PRISM_INSTALL_INDEXER
+  ; the licence the user accepted, kept next to the app so the terms are always
+  ; findable. Silent installs get it too: they skip the screen, not the terms.
+  ; The uninstaller's half is in assoc.nsh (customUnInstall).
+  SetOutPath "$INSTDIR"
+  File "/oname=LICENSE.txt" "${PROJECT_DIR}\LICENSE"
   SetAutoClose true
 !macroend
 
@@ -107,6 +113,68 @@ Function prismWelcomeCreate
   StrCpy $WantDesk 0
   Call prismPageStart
   nsDialogs::Show
+FunctionEnd
+
+; ---- 1b. licence -------------------------------------------------------------
+; The terms are summarised on the screen and the full text is one click away;
+; the box has to be ticked before Continue does anything. A silent install (/S)
+; skips this page like every other one (prismPageStart aborts): whoever runs
+; setup silently is deploying it deliberately, and LICENSE.txt lands next to
+; Prism either way. $Accepted is never reset, so going Back to Welcome and on
+; again keeps the tick. It starts empty, which every test of it reads as "not
+; yet".
+Function prismLicenceCreate
+  StrCpy $Screen 4
+  Call prismPageStart
+  nsDialogs::Show
+FunctionEnd
+
+Function prismLicenceLeave
+  ; Continue is dead until the box is ticked, so this only guards against
+  ; anything that reaches Next another way (Enter, a stray WM_COMMAND). Abort
+  ; keeps the page up, and the canvas and its timer with it; $Leaving goes back
+  ; to 0 so the tick keeps drawing. Back never comes through here: NSIS does
+  ; not call a page's leave function on Back.
+  ${If} $Accepted <> 1
+    StrCpy $Leaving 0
+    Abort
+  ${EndIf}
+  Call prismPageLeave
+FunctionEnd
+
+; Opens the licence in the user's own viewer, through explorer.exe, so it is
+; whatever opens a .txt on this machine and it never inherits setup's token.
+; NOT from $PLUGINSDIR (Wind hit this, its #258): an elevated NSIS locks that
+; folder to Administrators, and the viewer explorer starts is not elevated, so
+; it was refused and nothing opened. Prism's setup asks for no elevation, but
+; the rule costs nothing and keeps it true if that ever changes.
+; GetTempFileName makes a fresh, uniquely named entry in the user's own temp
+; folder; turned into a folder, it inherits the user's access and nobody can
+; have planted anything at that name beforehand.
+Function PrismOpenLicence
+  ${If} $LicenceDir == ""
+    GetTempFileName $LicenceDir
+    Delete $LicenceDir
+    CreateDirectory $LicenceDir
+    SetOutPath $LicenceDir
+    File "/oname=LICENSE.txt" "${PROJECT_DIR}\LICENSE"
+  ${EndIf}
+  Exec '"$WINDIR\explorer.exe" "$LicenceDir\LICENSE.txt"'
+FunctionEnd
+
+; Tidies the viewer's copy when setup closes. A viewer reads the whole file on
+; open, so one still showing it is unaffected; RMDir without /r only removes
+; the folder once it is empty. Neither MUI nor electron-builder's template
+; defines .onGUIEnd, and this file is never compiled into the uninstaller.
+Function .onGUIEnd
+  ${If} $LicenceDir != ""
+    ; SetOutPath also made that folder setup's working directory, which Windows
+    ; will not remove while it is one (a Cancel straight after reading leaves it
+    ; there), so step out of it first
+    SetOutPath $TEMP
+    Delete "$LicenceDir\LICENSE.txt"
+    RMDir $LicenceDir
+  ${EndIf}
 FunctionEnd
 
 ; ---- 2. where it goes --------------------------------------------------------

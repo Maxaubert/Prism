@@ -8,6 +8,10 @@ rest of the folder. The "quick look" Windows never shipped.
 Electron (Windows App via electron-builder) + React 19 + TypeScript + Vite + Tailwind v4, x64
 only, Windows 10 1809+ / Windows 11. Self-contained NSIS installer, per-user, unsigned,
 distributed via GitHub Releases. Same stack as its sibling **Filesmith**, on purpose.
+**Proprietary since v0.79.0** (#247, Wind's licence; v0.78.1 and earlier stay MIT): what ships
+is listed in `THIRD-PARTY-NOTICES.md`, so a new bundled binary or dependency adds its entry in
+the same PR. Setup's licence screen keeps Continue dead until the box is ticked, and never
+opens the licence from `$PLUGINSDIR` (`build/installer/README.md`).
 
 ## Audience
 
