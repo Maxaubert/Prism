@@ -512,12 +512,11 @@ export function derive(style: Style): Record<string, string> {
   // The accent, unless the accent can't be read where it is used. Shifting it by
   // habit - lighter on dark, darker on light - meant one accent looked like two
   // different colours depending on the mode it was wearing.
-  // A see-through accent (#249) is SEEN as itself laid over the ground, and
-  // --p-accent-hi is text, links and rings, which must stay opaque: it starts
-  // from that composite, so it reads as the colour the fills show.
+  // The opacity is for FILLS only (#249; the owner's pick): --p-accent-hi is
+  // text, links and rings, so it starts from the accent at full strength and a
+  // see-through accent never fades a Reset link or a focus ring.
   const alpha = accentAlphaOf(style.accentAlpha)
-  const seenAccent = alpha >= 1 ? accent : composite(accent, alpha, bg)
-  let hi = seenAccent
+  let hi = accent
   for (let i = 0; i < 14 && contrast(hi, stage) < 3; i += 1) {
     hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
   }
