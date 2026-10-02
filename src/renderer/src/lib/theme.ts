@@ -3,6 +3,7 @@ import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './vizStore'
 import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
+import { accentAlphaOf, composite, fillOf } from './accentAlpha'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -62,6 +63,9 @@ export interface Style {
   iconScheme?: IconScheme
   /** Id of a scheme in viz THEMES. Drives selection, the bar and the visualizer. */
   accent: string
+  /** How solid the accent's FILLS are, 0.1 to 1 (#249). Unset is 1, which is
+   *  every style saved before it existed. Read it through accentAlphaOf. */
+  accentAlpha?: number
   font: FontId
   size: '12' | '12.5' | '13.5'
   corners: '2' | '8' | '14'
@@ -436,6 +440,45 @@ export function selectionBg(accent: string): string {
   return mix(accent, towards, 0.6)
 }
 
+/**
+ * The selection for an accent worn at `alpha` (#249). At 1 it is exactly
+ * selectionBg and its ink, so every style looks as it did. Below 1 the label
+ * sits on the fill AS SEEN, the accent laid over whatever ground the row is
+ * on, so the ink is chosen against that and the fill is nudged until the ink
+ * clears 4.5:1 on every ground it can land on (the viewer, the sidebar and the
+ * title bar, which a style may colour apart). If the leaning ink cannot get
+ * there, the other one is tried; the fill itself stays opaque hex here and the
+ * caller adds the alpha.
+ */
+export function selectionFor(
+  accent: string,
+  alpha: number,
+  grounds: string[]
+): { fill: string; ink: string } {
+  const a = accentAlphaOf(alpha)
+  if (a >= 1) {
+    const fill = selectionBg(accent)
+    return { fill, ink: readableOn(fill) }
+  }
+  const seen = (c: string): string[] => grounds.map((g) => composite(c, a, g))
+  const worst = (c: string, ink: string): number => Math.min(...seen(c).map((s) => contrast(ink, s)))
+  const leaning = readableOn(seen(accent)[0])
+  // Grounds far enough apart (black beside a pale sidebar, at a middling
+  // alpha) have no one fill and ink that reads on both: then the pair whose
+  // worse ground reads best is kept, rather than one that fails outright.
+  let best = { fill: accent, ink: leaning, score: -1 }
+  for (const ink of [leaning, leaning === '#ffffff' ? '#0b0d12' : '#ffffff']) {
+    const towards = ink === '#ffffff' ? '#000000' : '#ffffff'
+    for (let i = 0; i <= 25; i += 1) {
+      const c = mix(accent, towards, i * 0.04)
+      const score = worst(c, ink)
+      if (score >= 4.5) return { fill: c, ink }
+      if (score > best.score) best = { fill: c, ink, score }
+    }
+  }
+  return { fill: best.fill, ink: best.ink }
+}
+
 /** The per-kind tints, dark enough to read on a light surface. */
 export const KIND_TINTS: Record<string, string> = {
   image: '#6fb2a8',
@@ -469,10 +512,18 @@ export function derive(style: Style): Record<string, string> {
   // The accent, unless the accent can't be read where it is used. Shifting it by
   // habit - lighter on dark, darker on light - meant one accent looked like two
   // different colours depending on the mode it was wearing.
-  let hi = accent
+  // A see-through accent (#249) is SEEN as itself laid over the ground, and
+  // --p-accent-hi is text, links and rings, which must stay opaque: it starts
+  // from that composite, so it reads as the colour the fills show.
+  const alpha = accentAlphaOf(style.accentAlpha)
+  const seenAccent = alpha >= 1 ? accent : composite(accent, alpha, bg)
+  let hi = seenAccent
   for (let i = 0; i < 14 && contrast(hi, stage) < 3; i += 1) {
     hi = light ? mix(hi, '#000000', 0.1) : mix(hi, '#ffffff', 0.1)
   }
+
+  const grounds = [...new Set([bg, sideOf(style), titleOf(style)].map((c) => c.toLowerCase()))]
+  const selection = selectionFor(accent, alpha, grounds)
 
   return {
     '--p-bg': bg,
@@ -483,7 +534,17 @@ export function derive(style: Style): Record<string, string> {
     '--p-text-soft': dimmed(style.text, side, 0.14, 7),
     '--p-dim': dimmed(style.text, side, 0.38, 4.5),
     '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
-    '--p-accent': accent,
+    // A FILL: carries the opacity (#249), and is the plain hex at 100%.
+    '--p-accent': fillOf(accent, alpha),
+    // The accent as picked, never see-through: lines, rings, a progress bar
+    // against its track and native controls, which the alpha must not reach
+    // (the owner's pick was fills only).
+    '--p-accent-solid': accent,
+    // What a file icon's knockouts paint with on a selected row: the row's
+    // fill as the eye gets it, opaque, since a see-through knockout would let
+    // the icon's own ink show through it. At 100% it is the accent, as the
+    // rows have always passed.
+    '--p-sel-knockout': alpha >= 1 ? accent : composite(selection.fill, alpha, bg),
     '--p-accent-hi': hi,
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
@@ -498,8 +559,9 @@ export function derive(style: Style): Record<string, string> {
     // The unfilled part of a progress bar, and any other inert track: it sits
     // ON the stage, so a divider-strength grey disappears there.
     '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
-    '--p-sel-bg': selectionBg(accent),
-    '--p-on-accent': readableOn(selectionBg(accent)),
+    // The selection is a fill too, and its ink is chosen against it AS SEEN.
+    '--p-sel-bg': fillOf(selection.fill, alpha),
+    '--p-on-accent': selection.ink,
     ...kinds
   }
 }
@@ -851,6 +913,19 @@ export interface Overrides {
   corners?: Style['corners']
   folderIcon?: string
   iconScheme?: IconScheme
+  /** The accent fills' opacity, 0.1 to 1 (#249). */
+  accentAlpha?: number
+}
+
+/** A draft as read from storage: an opacity that is not a number is dropped
+ *  (it would count as an edit and paint as solid), the rest held to range. */
+export function cleanDraft(o: Overrides): Overrides {
+  if (!o || typeof o !== 'object') return {}
+  if (!('accentAlpha' in o)) return o
+  const next = { ...o }
+  if (typeof next.accentAlpha !== 'number' || !Number.isFinite(next.accentAlpha)) delete next.accentAlpha
+  else next.accentAlpha = accentAlphaOf(next.accentAlpha)
+  return next
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -901,7 +976,7 @@ function saveJson(key: string, value: unknown): void {
 }
 
 let presets: Style[] = loadJson<Style[]>(PRESETS_KEY, [])
-let draft: Overrides = loadJson<Overrides>(DRAFT_KEY, {})
+let draft: Overrides = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
 
 /** Shipped styles plus the user's saved presets. */
 export const allStyles = (): Style[] => [...STYLES, ...presets]
@@ -920,6 +995,7 @@ export const isEdited = (): boolean =>
     draft.corners ||
     draft.folderIcon ||
     draft.iconScheme ||
+    draft.accentAlpha !== undefined ||
     draft.acrylic !== undefined
   )
 
@@ -940,8 +1016,10 @@ function edited(s: Style): Style {
     borders: draft.borders ?? s.borders,
     corners: draft.corners ?? s.corners,
     folderIcon: draft.folderIcon ?? s.folderIcon,
-    iconScheme: draft.iconScheme ?? s.iconScheme
+    iconScheme: draft.iconScheme ?? s.iconScheme,
+    accentAlpha: draft.accentAlpha ?? s.accentAlpha
   }
+  if (out.accentAlpha === undefined) delete out.accentAlpha
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
     // alpha the slider asks for.
@@ -1101,6 +1179,29 @@ export function setAcrylic(level: number | null): void {
   apply()
 }
 
+/** How solid the accent's fills are, 0.1 to 1, or null to give the style's
+ *  own back. Its own value put back is not an edit, as with a colour. */
+export function setAccentAlpha(level: number | null): void {
+  const next: Overrides = { ...draft }
+  const own = accentAlphaOf(byId(current).accentAlpha)
+  const value = level === null ? null : Math.round(accentAlphaOf(level) * 100) / 100
+  if (value === null || value === own) delete next.accentAlpha
+  else next.accentAlpha = value
+  draft = next
+  saveJson(DRAFT_KEY, draft)
+  apply()
+}
+
+/** The accent row's Reset: the colour AND its opacity, in one repaint. */
+export function resetAccent(): void {
+  const next: Overrides = { ...draft }
+  delete next.accent
+  delete next.accentAlpha
+  draft = next
+  saveJson(DRAFT_KEY, draft)
+  apply()
+}
+
 /** Keep the current edit as a preset of its own, and select it. */
 export function savePreset(): void {
   const base = byId(current)
@@ -1222,7 +1323,7 @@ if (typeof window !== 'undefined') {
     if (event.storageArea !== localStorage) return
     if (event.key !== null && ![KEY, MODE_KEY, PRESETS_KEY, DRAFT_KEY].includes(event.key)) return
     presets = loadJson<Style[]>(PRESETS_KEY, [])
-    draft = loadJson<Overrides>(DRAFT_KEY, {})
+    draft = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
     current = load()
     mode = loadMode()
     version += 1

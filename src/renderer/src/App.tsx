@@ -3887,7 +3887,7 @@ export default function App(): JSX.Element {
           <div
             className={`group relative flex min-w-0 min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--p-bg)] ${
               washed ? 'p-wash' : ''
-            } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent)]' : ''} ${
+            } ${dragging ? 'ring-2 ring-inset ring-[var(--p-accent-solid)]' : ''} ${
               // Full view: the terminal takes the whole area, but the viewer
               // stays MOUNTED so scroll, zoom and playback survive the visit -
               // the same reason hidden shells stay alive.

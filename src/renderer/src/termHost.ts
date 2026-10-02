@@ -55,7 +55,7 @@ configureTermCore({
   // the strip, and swapped for a plain green if it lands on the accent itself.
   themedAgentColors: (themeId) => {
     const ground = token('--p-side-flat', '#141719')
-    const working = ensureContrast(token('--p-accent', '#5b5bd6'), ground, 3)
+    const working = ensureContrast(token('--p-accent-solid', '#5b5bd6'), ground, 3)
     const green = ensureContrast(
       normalizeColor(resolveTermTheme(themeId).green ?? '', FALLBACK_DONE),
       ground,

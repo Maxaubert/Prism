@@ -578,7 +578,7 @@ export function VideoView({
             </div>
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--p-line)]">
               <div
-                className={`h-full rounded-full bg-[var(--p-accent)] ${playable.pct === null ? 'p-agent-run w-1/3' : 'transition-[width] duration-300'}`}
+                className={`h-full rounded-full bg-[var(--p-accent-solid)] ${playable.pct === null ? 'p-agent-run w-1/3' : 'transition-[width] duration-300'}`}
                 style={playable.pct === null ? undefined : { width: `${playable.pct}%` }}
               />
             </div>

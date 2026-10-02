@@ -55,7 +55,9 @@ import {
   folderIconOf,
   sideOf,
   resolveVizTheme,
+  resetAccent,
   savePreset,
+  setAccentAlpha,
   setAcrylic,
   setMode,
   setOverride,
@@ -69,6 +71,7 @@ import {
   type Mode,
   type Style
 } from '../lib/theme'
+import { ALPHA_MIN, accentAlphaOf, alphaHex, parseHexAlpha } from '../lib/accentAlpha'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -361,22 +364,37 @@ function ColourWell({
   value,
   custom,
   onChange,
-  onReset
+  onReset,
+  alpha,
+  onAlpha
 }: {
   id: string
   value: string
   custom: boolean
   onChange: (v: string) => void
   onReset: () => void
+  /** A well whose colour has an opacity (the accent, #249): the field shows
+   *  and takes #rrggbbaa, and the native picker stays six digits. */
+  alpha?: number
+  onAlpha?: (a: number) => void
 }): JSX.Element {
   // While you are typing the field holds the draft; the rest of the time it is
   // simply the colour. No effect syncing the two, which is a render loop
   // waiting to happen.
   const [draft, setDraft] = useState<string | null>(null)
-  const text = draft ?? value
+  const shownAlpha = onAlpha && alpha !== undefined && alpha < 1 ? alphaHex(alpha) : ''
+  const text = draft ?? value + shownAlpha
 
   const commit = (raw: string): void => {
     setDraft(null) // either it took, or the field goes back to the colour
+    if (onAlpha) {
+      const parsed = parseHexAlpha(raw)
+      if (!parsed) return
+      onChange(parsed.hex)
+      // Six digits name a colour and leave the opacity alone; eight set both.
+      if (parsed.alpha !== null) onAlpha(parsed.alpha)
+      return
+    }
     const full = parseHexInput(raw)
     if (full) onChange(full)
   }
@@ -401,7 +419,7 @@ function ColourWell({
         }}
         spellCheck={false}
         aria-label="Hex value"
-        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+        className={`${onAlpha ? 'w-[92px]' : 'w-[76px]'} rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none`}
       />
       <label
         className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
@@ -530,7 +548,7 @@ function Tile({
       }}
       className={`group relative flex cursor-pointer flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
         on
-          ? 'border-[var(--p-accent)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent)]'
+          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
           : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
       }`}
     >
@@ -628,7 +646,7 @@ function PlayerTab({
               value={transportBg}
               onChange={(e) => onPickTransportBg(Number(e.target.value))}
               className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-              style={{ accentColor: 'var(--p-accent)' }}
+              style={{ accentColor: 'var(--p-accent-solid)' }}
             />
           </div>
         </Pref>
@@ -678,6 +696,7 @@ function StyleTab(): JSX.Element {
   const style = useStyle()
   const mode = useMode()
   const edits = useOverrides()
+  const accentAlpha = accentAlphaOf(style.accentAlpha)
   const selected = useSelectedId()
   const list = useStyles(mode)
   // Ask the store rather than re-deriving it here: this list had already fallen
@@ -801,7 +820,7 @@ function StyleTab(): JSX.Element {
                 value={glass}
                 onChange={(e) => setAcrylic(Number(e.target.value))}
                 className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                style={{ accentColor: 'var(--p-accent)' }}
+                style={{ accentColor: 'var(--p-accent-solid)' }}
               />
             </div>
           </Pref>
@@ -888,10 +907,44 @@ function StyleTab(): JSX.Element {
           <ColourWell
             id="c-accent"
             value={paletteOf(style.accent)[0]}
-            custom={!!edits.accent}
+            // An opacity of its own is an edit of the accent too, so the one
+            // Reset gives back both (#249).
+            custom={!!edits.accent || edits.accentAlpha !== undefined}
             onChange={(v) => setOverride('accent', v)}
-            onReset={() => setOverride('accent', null)}
+            onReset={resetAccent}
+            alpha={accentAlpha}
+            onAlpha={setAccentAlpha}
           />
+        </div>
+        {/* THE ACCENT'S OPACITY (#249; owner, 2026-10-02: "the accent colour
+            should be able to have an alpha value", fills only). The Acrylic
+            slider's look, a tenth to all of it; the hex field above takes the
+            same value as two more digits. */}
+        <div className="mt-3 flex items-center justify-between gap-6" data-pref="c-accent-alpha">
+          <div>
+            <label htmlFor="c-accent-alpha" className="block text-[12.5px] font-semibold text-[var(--p-text)]">
+              Accent opacity
+            </label>
+            <p className="text-[11.5px] text-[var(--p-dim)]">
+              How solid the selection and other accent fills are.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
+              {Math.round(accentAlpha * 100)}%
+            </span>
+            <input
+              id="c-accent-alpha"
+              type="range"
+              min={Math.round(ALPHA_MIN * 100)}
+              max={100}
+              step={1}
+              value={Math.round(accentAlpha * 100)}
+              onChange={(e) => setAccentAlpha(Number(e.target.value) / 100)}
+              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+              style={{ accentColor: 'var(--p-accent-solid)' }}
+            />
+          </div>
         </div>
       </Section>
     </div>

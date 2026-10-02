@@ -151,7 +151,7 @@ export function ExtractWindow(): JSX.Element | null {
               >
                 <span
                   data-extract-fill
-                  className="block h-full rounded-full bg-[var(--p-accent)]"
+                  className="block h-full rounded-full bg-[var(--p-accent-solid)]"
                   style={{ width: pct === null ? '0%' : `${Math.max(1, pct)}%` }}
                 />
               </span>

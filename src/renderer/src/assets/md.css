@@ -95,7 +95,7 @@
 }
 .p-md input[type='checkbox'] {
   margin-right: 0.45em;
-  accent-color: var(--p-accent);
+  accent-color: var(--p-accent-solid);
   vertical-align: -1.5px;
 }
 
@@ -125,7 +125,7 @@
 }
 
 .p-md blockquote {
-  border-left: 3px solid var(--p-accent);
+  border-left: 3px solid var(--p-accent-solid);
   padding: 0.1em 1em;
   color: var(--p-dim);
 }

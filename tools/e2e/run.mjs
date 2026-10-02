@@ -6589,6 +6589,125 @@ async function selectionScenario(fixtures) {
   }
 }
 
+/**
+ * THE ACCENT CAN BE SEE-THROUGH (#249; owner, 2026-10-02: "the accent colour
+ * should be able to have an alpha value", fills only). Set on the Style page
+ * as a user would, by the slider and by eight hex digits; then a selected row
+ * is MEASURED: its fill carries the alpha, and its label clears 4.5:1 against
+ * the fill as the eye gets it (laid over the sidebar's own ground). A Reset
+ * link, being text, stays opaque. The accent Reset puts everything back, and
+ * the draft is restored in `finally`, since the profile is shared.
+ */
+async function accentOpacityScenario(fixtures) {
+  console.log('accent opacity')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let draftBefore = null
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    await win.click('[aria-label="Settings"]')
+    await win.locator('button:has-text("Style")').first().click()
+    const slider = win.locator('#c-accent-alpha')
+    await slider.waitFor({ timeout: 8000 })
+    await slider.scrollIntoViewIfNeeded()
+    ok((await slider.inputValue()) === '100', `an untouched style is at 100% (${await slider.inputValue()})`)
+    ok(
+      (await slider.getAttribute('min')) === '10' && (await slider.getAttribute('max')) === '100',
+      'the slider runs from 10% to 100%'
+    )
+    await slider.fill('25')
+    await sleep(200)
+    ok((await win.locator('[data-pref="c-accent-alpha"]').textContent()).includes('25%'), 'the slider sets the opacity')
+
+    // Eight digits in the hex field set the colour and the opacity together.
+    const hex = win.locator('div:has(> label > #c-accent) > input[aria-label="Hex value"]')
+    const shown = await hex.inputValue()
+    ok(/^#[0-9a-f]{8}$/i.test(shown), `the hex field shows the opacity as two more digits (${shown})`)
+    await hex.fill(shown.slice(0, 7) + '66')
+    await hex.press('Enter')
+    await sleep(250)
+    ok((await slider.inputValue()) === '40', `#rrggbb66 is 40% (${await slider.inputValue()})`)
+    const readSel = () =>
+      win.evaluate(() => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = 'var(--p-sel-bg)'
+        document.body.appendChild(probe)
+        const c = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return c
+      })
+    const selToken = await readSel()
+    ok(/rgba\(.*0\.4\)/.test(selToken), `the selection fill carries it (${selToken})`)
+
+    // A Reset link is TEXT, so it stays opaque.
+    const reset = win.locator('div:has(> label > #c-accent) > button', { hasText: 'Reset' })
+    ok((await reset.count()) === 1, 'the accent row offers Reset')
+    const resetColour = await reset.evaluate((el) => getComputedStyle(el).color)
+    ok(/^rgb\(/.test(resetColour), `and the Reset link is opaque (${resetColour})`)
+    await win.locator('[data-pref="c-accent-alpha"]').scrollIntoViewIfNeeded()
+    await win.screenshot({ path: join(SHOTS, 'accent-opacity-style.png') })
+
+    // Settings is a tab; go back to the file's tab and select a folder there.
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(400)
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click()
+    await sleep(400)
+    ok((await codeRow.getAttribute('data-selected')) !== null, 'a folder row is selected')
+    const look = await codeRow.evaluate((row) => {
+      const parse = (c) => {
+        const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+      }
+      const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+      const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+      // The element that paints the fill: the row, or the first inside it.
+      const painted = [row, ...row.querySelectorAll('*')].find((el) => {
+        const bg = getComputedStyle(el).backgroundColor
+        return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent'
+      })
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--p-side-flat)'
+      document.body.appendChild(probe)
+      const ground = parse(getComputedStyle(probe).backgroundColor).rgb
+      probe.remove()
+      const fill = parse(getComputedStyle(painted).backgroundColor)
+      const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+      const label = parse(getComputedStyle(painted).color).rgb
+      const [la, lb] = [lum(seen), lum(label)]
+      return {
+        bg: getComputedStyle(painted).backgroundColor,
+        alpha: fill.a,
+        seen: seen.map(Math.round),
+        label,
+        contrast: (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+      }
+    })
+    ok(look.alpha < 1, `the selected row's fill is see-through (${look.bg})`)
+    ok(look.contrast >= 4.5, `its label reads on the fill as seen (${look.contrast.toFixed(2)}:1 on rgb(${look.seen.join(',')}))`)
+    await win.screenshot({ path: join(SHOTS, 'accent-opacity-row.png') })
+
+    // Reset gives back the colour AND the opacity.
+    await win.click('[aria-label="Settings"]')
+    await win.locator('button:has-text("Style")').first().click()
+    await reset.waitFor({ timeout: 8000 })
+    await reset.click()
+    await sleep(250)
+    ok((await win.locator('#c-accent-alpha').inputValue()) === '100', 'Reset puts the opacity back to 100%')
+    ok(!/rgba/.test(await readSel()), `and the selection is solid again (${await readSel()})`)
+    await win.keyboard.press('Control+w')
+  } finally {
+    await win
+      .evaluate((d) => {
+        if (d === null) localStorage.removeItem('prism.style.draft')
+        else localStorage.setItem('prism.style.draft', d)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+      }, draftBefore)
+      .catch(() => {})
+    await app.close()
+  }
+}
+
 async function dragScenario(fixtures) {
   console.log('drag and drop')
   // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
@@ -8874,6 +8993,7 @@ await run(fullscreenBlackScenario)
 await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
+await run(accentOpacityScenario)
 await run(dragScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
