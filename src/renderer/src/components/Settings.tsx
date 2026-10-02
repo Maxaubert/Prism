@@ -34,6 +34,7 @@ import {
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
 import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
+import { setTitleBarMode, useTitleBarMode } from '../lib/titleBarPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -310,6 +311,31 @@ function TabWidthSetting(): JSX.Element {
         options={[
           { id: 'dynamic', name: 'Dynamic' },
           { id: 'fixed', name: 'Fixed' }
+        ]}
+      />
+    </Pref>
+  )
+}
+
+/** Whether the window keeps its title bar (#250; owner, 2026-10-02: "normal
+ *  prism should also have no titlebar option"), Prism Terminal's row (#91).
+ *  A window setting, not the style's: a style switch leaves it alone, so it
+ *  sits up here with Tab width rather than with Edges under "This style". */
+function TitleBarSetting(): JSX.Element {
+  const mode = useTitleBarMode()
+  return (
+    <Pref
+      id="title-bar"
+      label="Title bar"
+      hint="Shown above the tabs, or hidden so the tabs and the window buttons share one row."
+    >
+      <Segmented
+        value={mode}
+        onChange={setTitleBarMode}
+        // Shown first: it is the default, the window as it always was.
+        options={[
+          { id: 'shown', name: 'Shown' },
+          { id: 'hidden', name: 'Hidden' }
         ]}
       />
     </Pref>
@@ -693,6 +719,7 @@ function StyleTab(): JSX.Element {
         {/* Tab width opens the look page (owner, 2026-09-23: "put the option
             closer to the top of appearance"); Style is Prism's appearance. */}
         <TabWidthSetting />
+        <TitleBarSetting />
         <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>

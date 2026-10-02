@@ -4633,6 +4633,316 @@ async function tabsScenario(fixtures) {
  * The pin on the + menu (#99): a pinned folder climbs above the recents, the
  * pin fills, the menu stays up while you do it, and the pin outlives history.
  */
+/** Pick a Style-page segment the way a user would: the cog, Style, the row
+ *  named by its label's `for`, the segment by name; then the cog again puts
+ *  Settings away (clicking it while Settings is in front closes the tab). */
+async function pickStyleSegment(win, rowId, name) {
+  await win.click('[aria-label="Settings"]')
+  await win.click('button:has-text("Style")')
+  await win.locator(`label[for="${rowId}"]`).waitFor({ timeout: 8000 })
+  const seg = win.getByRole('button', { name, exact: true })
+  await seg.scrollIntoViewIfNeeded()
+  await seg.click()
+  await win.click('[aria-label="Settings"]')
+  await sleep(400)
+}
+
+/** Which app region a point of the window is: the nearest element at or above
+ *  it that says, as Chromium resolves drag over no-drag. */
+const regionAt = (win, x, y) =>
+  win.evaluate(
+    ([px, py]) => {
+      for (let el = document.elementFromPoint(px, py); el; el = el.parentElement) {
+        const r = getComputedStyle(el).getPropertyValue('-webkit-app-region').trim()
+        if (r === 'drag' || r === 'no-drag') return r
+      }
+      return 'none'
+    },
+    [x, y]
+  )
+
+async function titleBarScenario(fixtures) {
+  // NO TITLE BAR (#250; owner, 2026-10-02: "normal prism should also have no
+  // titlebar option", Prism Terminal's #91): Hidden puts the panel toggle, the
+  // tabs and the bar's buttons in ONE row, and Shown is the window as it was.
+  console.log('the title bar setting')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const box = (sel) =>
+    win.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect()
+      return r ? { x: r.x, y: r.y, w: r.width, h: r.height, r: r.right, b: r.bottom } : null
+    }, sel)
+  try {
+    await win.waitForSelector('[role="tablist"]', { timeout: 10000 })
+    // SHOWN, the default: the bar, its wordmark, and the strip under it.
+    const shownBar = await box('[data-title-bar]')
+    const shownStrip = await box('[role="tablist"]')
+    const shownWork = await box('.browse-workspace')
+    ok(
+      (await win.locator('[data-title-bar]:not([data-title-bar="tabs"])').count()) === 1 &&
+        (await win.locator('[data-title-bar] [data-wordmark]').count()) === 1,
+      'by default the title bar is shown, wordmark and all'
+    )
+    ok(!!shownBar && !!shownStrip && shownStrip.y >= shownBar.b - 1, `and the tabs sit under it (bar ${JSON.stringify(shownBar)}, strip ${JSON.stringify(shownStrip)})`)
+    ok(
+      (await win.locator('[data-title-bar] [data-panel-toggle]').count()) === 1,
+      'the panel toggle is in the bar'
+    )
+
+    await pickStyleSegment(win, 'title-bar', 'Hidden')
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.window.titleBar'))) === 'hidden',
+      'Hidden is remembered under prism.window.titleBar'
+    )
+    // HIDDEN: one row, toggle first, the strip, the buttons last.
+    const row = '[data-title-bar="tabs"]'
+    ok(await until(async () => (await win.locator(row).count()) === 1, 5000), 'Hidden draws one row')
+    ok((await win.locator('[data-title-bar]').count()) === 1, 'and no title bar beside it')
+    ok((await win.locator('[data-wordmark]').count()) === 0, 'with no wordmark')
+    const rowBox = await box(row)
+    const toggle = await box(`${row} [data-panel-toggle]`)
+    const strip = await box(`${row} [role="tablist"]`)
+    const winButtons = await win.evaluate((s) =>
+      [...document.querySelectorAll(`${s} [data-window-button]`)].map((b) => b.getBoundingClientRect().right), row)
+    const cog = await box(`${row} [aria-label="Settings"]`)
+    const width = await win.evaluate(() => window.innerWidth)
+    ok(!!toggle && !!strip && toggle.r <= strip.x + 1 && toggle.x < 16, `the toggle comes first (${JSON.stringify(toggle)})`)
+    ok(!!strip && strip.y <= 1 && strip.b <= rowBox.b + 1, `the tabs are in the top row (${JSON.stringify(strip)})`)
+    ok(
+      winButtons.length === 3 && Math.max(...winButtons) > width - 20 && !!cog && cog.r <= Math.min(...winButtons),
+      `the cog and then the window buttons end the row (${winButtons.join(', ')} of ${width})`
+    )
+    const hiddenWork = await box('.browse-workspace')
+    ok(
+      !!hiddenWork && !!shownWork && hiddenWork.y < shownWork.y - 20,
+      `the workspace gains the bar's height (${shownWork?.y} -> ${hiddenWork?.y})`
+    )
+    // The handle: the strip's empty space drags the window; a tab, the + and
+    // every button do not.
+    const plus = await box(`${row} [aria-label="New tab"]`)
+    const emptyX = Math.round((plus.r + (cog?.x ?? width)) / 2)
+    const emptyY = Math.round(rowBox.y + rowBox.h / 2)
+    ok(
+      (await win.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[role="tablist"]'), [emptyX, emptyY])) &&
+        (await regionAt(win, emptyX, emptyY)) === 'drag',
+      'the row\'s empty space is the window\'s drag handle'
+    )
+    const firstTab = await box(`${row} [data-tab-role] [role="tab"]`)
+    const regions = {
+      tab: await regionAt(win, firstTab.x + firstTab.w / 2, firstTab.y + firstTab.h / 2),
+      plus: await regionAt(win, plus.x + plus.w / 2, plus.y + plus.h / 2),
+      toggle: await regionAt(win, toggle.x + toggle.w / 2, toggle.y + toggle.h / 2),
+      cog: await regionAt(win, cog.x + cog.w / 2, cog.y + cog.h / 2),
+      close: await regionAt(win, Math.max(...winButtons) - 10, emptyY)
+    }
+    ok(Object.values(regions).every((r) => r === 'no-drag'), `tabs and buttons are not handles (${JSON.stringify(regions)})`)
+    await win.screenshot({ path: join(SHOTS, 'titlebar-hidden.png') })
+
+    // The toggle and Ctrl+B still pin the tree, from the row.
+    const sidebarHidden = () => win.locator('[data-project-sidebar]').getAttribute('aria-hidden')
+    const pressed = () => win.locator(`${row} [data-panel-toggle]`).getAttribute('aria-pressed')
+    ok((await sidebarHidden()) === 'false' && (await pressed()) === 'true', 'the tree starts pinned open')
+    await win.click(`${row} [data-panel-toggle]`)
+    ok(await until(async () => (await sidebarHidden()) === 'true'), 'the row\'s toggle collapses it')
+    ok((await pressed()) === 'false', 'and says so (aria-pressed)')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await sidebarHidden()) === 'false'), 'Ctrl+B pins it open again')
+    ok((await pressed()) === 'true', 'and the toggle follows')
+
+    // Reordering still works with the strip in the title row.
+    await handoff(OTHER_ROOT)
+    const tabRows = () => win.locator(`${row} [data-tab-role]:not([data-pinned]) [role="tab"]`)
+    ok(await until(async () => (await tabRows().count()) === 2), 'a second project tab arrives in the row')
+    {
+      const before = await tabRows().allTextContents()
+      const a = await tabRows().first().boundingBox()
+      const b = await tabRows().last().boundingBox()
+      await win.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(a.x + 6, b.y + b.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      const after = await tabRows().allTextContents()
+      ok(after[0] === before[1] && after[1] === before[0], `dragging a tab in the title row reorders it (${before.join('|')} -> ${after.join('|')})`)
+    }
+
+    // SHOWN again is the window exactly as before.
+    await pickStyleSegment(win, 'title-bar', 'Shown')
+    ok(await until(async () => (await win.locator(row).count()) === 0, 5000), 'Shown takes the one row away')
+    ok((await win.locator('[data-title-bar] [data-wordmark]').count()) === 1, 'and the bar and its wordmark come back')
+    const backWork = await box('.browse-workspace')
+    ok(!!backWork && Math.abs(backWork.y - shownWork.y) < 1, `with the workspace where it was (${backWork?.y} vs ${shownWork.y})`)
+  } finally {
+    // The profile is shared: never leave a later scenario a hidden bar.
+    await win.evaluate(() => localStorage.removeItem('prism.window.titleBar')).catch(() => {})
+    await app.close()
+  }
+}
+
+async function sidebarPeekScenario(fixtures) {
+  // THE COLLAPSED SIDEBAR PEEKS (#250; owner, 2026-10-02: "shows when cursor
+  // hits the edge on the side, but it would collapse again once the cursor
+  // moves away"). Over the content, never moving it; held while a menu in it
+  // is open; pinned by its own header toggle.
+  console.log('the sidebar peek')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const side = '[data-project-sidebar]'
+  const content = () =>
+    win.evaluate((s) => {
+      const r = document.querySelector(s)?.nextElementSibling?.getBoundingClientRect()
+      return r ? { x: Math.round(r.x), w: Math.round(r.width) } : null
+    }, side)
+  const peeking = () => win.locator(side).getAttribute('data-peek')
+  const hidden = () => win.locator(side).getAttribute('aria-hidden')
+  try {
+    await win.waitForSelector(side, { timeout: 10000 })
+    // A pass that starts on the toggle, away from the edge.
+    await win.mouse.move(400, 300)
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'true'), 'Ctrl+B collapses the tree')
+    await sleep(400)
+    const work = await win.evaluate(() => {
+      const r = document.querySelector('.browse-workspace').getBoundingClientRect()
+      return { x: r.x, y: r.y, w: r.width, h: r.height }
+    })
+    const before = await content()
+    const edgeY = Math.round(work.y + work.h / 2)
+    const away = { x: Math.round(work.x + work.w * 0.7), y: edgeY }
+
+    // A pointer that only crosses the edge brings nothing out.
+    await win.mouse.move(2, edgeY)
+    await sleep(60)
+    await win.mouse.move(away.x, away.y, { steps: 3 })
+    await sleep(400)
+    ok((await peeking()) === null, 'crossing the edge on the way somewhere peeks nothing')
+
+    // Resting on it does.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'resting on the left edge brings the tree out')
+    await sleep(250)
+    const over = await win.evaluate((s) => {
+      const r = document.querySelector(s).getBoundingClientRect()
+      return { x: Math.round(r.x), w: Math.round(r.width), position: getComputedStyle(document.querySelector(s)).position, shadow: getComputedStyle(document.querySelector(s)).boxShadow }
+    }, side)
+    const during = await content()
+    ok(over.w > 120 && over.x === Math.round(work.x), `it is out at its own width (${JSON.stringify(over)})`)
+    ok(over.position === 'absolute' && over.shadow !== 'none', 'laid over the content, with a shadow')
+    ok(JSON.stringify(during) === JSON.stringify(before), `the content did not move or resize (${JSON.stringify(before)} -> ${JSON.stringify(during)})`)
+    ok((await hidden()) === 'false', 'and a screen reader can reach it while it is out')
+    await win.screenshot({ path: join(SHOTS, 'sidebar-peek.png') })
+
+    // On the panel it stays; away, it goes.
+    await win.mouse.move(over.x + over.w / 2, edgeY, { steps: 4 })
+    await sleep(700)
+    ok((await peeking()) === 'in', 'it stays while the pointer is on it')
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'and goes once the pointer leaves it')
+    ok((await hidden()) === 'true', 'back to a collapsed tree')
+    ok(JSON.stringify(await content()) === JSON.stringify(before), 'with the content still where it was')
+
+    // A context menu inside it holds it.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'it comes out again')
+    await sleep(250)
+    const rowBox = await win.locator(`${side} [data-row]`).first().boundingBox()
+    await win.mouse.move(rowBox.x + 30, rowBox.y + rowBox.height / 2, { steps: 4 })
+    await win.mouse.click(rowBox.x + 30, rowBox.y + rowBox.height / 2, { button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) > 0, 3000), 'a right-click opens the row menu')
+    await win.mouse.move(away.x + 100, work.y + work.h - 20, { steps: 4 })
+    await sleep(1000)
+    ok((await peeking()) === 'in', 'with a menu open it stays, though the pointer left')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000), 'Escape takes the menu')
+    ok((await peeking()) === 'in', 'and that Escape was the menu\'s, not the peek\'s')
+    await win.mouse.move(away.x, away.y, { steps: 2 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'once nothing holds it, it goes')
+
+    // Escape ends a peek.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out once more')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'Escape puts it away')
+
+    // Its header toggle pins it: the content moves over and the peek ends.
+    await win.mouse.move(away.x, away.y)
+    await sleep(100)
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'and out again')
+    await sleep(250)
+    await win.locator(`${side} [data-peek-pin]`).click()
+    ok(await until(async () => (await hidden()) === 'false' && (await peeking()) === null, 3000), 'its header toggle pins it')
+    await sleep(400)
+    const pinned = await content()
+    ok(pinned.x >= before.x + over.w - 2 && pinned.w <= before.w - over.w + 2, `and the content moved over (${JSON.stringify(before)} -> ${JSON.stringify(pinned)})`)
+    ok((await win.locator('[data-panel-toggle]').getAttribute('aria-pressed')) === 'true', 'the bar\'s toggle reads pinned')
+
+    // The toggle and the keybind still pin and unpin, as before.
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => (await hidden()) === 'true'), 'the bar\'s toggle collapses it')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'false'), 'Ctrl+B pins it open')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'true'), 'and collapses it')
+
+    // Opening a file from a peeking tree ends the peek.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a file, straight after a Ctrl+B while the tree slides shut')
+    await sleep(250)
+    const fileRow = win.locator(`${side} [role="treeitem"][data-row$=".txt" i], ${side} [role="treeitem"][data-row$=".md" i]`).first()
+    await fileRow.click()
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'opening a file from it puts it away')
+    // Leave the profile as the suite expects it: the tree open.
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'false')
+
+    // THE EXPLORER'S PLACES PEEK THE SAME WAY, over the list.
+    await win.locator('[data-tab-role][data-pinned] [role="tab"]').click()
+    const browser = '[data-testid="folder-browser"]'
+    await win.waitForSelector(`${browser} .browse-places`, { timeout: 10000 })
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => (await win.locator(`${browser} .browse-places`).count()) === 0), 'the toggle hides the places in the Explorer')
+    await sleep(300)
+    const list = () => win.evaluate((s) => {
+      const r = document.querySelector(`${s} .browse-list`)?.getBoundingClientRect()
+      return r ? { x: Math.round(r.x), w: Math.round(r.width) } : null
+    }, browser)
+    const listBefore = await list()
+    await win.mouse.move(away.x, away.y)
+    await sleep(50)
+    await win.mouse.move(2, edgeY)
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek="in"] .browse-places`).count()) === 1, 2000, 25),
+      'resting on the edge brings the places out'
+    )
+    await sleep(250)
+    ok(JSON.stringify(await list()) === JSON.stringify(listBefore), `over the list, which did not move (${JSON.stringify(listBefore)})`)
+    const placesBox = await win.evaluate((s) => {
+      const r = document.querySelector(`${s} .browse-places`).getBoundingClientRect()
+      return { x: Math.round(r.x), w: Math.round(r.width), h: Math.round(r.height) }
+    }, browser)
+    ok(placesBox.w >= 150 && placesBox.x === 0 && placesBox.h > 200, `at the width it has when shown (${JSON.stringify(placesBox)})`)
+    await win.screenshot({ path: join(SHOTS, 'places-peek.png') })
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await win.locator(`${browser} .browse-places`).count()) === 0, 2000, 25), 'and they go when the pointer leaves')
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await win.locator(`${browser}[data-places-peek="in"]`).count()) === 1, 2000, 25), 'out again')
+    await sleep(250)
+    await win.locator(`${browser} [data-peek-pin]`).click()
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek]`).count()) === 0 && (await win.locator(`${browser} .browse-places`).count()) === 1),
+      'and the header toggle pins them'
+    )
+  } finally {
+    await win
+      .evaluate(() => {
+        localStorage.setItem('prism.sidebar', '1')
+        localStorage.setItem('prism.explorer.places', '1')
+      })
+      .catch(() => {})
+    await app.close()
+  }
+}
+
 async function pinRecentScenario(fixtures) {
   console.log('pin recent')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -8844,6 +9154,8 @@ await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
+await run(titleBarScenario)
+await run(sidebarPeekScenario)
 await run(updateWindowScenario)
 await run(updateGuardScenario)
 await run(updateQuietScenario)
