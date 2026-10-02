@@ -723,7 +723,7 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
           // The knockouts take what is BEHIND the row, which on a
           // selected one is the accent fill and not the panel.
-          bg={onSel ? 'var(--p-sel-knockout)' : undefined}
+          bg={onSel ? 'var(--p-sel-knockout-side)' : undefined}
           ext={f.ext}
           name={f.name}
         />

@@ -920,31 +920,27 @@ function StyleTab(): JSX.Element {
             should be able to have an alpha value", fills only). The Acrylic
             slider's look, a tenth to all of it; the hex field above takes the
             same value as two more digits. */}
-        <div className="mt-3 flex items-center justify-between gap-6" data-pref="c-accent-alpha">
-          <div>
-            <label htmlFor="c-accent-alpha" className="block text-[12.5px] font-semibold text-[var(--p-text)]">
-              Accent opacity
-            </label>
-            <p className="text-[11.5px] text-[var(--p-dim)]">
-              How solid the selection and other accent fills are.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
-              {Math.round(accentAlpha * 100)}%
-            </span>
-            <input
-              id="c-accent-alpha"
-              type="range"
-              min={Math.round(ALPHA_MIN * 100)}
-              max={100}
-              step={1}
-              value={Math.round(accentAlpha * 100)}
-              onChange={(e) => setAccentAlpha(Number(e.target.value) / 100)}
-              className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-              style={{ accentColor: 'var(--p-accent-solid)' }}
-            />
-          </div>
+        {/* A Pref like Acrylic, so its description is read by the plain-words
+            test (settingsCopy.test.ts reads hint=, never a hand-built <p>). */}
+        <div className="mt-2" data-pref="c-accent-alpha">
+          <Pref id="c-accent-alpha" label="Accent opacity" hint="How solid the selection and other accent fills are.">
+            <div className="flex items-center gap-3">
+              <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
+                {Math.round(accentAlpha * 100)}%
+              </span>
+              <input
+                id="c-accent-alpha"
+                type="range"
+                min={Math.round(ALPHA_MIN * 100)}
+                max={100}
+                step={1}
+                value={Math.round(accentAlpha * 100)}
+                onChange={(e) => setAccentAlpha(Number(e.target.value) / 100)}
+                className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
+                style={{ accentColor: 'var(--p-accent-solid)' }}
+              />
+            </div>
+          </Pref>
         </div>
       </Section>
     </div>

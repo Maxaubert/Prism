@@ -6639,6 +6639,41 @@ async function accentOpacityScenario(fixtures) {
     const selToken = await readSel()
     ok(/rgba\(.*0\.4\)/.test(selToken), `the selection fill carries it (${selToken})`)
 
+    // A BUTTON prints the same ink on --p-accent (review of #249: the raw
+    // accent there left Frost's labels at 3.78:1). The lit Save button is
+    // measured against the fill as seen on both grounds it can sit on.
+    const save = win.locator('button:has-text("Save changes"):not([disabled])').first()
+    ok((await save.count()) === 1, 'an opacity of its own lights Save changes')
+    const button = await save.evaluate((el) => {
+      const parse = (c) => {
+        const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+      }
+      const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+      const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+      const token = (name) => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = `var(${name})`
+        document.body.appendChild(probe)
+        const c = parse(getComputedStyle(probe).backgroundColor).rgb
+        probe.remove()
+        return c
+      }
+      const fill = parse(getComputedStyle(el).backgroundColor)
+      const label = parse(getComputedStyle(el).color).rgb
+      const worst = Math.min(
+        ...['--p-bg', '--p-side-flat'].map((g) => {
+          const ground = token(g)
+          const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+          const [la, lb] = [lum(seen), lum(label)]
+          return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+        })
+      )
+      return { alpha: fill.a, worst }
+    })
+    ok(button.alpha < 1, `the button's fill is see-through (${button.alpha})`)
+    ok(button.worst >= 4.5, `and its label reads on it as seen (${button.worst.toFixed(2)}:1)`)
+
     // A Reset link is TEXT, so it stays opaque.
     const reset = win.locator('div:has(> label > #c-accent) > button', { hasText: 'Reset' })
     ok((await reset.count()) === 1, 'the accent row offers Reset')

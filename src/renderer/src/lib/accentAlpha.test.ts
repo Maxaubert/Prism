@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { accentAlphaOf, alphaHex, composite, fillOf, parseHexAlpha } from './accentAlpha'
-import { cleanDraft, derive, selectionFor, STYLES, type Style } from './theme'
+import { cleanDraft, derive, selectionBg, selectionFor, STYLES, variablesFor, type Style } from './theme'
 
 // THE ACCENT CAN BE SEE-THROUGH (#249). The alpha reaches the fills; every
 // derivation is handed the colour as seen; the selection's label clears 4.5:1
@@ -26,6 +26,7 @@ const seenOn = (token: string, ground: string): string => {
   return composite(hex, Number(m[4]), ground)
 }
 
+const paletteHex = (s: Style): string => derive(s)['--p-accent']
 const aurora = STYLES.find((s) => s.id === 'aurora')!
 const paper = STYLES.find((s) => s.id === 'paper')!
 const ruby = STYLES.find((s) => s.id === 'acrylic-red')!
@@ -124,6 +125,45 @@ describe('the selected label reads on the selection as seen', () => {
     const { fill, ink } = selectionFor('#4682fb', 0.4, grounds)
     const worst = Math.min(...grounds.map((g) => contrast(ink, composite(fill, 0.4, g))))
     expect(worst).toBeGreaterThan(3)
+  })
+})
+
+// Buttons and chips print --p-on-accent on --p-accent (#249 review): with the
+// raw accent see-through there, Frost at 80% gave 3.78:1. The fill below 100%
+// is the selection's, so the one ink reads on both, on every ground a button
+// sits on (the viewer, and the sidebar's flat colour a dialog box wears).
+describe('a button label reads on the accent fill as seen', () => {
+  for (const base of STYLES) {
+    for (const s of [base, { ...base, material: 'tinted' as const }, { ...base, accent: '#5b5bd6' }]) {
+      it(`${base.id} ${s.material} ${s.accent}`, () => {
+        for (const alpha of [0.1, 0.25, 0.4, 0.6, 0.8, 0.95]) {
+          const t = variablesFor({ ...s, accentAlpha: alpha }, true)
+          for (const g of [t['--p-bg'], t['--p-side-flat']]) {
+            const seen = seenOn(t['--p-accent'], g)
+            expect(contrast(t['--p-on-accent'], seen), `${alpha} on ${g}`).toBeGreaterThanOrEqual(4.5)
+          }
+        }
+      })
+    }
+  }
+})
+
+describe('an icon knockout matches the row it sits on', () => {
+  it('a sidebar row of its own colour gets its own knockout', () => {
+    const own: Style = { ...aurora, side: '#2a3142', sideOwn: true, accentAlpha: 0.4 }
+    const t = derive(own)
+    expect(t['--p-sel-knockout-side']).toBe(seenOn(t['--p-sel-bg'], '#2a3142'))
+    expect(t['--p-sel-knockout']).toBe(seenOn(t['--p-sel-bg'], t['--p-bg']))
+  })
+  it('the browse list knockout is the selection as seen, and the selection itself at 100%', () => {
+    const t = derive({ ...aurora, accentAlpha: 0.4 })
+    expect(t['--p-sel-seen']).toBe(seenOn(t['--p-sel-bg'], t['--p-bg']))
+    expect(t['--p-sel-seen']).toMatch(/^#[0-9a-f]{6}$/i)
+    for (const s of STYLES) {
+      const solid = derive(s)
+      expect(solid['--p-sel-seen']).toBe(selectionBg(paletteHex(s)))
+      expect(solid['--p-sel-knockout-side']).toBe(solid['--p-accent'])
+    }
   })
 })
 

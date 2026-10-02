@@ -535,7 +535,11 @@ export function derive(style: Style): Record<string, string> {
     '--p-dim': dimmed(style.text, side, 0.38, 4.5),
     '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
     // A FILL: carries the opacity (#249), and is the plain hex at 100%.
-    '--p-accent': fillOf(accent, alpha),
+    // Below 100% it is the SELECTION's fill, not the raw accent: buttons and
+    // chips print --p-on-accent on it, and that ink was chosen so the
+    // selection's fill clears 4.5:1 on every ground. The raw accent at the
+    // same alpha does not (MEASURED in review: Frost at 80% gave 3.78:1).
+    '--p-accent': alpha >= 1 ? accent : fillOf(selection.fill, alpha),
     // The accent as picked, never see-through: lines, rings, a progress bar
     // against its track and native controls, which the alpha must not reach
     // (the owner's pick was fills only).
@@ -545,6 +549,14 @@ export function derive(style: Style): Record<string, string> {
     // the icon's own ink show through it. At 100% it is the accent, as the
     // rows have always passed.
     '--p-sel-knockout': alpha >= 1 ? accent : composite(selection.fill, alpha, bg),
+    // The same for a row on the SIDEBAR (the tree, search results), which a
+    // style may colour apart from the viewer: a knockout mixed over the
+    // viewer's ground would show there as a patch inside the icon.
+    '--p-sel-knockout-side': alpha >= 1 ? accent : composite(selection.fill, alpha, sideOf(style)),
+    // The selection as the eye gets it, opaque, on the viewer's ground: for
+    // a knockout that has always painted --p-sel-bg (the browse list), so it
+    // looks as it did at 100% and is not see-through below it.
+    '--p-sel-seen': alpha >= 1 ? selection.fill : composite(selection.fill, alpha, bg),
     '--p-accent-hi': hi,
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
