@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react'
-import { PEEK_IDLE, peekReduce, peekTimer, peekWhere } from './sidebarPeek'
+import { PEEK_IDLE, onScrollbar, peekReduce, peekTimer, peekWhere } from './sidebarPeek'
 
 /** How long a peek takes to slide away, matching the panels' own 180ms slide. */
 const OUT_MS = 180
@@ -20,6 +20,24 @@ export interface PeekOptions {
 
 /** 'in' while the panel is out, 'out' for the slide away, null otherwise. */
 export type PeekPhase = 'in' | 'out' | null
+
+/** Whether a point is on a scrollbar: a native one on the element under it or
+ *  any box round it, or xterm's own slider (a terminal hides the native bar
+ *  and draws its own). See `onScrollbar`. */
+const overScrollbar = (x: number, y: number): boolean => {
+  const hit = document.elementFromPoint(x, y)
+  if (!hit) return false
+  if (hit.closest('.xterm .scrollbar')) return true
+  for (let el: Element | null = hit; el && el !== document.body; el = el.parentElement) {
+    if (el.scrollHeight <= el.clientHeight) continue
+    const css = getComputedStyle(el)
+    if (
+      onScrollbar(x, el.getBoundingClientRect(), el.clientLeft, el.clientWidth, parseFloat(css.borderRightWidth) || 0)
+    )
+      return true
+  }
+  return false
+}
 
 const stillMotion = (): boolean => {
   try {
@@ -42,8 +60,11 @@ const stillMotion = (): boolean => {
  *   edge to resize, selecting text in a field);
  * - an HTML drag in flight (a row being carried out of the tree), during
  *   which Chromium sends no pointer moves at all.
- * The peek takes no focus and gives none back: it is a pointer convenience,
- * and the keyboard pins the panel with Ctrl+B as before.
+ * The peek takes no focus: it is a pointer convenience, and the keyboard pins
+ * the panel with Ctrl+B as before. But a click in it (a folder row) does put
+ * the focus there, and the panel going inert as it slides away would drop it
+ * on the body, where the keys reach nothing (review of #250). So a close with
+ * the focus inside hands it back to whatever had it before the panel did.
  */
 export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
   phase: PeekPhase
@@ -53,6 +74,11 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
   const [state, send] = useReducer(peekReduce, PEEK_IDLE)
   const pressing = useRef(false)
   const dragging = useRef(false)
+  // Where the focus was before it went into the panel, and whether it is in
+  // there now. Tracked from focusin, since the inert panel blurs to the body
+  // without a focusin anywhere.
+  const before = useRef<HTMLElement | null>(null)
+  const focusIn = useRef(false)
   // The newest finders, read by listeners that live across renders.
   const live = useRef(zone)
   const box = useRef(panel)
@@ -93,17 +119,26 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
       const z = live.current()
       if (!z) return
       const p = out.current ? box.current() : null
-      send({
-        type: 'move',
-        at: peekWhere(x, y, z.getBoundingClientRect(), side, p ? p.getBoundingClientRect() : null)
-      })
+      const at = peekWhere(x, y, z.getBoundingClientRect(), side, p ? p.getBoundingClientRect() : null)
+      send({ type: 'move', at: at === 'edge' && overScrollbar(x, y) ? 'away' : at })
     }
     const move = (e: PointerEvent): void => {
+      // Chromium sends no pointer events during an HTML drag, so any move
+      // means it is over, even when its dragend went to a row the tree had
+      // already unmounted and never reached the window (review of #250).
+      dragging.current = false
       // A press that began in the panel keeps it, wherever the pointer goes.
       if (pressing.current) return
+      // A press that began ANYWHERE else (selecting text in the editor and
+      // drifting left) is not a rest on the edge: no dwell with a button down.
+      if (e.buttons !== 0) {
+        send({ type: 'move', at: 'away' })
+        return
+      }
       where(e.clientX, e.clientY)
     }
     const down = (e: PointerEvent): void => {
+      dragging.current = false
       const p = box.current()
       pressing.current = !!p && e.target instanceof Node && p.contains(e.target)
     }
@@ -120,6 +155,16 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
     const dragOff = (): void => {
       dragging.current = false
     }
+    const focus = (e: FocusEvent): void => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const p = box.current()
+      if (p && p.contains(t)) focusIn.current = true
+      else {
+        focusIn.current = false
+        before.current = t
+      }
+    }
     const key = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') send({ type: 'escape', held: held() })
     }
@@ -132,6 +177,7 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
     window.addEventListener('dragend', dragOff, true)
     window.addEventListener('drop', dragOff, true)
     window.addEventListener('keydown', key)
+    window.addEventListener('focusin', focus, true)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerdown', down, true)
@@ -142,6 +188,7 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
       window.removeEventListener('dragend', dragOff, true)
       window.removeEventListener('drop', dragOff, true)
       window.removeEventListener('keydown', key)
+      window.removeEventListener('focusin', focus, true)
       pressing.current = false
       dragging.current = false
     }
@@ -154,6 +201,27 @@ export function useSidebarPeek({ target, side, zone, panel }: PeekOptions): {
     const t = window.setTimeout(() => send({ type: 'timer', held: held() }), wait)
     return () => window.clearTimeout(t)
   }, [wait, state.at, state.open, state.tick, target, held])
+
+  // A close the pointer or Escape caused, with the focus in the panel (or
+  // already blurred to the body by its going inert): the focus goes back to
+  // where it was, else into the content, never nowhere. In a layout effect so
+  // it lands before a key can be pressed into the void.
+  useLayoutEffect(() => {
+    if (!state.leaving || !focusIn.current) return
+    focusIn.current = false
+    const p = box.current()
+    const a = document.activeElement
+    if (a && a !== document.body && !(p && p.contains(a))) return
+    const back = before.current
+    if (back && back.isConnected && !(p && p.contains(back)) && !back.closest('[inert]')) {
+      back.focus({ preventScroll: true })
+      return
+    }
+    live
+      .current()
+      ?.querySelector<HTMLElement>('textarea, [tabindex="0"], input, button')
+      ?.focus({ preventScroll: true })
+  }, [state.leaving])
 
   // The slide away: kept on screen, inert, for one slide. A reduced-motion
   // setting has no slide, so it settles at once.

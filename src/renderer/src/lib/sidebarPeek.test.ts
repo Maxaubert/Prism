@@ -6,6 +6,7 @@ import {
   PEEK_IDLE,
   peekReduce,
   peekTimer,
+  onScrollbar,
   peekWhere,
   type PeekEvent,
   type PeekState
@@ -204,5 +205,27 @@ describe('where the pointer is', () => {
     expect(peekWhere(200, 300, zone, 'left', panel)).toBe('panel')
     expect(peekWhere(2, 300, zone, 'left', panel)).toBe('panel')
     expect(peekWhere(300, 300, zone, 'left', panel)).toBe('away')
+  })
+})
+
+describe('onScrollbar', () => {
+  it('is the strip between the content and the right border', () => {
+    // A 400px box with a 6px scrollbar and no borders: clientWidth 394.
+    const box = { left: 600, right: 1000 }
+    expect(onScrollbar(999, box, 0, 394, 0)).toBe(true)
+    expect(onScrollbar(994, box, 0, 394, 0)).toBe(true)
+    expect(onScrollbar(993, box, 0, 394, 0)).toBe(false)
+    expect(onScrollbar(1000, box, 0, 394, 0)).toBe(false)
+  })
+  it('is nothing on a box that does not scroll', () => {
+    expect(onScrollbar(999, { left: 600, right: 1000 }, 0, 400, 0)).toBe(false)
+  })
+  it('leaves the borders out', () => {
+    const box = { left: 0, right: 410 }
+    // 2px borders each side, a 6px bar: content 400 from x 2.
+    expect(onScrollbar(401, box, 2, 400, 2)).toBe(false)
+    expect(onScrollbar(402, box, 2, 400, 2)).toBe(true)
+    expect(onScrollbar(407, box, 2, 400, 2)).toBe(true)
+    expect(onScrollbar(408, box, 2, 400, 2)).toBe(false)
   })
 })

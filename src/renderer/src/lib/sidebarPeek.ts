@@ -104,3 +104,22 @@ export function peekWhere(
   const inStrip = side === 'left' ? x >= zone.left && x < zone.left + PEEK_EDGE_PX : x < zone.right && x >= zone.right - PEEK_EDGE_PX
   return inStrip ? 'edge' : 'away'
 }
+
+/** Whether a point is on a native vertical scrollbar of a box: right of its
+ *  content and padding, left of its right border. With the tree on the RIGHT,
+ *  the content's own scrollbar (6px, `index.css`) is exactly where the hot
+ *  strip is, and a pointer resting there to grab it must not have the tree
+ *  thrown over it (review of #250). So the edge does not count over one; the
+ *  strip still works wherever the content does not scroll, and the toggle and
+ *  Ctrl+B pin as ever. */
+export function onScrollbar(
+  x: number,
+  box: { left: number; right: number },
+  clientLeft: number,
+  clientWidth: number,
+  borderRight: number
+): boolean {
+  const start = box.left + clientLeft + clientWidth
+  const end = box.right - borderRight
+  return end - start >= 1 && x >= start && x < end
+}

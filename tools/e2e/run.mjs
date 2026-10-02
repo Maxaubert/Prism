@@ -4736,6 +4736,12 @@ async function titleBarScenario(fixtures) {
       close: await regionAt(win, Math.max(...winButtons) - 10, emptyY)
     }
     ok(Object.values(regions).every((r) => r === 'no-drag'), `tabs and buttons are not handles (${JSON.stringify(regions)})`)
+    // However many tabs fill the strip, a handle is left before the buttons.
+    const spacer = await box(`${row} [data-drag-spacer]`)
+    ok(
+      !!spacer && spacer.w >= 40 && (await regionAt(win, spacer.x + spacer.w / 2, emptyY)) === 'drag',
+      `a handle that tabs never fill sits before the buttons (${JSON.stringify(spacer)})`
+    )
     await win.screenshot({ path: join(SHOTS, 'titlebar-hidden.png') })
 
     // The toggle and Ctrl+B still pin the tree, from the row.
@@ -4816,6 +4822,16 @@ async function sidebarPeekScenario(fixtures) {
     await sleep(400)
     ok((await peeking()) === null, 'crossing the edge on the way somewhere peeks nothing')
 
+    // A press that began in the content (selecting text) and drifts onto the
+    // edge is not a rest on it (review of #250).
+    await win.mouse.down()
+    await win.mouse.move(2, edgeY, { steps: 4 })
+    await sleep(500)
+    ok((await peeking()) === null, 'a drag from the content onto the edge peeks nothing')
+    await win.mouse.up()
+    await win.mouse.move(away.x, away.y, { steps: 3 })
+    await sleep(100)
+
     // Resting on it does.
     await win.mouse.move(2, edgeY)
     ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'resting on the left edge brings the tree out')
@@ -4856,6 +4872,49 @@ async function sidebarPeekScenario(fixtures) {
     ok((await peeking()) === 'in', 'and that Escape was the menu\'s, not the peek\'s')
     await win.mouse.move(away.x, away.y, { steps: 2 })
     ok(await until(async () => (await peeking()) === null, 2000, 25), 'once nothing holds it, it goes')
+
+    // A drag whose dragend never reached the window (its row unmounted under
+    // it) does not hold the peek for good: the next pointer move ends it.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a lost drag')
+    await win.evaluate(() => window.dispatchEvent(new DragEvent('dragstart')))
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'a drag that never ended does not keep it out')
+
+    // A click in it puts the focus there; its going does not drop the focus
+    // on the body, where no key reaches anything (review of #250).
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a click')
+    await sleep(250)
+    const folderRow = await win.locator(`${side} [role="treeitem"][aria-expanded]`).first().boundingBox()
+    await win.mouse.move(folderRow.x + 30, folderRow.y + folderRow.height / 2, { steps: 4 })
+    await win.mouse.click(folderRow.x + 30, folderRow.y + folderRow.height / 2)
+    ok(
+      await win.evaluate((s) => !!document.querySelector(s)?.contains(document.activeElement), side),
+      'the click put the focus in the tree'
+    )
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'it goes as the pointer leaves')
+    await sleep(100)
+    const focused = await win.evaluate(
+      (s) => {
+        const a = document.activeElement
+        return {
+          body: !a || a === document.body,
+          inTree: !!document.querySelector(s)?.contains(a),
+          tag: a?.tagName ?? null
+        }
+      },
+      side
+    )
+    ok(!focused.body && !focused.inTree, `and the focus went back into the window (${JSON.stringify(focused)})`)
+    // Put the folder back as it was.
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'false')
+    await win.locator(`${side} [role="treeitem"][aria-expanded]`).first().click()
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'true')
+    await sleep(300)
 
     // Escape ends a peek.
     await win.mouse.move(2, edgeY)

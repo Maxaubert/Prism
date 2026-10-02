@@ -3762,7 +3762,13 @@ export default function App(): JSX.Element {
             </div>
           )}
           {tabs.length > 0 ? (
-            <TabStrip {...stripProps} inTitleRow />
+            <>
+              <TabStrip {...stripProps} inTitleRow />
+              {/* A handle that is always there: with Dynamic tab width about
+                  five tabs fill the strip, and its empty space was then the
+                  only place to grab the window (review of #250). */}
+              <span data-drag-spacer className="w-10 shrink-0" />
+            </>
           ) : (
             <span className="min-w-0 flex-1" />
           )}
