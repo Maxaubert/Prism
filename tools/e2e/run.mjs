@@ -891,11 +891,17 @@ async function termOptionsScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
     const src = readFileSync(join(process.cwd(), 'node_modules/prism-term-core/renderer/settings/options.ts'), 'utf8')
-    // Prism's window material belongs to the app STYLE, so the one row the
-    // list marks as window-acrylic-only (the opacity slider) is not shown here.
+    // Prism's window material belongs to the app STYLE, so a row the list
+    // marks `onlyWhere` (window-acrylic-only: the opacity slider today) is not
+    // shown here. HOW MANY such rows there are is the core's business, not
+    // this gate's (#253): Prism Terminal's colour picker work removes the
+    // opacity row, and a count of exactly one would have held that core bump
+    // red for ever. What is checked is the rule: every other row is on the
+    // page in the list's order, and every `onlyWhere` row is absent.
     const rows = [...src.matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g)]
     const wanted = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1]).sort()
-    ok(wanted.length >= 8 && rows.length === wanted.length + 1, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
+    const windowOnly = rows.filter((m) => m[0].includes('onlyWhere')).map((m) => m[1])
+    ok(wanted.length >= 8, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
     await win.click('[aria-label="Settings"]')
     await sleep(400)
     await win.click('button:has-text("Terminal")')
@@ -921,6 +927,12 @@ async function termOptionsScenario(fixtures) {
       `and in the shared order (${pageOrder.join(' > ')})`
     )
     ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
+    const shownWindowOnly = []
+    for (const id of windowOnly) if ((await win.locator(`[data-pref="${id}"]`).count()) > 0) shownWindowOnly.push(id)
+    ok(
+      shownWindowOnly.length === 0,
+      `and no row the core keeps for a window-acrylic host (${windowOnly.length ? windowOnly.join(', ') : 'none listed'}; shown: ${JSON.stringify(shownWindowOnly)})`
+    )
     await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
     // Untouched, the indicator is MINIMAL and its colours follow the accent.
     ok(
@@ -970,6 +982,199 @@ async function noCommandHelpScenario(fixtures) {
     ok((await win.locator('[data-pref="help-enabled"]').count()) === 0, 'and Settings has no command help switch')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * ONE COLOUR PICKER, WITH ALPHA, FOR EVERY COLOUR (#253; owner, 2026-10-03:
+ * "the colour pickers should be the same for both apps, i need an input field
+ * for a color code and an alpha per colour on every colour setting colour
+ * picker both in pt and prism, also in the terminal tab where we have things
+ * like agent indicators, and terminal themes with specific colours").
+ *
+ * The picker is prism-term-core's (`renderer/settings/ColourPicker.tsx`), and a
+ * core change reaches Prism by an AUTO-MERGED bump, so this gate is landed
+ * BEFORE the core has it and runs the first time a bump carries it. Until
+ * then it skips itself, by the file's presence: feature detection, never a
+ * version number. Written against the DOM contract the design fixes
+ * (PrismTerminal `docs/superpowers/specs/2026-10-03-colour-picker-alpha-design.md`):
+ * `[data-colour-swatch]` "Pick <label>", `[data-colour-popover][role="dialog"]`,
+ * sliders named `Saturation and brightness` / `Hue` / `Alpha`, the alpha's
+ * `aria-valuenow` in whole percent.
+ *
+ * The working stand-in comes FIRST, before the popover opens: Escape must be
+ * pressed with the popover still open to prove it puts back an UNSET row, and
+ * the Full tab's ink is read while the see-through colour is live.
+ */
+async function termColourPickerScenario(fixtures) {
+  console.log('terminal colour picker')
+  if (!existsSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/ColourPicker.tsx'))) {
+    console.log('  skipped (core has no ColourPicker)')
+    return
+  }
+  const hexRgb = (h) => {
+    const s = h.replace('#', '').trim()
+    return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16))
+  }
+  const cssRgba = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+  }
+  const lum = (rgb) => {
+    const [r, g, b] = rgb.map((v) => {
+      const c = v / 255
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+    })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  const ratio = (x, y) => {
+    const [a, b] = [lum(x), lum(y)]
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  }
+
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    // 1. A shell stands in for Claude, mid-answer (updateGuard's recipe: the
+    // poll's first look is waited for, or it takes the titled state away).
+    await win.evaluate(() => {
+      window.__agentSaid = 0
+      window.prism.onTermAgent(() => (window.__agentSaid += 1))
+    })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(
+      () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
+      null,
+      { timeout: 45000 }
+    )
+    ok(await until(() => win.evaluate(() => window.__agentSaid > 0), 45000, 100), 'the process poll has had its first look at the shell')
+    await win.locator('.xterm').click()
+    const say = async (glyph, text) => {
+      await win.keyboard.type(`$Host.UI.RawUI.WindowTitle = "$([char]0x${glyph}) ${text}"`)
+      await win.keyboard.press('Enter')
+    }
+    const workingTab = win.locator('[role="tablist"] [data-agent-state="working"]')
+    await say('2733', 'Claude Code') // ✳, idle
+    await until(() => win.evaluate(() => !!document.querySelector('[role="tablist"] [data-agent-present]')), 10000, 50)
+    await say('25D0', 'Claude Code') // ◐, mid-answer
+    ok(await until(async () => (await workingTab.count()) === 1, 8000, 50), 'a working stand-in agent is on the strip')
+
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Terminal")')
+    await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
+    const themeBefore = await win.locator('[data-term-card][aria-pressed="true"]').first().getAttribute('data-term-card')
+    await win.locator('[data-pref="agent-indicator"] button:has-text("Full")').click()
+    ok(await until(async () => (await workingTab.getAttribute('data-agent')) === 'full', 4000, 50), 'the indicator is Full, the tab filled')
+
+    // 2-3. Opened and closed with no change writes nothing.
+    const stored = () => win.evaluate(() => localStorage.getItem('prism.term.agentColor'))
+    const before = await stored()
+    ok(!before, `the working colour follows the theme to begin with (${JSON.stringify(before)})`)
+    const row = win.locator('[data-pref="agent-color"]')
+    const swatch = row.locator('[data-colour-swatch]')
+    const popover = win.locator('[data-colour-popover][role="dialog"]')
+    const reset = row.locator('[data-follow-theme]')
+    ok((await swatch.getAttribute('aria-label')) === 'Pick Working colour', 'the row has a swatch named for it')
+    await swatch.click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'the swatch opens the picker')
+    ok((await popover.getAttribute('aria-label')) === 'Working colour', "the picker is named for the row's colour")
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), 'Escape closes it')
+    ok((await stored()) === before && (await reset.count()) === 0, 'and an open and close with no change stores nothing and shows no Reset')
+
+    // 4-5. Alpha down to 50 on the keyboard: hex8 is stored, the tab is see-through.
+    await swatch.click()
+    await until(async () => (await popover.count()) === 1, 4000, 50)
+    const alpha = popover.locator('[role="slider"][aria-label="Alpha"]')
+    ok((await alpha.count()) === 1, 'the picker has an Alpha slider')
+    await alpha.focus()
+    const now = async () => Number(await alpha.getAttribute('aria-valuenow'))
+    for (let i = 0; i < 40 && (await now()) > 50; i++) {
+      await win.keyboard.press((await now()) - 50 >= 10 ? 'Shift+ArrowLeft' : 'ArrowLeft')
+    }
+    ok((await now()) === 50, `Shift+Left walks the alpha to 50 percent (${await now()})`)
+    ok(await until(async () => /^#[0-9a-f]{8}$/.test((await stored()) ?? ''), 3000, 50), `the working colour is stored as hex8 (${await stored()})`)
+    ok(/^#[0-9a-f]{8}$/.test(await row.locator('input:not([type])').inputValue()), 'and its code field shows the eight digits')
+    const tabLook = () =>
+      win.evaluate(() => {
+        const el = document.querySelector('[role="tablist"] [data-agent-state="working"]')
+        if (!el) return null
+        const cs = getComputedStyle(el)
+        return {
+          bg: cs.backgroundColor,
+          ink: cs.color,
+          ground: getComputedStyle(document.documentElement).getPropertyValue('--p-tabs-flat').trim()
+        }
+      })
+    const seeThrough = await until(async () => {
+      const l = await tabLook()
+      return l && cssRgba(l.bg).a < 0.99 && cssRgba(l.bg).a > 0.01 ? l : null
+    }, 4000, 50)
+    ok(!!seeThrough, `the Full tab's fill carries the alpha (${seeThrough?.bg ?? (await tabLook())?.bg})`)
+
+    // 6. Its ink is chosen on the fill as laid on the strip, at 4.5:1.
+    if (seeThrough) {
+      const fill = cssRgba(seeThrough.bg)
+      const ground = hexRgb(seeThrough.ground)
+      const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+      const r = ratio(cssRgba(seeThrough.ink).rgb, seen)
+      ok(r >= 4.5, `the Full tab's text reads on the composite (${r.toFixed(1)}:1, ${seeThrough.ink} on ${seeThrough.bg} over ${seeThrough.ground})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'term-colour-picker.png') }).catch(() => {})
+
+    // 7. Escape with a write behind it puts the UNSET row back.
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), 'Escape closes the changed picker')
+    ok(await until(async () => (await stored()) === before, 3000, 50), `and puts back a row that follows the theme (${JSON.stringify(await stored())})`)
+    ok((await reset.count()) === 0, 'with no Reset showing')
+
+    // 8-10. The theme editor: no alpha on the Background in Prism (the style
+    // owns see-through), alpha on a palette colour, and no accent on a control.
+    const showAll = win.locator('button[aria-expanded="false"][aria-label^="Show all"]')
+    if ((await showAll.count()) === 1) await showAll.click()
+    await win.locator('[data-term-card="pitch"]').click()
+    await win.locator('[data-edit-theme="pitch"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    const editor = win.locator('[data-theme-editor]')
+    await editor.locator('[data-colour-swatch][aria-label="Pick Background"]').click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), "the theme's Background opens the picker")
+    ok((await popover.locator('[role="slider"][aria-label="Alpha"]').count()) === 0, "with no Alpha slider: in Prism the style owns the window's see-through")
+    const accentFilled = await win.evaluate(() => {
+      const pop = document.querySelector('[data-colour-popover]')
+      const probe = document.createElement('div')
+      document.body.append(probe)
+      const fills = ['--p-accent', '--p-sel-bg'].map((t) => {
+        probe.style.background = `var(${t})`
+        return getComputedStyle(probe).backgroundColor
+      })
+      probe.remove()
+      return [...(pop?.querySelectorAll('button, input, [role="slider"]') ?? [])]
+        .filter((e) => fills.includes(getComputedStyle(e).backgroundColor))
+        .map((e) => e.getAttribute('aria-label') ?? e.textContent)
+    })
+    ok(accentFilled.length === 0, `no control in the picker wears the accent (${JSON.stringify(accentFilled)})`)
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), "Escape closes the editor's picker")
+    ok((await editor.count()) === 1, 'and only the picker: the theme editor stays open behind it')
+    await editor.locator('[data-colour-swatch][aria-label="Pick red"]').click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'a palette colour opens the picker')
+    ok((await popover.locator('[role="slider"][aria-label="Alpha"]').count()) === 1, 'with an Alpha slider')
+    await win.keyboard.press('Escape')
+    await until(async () => (await popover.count()) === 0, 4000, 50)
+    await editor.locator('button:has-text("Cancel")').click()
+    await until(async () => (await editor.count()) === 0, 4000, 50)
+
+    // The profile is shared by the scenarios after this one: theme and
+    // indicator go back to what they were, and the stand-in ends idle.
+    if (themeBefore && themeBefore !== 'pitch') await win.locator(`[data-term-card="${themeBefore}"]`).click()
+    await win.evaluate(() => localStorage.removeItem('prism.term.agentIndicator'))
+    await win.locator('[role="tablist"] [data-agent-present] [role="tab"]').click()
+    await win.locator('.xterm').click()
+    await say('2733', 'Claude Code')
+    await until(async () => (await workingTab.count()) === 0, 8000, 50)
+  } finally {
+    await app.close().catch(() => {})
   }
 }
 
@@ -8850,6 +9055,7 @@ await run(updateQuietScenario)
 await run(terminalScenario)
 await run(termOptionsScenario)
 await run(noCommandHelpScenario)
+await run(termColourPickerScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)
