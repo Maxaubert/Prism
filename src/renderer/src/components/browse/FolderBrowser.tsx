@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -9,6 +9,7 @@ import { browseEntries } from './entries'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
 import { clickSelect } from '../../lib/selection'
 import { sweepSelect } from '../../lib/marquee'
+import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import './browse.css'
 
@@ -26,6 +27,7 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
+  const rowLook = explorerRow(useExplorerSize())
   const [visibleFolders, setVisibleFolders] = useState<string[]>([])
   const onVisibleFolders = useCallback((paths: string[]) => {
     setVisibleFolders((previous) =>
@@ -174,6 +176,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     <div
       ref={shell}
       className="folder-browser"
+      // One size for the list AND Quick access (#257): the row look is set
+      // here, where both read it.
+      style={
+        {
+          '--browse-row-h': `${rowLook.height}px`,
+          '--browse-row-font': `${rowLook.font}px`,
+          '--browse-row-icon': `${rowLook.icon}px`,
+          '--browse-row-gap': `${rowLook.gap}px`,
+          '--browse-row-pad': `${rowLook.padX}px`
+        } as CSSProperties
+      }
       data-preview={props.previewVisible || undefined}
       data-places-hidden={props.placesVisible === false || undefined}
       data-places-sliding={sliding || undefined}

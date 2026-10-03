@@ -7554,7 +7554,8 @@ async function markTintScenario(fixtures) {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await sleep(400)
     await checkExplorer('accent alpha 40%')
-    // Quick access's "you are here" is the rail's job, so the rail's solid.
+    // Quick access's "you are here" wears the selection's tint (owner,
+    // 2026-10-03: "i want that colour for the sidebar on the explorer page too").
     // Walking into a place is only a listing: nothing there is touched.
     await win.locator('.folder-browser .browse-place').first().click()
     await win.mouse.move(5, 5)
@@ -7562,8 +7563,13 @@ async function markTintScenario(fixtures) {
     ok(placeOn, 'a Quick access place is the current one')
     if (placeOn) {
       await sleep(300)
-      const place = await win.locator('.folder-browser .browse-place[aria-current]').first().evaluate((el) => getComputedStyle(el).backgroundColor)
-      ok(place === solid, `the Explorer's current place is solid too (${place})`)
+      const place = await win.locator('.folder-browser .browse-place[aria-current]').first().evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return { bg: cs.backgroundColor, ink: cs.color, plain: getComputedStyle(document.querySelector('.folder-browser .browse-place:not([aria-current])')).color }
+      })
+      const a = Number((/rgba\([^)]*,\s*([0-9.]+)\)/.exec(place.bg) ?? [])[1] ?? 1)
+      ok(a > 0.1 && a < 0.4, `the Explorer's current place is the selection tint, not a solid block (${place.bg})`)
+      ok(place.ink !== place.plain || place.ink.length > 0, `and its text keeps a text colour (${place.ink})`)
     }
   } finally {
     await win
@@ -7641,7 +7647,13 @@ async function explorerSizeScenario(fixtures) {
         h: row?.getBoundingClientRect().height,
         font: row ? getComputedStyle(row).fontSize : null,
         icon: icon?.getBoundingClientRect().height,
-        tree: document.querySelector('aside [data-row]')?.getBoundingClientRect().height ?? null
+        tree: document.querySelector('aside [data-row]')?.getBoundingClientRect().height ?? null,
+        place: document.querySelector('.folder-browser .browse-place')?.getBoundingClientRect().height ?? null,
+        placeIcon: document.querySelector('.folder-browser .browse-place > svg')?.getBoundingClientRect().height ?? null,
+        placeFont: (() => {
+          const el = document.querySelector('.folder-browser .browse-place')
+          return el ? getComputedStyle(el).fontSize : null
+        })()
       }
     })
   try {
@@ -7657,6 +7669,11 @@ async function explorerSizeScenario(fixtures) {
       const [h, font, icon] = want[name]
       ok(got.h === h && got.font === font && got.icon === icon, `${name}: ${h}px rows of ${font} text, a ${icon}px icon (${JSON.stringify(got)})`)
       ok(got.tree === medium.tree, `${name}: and the tree's rows stay as they were (${got.tree})`)
+      // Quick access follows the same one setting (owner, 2026-10-03).
+      ok(
+        got.place === h && got.placeIcon === icon && got.placeFont === font,
+        `${name}: Quick access has the same rows (${got.place}px, ${got.placeFont}, a ${got.placeIcon}px icon)`
+      )
       await win.screenshot({ path: join(SHOTS, `explorer-size-${name.toLowerCase()}.png`) })
     }
     ok((await win.evaluate(() => localStorage.getItem('prism.explorer.size'))) === 'large', 'the choice is stored')

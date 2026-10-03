@@ -267,16 +267,25 @@
   font-size: 13px;
   font-weight: 400;
 }
+/* Quick access follows the Explorer size too (owner, 2026-10-03: "those icons
+   too should be size adjustable, same as the main files. they follow one
+   setting"): the same --browse-row-* the list reads, set on .folder-browser.
+   Large is the panel as it was (40px, an 18px icon, a 12px gap). */
 .browse-place {
   width: 100%;
-  height: 40px;
+  height: var(--browse-row-h, 26px);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: var(--browse-row-gap, 6px);
+  padding: 0 var(--browse-row-pad, 8px);
   border-radius: 4px;
   text-align: left;
   color: var(--p-text-soft);
+}
+/* Above `.folder-browser button { font: inherit }`, which would otherwise keep
+   the panel at the shell's 15px whatever the size. */
+.folder-browser .browse-place {
+  font-size: var(--browse-row-font, 12.5px);
 }
 .browse-place span {
   overflow: hidden;
@@ -284,15 +293,19 @@
   white-space: nowrap;
 }
 .browse-place > svg {
-  width: 18px;
-  height: 18px;
+  width: var(--browse-row-icon, 14px);
+  height: var(--browse-row-icon, 14px);
+  flex: none;
 }
-/* "You are here", the settings rail's job in the Explorer, so the rail's solid
-   accent: the accent's alpha does not fade it (#257). */
+/* The current place wears the SELECTION's look, the tint with its faint edge
+   and the text in its own colour (owner, 2026-10-03, of the solid block: "i
+   want that colour for the sidebar on the explorer page too, not just the
+   selected file"). */
 .folder-browser .browse-place[aria-current],
 .folder-browser .browse-place[aria-current]:hover {
-  background: var(--p-sel-solid);
-  color: var(--p-on-sel-solid);
+  background: var(--p-sel-tint);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line);
+  color: var(--p-text);
 }
 .browse-actions {
   grid-column: 2 / -1;
