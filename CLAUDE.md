@@ -534,11 +534,25 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
   their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
   Settings rail and the chosen card use `--p-sel-solid` / `--p-accent-solid`. Neither moves
-  with the accent's alpha, and neither does the Explorer's current place (`--p-sel-solid`,
-  "you are here" like the rail). `theme.selection.test.ts`, `markTint` e2e. The menu's grey
+  with the accent's alpha. Quick access's current place wears the tint too. `theme.selection.test.ts`,
+  `markTint` e2e. The menu's grey
   row is unchanged (its icon's knockouts are its own grey). THE TINT IS NOT FLATTENED UNDER
   GLASS, on purpose: it carries no label of its own, only the row's ordinary text, which sits
   on the same glass marked or not, and a flattened tint is the opaque slab the owner rejected.
+  **THE SELECTION IS ITS OWN COLOUR** (owner, 2026-10-03: "the settings accent colour for the
+  tab should be separated from the explorer accent colour ... called something like selected
+  item colour"). Style row **Selection** right after Accent (Primary, Secondary, Accent,
+  Selection, Text, Folder icons), the core picker with alpha (min 10%): the pick's colour and
+  alpha ARE `--p-sel-tint` everywhere the tint is used (`Style.selection` / draft `selection`,
+  six or eight hex, `cleanColour` on load, kept by a saved style). UNSET is `hi` at 22% byte
+  for byte and the picker shows that; nothing is stored until a pick, and picking the shown
+  value back is no edit. A pick past the floors (names 4.5:1, quiet columns 3.2:1) keeps its
+  hue and loses strength (`selectionTintAlpha`'s `start`). The Accent keeps the rail, buttons,
+  progress. The edge is SOFTER: `TINT_LINE` 0.28 (was 0.5; "the border contrast is slightly
+  too much"), scaled with a picked strength up to 0.5 (`tintLineAlpha`).
+  `theme.selectionColour.test.ts`, `markTint` and `styleColours` e2e.
+  **NO STRIPES IN THE EXPLORER** (owner, same day: "try no alternating row bg for explorer"):
+  every `.browse-row` is the plain ground. The archive view keeps its zebra (`p-zebra`).
   ARRIVING NEVER SELECTS (2026-09-22, owner: "no file should be selected when I haven't
   clicked any ... either because I clicked it or it's the current file displaying, or I've
   navigated onto it with the arrow keys"). In the Explorer, walking into a folder by a sidebar

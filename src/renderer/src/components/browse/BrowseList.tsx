@@ -479,7 +479,6 @@ export function BrowseList(props: Props): JSX.Element {
                       key={`pending-${first + offset}`}
                       className="browse-row"
                       aria-hidden="true"
-                      data-striped={(first + offset) % 2 === 1 || undefined}
                     >
                       <span className="browse-column-name browse-name">
                         {entry === null ? 'Item unavailable' : 'Loading\u2026'}
@@ -512,7 +511,6 @@ export function BrowseList(props: Props): JSX.Element {
                     data-join-up={joinUp || undefined}
                     data-join-down={joinDown || undefined}
                     data-menu={onMenu || undefined}
-                    data-striped={(first + offset) % 2 === 1 || undefined}
                     draggable
                     {...folderDrop(
                       entry.isFolder ? entry.path : (browseParent(entry.path) ?? props.directory),

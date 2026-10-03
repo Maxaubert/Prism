@@ -457,9 +457,9 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .folder-browser .browse-row {
   font-size: var(--browse-row-font, 12.5px);
 }
-.browse-row[data-striped] {
-  background: color-mix(in srgb, var(--p-text) 2%, transparent);
-}
+/* NO STRIPES in the Explorer (#257; owner, 2026-10-03: "try no alternating row
+   bg for explorer"): every row is the plain ground, as in Windows' own list,
+   and a marked row's tint stands out against nothing but the ground. */
 .browse-row > span {
   overflow: hidden;
   white-space: nowrap;

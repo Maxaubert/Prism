@@ -7513,6 +7513,22 @@ async function markTintScenario(fixtures) {
     await win.mouse.move(5, 5)
     await sleep(300)
     await checkExplorer('dark')
+    // NO STRIPES (owner, 2026-10-03: "try no alternating row bg for
+    // explorer"): every unmarked row is the plain ground, odd and even alike.
+    const grounds = await win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] .browse-row')]
+        .filter((r) => !r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+        .map((r) => getComputedStyle(r).backgroundColor)
+    )
+    ok(grounds.length >= 4, `there are plain rows to compare (${grounds.length})`)
+    ok(
+      grounds.every((g) => alphaOf(g) === 0 || g === 'transparent'),
+      `no Explorer row carries a stripe (${[...new Set(grounds)].join(' / ')})`
+    )
+    // THE EDGE IS SOFTER (same day: "the border i think contrast is slightly
+    // too much"): it was the accent at 0.5, it is a hint now.
+    const lineA = alphaOf(await token('--p-sel-line'))
+    ok(lineA > 0.2 && lineA < 0.32, `the marked block's edge is a hint, alpha ${lineA} where it was 0.5`)
     // Two marked neighbours are one block: no edge between them.
     const join2 = await win.evaluate(() => {
       const r = (i) => document.querySelector(`[data-testid="browse-list"] [data-browse-index="${i}"]`)
@@ -7554,6 +7570,20 @@ async function markTintScenario(fixtures) {
     await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
     await sleep(400)
     await checkExplorer('accent alpha 40%')
+    // THE SELECTION IS ITS OWN COLOUR (owner, 2026-10-03: "the settings accent
+    // colour for the tab should be separated from the explorer accent colour").
+    // A green Selection at 22% tints the marks; the rail keeps the accent.
+    await win.evaluate((d) => {
+      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4, selection: '#2ecc7138' }
+      localStorage.setItem('prism.style.draft', JSON.stringify(v))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, draftBefore)
+    await sleep(300)
+    const green = await explorerLook()
+    ok(green !== null && /^rgba\(46, 204, 113, 0\.2\d*\)$/.test(green.bg), `a picked Selection is the marked row's tint (${green?.bg})`)
+    ok(green !== null && green.name[0] === green.name[1], 'and the row keeps its own text colour')
+    ok((await token('--p-sel-solid')) === solid, `the accent's solid fill is untouched (${await token('--p-sel-solid')})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-selection-picked.png') })
     // Quick access's "you are here" wears the selection's tint (owner,
     // 2026-10-03: "i want that colour for the sidebar on the explorer page too").
     // Walking into a place is only a listing: nothing there is touched.
@@ -7569,8 +7599,17 @@ async function markTintScenario(fixtures) {
       })
       const a = Number((/rgba\([^)]*,\s*([0-9.]+)\)/.exec(place.bg) ?? [])[1] ?? 1)
       ok(a > 0.1 && a < 0.4, `the Explorer's current place is the selection tint, not a solid block (${place.bg})`)
+      ok(/^rgba\(46, 204, 113,/.test(place.bg), `in the picked Selection colour (${place.bg})`)
       ok(place.ink !== place.plain || place.ink.length > 0, `and its text keeps a text colour (${place.ink})`)
     }
+    // The Settings rail still wears the accent, solid, as before the pick.
+    await win.click('[aria-label="Settings"]')
+    await rail.waitFor({ timeout: 8000 })
+    await rail.click()
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const railAfter = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
+    ok(railAfter === railBg, `the Settings rail keeps the accent (${railAfter}, was ${railBg})`)
   } finally {
     await win
       .evaluate((d) => {
@@ -7988,19 +8027,63 @@ async function styleColoursScenario(fixtures) {
     const slider = (name) => pop.locator(`[role="slider"][aria-label="${name}"]`)
     await fieldOf('c-bg').waitFor({ timeout: 8000 })
     ok((await win.locator('#c-glass').count()) === 0, 'there is no Acrylic slider')
-    for (const id of ['c-bg', 'c-chrome', 'c-text', 'c-folder-icon', 'c-accent'])
+    for (const id of ['c-bg', 'c-chrome', 'c-text', 'c-folder-icon', 'c-accent', 'c-selection'])
       ok((await rowOf(id).locator('[data-colour-swatch]').count()) === 1, `${id} is the core picker`)
+    // By importance, with Selection right after the Accent it came out of
+    // (#257; owner, 2026-10-03).
+    const order = await win.evaluate(() => [...document.querySelectorAll('[data-colour-row]')].map((r) => r.getAttribute('data-colour-row')))
+    const want = ['c-bg', 'c-chrome', 'c-accent', 'c-selection', 'c-text', 'c-folder-icon']
+    ok(
+      JSON.stringify(order.filter((id) => want.includes(id))) === JSON.stringify(want),
+      `the colours run Primary, Secondary, Accent, Selection, Text, Folder icons (${order.join(', ')})`
+    )
     ok((await win.locator('[data-pref="c-bg"] input[type="color"], [data-pref] input[type="color"]').count()) === 0, 'no native colour input is left')
 
     // #71's guard: tabbing through a row writes nothing (Folder icons
     // follows the accent, the Accent row is a scheme).
-    for (const id of ['c-folder-icon', 'c-accent']) {
+    for (const id of ['c-folder-icon', 'c-accent', 'c-selection']) {
       await fieldOf(id).focus()
       await win.keyboard.press('Tab')
       await win.keyboard.press('Tab')
     }
     await sleep(200)
-    ok(JSON.stringify(await draft()) === '{}', `tabbing through Folder icons and Accent writes nothing (${JSON.stringify(await draft())})`)
+    ok(JSON.stringify(await draft()) === '{}', `tabbing through Folder icons, Accent and Selection writes nothing (${JSON.stringify(await draft())})`)
+
+    // SELECTION, unset, shows the accent's tint at its 22%, and a pick stores
+    // the colour with its alpha; Escape puts the unset row back, and Reset
+    // forgets a kept pick.
+    const tintShown = await fieldOf('c-selection').inputValue()
+    ok(/^#[0-9a-f]{6}38$/.test(tintShown), `unset, Selection shows the accent's tint at 22% (${tintShown})`)
+    await rowOf('c-selection').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Hue').focus()
+    for (let i = 0; i < 6; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(150)
+    ok(/^#[0-9a-f]{6}38$/.test((await draft()).selection ?? ''), `a hue edit stores the colour with its alpha (${(await draft()).selection})`)
+    await slider('Hue').press('Escape')
+    await sleep(200)
+    ok((await pop.count()) === 0 && (await draft()).selection === undefined, 'Escape puts the unset Selection back')
+    const accentBefore = await token('--p-sel-solid')
+    await rowOf('c-selection').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Hue').focus()
+    for (let i = 0; i < 6; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(150)
+    await fieldOf('c-text').click()
+    await sleep(150)
+    const kept = (await draft()).selection ?? ''
+    ok(/^#[0-9a-f]{8}$/.test(kept), `a press outside keeps the pick (${kept})`)
+    const tint = await token('--p-sel-tint')
+    ok(tint.slice(0, 3).join(',') !== '0,0,0' && Math.abs(tint[3] - 0x38 / 255) < 0.01, `and it is the tint (${tint.join(',')})`)
+    ok(JSON.stringify(await token('--p-sel-solid')) === JSON.stringify(accentBefore), 'the accent fill does not move')
+    await rowOf('c-selection').scrollIntoViewIfNeeded()
+    await win.screenshot({ path: join(SHOTS, 'style-colours-selection.png') })
+    const reset = rowOf('c-selection').locator('button', { hasText: 'Reset' })
+    ok((await reset.count()) === 1, 'a picked Selection offers Reset')
+    await reset.click()
+    await sleep(200)
+    ok((await draft()).selection === undefined, `Reset forgets it (${JSON.stringify(await draft())})`)
+    ok((await fieldOf('c-selection').inputValue()) === tintShown, 'and the row shows the accent tint again')
 
     // Escape in a picker after a change puts the row back as it was: unset.
     await rowOf('c-folder-icon').locator('[data-colour-swatch]').click()

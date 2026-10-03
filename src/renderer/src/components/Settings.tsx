@@ -61,12 +61,15 @@ import {
   restoreOverrides,
   savePreset,
   secondaryValue,
+  selectionValue,
+  TINT_MIN,
   setAccentColour,
   setAcrylic,
   setMode,
   setOverride,
   setPrimary,
   setSecondary,
+  setSelection,
   setStyle,
   snapPrimaryAlpha,
   useMode,
@@ -820,7 +823,8 @@ function StyleTab(): JSX.Element {
               2026-08-08). */}
           {/* THE COLOURS RUN BY IMPORTANCE (owner, 2026-10-03: "make the most
               important colours appear first ... primary and secondary first then
-              accent"): Primary, Secondary, Accent, Text, Folder icons. */}
+              accent"): Primary, Secondary, Accent, Selection, Text, Folder
+              icons. Selection sits by the Accent it used to be part of. */}
           <Pref
             id="c-bg"
             label="Primary colour"
@@ -874,7 +878,7 @@ function StyleTab(): JSX.Element {
               only), not a slider of its own (owner, 2026-10-03: "it should not
               be a separate opacity setting"). A Pref, so its description is read
               by the plain-words test. */}
-          <Pref id="c-accent" label="Accent" hint="The colour of the selection, progress bar and visualizer.">
+          <Pref id="c-accent" label="Accent" hint="The colour of the chosen page, buttons, progress bar and visualizer.">
             <StyleColour
               id="c-accent"
               label="Accent"
@@ -886,6 +890,25 @@ function StyleTab(): JSX.Element {
               onReset={resetAccent}
               onRevert={putBack(['accent', 'accentAlpha'])}
               alphaMin={ALPHA_MIN}
+            />
+          </Pref>
+          {/* THE SELECTION IS ITS OWN ROW (#257; owner, 2026-10-03: "the
+              settings accent colour for the tab should be separated from the
+              explorer accent colour"). Its colour and alpha ARE the tint of
+              marked files and the current place; the Accent keeps the Settings
+              rail, buttons and progress. Unset it shows the accent's tint,
+              which is what is on screen, and nothing is stored until a pick.
+              Below a tenth a mark stops reading as one, hence the floor. */}
+          <Pref id="c-selection" label="Selection" hint="The tint of selected files and the current place.">
+            <StyleColour
+              id="c-selection"
+              label="Selection"
+              value={selectionValue(style)}
+              custom={!!edits.selection}
+              onChange={setSelection}
+              onReset={() => setOverride('selection', null)}
+              onRevert={putBack(['selection'])}
+              alphaMin={TINT_MIN}
             />
           </Pref>
           <Pref id="c-text" label="Text" hint="The colour of file names, labels and readouts.">
