@@ -175,6 +175,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       data-preview={props.previewVisible || undefined}
       data-places-hidden={props.placesVisible === false || undefined}
       data-places-sliding={sliding || undefined}
+      data-places-peek={props.placesPeek || undefined}
       data-testid="folder-browser"
       onKeyDown={(e) => {
         const target = e.target as HTMLElement
@@ -248,17 +249,32 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       }}
     >
       <BrowseToolbar {...props} />
-      {(props.placesVisible !== false || sliding) && (
+      {(props.placesVisible !== false || sliding || !!props.placesPeek) && (
         <BrowsePlaces
           places={props.places}
           onDropInto={props.onDropInto}
           quickAccess={props.quickAccess}
-          onQuickAccessFile={props.onQuickAccessFile}
+          onQuickAccessFile={
+            props.placesPeek && props.onQuickAccessFile
+              ? (path, full) => {
+                  props.onPlacePicked?.()
+                  props.onQuickAccessFile?.(path, full)
+                }
+              : props.onQuickAccessFile
+          }
+          onPin={props.placesPeek === 'in' ? props.onPinPlaces : undefined}
           onUnpinQuickAccess={props.onUnpinQuickAccess}
           onMoveQuickAccess={props.onMoveQuickAccess}
           onPinQuickAccessPaths={props.onPinQuickAccessPaths}
           directory={props.directory}
-          onNavigate={props.onNavigate}
+          onNavigate={
+            props.placesPeek
+              ? (path) => {
+                  props.onPlacePicked?.()
+                  props.onNavigate(path)
+                }
+              : props.onNavigate
+          }
           onNewTerminal={props.onNewTerminal}
           onOpenProject={props.onOpenProject}
           onOpenNewTab={props.onOpenNewTab}

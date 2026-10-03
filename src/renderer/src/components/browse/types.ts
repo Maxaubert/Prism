@@ -46,6 +46,13 @@ export interface FolderBrowserProps {
   placesVisible?: boolean
   /** The places panel is mid-slide after a toggle: keep it mounted and animate. */
   placesSliding?: boolean
+  /** THE COLLAPSED PANEL PEEKS (#250): 'in' while the hidden places panel is
+   *  out OVER the list, 'out' for its slide away. */
+  placesPeek?: 'in' | 'out' | null
+  /** The peeking panel's own toggle: keep it open. */
+  onPinPlaces?: () => void
+  /** A place or a pin was picked from the peeking panel: the peek is over. */
+  onPlacePicked?: () => void
   quickAccess?: QuickAccessPin[]
   onQuickAccessFile?: (path: string, full?: boolean) => void
   onUnpinQuickAccess?: (path: string) => void

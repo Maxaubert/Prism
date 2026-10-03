@@ -29,6 +29,8 @@ import { PropertiesDialog } from './PropertiesDialog'
 import { TreeWindow } from './TreeRows'
 import { paintRows, scrollForRow } from '../lib/treePaint'
 import { SearchResults } from './SearchResults'
+import { PeekPinButton } from './PanelToggle'
+import type { PeekPhase } from '../lib/useSidebarPeek'
 import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
@@ -134,6 +136,8 @@ const SEARCH_HELP = [
 export function Sidebar({
   open,
   sliding = false,
+  peek = null,
+  onPin,
   root,
   tabId,
   currentPath,
@@ -171,6 +175,11 @@ export function Sidebar({
   /** Mid-slide after an open or close (App's `panelSliding`): only then does the
    *  width animate, so a tab switch that shuts or opens it lands at once. */
   sliding?: boolean
+  /** THE COLLAPSED PANEL PEEKS (#250): 'in' while it is out OVER the content,
+   *  'out' for its slide away. Only ever set while `open` is false. */
+  peek?: PeekPhase
+  /** The peeking panel's own toggle: keep it open. */
+  onPin?: () => void
   root: string
   /** Which tab this sidebar is serving; the search query is kept per tab. */
   tabId: string
@@ -776,7 +785,7 @@ export function Sidebar({
   // it wakes up with is the one it went to sleep with; the reveal then happens
   // on the way open, for a file it hasn't been positioned for yet.
   useEffect(() => {
-    if (!autoScroll || !open || !currentPath) return
+    if (!autoScroll || !(open || peek === 'in') || !currentPath) return
     if (placed.current === currentPath) return
     const box = scroller.current
     if (!box) return
@@ -793,7 +802,7 @@ export function Sidebar({
     }
     attempt()
     return () => cancelAnimationFrame(frame)
-  }, [autoScroll, open, currentPath, state.children, showRow])
+  }, [autoScroll, open, peek, currentPath, state.children, showRow])
 
   /**
    * Ctrl+A marks every row the tree is SHOWING - what is expanded, folders
@@ -1211,6 +1220,7 @@ export function Sidebar({
   }, [onNav, step])
 
   const rootListing = state.children[root]
+  const overlay = !open && !!peek
 
   return (
     // The panel stays mounted and collapses to zero width, so opening and closing
@@ -1219,9 +1229,10 @@ export function Sidebar({
     <aside
       ref={panel}
       data-project-sidebar
-      inert={!open}
-      aria-hidden={!open}
-      style={{ width: open ? width : 0 }}
+      data-peek={overlay ? peek : undefined}
+      inert={!open && peek !== 'in'}
+      aria-hidden={!open && peek !== 'in'}
+      style={{ width: open || overlay ? width : 0 }}
       onKeyDown={(event) => {
         const target = event.target as HTMLElement
         if (target.closest('[role="menu"],[role="dialog"],.xterm,.cm-editor')) return
@@ -1247,8 +1258,15 @@ export function Sidebar({
           }
         }
       }}
-      className={`p-styled-font relative h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
-        dragging || !sliding
+      // A peek lays the panel OVER the content (absolute, out of the flow, so
+      // nothing beside it moves or resizes) with a shadow on its open side to
+      // lift it off what it covers. Shut, it is the zero-width column it was.
+      className={`p-styled-font h-full shrink-0 overflow-hidden bg-[var(--p-side)] ${wash ? 'p-wash ' : ''}${
+        overlay
+          ? `absolute inset-y-0 z-40 ${right ? 'right-0 p-peek-right' : 'left-0 p-peek-left'} ${peek === 'in' ? 'p-peek-in' : 'p-peek-out'}`
+          : 'relative'
+      } ${
+        dragging || !sliding || overlay
           ? ''
           : 'transition-[width] duration-[180ms] [transition-timing-function:cubic-bezier(.23,1,.32,1)]'
       }`}
@@ -1267,6 +1285,9 @@ export function Sidebar({
             so it wears whatever the style wears (a filled grey panel glowed
             on true black); the accent arrives with focus, Escape clears. */}
         <div className="mx-2 mb-1.5 mt-2 flex shrink-0 items-center gap-1.5">
+          {/* The same toggle as the bar's, on a PEEKING panel only: a click
+              keeps it open (#250). A pinned panel is put away from the bar. */}
+          {overlay && onPin && <PeekPinButton onPin={onPin} />}
           <button
             className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] text-[var(--p-icon)] transition-colors hover:border-[color:var(--p-accent-hi)] hover:text-[var(--p-text)]"
             onClick={onOpenFolder}

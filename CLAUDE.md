@@ -2243,6 +2243,12 @@ Filesmith's conventions.
   (in `e2e:terminal`, runner-safe), THEN gets fixed. And a FLAKY check in the gate is a bug in the
   gate: fix the race, never retry around it. The first automatic bump (#165) was held by exactly
   one, a scrollback check that read a re-attached xterm before it repainted.
+  **A GATE CAN BE LANDED BEFORE THE CORE HAS THE FEATURE** (#253): `termColourPicker` drives the
+  core's colour picker (alpha on the working colour, the Full tab's ink on the composite, Escape
+  putting back an unset row, no alpha on the theme Background here) and SKIPS while
+  `node_modules/prism-term-core/renderer/settings/ColourPicker.tsx` is missing, by the file and
+  never a version, so the first bump that carries the picker is gated on it. `termOptions` checks
+  the RULE for `onlyWhere` rows (every one absent), not that there is exactly one.
 - **DICTATION IN THE TERMINAL IS THE CORE'S TOO** (2026-09-19, #162; owner: "make sure this feature
   is synced and part of the core and should be the same in normal Prism, with dictation as its own
   tab there too"). Hold Right Alt over a SHOWING terminal, speak, release: the words are pasted at

@@ -891,11 +891,17 @@ async function termOptionsScenario(fixtures) {
   const { app, win } = await launch(join(fixtures, 'README.md'))
   try {
     const src = readFileSync(join(process.cwd(), 'node_modules/prism-term-core/renderer/settings/options.ts'), 'utf8')
-    // Prism's window material belongs to the app STYLE, so the one row the
-    // list marks as window-acrylic-only (the opacity slider) is not shown here.
+    // Prism's window material belongs to the app STYLE, so a row the list
+    // marks `onlyWhere` (window-acrylic-only: the opacity slider today) is not
+    // shown here. HOW MANY such rows there are is the core's business, not
+    // this gate's (#253): Prism Terminal's colour picker work removes the
+    // opacity row, and a count of exactly one would have held that core bump
+    // red for ever. What is checked is the rule: every other row is on the
+    // page in the list's order, and every `onlyWhere` row is absent.
     const rows = [...src.matchAll(/\{\s*id: '([a-z-]+)'[^}]*\}/g)]
     const wanted = rows.filter((m) => !m[0].includes('onlyWhere')).map((m) => m[1]).sort()
-    ok(wanted.length >= 8 && rows.length === wanted.length + 1, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
+    const windowOnly = rows.filter((m) => m[0].includes('onlyWhere')).map((m) => m[1])
+    ok(wanted.length >= 8, `the core lists the terminal options (${wanted.length} of ${rows.length} apply here)`)
     await win.click('[aria-label="Settings"]')
     await sleep(400)
     await win.click('button:has-text("Terminal")')
@@ -921,6 +927,12 @@ async function termOptionsScenario(fixtures) {
       `and in the shared order (${pageOrder.join(' > ')})`
     )
     ok((await win.locator('[data-pref="term-opacity"]').count()) === 0, 'with no opacity slider: the style owns the glass')
+    const shownWindowOnly = []
+    for (const id of windowOnly) if ((await win.locator(`[data-pref="${id}"]`).count()) > 0) shownWindowOnly.push(id)
+    ok(
+      shownWindowOnly.length === 0,
+      `and no row the core keeps for a window-acrylic host (${windowOnly.length ? windowOnly.join(', ') : 'none listed'}; shown: ${JSON.stringify(shownWindowOnly)})`
+    )
     await win.screenshot({ path: join(SHOTS, 'terminal-settings.png') })
     // Untouched, the indicator is MINIMAL and its colours follow the accent.
     ok(
@@ -970,6 +982,210 @@ async function noCommandHelpScenario(fixtures) {
     ok((await win.locator('[data-pref="help-enabled"]').count()) === 0, 'and Settings has no command help switch')
   } finally {
     await app.close()
+  }
+}
+
+/**
+ * ONE COLOUR PICKER, WITH ALPHA, FOR EVERY COLOUR (#253; owner, 2026-10-03:
+ * "the colour pickers should be the same for both apps, i need an input field
+ * for a color code and an alpha per colour on every colour setting colour
+ * picker both in pt and prism, also in the terminal tab where we have things
+ * like agent indicators, and terminal themes with specific colours").
+ *
+ * The picker is prism-term-core's (`renderer/settings/ColourPicker.tsx`), and a
+ * core change reaches Prism by an AUTO-MERGED bump, so this gate is landed
+ * BEFORE the core has it and runs the first time a bump carries it. Until
+ * then it skips itself, by the file's presence: feature detection, never a
+ * version number. Written against the DOM contract the design fixes
+ * (PrismTerminal `docs/superpowers/specs/2026-10-03-colour-picker-alpha-design.md`):
+ * `[data-colour-swatch]` "Pick <label>", `[data-colour-popover][role="dialog"]`,
+ * sliders named `Saturation and brightness` / `Hue` / `Alpha`, the alpha's
+ * `aria-valuenow` in whole percent.
+ *
+ * The working stand-in comes FIRST, before the popover opens: Escape must be
+ * pressed with the popover still open to prove it puts back an UNSET row, and
+ * the Full tab's ink is read while the see-through colour is live.
+ */
+async function termColourPickerScenario(fixtures) {
+  console.log('terminal colour picker')
+  if (!existsSync(join(ROOT, 'node_modules/prism-term-core/renderer/settings/ColourPicker.tsx'))) {
+    console.log('  skipped (core has no ColourPicker)')
+    return
+  }
+  const hexRgb = (h) => {
+    const s = h.replace('#', '').trim()
+    return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16))
+  }
+  const cssRgba = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+  }
+  const lum = (rgb) => {
+    const [r, g, b] = rgb.map((v) => {
+      const c = v / 255
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+    })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  const ratio = (x, y) => {
+    const [a, b] = [lum(x), lum(y)]
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+  }
+
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  try {
+    // 1. A shell stands in for Claude, mid-answer (updateGuard's recipe: the
+    // poll's first look is waited for, or it takes the titled state away).
+    await win.evaluate(() => {
+      window.__agentSaid = 0
+      window.prism.onTermAgent(() => (window.__agentSaid += 1))
+    })
+    await win.locator('aside [aria-label="Terminal"]').click()
+    await win.waitForSelector('.xterm', { timeout: 15000 })
+    await win.waitForFunction(
+      () => /PS [^>]*>\s*$/.test((document.querySelector('.xterm .xterm-rows')?.textContent ?? '').trimEnd()),
+      null,
+      { timeout: 45000 }
+    )
+    ok(await until(() => win.evaluate(() => window.__agentSaid > 0), 45000, 100), 'the process poll has had its first look at the shell')
+    await win.locator('.xterm').click()
+    const say = async (glyph, text) => {
+      await win.keyboard.type(`$Host.UI.RawUI.WindowTitle = "$([char]0x${glyph}) ${text}"`)
+      await win.keyboard.press('Enter')
+    }
+    const workingTab = win.locator('[role="tablist"] [data-agent-state="working"]')
+    await say('2733', 'Claude Code') // ✳, idle
+    await until(() => win.evaluate(() => !!document.querySelector('[role="tablist"] [data-agent-present]')), 10000, 50)
+    await say('25D0', 'Claude Code') // ◐, mid-answer
+    ok(await until(async () => (await workingTab.count()) === 1, 8000, 50), 'a working stand-in agent is on the strip')
+
+    await win.click('[aria-label="Settings"]')
+    await sleep(400)
+    await win.click('button:has-text("Terminal")')
+    await win.waitForSelector('[data-terminal-settings]', { timeout: 8000 })
+    const themeBefore = await win.locator('[data-term-card][aria-pressed="true"]').first().getAttribute('data-term-card')
+    await win.locator('[data-pref="agent-indicator"] button:has-text("Full")').click()
+    ok(await until(async () => (await workingTab.getAttribute('data-agent')) === 'full', 4000, 50), 'the indicator is Full, the tab filled')
+
+    // 2-3. Opened and closed with no change writes nothing.
+    const stored = () => win.evaluate(() => localStorage.getItem('prism.term.agentColor'))
+    const before = await stored()
+    ok(!before, `the working colour follows the theme to begin with (${JSON.stringify(before)})`)
+    const row = win.locator('[data-pref="agent-color"]')
+    const swatch = row.locator('[data-colour-swatch]')
+    const popover = win.locator('[data-colour-popover][role="dialog"]')
+    const reset = row.locator('[data-follow-theme]')
+    const escapeFromPicker = async () => {
+      await popover.locator('[role="slider"]').first().focus()
+      await win.keyboard.press('Escape')
+    }
+    ok((await swatch.getAttribute('aria-label')) === 'Pick Working colour', 'the row has a swatch named for it')
+    await swatch.click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'the swatch opens the picker')
+    ok((await popover.getAttribute('aria-label')) === 'Working colour', "the picker is named for the row's colour")
+    // The spec does not say the focus moves into the popover as it opens, and
+    // an Escape left on the swatch is not the popover's: focus inside first.
+    await escapeFromPicker()
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), 'Escape closes it')
+    ok((await stored()) === before && (await reset.count()) === 0, 'and an open and close with no change stores nothing and shows no Reset')
+
+    // 4-5. Alpha down to 50 on the keyboard: hex8 is stored, the tab is see-through.
+    await swatch.click()
+    await until(async () => (await popover.count()) === 1, 4000, 50)
+    const alpha = popover.locator('[role="slider"][aria-label="Alpha"]')
+    ok((await alpha.count()) === 1, 'the picker has an Alpha slider')
+    await alpha.focus()
+    const now = async () => Number(await alpha.getAttribute('aria-valuenow'))
+    for (let i = 0; i < 40 && (await now()) > 50; i++) {
+      await win.keyboard.press((await now()) - 50 >= 10 ? 'Shift+ArrowLeft' : 'ArrowLeft')
+    }
+    ok((await now()) === 50, `Shift+Left walks the alpha to 50 percent (${await now()})`)
+    ok(await until(async () => /^#[0-9a-f]{8}$/.test((await stored()) ?? ''), 3000, 50), `the working colour is stored as hex8 (${await stored()})`)
+    ok(/^#[0-9a-f]{8}$/.test(await row.locator('input:not([type])').inputValue()), 'and its code field shows the eight digits')
+    const tabLook = () =>
+      win.evaluate(() => {
+        const el = document.querySelector('[role="tablist"] [data-agent-state="working"]')
+        if (!el) return null
+        const cs = getComputedStyle(el)
+        return {
+          bg: cs.backgroundColor,
+          ink: cs.color,
+          ground: getComputedStyle(document.documentElement).getPropertyValue('--p-tabs-flat').trim()
+        }
+      })
+    // The fill FADES to its new colour, so it is read once it has arrived at
+    // the stored alpha: a sample mid-fade measured 0.875 and failed the ink.
+    const want = parseInt(((await stored()) ?? '').slice(7, 9), 16) / 255
+    const seeThrough = await until(async () => {
+      const l = await tabLook()
+      return l && Math.abs(cssRgba(l.bg).a - want) < 0.02 ? l : null
+    }, 4000, 50)
+    ok(!!seeThrough, `the Full tab's fill carries the alpha (${seeThrough?.bg ?? (await tabLook())?.bg})`)
+
+    // 6. Its ink is chosen on the fill as laid on the strip, at 4.5:1.
+    if (seeThrough) {
+      const fill = cssRgba(seeThrough.bg)
+      const ground = hexRgb(seeThrough.ground)
+      const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+      const r = ratio(cssRgba(seeThrough.ink).rgb, seen)
+      ok(r >= 4.5, `the Full tab's text reads on the composite (${r.toFixed(1)}:1, ${seeThrough.ink} on ${seeThrough.bg} over ${seeThrough.ground})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'term-colour-picker.png') }).catch(() => {})
+
+    // 7. Escape with a write behind it puts the UNSET row back.
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), 'Escape closes the changed picker')
+    ok(await until(async () => (await stored()) === before, 3000, 50), `and puts back a row that follows the theme (${JSON.stringify(await stored())})`)
+    ok((await reset.count()) === 0, 'with no Reset showing')
+
+    // 8-10. The theme editor: no alpha on the Background in Prism (the style
+    // owns see-through), alpha on a palette colour, and no accent on a control.
+    const showAll = win.locator('button[aria-expanded="false"][aria-label^="Show all"]')
+    if ((await showAll.count()) === 1) await showAll.click()
+    await win.locator('[data-term-card="pitch"]').click()
+    await win.locator('[data-edit-theme="pitch"]').click()
+    await win.waitForSelector('[data-theme-editor]', { timeout: 5000 })
+    const editor = win.locator('[data-theme-editor]')
+    await editor.locator('[data-colour-swatch][aria-label="Pick Background"]').click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), "the theme's Background opens the picker")
+    ok((await popover.locator('[role="slider"][aria-label="Alpha"]').count()) === 0, "with no Alpha slider: in Prism the style owns the window's see-through")
+    const accentFilled = await win.evaluate(() => {
+      const pop = document.querySelector('[data-colour-popover]')
+      const probe = document.createElement('div')
+      document.body.append(probe)
+      const fills = ['--p-accent', '--p-sel-bg'].map((t) => {
+        probe.style.background = `var(${t})`
+        return getComputedStyle(probe).backgroundColor
+      })
+      probe.remove()
+      return [...(pop?.querySelectorAll('button, input, [role="slider"]') ?? [])]
+        .filter((e) => fills.includes(getComputedStyle(e).backgroundColor))
+        .map((e) => e.getAttribute('aria-label') ?? e.textContent)
+    })
+    ok(accentFilled.length === 0, `no control in the picker wears the accent (${JSON.stringify(accentFilled)})`)
+    await escapeFromPicker()
+    ok(await until(async () => (await popover.count()) === 0, 4000, 50), "Escape closes the editor's picker")
+    // Held for a while, not read once: an editor that left on a delay (an
+    // exit transition) would still be counted the instant the picker went.
+    ok(!(await until(async () => (await editor.count()) === 0, 600, 50)), 'and only the picker: the theme editor stays open behind it')
+    await editor.locator('[data-colour-swatch][aria-label="Pick red"]').click()
+    ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'a palette colour opens the picker')
+    ok((await popover.locator('[role="slider"][aria-label="Alpha"]').count()) === 1, 'with an Alpha slider')
+    await escapeFromPicker()
+    await until(async () => (await popover.count()) === 0, 4000, 50)
+    await editor.locator('button:has-text("Cancel")').click()
+    await until(async () => (await editor.count()) === 0, 4000, 50)
+
+    // The profile is shared by the scenarios after this one: theme and
+    // indicator go back to what they were, and the stand-in ends idle.
+    if (themeBefore && themeBefore !== 'pitch') await win.locator(`[data-term-card="${themeBefore}"]`).click()
+    await win.evaluate(() => localStorage.removeItem('prism.term.agentIndicator'))
+    await win.locator('[role="tablist"] [data-agent-present] [role="tab"]').click()
+    await win.locator('.xterm').click()
+    await say('2733', 'Claude Code')
+    await until(async () => (await workingTab.count()) === 0, 8000, 50)
+  } finally {
+    await app.close().catch(() => {})
   }
 }
 
@@ -4633,6 +4849,385 @@ async function tabsScenario(fixtures) {
  * The pin on the + menu (#99): a pinned folder climbs above the recents, the
  * pin fills, the menu stays up while you do it, and the pin outlives history.
  */
+/** Pick a Style-page segment the way a user would: the cog, Style, the row
+ *  named by its label's `for`, the segment by name; then the cog again puts
+ *  Settings away (clicking it while Settings is in front closes the tab). */
+async function pickStyleSegment(win, rowId, name) {
+  await win.click('[aria-label="Settings"]')
+  await win.click('button:has-text("Style")')
+  await win.locator(`label[for="${rowId}"]`).waitFor({ timeout: 8000 })
+  const seg = win.getByRole('button', { name, exact: true })
+  await seg.scrollIntoViewIfNeeded()
+  await seg.click()
+  await win.click('[aria-label="Settings"]')
+  await sleep(400)
+}
+
+/** Which app region a point of the window is: the nearest element at or above
+ *  it that says, as Chromium resolves drag over no-drag. */
+const regionAt = (win, x, y) =>
+  win.evaluate(
+    ([px, py]) => {
+      for (let el = document.elementFromPoint(px, py); el; el = el.parentElement) {
+        const r = getComputedStyle(el).getPropertyValue('-webkit-app-region').trim()
+        if (r === 'drag' || r === 'no-drag') return r
+      }
+      return 'none'
+    },
+    [x, y]
+  )
+
+async function titleBarScenario(fixtures) {
+  // NO TITLE BAR (#250; owner, 2026-10-02: "normal prism should also have no
+  // titlebar option", Prism Terminal's #91): Hidden puts the panel toggle, the
+  // tabs and the bar's buttons in ONE row, and Shown is the window as it was.
+  console.log('the title bar setting')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const box = (sel) =>
+    win.evaluate((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect()
+      return r ? { x: r.x, y: r.y, w: r.width, h: r.height, r: r.right, b: r.bottom } : null
+    }, sel)
+  try {
+    await win.waitForSelector('[role="tablist"]', { timeout: 10000 })
+    // SHOWN, the default: the bar, its wordmark, and the strip under it.
+    const shownBar = await box('[data-title-bar]')
+    const shownStrip = await box('[role="tablist"]')
+    const shownWork = await box('.browse-workspace')
+    ok(
+      (await win.locator('[data-title-bar]:not([data-title-bar="tabs"])').count()) === 1 &&
+        (await win.locator('[data-title-bar] [data-wordmark]').count()) === 1,
+      'by default the title bar is shown, wordmark and all'
+    )
+    ok(!!shownBar && !!shownStrip && shownStrip.y >= shownBar.b - 1, `and the tabs sit under it (bar ${JSON.stringify(shownBar)}, strip ${JSON.stringify(shownStrip)})`)
+    ok(
+      (await win.locator('[data-title-bar] [data-panel-toggle]').count()) === 1,
+      'the panel toggle is in the bar'
+    )
+
+    await pickStyleSegment(win, 'title-bar', 'Hidden')
+    ok(
+      (await win.evaluate(() => localStorage.getItem('prism.window.titleBar'))) === 'hidden',
+      'Hidden is remembered under prism.window.titleBar'
+    )
+    // HIDDEN: one row, toggle first, the strip, the buttons last.
+    const row = '[data-title-bar="tabs"]'
+    ok(await until(async () => (await win.locator(row).count()) === 1, 5000), 'Hidden draws one row')
+    ok((await win.locator('[data-title-bar]').count()) === 1, 'and no title bar beside it')
+    ok((await win.locator('[data-wordmark]').count()) === 0, 'with no wordmark')
+    const rowBox = await box(row)
+    const toggle = await box(`${row} [data-panel-toggle]`)
+    const strip = await box(`${row} [role="tablist"]`)
+    const winButtons = await win.evaluate((s) =>
+      [...document.querySelectorAll(`${s} [data-window-button]`)].map((b) => b.getBoundingClientRect().right), row)
+    const cog = await box(`${row} [aria-label="Settings"]`)
+    const width = await win.evaluate(() => window.innerWidth)
+    ok(!!toggle && !!strip && toggle.r <= strip.x + 1 && toggle.x < 16, `the toggle comes first (${JSON.stringify(toggle)})`)
+    ok(!!strip && strip.y <= 1 && strip.b <= rowBox.b + 1, `the tabs are in the top row (${JSON.stringify(strip)})`)
+    ok(
+      winButtons.length === 3 && Math.max(...winButtons) > width - 20 && !!cog && cog.r <= Math.min(...winButtons),
+      `the cog and then the window buttons end the row (${winButtons.join(', ')} of ${width})`
+    )
+    // The settings page starts right under the row: it kept the 68px of title
+    // bar plus tabs and left a band (owner, 2026-10-03).
+    await win.click(`${row} [aria-label="Settings"]`)
+    const page = await until(async () => {
+      const p = await box('[data-settings-page]')
+      return p && Math.abs(p.y - rowBox.b) <= 1 ? p : null
+    }, 3000, 50)
+    ok(!!page, `the settings page starts under the one row (${JSON.stringify(await box('[data-settings-page]'))} vs row bottom ${rowBox.b})`)
+    await win.click(`${row} [aria-label="Settings"]`)
+    await until(async () => !(await box('[data-settings-page]')), 3000, 50)
+    const hiddenWork = await box('.browse-workspace')
+    ok(
+      !!hiddenWork && !!shownWork && hiddenWork.y < shownWork.y - 20,
+      `the workspace gains the bar's height (${shownWork?.y} -> ${hiddenWork?.y})`
+    )
+    // The handle: the strip's empty space drags the window; a tab, the + and
+    // every button do not.
+    const plus = await box(`${row} [aria-label="New tab"]`)
+    const emptyX = Math.round((plus.r + (cog?.x ?? width)) / 2)
+    const emptyY = Math.round(rowBox.y + rowBox.h / 2)
+    ok(
+      (await win.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[role="tablist"]'), [emptyX, emptyY])) &&
+        (await regionAt(win, emptyX, emptyY)) === 'drag',
+      'the row\'s empty space is the window\'s drag handle'
+    )
+    const firstTab = await box(`${row} [data-tab-role] [role="tab"]`)
+    const regions = {
+      tab: await regionAt(win, firstTab.x + firstTab.w / 2, firstTab.y + firstTab.h / 2),
+      plus: await regionAt(win, plus.x + plus.w / 2, plus.y + plus.h / 2),
+      toggle: await regionAt(win, toggle.x + toggle.w / 2, toggle.y + toggle.h / 2),
+      cog: await regionAt(win, cog.x + cog.w / 2, cog.y + cog.h / 2),
+      close: await regionAt(win, Math.max(...winButtons) - 10, emptyY)
+    }
+    ok(Object.values(regions).every((r) => r === 'no-drag'), `tabs and buttons are not handles (${JSON.stringify(regions)})`)
+    // However many tabs fill the strip, a handle is left before the buttons.
+    const spacer = await box(`${row} [data-drag-spacer]`)
+    ok(
+      !!spacer && spacer.w >= 40 && (await regionAt(win, spacer.x + spacer.w / 2, emptyY)) === 'drag',
+      `a handle that tabs never fill sits before the buttons (${JSON.stringify(spacer)})`
+    )
+    await win.screenshot({ path: join(SHOTS, 'titlebar-hidden.png') })
+
+    // The toggle and Ctrl+B still pin the tree, from the row.
+    const sidebarHidden = () => win.locator('[data-project-sidebar]').getAttribute('aria-hidden')
+    const pressed = () => win.locator(`${row} [data-panel-toggle]`).getAttribute('aria-pressed')
+    ok((await sidebarHidden()) === 'false' && (await pressed()) === 'true', 'the tree starts pinned open')
+    await win.click(`${row} [data-panel-toggle]`)
+    ok(await until(async () => (await sidebarHidden()) === 'true'), 'the row\'s toggle collapses it')
+    ok((await pressed()) === 'false', 'and says so (aria-pressed)')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await sidebarHidden()) === 'false'), 'Ctrl+B pins it open again')
+    ok((await pressed()) === 'true', 'and the toggle follows')
+
+    // Reordering still works with the strip in the title row.
+    await handoff(OTHER_ROOT)
+    const tabRows = () => win.locator(`${row} [data-tab-role]:not([data-pinned]) [role="tab"]`)
+    ok(await until(async () => (await tabRows().count()) === 2), 'a second project tab arrives in the row')
+    {
+      const before = await tabRows().allTextContents()
+      const a = await tabRows().first().boundingBox()
+      const b = await tabRows().last().boundingBox()
+      await win.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await win.mouse.down()
+      await win.mouse.move(a.x + 6, b.y + b.height / 2, { steps: 12 })
+      await win.mouse.up()
+      await sleep(400)
+      const after = await tabRows().allTextContents()
+      ok(after[0] === before[1] && after[1] === before[0], `dragging a tab in the title row reorders it (${before.join('|')} -> ${after.join('|')})`)
+    }
+
+    // SHOWN again is the window exactly as before.
+    await pickStyleSegment(win, 'title-bar', 'Shown')
+    ok(await until(async () => (await win.locator(row).count()) === 0, 5000), 'Shown takes the one row away')
+    ok((await win.locator('[data-title-bar] [data-wordmark]').count()) === 1, 'and the bar and its wordmark come back')
+    const backWork = await box('.browse-workspace')
+    ok(!!backWork && Math.abs(backWork.y - shownWork.y) < 1, `with the workspace where it was (${backWork?.y} vs ${shownWork.y})`)
+  } finally {
+    // The profile is shared: never leave a later scenario a hidden bar.
+    await win.evaluate(() => localStorage.removeItem('prism.window.titleBar')).catch(() => {})
+    await app.close()
+  }
+}
+
+async function sidebarPeekScenario(fixtures) {
+  // THE COLLAPSED SIDEBAR PEEKS (#250; owner, 2026-10-02: "shows when cursor
+  // hits the edge on the side, but it would collapse again once the cursor
+  // moves away"). Over the content, never moving it; held while a menu in it
+  // is open; pinned by its own header toggle.
+  console.log('the sidebar peek')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const side = '[data-project-sidebar]'
+  const content = () =>
+    win.evaluate((s) => {
+      const r = document.querySelector(s)?.nextElementSibling?.getBoundingClientRect()
+      return r ? { x: Math.round(r.x), w: Math.round(r.width) } : null
+    }, side)
+  const peeking = () => win.locator(side).getAttribute('data-peek')
+  const hidden = () => win.locator(side).getAttribute('aria-hidden')
+  try {
+    await win.waitForSelector(side, { timeout: 10000 })
+    // A pass that starts on the toggle, away from the edge.
+    await win.mouse.move(400, 300)
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'true'), 'Ctrl+B collapses the tree')
+    await sleep(400)
+    const work = await win.evaluate(() => {
+      const r = document.querySelector('.browse-workspace').getBoundingClientRect()
+      return { x: r.x, y: r.y, w: r.width, h: r.height }
+    })
+    const before = await content()
+    const edgeY = Math.round(work.y + work.h / 2)
+    const away = { x: Math.round(work.x + work.w * 0.7), y: edgeY }
+
+    // A pointer that only crosses the edge brings nothing out.
+    await win.mouse.move(2, edgeY)
+    await sleep(60)
+    await win.mouse.move(away.x, away.y, { steps: 3 })
+    await sleep(400)
+    ok((await peeking()) === null, 'crossing the edge on the way somewhere peeks nothing')
+
+    // A press that began in the content (selecting text) and drifts onto the
+    // edge is not a rest on it (review of #250).
+    await win.mouse.down()
+    await win.mouse.move(2, edgeY, { steps: 4 })
+    await sleep(500)
+    ok((await peeking()) === null, 'a drag from the content onto the edge peeks nothing')
+    await win.mouse.up()
+    await win.mouse.move(away.x, away.y, { steps: 3 })
+    await sleep(100)
+
+    // Resting on it does.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'resting on the left edge brings the tree out')
+    await sleep(250)
+    const over = await win.evaluate((s) => {
+      const r = document.querySelector(s).getBoundingClientRect()
+      return { x: Math.round(r.x), w: Math.round(r.width), position: getComputedStyle(document.querySelector(s)).position, shadow: getComputedStyle(document.querySelector(s)).boxShadow }
+    }, side)
+    const during = await content()
+    ok(over.w > 120 && over.x === Math.round(work.x), `it is out at its own width (${JSON.stringify(over)})`)
+    ok(over.position === 'absolute' && over.shadow !== 'none', 'laid over the content, with a shadow')
+    ok(JSON.stringify(during) === JSON.stringify(before), `the content did not move or resize (${JSON.stringify(before)} -> ${JSON.stringify(during)})`)
+    ok((await hidden()) === 'false', 'and a screen reader can reach it while it is out')
+    await win.screenshot({ path: join(SHOTS, 'sidebar-peek.png') })
+
+    // On the panel it stays; away, it goes.
+    await win.mouse.move(over.x + over.w / 2, edgeY, { steps: 4 })
+    await sleep(700)
+    ok((await peeking()) === 'in', 'it stays while the pointer is on it')
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'and goes once the pointer leaves it')
+    ok((await hidden()) === 'true', 'back to a collapsed tree')
+    ok(JSON.stringify(await content()) === JSON.stringify(before), 'with the content still where it was')
+
+    // A context menu inside it holds it.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'it comes out again')
+    await sleep(250)
+    const rowBox = await win.locator(`${side} [data-row]`).first().boundingBox()
+    await win.mouse.move(rowBox.x + 30, rowBox.y + rowBox.height / 2, { steps: 4 })
+    await win.mouse.click(rowBox.x + 30, rowBox.y + rowBox.height / 2, { button: 'right' })
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) > 0, 3000), 'a right-click opens the row menu')
+    await win.mouse.move(away.x + 100, work.y + work.h - 20, { steps: 4 })
+    await sleep(1000)
+    ok((await peeking()) === 'in', 'with a menu open it stays, though the pointer left')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await win.locator('[role="menu"]').count()) === 0, 3000), 'Escape takes the menu')
+    ok((await peeking()) === 'in', 'and that Escape was the menu\'s, not the peek\'s')
+    await win.mouse.move(away.x, away.y, { steps: 2 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'once nothing holds it, it goes')
+
+    // A drag whose dragend never reached the window (its row unmounted under
+    // it) does not hold the peek for good: the next pointer move ends it.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a lost drag')
+    await win.evaluate(() => window.dispatchEvent(new DragEvent('dragstart')))
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'a drag that never ended does not keep it out')
+
+    // A click in it puts the focus there; its going does not drop the focus
+    // on the body, where no key reaches anything (review of #250).
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a click')
+    await sleep(250)
+    const folderRow = await win.locator(`${side} [role="treeitem"][aria-expanded]`).first().boundingBox()
+    await win.mouse.move(folderRow.x + 30, folderRow.y + folderRow.height / 2, { steps: 4 })
+    await win.mouse.click(folderRow.x + 30, folderRow.y + folderRow.height / 2)
+    ok(
+      await win.evaluate((s) => !!document.querySelector(s)?.contains(document.activeElement), side),
+      'the click put the focus in the tree'
+    )
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'it goes as the pointer leaves')
+    await sleep(100)
+    const focused = await win.evaluate(
+      (s) => {
+        const a = document.activeElement
+        return {
+          body: !a || a === document.body,
+          inTree: !!document.querySelector(s)?.contains(a),
+          tag: a?.tagName ?? null
+        }
+      },
+      side
+    )
+    ok(!focused.body && !focused.inTree, `and the focus went back into the window (${JSON.stringify(focused)})`)
+    // Put the folder back as it was.
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'false')
+    await win.locator(`${side} [role="treeitem"][aria-expanded]`).first().click()
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'true')
+    await sleep(300)
+
+    // Escape ends a peek.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out once more')
+    await win.keyboard.press('Escape')
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'Escape puts it away')
+
+    // Its header toggle pins it: the content moves over and the peek ends.
+    await win.mouse.move(away.x, away.y)
+    await sleep(100)
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'and out again')
+    await sleep(250)
+    await win.locator(`${side} [data-peek-pin]`).click()
+    ok(await until(async () => (await hidden()) === 'false' && (await peeking()) === null, 3000), 'its header toggle pins it')
+    await sleep(400)
+    const pinned = await content()
+    ok(pinned.x >= before.x + over.w - 2 && pinned.w <= before.w - over.w + 2, `and the content moved over (${JSON.stringify(before)} -> ${JSON.stringify(pinned)})`)
+    ok((await win.locator('[data-panel-toggle]').getAttribute('aria-pressed')) === 'true', 'the bar\'s toggle reads pinned')
+
+    // The toggle and the keybind still pin and unpin, as before.
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => (await hidden()) === 'true'), 'the bar\'s toggle collapses it')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'false'), 'Ctrl+B pins it open')
+    await win.keyboard.press('Control+b')
+    ok(await until(async () => (await hidden()) === 'true'), 'and collapses it')
+
+    // Opening a file from a peeking tree ends the peek.
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await peeking()) === 'in', 2000, 25), 'out for a file, straight after a Ctrl+B while the tree slides shut')
+    await sleep(250)
+    const fileRow = win.locator(`${side} [role="treeitem"][data-row$=".txt" i], ${side} [role="treeitem"][data-row$=".md" i]`).first()
+    await fileRow.click()
+    ok(await until(async () => (await peeking()) === null, 2000, 25), 'opening a file from it puts it away')
+    // Leave the profile as the suite expects it: the tree open.
+    await win.keyboard.press('Control+b')
+    await until(async () => (await hidden()) === 'false')
+
+    // THE EXPLORER'S PLACES PEEK THE SAME WAY, over the list.
+    await win.locator('[data-tab-role][data-pinned] [role="tab"]').click()
+    const browser = '[data-testid="folder-browser"]'
+    await win.waitForSelector(`${browser} .browse-places`, { timeout: 10000 })
+    await win.click('[data-panel-toggle]')
+    ok(await until(async () => (await win.locator(`${browser} .browse-places`).count()) === 0), 'the toggle hides the places in the Explorer')
+    await sleep(300)
+    const list = () => win.evaluate((s) => {
+      const r = document.querySelector(`${s} .browse-list`)?.getBoundingClientRect()
+      return r ? { x: Math.round(r.x), w: Math.round(r.width) } : null
+    }, browser)
+    const listBefore = await list()
+    await win.mouse.move(away.x, away.y)
+    await sleep(50)
+    await win.mouse.move(2, edgeY)
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek="in"] .browse-places`).count()) === 1, 2000, 25),
+      'resting on the edge brings the places out'
+    )
+    await sleep(250)
+    ok(JSON.stringify(await list()) === JSON.stringify(listBefore), `over the list, which did not move (${JSON.stringify(listBefore)})`)
+    const placesBox = await win.evaluate((s) => {
+      const r = document.querySelector(`${s} .browse-places`).getBoundingClientRect()
+      return { x: Math.round(r.x), w: Math.round(r.width), h: Math.round(r.height) }
+    }, browser)
+    ok(placesBox.w >= 150 && placesBox.x === 0 && placesBox.h > 200, `at the width it has when shown (${JSON.stringify(placesBox)})`)
+    await win.screenshot({ path: join(SHOTS, 'places-peek.png') })
+    await win.mouse.move(away.x, away.y, { steps: 4 })
+    ok(await until(async () => (await win.locator(`${browser} .browse-places`).count()) === 0, 2000, 25), 'and they go when the pointer leaves')
+    await win.mouse.move(2, edgeY)
+    ok(await until(async () => (await win.locator(`${browser}[data-places-peek="in"]`).count()) === 1, 2000, 25), 'out again')
+    await sleep(250)
+    await win.locator(`${browser} [data-peek-pin]`).click()
+    ok(
+      await until(async () => (await win.locator(`${browser}[data-places-peek]`).count()) === 0 && (await win.locator(`${browser} .browse-places`).count()) === 1),
+      'and the header toggle pins them'
+    )
+  } finally {
+    await win
+      .evaluate(() => {
+        localStorage.setItem('prism.sidebar', '1')
+        localStorage.setItem('prism.explorer.places', '1')
+      })
+      .catch(() => {})
+    await app.close()
+  }
+}
+
 async function pinRecentScenario(fixtures) {
   console.log('pin recent')
   const { app, win } = await launch(join(fixtures, 'README.md'))
@@ -9083,12 +9678,15 @@ await run(sevenZipScenario)
 await run(documentScenario, 2000)
 await run(synthAndRawScenario)
 await run(tabsScenario)
+await run(titleBarScenario)
+await run(sidebarPeekScenario)
 await run(updateWindowScenario)
 await run(updateGuardScenario)
 await run(updateQuietScenario)
 await run(terminalScenario)
 await run(termOptionsScenario)
 await run(noCommandHelpScenario)
+await run(termColourPickerScenario)
 await run(dictationScenario)
 await run(dictationPageScenario)
 await run(pinRecentScenario)
