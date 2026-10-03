@@ -58,6 +58,9 @@ export interface FolderBrowserProps {
   onUnpinQuickAccess?: (path: string) => void
   onMoveQuickAccess?: (path: string, beforePath?: string) => void
   onPinQuickAccessPaths?: (paths: string[], beforePath?: string) => void
+  /** Whose list this is (the tab's id). The marks of several rows are this
+   *  list's own, and one component serves every Explorer tab. */
+  owner?: string
   selectedPath: string | null
   menuPath?: string
   scrollTop: number
@@ -85,12 +88,23 @@ export interface FolderBrowserProps {
   onCancelSearch?: () => void
   onSearchRange?: (first: number) => void
   onPreviewToggle: () => void
-  onContextMenu?: (event: MouseEvent<HTMLElement>, entry: BrowseEntry, source?: 'more') => void
+  /** `paths` is every marked row when the row pressed is one of several
+   *  marked (#257): the menu then acts on all of them, as the marks say. */
+  onContextMenu?: (
+    event: MouseEvent<HTMLElement>,
+    entry: BrowseEntry,
+    source?: 'more',
+    paths?: string[]
+  ) => void
   onRename?: (entry: BrowseEntry) => void
   onCopy?: (entry: BrowseEntry) => void
   onCut?: (entry: BrowseEntry) => void
   onPaste?: (directory: string) => void
   onDelete?: (entry: BrowseEntry) => void
+  /** Several rows marked (a sweep or a Ctrl click, #257): copy or cut them all. */
+  onCopyPaths?: (paths: string[], cut: boolean) => void
+  /** Several rows marked: one question for all of them, the tree's. */
+  onDeleteMany?: (paths: string[]) => void
   onRefresh?: () => void
   onDropInto?: (directory: string, payload: DragPayload) => void
 }

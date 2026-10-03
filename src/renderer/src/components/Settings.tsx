@@ -34,6 +34,7 @@ import {
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
 import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
+import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../lib/explorerSize'
 import { setTitleBarMode, useTitleBarMode } from '../lib/titleBarPrefs'
 import {
   setAutoScroll,
@@ -60,12 +61,15 @@ import {
   restoreOverrides,
   savePreset,
   secondaryValue,
+  selectionValue,
+  TINT_MIN,
   setAccentColour,
   setAcrylic,
   setMode,
   setOverride,
   setPrimary,
   setSecondary,
+  setSelection,
   setStyle,
   snapPrimaryAlpha,
   useMode,
@@ -352,6 +356,27 @@ function TitleBarSetting(): JSX.Element {
   )
 }
 
+/** How big the Explorer's rows are (owner, 2026-10-03: "size options for
+ *  explorer in the appearance menu, let the current be medium the old be big,
+ *  and make a slightly smaller version too"). The Explorer's alone: the tree
+ *  and the rest of the app keep General's Font size. */
+function ExplorerSizeSetting(): JSX.Element {
+  const size = useExplorerSize()
+  return (
+    <Pref
+      id="explorer-size"
+      label="Explorer size"
+      hint="How tall the rows in the Explorer are, with their text and icons to match."
+    >
+      <Segmented
+        value={size}
+        onChange={setExplorerSize}
+        options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))}
+      />
+    </Pref>
+  )
+}
+
 function SwitchItem({
   label,
   on,
@@ -531,9 +556,11 @@ function Tile({
           onClick()
         }
       }}
+      // The chosen card's wash is from the accent as picked, so the accent's
+      // alpha (a choice about fills) never fades the mark that says "this one".
       className={`group relative flex cursor-pointer flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
         on
-          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
+          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent-solid)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
           : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
       }`}
     >
@@ -700,6 +727,7 @@ function StyleTab(): JSX.Element {
             closer to the top of appearance"); Style is Prism's appearance. */}
         <TabWidthSetting />
         <TitleBarSetting />
+        <ExplorerSizeSetting />
         <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>
@@ -793,6 +821,10 @@ function StyleTab(): JSX.Element {
               100 it is solid; the range is the slider's two ends. A hue edit
               never touches the glass. Every style still takes frost (owner,
               2026-08-08). */}
+          {/* THE COLOURS RUN BY IMPORTANCE (owner, 2026-10-03: "make the most
+              important colours appear first ... primary and secondary first then
+              accent"): Primary, Secondary, Accent, Selection, Text, Folder
+              icons. Selection sits by the Accent it used to be part of. */}
           <Pref
             id="c-bg"
             label="Primary colour"
@@ -839,6 +871,46 @@ function StyleTab(): JSX.Element {
               onRevert={putBack(['side', 'title', 'tabs'])}
             />
           </Pref>
+          {/* One picker, like Background and Text: the accent is a colour you
+              choose, not a scheme you browse. (The swatch grid lived here until
+              2026-08-21.) Its alpha is in the picker (#249; owner, 2026-10-02:
+              "the accent colour should be able to have an alpha value", fills
+              only), not a slider of its own (owner, 2026-10-03: "it should not
+              be a separate opacity setting"). A Pref, so its description is read
+              by the plain-words test. */}
+          <Pref id="c-accent" label="Accent" hint="The colour of the chosen page, buttons, progress bar and visualizer.">
+            <StyleColour
+              id="c-accent"
+              label="Accent"
+              value={withAlpha(paletteOf(style.accent)[0], accentAlpha)}
+              // An alpha of its own is an edit of the accent too, so the one
+              // Reset gives back both.
+              custom={!!edits.accent || edits.accentAlpha !== undefined}
+              onChange={setAccentColour}
+              onReset={resetAccent}
+              onRevert={putBack(['accent', 'accentAlpha'])}
+              alphaMin={ALPHA_MIN}
+            />
+          </Pref>
+          {/* THE SELECTION IS ITS OWN ROW (#257; owner, 2026-10-03: "the
+              settings accent colour for the tab should be separated from the
+              explorer accent colour"). Its colour and alpha ARE the tint of
+              marked files and the current place; the Accent keeps the Settings
+              rail, buttons and progress. Unset it shows the accent's tint,
+              which is what is on screen, and nothing is stored until a pick.
+              Below a tenth a mark stops reading as one, hence the floor. */}
+          <Pref id="c-selection" label="Selection" hint="The tint of selected files and the current place.">
+            <StyleColour
+              id="c-selection"
+              label="Selection"
+              value={selectionValue(style)}
+              custom={!!edits.selection}
+              onChange={setSelection}
+              onReset={() => setOverride('selection', null)}
+              onRevert={putBack(['selection'])}
+              alphaMin={TINT_MIN}
+            />
+          </Pref>
           <Pref id="c-text" label="Text" hint="The colour of file names, labels and readouts.">
             <StyleColour
               id="c-text"
@@ -848,13 +920,6 @@ function StyleTab(): JSX.Element {
               onChange={(v) => setOverride('text', v)}
               onReset={() => setOverride('text', null)}
               onRevert={putBack(['text'])}
-            />
-          </Pref>
-          <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
-            <Segmented
-              value={style.corners}
-              onChange={(v) => setOverride('corners', v)}
-              options={CORNER_OPTIONS}
             />
           </Pref>
           <Pref id="c-folder-icon" label="Folder icons" hint="The colour of folder icons in the tree.">
@@ -878,25 +943,11 @@ function StyleTab(): JSX.Element {
               Coloured wired to setOverride('iconScheme'), plus flipping
               ICON_SCHEME_SHOWN. The zip and the comic are coloured regardless
               of any of it. */}
-          {/* One picker, like Background and Text: the accent is a colour you
-              choose, not a scheme you browse. (The swatch grid lived here until
-              2026-08-21.) Its alpha is in the picker (#249; owner, 2026-10-02:
-              "the accent colour should be able to have an alpha value", fills
-              only), not a slider of its own (owner, 2026-10-03: "it should not
-              be a separate opacity setting"). A Pref, so its description is read
-              by the plain-words test. */}
-          <Pref id="c-accent" label="Accent" hint="The colour of the selection, progress bar and visualizer.">
-            <StyleColour
-              id="c-accent"
-              label="Accent"
-              value={withAlpha(paletteOf(style.accent)[0], accentAlpha)}
-              // An alpha of its own is an edit of the accent too, so the one
-              // Reset gives back both.
-              custom={!!edits.accent || edits.accentAlpha !== undefined}
-              onChange={setAccentColour}
-              onReset={resetAccent}
-              onRevert={putBack(['accent', 'accentAlpha'])}
-              alphaMin={ALPHA_MIN}
+          <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
+            <Segmented
+              value={style.corners}
+              onChange={(v) => setOverride('corners', v)}
+              options={CORNER_OPTIONS}
             />
           </Pref>
         </div>
@@ -1602,7 +1653,9 @@ export function Settings({
                       compactRail ? 'justify-center px-0' : 'px-2.5'
                     } ${
                       on
-                        ? 'bg-[var(--p-sel-bg)] font-semibold text-[var(--p-on-accent)]'
+                        ? // The chosen page is the accent SOLID, whatever its
+                          // alpha (owner, 2026-10-03: "more saturated").
+                          'bg-[var(--p-sel-solid)] font-semibold text-[var(--p-on-sel-solid)]'
                         : 'font-medium text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
                     }`}
                   >

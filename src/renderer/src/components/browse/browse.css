@@ -267,16 +267,25 @@
   font-size: 13px;
   font-weight: 400;
 }
+/* Quick access follows the Explorer size too (owner, 2026-10-03: "those icons
+   too should be size adjustable, same as the main files. they follow one
+   setting"): the same --browse-row-* the list reads, set on .folder-browser.
+   Large is the panel as it was (40px, an 18px icon, a 12px gap). */
 .browse-place {
   width: 100%;
-  height: 40px;
+  height: var(--browse-row-h, 26px);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  gap: var(--browse-row-gap, 6px);
+  padding: 0 var(--browse-row-pad, 8px);
   border-radius: 4px;
   text-align: left;
   color: var(--p-text-soft);
+}
+/* Above `.folder-browser button { font: inherit }`, which would otherwise keep
+   the panel at the shell's 15px whatever the size. */
+.folder-browser .browse-place {
+  font-size: var(--browse-row-font, 12.5px);
 }
 .browse-place span {
   overflow: hidden;
@@ -284,13 +293,19 @@
   white-space: nowrap;
 }
 .browse-place > svg {
-  width: 18px;
-  height: 18px;
+  width: var(--browse-row-icon, 14px);
+  height: var(--browse-row-icon, 14px);
+  flex: none;
 }
+/* The current place wears the SELECTION's look, the tint with its faint edge
+   and the text in its own colour (owner, 2026-10-03, of the solid block: "i
+   want that colour for the sidebar on the explorer page too, not just the
+   selected file"). */
 .folder-browser .browse-place[aria-current],
 .folder-browser .browse-place[aria-current]:hover {
-  background: var(--p-sel-bg);
-  color: var(--p-on-accent);
+  background: var(--p-sel-tint);
+  box-shadow: inset 0 0 0 1px var(--p-sel-line);
+  color: var(--p-text);
 }
 .browse-actions {
   grid-column: 2 / -1;
@@ -370,20 +385,26 @@ body[data-internal-file-drag] .browse-search:focus-within {
   border-radius: 3px;
   color: var(--p-text);
 }
+/* The rows follow Settings > Style > Explorer size (lib/explorerSize.ts):
+   height, text size, icon, the gap after it and the side padding are set on
+   .browse-list-area as --browse-row-*. Medium is the project tree's row (#257),
+   and the columns narrowed with its text; the header sits a few pixels taller
+   than a row, in the same text size. Large puts back the Explorer as it was
+   before #257, columns and all (below). */
 .browse-columns,
 .browse-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
+  grid-template-columns: minmax(160px, 1fr) 128px 76px 136px;
   align-items: center;
-  column-gap: 16px;
-  padding: 0 16px;
+  column-gap: 12px;
+  padding: 0 var(--browse-row-pad, 8px);
 }
 .browse-columns {
   flex-shrink: 0;
-  height: 36px;
+  height: calc(var(--browse-row-h, 26px) + 6px);
   border-bottom: 1px solid var(--p-divider);
   color: var(--p-dim);
-  font-size: 13px;
+  font-size: var(--browse-row-font, 12.5px);
 }
 .browse-column-viewport {
   overflow: hidden;
@@ -393,7 +414,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: 100%;
   text-align: left;
   white-space: nowrap;
 }
@@ -412,24 +433,33 @@ body[data-internal-file-drag] .browse-search:focus-within {
   transform: rotate(180deg);
 }
 .browse-list {
+  /* The sweep rectangle is drawn inside it, in its scroll coordinates. */
+  position: relative;
   min-height: 0;
   overflow: auto;
   flex: 1;
   scrollbar-gutter: stable;
   outline: none;
 }
+.browse-list[data-sweeping] {
+  user-select: none;
+}
 .browse-row-space {
   min-height: 100%;
 }
 .browse-row {
   width: 100%;
-  height: 40px;
+  height: var(--browse-row-h, 26px);
   text-align: left;
   color: var(--p-text-soft);
 }
-.browse-row[data-striped] {
-  background: color-mix(in srgb, var(--p-text) 2%, transparent);
+/* Two classes deep, or the browser-wide "button: font inherit" above wins. */
+.folder-browser .browse-row {
+  font-size: var(--browse-row-font, 12.5px);
 }
+/* NO STRIPES in the Explorer (#257; owner, 2026-10-03: "try no alternating row
+   bg for explorer"): every row is the plain ground, as in Windows' own list,
+   and a marked row's tint stands out against nothing but the ground. */
 .browse-row > span {
   overflow: hidden;
   white-space: nowrap;
@@ -438,7 +468,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-name {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--browse-row-gap, 6px);
   color: var(--p-text);
 }
 .browse-name > span {
@@ -459,14 +489,13 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-result-location {
   color: var(--p-dim);
-  font-size: 13px;
 }
-.browse-row:is([data-selected], [data-menu]) .browse-result-location {
+.browse-row[data-menu] .browse-result-location {
   color: inherit;
 }
 .browse-name > svg {
-  width: 18px;
-  height: 18px;
+  width: var(--browse-row-icon, 14px);
+  height: var(--browse-row-icon, 14px);
 }
 .browse-row[data-cut] .browse-name > svg {
   opacity: 0.45;
@@ -476,12 +505,28 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-row .browse-column-size,
 .browse-row .browse-column-modified {
   color: var(--p-dim);
-  font-size: 13px;
 }
+/* A marked row is a TINT with a faint edge, Windows' own look (owner,
+   2026-10-03: "more transparent like selecting files in file explorer"). The
+   text and the columns keep their colours; theme.ts holds the tint down far
+   enough that they still read on it. The edge goes round a run of marked rows,
+   not between them, so a run is one block. Inset shadows: nothing moves. */
 .folder-browser .browse-row[data-selected],
 .folder-browser .browse-row[data-selected]:hover {
-  background: var(--p-sel-bg);
-  color: var(--p-on-accent);
+  --sel-top: inset 0 1px 0 var(--p-sel-line);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
+  background: var(--p-sel-tint);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line),
+    inset -1px 0 0 var(--p-sel-line),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+.folder-browser .browse-row[data-selected][data-join-up] {
+  --sel-top: 0 0 0 transparent;
+}
+.folder-browser .browse-row[data-selected][data-join-down] {
+  --sel-bottom: 0 0 0 transparent;
 }
 .folder-browser .browse-row[data-menu],
 .folder-browser .browse-row[data-menu]:hover {
@@ -492,11 +537,11 @@ body[data-internal-file-drag] .browse-search:focus-within {
      not the focus ring either while the menu is open over it. */
   outline: none;
 }
-.browse-row:is([data-selected], [data-menu]) .browse-name,
-.browse-row:is([data-selected], [data-menu]) .browse-column-type,
-.browse-row:is([data-selected], [data-menu]) .browse-column-path,
-.browse-row:is([data-selected], [data-menu]) .browse-column-size,
-.browse-row:is([data-selected], [data-menu]) .browse-column-modified {
+.browse-row[data-menu] .browse-name,
+.browse-row[data-menu] .browse-column-type,
+.browse-row[data-menu] .browse-column-path,
+.browse-row[data-menu] .browse-column-size,
+.browse-row[data-menu] .browse-column-modified {
   color: inherit;
 }
 .browse-message {
@@ -532,7 +577,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(120px, 1fr) 130px 80px;
+    grid-template-columns: minmax(120px, 1fr) 116px 72px;
   }
 }
 @container (max-width: 510px) {
@@ -541,7 +586,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
   .browse-columns,
   .browse-row {
-    grid-template-columns: minmax(110px, 1fr) 80px;
+    grid-template-columns: minmax(110px, 1fr) 72px;
     column-gap: 10px;
   }
 }
@@ -598,7 +643,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 
 /* Search keeps the regular row height and dedicates the middle column to location. */
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row) {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 76px;
 }
 .browse-list-area[data-searching] :is(.browse-columns, .browse-row-space) {
   min-width: 470px;
@@ -608,4 +653,44 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-list-area[data-searching] .browse-columns .browse-column-size {
   display: flex !important;
+}
+
+/* Explorer size Large is the Explorer as it was before #257 (main, 2026-10-02):
+   wider columns and gaps, a 36px header, and the quiet columns at 13px under
+   15px names. The row, text, icon and padding come in through --browse-row-*;
+   these are the parts a variable does not reach. */
+.browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+  grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
+  column-gap: 16px;
+}
+.browse-list-area[data-row-size='large'] .browse-columns {
+  height: 36px;
+  font-size: 13px;
+}
+.browse-list-area[data-row-size='large'] .browse-row :is(
+    .browse-column-type,
+    .browse-column-path,
+    .browse-column-size,
+    .browse-column-modified
+  ) {
+  font-size: 13px;
+}
+@container (max-width: 720px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(120px, 1fr) 130px 80px;
+  }
+}
+@container (max-width: 510px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(110px, 1fr) 80px;
+    column-gap: 10px;
+  }
+}
+@container (max-width: 300px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.browse-list-area[data-row-size='large'][data-searching] :is(.browse-columns, .browse-row) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
 }

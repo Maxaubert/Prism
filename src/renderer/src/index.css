@@ -119,6 +119,14 @@ video::cue {
   --p-checker-a: #202329;
   --p-checker-b: #191c21;
   --p-on-accent: #ffffff;
+  --p-sel-tint: #6a7f9938;
+  --p-sel-line: #6a7f9947;
+  --p-sel-tint-seen: #242a32;
+  --p-sel-tint-side: #272e35;
+  --p-sel-hue: #3f5570;
+  --p-sel-hue-hi: #6a7f99;
+  --p-sel-solid: #3f5570;
+  --p-on-sel-solid: #ffffff;
   --p-icon: #868d96;
   --p-hover: rgba(255, 255, 255, 0.06);
   --p-hover-hi: rgba(255, 255, 255, 0.11);

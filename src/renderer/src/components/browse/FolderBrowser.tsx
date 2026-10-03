@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
@@ -7,6 +7,9 @@ import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
 import { browseEntries } from './entries'
 import { useFolderSizes } from '../../hooks/useFolderSizes'
+import { clickSelect } from '../../lib/selection'
+import { sweepSelect } from '../../lib/marquee'
+import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import type { BrowseEntry, FolderBrowserProps } from './types'
 import './browse.css'
 
@@ -24,6 +27,7 @@ export type {
  */
 export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
   const shell = useRef<HTMLDivElement>(null)
+  const rowLook = explorerRow(useExplorerSize())
   const [visibleFolders, setVisibleFolders] = useState<string[]>([])
   const onVisibleFolders = useCallback((paths: string[]) => {
     setVisibleFolders((previous) =>
@@ -90,6 +94,63 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     return rows
   }, [entries, searchWindow, searchWindows])
   const total = props.searchState?.window?.total ?? entries.length
+  /**
+   * MORE THAN ONE ROW MARKED (#257). The tab keeps ONE selected path, the
+   * keyboard's place and what the preview shows; a sweep or a Ctrl or Shift
+   * click marks more rows around it, held here. It belongs to the folder on
+   * screen and goes with it: a new folder, a search or a new sort starts with
+   * the one path again, and so does any plain pick (a click, the arrows).
+   * Marks that no longer hold the selected path are stale and read as none.
+   */
+  const [marks, setMarks] = useState<{ key: string; items: ReadonlySet<string> } | null>(null)
+  const anchor = useRef<string | null>(null)
+  // The tab is part of the key: one FolderBrowser serves every tab, and two
+  // tabs on the same folder must not share each other's marks.
+  const marksKey = `${props.owner ?? ''}\u0000${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
+  const marked =
+    marks && marks.key === marksKey && props.selectedPath && marks.items.has(props.selectedPath)
+      ? marks.items
+      : null
+  const markedEntries = marked ? entries.filter((entry) => marked.has(entry.path)) : []
+  const many = markedEntries.length > 1
+  const markedPaths = (): string[] => markedEntries.map((entry) => entry.path)
+  const pickOne = (path: string | null): void => {
+    setMarks(null)
+    anchor.current = path
+    props.onSelect(path)
+  }
+  const order = (): string[] =>
+    indexedRows
+      ? [...indexedRows]
+          .sort(([a], [b]) => a - b)
+          .flatMap(([, entry]) => (entry ? [entry.path] : []))
+      : entries.map((entry) => entry.path)
+  const pick = (entry: BrowseEntry, mods: { ctrl: boolean; shift: boolean }): void => {
+    const now = marked ?? new Set(props.selectedPath ? [props.selectedPath] : [])
+    const next = clickSelect(
+      order(),
+      { anchor: anchor.current ?? props.selectedPath, items: now },
+      entry.path,
+      mods
+    )
+    anchor.current = next.anchor
+    // The clicked row is where the keyboard goes, unless Ctrl just took it
+    // back out; then any row still marked, or none.
+    const primary = next.items.has(entry.path) ? entry.path : ([...next.items][0] ?? null)
+    setMarks(next.items.size > 1 ? { key: marksKey, items: next.items } : null)
+    props.onSelect(primary)
+  }
+  const swept = (paths: string[], near: string | null, add: boolean): void => {
+    const base: ReadonlySet<string> = add
+      ? (marked ?? new Set(props.selectedPath ? [props.selectedPath] : []))
+      : new Set()
+    const items = sweepSelect(base, paths)
+    if (items.size <= 1) return pickOne([...items][0] ?? null)
+    const primary = near && items.has(near) ? near : [...items][0]
+    anchor.current = primary
+    setMarks({ key: marksKey, items })
+    props.onSelect(primary)
+  }
   const activate = (entry: BrowseEntry): void => {
     if (entry.isFolder) {
       retainListFocus()
@@ -115,6 +176,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     <div
       ref={shell}
       className="folder-browser"
+      // One size for the list AND Quick access (#257): the row look is set
+      // here, where both read it.
+      style={
+        {
+          '--browse-row-h': `${rowLook.height}px`,
+          '--browse-row-font': `${rowLook.font}px`,
+          '--browse-row-icon': `${rowLook.icon}px`,
+          '--browse-row-gap': `${rowLook.gap}px`,
+          '--browse-row-pad': `${rowLook.padX}px`
+        } as CSSProperties
+      }
       data-preview={props.previewVisible || undefined}
       data-places-hidden={props.placesVisible === false || undefined}
       data-places-sliding={sliding || undefined}
@@ -143,7 +215,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         ) {
           e.preventDefault()
           e.stopPropagation()
-          props.onDelete(selected)
+          if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
+          else props.onDelete(selected)
         } else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'l') {
           e.preventDefault()
           e.stopPropagation()
@@ -167,7 +240,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           if (e.key === 'ArrowLeft' && props.canBack) props.onBack()
           if (e.key === 'ArrowRight' && props.canForward) props.onForward()
           if (e.key === 'ArrowUp') props.onUp()
-        } else if (!typing && inList && selected && e.key === 'F2' && props.onRename) {
+        } else if (!typing && inList && selected && !many && e.key === 'F2' && props.onRename) {
           e.preventDefault()
           e.stopPropagation()
           props.onRename(selected)
@@ -184,6 +257,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           e.stopPropagation()
           const key = e.key.toLowerCase()
           if (key === 'v') props.onPaste?.(props.directory)
+          else if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), key === 'x')
           else if (selected && key === 'x') props.onCut?.(selected)
           else if (selected) props.onCopy?.(selected)
         }
@@ -223,7 +297,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       )}
       <div className="browse-actions" aria-label="File actions">
         <button
-          disabled={!selected || props.loading}
+          disabled={!selected || many || props.loading}
           onClick={() => {
             if (selected) activate(selected)
           }}
@@ -233,7 +307,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         </button>
         {props.onOpenProject && (
           <button
-            disabled={!selected?.isFolder || props.loading}
+            disabled={!selected?.isFolder || many || props.loading}
             onClick={() => {
               if (selected?.isFolder) props.onOpenProject?.(selected)
             }}
@@ -253,7 +327,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           <button
             disabled={!selected || props.loading}
             onClick={() => {
-              if (selected) props.onCopy?.(selected)
+              if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), false)
+              else if (selected) props.onCopy?.(selected)
             }}
           >
             <BrowseIcon name="copy" />
@@ -262,7 +337,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         )}
         {props.onRename && (
           <button
-            disabled={!selected || props.loading}
+            disabled={!selected || many || props.loading}
             onClick={() => {
               if (selected) props.onRename?.(selected)
             }}
@@ -275,7 +350,8 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           <button
             disabled={!selected || props.loading}
             onClick={() => {
-              if (selected) props.onDelete?.(selected)
+              if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
+              else if (selected) props.onDelete?.(selected)
             }}
           >
             <BrowseIcon name="delete" />
@@ -287,7 +363,7 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
             className="browse-icon-button"
             aria-label="More file actions"
             title="More file actions"
-            disabled={!selected || props.loading}
+            disabled={!selected || many || props.loading}
             onClick={(e) => {
               if (selected) props.onContextMenu?.(e, selected, 'more')
             }}
@@ -312,6 +388,23 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         indexedRows={indexedRows}
         total={total}
         onActivate={activate}
+        onSelect={pickOne}
+        marked={marked}
+        onPick={pick}
+        onSweep={swept}
+        // A right press inside several marked rows is a menu for all of them:
+        // the marks stay lit, so a menu for the one row under the pointer
+        // would delete one file while four looked chosen (review of #257).
+        onContextMenu={
+          props.onContextMenu &&
+          ((e, entry, source) =>
+            props.onContextMenu?.(
+              e,
+              entry,
+              source,
+              many && marked?.has(entry.path) ? markedPaths() : undefined
+            ))
+        }
         message={message}
         onVisibleFolders={onVisibleFolders}
       />
@@ -322,8 +415,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
       )}
       <div className="browse-status" role="status">
         <span>{props.loading ? 'Loading…' : `${total} ${total === 1 ? 'item' : 'items'}`}</span>
-        {selected && (
-          <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+        {many ? (
+          <span>
+            {markedEntries.length} selected
+            {markedEntries.some((entry) => entry.file)
+              ? ` · ${formatBytes(markedEntries.reduce((sum, entry) => sum + (entry.file?.size ?? 0), 0))}`
+              : ''}
+          </span>
+        ) : (
+          selected && (
+            <span>1 selected{selected.file ? ` · ${formatBytes(selected.file.size)}` : ''}</span>
+          )
         )}
         {!!props.query.trim() && (
           <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
