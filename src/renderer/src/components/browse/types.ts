@@ -77,7 +77,9 @@ export interface FolderBrowserProps {
   onBack: () => void
   onForward: () => void
   onUp: () => void
-  onSelect: (path: string | null) => void
+  /** `quiet`: a sweep or a Ctrl or Shift click marking rows (#263). It moves
+   *  the selected path only; the preview and playback are left alone. */
+  onSelect: (path: string | null, quiet?: boolean) => void
   onOpen: (file: ViewerFile) => void
   onScroll: (top: number) => void
   onQueryChange: (query: string) => void

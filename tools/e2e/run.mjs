@@ -7321,20 +7321,26 @@ async function marqueeScenario(fixtures) {
     let ex = await exMarked()
     ok(ex.sort().join() === 'a3.txt,a4.txt,a5.txt,a6.txt,a7.txt,a8.txt', `a sweep from the space under the rows marks what it covered (${ex})`)
     ok(/6 selected/.test((await win.locator('.browse-status').textContent()) ?? ''), 'and the status line counts them')
-    // Selecting a file opened the preview pane beside the list, which made
-    // the list narrower: every point after this is measured again.
-    await sleep(400)
-    const box2 = await list.boundingBox()
-    const f0 = await rowAt(0).boundingBox()
-    const f3 = await rowAt(3).boundingBox()
-    const f4 = await rowAt(4).boundingBox()
-    const f7 = await rowAt(7).boundingBox()
-    const exBlank = f0.x + f0.width - 30
+    ok(
+      !(await win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.getClientRects().length)),
+      'and opened no preview pane (#263)'
+    )
+    let f0 = await rowAt(0).boundingBox()
+    let exBlank = f0.x + f0.width - 30
     // A plain click on a row's blank space, without moving, is still a click.
     await win.mouse.click(exBlank, f0.y + f0.height / 2)
     await sleep(250)
     ex = await exMarked()
     ok(ex.join() === 'a1.txt', `a plain click on a row's blank space selects that row alone (${ex})`)
+    // That click previewed the file, and the pane beside the list made it
+    // narrower: every point after this is measured again.
+    await sleep(400)
+    const box2 = await list.boundingBox()
+    f0 = await rowAt(0).boundingBox()
+    const f3 = await rowAt(3).boundingBox()
+    const f4 = await rowAt(4).boundingBox()
+    const f7 = await rowAt(7).boundingBox()
+    exBlank = f0.x + f0.width - 30
     // Ctrl adds: a4..a5 swept from a row's blank space.
     await sweep({ x: exBlank, y: f3.y + f3.height / 2 }, { x: exBlank - 10, y: f4.y + f4.height / 2 }, { ctrl: true })
     ex = await exMarked()
@@ -7407,6 +7413,146 @@ async function marqueeScenario(fixtures) {
     await win.mouse.move(box2.x + 50, f7.y + f7.height + 40)
     await win.mouse.move(box2.x + 80, f0.y + 4, { steps: 8 })
     ok((await band('[data-testid="browse-list"]')) === 0, 'moving with no button held draws nothing')
+  } finally {
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * MARKING IS NOT PICKING (#263; owner, 2026-10-03, with a sweep over three
+ * films while the preview played one: "when you multiselect like this it picks
+ * a file so here this drag starts one of the videos, and if the preview is not
+ * open it will open. it shouldnt, im just selecting, same is the case if i
+ * ctrl select it shouldnt start or preview anything"). A sweep and a Ctrl or
+ * Shift click mark rows and leave the preview alone: a shut pane stays shut,
+ * an open one keeps its film, and nothing starts. A plain click still previews
+ * and plays, as before.
+ */
+async function marqueeQuietScenario(fixtures) {
+  console.log('marking rows previews and plays nothing')
+  const dir = join(fixtures, 'marqueequiet')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  const names = ['v1.mp4', 'v2.mp4', 'v3.mp4', 'v4.mp4']
+  for (const n of names) copyFileSync(join(fixtures, 'ep1.mp4'), join(dir, n))
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  const sweep = async (from, to) => {
+    await win.mouse.move(from.x, from.y)
+    await win.mouse.down()
+    await win.mouse.move(to.x, to.y, { steps: 12 })
+    await sleep(120)
+    await win.mouse.up()
+    await sleep(400)
+  }
+  const paneShown = () => win.evaluate(() => !!document.querySelector('[data-browse-preview]')?.getClientRects().length)
+  /** The film in the pane, and every film in the window that is playing. */
+  const films = () =>
+    win.evaluate(() => {
+      const name = (v) => /[^\\/]*$/.exec(decodeURIComponent(v.currentSrc || v.src || ''))?.[0] ?? ''
+      const pane = document.querySelector('[data-browse-preview] video')
+      return {
+        pane: pane ? name(pane) : null,
+        playing: [...document.querySelectorAll('video,audio')].filter((v) => !v.paused).map(name)
+      }
+    })
+  const exMarked = () =>
+    win.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="browse-list"] [data-browse-path][aria-selected="true"]')].map(
+        (r) => /[^\\]*$/.exec(r.getAttribute('data-browse-path') ?? '')?.[0]
+      )
+    )
+  const status = async () => (await win.locator('.browse-status').textContent()) ?? ''
+  try {
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="marqueequiet"]').dblclick()
+    const list = win.locator('[data-testid="browse-list"]')
+    const rowAt = (i) => list.locator(`[data-browse-index="${i}"]`)
+    ok(
+      await until(async () => (await list.locator('[data-browse-path$=".mp4"]').count()) === 4, 10000),
+      'the Explorer walked into the folder of four films'
+    )
+    await sleep(400)
+    ok(!(await paneShown()), 'nothing is previewed yet, so the pane is shut')
+
+    /* ---------- the pane shut ---------- */
+    let box = await list.boundingBox()
+    let r0 = await rowAt(0).boundingBox()
+    let r3 = await rowAt(3).boundingBox()
+    let blank = r0.x + r0.width - 30
+    await sweep({ x: box.x + box.width * 0.6, y: r3.y + r3.height + 40 }, { x: blank, y: r0.y + r0.height / 2 + 4 })
+    let ex = await exMarked()
+    ok(ex.sort().join() === 'v1.mp4,v2.mp4,v3.mp4,v4.mp4', `a sweep marks the four films (${ex})`)
+    ok(/4 selected/.test(await status()), `and the status line counts them (${await status()})`)
+    await sleep(600)
+    ok(!(await paneShown()), 'a sweep leaves the shut pane shut')
+    ok((await films()).playing.length === 0, `and plays nothing (${(await films()).playing})`)
+    // A sweep that catches one row is still marking.
+    const r1 = await rowAt(1).boundingBox()
+    await sweep({ x: blank, y: r1.y + r1.height / 2 }, { x: blank - 10, y: r1.y + r1.height / 2 + 3 })
+    await sleep(600)
+    ok(!(await paneShown()), 'a sweep over one row leaves the pane shut too')
+    await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
+    await rowAt(3).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
+    await sleep(600)
+    ok(!(await paneShown()), 'a Ctrl click leaves the pane shut')
+    await rowAt(0).click({ modifiers: ['Shift'], position: { x: 30, y: r1.height / 2 } })
+    await sleep(600)
+    ex = await exMarked()
+    ok(ex.length >= 2, `a Shift click marks a run (${ex})`)
+    ok(!(await paneShown()), 'a Shift click leaves the pane shut')
+    ok((await films()).playing.length === 0, `and nothing plays (${(await films()).playing})`)
+
+    /* ---------- the pane open on a film ---------- */
+    await rowAt(0).click({ position: { x: 30, y: r1.height / 2 } })
+    ok(
+      await until(async () => {
+        const f = await films()
+        return (await paneShown()) && f.pane === 'v1.mp4' && f.playing.includes('v1.mp4')
+      }, 10000),
+      'a plain click still previews the film and plays it'
+    )
+    await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
+    await sleep(500)
+    // The pane took room from the list: measure again.
+    box = await list.boundingBox()
+    r0 = await rowAt(0).boundingBox()
+    r3 = await rowAt(3).boundingBox()
+    blank = r0.x + r0.width - 30
+    await sweep({ x: box.x + box.width * 0.6, y: r3.y + r3.height + 40 }, { x: blank, y: (await rowAt(1).boundingBox()).y + 4 })
+    await sleep(600)
+    let f = await films()
+    ex = await exMarked()
+    ok(ex.sort().join() === 'v2.mp4,v3.mp4,v4.mp4', `a sweep marks three films (${ex})`)
+    ok(/3 selected/.test(await status()), 'and the status line counts them')
+    ok(f.pane === 'v1.mp4', `the pane still shows what it showed (${f.pane})`)
+    ok(f.playing.length === 0, `and nothing starts (${f.playing})`)
+    await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
+    await sleep(600)
+    f = await films()
+    ok(f.pane === 'v1.mp4' && f.playing.length === 0, `a Ctrl click changes neither (${f.pane}, ${f.playing})`)
+    await rowAt(2).click({ modifiers: ['Shift'], position: { x: 30, y: r1.height / 2 } })
+    await sleep(600)
+    f = await films()
+    ok(f.pane === 'v1.mp4' && f.playing.length === 0, `a Shift click changes neither (${f.pane}, ${f.playing})`)
+    ok((await exMarked()).length >= 2, 'and the marks are lit')
+    // The arrows are a plain pick: they preview, as before.
+    await win.keyboard.press('ArrowDown')
+    ok(
+      await until(async () => (await films()).pane === 'v4.mp4', 10000),
+      `the arrow keys still preview (${(await films()).pane})`
+    )
+    await rowAt(1).click({ position: { x: 30, y: r1.height / 2 } })
+    ok(
+      await until(async () => {
+        const g = await films()
+        return g.pane === 'v2.mp4' && g.playing.includes('v2.mp4')
+      }, 10000),
+      'and a plain click previews and plays the film clicked'
+    )
+    await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
   } finally {
     await app.close().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -10532,6 +10678,7 @@ await run(accentOpacityScenario)
 await run(styleColoursScenario)
 await run(dragScenario)
 await run(marqueeScenario)
+await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
 await run(phoneScenario)

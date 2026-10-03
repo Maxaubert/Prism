@@ -309,7 +309,16 @@ export function useFolderBrowsing(
     result && result.tabId === id && result.path === path ? result.listing : null
   const listing = search.result?.listing ?? directoryListing
   const select = useCallback(
-    (selected: string | null) => {
+    (selected: string | null, quiet = false) => {
+      // MARKING IS NOT PICKING (#263; owner, 2026-10-03: "when you multiselect
+      // like this it picks a file so here this drag starts one of the videos,
+      // and if the preview is not open it will open. it shouldnt, im just
+      // selecting, same is the case if i ctrl select it shouldnt start or
+      // preview anything"). A sweep or a Ctrl or Shift click only moves the
+      // keyboard's place: the preview keeps what it shows, nothing starts or
+      // pauses, and a pane that is shut stays shut. Nor is the serial moved, so
+      // an open a plain click already asked for still lands.
+      if (quiet) return patch({ selected })
       if (id) serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       patch({ selected })
       const file = listing?.files.find((f) => f.path === selected)
