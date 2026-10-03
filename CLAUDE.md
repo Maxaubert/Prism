@@ -2346,11 +2346,9 @@ extension and they have none.
 one folder and removes it after (94 folders a run leaked before; 40,809 had built up, and with Temp
 open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp freely.
 
-**`npm run e2e` (`tools/e2e/run.mjs`) IS THE ONLY END-TO-END RUNNER** (owner, 2026-10-03: "it
-flashes the window so many times, dont use that ... make sure not to ever run this one or the
-headless one that takes away focus ever again, so delete them"). The two Playwright Test suites,
-`browse.spec` and `fullscreen.native.spec`, are DELETED with their configs; never run
-`npx playwright test`, and never add a runner that shows a window or takes the focus.
+**THE E2E STAYS HEADLESS** (owner, 2026-10-03, after a windowed suite flashed the screen and
+was deleted): whatever is added to the e2e is added to `tools/e2e/run.mjs` and keeps its nature,
+parked offscreen and never taking the focus.
 
 `npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
