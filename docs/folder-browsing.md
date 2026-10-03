@@ -179,15 +179,11 @@ npm run typecheck
 npm run lint
 npm run build
 npm run fetch:bin
-npx playwright test --config tools/e2e/browse.config.ts
 npm run e2e
 ```
 
-The dedicated Playwright suite uses the built Electron entry, isolated user-data profiles and
-offscreen test windows. Its scenarios cover folder history, unsupported files, real shell tabs,
-media/preview behavior, dirty buffers, phone scope, cwd restore and pinned-file restore.
-Agent title fixtures do not prove that a real Claude or Codex conversation was exercised.
-The HTML report is `.e2e/browse-report`; traces are retained on failure.
+`npm run e2e` is the only end-to-end runner (parked offscreen, never focused). The windowed
+Playwright suite that lived here was deleted on 2026-10-03 at the owner's request.
 
 These commands describe the gates, not their latest results. Record actual outcomes and any failed
 checks in the PR. A hands-on branch build must use a separate profile and must not replace the
