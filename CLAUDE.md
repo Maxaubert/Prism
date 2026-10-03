@@ -8,6 +8,10 @@ rest of the folder. The "quick look" Windows never shipped.
 Electron (Windows App via electron-builder) + React 19 + TypeScript + Vite + Tailwind v4, x64
 only, Windows 10 1809+ / Windows 11. Self-contained NSIS installer, per-user, unsigned,
 distributed via GitHub Releases. Same stack as its sibling **Filesmith**, on purpose.
+**Proprietary since v0.80.0** (#247, Wind's licence; v0.79.1 and earlier stay MIT): what ships
+is listed in `THIRD-PARTY-NOTICES.md`, so a new bundled binary or dependency adds its entry in
+the same PR. Setup's licence screen keeps Continue dead until the box is ticked, and never
+opens the licence from `$PLUGINSDIR` (`build/installer/README.md`).
 
 ## Audience
 
@@ -503,7 +507,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   for one slide after a toggle (`slidePanel`); the places column keeps its contents at their open
   width while it slides. The project `Sidebar` sits behind every tab and is shut on an Explorer
   tab, and one FolderBrowser serves every tab, so any other width change (a tab switch, a drag,
-  a window resize) lands at once. `browse.spec` samples widths every frame for all of it.
+  a window resize) lands at once.
   A RIGHT-CLICK NEVER SELECTS (2026-08-31): the row it was opened over is the
   menu's target and is marked in GREY (`menuPath`), not in the accent - the accent means
   "these are what I am about to act on", and the menu already acts on the row you opened it
@@ -1593,7 +1597,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   a frame later; a closing keeps the pane laid out (`out`) while it narrows. The list's
   column, the viewer App lays over the slot and its action bar tween together
   (`data-preview-sliding`, `workspace.css`), the contents frozen at their open width. Only
-  the toggle slides; a tab switch, a drag or a resize lands at once. `browse.spec` samples it.
+  the toggle slides; a tab switch, a drag or a resize lands at once.
 - **A tab you leave keeps playing** (2026-08-27, `lib/mediaDeck`). A tab
   renders only while it is in front, so walking to Settings or another folder
   stopped the film. Handing the sound to a second, hidden element was tried
@@ -2058,7 +2062,7 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   Copy address as text, Edit address. A crumb's menu acts on THAT crumb's folder, the bar's on the
   folder shown. Copy address is Explorer's PAIR in one data object - the folder as a file drop AND
   its path as text (`file:copy-address`, `copyWindowsFiles`' `text`) - so a paste in Explorer takes
-  the folder and a paste in a text field takes the path. `browse.spec` proves both formats.
+  the folder and a paste in a text field takes the path.
 - **Every surface answers a right-click** (2026-08-30, #76). Seven had no menu at all while
   the video had a carefully trimmed one, and almost every verb they needed already existed
   somewhere else. The picture, the audio stage, the text editor, a tab, the archive panel's
@@ -2279,8 +2283,7 @@ Filesmith's conventions.
   when the folder browser shows. The helper keeps 8 seconds for the first line, then waits up to 45
   (`LaunchAndWait`'s `patience`), and falls back at once if the pipe closes because Prism died. The
   helper and the app ship together; an old helper would read "started" as a wrong answer, which is
-  why they must. `npm run test:win-e` holds the helper's three new cases; `browse.spec`'s stand-in
-  helper reads both lines.
+  why they must. `npm run test:win-e` holds the helper's three new cases.
 - **THE TERMINAL ROWS COME IN ONE ORDER, THE CORE'S** (2026-09-22, owner: the two apps' terminal
   settings "the same in terms of order"). Prism no longer places the Agent indicator itself; the
   core's appearance list draws it above its two colours when the host asks (`withIndicator`), which
@@ -2352,6 +2355,10 @@ extension and they have none.
 **A TEST RUN LEAVES NOTHING IN %TEMP%** (2026-09-28): `vitest.global.ts` points the run's TEMP at
 one folder and removes it after (94 folders a run leaked before; 40,809 had built up, and with Temp
 open in the tree they were the 47,816-row stall of #235). A new test may mkdtemp freely.
+
+**THE E2E STAYS HEADLESS** (owner, 2026-10-03, after a windowed suite flashed the screen and
+was deleted): whatever is added to the e2e is added to `tools/e2e/run.mjs` and keeps its nature,
+parked offscreen and never taking the focus.
 
 `npm run dev` / `npm test` for the inner loop; `npm run e2e` drives the built app through
 Playwright and runs OFFSCREEN (`tools/e2e/run.mjs` `park()`: opacity 0, position -4000,-4000,
