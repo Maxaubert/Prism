@@ -1075,11 +1075,17 @@ async function termColourPickerScenario(fixtures) {
     const swatch = row.locator('[data-colour-swatch]')
     const popover = win.locator('[data-colour-popover][role="dialog"]')
     const reset = row.locator('[data-follow-theme]')
+    const escapeFromPicker = async () => {
+      await popover.locator('[role="slider"]').first().focus()
+      await win.keyboard.press('Escape')
+    }
     ok((await swatch.getAttribute('aria-label')) === 'Pick Working colour', 'the row has a swatch named for it')
     await swatch.click()
     ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'the swatch opens the picker')
     ok((await popover.getAttribute('aria-label')) === 'Working colour', "the picker is named for the row's colour")
-    await win.keyboard.press('Escape')
+    // The spec does not say the focus moves into the popover as it opens, and
+    // an Escape left on the swatch is not the popover's: focus inside first.
+    await escapeFromPicker()
     ok(await until(async () => (await popover.count()) === 0, 4000, 50), 'Escape closes it')
     ok((await stored()) === before && (await reset.count()) === 0, 'and an open and close with no change stores nothing and shows no Reset')
 
@@ -1154,13 +1160,15 @@ async function termColourPickerScenario(fixtures) {
         .map((e) => e.getAttribute('aria-label') ?? e.textContent)
     })
     ok(accentFilled.length === 0, `no control in the picker wears the accent (${JSON.stringify(accentFilled)})`)
-    await win.keyboard.press('Escape')
+    await escapeFromPicker()
     ok(await until(async () => (await popover.count()) === 0, 4000, 50), "Escape closes the editor's picker")
-    ok((await editor.count()) === 1, 'and only the picker: the theme editor stays open behind it')
+    // Held for a while, not read once: an editor that left on a delay (an
+    // exit transition) would still be counted the instant the picker went.
+    ok(!(await until(async () => (await editor.count()) === 0, 600, 50)), 'and only the picker: the theme editor stays open behind it')
     await editor.locator('[data-colour-swatch][aria-label="Pick red"]').click()
     ok(await until(async () => (await popover.count()) === 1, 4000, 50), 'a palette colour opens the picker')
     ok((await popover.locator('[role="slider"][aria-label="Alpha"]').count()) === 1, 'with an Alpha slider')
-    await win.keyboard.press('Escape')
+    await escapeFromPicker()
     await until(async () => (await popover.count()) === 0, 4000, 50)
     await editor.locator('button:has-text("Cancel")').click()
     await until(async () => (await editor.count()) === 0, 4000, 50)

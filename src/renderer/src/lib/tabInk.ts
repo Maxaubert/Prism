@@ -37,11 +37,22 @@ export function tintOver(tint: string, ground: string): string {
 }
 
 /**
- * Text biases WHITE: strict contrast maths picks black on the default orange,
- * but white-on-orange is the look; black only wins on genuinely light fills
- * (contrast against black of 12 is a ~0.55 luminance threshold). The rule is
- * the strip's own, unchanged; only what it is measured on moved.
+ * An OPAQUE tint keeps the strip's own rule, byte for byte: text biases WHITE,
+ * since strict contrast maths picks black on the default orange but
+ * white-on-orange is the look; black only wins on genuinely light fills
+ * (contrast against black of 12 is a ~0.55 luminance threshold).
+ *
+ * A SEE-THROUGH tint takes whichever of black and white reads better on the
+ * composite, which is never under 4.5:1 (the spec's floor). The white bias
+ * cannot hold it there: over a light strip a half tint is a light fill, and
+ * white on it measured 1.8:1 to 2.1:1 on linen, frost, paper and orchid (review
+ * of #254). No saved colour is see-through yet, so nobody's tab changes.
  */
 export function tabInk(tint: string, ground: string): string {
-  return contrastRatio('#000000', tintOver(tint, ground)) < 12 ? '#ffffff' : '#000000'
+  const t = split(tint)
+  const fill = tintOver(tint, ground)
+  if (t && t.a < 1 && split(ground)) {
+    return contrastRatio('#000000', fill) >= contrastRatio('#ffffff', fill) ? '#000000' : '#ffffff'
+  }
+  return contrastRatio('#000000', fill) < 12 ? '#ffffff' : '#000000'
 }

@@ -46,4 +46,34 @@ describe('tabInk', () => {
       expect(contrastRatio(ink, tintOver(tint, '#121212'))).toBeGreaterThanOrEqual(4.5)
     }
   })
+
+  it('holds 4.5:1 for a see-through accent over a LIGHT strip', () => {
+    // The review's worst cases: white measured 1.8:1 to 2.1:1 on each.
+    const cases: [string, string][] = [
+      ['#2f6fed80', '#fbfbfc'],
+      ['#92400e4d', '#f8f4ed'],
+      ['#0f766e66', '#f4f8fb'],
+      ['#6b21a84d', '#ede2f5']
+    ]
+    for (const [tint, strip] of cases) {
+      const ink = tabInk(tint, strip)
+      expect(contrastRatio(ink, tintOver(tint, strip))).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('holds 4.5:1 for every alpha of every hue over dark and light strips', () => {
+    const hex = (n: number) => n.toString(16).padStart(2, '0')
+    for (const strip of ['#000000', '#121212', '#383c44', '#808080', '#ede2f5', '#ffffff']) {
+      for (let h = 0; h < 360; h += 15) {
+        const [r, g, b] = [0, 8, 4].map((n) => {
+          const k = (n + h / 30) % 12
+          return Math.round(255 * (0.5 - 0.5 * Math.max(-1, Math.min(k - 3, 9 - k, 1))))
+        })
+        for (let a = 10; a < 100; a += 10) {
+          const tint = '#' + hex(r) + hex(g) + hex(b) + hex(Math.round((a / 100) * 255))
+          expect(contrastRatio(tabInk(tint, strip), tintOver(tint, strip))).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    }
+  })
 })
