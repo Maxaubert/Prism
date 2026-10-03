@@ -7184,6 +7184,383 @@ async function selectionScenario(fixtures) {
   }
 }
 
+/**
+ * THE ACCENT CAN BE SEE-THROUGH (#249; owner, 2026-10-02: "the accent colour
+ * should be able to have an alpha value", fills only), set in the core's
+ * colour picker since the rework (owner, 2026-10-03: alpha "should be built
+ * into the colour pickers ... it should not be a separate opacity setting").
+ * Driven as a user would: Shift+Left on the picker's Alpha slider, then eight
+ * hex digits typed into the code field. Then a selected row is MEASURED: its
+ * fill carries the alpha, and its label clears 4.5:1 against the fill as the
+ * eye gets it (laid over the sidebar's own ground). A Reset link, being text,
+ * stays opaque. The accent Reset puts everything back, and the draft is
+ * restored in `finally`, since the profile is shared.
+ */
+async function accentOpacityScenario(fixtures) {
+  console.log('accent opacity')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let draftBefore = null
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    await win.click('[aria-label="Settings"]')
+    await win.locator('button:has-text("Style")').first().click()
+    const row = win.locator('[data-colour-row="c-accent"]')
+    const field = row.locator('input:not([type])')
+    await field.waitFor({ timeout: 8000 })
+    await field.scrollIntoViewIfNeeded()
+    ok((await win.locator('#c-accent-alpha, [data-pref="c-accent-alpha"]').count()) === 0, 'there is no Accent opacity row')
+    const start = await field.inputValue()
+    ok(/^#[0-9a-f]{6}$/.test(start), `an untouched accent shows six digits (${start})`)
+
+    // The picker's Alpha slider, a tenth at a time with Shift, then by ones.
+    await row.locator('[data-colour-swatch]').click()
+    const pop = win.locator('[data-colour-popover][role="dialog"]')
+    await pop.waitFor({ timeout: 5000 })
+    ok((await pop.getAttribute('aria-label')) === 'Accent', 'the popover is named by its row')
+    const alpha = pop.locator('[role="slider"][aria-label="Alpha"]')
+    ok((await alpha.getAttribute('aria-valuemin')) === '10', 'its Alpha runs down to 10%')
+    await alpha.focus()
+    for (let i = 0; i < 7; i++) await alpha.press('Shift+ArrowLeft')
+    for (let i = 0; i < 5; i++) await alpha.press('ArrowLeft')
+    await sleep(150)
+    ok((await alpha.getAttribute('aria-valuenow')) === '25', `Shift+Left and Left bring it to 25% (${await alpha.getAttribute('aria-valuenow')})`)
+    const at25 = await field.inputValue()
+    ok(/^#[0-9a-f]{8}$/.test(at25) && at25.slice(7) === '40', `the field shows eight digits (${at25})`)
+    // A press outside keeps the colour and closes the picker.
+    await field.click()
+    await sleep(150)
+    ok((await pop.count()) === 0, 'a press outside closes it')
+
+    // Eight digits typed read back exactly as typed.
+    await field.fill(start + '81')
+    await field.press('Enter')
+    await sleep(250)
+    ok((await field.inputValue()) === start + '81', `#rrggbb81 reads back as typed (${await field.inputValue()})`)
+    await field.fill(start + '66')
+    await field.press('Enter')
+    await sleep(250)
+    const stored = await win.evaluate(() => JSON.parse(localStorage.getItem('prism.style.draft') ?? '{}'))
+    ok(stored.accentAlpha === 0.4 && stored.accent === undefined, `a scheme accent keeps its scheme, the alpha beside it (${JSON.stringify(stored)})`)
+    const readSel = () =>
+      win.evaluate(() => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = 'var(--p-sel-bg)'
+        document.body.appendChild(probe)
+        const c = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return c
+      })
+    const selToken = await readSel()
+    ok(/rgba\(.*0\.4\)/.test(selToken), `the selection fill carries it (${selToken})`)
+
+    // A BUTTON prints the same ink on --p-accent (review of #249: the raw
+    // accent there left Frost's labels at 3.78:1). The lit Save button is
+    // measured against the fill as seen on both grounds it can sit on.
+    const save = win.locator('button:has-text("Save changes"):not([disabled])').first()
+    ok((await save.count()) === 1, 'an alpha of its own lights Save changes')
+    const button = await save.evaluate((el) => {
+      const parse = (c) => {
+        const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+      }
+      const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+      const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+      const token = (name) => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = `var(${name})`
+        document.body.appendChild(probe)
+        const c = parse(getComputedStyle(probe).backgroundColor).rgb
+        probe.remove()
+        return c
+      }
+      const fill = parse(getComputedStyle(el).backgroundColor)
+      const label = parse(getComputedStyle(el).color).rgb
+      const worst = Math.min(
+        ...['--p-bg', '--p-side-flat'].map((g) => {
+          const ground = token(g)
+          const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+          const [la, lb] = [lum(seen), lum(label)]
+          return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+        })
+      )
+      return { alpha: fill.a, worst }
+    })
+    ok(button.alpha < 1, `the button's fill is see-through (${button.alpha})`)
+    ok(button.worst >= 4.5, `and its label reads on it as seen (${button.worst.toFixed(2)}:1)`)
+
+    // A Reset link is TEXT, so it stays opaque.
+    const reset = row.locator('button', { hasText: 'Reset' })
+    ok((await reset.count()) === 1, 'the accent row offers Reset')
+    const resetColour = await reset.evaluate((el) => getComputedStyle(el).color)
+    ok(/^rgb\(/.test(resetColour), `and the Reset link is opaque (${resetColour})`)
+    await row.scrollIntoViewIfNeeded()
+    await win.screenshot({ path: join(SHOTS, 'accent-opacity-style.png') })
+
+    // Settings is a tab; go back to the file's tab and select a folder there.
+    await win.locator('[data-tab-role]:not([data-pinned]) [role="tab"]:not(:has-text("Settings"))').first().click()
+    await sleep(400)
+    const codeRow = win.locator('[role="treeitem"]:has-text("code")').first()
+    await codeRow.click()
+    await sleep(400)
+    ok((await codeRow.getAttribute('data-selected')) !== null, 'a folder row is selected')
+    const look = await codeRow.evaluate((row) => {
+      const parse = (c) => {
+        const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+        return { rgb: n.slice(0, 3), a: n.length > 3 ? n[3] : 1 }
+      }
+      const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+      const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+      // The element that paints the fill: the row, or the first inside it.
+      const painted = [row, ...row.querySelectorAll('*')].find((el) => {
+        const bg = getComputedStyle(el).backgroundColor
+        return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent'
+      })
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--p-side-flat)'
+      document.body.appendChild(probe)
+      const ground = parse(getComputedStyle(probe).backgroundColor).rgb
+      probe.remove()
+      const fill = parse(getComputedStyle(painted).backgroundColor)
+      const seen = fill.rgb.map((v, i) => ground[i] + (v - ground[i]) * fill.a)
+      const label = parse(getComputedStyle(painted).color).rgb
+      const [la, lb] = [lum(seen), lum(label)]
+      return {
+        bg: getComputedStyle(painted).backgroundColor,
+        alpha: fill.a,
+        seen: seen.map(Math.round),
+        label,
+        contrast: (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+      }
+    })
+    ok(look.alpha < 1, `the selected row's fill is see-through (${look.bg})`)
+    ok(look.contrast >= 4.5, `its label reads on the fill as seen (${look.contrast.toFixed(2)}:1 on rgb(${look.seen.join(',')}))`)
+    await win.screenshot({ path: join(SHOTS, 'accent-opacity-row.png') })
+
+    // Reset gives back the colour AND the alpha.
+    await win.click('[aria-label="Settings"]')
+    await win.locator('button:has-text("Style")').first().click()
+    await reset.waitFor({ timeout: 8000 })
+    await reset.click()
+    await sleep(250)
+    ok((await field.inputValue()) === start, `Reset puts the accent back to six digits (${await field.inputValue()})`)
+    ok(!/rgba/.test(await readSel()), `and the selection is solid again (${await readSel()})`)
+    await win.keyboard.press('Control+w')
+  } finally {
+    await win
+      .evaluate((d) => {
+        if (d === null) localStorage.removeItem('prism.style.draft')
+        else localStorage.setItem('prism.style.draft', d)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+      }, draftBefore)
+      .catch(() => {})
+    await app.close()
+  }
+}
+
+/**
+ * EVERY STYLE COLOUR IS THE CORE'S PICKER, WITH ALPHA (#249 rework; owner,
+ * 2026-10-03: "an input field for a color code and an alpha per colour on
+ * every colour setting colour picker both in pt and prism"). The decisions of
+ * the same day, each driven on the real Style page:
+ *   1. Primary's alpha IS the old Acrylic slider: below 100 the window is
+ *      glass, at 100 solid; a saved level shows as the alpha it paints; a hue
+ *      edit leaves the glass alone. There is no Acrylic row.
+ *   2. Secondary's alpha follows Primary's until it is moved.
+ *   5. Under glass, a see-through accent's text-bearing fills are opaque.
+ * Plus the #71 guard the old local well lacked: tabbing through a row writes
+ * nothing; and Escape in a picker puts a row back exactly as it was.
+ * (Mica staying mica is unit-tested: main's material is not readable here.)
+ */
+async function styleColoursScenario(fixtures) {
+  console.log('style colours')
+  const { app, win } = await launch(join(fixtures, 'README.md'))
+  let before = null
+  const setDraft = (d) =>
+    win.evaluate((v) => {
+      if (v === null) localStorage.removeItem('prism.style.draft')
+      else localStorage.setItem('prism.style.draft', JSON.stringify(v))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, d)
+  const draft = () => win.evaluate(() => JSON.parse(localStorage.getItem('prism.style.draft') ?? '{}'))
+  /** A token's computed colour as [r, g, b, a]. */
+  const token = (name) =>
+    win.evaluate((n) => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = `var(${n})`
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const v = (c.match(/[\d.]+/g) ?? []).map(Number)
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1]
+    }, name)
+  const contrast = (a, b) => {
+    const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+    const lum = ([r, g, bb]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(bb)
+    const [x, y] = [lum(a), lum(b)]
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  try {
+    await win.waitForSelector('[role="treeitem"]', { timeout: 10000 })
+    before = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    await setDraft(null)
+    await win.click('[aria-label="Settings"]')
+    await win.locator('button:has-text("Style")').first().click()
+    const rowOf = (id) => win.locator(`[data-colour-row="${id}"]`)
+    const fieldOf = (id) => rowOf(id).locator('input:not([type])')
+    const pop = win.locator('[data-colour-popover][role="dialog"]')
+    const slider = (name) => pop.locator(`[role="slider"][aria-label="${name}"]`)
+    await fieldOf('c-bg').waitFor({ timeout: 8000 })
+    ok((await win.locator('#c-glass').count()) === 0, 'there is no Acrylic slider')
+    for (const id of ['c-bg', 'c-chrome', 'c-text', 'c-folder-icon', 'c-accent'])
+      ok((await rowOf(id).locator('[data-colour-swatch]').count()) === 1, `${id} is the core picker`)
+    ok((await win.locator('[data-pref="c-bg"] input[type="color"], [data-pref] input[type="color"]').count()) === 0, 'no native colour input is left')
+
+    // #71's guard: tabbing through a row writes nothing (Folder icons
+    // follows the accent, the Accent row is a scheme).
+    for (const id of ['c-folder-icon', 'c-accent']) {
+      await fieldOf(id).focus()
+      await win.keyboard.press('Tab')
+      await win.keyboard.press('Tab')
+    }
+    await sleep(200)
+    ok(JSON.stringify(await draft()) === '{}', `tabbing through Folder icons and Accent writes nothing (${JSON.stringify(await draft())})`)
+
+    // Escape in a picker after a change puts the row back as it was: unset.
+    await rowOf('c-folder-icon').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Alpha').focus()
+    await slider('Alpha').press('Shift+ArrowLeft')
+    await sleep(150)
+    ok(typeof (await draft()).folderIcon === 'string', 'the picker writes as it moves')
+    await slider('Alpha').press('Escape')
+    await sleep(200)
+    ok((await pop.count()) === 0 && (await draft()).folderIcon === undefined, 'Escape puts the unset row back')
+    ok((await rowOf('c-folder-icon').locator('button', { hasText: 'Reset' }).count()) === 0, 'with no Reset showing')
+
+    // 1. Primary: aurora is solid, so its alpha is 100 and six digits.
+    const solidBg = await fieldOf('c-bg').inputValue()
+    ok(/^#[0-9a-f]{6}$/.test(solidBg), `a solid style's Primary is six digits (${solidBg})`)
+    ok((await token('--p-bg'))[3] === 1, 'and its ground is opaque')
+    await rowOf('c-bg').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    ok(Number(await slider('Alpha').getAttribute('aria-valuemin')) === 53, `its Alpha starts at the slider's glassiest end (${await slider('Alpha').getAttribute('aria-valuemin')})`)
+    await slider('Alpha').focus()
+    await slider('Alpha').press('Shift+ArrowLeft')
+    await slider('Alpha').press('Shift+ArrowLeft')
+    await sleep(200)
+    const glassy = await draft()
+    ok(typeof glassy.acrylic === 'number' && glassy.acrylic > 0 && glassy.bg === undefined, `below 100 it is the Acrylic level, the colour untouched (${JSON.stringify(glassy)})`)
+    const glassBg = await token('--p-bg')
+    ok(glassBg[3] < 1, `the window's ground is see-through (${glassBg.join(',')})`)
+    // A hue edit on glass leaves the level alone.
+    await slider('Hue').focus()
+    for (let i = 0; i < 6; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(200)
+    const hued = await draft()
+    ok(hued.acrylic === glassy.acrylic && typeof hued.bg === 'string', `a hue edit moves the colour, not the glass (${JSON.stringify(hued)})`)
+    // A press outside keeps what the picker did and closes it.
+    await fieldOf('c-text').click()
+    await sleep(150)
+    // 5. A see-through accent under glass: its fills are flattened.
+    await setDraft({ ...hued, accentAlpha: 0.4 })
+    await sleep(250)
+    const accentFill = await token('--p-accent')
+    const selFill = await token('--p-sel-bg')
+    const onAccent = await token('--p-on-accent')
+    ok(accentFill[3] === 1 && selFill[3] === 1, `under glass the accent's fills are opaque (${accentFill.join(',')})`)
+    ok(contrast(onAccent, accentFill) >= 4.5, `and their label reads on them (${contrast(onAccent, accentFill).toFixed(2)}:1)`)
+    await win.screenshot({ path: join(SHOTS, 'style-colours-glass.png') })
+    await setDraft(hued)
+    await sleep(250)
+    // 100 again is solid, and with the colour put back nothing is edited.
+    ok((await pop.count()) === 0, 'the picker is closed')
+    await rowOf('c-bg').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Alpha').focus()
+    for (let i = 0; i < 6; i++) await slider('Alpha').press('Shift+ArrowRight')
+    await sleep(200)
+    ok((await draft()).acrylic === undefined && (await token('--p-bg'))[3] === 1, `at 100 the window is solid again (${JSON.stringify(await draft())})`)
+    await slider('Alpha').press('Escape')
+    await sleep(200)
+    const same = (x, y) => JSON.stringify(Object.entries(x).sort()) === JSON.stringify(Object.entries(y).sort())
+    ok(same(await draft(), hued), `Escape puts back the glass the picker opened on (${JSON.stringify(await draft())})`)
+
+    // A level saved before this change shows as the alpha it paints: the old
+    // slider's 40 is glass 0.63, painted 1 - (1 - 0.63 * 0.75)^3 = 0.853.
+    await setDraft({ acrylic: 40 })
+    await sleep(250)
+    const saved = await fieldOf('c-bg').inputValue()
+    ok(saved.slice(7) === 'da', `a saved Acrylic 40 reads as alpha da (${saved})`)
+    // The token as published, before the browser rounds it to a byte.
+    const savedGround = await win.evaluate(() => document.documentElement.style.getPropertyValue('--p-bg'))
+    const savedAlpha = Number(/,\s*([\d.]+)\)$/.exec(savedGround)?.[1])
+    ok(Math.abs(savedAlpha - (1 - (1 - 0.63 * 0.75) ** 3)) < 1e-9, `and paints exactly as it did (${savedGround})`)
+
+    // 2. Secondary follows Primary's alpha until moved, then holds its own.
+    const sec = await fieldOf('c-chrome').inputValue()
+    ok(sec.slice(7) === 'da', `Secondary shows Primary's alpha (${sec})`)
+    await rowOf('c-chrome').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Hue').focus()
+    for (let i = 0; i < 4; i++) await slider('Hue').press('Shift+ArrowRight')
+    await sleep(200)
+    ok(/^#[0-9a-f]{6}$/.test((await draft()).side ?? ''), `a hue edit stores six digits and keeps following (${(await draft()).side})`)
+    await slider('Alpha').focus()
+    await slider('Alpha').press('Shift+ArrowLeft')
+    await sleep(200)
+    const own = (await draft()).side ?? ''
+    ok(/^#[0-9a-f]{8}$/.test(own), `a moved alpha is its own, eight digits (${own})`)
+    await fieldOf('c-chrome').click()
+    await sleep(150)
+    // Its own 100 on glass, in the colour the style already had, is a solid
+    // panel kept as `ff` (review of #251: it was read as the style's own
+    // colour put back and thrown away, and the panel stayed glass).
+    await setDraft({ acrylic: 40 })
+    await sleep(250)
+    const styleSide = (await fieldOf('c-chrome').inputValue()).slice(0, 7)
+    await rowOf('c-chrome').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Alpha').focus()
+    await slider('Alpha').press('Shift+ArrowLeft')
+    for (let i = 0; i < 6; i++) await slider('Alpha').press('Shift+ArrowRight')
+    await sleep(200)
+    const solidSide = (await draft()).side ?? ''
+    ok(solidSide === styleSide + 'ff', `its own 100 on glass is kept as ff (${solidSide})`)
+    ok((await token('--p-side'))[3] === 1 && (await token('--p-bg'))[3] < 1, 'a solid panel on a see-through window')
+    await fieldOf('c-chrome').click()
+    await sleep(150)
+
+    // Text at half alpha still reads at 4.5:1 on the panel.
+    await setDraft({})
+    await sleep(250)
+    await rowOf('c-text').locator('[data-colour-swatch]').click()
+    await pop.waitFor({ timeout: 5000 })
+    await slider('Alpha').focus()
+    for (let i = 0; i < 5; i++) await slider('Alpha').press('Shift+ArrowLeft')
+    await sleep(200)
+    ok(/^#[0-9a-f]{8}$/.test((await draft()).text ?? ''), `Text stores its alpha (${(await draft()).text})`)
+    const ink = await token('--p-text')
+    const panel = await token('--p-side-flat')
+    ok(ink[3] === 1 && contrast(ink, panel) >= 4.5, `and is drawn opaque, ${contrast(ink, panel).toFixed(2)}:1 on the panel`)
+    await win.screenshot({ path: join(SHOTS, 'style-colours-picker.png') })
+    await fieldOf('c-text').click()
+    await sleep(150)
+    await rowOf('c-bg').scrollIntoViewIfNeeded()
+    await win.screenshot({ path: join(SHOTS, 'style-colours-rows.png') })
+    await win.keyboard.press('Control+w')
+  } finally {
+    await win
+      .evaluate((d) => {
+        if (d === null) localStorage.removeItem('prism.style.draft')
+        else localStorage.setItem('prism.style.draft', d)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+      }, before)
+      .catch(() => {})
+    await app.close()
+  }
+}
+
 async function dragScenario(fixtures) {
   console.log('drag and drop')
   // #70: a row dragged onto a folder MOVES; a member dragged out of an archive
@@ -9472,6 +9849,8 @@ await run(fullscreenBlackScenario)
 await run(searchQueryScenario)
 await run(videoMenuScenario)
 await run(selectionScenario)
+await run(accentOpacityScenario)
+await run(styleColoursScenario)
 await run(dragScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
