@@ -310,7 +310,7 @@ export function PlayerMenu({
                   aria-label="Playback speed"
                   data-menu-slider
                   className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                  style={{ accentColor: 'var(--p-accent)' }}
+                  style={{ accentColor: 'var(--p-accent-solid)' }}
                 />
               </div>
             </div>

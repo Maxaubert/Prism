@@ -104,7 +104,7 @@ const chrome = EditorView.theme(
     },
     '.cm-panel.cm-search label': { color: 'var(--p-dim)', display: 'inline-flex', alignItems: 'center', gap: '4px' },
     // Checkboxes take the accent rather than Chromium's blue.
-    '.cm-panel.cm-search input[type=checkbox]': { accentColor: 'var(--p-accent)' },
+    '.cm-panel.cm-search input[type=checkbox]': { accentColor: 'var(--p-accent-solid)' },
     // Both selectors on purpose: CodeMirror's base theme styles these by class
     // (.cm-textfield / .cm-button), and only a class beats a class.
     // Ctrl+G's panel is a `cm-dialog`, not a `cm-search`, and without these it

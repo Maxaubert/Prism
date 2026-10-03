@@ -40,7 +40,7 @@ export function JobChip({ floating = false }: { floating?: boolean }): JSX.Eleme
         }`}
       >
         <span
-          className="block h-full rounded-full bg-[var(--p-accent)]"
+          className="block h-full rounded-full bg-[var(--p-accent-solid)]"
           style={{ width: s.pct === null ? '0%' : `${Math.max(1, s.pct)}%` }}
         />
       </span>

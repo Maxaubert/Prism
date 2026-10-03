@@ -49,18 +49,25 @@ import {
 } from '../lib/treePrefs'
 import {
   FONTS,
-  acrylicLevel,
   deletePreset,
   isEdited,
   paletteOf,
   folderIconOf,
-  sideOf,
+  primaryValue,
+  PRIMARY_ALPHA_MIN,
   resolveVizTheme,
+  resetAccent,
+  restoreOverrides,
   savePreset,
+  secondaryValue,
+  setAccentColour,
   setAcrylic,
   setMode,
   setOverride,
+  setPrimary,
+  setSecondary,
   setStyle,
+  snapPrimaryAlpha,
   useMode,
   useOverrides,
   useSelectedId,
@@ -70,6 +77,9 @@ import {
   type Mode,
   type Style
 } from '../lib/theme'
+import { ALPHA_MIN, accentAlphaOf } from '../lib/accentAlpha'
+import { ColourField } from 'prism-term-core/renderer/settings/ColourPicker'
+import { withAlpha } from 'prism-term-core/renderer/lib/colour'
 
 // The app-wide Settings window: a large pop-up with a left tab rail and a content
 // pane, so it reads like a real settings page. It and the in-canvas gear panel are
@@ -360,55 +370,38 @@ function SwitchItem({
 }
 
 /**
- * A colour well: type a hex, or open the system picker.
- *
- * The hex is a field rather than a readout - a colour you already know is
- * quicker typed than hunted for in a picker, and it is how a colour arrives
- * from anywhere else. It is held as text while you edit and only applied when
- * it parses, so half-typed values don't repaint the app on every keystroke.
+ * A colour row's control: the core's picker (ONE COLOUR PICKER, owner
+ * 2026-10-03: "the colour pickers should be the same for both apps, i need an
+ * input field for a color code and an alpha per colour on every colour
+ * setting"), with this page's Reset beside it. The code field takes HEX, RGBA
+ * or HSLA and commits only a typed colour that differs from the one shown, so
+ * tabbing through a row writes nothing (the guard the old local well lacked);
+ * the swatch opens the picker, live, and Escape there puts back the row as it
+ * was when it opened (`onRevert`), an unset row included.
  */
-/** "#abc", "abc", "#aabbcc" → "#aabbcc"; anything else → null. */
-function parseHexInput(raw: string): string | null {
-  const hex = '#' + raw.trim().replace(/^#/, '')
-  const full = /^#[0-9a-f]{3}$/i.test(hex)
-    ? '#' +
-      hex
-        .slice(1)
-        .split('')
-        .map((c) => c + c)
-        .join('')
-    : hex
-  return /^#[0-9a-f]{6}$/i.test(full) ? full.toLowerCase() : null
-}
-
-
-function ColourWell({
+function StyleColour({
   id,
+  label,
   value,
   custom,
   onChange,
-  onReset
+  onReset,
+  onRevert,
+  alphaMin,
+  snapAlpha
 }: {
   id: string
+  label: string
   value: string
   custom: boolean
-  onChange: (v: string) => void
+  onChange: (stored: string) => void
   onReset: () => void
+  onRevert: () => void
+  alphaMin?: number
+  snapAlpha?: (a: number) => number
 }): JSX.Element {
-  // While you are typing the field holds the draft; the rest of the time it is
-  // simply the colour. No effect syncing the two, which is a render loop
-  // waiting to happen.
-  const [draft, setDraft] = useState<string | null>(null)
-  const text = draft ?? value
-
-  const commit = (raw: string): void => {
-    setDraft(null) // either it took, or the field goes back to the colour
-    const full = parseHexInput(raw)
-    if (full) onChange(full)
-  }
-
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-2.5" data-colour-row={id}>
       {custom && (
         <button
           onClick={onReset}
@@ -417,31 +410,15 @@ function ColourWell({
           Reset
         </button>
       )}
-      <input
-        value={text}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => commit(text)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit(text)
-          else if (e.key === 'Escape') setDraft(null)
-        }}
-        spellCheck={false}
-        aria-label="Hex value"
-        className="w-[76px] rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)] bg-[var(--p-control)] px-1.5 py-1 text-center font-mono text-[11.5px] uppercase text-[var(--p-text)] focus-visible:border-[var(--p-accent-hi)] focus-visible:outline-none"
+      <ColourField
+        id={id}
+        label={label}
+        value={value}
+        onChange={onChange}
+        onRevert={onRevert}
+        alphaMin={alphaMin}
+        snapAlpha={snapAlpha}
       />
-      <label
-        className="relative block h-7 w-9 cursor-pointer overflow-hidden rounded-[var(--p-radius-sm)] border border-[color:var(--p-line)]"
-        style={{ background: value }}
-        title="Pick a colour"
-      >
-        <input
-          id={id}
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-        />
-      </label>
     </div>
   )
 }
@@ -556,7 +533,7 @@ function Tile({
       }}
       className={`group relative flex cursor-pointer flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
         on
-          ? 'border-[var(--p-accent)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent)]'
+          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
           : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
       }`}
     >
@@ -654,7 +631,7 @@ function PlayerTab({
               value={transportBg}
               onChange={(e) => onPickTransportBg(Number(e.target.value))}
               className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-              style={{ accentColor: 'var(--p-accent)' }}
+              style={{ accentColor: 'var(--p-accent-solid)' }}
             />
           </div>
         </Pref>
@@ -704,13 +681,16 @@ function StyleTab(): JSX.Element {
   const style = useStyle()
   const mode = useMode()
   const edits = useOverrides()
+  const accentAlpha = accentAlphaOf(style.accentAlpha)
+  // What a picker's Escape puts back: the draft as it is at this render, which
+  // is the one a popover opening now captures.
+  const putBack = (keys: Array<keyof typeof edits>) => () => restoreOverrides(edits, keys)
   const selected = useSelectedId()
   const list = useStyles(mode)
   // Ask the store rather than re-deriving it here: this list had already fallen
   // behind twice, and a Save button that misses an edit loses it.
   const dirty = isEdited()
   void edits // re-render when an edit lands, so `dirty` is read again
-  const glass = acrylicLevel(style)
   return (
     <div className="flex flex-col gap-5">
       {/* Mode is a setting like any other, so it gets a row of its own rather
@@ -803,45 +783,34 @@ function StyleTab(): JSX.Element {
               options={EDGE_OPTIONS}
             />
           </Pref>
-          {/* Every style takes frost (owner decision, 2026-08-08): above zero
-              the override turns the material to acrylic, at zero it is solid,
-              so the slider does something honest wherever it starts. */}
-          <Pref id="c-glass" label="Acrylic" hint="How much of the desktop shows through.">
-            <div className="flex items-center gap-3">
-              {edits.acrylic !== undefined && (
-                <button
-                  onClick={() => setAcrylic(null)}
-                  className="text-[11px] font-semibold text-[var(--p-accent-hi)] hover:underline"
-                >
-                  Reset
-                </button>
-              )}
-              <span className="w-[34px] text-right font-mono text-[11.5px] text-[var(--p-dim)]">
-                {glass}%
-              </span>
-              <input
-                id="c-glass"
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={glass}
-                onChange={(e) => setAcrylic(Number(e.target.value))}
-                className="h-1.5 w-[180px] cursor-pointer appearance-none rounded-full bg-[var(--p-track)]"
-                style={{ accentColor: 'var(--p-accent)' }}
-              />
-            </div>
-          </Pref>
           {/* PRIMARY and SECONDARY (owner, 2026-09-03): the viewer's ground,
               and the panels around it. Accent, Text and the rest stay their
               own things. */}
-          <Pref id="c-bg" label="Primary colour" hint="The background behind the file being viewed.">
-            <ColourWell
+          {/* PRIMARY'S ALPHA IS THE OLD ACRYLIC SLIDER (owner, 2026-10-03,
+              decision 1: it replaces the slider "under the slider's own
+              rule", saved levels mapping 1:1). Below 100 the window is glass
+              at the level that alpha paints (a mica style stays mica), at
+              100 it is solid; the range is the slider's two ends. A hue edit
+              never touches the glass. Every style still takes frost (owner,
+              2026-08-08). */}
+          <Pref
+            id="c-bg"
+            label="Primary colour"
+            hint="The background behind the file being viewed. Below full alpha the desktop shows through."
+          >
+            <StyleColour
               id="c-bg"
-              value={style.bg}
-              custom={!!edits.bg}
-              onChange={(v) => setOverride('bg', v)}
-              onReset={() => setOverride('bg', null)}
+              label="Primary colour"
+              value={primaryValue(style)}
+              custom={!!edits.bg || edits.acrylic !== undefined}
+              onChange={setPrimary}
+              onReset={() => {
+                setOverride('bg', null)
+                setAcrylic(null)
+              }}
+              onRevert={putBack(['bg', 'acrylic'])}
+              alphaMin={PRIMARY_ALPHA_MIN}
+              snapAlpha={snapPrimaryAlpha}
             />
           </Pref>
           {/* The sidebar broke out of the one-surface rule (owner, 2026-09-03).
@@ -858,21 +827,27 @@ function StyleTab(): JSX.Element {
             label="Secondary colour"
             hint="The colour of the sidebar, title bar and tab bar."
           >
-            <ColourWell
+            {/* Its alpha follows Primary's until it is moved, and is its own
+                after (owner, 2026-10-03, decision 2). */}
+            <StyleColour
               id="c-chrome"
-              value={sideOf(style)}
+              label="Secondary colour"
+              value={secondaryValue(style)}
               custom={!!edits.side}
-              onChange={(v) => setOverride('chrome', v)}
+              onChange={setSecondary}
               onReset={() => setOverride('chrome', null)}
+              onRevert={putBack(['side', 'title', 'tabs'])}
             />
           </Pref>
           <Pref id="c-text" label="Text" hint="The colour of file names, labels and readouts.">
-            <ColourWell
+            <StyleColour
               id="c-text"
+              label="Text"
               value={style.text}
               custom={!!edits.text}
               onChange={(v) => setOverride('text', v)}
               onReset={() => setOverride('text', null)}
+              onRevert={putBack(['text'])}
             />
           </Pref>
           <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
@@ -883,12 +858,14 @@ function StyleTab(): JSX.Element {
             />
           </Pref>
           <Pref id="c-folder-icon" label="Folder icons" hint="The colour of folder icons in the tree.">
-            <ColourWell
+            <StyleColour
               id="c-folder-icon"
-              value={folderIconOf(style)}
+              label="Folder icons"
+              value={style.folderIcon ?? folderIconOf(style)}
               custom={!!edits.folderIcon}
               onChange={(v) => setOverride('folderIcon', v)}
               onReset={() => setOverride('folderIcon', null)}
+              onRevert={putBack(['folderIcon'])}
             />
           </Pref>
           {/* THE FILE ICONS SWITCH IS GONE FROM HERE (owner, 2026-09-01: "hide
@@ -901,24 +878,27 @@ function StyleTab(): JSX.Element {
               Coloured wired to setOverride('iconScheme'), plus flipping
               ICON_SCHEME_SHOWN. The zip and the comic are coloured regardless
               of any of it. */}
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-6">
-          <div>
-            <div className="text-[12.5px] font-semibold text-[var(--p-text)]">Accent</div>
-            <p className="text-[11.5px] text-[var(--p-dim)]">
-              The colour of the selection, progress bar and visualizer.
-            </p>
-          </div>
           {/* One picker, like Background and Text: the accent is a colour you
-              choose, not a scheme you browse. (The swatch grid lived here
-              until 2026-08-21.) */}
-          <ColourWell
-            id="c-accent"
-            value={paletteOf(style.accent)[0]}
-            custom={!!edits.accent}
-            onChange={(v) => setOverride('accent', v)}
-            onReset={() => setOverride('accent', null)}
-          />
+              choose, not a scheme you browse. (The swatch grid lived here until
+              2026-08-21.) Its alpha is in the picker (#249; owner, 2026-10-02:
+              "the accent colour should be able to have an alpha value", fills
+              only), not a slider of its own (owner, 2026-10-03: "it should not
+              be a separate opacity setting"). A Pref, so its description is read
+              by the plain-words test. */}
+          <Pref id="c-accent" label="Accent" hint="The colour of the selection, progress bar and visualizer.">
+            <StyleColour
+              id="c-accent"
+              label="Accent"
+              value={withAlpha(paletteOf(style.accent)[0], accentAlpha)}
+              // An alpha of its own is an edit of the accent too, so the one
+              // Reset gives back both.
+              custom={!!edits.accent || edits.accentAlpha !== undefined}
+              onChange={setAccentColour}
+              onReset={resetAccent}
+              onRevert={putBack(['accent', 'accentAlpha'])}
+              alphaMin={ALPHA_MIN}
+            />
+          </Pref>
         </div>
       </Section>
     </div>
@@ -1553,6 +1533,11 @@ export function Settings({
         // caret is in the file, a player's open menu), and yielding to those
         // would leave Settings with no way to be closed from the keyboard.
         if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+        // AN OPEN COLOUR PICKER OWNS ESCAPE TOO (the core's ColourPopover, on
+        // the Style and Terminal pages): there it undoes the picker's writes.
+        // This listener is native and runs first, and stopping the event here
+        // would close the whole page and never let the picker hear it.
+        if ((e.target as Element | null)?.closest?.('[data-colour-popover]')) return
         e.stopPropagation()
         onClose()
       }

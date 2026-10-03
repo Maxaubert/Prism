@@ -45,7 +45,7 @@ function ModeCards({ mode, onPick }: { mode: Mode; onPick?: (m: Mode) => void })
           tabIndex={onPick ? 0 : -1}
           className={`w-[166px] rounded-[14px] border p-2.5 text-left transition ${
             mode === m
-              ? 'border-[var(--p-accent)] shadow-[0_0_0_2px_var(--p-accent)]'
+              ? 'border-[var(--p-accent-solid)] shadow-[0_0_0_2px_var(--p-accent-solid)]'
               : 'border-[color:var(--p-line)] hover:-translate-y-0.5'
           }`}
           style={{ background: 'var(--p-hover)' }}
@@ -370,7 +370,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): JSX.Element {
                         ? 'rgba(255,255,255,.55)'
                         : 'rgba(255,255,255,.07)',
                     boxShadow: on
-                      ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--p-accent) 55%, transparent)'
+                      ? 'inset 0 0 0 1.5px color-mix(in srgb, var(--p-accent-solid) 55%, transparent)'
                       : light
                         ? 'inset 0 1px 0 rgba(255,255,255,.9), 0 6px 18px -12px rgba(0,0,0,.5)'
                         : 'inset 0 1px 0 rgba(255,255,255,.14), 0 8px 20px -14px rgba(0,0,0,.9)'
