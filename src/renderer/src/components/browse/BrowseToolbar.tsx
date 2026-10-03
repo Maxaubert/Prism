@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { browseCrumbs, browseParent } from '../../lib/browse'
 import { clipboardText } from '../../lib/clipboardText'
 import { ContextMenu } from '../ContextMenu'
@@ -11,12 +11,10 @@ type Props = Pick<
   | 'directory'
   | 'canBack'
   | 'canForward'
-  | 'query'
   | 'onBack'
   | 'onForward'
   | 'onUp'
   | 'onNavigate'
-  | 'onQueryChange'
   | 'onRefresh'
   | 'onDropInto'
 > & {
@@ -24,7 +22,9 @@ type Props = Pick<
   fileName?: string
   /** File viewers return to their containing folder before travelling history. */
   onReturnToFolder?: () => void
-  showSearch?: boolean
+  /** What sits after the address field: the Explorer's preview toggle and
+   *  search button (#267). The file viewer's toolbar has none. */
+  trailing?: ReactNode
 }
 
 export function BrowseToolbar(props: Props): JSX.Element {
@@ -40,8 +40,12 @@ export function BrowseToolbar(props: Props): JSX.Element {
   useLayoutEffect(() => {
     const row = crumbs.current
     if (!row) return
+    // A long path keeps its END in view, the folder you are in, and the
+    // field fades its start so the cut reads as a cut rather than a name.
     const reveal = (): void => {
       row.scrollLeft = row.scrollWidth
+      if (row.scrollLeft > 0) row.dataset.clipped = ''
+      else delete row.dataset.clipped
     }
     reveal()
     const observer = new ResizeObserver(reveal)
@@ -152,7 +156,12 @@ export function BrowseToolbar(props: Props): JSX.Element {
         >
           <div className="browse-crumbs" ref={crumbs}>
             {browseCrumbs(props.directory).map((crumb, index, all) => (
+              // DOLPHIN'S ADDRESS FIELD (#267; owner, 2026-10-04: "the url bar
+              // in the image looks really clean too so copy that style"): a
+              // chevron LEADS every name, the first one included, so the row
+              // reads "> C: > Users > Admin" with the folder you are in bold.
               <span className="browse-crumb" key={crumb.path}>
+                <BrowseIcon name="chevron" />
                 <button
                   {...folderDrop(crumb.path)}
                   data-crumb-path={crumb.path}
@@ -163,12 +172,14 @@ export function BrowseToolbar(props: Props): JSX.Element {
                 >
                   {crumb.name}
                 </button>
-                <BrowseIcon name="chevron" />
               </span>
             ))}
             {props.fileName && (
-              <span className="browse-file-crumb" aria-current="page" title={props.fileName}>
-                {props.fileName}
+              <span className="browse-crumb">
+                <BrowseIcon name="chevron" />
+                <span className="browse-file-crumb" aria-current="page" title={props.fileName}>
+                  {props.fileName}
+                </span>
               </span>
             )}
           </div>
@@ -196,24 +207,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
           ]}
         />
       )}
-      {props.showSearch !== false && (
-        <label className="browse-search browse-field">
-          <BrowseIcon name="search" />
-          <input
-            type="search"
-            name="folderSearch"
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="Search this folder and subfolders"
-            placeholder="Search folder and subfolders"
-            title={
-              'Search this folder and all subfolders\nWords, "phrases", *.mp4, folder: music, file: notes, ext:mp4;mkv\nEverything search syntax is available when Everything is running.'
-            }
-            value={props.query}
-            onChange={(e) => props.onQueryChange(e.target.value)}
-          />
-        </label>
-      )}
+      {props.trailing}
     </div>
   )
 }

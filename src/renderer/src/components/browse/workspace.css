@@ -68,7 +68,7 @@
   transform: translateX(100%);
 }
 .explorer-resize-preview {
-  top: 92px;
+  top: 48px;
   bottom: 26px;
   right: var(--browse-preview-width);
   transform: translateX(100%);
@@ -79,7 +79,7 @@
 .browse-workspace [data-browse-preview] {
   position: absolute;
   z-index: 2;
-  top: 132px;
+  top: 88px;
   right: 0;
   bottom: 26px;
   width: var(--browse-preview-width);
@@ -110,7 +110,7 @@
 .browse-preview-actions {
   position: absolute;
   z-index: 3;
-  top: 92px;
+  top: 48px;
   right: 0;
   width: var(--browse-preview-width);
   height: 40px;

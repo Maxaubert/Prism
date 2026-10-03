@@ -51,6 +51,15 @@ const api = {
     ipcRenderer.invoke('browse:search', tabId, path, query, requestId, window),
   browseSearchCancel: (tabId: string, requestId: string): void =>
     ipcRenderer.send('browse:search-cancel', tabId, requestId),
+  browseSuggest: (
+    tabId: string,
+    path: string,
+    query: string,
+    requestId: string
+  ): Promise<BrowseSearchResult> =>
+    ipcRenderer.invoke('browse:suggest', tabId, path, query, requestId),
+  browseSuggestCancel: (tabId: string, requestId: string): void =>
+    ipcRenderer.send('browse:suggest-cancel', tabId, requestId),
   onBrowseSearchProgress: (cb: (progress: BrowseSearchProgress) => void): (() => void) => {
     const listener = (_: unknown, progress: BrowseSearchProgress): void => cb(progress)
     ipcRenderer.on('browse:search-progress', listener)

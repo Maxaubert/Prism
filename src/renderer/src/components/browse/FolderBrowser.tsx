@@ -3,6 +3,7 @@ import { formatBytes } from '../../lib/format'
 import { BrowseIcon } from './BrowseIcon'
 import { BrowseList } from './BrowseList'
 import { BrowseSearchStatus } from './BrowseSearchStatus'
+import { BrowseSearchPopup } from './BrowseSearchPopup'
 import { BrowsePlaces } from './BrowsePlaces'
 import { BrowseToolbar } from './BrowseToolbar'
 import { browseEntries } from './entries'
@@ -154,6 +155,34 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
     setMarks({ key: marksKey, items })
     props.onSelect(primary, true)
   }
+  /**
+   * THE SEARCH POPUP (#267). Open on the search button or Ctrl+F, never over
+   * something else in front (a question, the update window: one layer, one
+   * thing), and it leaves when what is in front changes: another tab, another
+   * folder, or a layer arriving over it. The focus goes back where it was.
+   */
+  const [searching, setSearching] = useState<{ owner?: string; directory: string } | null>(null)
+  const searchOpen =
+    !!searching && searching.owner === props.owner && searching.directory === props.directory && !props.covered
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const openSearch = (): void => {
+    if (props.covered || document.querySelector('[role="dialog"][aria-modal="true"]')) return
+    const focused = document.activeElement
+    returnFocus.current = focused instanceof HTMLElement && focused !== document.body ? focused : null
+    setSearching({ owner: props.owner, directory: props.directory })
+  }
+  const closeSearch = (refocus = true): void => {
+    setSearching(null)
+    const back = returnFocus.current
+    returnFocus.current = null
+    if (!refocus) return
+    if (back?.isConnected) back.focus({ preventScroll: true })
+    else focusList()
+  }
+  // Left behind by a tab switch, a walk elsewhere or a layer over it: gone,
+  // not waiting to reappear when that layer does. Settled while rendering,
+  // React's own pattern for state that follows props.
+  if (searching && !searchOpen) setSearching(null)
   const activate = (entry: BrowseEntry): void => {
     if (entry.isFolder) {
       retainListFocus()
@@ -226,10 +255,17 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           shell.current
             ?.querySelector<HTMLButtonElement>('[data-testid="browse-edit-path"]')
             ?.click()
-        } else if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        } else if (
+          e.ctrlKey &&
+          !e.shiftKey &&
+          !e.altKey &&
+          e.key.toLowerCase() === 'f' &&
+          // An editor or a shell inside keeps its own find.
+          !target.closest('.cm-editor,.xterm,[data-doc-scroller],[data-pdf-scroller]')
+        ) {
           e.preventDefault()
           e.stopPropagation()
-          shell.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
+          openSearch()
         } else if (!typing && !e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Backspace') {
           e.preventDefault()
           e.stopPropagation()
@@ -266,7 +302,57 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         }
       }}
     >
-      <BrowseToolbar {...props} />
+      <BrowseToolbar
+        {...props}
+        trailing={
+          <>
+            {props.terminalControls && (
+              <div className="browse-terminal-controls">{props.terminalControls}</div>
+            )}
+            <button
+              className="browse-icon-button"
+              aria-label="Preview pane"
+              title="Preview pane"
+              aria-pressed={props.previewEnabled}
+              onClick={props.onPreviewToggle}
+            >
+              <BrowseIcon name="preview" />
+            </button>
+            <button
+              className="browse-icon-button browse-search-button"
+              aria-label="Search this folder and subfolders"
+              aria-haspopup="dialog"
+              title="Search (Ctrl+F)"
+              data-testid="browse-search-button"
+              // Lit while the list shows a search, so the way back to it and
+              // to the query is where the search began.
+              data-active={!!props.query.trim() || undefined}
+              onClick={openSearch}
+            >
+              <BrowseIcon name="search" />
+            </button>
+          </>
+        }
+      />
+      {searchOpen && (
+        <BrowseSearchPopup
+          tabId={props.owner}
+          directory={props.directory}
+          initialQuery={props.query}
+          onClose={() => closeSearch()}
+          onPick={(hit) => {
+            closeSearch(false)
+            focusList()
+            if (hit.isFolder) props.onNavigate(hit.path)
+            else if (hit.file) props.onOpen(hit.file)
+          }}
+          onShowAll={(query) => {
+            closeSearch(false)
+            focusList()
+            props.onQueryChange(query)
+          }}
+        />
+      )}
       {(props.placesVisible !== false || sliding || !!props.placesPeek) && (
         <BrowsePlaces
           places={props.places}
@@ -298,93 +384,6 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           onOpenNewTab={props.onOpenNewTab}
         />
       )}
-      <div className="browse-actions" aria-label="File actions">
-        <button
-          disabled={!selected || many || props.loading}
-          onClick={() => {
-            if (selected) activate(selected)
-          }}
-        >
-          <BrowseIcon name="open" />
-          <span>Open</span>
-        </button>
-        {props.onOpenProject && (
-          <button
-            disabled={!selected?.isFolder || many || props.loading}
-            onClick={() => {
-              if (selected?.isFolder) props.onOpenProject?.(selected)
-            }}
-            title="Open selected folder as a project"
-          >
-            <BrowseIcon name="open" />
-            <span>Open as project</span>
-          </button>
-        )}
-        {!props.onOpenProject && props.placesVisible === false && (
-          <button onClick={() => props.onNewTerminal(props.directory)}>
-            <BrowseIcon name="terminal" />
-            <span>New terminal here</span>
-          </button>
-        )}
-        {props.onCopy && (
-          <button
-            disabled={!selected || props.loading}
-            onClick={() => {
-              if (many && props.onCopyPaths) props.onCopyPaths(markedPaths(), false)
-              else if (selected) props.onCopy?.(selected)
-            }}
-          >
-            <BrowseIcon name="copy" />
-            <span>Copy</span>
-          </button>
-        )}
-        {props.onRename && (
-          <button
-            disabled={!selected || many || props.loading}
-            onClick={() => {
-              if (selected) props.onRename?.(selected)
-            }}
-          >
-            <BrowseIcon name="rename" />
-            <span>Rename</span>
-          </button>
-        )}
-        {props.onDelete && (
-          <button
-            disabled={!selected || props.loading}
-            onClick={() => {
-              if (many && props.onDeleteMany) props.onDeleteMany(markedPaths())
-              else if (selected) props.onDelete?.(selected)
-            }}
-          >
-            <BrowseIcon name="delete" />
-            <span>Delete</span>
-          </button>
-        )}
-        {props.onContextMenu && (
-          <button
-            className="browse-icon-button"
-            aria-label="More file actions"
-            title="More file actions"
-            disabled={!selected || many || props.loading}
-            onClick={(e) => {
-              if (selected) props.onContextMenu?.(e, selected, 'more')
-            }}
-          >
-            <BrowseIcon name="more" />
-          </button>
-        )}
-        <div className="browse-terminal-controls">{props.terminalControls}</div>
-        <button
-          className="browse-icon-button"
-          aria-label="Preview pane"
-          title="Preview pane"
-          aria-pressed={props.previewEnabled}
-          onClick={props.onPreviewToggle}
-        >
-          <BrowseIcon name="preview" />
-        </button>
-      </div>
       <BrowseList
         {...props}
         entries={props.loading ? [] : entries}
@@ -431,7 +430,14 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
           )
         )}
         {!!props.query.trim() && (
-          <BrowseSearchStatus state={props.searchState} onCancel={props.onCancelSearch} />
+          <BrowseSearchStatus
+            state={props.searchState}
+            onCancel={props.onCancelSearch}
+            onClear={() => {
+              focusList()
+              props.onQueryChange('')
+            }}
+          />
         )}
       </div>
     </div>

@@ -3292,6 +3292,10 @@ export default function App(): JSX.Element {
       // Escape, the arrows - stay the shell's; only the search box, a rename
       // and the text editor keep the full typing shield.
       const inTerm = !!el && !!el.closest('.xterm')
+      // THE EXPLORER'S SEARCH POPUP (#267) owns every key while it is up: it
+      // is drawn outside the Explorer (over the whole window), and a chord
+      // that reached the app behind it would change what is under it.
+      if (el?.closest('[data-search-popup]')) return
       const inBrowser = !!el?.closest('.folder-browser')
       if (inBrowser && e.altKey) return
       if (inBrowser && !e.ctrlKey && !e.altKey && e.key !== 'F11') return
@@ -3807,14 +3811,11 @@ export default function App(): JSX.Element {
             fileName={file?.name}
             canBack={active.browse.cursor > 0}
             canForward={active.browse.cursor < active.browse.history.length - 1}
-            query={browsing.location?.query ?? ''}
-            showSearch={false}
             onReturnToFolder={returnToFolder}
             onBack={() => browsing.travel(-1)}
             onForward={() => browsing.travel(1)}
             onUp={returnToFolder}
             onNavigate={(path) => void browsing.navigate(path)}
-            onQueryChange={(query) => browsing.patch({ query, scrollTop: 0 })}
           />
           {browsing.error && (
             <div className="browse-navigation-error" role="status">
@@ -3988,6 +3989,7 @@ export default function App(): JSX.Element {
                 previewVisible={previewSlide.out}
                 onPreviewToggle={togglePreview}
                 terminalControls={terminalBrowseControls}
+                covered={!!ask || update.state.open || settingsOpen || !!setup}
               />
               {previewSlide.out && browsing.previewFile && (
                 <div className="browse-preview-actions">
@@ -4622,8 +4624,8 @@ export default function App(): JSX.Element {
           items={browseMenu.paths && browseMenu.paths.length > 1 ? (() => {
             // Several rows marked: only what acts on all of them, and each
             // says how many, so the menu and the marks agree (review of #257).
-            // Open, Rename, Duplicate and Properties are one row's; the
-            // toolbar switches them off in the same state.
+            // Open, Rename, Duplicate and Properties are one row's, and F2
+            // stands down in the same state.
             const paths = browseMenu.paths
             const n = `${paths.length} items`
             return [

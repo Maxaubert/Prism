@@ -2,7 +2,10 @@
   --browse-places-width: var(--explorer-places-width, 210px);
   display: grid;
   grid-template-columns: var(--browse-places-width) minmax(0, 1fr);
-  grid-template-rows: 48px 44px minmax(0, 1fr) 26px;
+  /* No action row (#267; owner, 2026-10-04: "i think we should remove our
+     quick action buttons"): every verb is on the right-click menu and its
+     key, and the list has the row's height. */
+  grid-template-rows: 48px minmax(0, 1fr) 26px;
   min-width: 0;
   min-height: 0;
   width: 100%;
@@ -166,7 +169,7 @@
 }
 /* A gap between the field's edge and a crumb scrolled half out of view. */
 .browse-path {
-  padding-left: 3px;
+  padding-left: 4px;
 }
 .browse-toolbar .browse-path button:not(:disabled):hover {
   background: transparent;
@@ -178,6 +181,11 @@
   overflow: auto hidden;
   scrollbar-width: none;
 }
+/* A path too long for the field keeps its end, and its start fades out
+   rather than stopping mid-letter at the edge. */
+.browse-crumbs[data-clipped] {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
 .browse-crumb {
   display: flex;
   flex-shrink: 0;
@@ -185,10 +193,16 @@
 }
 .browse-crumb button {
   /* Inside the field's edge, not over it. */
-  height: 34px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 3px;
   white-space: nowrap;
   color: var(--p-text-soft);
+}
+/* A name answers the pointer as a place to go, inside the field. */
+.browse-toolbar .browse-path .browse-crumb button:not(:disabled):hover {
+  background: var(--p-hover);
+  color: var(--p-text);
 }
 .browse-crumb button[aria-current] {
   color: var(--p-text);
@@ -196,7 +210,7 @@
 }
 .browse-file-crumb {
   flex-shrink: 0;
-  padding: 0 8px;
+  padding: 0 6px;
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -204,9 +218,11 @@
   color: var(--p-text);
   font-weight: 600;
 }
+/* The chevron LEADS each name, Dolphin's field (#267): "> C: > Users". */
 .browse-crumb > svg {
   width: 12px;
   height: 12px;
+  margin: 0 1px;
   color: var(--p-dim);
 }
 .browse-edit-path {
@@ -227,28 +243,14 @@
   padding: 0 10px;
   border-radius: 3px;
 }
-.browse-search {
-  width: clamp(160px, 22%, 300px);
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  color: var(--p-dim);
+/* SEARCH IS A BUTTON (#267): the field became a popup (search-popup.css).
+   Lit in the accent while the list is showing a search's results. */
+.browse-toolbar .browse-search-button[data-active] {
+  color: var(--p-accent-hi);
 }
-.browse-search input {
-  width: 100%;
-  min-width: 0;
-  background: transparent;
-  color: var(--p-text);
-  height: 100%;
-}
-.browse-toolbar .browse-search input:focus-visible {
-  outline: none;
-}
-.browse-search input::placeholder {
-  color: var(--p-field-hint);
-  opacity: 1;
+.browse-toolbar > .browse-icon-button[aria-pressed='true'] {
+  color: var(--p-accent-hi);
+  background: var(--p-hover);
 }
 .browse-places {
   grid-column: 1;
@@ -313,34 +315,11 @@
   box-shadow: inset 0 0 0 1px var(--p-sel-line);
   color: var(--p-text);
 }
-.browse-actions {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--p-divider);
-  min-width: 0;
-}
-.browse-actions > button:not(.browse-icon-button) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 8px;
-  border-radius: 3px;
-  white-space: nowrap;
-  color: var(--p-text-soft);
-}
-.browse-actions > button[aria-pressed='true'] {
-  color: var(--p-accent-hi);
-  background: var(--p-hover);
-}
+/* A terminal's own buttons (Return to terminal, Terminal folder, cd here)
+   sit in the toolbar since the action row went (#267). */
 .browse-terminal-controls {
-  margin-left: auto;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -354,7 +333,7 @@
 }
 .browse-list-area {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -368,8 +347,7 @@
   outline: 0 none !important;
 }
 body[data-internal-file-drag] :focus-visible,
-body[data-internal-file-drag] .browse-path:focus-within,
-body[data-internal-file-drag] .browse-search:focus-within {
+body[data-internal-file-drag] .browse-path:focus-within {
   outline: 0 none !important;
   box-shadow: none !important;
 }
@@ -556,7 +534,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-preview-slot {
   grid-column: 3;
-  grid-row: 3;
+  grid-row: 2;
   border-left: 1px solid var(--p-divider);
   min-width: 0;
   min-height: 0;
@@ -565,7 +543,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-status {
   grid-column: 2 / -1;
-  grid-row: 4;
+  grid-row: 3;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -613,17 +591,6 @@ body[data-internal-file-drag] .browse-search:focus-within {
     padding: 0 6px;
     gap: 8px;
   }
-  .browse-search {
-    width: 160px;
-  }
-  .browse-actions {
-    gap: 0;
-    padding-inline: 6px;
-  }
-  .browse-actions > button:not(.browse-icon-button) {
-    padding-inline: 5px;
-    gap: 5px;
-  }
 }
 @media (max-width: 760px) {
   .folder-browser {
@@ -631,9 +598,6 @@ body[data-internal-file-drag] .browse-search:focus-within {
   }
 }
 @media (max-width: 560px) {
-  .browse-search {
-    width: 124px;
-  }
   .browse-toolbar {
     gap: 4px;
     padding-inline: 6px;

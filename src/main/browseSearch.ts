@@ -10,6 +10,21 @@ import { desktopClosed, grantDesktopDirectory, ownsDesktopDirectory } from './de
 
 const searches = new Map<string, { requestId: string; controller: AbortController }>()
 
+/** The search popup's slot (#267): its suggestions run beside the list's own
+ *  search rather than in its place, so typing in the popup never stops the
+ *  full search the list is showing. The tab's grants are still the tab's. */
+export const suggestSlot = (tabId: string): string => `${tabId}\u0000suggest`
+
+/** What the popup asks for: the first 200 hits by name, of which it shows
+ *  about eight. Bounded tighter than the list's search, since a suggestion
+ *  that takes thirty seconds is no suggestion. */
+export const SUGGEST_LIMITS = { maxEntries: 100000, maxHits: 200, maxMs: 3000 }
+export const SUGGEST_WINDOW: BrowseSearchWindowRequest = {
+  offset: 0,
+  limit: 200,
+  sort: { key: 'name', direction: 'asc' }
+}
+
 export function cancelBrowseSearch(tabId: string, requestId?: string): void {
   if (requestId === undefined || searches.get(tabId)?.requestId === requestId) {
     searches.get(tabId)?.controller.abort()
@@ -55,7 +70,8 @@ export async function browseSearch(
   requestId: string,
   emit: (progress: BrowseSearchProgress) => void = () => {},
   limits: SearchLimits = {},
-  requestedWindow?: BrowseSearchWindowRequest
+  requestedWindow?: BrowseSearchWindowRequest,
+  slot: string = tabId
 ): Promise<BrowseSearchResult> {
   const result: BrowseSearchResult = {
     path,
@@ -81,10 +97,10 @@ export async function browseSearch(
     result.unreadable = 1
     return result
   }
-  cancelBrowseSearch(tabId)
+  cancelBrowseSearch(slot)
   const ticket = { requestId, controller: new AbortController() }
-  searches.set(tabId, ticket)
-  const active = (): boolean => searches.get(tabId) === ticket && !desktopClosed(tabId)
+  searches.set(slot, ticket)
+  const active = (): boolean => searches.get(slot) === ticket && !desktopClosed(tabId)
   const { maxEntries = 250000, maxHits = 1000, maxMs = 30000 } = limits
   const window = normalizeSearchWindow(requestedWindow)
   const started = Date.now()
@@ -297,6 +313,6 @@ export async function browseSearch(
     result.cancelled = !active()
     return snapshot()
   } finally {
-    if (searches.get(tabId) === ticket) searches.delete(tabId)
+    if (searches.get(slot) === ticket) searches.delete(slot)
   }
 }
