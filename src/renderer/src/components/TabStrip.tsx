@@ -64,7 +64,8 @@ export function TabStrip({
   onDropIntoTab,
   onReorder,
   onOpenRecent,
-  wash
+  wash,
+  inTitleRow = false
 }: {
   tabs: Tab[]
   activeId: string | null
@@ -94,18 +95,19 @@ export function TabStrip({
   /** Whether the style's light reaches the strip. Follows the title bar, so
    *  the setup's mode wipe does not tear between the two rows. */
   wash: boolean
+  /** The title bar is hidden (#250): the strip fills the middle of the one
+   *  row, between the panel toggle and the bar's buttons, and that row draws
+   *  the height and the rule under it. */
+  inTitleRow?: boolean
 }): JSX.Element | null {
   const indicator = useAgentIndicator()
   const width = useTabWidth()
   // The user's pick where there is one, else the app style's accent and the
   // theme's green (termHost.ts): the same rule as Prism Terminal.
   const { working: agentColor, finished: doneColor } = useAgentColors()
-  // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
-  // contrast maths picks black on the default orange, but white-on-orange is
-  // the look; black only wins on genuinely light fills (contrast vs black of
-  // 12 is a ~0.55 luminance threshold). The colour can carry an alpha now, so
-  // the ink is the core's `inkOn`: that rule byte for byte on an opaque tint,
-  // and chosen on the tint as laid over the strip's flat ground otherwise.
+  // Full mode fills the tab with the chosen colour. The colour can carry an
+  // alpha, so the ink is the core's `inkOn`: chosen on the tint as laid over
+  // the strip's flat ground (`tabsOf`, the one --p-tabs-flat publishes).
   const stripGround = tabsOf(useStyle())
   const onTint = (c: string): string => inkOn(c, stripGround)
   // A tab being carried (#71 follow-up): the strip animates it rather than
@@ -278,7 +280,7 @@ export function TabStrip({
       // closed hand, children included: a tab is made of a label button, an
       // icon slot and an X, each with a cursor of its own, and letting them
       // answer for themselves made it flicker under the moving pointer.
-      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex h-8 shrink-0 items-stretch gap-0 overflow-x-auto border-b border-[var(--p-divider)] bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
+      className={`${dragInFlight ? 'no-drag' : 'drag'} p-styled-font flex ${inTitleRow ? 'min-w-0 flex-1' : 'h-8 shrink-0 border-b border-[var(--p-divider)]'} items-stretch gap-0 overflow-x-auto bg-[var(--p-tabs)] pr-1 text-[12px] transition-[background-color,border-color] duration-[550ms] [transition-timing-function:cubic-bezier(.16,1,.3,1)] ${
         carry?.live ? 'cursor-grabbing [&_*]:cursor-grabbing' : ''
       } ${wash ? 'p-wash' : ''}`}
     >

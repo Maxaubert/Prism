@@ -740,6 +740,10 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
   // As SEEN: a see-through panel over a solid window is the blend of the two.
   const flatSide = sideGround(style)
   const edge = style.borders === 'none' ? 'transparent' : mix(flatSide, ink, dividerAlpha)
+  // The tab strip's flat colour (#253): what a see-through agent tint is laid
+  // on before its ink is chosen. --p-tabs carries the material's alpha (or is
+  // a gradient), and contrast needs one opaque colour.
+  const tabsFlat = tabsOf(style)
 
   // A hairline that exists whatever the style says about edges. Settings lists
   // need their rows separated even in a style that draws no chrome lines.
@@ -771,6 +775,7 @@ export function variablesFor(input: Style, opaque = false): Record<string, strin
     '--p-title': title,
     '--p-tabs': tabs,
     '--p-tab-active': tabActive,
+    '--p-tabs-flat': tabsFlat,
     '--p-icon': icon,
     // The tree's icon colours, both user-pickable. The folder default is the
     // family indigo (kind styles) or the style's own icon tone; the file token

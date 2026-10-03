@@ -34,6 +34,7 @@ import {
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
 import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
+import { setTitleBarMode, useTitleBarMode } from '../lib/titleBarPrefs'
 import {
   setAutoScroll,
   setTreeSide,
@@ -320,6 +321,31 @@ function TabWidthSetting(): JSX.Element {
         options={[
           { id: 'dynamic', name: 'Dynamic' },
           { id: 'fixed', name: 'Fixed' }
+        ]}
+      />
+    </Pref>
+  )
+}
+
+/** Whether the window keeps its title bar (#250; owner, 2026-10-02: "normal
+ *  prism should also have no titlebar option"), Prism Terminal's row (#91).
+ *  A window setting, not the style's: a style switch leaves it alone, so it
+ *  sits up here with Tab width rather than with Edges under "This style". */
+function TitleBarSetting(): JSX.Element {
+  const mode = useTitleBarMode()
+  return (
+    <Pref
+      id="title-bar"
+      label="Title bar"
+      hint="Shown above the tabs, or hidden so the tabs and the window buttons share one row."
+    >
+      <Segmented
+        value={mode}
+        onChange={setTitleBarMode}
+        // Shown first: it is the default, the window as it always was.
+        options={[
+          { id: 'shown', name: 'Shown' },
+          { id: 'hidden', name: 'Hidden' }
         ]}
       />
     </Pref>
@@ -673,6 +699,7 @@ function StyleTab(): JSX.Element {
         {/* Tab width opens the look page (owner, 2026-09-23: "put the option
             closer to the top of appearance"); Style is Prism's appearance. */}
         <TabWidthSetting />
+        <TitleBarSetting />
         <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>
@@ -1518,18 +1545,23 @@ export function Settings({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
+  // The page starts where the chrome ends: under the title bar AND the tab
+  // row (68px), or under the one row when the title bar is hidden (36px, #250;
+  // owner, 2026-10-03: "the settings page doesnt move up to cover the gap").
+  const titleBar = useTitleBarMode()
 
   if (!open) return null
   const active = TABS.find((t) => t.id === tab) ?? TABS[0]
 
   return (
-    // A full-window settings page (sits below the 36px title bar), not a popup.
+    // A full-window settings page under the chrome, not a popup.
     // Settings keeps the system font whatever the style says. A style's
     // typeface belongs to the app you're looking at; letting it set the type in
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-[68px] z-40"
+      data-settings-page
+      className={`fixed inset-x-0 bottom-0 z-40 ${titleBar === 'hidden' ? 'top-[36px]' : 'top-[68px]'}`}
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
       <div className="flex h-full w-full" style={{ zoom: size.zoom }}>

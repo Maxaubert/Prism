@@ -108,6 +108,7 @@ video::cue {
   --p-title: #1a1d21;
   --p-tabs: #1a1d21;
   --p-tab-active: #1a1d21;
+  --p-tabs-flat: #1a1d21;
   --p-text: #e3e6ea;
   --p-text-soft: #c7ccd3;
   --p-dim: #868d96;
@@ -203,6 +204,34 @@ body {
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* A COLLAPSED PANEL PEEKS (#250): it slides in over the content from its own
+   side and back out, at the panels' own 180ms curve. The shadow falls on the
+   side facing the content only, so it reads as a sheet lifted over it. The
+   reduced-motion rule above already makes the slide instant. */
+@keyframes p-peek-in-left {
+  from { transform: translateX(-100%) }
+}
+@keyframes p-peek-out-left {
+  to { transform: translateX(-100%) }
+}
+@keyframes p-peek-in-right {
+  from { transform: translateX(100%) }
+}
+@keyframes p-peek-out-right {
+  to { transform: translateX(100%) }
+}
+/* Opaque: --p-side carries the style's material, and a translucent sheet over
+   the content would show the content through it. */
+.p-peek-left,
+.p-peek-right { background-color: var(--p-side-flat, var(--p-side)) !important }
+.p-peek-left { box-shadow: 10px 0 28px -8px rgb(0 0 0 / 0.45) }
+.p-peek-right { box-shadow: -10px 0 28px -8px rgb(0 0 0 / 0.45) }
+.p-peek-left.p-peek-in { animation: p-peek-in-left 180ms cubic-bezier(.23, 1, .32, 1) both }
+.p-peek-left.p-peek-out { animation: p-peek-out-left 180ms cubic-bezier(.23, 1, .32, 1) both }
+.p-peek-right.p-peek-in { animation: p-peek-in-right 180ms cubic-bezier(.23, 1, .32, 1) both }
+.p-peek-right.p-peek-out { animation: p-peek-out-right 180ms cubic-bezier(.23, 1, .32, 1) both }
+.p-peek-out { pointer-events: none }
 
 /* Someone who asked the OS for less motion gets state changes, not journeys. */
 @media (prefers-reduced-motion: reduce) {

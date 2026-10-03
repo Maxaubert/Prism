@@ -7,7 +7,7 @@
 
   [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square)](https://github.com/Maxaubert/Prism/releases/latest)
   [![Built with](https://img.shields.io/badge/Electron%20·%20React%20·%20TypeScript-2b2e3a?style=flat-square)](#build-from-source)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-22b364?style=flat-square)](LICENSE)
+  [![License: proprietary](https://img.shields.io/badge/License-proprietary-6b7280?style=flat-square)](#license)
 </div>
 
 ---
@@ -139,6 +139,18 @@ and each fetched at build time from a pinned release (see `tools/fetch-*.mjs`).
   which is a score rather than a recording. Licences at `resources/bin/LICENSE-fluidsynth.txt`
   and `resources/bin/LICENSE-soundfont.md`.
 
+The full list of what Prism ships, with each component's licence and where its text lives, is
+in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
 ## License
 
-[MIT](LICENSE)
+Prism is **proprietary**. Copyright (c) 2026 Max Aubert, all rights reserved. The source code
+may not be used, copied, modified or redistributed without written permission; official
+binaries are free to install and use, personally or inside an organisation. See [`LICENSE`](LICENSE).
+
+Releases published on or before 2026-10-03 (up to `v0.79.1`) were issued under the MIT licence,
+and that grant still covers those versions. It does not extend to anything after them.
+
+Third-party components and their licences are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+Commercial licensing enquiries: aubert@post.com
