@@ -1560,18 +1560,23 @@ export function Settings({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
+  // The page starts where the chrome ends: under the title bar AND the tab
+  // row (68px), or under the one row when the title bar is hidden (36px, #250;
+  // owner, 2026-10-03: "the settings page doesnt move up to cover the gap").
+  const titleBar = useTitleBarMode()
 
   if (!open) return null
   const active = TABS.find((t) => t.id === tab) ?? TABS[0]
 
   return (
-    // A full-window settings page (sits below the 36px title bar), not a popup.
+    // A full-window settings page under the chrome, not a popup.
     // Settings keeps the system font whatever the style says. A style's
     // typeface belongs to the app you're looking at; letting it set the type in
     // here means picking a mono or a serif style resizes the settings page
     // itself, and the cards you're choosing between move as you read them.
     <div
-      className="fixed inset-x-0 bottom-0 top-[68px] z-40"
+      data-settings-page
+      className={`fixed inset-x-0 bottom-0 z-40 ${titleBar === 'hidden' ? 'top-[36px]' : 'top-[68px]'}`}
       style={{ fontFamily: FONTS.system.stack, fontSize: '12.5px' }}
     >
       <div className="flex h-full w-full" style={{ zoom: size.zoom }}>

@@ -4712,6 +4712,16 @@ async function titleBarScenario(fixtures) {
       winButtons.length === 3 && Math.max(...winButtons) > width - 20 && !!cog && cog.r <= Math.min(...winButtons),
       `the cog and then the window buttons end the row (${winButtons.join(', ')} of ${width})`
     )
+    // The settings page starts right under the row: it kept the 68px of title
+    // bar plus tabs and left a band (owner, 2026-10-03).
+    await win.click(`${row} [aria-label="Settings"]`)
+    const page = await until(async () => {
+      const p = await box('[data-settings-page]')
+      return p && Math.abs(p.y - rowBox.b) <= 1 ? p : null
+    }, 3000, 50)
+    ok(!!page, `the settings page starts under the one row (${JSON.stringify(await box('[data-settings-page]'))} vs row bottom ${rowBox.b})`)
+    await win.click(`${row} [aria-label="Settings"]`)
+    await until(async () => !(await box('[data-settings-page]')), 3000, 50)
     const hiddenWork = await box('.browse-workspace')
     ok(
       !!hiddenWork && !!shownWork && hiddenWork.y < shownWork.y - 20,
