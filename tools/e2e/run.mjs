@@ -1113,9 +1113,12 @@ async function termColourPickerScenario(fixtures) {
           ground: getComputedStyle(document.documentElement).getPropertyValue('--p-tabs-flat').trim()
         }
       })
+    // The fill FADES to its new colour, so it is read once it has arrived at
+    // the stored alpha: a sample mid-fade measured 0.875 and failed the ink.
+    const want = parseInt(((await stored()) ?? '').slice(7, 9), 16) / 255
     const seeThrough = await until(async () => {
       const l = await tabLook()
-      return l && cssRgba(l.bg).a < 0.99 && cssRgba(l.bg).a > 0.01 ? l : null
+      return l && Math.abs(cssRgba(l.bg).a - want) < 0.02 ? l : null
     }, 4000, 50)
     ok(!!seeThrough, `the Full tab's fill carries the alpha (${seeThrough?.bg ?? (await tabLook())?.bg})`)
 
