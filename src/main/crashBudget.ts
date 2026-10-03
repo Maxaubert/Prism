@@ -28,6 +28,14 @@ export interface CrashBudgetOptions {
 export interface CrashBudget {
   /** Count one death at `now` and say what to do about it. */
   record(now: number): Recovery
+  /**
+   * This run has died more than once (#265, review): a second death inside
+   * `windowMs`, or a rebuild inside `recreateWindowMs`. The page then comes
+   * back WITHOUT its saved tabs, since a restored tab may be what kills it,
+   * and reopening it on every recovery would end in a quit, and the same
+   * quit at every later launch. One death on its own keeps the tabs.
+   */
+  strained(now: number): boolean
 }
 
 export function crashBudget({
@@ -52,6 +60,12 @@ export function crashBudget({
         return 'recreate'
       }
       return 'give-up'
+    },
+    strained(now) {
+      return (
+        deaths.filter((t) => now - t < windowMs).length >= 2 ||
+        rebuilt.some((t) => now - t < recreateWindowMs)
+      )
     }
   }
 }

@@ -4452,12 +4452,19 @@ async function neverWindowlessScenario(fixtures) {
     ok(!!back, 'a page that dies is reloaded, and its tab is back')
     ok(back?.id === first?.id, 'in the same window')
     ok(/ gone reason=\S+ .*action=reload/.test(readLog()), 'the death is logged with its reason and the reload')
+    ok(!/ restore tabs=skipped/.test(readLog()), 'one death keeps the saved tabs')
 
+    // From the second death in a run the page comes back WITHOUT its saved
+    // tabs (one of them may be what kills it): the Explorer, not the README.
+    const EXPLORER = '[data-testid="browse-list"]'
     await crash(app)
-    await live(app)
+    const strained = await live(app, EXPLORER)
+    ok(!!strained, 'a second death brings the page back too')
+    ok(/ restore tabs=skipped reason=repeated-deaths/.test(readLog()), 'without its saved tabs, and the log says so')
+    ok((await state(app, '.p-md h1')).found === false, 'the restored README tab is left out')
     await crash(app)
     const rebuilt = await until(async () => {
-      const s = await live(app, '.p-md h1', 2000)
+      const s = await live(app, EXPLORER, 2000)
       return s && s.id !== first?.id ? s : null
     }, 20000, 200)
     ok(!!rebuilt, 'the third death in two minutes gets a NEW window, working, and only one')
@@ -4466,9 +4473,9 @@ async function neverWindowlessScenario(fixtures) {
     const child = app.process()
     const exited = new Promise((done) => child.once('exit', () => done(true)))
     await crash(app)
-    await live(app)
+    await live(app, EXPLORER)
     await crash(app)
-    await live(app)
+    await live(app, EXPLORER)
     await crash(app)
     ok(await Promise.race([exited, sleep(15000).then(() => false)]), 'when the new window dies as fast, Prism quits rather than sit windowless')
     ok(/action=give-up/.test(readLog()), 'the give-up is logged')

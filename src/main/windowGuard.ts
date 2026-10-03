@@ -55,7 +55,15 @@ export function guardWindow(win: BrowserWindow, deps: WindowGuardDeps): void {
     else deps.giveUp()
   }
 
+  let hang: NodeJS.Timeout | null = null
   wc.on('render-process-gone', (_e, details) => {
+    // A hang that ENDED in a crash is over (#265, review): left armed, its
+    // timer would kill the reloaded page, which never sends 'responsive'
+    // because it was never unresponsive, and count that against the budget.
+    if (hang) {
+      clearTimeout(hang)
+      hang = null
+    }
     // A window being closed takes its renderer with it; that is not a crash.
     // Checked a tick later, because the renderer can end before the window
     // reports itself destroyed.
@@ -78,7 +86,6 @@ export function guardWindow(win: BrowserWindow, deps: WindowGuardDeps): void {
   // A page that stops answering is logged; one that stays that way for
   // `hangMs` is restarted through the same route as a crash. Short hangs are
   // left alone: a huge file can keep the page busy for seconds and come back.
-  let hang: NodeJS.Timeout | null = null
   win.on('unresponsive', () => {
     deps.log('unresponsive', { url: url() })
     if (hang || deps.held?.()) return

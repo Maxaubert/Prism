@@ -152,15 +152,6 @@ import type {
   FileMemoryPatch
 } from '@shared/types'
 
-/**
- * CRASH DUMPS STAY ON THIS MACHINE (#265). The windowless Prism of 2026-10-03
- * left nothing to read: the crash reporter was never started, so a renderer
- * that died took its reason with it. Started before anything else can crash,
- * with uploading OFF: minidumps go to userData's Crashpad folder and nowhere
- * else, which is the whole of what this changes.
- */
-crashReporter.start({ uploadToServer: false })
-
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
 // (launch argv, single-instance forward, drag-drop, dialog). The viewer itself is
@@ -1254,6 +1245,17 @@ app.on('before-quit', () => (appQuitting = true))
  *  the second launch can be proved as the nets they are. */
 const holdRecovery = E2E && process.env.PRISM_E2E_HOLD_RECOVERY === '1'
 let crashedAtStart = false
+/**
+ * Which page a startup restore belongs to (#265, review). A restore is a
+ * sequence of awaits that drains the shared `pendingOpen` and ends by setting
+ * `startupRestored`; a page that dies part way through used to leave it
+ * running into the page that replaced it, taking files a second launch had
+ * just queued, sending tabs the new page restores itself, and marking a page
+ * restored that had not even asked. Every main-frame load and every new
+ * window starts a new generation, and a run from an older one stops at its
+ * next step and touches nothing shared.
+ */
+let pageGen = 0
 
 /** A fresh window in place of one whose page keeps dying. The new one is
  *  built FIRST: destroying the only window first would read as the last
@@ -1288,6 +1290,7 @@ function giveUpWindow(): void {
  */
 function ensureLivePage(): boolean {
   if (!app.isReady()) return false // whenReady makes the window and drains the queue
+  if (appQuitting || installingUpdate) return false // a window now would only be taken away
   if (!mainWindow || mainWindow.isDestroyed()) {
     logWindow('handoff', { window: 'none', action: 'create' })
     createWindow()
@@ -1346,6 +1349,7 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+  pageGen++
   let shown = false
   const showWindow = (): void => {
     if (shown) return
@@ -1370,9 +1374,14 @@ function createWindow(): void {
     giveUp: giveUpWindow,
     // The text and the agent the page held died with it; a close must not
     // ask about either.
+    // The shells the page drew die with it too (#265, review): the reloaded
+    // page restores its tabs and resumes their agents, so a pty left running
+    // would be a second, unseen Claude answering on the same session with no
+    // close question guarding it. Warm spares go with them.
     stateLost: () => {
       editorDirty = false
       agentBusy = false
+      killAll()
     },
     quitting: () => appQuitting,
     held: () => holdRecovery
@@ -1455,6 +1464,11 @@ function createWindow(): void {
     startupRestored = false
     winERequests.reload()
   })
+  // The page itself, not a frame inside it: a document preview's iframe
+  // loading is no reason to abandon a restore.
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) pageGen++
+  })
   // A shortcut press needs an immediate window even on a cold renderer load.
   // Its solid background is followed by the lightweight opening screen.
   if (winERequest(process.argv)) showWindow()
@@ -1475,6 +1489,8 @@ function createWindow(): void {
       return
     }
     restoreStarted = true
+    const gen = pageGen
+    const stale = (): boolean => gen !== pageGen
     // SEQUENTIAL, and that is the whole point of the IIFE (2026-08-31). These
     // became async when listDir did, and firing them off together would let
     // the launch file race the restored tabs: the arriving-file rule folds a
@@ -1488,10 +1504,19 @@ function createWindow(): void {
       const remember = windowPreferences.load().values['prism.tabs.remember'] !== 'off'
       const skip = !remember && !coldRestoreDone
       coldRestoreDone = true
-      const restored = extraWindowOwner || skip ? [] : await restoreTabs()
+      // A page back from more than one death in a row comes back without its
+      // saved tabs (#265, review): one of them may be what kills it, and
+      // restoring it at every recovery ends in the give-up, then the same
+      // give-up at every later launch. The Explorer tab and the files handed
+      // over still arrive; the log says the tabs were left out.
+      const strained = windowBudget.strained(Date.now())
+      if (strained && !skip && !extraWindowOwner) logWindow('restore', { tabs: 'skipped', reason: 'repeated-deaths' })
+      const restored = extraWindowOwner || skip || strained ? [] : await restoreTabs()
+      if (stale()) return
       if (!restored.some((payload) => payload.role === 'explorer' && payload.pinned)) {
         const id = `explorer-home-${Date.now()}`
         const home = await browseDirectory(id, app.getPath('home'))
+        if (stale()) return
         if (home)
           mainWindow?.webContents.send('open:file', {
             root: home.path,
@@ -1509,11 +1534,13 @@ function createWindow(): void {
       // named ends up in front - the one a "prism a.jpg b.jpg" reader means.
       // New OS opens can arrive while a slow restore is still draining. Shift
       // the shared queue so those requests are preserved in arrival order too.
-      while (pendingOpen.length) await sendOpen(pendingOpen.shift()!)
+      while (pendingOpen.length && !stale()) await sendOpen(pendingOpen.shift()!)
+      if (stale()) return
       winERequests.restored()
     })()
       .catch((error: unknown) => console.error('Could not restore the startup session:', error))
       .finally(() => {
+        if (stale()) return
         startupRestored = true
         // A genuinely empty or failed restore may show the ordinary empty state.
         // Until this signal, no tabs means the initial folders are still loading.
@@ -1529,6 +1556,15 @@ function createWindow(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  /**
+   * CRASH DUMPS STAY ON THIS MACHINE (#265). The windowless Prism of
+   * 2026-10-03 left nothing to read: the crash reporter was never started, so
+   * a renderer that died took its reason with it. Uploading is OFF: minidumps
+   * go to userData's Crashpad folder and nowhere else. Started once the lock
+   * is won, still before the app is ready, so a launch that only hands its
+   * file over and exits (#189's fast path) never starts a crashpad_handler.
+   */
+  crashReporter.start({ uploadToServer: false })
   markExplorerWindow(app.getPath('userData'), false)
   app.on('second-instance', (_e, argv) => {
     const shortcutRequest = winERequest(argv)
@@ -1556,6 +1592,15 @@ if (!app.requestSingleInstanceLock()) {
     // that is part way through its install.
     if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
     const paths = pathsFromArgv(argv)
+    // A launch that lands while this process is on its way out (#265, review)
+    // must not make a window the quit or the installer then takes away with
+    // its file. An install starts the new Prism itself; an ordinary quit
+    // starts a fresh one with what was handed over, once this one has gone.
+    if (installingUpdate) return
+    if (appQuitting) {
+      if (paths.length && !E2E) app.relaunch({ execPath: argv[0], args: argv.slice(1) })
+      return
+    }
     // A new page restores and drains `pendingOpen` itself once it listens.
     if (ensureLivePage()) startupRestored = false
     if (!startupRestored) pendingOpen.push(...paths)

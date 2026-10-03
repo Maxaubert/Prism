@@ -1412,6 +1412,15 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   twice now. The `neverWindowless` e2e kills the page (`forcefullyCrashRenderer`) through every
   path; `PRISM_E2E_CRASH_AT_START` and `PRISM_E2E_HOLD_RECOVERY` (E2E only) recreate the
   2026-10-03 shape and hold the reload so the watchdog and the handoff are proved alone.
+  From the review: a death kills the page's shells and warm spares (`killAll`), since the
+  reloaded page resumes its agents and an old pty would be a second, unseen Claude; from the
+  SECOND death in a run (or after a rebuild) the page comes back WITHOUT its saved tabs
+  (`crashBudget.strained`, logged `restore tabs=skipped`), or a tab that kills the page would
+  kill it at every recovery and every later launch; a startup restore belongs to one page
+  (`pageGen`, bumped per main-frame navigation and window) and an older run stops touching
+  `pendingOpen` and `startupRestored`; a crash ends a pending hang timer; a launch during a quit
+  or an install makes no window (a quit relaunches with the handed files, never under `--e2e`);
+  `crashReporter` starts only once the single-instance lock is won.
 - **NOTHING ON THE STARTUP PATH HOLDS A STDIN PIPE** (2026-09-22, #189; owner: "it currently
   takes about 2 seconds to load. what could be done to make it about instant"). MEASURED: 1,188 ms
   from process start to a visible window, 369 ms after this fix (usable 1,303 -> 477 ms); an empty

@@ -42,6 +42,25 @@ describe('crashBudget', () => {
     expect(b.record(later + 2)).toBe('recreate')
   })
 
+  it('is strained from the second death in a run, and after a rebuild', () => {
+    const b = crashBudget()
+    expect(b.strained(0)).toBe(false)
+    b.record(0)
+    expect(b.strained(1)).toBe(false) // one death keeps the tabs
+    b.record(10_000)
+    expect(b.strained(10_001)).toBe(true)
+    expect(b.record(20_000)).toBe('recreate')
+    expect(b.strained(20_001)).toBe(true) // the rebuilt window starts without tabs
+    expect(b.strained(20_000 + 10 * MIN)).toBe(false) // and the strain wears off
+  })
+
+  it('two deaths far apart are not a strain', () => {
+    const b = crashBudget()
+    b.record(0)
+    b.record(3 * MIN)
+    expect(b.strained(3 * MIN + 1)).toBe(false)
+  })
+
   it('takes its limits as options', () => {
     const b = crashBudget({ limit: 1, recreates: 0 })
     expect(b.record(0)).toBe('give-up')
