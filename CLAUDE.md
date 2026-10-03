@@ -44,6 +44,26 @@ was such a decision: a navigation panel bounded by the folder Prism opened in, n
   where near-black reads at 5.0:1. In the app only, and in the MONOCHROME scheme only: the
   COLOURED set is the picks the .ico files carry, and Explorer has no accent to follow.
 
+**ONE COLOUR PICKER, ALPHA ON EVERY COLOUR** (#249 rework, owner 2026-10-03: "the colour pickers
+should be the same for both apps, i need an input field for a color code and an alpha per colour
+on every colour setting"; alpha "should not be a separate opacity setting"). Every Style colour is
+prism-term-core's `ColourField` (`renderer/settings/ColourPicker`); there is no local well, no
+native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan: PrismTerminal
+`docs/superpowers/specs/2026-10-03-colour-picker-alpha-design.md` / `-plan.md`. The rules
+(`lib/theme.ts`, `theme.alpha.test.ts`, e2e `styleColours` and `accentOpacity`):
+- **Primary's alpha IS the old Acrylic level.** Stored as the draft's `acrylic` / a preset's
+  `glass`, SHOWN as the alpha it paints (`primaryValue`, about 53% to 95%, 100 is solid). A level is
+  written only when the alpha moves (`setPrimary`), so a hue edit never touches the glass, and no
+  saved style is converted. A mica style stays mica.
+- **Secondary's alpha follows Primary's until moved**: six digits follow, eight are its own (`ff`
+  kept: a solid panel on glass).
+- **The accent's alpha is stored beside it** (`accentAlpha`, 1/255 steps), never inside a hex: a
+  scheme accent keeps its palette for the visualizer. Fills carry it, lines read `--p-accent-solid`.
+- **Under glass, text-bearing fills are flattened** (`--p-accent`, `--p-sel-bg` opaque over the flat
+  ground) so their label keeps 4.5:1. Text and Folder icons with an alpha are drawn as the core's
+  `legibleOn` composite. Tokens are hex or hex8, never `rgba()` for an accent fill.
+- Settings' Escape yields to an open `[data-colour-popover]` (it undoes the picker's writes).
+
 ## Scope
 
 **In scope (v1, the universal quick-viewer):**

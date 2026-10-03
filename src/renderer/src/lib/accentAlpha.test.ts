@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { accentAlphaOf, alphaHex, composite, fillOf, parseHexAlpha } from './accentAlpha'
-import { cleanDraft, derive, selectionBg, selectionFor, STYLES, variablesFor, type Style } from './theme'
+import { alphaHex, composite, parseColour, selectionFor, withAlpha } from 'prism-term-core/renderer/lib/colour'
+import { accentAlphaOf, fillOf } from './accentAlpha'
+import { cleanDraft, derive, selectionBg, STYLES, variablesFor, type Style } from './theme'
 
 // THE ACCENT CAN BE SEE-THROUGH (#249). The alpha reaches the fills; every
 // derivation is handed the colour as seen; the selection's label clears 4.5:1
@@ -18,13 +19,12 @@ const contrast = (a: string, b: string): number => {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
 }
-/** The opaque colour an `rgba(...)` or hex token shows over `ground`. */
+/** The opaque colour a token (hex, hex8 or rgba) shows over `ground`. */
 const seenOn = (token: string, ground: string): string => {
-  const m = token.match(/^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/)
-  if (!m) return token
-  const hex = '#' + [m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')
-  return composite(hex, Number(m[4]), ground)
+  const p = parseColour(token)
+  return p && p.a < 1 ? composite(token, ground) : token
 }
+const HEX8 = /^#[0-9a-f]{8}$/
 
 const paletteHex = (s: Style): string => derive(s)['--p-accent']
 const aurora = STYLES.find((s) => s.id === 'aurora')!
@@ -32,52 +32,49 @@ const paper = STYLES.find((s) => s.id === 'paper')!
 const ruby = STYLES.find((s) => s.id === 'acrylic-red')!
 const frost = STYLES.find((s) => s.id === 'frost')!
 
-describe('the hex field takes an opacity', () => {
-  it('reads eight digits as colour and alpha', () => {
-    expect(parseHexAlpha('#4682fb66')).toEqual({ hex: '#4682fb', alpha: 0x66 / 255 })
-    expect(parseHexAlpha('4682FBFF')).toEqual({ hex: '#4682fb', alpha: 1 })
+// The hex field itself is the core's ColourField now (its parsing is tested
+// in prism-term-core); what is Prism's is the call site: the accent's alpha
+// is written into the field as two more digits, and read back the same.
+describe('the accent field shows the opacity as two more digits', () => {
+  it('a stored alpha is a whole 1/255 step, so it reads back as typed', () => {
+    for (const byte of [0x1a, 0x66, 0x81, 0xc0, 0xfe]) {
+      const a = accentAlphaOf(byte / 255)
+      const hex = byte.toString(16).padStart(2, '0')
+      expect(alphaHex(a)).toBe(hex)
+      expect(withAlpha('#4682fb', a)).toBe('#4682fb' + hex)
+    }
   })
-  it('reads four digits as the short form of eight', () => {
-    expect(parseHexAlpha('#f008')).toEqual({ hex: '#ff0000', alpha: 0x88 / 255 })
-  })
-  it('six and three digits name a colour and leave the opacity alone', () => {
-    expect(parseHexAlpha('#4682fb')).toEqual({ hex: '#4682fb', alpha: null })
-    expect(parseHexAlpha('abc')).toEqual({ hex: '#aabbcc', alpha: null })
-  })
-  it('refuses anything else', () => {
-    for (const bad of ['', '#12', '#12345', '#1234567', '#123456789', 'zzzzzz', '#4682fg'])
-      expect(parseHexAlpha(bad), bad).toBeNull()
-  })
-  it('shows an opacity back as two digits', () => {
-    expect(alphaHex(0.4)).toBe('66')
-    expect(alphaHex(1)).toBe('ff')
+  it('solid shows six digits', () => {
+    expect(withAlpha('#4682fb', accentAlphaOf(1))).toBe('#4682fb')
   })
 })
 
 describe('an opacity read from anywhere is made safe', () => {
   it('missing or nonsense reads as solid, the rest is held to a tenth .. 1', () => {
     for (const v of [undefined, null, 'x', NaN, Infinity, {}]) expect(accentAlphaOf(v)).toBe(1)
-    expect(accentAlphaOf(0)).toBe(0.1)
-    expect(accentAlphaOf(-3)).toBe(0.1)
+    // The floor is the first whole 1/255 step at or above a tenth.
+    expect(accentAlphaOf(0)).toBe(26 / 255)
+    expect(accentAlphaOf(-3)).toBe(26 / 255)
     expect(accentAlphaOf(7)).toBe(1)
     expect(accentAlphaOf(0.4)).toBe(0.4)
+    expect(accentAlphaOf(0.5)).toBe(128 / 255)
   })
   it('a draft drops an opacity that is not a number and clamps the rest', () => {
     expect(cleanDraft({ accent: '#123456', accentAlpha: 'half' as unknown as number })).toEqual({ accent: '#123456' })
-    expect(cleanDraft({ accentAlpha: 0.01 })).toEqual({ accentAlpha: 0.1 })
-    expect(cleanDraft({ accentAlpha: 0.5 })).toEqual({ accentAlpha: 0.5 })
+    expect(cleanDraft({ accentAlpha: 0.01 })).toEqual({ accentAlpha: 26 / 255 })
+    expect(cleanDraft({ accentAlpha: 0.5 })).toEqual({ accentAlpha: 128 / 255 })
   })
 })
 
 describe('compositing over the ground', () => {
   it('is the ground at none and the colour at all of it', () => {
-    expect(composite('#ff0000', 1, '#000000')).toBe('#ff0000')
-    expect(composite('#ff0000', 0.4, '#000000')).toBe('#660000')
-    expect(composite('#000000', 0.5, '#ffffff')).toBe('#808080')
+    expect(composite('#ff0000', '#000000')).toBe('#ff0000')
+    expect(composite('#ff000066', '#000000')).toBe('#660000')
+    expect(composite('#00000080', '#ffffff')).toBe('#7f7f7f')
   })
-  it('a fill is the plain hex when solid and rgba below', () => {
+  it('a fill is the plain hex when solid and hex8 below, never rgba', () => {
     expect(fillOf('#4682fb', 1)).toBe('#4682fb')
-    expect(fillOf('#4682fb', 0.4)).toBe('rgba(70,130,251,0.4)')
+    expect(fillOf('#4682fb', 0.4)).toBe('#4682fb66')
   })
 })
 
@@ -101,8 +98,8 @@ describe('the selected label reads on the selection as seen', () => {
     for (const alpha of [0.1, 0.4, 0.75]) {
       it(`${name} at ${alpha * 100}%`, () => {
         const t = derive({ ...style, accentAlpha: alpha })
-        expect(t['--p-sel-bg']).toMatch(/^rgba\(/)
-        expect(t['--p-accent']).toMatch(/^rgba\(/)
+        expect(t['--p-sel-bg']).toMatch(HEX8)
+        expect(t['--p-accent']).toMatch(HEX8)
         const ground = t['--p-bg']
         const seen = seenOn(t['--p-sel-bg'], ground)
         expect(contrast(t['--p-on-accent'], seen)).toBeGreaterThanOrEqual(4.5)
@@ -122,8 +119,8 @@ describe('the selected label reads on the selection as seen', () => {
   it('grounds too far apart for one ink get the pair whose worse side reads best', () => {
     // Black beside a pale grey at 40%: neither ink can clear 4.5 on both.
     const grounds = ['#0b0d12', '#e8e8e8']
-    const { fill, ink } = selectionFor('#4682fb', 0.4, grounds)
-    const worst = Math.min(...grounds.map((g) => contrast(ink, composite(fill, 0.4, g))))
+    const { fill, ink } = selectionFor('#4682fb66', grounds)
+    const worst = Math.min(...grounds.map((g) => contrast(ink, composite(withAlpha(fill, 0.4), g))))
     expect(worst).toBeGreaterThan(3)
   })
 })
@@ -184,6 +181,10 @@ describe('the opacity is stored with the style', () => {
     theme.setAccentAlpha(0.4)
     expect(theme.isEdited()).toBe(true)
     expect(JSON.parse(localStorage.getItem('prism.style.draft')!)).toEqual({ accentAlpha: 0.4 })
+    // Any alpha lands on a whole 1/255 step.
+    theme.setAccentAlpha(0.333)
+    expect(JSON.parse(localStorage.getItem('prism.style.draft')!).accentAlpha).toBe(85 / 255)
+    theme.setAccentAlpha(0.4)
     theme.savePreset()
     const saved = JSON.parse(localStorage.getItem('prism.style.presets')!) as Style[]
     expect(saved[0].accentAlpha).toBe(0.4)

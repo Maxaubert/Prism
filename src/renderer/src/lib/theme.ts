@@ -3,7 +3,17 @@ import { ACCENT_THEME_ID, THEMES, themeById } from './viz/styles'
 import type { VizTheme } from './viz/core'
 import { setBarTheme, setTheme, vizState } from './vizStore'
 import { resetTermExtras, setTermThemeId } from 'prism-term-core/renderer/lib/termLook'
-import { accentAlphaOf, composite, fillOf } from './accentAlpha'
+import {
+  alphaOf,
+  composite,
+  legibleOn,
+  opaque,
+  parseColour,
+  selectionFor as selectionOver,
+  toStored,
+  withAlpha
+} from 'prism-term-core/renderer/lib/colour'
+import { accentAlphaOf, fillOf } from './accentAlpha'
 
 // The app's look, as one named style. A style owns the material, the six colour
 // roles, the font and the shape of the frame - and nothing else: hover, the
@@ -364,9 +374,11 @@ export const DEFAULT_STYLE = 'aurora'
 
 /* ---------- colour maths ---------- */
 
+// The first SIX digits only: a colour may carry an alpha now (#249 rework),
+// and parsing all eight shifted G, B and A into R, G and B.
 const hex2rgb = (h: string): number[] => {
   const s = h.replace('#', '')
-  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s, 16)
+  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s.slice(0, 6), 16)
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 const rgb2hex = (c: number[]): string =>
@@ -380,6 +392,30 @@ const lighten = (c: string, t: number): string => mix(c, '#ffffff', t)
 export const rgba = (c: string, a: number): string => {
   const [r, g, b] = hex2rgb(c)
   return `rgba(${r},${g},${b},${a})`
+}
+
+/** `#rrggbb` of a stored `#rrggbb` or `#rrggbbaa`. */
+const flatHex = (c: string): string => (c.length === 9 && c.startsWith('#') ? c.slice(0, 7) : c)
+
+/** A stored colour's OWN alpha: eight digits carry one (`ff` included, which
+ *  is "solid, on purpose"), six do not. Three decimals, as a CSS alpha. */
+const ownAlpha = (c: string | undefined): number | null =>
+  c && c.length === 9 && c.startsWith('#') ? Number((parseInt(c.slice(7), 16) / 255).toFixed(3)) : null
+
+/**
+ * The style with its see-through Text drawn as the eye gets it, opaque: laid
+ * over the viewer and the sidebar, and kept at least as legible on both as
+ * the same colour opaque, up to 4.5:1 (the core's `legibleOn`). Of the two
+ * composites, the one whose worse ground reads better. An opaque Text, every
+ * shipped style, is handed through untouched.
+ */
+function seenStyle(s: Style): Style {
+  if (alphaOf(s.text) >= 1) return s
+  const grounds = [opaque(s.bg), sideOf(s)]
+  const worst = (c: string): number => Math.min(...grounds.map((g) => contrast(c, g)))
+  const picks = grounds.map((g) => legibleOn(s.text, g, 4.5))
+  const text = picks.reduce((a, b) => (worst(b) > worst(a) ? b : a))
+  return { ...s, text }
 }
 
 function luminance(hex: string): number {
@@ -442,13 +478,12 @@ export function selectionBg(accent: string): string {
 
 /**
  * The selection for an accent worn at `alpha` (#249). At 1 it is exactly
- * selectionBg and its ink, so every style looks as it did. Below 1 the label
- * sits on the fill AS SEEN, the accent laid over whatever ground the row is
- * on, so the ink is chosen against that and the fill is nudged until the ink
- * clears 4.5:1 on every ground it can land on (the viewer, the sidebar and the
- * title bar, which a style may colour apart). If the leaning ink cannot get
- * there, the other one is tried; the fill itself stays opaque hex here and the
- * caller adds the alpha.
+ * selectionBg and its ink, so every style looks as it did. Below 1 it is the
+ * core's `selectionFor` (moved there from this file, since both apps would
+ * otherwise each write it): the label sits on the fill AS SEEN over every
+ * ground the row can land on (the viewer, the sidebar and the title bar), and
+ * the fill is nudged until the ink clears 4.5:1 on the worst of them. The
+ * fill comes back opaque; the caller adds the alpha.
  */
 export function selectionFor(
   accent: string,
@@ -460,23 +495,7 @@ export function selectionFor(
     const fill = selectionBg(accent)
     return { fill, ink: readableOn(fill) }
   }
-  const seen = (c: string): string[] => grounds.map((g) => composite(c, a, g))
-  const worst = (c: string, ink: string): number => Math.min(...seen(c).map((s) => contrast(ink, s)))
-  const leaning = readableOn(seen(accent)[0])
-  // Grounds far enough apart (black beside a pale sidebar, at a middling
-  // alpha) have no one fill and ink that reads on both: then the pair whose
-  // worse ground reads best is kept, rather than one that fails outright.
-  let best = { fill: accent, ink: leaning, score: -1 }
-  for (const ink of [leaning, leaning === '#ffffff' ? '#0b0d12' : '#ffffff']) {
-    const towards = ink === '#ffffff' ? '#000000' : '#ffffff'
-    for (let i = 0; i <= 25; i += 1) {
-      const c = mix(accent, towards, i * 0.04)
-      const score = worst(c, ink)
-      if (score >= 4.5) return { fill: c, ink }
-      if (score > best.score) best = { fill: c, ink, score }
-    }
-  }
-  return { fill: best.fill, ink: best.ink }
+  return selectionOver(withAlpha(accent, a), grounds)
 }
 
 /** The per-kind tints, dark enough to read on a light surface. */
@@ -490,7 +509,8 @@ export const KIND_TINTS: Record<string, string> = {
 }
 
 /** Everything a style resolves to. Exported so the styles can be checked. */
-export function derive(style: Style): Record<string, string> {
+export function derive(input: Style): Record<string, string> {
+  const style = seenStyle(input)
   const palette = accentOf(style.accent)
   const accent = palette[0]
   // The one surface, flat: panel and viewer are the same colour now, so the
@@ -523,6 +543,13 @@ export function derive(style: Style): Record<string, string> {
 
   const grounds = [...new Set([bg, sideOf(style), titleOf(style)].map((c) => c.toLowerCase()))]
   const selection = selectionFor(accent, alpha, grounds)
+  // FILLS UNDER GLASS ARE FLATTENED (decision 5, owner 2026-10-03). On a
+  // translucent style the ground behind a see-through fill is the desktop,
+  // which nobody can measure, so a label on it cannot be held to 4.5:1. The
+  // text-bearing fills are then published OPAQUE: the see-through fill as it
+  // looks over the style's own flat ground. An opaque accent, or an opaque
+  // style, is untouched.
+  const flat = alpha < 1 && paintedAlpha(style) < 1 ? composite(withAlpha(selection.fill, alpha), bg) : null
 
   return {
     '--p-bg': bg,
@@ -538,7 +565,7 @@ export function derive(style: Style): Record<string, string> {
     // chips print --p-on-accent on it, and that ink was chosen so the
     // selection's fill clears 4.5:1 on every ground. The raw accent at the
     // same alpha does not (MEASURED in review: Frost at 80% gave 3.78:1).
-    '--p-accent': alpha >= 1 ? accent : fillOf(selection.fill, alpha),
+    '--p-accent': alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha)),
     // The accent as picked, never see-through: lines, rings, a progress bar
     // against its track and native controls, which the alpha must not reach
     // (the owner's pick was fills only).
@@ -547,15 +574,16 @@ export function derive(style: Style): Record<string, string> {
     // fill as the eye gets it, opaque, since a see-through knockout would let
     // the icon's own ink show through it. At 100% it is the accent, as the
     // rows have always passed.
-    '--p-sel-knockout': alpha >= 1 ? accent : composite(selection.fill, alpha, bg),
+    '--p-sel-knockout': alpha >= 1 ? accent : composite(withAlpha(selection.fill, alpha), bg),
     // The same for a row on the SIDEBAR (the tree, search results), which a
     // style may colour apart from the viewer: a knockout mixed over the
     // viewer's ground would show there as a patch inside the icon.
-    '--p-sel-knockout-side': alpha >= 1 ? accent : composite(selection.fill, alpha, sideOf(style)),
+    '--p-sel-knockout-side':
+      alpha >= 1 ? accent : (flat ?? composite(withAlpha(selection.fill, alpha), sideOf(style))),
     // The selection as the eye gets it, opaque, on the viewer's ground: for
     // a knockout that has always painted --p-sel-bg (the browse list), so it
     // looks as it did at 100% and is not see-through below it.
-    '--p-sel-seen': alpha >= 1 ? selection.fill : composite(selection.fill, alpha, bg),
+    '--p-sel-seen': alpha >= 1 ? selection.fill : composite(withAlpha(selection.fill, alpha), bg),
     '--p-accent-hi': hi,
     // A raised stage rather than a sunken one: a true-black style has nothing
     // darker to go to, so this always steps towards the text colour.
@@ -571,7 +599,7 @@ export function derive(style: Style): Record<string, string> {
     // ON the stage, so a divider-strength grey disappears there.
     '--p-track': mix(stage, style.text, light ? 0.34 : 0.26),
     // The selection is a fill too, and its ink is chosen against it AS SEEN.
-    '--p-sel-bg': fillOf(selection.fill, alpha),
+    '--p-sel-bg': flat ?? fillOf(selection.fill, alpha),
     '--p-on-accent': selection.ink,
     ...kinds
   }
@@ -616,7 +644,8 @@ export function resolveVizTheme(id: string): VizTheme {
  * window drawn over the window can't have the desktop behind it, so it paints
  * the style's flat colours and lets the real thing take over the glass.
  */
-export function variablesFor(style: Style, opaque = false): Record<string, string> {
+export function variablesFor(input: Style, opaque = false): Record<string, string> {
+  const style = seenStyle(input)
   const palette = accentOf(style.accent)
   const accent = palette[0]
 
@@ -636,9 +665,15 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   // 2026-09-03): the panel takes the user's chosen colour, carried at the
   // material's own alpha so glass stays one sheet; everything else still
   // derives from bg.
-  const ownSide = style.sideOwn ? style.side : null
-  const ownTitle = style.titleOwn ? style.title : null
-  const ownTabs = style.tabsOwn && style.tabs ? style.tabs : null
+  // A panel colour of EIGHT digits carries an alpha of its own (decision 2,
+  // owner 2026-10-03): painted at it, glass or not. Six digits follow the
+  // material's alpha as they always did. The flat colour is the first six.
+  const ownSide = style.sideOwn ? flatHex(style.side) : null
+  const ownTitle = style.titleOwn ? flatHex(style.title) : null
+  const ownTabs = style.tabsOwn && style.tabs ? flatHex(style.tabs) : null
+  const sideA = style.sideOwn ? ownAlpha(style.side) : null
+  const titleA = style.titleOwn ? ownAlpha(style.title) : null
+  const tabsA = style.tabsOwn && style.tabs ? ownAlpha(style.tabs) : null
   let bg = style.bg
   let side = ownSide ?? style.bg
   let title = ownTitle ?? style.bg
@@ -649,8 +684,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     // top of it, so they have to let it through - all at the same alpha, or
     // they read as panes butted together rather than one sheet.
     bg = rgba(style.bg, glass)
-    side = ownSide ? rgba(ownSide, glass) : bg
-    title = ownTitle ? rgba(ownTitle, glass) : bg
+    side = ownSide ? rgba(ownSide, sideA ?? glass) : bg
+    title = ownTitle ? rgba(ownTitle, titleA ?? glass) : bg
   } else if (style.material === 'gradient') {
     const grad = `linear-gradient(180deg, ${lighten(style.bg, 0.06)}, ${style.bg})`
     side = ownSide ?? grad
@@ -660,6 +695,11 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
     side = ownSide ?? bg
     title = ownTitle ?? bg
   }
+  // An own alpha on an opaque material: the panel alone is see-through.
+  if (!(translucent && !opaque)) {
+    if (ownSide && sideA !== null && sideA < 1) side = rgba(ownSide, sideA)
+    if (ownTitle && titleA !== null && titleA < 1) title = rgba(ownTitle, titleA)
+  }
   // THE TAB BAR IS THE SECONDARY COLOUR, ALL OF IT (owner, 2026-09-03): the
   // strip, the tabs at rest and the tab you are on are one surface with the
   // sidebar and the title bar, so a black secondary is a black bar from end
@@ -668,7 +708,8 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
   // sent back. The active tab is told by its ink (text against dim), not by
   // a fill. A tab-bar colour of its own still moves the bar; both tokens
   // carry the material's alpha.
-  const tabs = ownTabs ? (glass < 1 ? rgba(ownTabs, glass) : ownTabs) : title
+  const tabsAlpha = tabsA ?? glass
+  const tabs = ownTabs ? (tabsA !== null || glass < 1 ? rgba(ownTabs, tabsAlpha) : ownTabs) : title
   const tabActive = tabs
 
   const ink = style.mode === 'light' ? '#000000' : '#ffffff'
@@ -790,7 +831,7 @@ export function variablesFor(style: Style, opaque = false): Record<string, strin
  *  one-surface answer. What the Settings well shows. */
 export const sideOf = (s: Style): string =>
   s.sideOwn
-    ? s.side
+    ? flatHex(s.side)
     : s.material === 'tinted'
       ? mix(s.bg, paletteOf(s.accent)[0], 0.07)
       : s.bg
@@ -801,17 +842,20 @@ export const sideOf = (s: Style): string =>
 /** The title bar's effective flat colour, for its Settings well. */
 export const titleOf = (s: Style): string =>
   s.titleOwn
-    ? s.title
+    ? flatHex(s.title)
     : s.material === 'tinted'
       ? mix(s.bg, paletteOf(s.accent)[0], 0.07)
       : s.bg
 
 /** The tab bar's effective flat colour, for its Settings well: its own pick,
  *  else the title bar's. */
-export const tabsOf = (s: Style): string => (s.tabsOwn && s.tabs ? s.tabs : titleOf(s))
+export const tabsOf = (s: Style): string => (s.tabsOwn && s.tabs ? flatHex(s.tabs) : titleOf(s))
 
 export const folderIconOf = (s: Style): string => {
-  if (s.folderIcon) return s.folderIcon
+  // A see-through pick is drawn as it looks on the panel, and never less
+  // legible there than the same colour opaque (a mark's 3:1 floor, the core's
+  // `legibleOn`). An opaque pick is drawn exactly as picked.
+  if (s.folderIcon) return alphaOf(s.folderIcon) < 1 ? legibleOn(s.folderIcon, sideOf(s), 3) : s.folderIcon
   const ground = sideOf(s)
   let c = paletteOf(s.accent)[0]
   for (let i = 0; i < 14 && contrast(c, ground) < 3; i += 1) {
@@ -928,15 +972,96 @@ export interface Overrides {
   accentAlpha?: number
 }
 
-/** A draft as read from storage: an opacity that is not a number is dropped
- *  (it would count as an edit and paint as solid), the rest held to range. */
+const HEX6_8 = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i
+
+/** A colour as stored: kept as written when it is six or eight hex digits
+ *  (a panel's `ff` means "its own, solid", so it is not folded to six), any
+ *  other parseable spelling in the core's stored form, and null for junk. */
+function cleanColour(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  if (HEX6_8.test(v)) return v.toLowerCase()
+  const p = parseColour(v)
+  return p ? toStored(p) : null
+}
+
+/**
+ * A draft as read from storage. An opacity that is not a number is dropped (it
+ * would count as an edit and paint as solid), the rest held to range; every
+ * colour is checked, and one that is not a colour is forgotten. Primary's
+ * alpha is the glass level, so a Primary of eight digits (pasted, or an old
+ * local draft) is split into the colour and that level; an accent of eight
+ * digits into the colour and its alpha.
+ */
 export function cleanDraft(o: Overrides): Overrides {
   if (!o || typeof o !== 'object') return {}
-  if (!('accentAlpha' in o)) return o
-  const next = { ...o }
-  if (typeof next.accentAlpha !== 'number' || !Number.isFinite(next.accentAlpha)) delete next.accentAlpha
-  else next.accentAlpha = accentAlphaOf(next.accentAlpha)
+  const next: Overrides = { ...o }
+  for (const k of ['bg', 'side', 'title', 'tabs', 'text', 'folderIcon'] as const) {
+    if (!(k in next)) continue
+    const c = cleanColour(next[k])
+    if (c) next[k] = c
+    else delete next[k]
+  }
+  if (next.bg && alphaOf(next.bg) < 1) {
+    if (typeof next.acrylic !== 'number') next.acrylic = levelFor(alphaOf(next.bg))
+    next.bg = opaque(next.bg)
+  }
+  if ('accent' in next) {
+    if (typeof next.accent !== 'string' || !next.accent) delete next.accent
+    else if (next.accent.startsWith('#') || !/^[a-z0-9-]+$/i.test(next.accent)) {
+      const c = cleanColour(next.accent)
+      if (!c) delete next.accent
+      else {
+        if (alphaOf(c) < 1 && next.accentAlpha === undefined) next.accentAlpha = alphaOf(c)
+        next.accent = opaque(c)
+      }
+    }
+  }
+  if ('acrylic' in next) {
+    if (typeof next.acrylic !== 'number' || !Number.isFinite(next.acrylic)) delete next.acrylic
+    else next.acrylic = Math.round(Math.min(100, Math.max(0, next.acrylic)))
+  }
+  if ('accentAlpha' in next) {
+    if (typeof next.accentAlpha !== 'number' || !Number.isFinite(next.accentAlpha)) delete next.accentAlpha
+    else next.accentAlpha = accentAlphaOf(next.accentAlpha)
+  }
   return next
+}
+
+/**
+ * The saved presets as read from storage, through the same checks as the
+ * draft. A preset whose Primary or Text is not a colour is dropped (there is
+ * nothing to draw it with); an optional colour that is not one is forgotten;
+ * a Primary of eight digits becomes the colour plus the glass it stands for.
+ */
+export function cleanPresets(raw: unknown): Style[] {
+  if (!Array.isArray(raw)) return []
+  const out: Style[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || typeof (item as Style).id !== 'string') continue
+    const s = { ...(item as Style) }
+    const bg = cleanColour(s.bg)
+    const text = cleanColour(s.text)
+    if (!bg || !text) continue
+    s.bg = opaque(bg)
+    s.text = text
+    if (alphaOf(bg) < 1) {
+      const level = levelFor(alphaOf(bg))
+      if (level > 0) {
+        if (s.material !== 'mica') s.material = 'acrylic'
+        s.glass = glassAt(level)
+      }
+    }
+    for (const k of ['side', 'title', 'tabs', 'folderIcon'] as const) {
+      if (s[k] === undefined) continue
+      const c = cleanColour(s[k])
+      if (c) s[k] = c
+      else delete s[k]
+    }
+    if (s.side === undefined) s.side = s.bg
+    if (s.title === undefined) s.title = s.bg
+    out.push(s)
+  }
+  return out
 }
 
 // The surface alpha a style paints at, when it hasn't said otherwise.
@@ -967,6 +1092,52 @@ export function acrylicLevel(s: Style): number {
   return Math.round(Math.min(100, Math.max(0, ((GLASS_MAX - a) / GLASS_SPAN) * 100)))
 }
 
+/* ---------- Primary's alpha IS the old Acrylic slider (decision 1) ---------- */
+
+// Owner, 2026-10-03: alpha "should be built into the colour pickers ... it
+// should not be a separate opacity setting", and of the Acrylic slider: the
+// Primary colour's alpha replaces it, "under the slider's own rule", saved
+// levels mapping 1:1. So the level stays what is STORED (the draft's
+// `acrylic`, a preset's `glass`) and the alpha is only how it is SHOWN: the
+// alpha the window paints at that level. Nothing saved is converted, so no
+// window changes on update; a level is written only when the alpha is moved.
+
+/** The surface glass the slider wrote for a level, 1 to 100. */
+const glassAt = (level: number): number => GLASS_MAX - (level / 100) * GLASS_SPAN
+const paintedAt = (level: number): number => 1 - (1 - glassAt(level) * 0.75) ** 3
+
+/** The slider's two ends as painted alphas: about 53% and 95%. */
+export const PRIMARY_ALPHA_MIN = paintedAt(100)
+export const PRIMARY_ALPHA_MAX = paintedAt(1)
+
+/** What the Primary picker may hold: solid, or a glass the slider could
+ *  reach. Between the glassiest-but-one end and solid it is the top of the
+ *  glass, since nothing in between exists (the slider had no 0.5). */
+export function snapPrimaryAlpha(a: number): number {
+  if (a >= 1) return 1
+  return Math.min(PRIMARY_ALPHA_MAX, Math.max(PRIMARY_ALPHA_MIN, a))
+}
+
+/** The slider level whose painted alpha is nearest `alpha`; 0 (solid) at 1. */
+export function levelFor(alpha: number): number {
+  if (!(alpha < 1)) return 0
+  let best = 1
+  for (let level = 2; level <= 100; level += 1) {
+    if (Math.abs(paintedAt(level) - alpha) < Math.abs(paintedAt(best) - alpha)) best = level
+  }
+  return best
+}
+
+/** Primary as the picker shows it: the colour, at the alpha it paints. */
+export const primaryValue = (s: Style): string => withAlpha(opaque(s.bg), paintedAlpha(s))
+
+/** Secondary as the picker shows it: an alpha of its own when it has one,
+ *  else the material's (decision 2). */
+export function secondaryValue(s: Style): string {
+  const own = s.sideOwn ? ownAlpha(s.side) : null
+  return withAlpha(sideOf(s), own ?? paintedAlpha(s))
+}
+
 const DRAFT_KEY = 'prism.style.draft'
 const PRESETS_KEY = 'prism.style.presets'
 
@@ -986,7 +1157,7 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
-let presets: Style[] = loadJson<Style[]>(PRESETS_KEY, [])
+let presets: Style[] = cleanPresets(loadJson<unknown>(PRESETS_KEY, []))
 let draft: Overrides = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
 
 /** Shipped styles plus the user's saved presets. */
@@ -1034,7 +1205,8 @@ function edited(s: Style): Style {
   if (draft.acrylic !== undefined) {
     // Zero frost is just a solid window; anything above it is acrylic at the
     // alpha the slider asks for.
-    out.material = draft.acrylic <= 0 ? 'solid' : 'acrylic'
+    // A mica style stays mica: only the glass moves (decision 1's rule).
+    out.material = draft.acrylic <= 0 ? 'solid' : s.material === 'mica' ? 'mica' : 'acrylic'
     if (draft.acrylic > 0) out.glass = GLASS_MAX - (draft.acrylic / 100) * GLASS_SPAN
   }
   return out
@@ -1137,7 +1309,13 @@ export function withChrome(o: Overrides, value: string | null): Overrides {
  * style may keep them apart. Pure, so it is testable.
  */
 export function isStylesOwn(base: Style, role: string, value: string): boolean {
-  const same = (a: string | undefined): boolean => !!a && a.toLowerCase() === value.toLowerCase()
+  // Judged on the colour, not its spelling (`#ABC`, `#aabbccff`), through the
+  // core's stored form; a scheme id is compared as it is.
+  const key = (c: string): string => {
+    const p = c.startsWith('#') ? parseColour(c) : null
+    return p ? toStored(p) : c.toLowerCase()
+  }
+  const same = (a: string | undefined): boolean => !!a && key(a) === key(value)
   switch (role) {
     case 'chrome':
       return same(sideOf(base)) && same(titleOf(base)) && same(tabsOf(base))
@@ -1195,7 +1373,7 @@ export function setAcrylic(level: number | null): void {
 export function setAccentAlpha(level: number | null): void {
   const next: Overrides = { ...draft }
   const own = accentAlphaOf(byId(current).accentAlpha)
-  const value = level === null ? null : Math.round(accentAlphaOf(level) * 100) / 100
+  const value = level === null ? null : accentAlphaOf(level)
   if (value === null || value === own) delete next.accentAlpha
   else next.accentAlpha = value
   draft = next
@@ -1212,6 +1390,98 @@ export function resetAccent(): void {
   saveJson(DRAFT_KEY, draft)
   apply()
 }
+
+/** Write a draft and repaint, once. */
+function commitDraft(next: Overrides): void {
+  draft = next
+  saveJson(DRAFT_KEY, draft)
+  apply()
+}
+
+/** A colour role set on a draft, or cleared when it is the style's own. */
+function withColour(next: Overrides, role: 'bg' | 'chrome' | 'accent', value: string): Overrides {
+  const own = isStylesOwn(byId(current), role, value)
+  if (role === 'chrome') return withChrome(next, own ? null : value)
+  if (own) delete next[role]
+  else next[role] = value
+  return next
+}
+
+/**
+ * The Primary row's picker (decision 1). The colour's six digits are the
+ * background; its alpha is the Acrylic slider's level, written ONLY when the
+ * alpha moved, so a hue edit never touches the material or the glass. A level
+ * that is the style's own is no edit, as with a colour put back.
+ */
+export function setPrimary(stored: string): void {
+  const p = parseColour(stored)
+  if (!p) return
+  const shown = edited(byId(current))
+  let next: Overrides = { ...draft }
+  const hex = toStored({ ...p, a: 1 })
+  if (hex !== opaque(shown.bg)) next = withColour(next, 'bg', hex)
+  if (Math.round(p.a * 255) !== Math.round(paintedAlpha(shown) * 255)) {
+    const level = levelFor(p.a)
+    if (level === acrylicLevel(byId(current))) delete next.acrylic
+    else next.acrylic = level
+  }
+  commitDraft(next)
+}
+
+/**
+ * The Secondary row's picker (decision 2). Six digits while its alpha is the
+ * material's (it keeps following Primary's level); eight once the alpha has
+ * been moved, and then its own through any later hue edit. An own alpha of
+ * 100 is kept as `ff`, so a solid panel on glass is possible and is not read
+ * as following.
+ */
+export function setSecondary(stored: string): void {
+  const p = parseColour(stored)
+  if (!p) return
+  const shown = edited(byId(current))
+  const hex = toStored({ ...p, a: 1 })
+  const hasOwn = shown.sideOwn && ownAlpha(shown.side) !== null
+  const follows = !hasOwn && Math.round(p.a * 255) === Math.round(paintedAlpha(shown) * 255)
+  const value = follows ? hex : p.a >= 1 ? hex + 'ff' : toStored(p)
+  commitDraft(withColour({ ...draft }, 'chrome', value))
+}
+
+/**
+ * The Accent row's picker. The alpha is stored beside the accent, since a
+ * scheme accent is an id and keeps its palette for the visualizer: an alpha
+ * edit leaves the scheme alone, a colour edit leaves the alpha alone.
+ */
+export function setAccentColour(stored: string): void {
+  const p = parseColour(stored)
+  if (!p) return
+  const shown = edited(byId(current))
+  let next: Overrides = { ...draft }
+  const hex = toStored({ ...p, a: 1 })
+  if (hex !== opaque(paletteOf(shown.accent)[0])) next = withColour(next, 'accent', hex)
+  const a = accentAlphaOf(p.a)
+  if (Math.round(a * 255) !== Math.round(accentAlphaOf(shown.accentAlpha) * 255)) {
+    if (a === accentAlphaOf(byId(current).accentAlpha)) delete next.accentAlpha
+    else next.accentAlpha = a
+  }
+  commitDraft(next)
+}
+
+/** A picker's Escape: the keys it may have written put back exactly as they
+ *  were when it opened, absent included. */
+export function restoreOverrides(snapshot: Overrides, keys: Array<keyof Overrides>): void {
+  const next: Overrides = { ...draft }
+  for (const k of keys) {
+    if (snapshot[k] === undefined) delete next[k]
+    else (next as Record<string, unknown>)[k] = snapshot[k]
+  }
+  commitDraft(next)
+}
+
+/** The draft as it stands, for a picker to take a snapshot of. */
+export const overridesNow = (): Overrides => draft
+
+/** What is on screen, outside React. */
+export const currentStyle = (): Style => edited(byId(current))
 
 /** Keep the current edit as a preset of its own, and select it. */
 export function savePreset(): void {
@@ -1333,7 +1603,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage) return
     if (event.key !== null && ![KEY, MODE_KEY, PRESETS_KEY, DRAFT_KEY].includes(event.key)) return
-    presets = loadJson<Style[]>(PRESETS_KEY, [])
+    presets = cleanPresets(loadJson<unknown>(PRESETS_KEY, []))
     draft = cleanDraft(loadJson<Overrides>(DRAFT_KEY, {}))
     current = load()
     mode = loadMode()

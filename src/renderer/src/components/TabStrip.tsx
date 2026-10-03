@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type JSX, type MouseEvent, type PointerEve
 import { isExplorerTab, isPinnedExplorer, tabLabels, type Tab } from '../lib/tabs'
 import { useAgentIndicator } from 'prism-term-core/renderer/lib/termLook'
 import { useAgentColors } from 'prism-term-core/renderer/lib/agentColors'
-import { contrastRatio } from 'prism-term-core/renderer/lib/termAnsi'
+import { inkOn } from 'prism-term-core/renderer/lib/colour'
+import { tabsOf, useStyle } from '../lib/theme'
 import { pinnedRoots, plusMenuList, recentLabels, recentRoots, togglePin } from 'prism-term-core/renderer/lib/recentRoots'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 import { ContextMenu } from './ContextMenu'
@@ -102,8 +103,11 @@ export function TabStrip({
   // Full mode fills the tab with the chosen colour. Text biases WHITE: strict
   // contrast maths picks black on the default orange, but white-on-orange is
   // the look; black only wins on genuinely light fills (contrast vs black of
-  // 12 is a ~0.55 luminance threshold).
-  const onTint = (c: string): string => (contrastRatio('#000000', c) < 12 ? '#ffffff' : '#000000')
+  // 12 is a ~0.55 luminance threshold). The colour can carry an alpha now, so
+  // the ink is the core's `inkOn`: that rule byte for byte on an opaque tint,
+  // and chosen on the tint as laid over the strip's flat ground otherwise.
+  const stripGround = tabsOf(useStyle())
+  const onTint = (c: string): string => inkOn(c, stripGround)
   // A tab being carried (#71 follow-up): the strip animates it rather than
   // drawing a hairline - the tab lifts out and its neighbours slide across to
   // open the gap it would drop into, which is what "picked up" looks like.

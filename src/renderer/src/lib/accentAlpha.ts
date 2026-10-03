@@ -4,64 +4,41 @@
 // every colour sum in theme.ts still works on opaque hex, so anything derived
 // from the accent is handed the colour as SEEN, composited over its ground,
 // never a string with an alpha it would misparse. Pure, so it is tested.
+//
+// Since the colour picker moved into prism-term-core (#249 rework, PT #112),
+// the alpha is set in the Accent row's own picker, not a slider of its own
+// (owner, 2026-10-03: alpha "should be built into the colour pickers ... it
+// should not be a separate opacity setting"). The colour maths is the core's
+// (`alphaHex`, `composite`, `selectionFor`); what stays here is how the
+// accent's alpha is STORED: a number beside the accent, since a scheme accent
+// is an id, not a hex, and must keep its palette for the visualizer.
 
-/** The slider's range. Below a tenth a fill stops reading as one. */
+import { withAlpha } from 'prism-term-core/renderer/lib/colour'
+
+/** The lowest alpha the picker offers. Below a tenth a fill stops reading as one. */
 export const ALPHA_MIN = 0.1
 export const ALPHA_MAX = 1
 
+/** The lowest alpha a stored value may hold, in whole 1/255 steps. */
+const MIN_BYTE = Math.ceil(ALPHA_MIN * 255)
+
 /**
- * A stored opacity, made safe: missing, not a number, or anything a hand-edited
- * profile might hold reads as fully solid, and the rest is held to the range.
- * A style saved before #249 has none, so it reads as 1 and looks as it did.
+ * A stored alpha, made safe: missing, not a number, or anything a hand-edited
+ * profile might hold reads as fully solid, and the rest is held to the range
+ * in 1/255 steps (every alpha stored anywhere is, so a typed `...81` reads back
+ * as `...81`). A style saved before #249 has none, so it reads as 1 and looks
+ * as it did.
  */
 export function accentAlphaOf(raw: unknown): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1
-  return Math.min(ALPHA_MAX, Math.max(ALPHA_MIN, raw))
-}
-
-/**
- * What the hex field accepts: #rgb, #rgba, #rrggbb and #rrggbbaa, with or
- * without the hash. The colour comes back as #rrggbb (the native picker and
- * every sum here take six digits) and the alpha separately, null when the
- * input carried none. Anything else is null.
- */
-export function parseHexAlpha(raw: string): { hex: string; alpha: number | null } | null {
-  const s = raw.trim().replace(/^#/, '').toLowerCase()
-  if (!/^[0-9a-f]+$/.test(s)) return null
-  let full: string
-  if (s.length === 3 || s.length === 4) full = s.split('').map((c) => c + c).join('')
-  else if (s.length === 6 || s.length === 8) full = s
-  else return null
-  const hex = '#' + full.slice(0, 6)
-  const alpha = full.length === 8 ? parseInt(full.slice(6), 16) / 255 : null
-  return { hex, alpha }
-}
-
-/** The two hex digits for an alpha, for showing an opacity in the hex field. */
-export const alphaHex = (a: number): string =>
-  Math.round(accentAlphaOf(a) * 255)
-    .toString(16)
-    .padStart(2, '0')
-
-const rgbOf = (h: string): number[] => {
-  const s = h.replace('#', '')
-  const n = parseInt(s.length === 3 ? s.split('').map((c) => c + c).join('') : s.slice(0, 6), 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
-/** `colour` at `alpha` laid over the opaque `ground`: what the eye gets. */
-export function composite(colour: string, alpha: number, ground: string): string {
-  const a = accentAlphaOf(alpha)
-  const C = rgbOf(colour)
-  const G = rgbOf(ground)
-  return '#' + C.map((v, i) => Math.round(G[i] + (v - G[i]) * a).toString(16).padStart(2, '0')).join('')
+  const byte = Math.round(Math.min(ALPHA_MAX, Math.max(ALPHA_MIN, raw)) * 255)
+  return Math.max(MIN_BYTE, byte) / 255
 }
 
 /** A fill token for `colour` at `alpha`: the plain hex when solid, so a style
- *  at 100% publishes exactly the value it always did. */
+ *  at 100% publishes exactly the value it always did, and `#rrggbbaa` below
+ *  (never `rgba()`: the core's tokens are hex, and so are these). */
 export function fillOf(colour: string, alpha: number): string {
   const a = accentAlphaOf(alpha)
-  if (a >= 1) return colour
-  const [r, g, b] = rgbOf(colour)
-  return `rgba(${r},${g},${b},${Number(a.toFixed(3))})`
+  return a >= 1 ? colour : withAlpha(colour, a)
 }
