@@ -40,6 +40,21 @@ function pauseTab(tabId: string): void {
   }
 }
 
+/**
+ * Where an open that has landed leaves the selected path. It takes the file it
+ * opened, unless rows were marked while it loaded (#263): the late open still
+ * shows its file, but taking the selection back would make the marks read as
+ * stale and wipe them.
+ */
+export function arrivalSelection(
+  tabs: readonly Tab[],
+  tabId: string,
+  filePath: string,
+  markedSince: boolean
+): Tab[] {
+  return markedSince ? [...tabs] : setBrowseLocation(tabs, tabId, { selected: filePath })
+}
+
 /** Folder navigation owns only the browse cursor. It never reroots a session or writes to a shell. */
 export function useFolderBrowsing(
   active: Tab | null,
@@ -52,6 +67,9 @@ export function useFolderBrowsing(
   const [locations, setLocations] = useState<BrowseShortcut[]>([])
   const [revision, setRevision] = useState(0)
   const serial = useRef(new Map<string, number>())
+  // Quiet selects per tab (#263): an open that lands after one must not take
+  // the selected path back, or the marks just made read as stale and go.
+  const marked = useRef(new Map<string, number>())
   const visited = useRef(createVisitedDirectories())
   const readDirectory = useRef(
     createDirectoryRequests((tabId, target) => window.prism.browseDirectory(tabId, target))
@@ -245,6 +263,7 @@ export function useFolderBrowsing(
       if (!id || !path) return
       const request = (serial.current.get(id) ?? 0) + 1
       serial.current.set(id, request)
+      const marksAtAsk = marked.current.get(id) ?? 0
       if (visibleId.current === id) setError(undefined)
       const fromTree = typeof file === 'string'
       const filePath = fromTree ? file : file.path
@@ -284,9 +303,12 @@ export function useFolderBrowsing(
       }
       setState((s) => ({
         ...s,
-        tabs: setBrowseLocation(parent ? navigateBrowse(s.tabs, id, parent) : s.tabs, id, {
-          selected: filePath
-        }).map((t) =>
+        tabs: arrivalSelection(
+          parent ? navigateBrowse(s.tabs, id, parent) : s.tabs,
+          id,
+          filePath,
+          marksAtAsk !== (marked.current.get(id) ?? 0)
+        ).map((t) =>
           t.id === id
             ? {
                 ...t,
@@ -318,7 +340,10 @@ export function useFolderBrowsing(
       // keyboard's place: the preview keeps what it shows, nothing starts or
       // pauses, and a pane that is shut stays shut. Nor is the serial moved, so
       // an open a plain click already asked for still lands.
-      if (quiet) return patch({ selected })
+      if (quiet) {
+        if (id) marked.current.set(id, (marked.current.get(id) ?? 0) + 1)
+        return patch({ selected })
+      }
       if (id) serial.current.set(id, (serial.current.get(id) ?? 0) + 1)
       patch({ selected })
       const file = listing?.files.find((f) => f.path === selected)

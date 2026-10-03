@@ -7514,7 +7514,9 @@ async function marqueeQuietScenario(fixtures) {
       }, 10000),
       'a plain click still previews the film and plays it'
     )
-    await win.evaluate(() => document.querySelectorAll('video,audio').forEach((v) => v.pause()))
+    // The fixture is 1.5 s long: loop it, so a film still playing after the
+    // marks below was not paused by them (a pause stops a looping film too).
+    await win.evaluate(() => document.querySelectorAll('[data-browse-preview] video').forEach((v) => { v.loop = true; void v.play() }))
     await sleep(500)
     // The pane took room from the list: measure again.
     box = await list.boundingBox()
@@ -7528,15 +7530,15 @@ async function marqueeQuietScenario(fixtures) {
     ok(ex.sort().join() === 'v2.mp4,v3.mp4,v4.mp4', `a sweep marks three films (${ex})`)
     ok(/3 selected/.test(await status()), 'and the status line counts them')
     ok(f.pane === 'v1.mp4', `the pane still shows what it showed (${f.pane})`)
-    ok(f.playing.length === 0, `and nothing starts (${f.playing})`)
+    ok(f.playing.join() === 'v1.mp4', `its film plays on and nothing else starts (${f.playing})`)
     await rowAt(1).click({ modifiers: ['Control'], position: { x: 30, y: r1.height / 2 } })
     await sleep(600)
     f = await films()
-    ok(f.pane === 'v1.mp4' && f.playing.length === 0, `a Ctrl click changes neither (${f.pane}, ${f.playing})`)
+    ok(f.pane === 'v1.mp4' && f.playing.join() === 'v1.mp4', `a Ctrl click changes neither (${f.pane}, ${f.playing})`)
     await rowAt(2).click({ modifiers: ['Shift'], position: { x: 30, y: r1.height / 2 } })
     await sleep(600)
     f = await films()
-    ok(f.pane === 'v1.mp4' && f.playing.length === 0, `a Shift click changes neither (${f.pane}, ${f.playing})`)
+    ok(f.pane === 'v1.mp4' && f.playing.join() === 'v1.mp4', `a Shift click changes neither (${f.pane}, ${f.playing})`)
     ok((await exMarked()).length >= 2, 'and the marks are lit')
     // The arrows are a plain pick: they preview, as before.
     await win.keyboard.press('ArrowDown')

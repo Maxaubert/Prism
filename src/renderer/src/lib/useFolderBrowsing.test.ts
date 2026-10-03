@@ -1,9 +1,9 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { newBrowse } from './browse'
+import { browseLocation, newBrowse } from './browse'
 import { newTab, type Tab } from './tabs'
-import { useFolderBrowsing } from './useFolderBrowsing'
+import { arrivalSelection, useFolderBrowsing } from './useFolderBrowsing'
 
 // Render the hook's initial state without starting filesystem effects. This
 // covers restored folder/search state before any IPC response can change it.
@@ -116,5 +116,20 @@ describe('a quiet select (#263)', () => {
     p.select('C:\\project\\Nested')
     expect(p.updates()).toBe(1)
     expect(p.looks()).toBe(1)
+  })
+})
+
+describe('an open that lands after a sweep (#263)', () => {
+  it('takes the selected path when nothing was marked meanwhile', () => {
+    const tab = restored('explorer')
+    const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', false)
+    expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v1.mp4')
+  })
+
+  it('leaves the marks their selected path when rows were marked meanwhile', () => {
+    const tab = restored('explorer')
+    tab.browse.history[0].selected = 'C:\\project\\v3.mp4'
+    const tabs = arrivalSelection([tab], tab.id, 'C:\\project\\v1.mp4', true)
+    expect(browseLocation(tabs[0].browse).selected).toBe('C:\\project\\v3.mp4')
   })
 })
