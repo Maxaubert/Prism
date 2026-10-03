@@ -7,6 +7,7 @@ import {
   BrowserWindow,
   ipcMain,
   dialog,
+  crashReporter,
   nativeTheme,
   utilityProcess,
   Menu,
@@ -132,6 +133,9 @@ import {
   runPreviewInstall,
   wantsPreview
 } from 'prism-term-core/main/updatePreview'
+import { crashBudget } from './crashBudget'
+import { appendCrashLog, crashLine } from './crashLog'
+import { guardWindow, pageGone } from './windowGuard'
 import pkg from '../../package.json'
 import { fileKind } from '@shared/fileKind'
 import type {
@@ -147,6 +151,15 @@ import type {
   WriteResult,
   FileMemoryPatch
 } from '@shared/types'
+
+/**
+ * CRASH DUMPS STAY ON THIS MACHINE (#265). The windowless Prism of 2026-10-03
+ * left nothing to read: the crash reporter was never started, so a renderer
+ * that died took its reason with it. Started before anything else can crash,
+ * with uploading OFF: minidumps go to userData's Crashpad folder and nowhere
+ * else, which is the whole of what this changes.
+ */
+crashReporter.start({ uploadToServer: false })
 
 // Prism main process. Phase 0 scaffold: a frameless window, the fsmedia:// media
 // protocol (Range-aware so <video>/<audio> can seek), and open-file routing
@@ -1220,9 +1233,77 @@ function applyDwmBorder(): void {
   }
 }
 
+/**
+ * THE PAGE COMES BACK, AND THE WINDOW IS NEVER LEFT UNSHOWN (#265; owner,
+ * 2026-10-03: "prism suddenly stopped opening, not sure why, but that should
+ * never happen"). The rules are in windowGuard.ts and crashBudget.ts; this is
+ * their state for the process. One budget across rebuilt windows, so a window
+ * that dies as fast as the one it replaced ends in a quit, not in a loop.
+ */
+const windowBudget = crashBudget()
+const crashLogFile = (): string => join(app.getPath('userData'), 'window-crashes.log')
+function logWindow(
+  event: string,
+  fields: Record<string, string | number | boolean | undefined>
+): void {
+  appendCrashLog(crashLogFile(), crashLine(new Date(), event, fields))
+}
+let appQuitting = false
+app.on('before-quit', () => (appQuitting = true))
+/** E2E only: a dead page stays dead, as the bug left it, so the watchdog and
+ *  the second launch can be proved as the nets they are. */
+const holdRecovery = E2E && process.env.PRISM_E2E_HOLD_RECOVERY === '1'
+let crashedAtStart = false
+
+/** A fresh window in place of one whose page keeps dying. The new one is
+ *  built FIRST: destroying the only window first would read as the last
+ *  window closing, and the app would quit. */
+function recreateWindow(): void {
+  const old = mainWindow
+  createWindow()
+  if (old && !old.isDestroyed()) old.destroy()
+}
+
+/** Nothing left to try: say so (never under --e2e) and end the process, which
+ *  frees the single-instance lock for the next launch. An ordinary quit, not
+ *  `app.exit`, so `will-quit` still stops the shells and the indexer; the
+ *  windows go first, since a dead page has no close question to answer. */
+function giveUpWindow(): void {
+  if (!E2E)
+    dialog.showErrorBox(
+      'Prism',
+      `Prism's window stopped working several times in a row, so Prism has closed. Open it again to carry on. Details are in ${crashLogFile()}.`
+    )
+  appQuitting = true
+  for (const w of BrowserWindow.getAllWindows()) w.destroy()
+  app.quit()
+}
+
+/**
+ * Make sure there is a window with a live page before a second launch's files
+ * are handed over (#265). Answers true when it STARTED a page (a new window or
+ * a reload), since the files then wait in `pendingOpen` for the page to listen.
+ * Raising a window whose page is gone, which is all this used to do, shows a
+ * blank frame at best.
+ */
+function ensureLivePage(): boolean {
+  if (!app.isReady()) return false // whenReady makes the window and drains the queue
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    logWindow('handoff', { window: 'none', action: 'create' })
+    createWindow()
+    return true
+  }
+  if (pageGone(mainWindow)) {
+    logWindow('handoff', { window: 'dead', action: 'reload' })
+    mainWindow.webContents.reload()
+    return true
+  }
+  return false
+}
+
 function createWindow(): void {
   const remembered = readWindowState()
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     title: 'Prism',
     width: remembered.width,
     height: remembered.height,
@@ -1264,6 +1345,7 @@ function createWindow(): void {
       ]
     }
   })
+  mainWindow = win
   let shown = false
   const showWindow = (): void => {
     if (shown) return
@@ -1280,12 +1362,37 @@ function createWindow(): void {
   }
   mainWindow.once('ready-to-show', showWindow)
   mainWindow.webContents.once('dom-ready', showWindow)
+  guardWindow(win, {
+    budget: windowBudget,
+    log: logWindow,
+    show: showWindow,
+    recreate: recreateWindow,
+    giveUp: giveUpWindow,
+    // The text and the agent the page held died with it; a close must not
+    // ask about either.
+    stateLost: () => {
+      editorDirty = false
+      agentBusy = false
+    },
+    quitting: () => appQuitting,
+    held: () => holdRecovery
+  })
+  // E2E only: the page dies as it commits, before anything has shown the
+  // window, which is the shape of the 2026-10-03 failure. Once per process.
+  if (E2E && process.env.PRISM_E2E_CRASH_AT_START === '1' && !crashedAtStart) {
+    crashedAtStart = true
+    win.webContents.once('did-navigate', () => win.webContents.forcefullyCrashRenderer())
+  }
   // The border follows maximize state; fullscreen changes call applyDwmBorder
   // themselves on the way out, and applyMaterial's debounce covers the rest.
   mainWindow.on('maximize', applyDwmBorder)
   mainWindow.on('unmaximize', applyDwmBorder)
   watchWindowState(mainWindow)
-  mainWindow.on('closed', () => (mainWindow = null))
+  // Only THIS window's close clears it: a rebuilt window replaces the old one
+  // before the old one is destroyed (#265).
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
   /**
    * Minimised, and focused, told to the page (2026-08-26).
    *
@@ -1312,12 +1419,6 @@ function createWindow(): void {
   mainWindow.on('enter-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', true)
     applyMaterial(true)
-  })
-  // The renderer's fade brackets the whole swap: opaque on the way in, and the
-  // material comes back only once the far side has been painted and lifted.
-  ipcMain.on('window:fs-transition', (_e, active: boolean) => {
-    fsTransition = !!active
-    applyMaterial(!!mainWindow?.isFullScreen())
   })
   mainWindow.on('leave-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen', false)
@@ -1455,6 +1556,8 @@ if (!app.requestSingleInstanceLock()) {
     // that is part way through its install.
     if (wantsPreview(argv) && !pendingUpdate) offerUpdate(previewUpdate(pkg.version))
     const paths = pathsFromArgv(argv)
+    // A new page restores and drains `pendingOpen` itself once it listens.
+    if (ensureLivePage()) startupRestored = false
     if (!startupRestored) pendingOpen.push(...paths)
     if (mainWindow) {
       // The handoff is the case the foreground lock bites hardest: Prism has
@@ -3798,6 +3901,14 @@ if (!app.requestSingleInstanceLock()) {
       // land on the list, which is still the right list.
       // Never under --e2e (#222): a test run must not open Windows Settings.
       if (!E2E) void shell.openExternal('ms-settings:defaultapps?registeredAppUser=Prism')
+    })
+    // The renderer's fade brackets the whole swap: opaque on the way in, and the
+    // material comes back only once the far side has been painted and lifted.
+    // Registered once here, not per window: a rebuilt window (#265) would add
+    // a second listener.
+    ipcMain.on('window:fs-transition', (_e, active: boolean) => {
+      fsTransition = !!active
+      applyMaterial(!!mainWindow?.isFullScreen())
     })
     ipcMain.on('window:material', (_e, material: string, mode?: string) => {
       if (!mainWindow) return
