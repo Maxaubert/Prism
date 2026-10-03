@@ -148,7 +148,7 @@ Prism is **proprietary**. Copyright (c) 2026 Max Aubert, all rights reserved. Th
 may not be used, copied, modified or redistributed without written permission; official
 binaries are free to install and use, personally or inside an organisation. See [`LICENSE`](LICENSE).
 
-Releases published on or before 2026-10-01 (up to `v0.78.1`) were issued under the MIT licence,
+Releases published on or before 2026-10-03 (up to `v0.79.1`) were issued under the MIT licence,
 and that grant still covers those versions. It does not extend to anything after them.
 
 Third-party components and their licences are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
