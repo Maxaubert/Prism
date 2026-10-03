@@ -3,6 +3,7 @@ import type { FileKind, ViewerFile } from '@shared/types'
 import { treeWindow, type PaintRow } from '../lib/treePaint'
 import { ROW_GAP, ROW_ICON, ROW_PAD_X, type TREE_SIZES } from '../lib/treePrefs'
 import { bandBox, type Band } from '../lib/marquee'
+import { ALONE, markedLook } from '../lib/markedLook'
 import { useTree } from '../lib/treeContext'
 import { dragIncludesPath } from '../lib/dragDrop'
 import {
@@ -476,16 +477,6 @@ function Guides({ depth, indent }: { depth: number; indent: number }): JSX.Eleme
   )
 }
 
-/** Rounding for a selected row whose neighbours are selected too, so a
- *  contiguous selection reads as one block. */
-function joined(j: { top: boolean; bottom: boolean }): CSSProperties {
-  return {
-    borderTopLeftRadius: j.top ? 0 : undefined,
-    borderTopRightRadius: j.top ? 0 : undefined,
-    borderBottomLeftRadius: j.bottom ? 0 : undefined,
-    borderBottomRightRadius: j.bottom ? 0 : undefined
-  }
-}
 
 function FolderRow({ path, name, depth }: { path: string; name: string; depth: number }): JSX.Element {
   const t = useTree()
@@ -569,7 +560,8 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
         t.dropTarget === path
           ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
           : onCursor || t.selected.has(path)
-            ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+            ? // The tint is in `style` (markedLook); the text keeps its colour.
+              'text-[var(--p-text-soft)]'
             : onMenuHl
               ? 'bg-[var(--p-hover-hi)] text-[var(--p-text)]'
               : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
@@ -583,7 +575,10 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
         // A cut row is half gone already, and looks it (Explorer's cue).
         opacity: t.cut.has(path.toLowerCase()) ? 0.45 : undefined,
         // Contiguous selected rows fuse: shared edges drop their rounding.
-        ...(t.selected.has(path) ? joined(t.selJoin(path)) : {})
+        // A drop target's grey wins over the tint, as its class does.
+        ...(t.dropTarget !== path && (onCursor || t.selected.has(path))
+          ? markedLook(t.selected.has(path) ? t.selJoin(path) : ALONE)
+          : {})
       }}
     >
       {/* The chevron keeps its single-click expand; it opts out of the
@@ -598,7 +593,7 @@ function FolderRow({ path, name, depth }: { path: string; name: string; depth: n
       >
         <Chevron open={open} />
       </span>
-      <FolderIcon color={onCursor || t.selected.has(path) ? 'var(--p-on-accent)' : 'var(--p-tree-folder)'} />
+      <FolderIcon color="var(--p-tree-folder)" />
       <Label name={name} />
     </button>
   )
@@ -701,7 +696,8 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
         }}
         className={`relative flex w-full items-center rounded-md text-left outline-none focus-visible:outline-none ${
           onSel
-            ? `bg-[var(--p-sel-bg)] text-[var(--p-on-accent)] ${unsaved ? 'font-bold' : 'font-medium'}`
+            ? // The tint is in `style` (markedLook); the text keeps its colour.
+              `text-[var(--p-text-soft)] ${unsaved ? 'font-bold text-[var(--p-text)]' : ''}`
             : onMenuHl
               ? `bg-[var(--p-hover-hi)] text-[var(--p-text)] ${unsaved ? 'font-bold' : ''}`
               : `text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)] ${
@@ -717,18 +713,17 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
           // A cut row is half gone already, and looks it (Explorer's cue).
           opacity: t.cut.has(f.path.toLowerCase()) ? 0.45 : undefined,
           // Contiguous selected rows fuse: shared edges drop rounding.
-          ...(onSel ? joined(t.selJoin(f.path)) : {})
+          ...(onSel ? markedLook(t.selected.has(f.path) ? t.selJoin(f.path) : ALONE) : {})
         }}
       >
         <KindIcon
           kind={f.kind}
-          // The knockout only applies on the filled row, which is now the
-          // selection's rather than the open file's.
-          selected={onSel}
-          color={onSel ? 'var(--p-on-accent)' : iconColour(f.kind)}
-          // The knockouts take what is BEHIND the row, which on a
-          // selected one is the accent fill and not the panel.
-          bg={onSel ? 'var(--p-sel-knockout-side)' : undefined}
+          // A marked row is a tint now, so the icon keeps its own colours:
+          // the monochrome fallback was for an accent SLAB a coloured icon
+          // could vanish into, and a fifth of the accent is not one.
+          color={iconColour(f.kind)}
+          // The knockouts take what is BEHIND the row: the tint as seen.
+          bg={onSel ? 'var(--p-sel-tint-side)' : undefined}
           ext={f.ext}
           name={f.name}
         />

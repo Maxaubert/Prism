@@ -15,7 +15,7 @@ import { browseParent } from '../../lib/browse'
 import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
-import { rowLook, useTreeSize } from '../../lib/treePrefs'
+import { explorerRow, useExplorerSize } from '../../lib/explorerSize'
 import { bandBox, nearestRow, onRowOwnPart, rowsInBand } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
@@ -75,8 +75,10 @@ export function BrowseList(props: Props): JSX.Element {
   const cut = useFileCut()
   const folderDrop = useFolderDrop(props.loading ? undefined : props.onDropInto)
   const searching = !!props.query.trim()
-  // The tree's row (#257): one definition, both lists.
-  const look = rowLook(useTreeSize())
+  // The row is Settings > Style > Explorer size: Medium is the tree's own row
+  // (#257), Large the Explorer's old one, Small a step under Medium.
+  const sizeId = useExplorerSize()
+  const look = explorerRow(sizeId)
   const rowHeight = look.height
   const scroller = useRef<HTMLDivElement>(null)
   const columnScroller = useRef<HTMLDivElement>(null)
@@ -379,6 +381,7 @@ export function BrowseList(props: Props): JSX.Element {
     <div
       className="browse-list-area"
       data-searching={searching || undefined}
+      data-row-size={sizeId}
       style={
         {
           '--browse-row-h': `${look.height}px`,
@@ -485,7 +488,13 @@ export function BrowseList(props: Props): JSX.Element {
                   )
                 const primary = entry.path === props.selectedPath
                 const selected = isMarked(entry.path)
-                const highlighted = selected || entry.path === props.menuPath
+                const onMenu = entry.path === props.menuPath
+                // A marked run is one block: its edge is drawn round the
+                // run, never between two marked neighbours (browse.css).
+                const above = rendered[offset - 1]
+                const below = rendered[offset + 1]
+                const joinUp = selected && !!above && isMarked(above.path)
+                const joinDown = selected && !!below && isMarked(below.path)
                 return (
                   <button
                     key={entry.path}
@@ -500,7 +509,9 @@ export function BrowseList(props: Props): JSX.Element {
                     data-browse-path={entry.path}
                     data-browse-index={first + offset}
                     data-selected={selected || undefined}
-                    data-menu={entry.path === props.menuPath || undefined}
+                    data-join-up={joinUp || undefined}
+                    data-join-down={joinDown || undefined}
+                    data-menu={onMenu || undefined}
                     data-striped={(first + offset) % 2 === 1 || undefined}
                     draggable
                     {...folderDrop(
@@ -536,17 +547,20 @@ export function BrowseList(props: Props): JSX.Element {
                   >
                     <span className="browse-column-name browse-name">
                       {entry.isFolder ? (
-                        <FolderIcon color={highlighted ? 'currentColor' : 'var(--p-tree-folder)'} />
+                        <FolderIcon color={onMenu ? 'currentColor' : 'var(--p-tree-folder)'} />
                       ) : (
                         entry.file && (
+                          // A marked row is a tint, so its icon keeps its own
+                          // colours; only the menu's grey row still draws it
+                          // in the row's ink, as it always has.
                           <KindIcon
                             kind={entry.file.kind}
                             ext={entry.file.ext}
                             name={entry.name}
-                            color={highlighted ? 'currentColor' : iconColour(entry.file.kind)}
-                            selected={highlighted}
+                            color={onMenu ? 'currentColor' : iconColour(entry.file.kind)}
+                            selected={onMenu}
                             size={look.icon}
-                            bg={highlighted ? 'var(--p-sel-seen)' : 'var(--p-bg)'}
+                            bg={onMenu ? 'var(--p-sel-seen)' : selected ? 'var(--p-sel-tint-seen)' : 'var(--p-bg)'}
                           />
                         )
                       )}

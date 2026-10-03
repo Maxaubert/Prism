@@ -370,10 +370,12 @@ body[data-internal-file-drag] .browse-search:focus-within {
   border-radius: 3px;
   color: var(--p-text);
 }
-/* The rows are the project tree's rows (#257): height, text size, icon, the
-   gap after it and the side padding all come from rowLook() in treePrefs, set
-   on .browse-list-area as --browse-row-*. The columns narrowed with the text;
-   the header sits a few pixels taller than a row, in the same text size. */
+/* The rows follow Settings > Style > Explorer size (lib/explorerSize.ts):
+   height, text size, icon, the gap after it and the side padding are set on
+   .browse-list-area as --browse-row-*. Medium is the project tree's row (#257),
+   and the columns narrowed with its text; the header sits a few pixels taller
+   than a row, in the same text size. Large puts back the Explorer as it was
+   before #257, columns and all (below). */
 .browse-columns,
 .browse-row {
   display: grid;
@@ -473,7 +475,7 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-result-location {
   color: var(--p-dim);
 }
-.browse-row:is([data-selected], [data-menu]) .browse-result-location {
+.browse-row[data-menu] .browse-result-location {
   color: inherit;
 }
 .browse-name > svg {
@@ -489,10 +491,27 @@ body[data-internal-file-drag] .browse-search:focus-within {
 .browse-row .browse-column-modified {
   color: var(--p-dim);
 }
+/* A marked row is a TINT with a faint edge, Windows' own look (owner,
+   2026-10-03: "more transparent like selecting files in file explorer"). The
+   text and the columns keep their colours; theme.ts holds the tint down far
+   enough that they still read on it. The edge goes round a run of marked rows,
+   not between them, so a run is one block. Inset shadows: nothing moves. */
 .folder-browser .browse-row[data-selected],
 .folder-browser .browse-row[data-selected]:hover {
-  background: var(--p-sel-bg);
-  color: var(--p-on-accent);
+  --sel-top: inset 0 1px 0 var(--p-sel-line);
+  --sel-bottom: inset 0 -1px 0 var(--p-sel-line);
+  background: var(--p-sel-tint);
+  box-shadow:
+    inset 1px 0 0 var(--p-sel-line),
+    inset -1px 0 0 var(--p-sel-line),
+    var(--sel-top),
+    var(--sel-bottom);
+}
+.folder-browser .browse-row[data-selected][data-join-up] {
+  --sel-top: 0 0 0 transparent;
+}
+.folder-browser .browse-row[data-selected][data-join-down] {
+  --sel-bottom: 0 0 0 transparent;
 }
 .folder-browser .browse-row[data-menu],
 .folder-browser .browse-row[data-menu]:hover {
@@ -503,11 +522,11 @@ body[data-internal-file-drag] .browse-search:focus-within {
      not the focus ring either while the menu is open over it. */
   outline: none;
 }
-.browse-row:is([data-selected], [data-menu]) .browse-name,
-.browse-row:is([data-selected], [data-menu]) .browse-column-type,
-.browse-row:is([data-selected], [data-menu]) .browse-column-path,
-.browse-row:is([data-selected], [data-menu]) .browse-column-size,
-.browse-row:is([data-selected], [data-menu]) .browse-column-modified {
+.browse-row[data-menu] .browse-name,
+.browse-row[data-menu] .browse-column-type,
+.browse-row[data-menu] .browse-column-path,
+.browse-row[data-menu] .browse-column-size,
+.browse-row[data-menu] .browse-column-modified {
   color: inherit;
 }
 .browse-message {
@@ -619,4 +638,44 @@ body[data-internal-file-drag] .browse-search:focus-within {
 }
 .browse-list-area[data-searching] .browse-columns .browse-column-size {
   display: flex !important;
+}
+
+/* Explorer size Large is the Explorer as it was before #257 (main, 2026-10-02):
+   wider columns and gaps, a 36px header, and the quiet columns at 13px under
+   15px names. The row, text, icon and padding come in through --browse-row-*;
+   these are the parts a variable does not reach. */
+.browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+  grid-template-columns: minmax(160px, 1fr) 150px 90px 160px;
+  column-gap: 16px;
+}
+.browse-list-area[data-row-size='large'] .browse-columns {
+  height: 36px;
+  font-size: 13px;
+}
+.browse-list-area[data-row-size='large'] .browse-row :is(
+    .browse-column-type,
+    .browse-column-path,
+    .browse-column-size,
+    .browse-column-modified
+  ) {
+  font-size: 13px;
+}
+@container (max-width: 720px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(120px, 1fr) 130px 80px;
+  }
+}
+@container (max-width: 510px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(110px, 1fr) 80px;
+    column-gap: 10px;
+  }
+}
+@container (max-width: 300px) {
+  .browse-list-area[data-row-size='large'] :is(.browse-columns, .browse-row) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.browse-list-area[data-row-size='large'][data-searching] :is(.browse-columns, .browse-row) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 90px;
 }

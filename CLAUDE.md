@@ -518,9 +518,24 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   Escape or any move with the button up, and switches the row's `draggable` off for the
   press. The Explorer gained MULTI-SELECT with it (Ctrl and Shift clicks too; Copy, Cut,
   Delete and a drag act on all; Open, Rename and More act on one and are off). The
-  Explorer's rows ARE the tree's rows: `rowLook()` in `treePrefs` (height and text size from
-  the tree size setting, icon, gap, padding). The `marquee` e2e measures both; a drag in a
-  test is taken by the row's NAME, since a locator's centre is blank space.
+  Explorer's MEDIUM row is the tree's default row (`rowLook()` in `treePrefs`). The `marquee`
+  e2e measures both; a drag in a test is taken by the row's NAME, since a locator's centre is
+  blank space.
+  **EXPLORER SIZE IS A SETTING** (owner, 2026-10-03: "let the current be medium the old be
+  big, and make a slightly smaller version too"). Settings > Style > Explorer size
+  (`lib/explorerSize.ts`, `prism.explorer.size`, unknown reads Medium): Small 22px / 11.5px /
+  12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
+  its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
+  ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
+  selecting files in file explorer" for files, "more saturated" for the settings page).
+  Explorer, tree and sidebar search rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
+  where a name would fall under 4.5:1 or a quiet column under 3.2:1) with a faint
+  `--p-sel-line` edge round the BLOCK (`lib/markedLook.ts`, `data-join-up/down`), and keep
+  their own text and icon colours (no on-accent ink, no monochrome icon fallback). The
+  Settings rail and the chosen card use `--p-sel-solid` / `--p-accent-solid`. Neither moves
+  with the accent's alpha. `theme.selection.test.ts`, `markTint` e2e. The archive view,
+  the places panel and the menu's grey row are unchanged.
   ARRIVING NEVER SELECTS (2026-09-22, owner: "no file should be selected when I haven't
   clicked any ... either because I clicked it or it's the current file displaying, or I've
   navigated onto it with the arrow keys"). In the Explorer, walking into a folder by a sidebar
@@ -589,7 +604,7 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   shell keep their own Ctrl+A.
   Tabs reorder by dragging along the strip (`reorderTabs`, pure and tested), with a
   hairline showing where one would land.
-  Selection is the accent fill (`data-selected`); `aria-selected` still means the OPEN
+  Selection is the accent tint (`data-selected`); `aria-selected` still means the OPEN
   file, which is what the e2e leans on. Keyboard unchanged: arrows land-and-open, Enter
   opens, F2/Delete act on the row (Delete takes the whole selection when the row is in
   one).

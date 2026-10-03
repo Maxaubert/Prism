@@ -1908,11 +1908,12 @@ async function hexScenario(fixtures) {
  * exceptions - a control that is merely removed while a saved style still names
  * a scheme would leave somebody on a set they cannot change.
  *
- * THE ZIP is a flat coloured page and falls back to monochrome on a selected
- * row, because an indigo page on an indigo accent is exactly the collision that
- * fallback exists for. THE COMIC is artwork - a keylined sunburst under a
- * halftone under a splat - and never falls back, because five colours cannot
- * all collide with one accent.
+ * THE ZIP is a flat coloured page. It fell back to monochrome on a selected
+ * row while a selection was an accent SLAB, an indigo page on an indigo fill
+ * being the collision that fallback existed for. A marked row is a light tint
+ * now (owner, 2026-10-03), so it keeps its colour there too. THE COMIC is
+ * artwork - a keylined sunburst under a halftone under a splat - and never
+ * fell back at all.
  *
  * The coloured icon is also MASKED rather than painted in layers: painting the
  * band over the page leaves a hairline of page colour around the outside, and
@@ -1956,12 +1957,12 @@ async function iconSchemeScenario(fixtures) {
     // Read as the token rather than a hex, because the point is that it moves
     // with the style; the unit tests measure what the token resolves to.
     // bundle.zip is
-    // the open row, so it is selected and must be the fallback; the others are
-    // not, and must be coloured.
+    // the open row, so it is selected; on the tint it keeps its colour like
+    // the rest (a marked row is no longer an accent slab, 2026-10-03).
     const open = await icon('bundle.zip')
     ok(open !== null, 'the tree draws an icon for bundle.zip')
     ok(open.selected, 'and it is the selected row')
-    ok(!open.masked, 'a SELECTED zip falls back to monochrome')
+    ok(open.masked, 'a SELECTED zip keeps its colour on the tint')
 
     const zip = await icon('wrapped.zip')
     ok(zip !== null && zip.masked, 'an unselected zip is coloured with no scheme on')
@@ -7412,6 +7413,224 @@ async function marqueeScenario(fixtures) {
   }
 }
 
+/**
+ * TWO HIGHLIGHTS FROM ONE ACCENT (owner, 2026-10-03, with a screenshot of an
+ * opaque grey slab in the Explorer: "i want more saturated" for the settings
+ * page that is chosen, and "more transparent like selecting files in file
+ * explorer" for files). A marked file row is a light accent TINT with a faint
+ * edge and keeps its own text colours, in the Explorer and the tree, on a dark
+ * style and a light one; the Settings rail's chosen page is the accent SOLID
+ * even with the accent's alpha turned down. Measured off computed styles.
+ */
+async function markTintScenario(fixtures) {
+  console.log('marked rows are a tint, the chosen page is solid')
+  const dir = join(fixtures, 'marktint')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['m1.txt', 'm2.txt', 'm3.txt', 'm4.txt', 'm5.txt', 'm6.txt']) writeFileSync(join(dir, n), `tint ${n}\n`)
+  const { app, win } = await launch(join(dir, 'm1.txt'))
+  let styleBefore = null
+  let draftBefore = null
+  const alphaOf = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number)
+    return n.length > 3 ? n[3] : 1
+  }
+  const token = (name) =>
+    win.evaluate((n) => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = `var(${n})`
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return c
+    }, name)
+  /** The marked Explorer row against a plain one: fill, edge and inks. */
+  const explorerLook = () =>
+    win.evaluate(() => {
+      const rows = [...document.querySelectorAll('[data-testid="browse-list"] .browse-row[data-browse-path]')]
+      const sel = rows.find((r) => r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+      const plain = rows.find((r) => !r.hasAttribute('data-selected') && !r.hasAttribute('data-menu'))
+      if (!sel || !plain) return null
+      const ink = (r, s) => getComputedStyle(r.querySelector(s)).color
+      return {
+        bg: getComputedStyle(sel).backgroundColor,
+        shadow: getComputedStyle(sel).boxShadow,
+        name: [ink(sel, '.browse-name'), ink(plain, '.browse-name')],
+        size: [ink(sel, '.browse-column-size'), ink(plain, '.browse-column-size')],
+        type: [ink(sel, '.browse-column-type'), ink(plain, '.browse-column-type')]
+      }
+    })
+  const checkExplorer = async (label) => {
+    const look = await explorerLook()
+    ok(look !== null, `${label}: a marked row and a plain one are on screen`)
+    if (!look) return
+    const a = alphaOf(look.bg)
+    ok(a >= 0.18 && a <= 0.25, `${label}: the marked row is a light tint (${look.bg})`)
+    ok(look.shadow !== 'none' && /inset/.test(look.shadow), `${label}: with a faint edge (${look.shadow.slice(0, 60)})`)
+    ok(look.name[0] === look.name[1], `${label}: its name keeps the plain row's colour (${look.name.join(' / ')})`)
+    ok(look.size[0] === look.size[1] && look.type[0] === look.type[1], `${label}: and so do its quiet columns (${look.size.join(' / ')})`)
+  }
+  try {
+    draftBefore = await win.evaluate(() => localStorage.getItem('prism.style.draft'))
+    styleBefore = await switchStyle(win, 'aurora', 'dark')
+    await sleep(400)
+
+    /* ---------- the tree ---------- */
+    await win.waitForSelector('aside [data-row]', { timeout: 10000 })
+    const treeRow = win.locator('aside [data-row]').nth(2)
+    await treeRow.click()
+    // Away from the rows: a hovered row wears the hover ink.
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const tree = await win.evaluate(() => {
+      const rows = [...document.querySelectorAll('aside [data-row]')]
+      const sel = rows.find((r) => r.hasAttribute('data-selected'))
+      const plain = rows.find((r) => !r.hasAttribute('data-selected'))
+      return sel && plain
+        ? { bg: getComputedStyle(sel).backgroundColor, ink: [getComputedStyle(sel).color, getComputedStyle(plain).color] }
+        : null
+    })
+    ok(tree !== null, 'the tree has a marked row and a plain one')
+    if (tree) {
+      const a = alphaOf(tree.bg)
+      ok(a >= 0.18 && a <= 0.25, `a marked tree row is a light tint too (${tree.bg})`)
+      ok(tree.ink[0] === tree.ink[1], `and keeps the plain row's text colour (${tree.ink.join(' / ')})`)
+    }
+    await win.screenshot({ path: join(SHOTS, 'marktint-tree-dark.png') })
+
+    /* ---------- the Explorer, dark ---------- */
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    await win.locator('[data-testid="browse-list"] [data-browse-path$="marktint"]').dblclick()
+    ok(
+      await until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 6, 10000),
+      'the Explorer walked into the folder of six'
+    )
+    await sleep(300)
+    const list = win.locator('[data-testid="browse-list"]')
+    await list.locator('[data-browse-index="1"] .browse-name-text').click()
+    await list.locator('[data-browse-index="2"] .browse-name-text').click({ modifiers: ['Control'] })
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    await checkExplorer('dark')
+    // Two marked neighbours are one block: no edge between them.
+    const join2 = await win.evaluate(() => {
+      const r = (i) => document.querySelector(`[data-testid="browse-list"] [data-browse-index="${i}"]`)
+      return { first: r(1)?.hasAttribute('data-join-down'), second: r(2)?.hasAttribute('data-join-up'), shadow: r(2) ? getComputedStyle(r(2)).boxShadow : '' }
+    })
+    ok(join2.first && join2.second, 'two marked neighbours join into one block')
+    ok((join2.shadow.match(/inset/g) ?? []).length === 3, `and the second draws its sides and foot, no edge along the first (${join2.shadow})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-explorer-dark.png') })
+
+    /* ---------- the Explorer, light ---------- */
+    await switchStyle(win, 'paper', 'light')
+    ok(await until(() => win.evaluate(() => document.documentElement.dataset.mode === 'light')), 'in a light style (Paper)')
+    await sleep(400)
+    await checkExplorer('light')
+    await win.screenshot({ path: join(SHOTS, 'marktint-explorer-light.png') })
+    await switchStyle(win, 'aurora', 'dark')
+    await sleep(400)
+
+    /* ---------- the Settings rail, accent alpha below 1 ---------- */
+    await win.evaluate((d) => {
+      const v = { ...JSON.parse(d ?? '{}'), accentAlpha: 0.4 }
+      localStorage.setItem('prism.style.draft', JSON.stringify(v))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+    }, draftBefore)
+    await sleep(300)
+    ok(alphaOf(await token('--p-sel-bg')) < 1, `the accent's alpha is down: its fills are see-through (${await token('--p-sel-bg')})`)
+    await win.click('[aria-label="Settings"]')
+    const rail = win.locator('aside button[aria-label="Style"]')
+    await rail.waitFor({ timeout: 8000 })
+    await rail.click()
+    await win.mouse.move(5, 5)
+    await sleep(300)
+    const railBg = await rail.evaluate((el) => getComputedStyle(el).backgroundColor)
+    const solid = await token('--p-sel-solid')
+    ok(alphaOf(railBg) === 1, `the chosen Settings page is solid all the same (${railBg})`)
+    ok(railBg === solid, `in the accent, whole (${railBg} and ${solid})`)
+    await win.screenshot({ path: join(SHOTS, 'marktint-settings-rail.png') })
+    // Explorer marks still a tint at this alpha, the same one.
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await sleep(400)
+    await checkExplorer('accent alpha 40%')
+  } finally {
+    await win
+      .evaluate((d) => {
+        if (d === null) localStorage.removeItem('prism.style.draft')
+        else localStorage.setItem('prism.style.draft', d)
+        window.dispatchEvent(new StorageEvent('storage', { key: 'prism.style.draft', storageArea: localStorage }))
+      }, draftBefore)
+      .catch(() => {})
+    if (styleBefore) await switchStyle(win, styleBefore[0], styleBefore[1]).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * EXPLORER SIZE (owner, 2026-10-03: "size options for explorer in the
+ * appearance menu, let the current be medium the old be big, and make a
+ * slightly smaller version too"). Settings > Style > Explorer size, Small /
+ * Medium / Large: 22, 26 and 40px rows with their text and icon, picked the way
+ * a user picks, measured off the rows, and remembered across a restart. The
+ * tree keeps its own size.
+ */
+async function explorerSizeScenario(fixtures) {
+  console.log('explorer size')
+  const dir = join(fixtures, 'exsize')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['z1.txt', 'z2.txt', 'z3.txt']) writeFileSync(join(dir, n), `size ${n}\n`)
+  let { app, win } = await launch(join(dir, 'z1.txt'))
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 3)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="exsize"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 3, 10000)
+  }
+  const rowLook = () =>
+    win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] .browse-row[data-browse-path$=".txt"]')
+      const icon = row?.querySelector('.browse-name > svg')
+      return {
+        h: row?.getBoundingClientRect().height,
+        font: row ? getComputedStyle(row).fontSize : null,
+        icon: icon?.getBoundingClientRect().height,
+        tree: document.querySelector('aside [data-row]')?.getBoundingClientRect().height ?? null
+      }
+    })
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder of three')
+    const medium = await rowLook()
+    ok(medium.h === 26 && medium.font === '12.5px' && medium.icon === 14, `Medium is the default: 26px rows of 12.5px text, a 14px icon (${JSON.stringify(medium)})`)
+    const want = { Small: [22, '11.5px', 12], Medium: [26, '12.5px', 14], Large: [40, '15px', 18] }
+    for (const name of ['Small', 'Large', 'Medium', 'Large']) {
+      await pickStyleSegment(win, 'explorer-size', name)
+      ok(await intoFolder(), `${name}: back in the Explorer`)
+      await sleep(250)
+      const got = await rowLook()
+      const [h, font, icon] = want[name]
+      ok(got.h === h && got.font === font && got.icon === icon, `${name}: ${h}px rows of ${font} text, a ${icon}px icon (${JSON.stringify(got)})`)
+      ok(got.tree === medium.tree, `${name}: and the tree's rows stay as they were (${got.tree})`)
+      await win.screenshot({ path: join(SHOTS, `explorer-size-${name.toLowerCase()}.png`) })
+    }
+    ok((await win.evaluate(() => localStorage.getItem('prism.explorer.size'))) === 'large', 'the choice is stored')
+    await app.close()
+    await sleep(900)
+    ;({ app, win } = await launch(join(dir, 'z1.txt')))
+    ok(await intoFolder(), 'after a restart the Explorer shows the folder again')
+    await sleep(250)
+    const again = await rowLook()
+    ok(again.h === 40 && again.font === '15px', `and remembers Large (${JSON.stringify(again)})`)
+    await pickStyleSegment(win, 'explorer-size', 'Medium')
+  } finally {
+    await win.evaluate(() => localStorage.removeItem('prism.explorer.size')).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 async function selectionScenario(fixtures) {
   console.log('explorer selection')
   // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
@@ -10159,6 +10378,8 @@ await run(accentOpacityScenario)
 await run(styleColoursScenario)
 await run(dragScenario)
 await run(marqueeScenario)
+await run(markTintScenario)
+await run(explorerSizeScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

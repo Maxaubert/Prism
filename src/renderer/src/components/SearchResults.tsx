@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX, type MouseEvent } 
 import type { SearchHit } from '@shared/types'
 import type { TREE_SIZES } from '../lib/treePrefs'
 import { FolderIcon, iconColour, KindIcon } from './TreeRows'
+import { markedLook } from '../lib/markedLook'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
 
 /** A hit carries a name, not an extension; the icon's chip wants one. */
@@ -125,25 +126,19 @@ export function SearchResults({
               }}
               className={`flex w-full items-center gap-1.5 rounded-md py-[3px] pl-2 pr-2 text-left outline-none focus-visible:outline-none ${
                 picked
-                  ? 'bg-[var(--p-sel-bg)] font-medium text-[var(--p-on-accent)]'
+                  ? 'text-[var(--p-text-soft)]'
                   : 'text-[var(--p-text-soft)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
               }`}
-              style={{
-                fontSize: size.font,
-                borderTopLeftRadius: j.top ? 0 : undefined,
-                borderTopRightRadius: j.top ? 0 : undefined,
-                borderBottomLeftRadius: j.bottom ? 0 : undefined,
-                borderBottomRightRadius: j.bottom ? 0 : undefined
-              }}
+              // A marked hit wears the tree's tint, its edge round the block.
+              style={{ fontSize: size.font, ...(picked ? markedLook(j) : {}) }}
             >
               {h.isFolder ? (
-                <FolderIcon color={picked ? 'var(--p-on-accent)' : iconColour('folder')} />
+                <FolderIcon color={iconColour('folder')} />
               ) : (
                 <KindIcon
                   kind={h.kind}
-                  selected={picked}
-                  color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)}
-                  bg={picked ? 'var(--p-sel-knockout-side)' : undefined}
+                  color={iconColour(h.kind)}
+                  bg={picked ? 'var(--p-sel-tint-side)' : undefined}
                   ext={extOf(h.name)}
                   name={h.name}
                 />
@@ -151,7 +146,11 @@ export function SearchResults({
               <span className="min-w-0">
                 <span className="block truncate">{h.name}</span>
                 {h.dir && (
-                  <span className={`block truncate text-[10.5px] ${picked ? 'text-[var(--p-on-accent)]/75' : 'text-[var(--p-dim2)]'}`}>
+                  <span
+                    // A step up on the tint: --p-dim is the ink the tint is
+                    // measured against, the hint grey under it is not.
+                    className={`block truncate text-[10.5px] ${picked ? 'text-[var(--p-dim)]' : 'text-[var(--p-dim2)]'}`}
+                  >
                     {h.dir}
                   </span>
                 )}

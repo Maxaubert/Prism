@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 // 2026-09-23). Read as source: the Switch, the Segmented and the Default apps
 // button must carry no accent token, and the save button still does.
 const src = readFileSync(resolve(__dirname, 'Settings.tsx'), 'utf8').replace(/\r\n/g, '\n')
-const ACCENT = /--p-(accent|accent-hi|on-accent|sel-bg)\b/
+const ACCENT = /--p-(accent|accent-hi|on-accent|sel-bg|sel-solid|on-sel-solid|sel-tint|sel-line)\b/
 const between = (from: string, to: string): string => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from)))
 
 describe('settings controls', () => {

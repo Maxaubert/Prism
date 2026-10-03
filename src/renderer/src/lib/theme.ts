@@ -498,6 +498,43 @@ export function selectionFor(
   return selectionOver(withAlpha(accent, a), grounds)
 }
 
+/**
+ * A MARKED FILE IS A TINT, NOT A SLAB (owner, 2026-10-03, with a screenshot of
+ * an opaque grey selection in the Explorer: "more transparent like selecting
+ * files in file explorer"). Rows in the Explorer, the tree and search results
+ * wear the accent at about a fifth over their ground with a faint accent edge,
+ * and keep their own text and icon colours, as Windows does. The tint is taken
+ * from the accent as picked, never from its alpha: the accent's alpha is a
+ * choice about solid fills, and a tint that went fainter with it would vanish.
+ */
+export const TINT_ALPHA = 0.22
+/** Below a tenth the tint stops reading as a mark at all. */
+export const TINT_MIN = 0.1
+/** The edge round a marked row: faint, it outlines the block rather than boxing it. */
+export const TINT_LINE = 0.5
+
+/**
+ * How strong the tint can be on these grounds while every ink still reads at
+ * its floor: TINT_ALPHA where it can, less where a ground needs it. The inks
+ * are the row's own colours, which stay as they are on a marked row, so it is
+ * the tint that gives way.
+ */
+export function selectionTintAlpha(
+  tint: string,
+  inks: Array<[ink: string, floor: number]>,
+  grounds: string[]
+): number {
+  for (let step = Math.round(TINT_ALPHA * 100); step > Math.round(TINT_MIN * 100); step -= 1) {
+    const a = step / 100
+    const reads = grounds.every((g) => {
+      const seen = composite(withAlpha(tint, a), g)
+      return inks.every(([ink, floor]) => contrast(ink, seen) >= floor)
+    })
+    if (reads) return a
+  }
+  return TINT_MIN
+}
+
 /** The per-kind tints, dark enough to read on a light surface. */
 export const KIND_TINTS: Record<string, string> = {
   image: '#6fb2a8',
@@ -551,15 +588,47 @@ export function derive(input: Style): Record<string, string> {
   // style, is untouched.
   const flat = alpha < 1 && paintedAlpha(style) < 1 ? composite(withAlpha(selection.fill, alpha), bg) : null
 
+  // File names sit just off the text colour; labels a step back; hints
+  // quieter still, and none of them below their floor.
+  const textSoft = dimmed(style.text, side, 0.14, 7)
+  const dim = dimmed(style.text, side, 0.38, 4.5)
+  const dim2 = dimmed(style.text, side, 0.55, 3.2)
+  // The marked-file tint (see TINT_ALPHA): from `hi`, the accent already
+  // moved far enough off the ground to be seen, so a deep accent on a dark
+  // style still tints. Names hold 4.5:1 on it; the quiet columns beside them
+  // (type, size, date) hold the 3.2:1 every hint in the app is held to.
+  const sideG = sideGround(style)
+  const tintA = selectionTintAlpha(
+    hi,
+    [
+      [style.text, 4.5],
+      [textSoft, 4.5],
+      [dim, 3.2]
+    ],
+    [bg, sideG]
+  )
+  const tint = withAlpha(hi, tintA)
+
   return {
     '--p-bg': bg,
     '--p-side-flat': side,
     '--p-text': style.text,
-    // File names sit just off the text colour; labels a step back; hints
-    // quieter still, and none of them below their floor.
-    '--p-text-soft': dimmed(style.text, side, 0.14, 7),
-    '--p-dim': dimmed(style.text, side, 0.38, 4.5),
-    '--p-dim2': dimmed(style.text, side, 0.55, 3.2),
+    '--p-text-soft': textSoft,
+    '--p-dim': dim,
+    '--p-dim2': dim2,
+    // A marked file row: the tint, its faint edge, and the tint as the eye
+    // gets it over the viewer and over the sidebar, opaque, for an icon's
+    // knockouts (a see-through knockout would show the icon's own ink).
+    '--p-sel-tint': tint,
+    '--p-sel-line': withAlpha(hi, TINT_LINE),
+    '--p-sel-tint-seen': composite(tint, bg),
+    '--p-sel-tint-side': composite(tint, sideG),
+    // A chosen PAGE (the settings rail, a chosen card): the accent solid and
+    // whole whatever its alpha (owner, 2026-10-03: "the selected tab which i
+    // want more saturated"), nudged only as far as its label needs for 4.5:1.
+    // At 100% it is exactly the --p-sel-bg the rail always wore.
+    '--p-sel-solid': selectionBg(accent),
+    '--p-on-sel-solid': readableOn(selectionBg(accent)),
     // A FILL: carries the opacity (#249), and is the plain hex at 100%.
     // Below 100% it is the SELECTION's fill, not the raw accent: buttons and
     // chips print --p-on-accent on it, and that ink was chosen so the

@@ -34,6 +34,7 @@ import {
 import { setOpenMode, useOpenMode, type OpenMode } from '../lib/openPrefs'
 import { setRememberTabs, useRememberTabs } from '../lib/tabRestorePrefs'
 import { setTabWidth, useTabWidth } from '../lib/tabWidthPrefs'
+import { EXPLORER_SIZES, setExplorerSize, useExplorerSize } from '../lib/explorerSize'
 import { setTitleBarMode, useTitleBarMode } from '../lib/titleBarPrefs'
 import {
   setAutoScroll,
@@ -352,6 +353,27 @@ function TitleBarSetting(): JSX.Element {
   )
 }
 
+/** How big the Explorer's rows are (owner, 2026-10-03: "size options for
+ *  explorer in the appearance menu, let the current be medium the old be big,
+ *  and make a slightly smaller version too"). The Explorer's alone: the tree
+ *  and the rest of the app keep General's Font size. */
+function ExplorerSizeSetting(): JSX.Element {
+  const size = useExplorerSize()
+  return (
+    <Pref
+      id="explorer-size"
+      label="Explorer size"
+      hint="How tall the rows in the Explorer are, with their text and icons to match."
+    >
+      <Segmented
+        value={size}
+        onChange={setExplorerSize}
+        options={EXPLORER_SIZES.map(({ id, name }) => ({ id, name }))}
+      />
+    </Pref>
+  )
+}
+
 function SwitchItem({
   label,
   on,
@@ -531,9 +553,11 @@ function Tile({
           onClick()
         }
       }}
+      // The chosen card's wash is from the accent as picked, so the accent's
+      // alpha (a choice about fills) never fades the mark that says "this one".
       className={`group relative flex cursor-pointer flex-col gap-1.5 rounded-[var(--p-radius)] border p-2 text-left transition ${
         on
-          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
+          ? 'border-[var(--p-accent-solid)] bg-[var(--p-accent-solid)]/12 shadow-[0_0_0_2px_var(--p-accent-solid)]'
           : 'border-[color:var(--p-divider)] bg-[var(--p-hover)] hover:border-[color:var(--p-dim2)]'
       }`}
     >
@@ -700,6 +724,7 @@ function StyleTab(): JSX.Element {
             closer to the top of appearance"); Style is Prism's appearance. */}
         <TabWidthSetting />
         <TitleBarSetting />
+        <ExplorerSizeSetting />
         <Pref id="mode" label="Mode" hint="Switches between dark and light. Each keeps its own style.">
           <Segmented value={mode} onChange={setMode} options={MODE_OPTIONS} />
         </Pref>
@@ -1602,7 +1627,9 @@ export function Settings({
                       compactRail ? 'justify-center px-0' : 'px-2.5'
                     } ${
                       on
-                        ? 'bg-[var(--p-sel-bg)] font-semibold text-[var(--p-on-accent)]'
+                        ? // The chosen page is the accent SOLID, whatever its
+                          // alpha (owner, 2026-10-03: "more saturated").
+                          'bg-[var(--p-sel-solid)] font-semibold text-[var(--p-on-sel-solid)]'
                         : 'font-medium text-[var(--p-dim)] hover:bg-[var(--p-hover)] hover:text-[var(--p-text)]'
                     }`}
                   >
