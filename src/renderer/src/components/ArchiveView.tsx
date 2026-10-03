@@ -1268,7 +1268,7 @@ function ArchiveInner({
                                   ? 'var(--p-on-accent)'
                                   : iconColour(fileKind(extOf(r.name), r.name))
                               }
-                              bg={sel.items.has(r.path) ? 'var(--p-accent)' : undefined}
+                              bg={sel.items.has(r.path) ? 'var(--p-sel-knockout)' : undefined}
                               ext={extOf(r.name)}
                               name={r.name}
                             />

@@ -143,7 +143,7 @@ export function SearchResults({
                   kind={h.kind}
                   selected={picked}
                   color={picked ? 'var(--p-on-accent)' : iconColour(h.kind)}
-                  bg={picked ? 'var(--p-accent)' : undefined}
+                  bg={picked ? 'var(--p-sel-knockout-side)' : undefined}
                   ext={extOf(h.name)}
                   name={h.name}
                 />

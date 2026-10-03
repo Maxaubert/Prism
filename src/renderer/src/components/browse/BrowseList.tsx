@@ -404,7 +404,7 @@ export function BrowseList(props: Props): JSX.Element {
                             color={highlighted ? 'currentColor' : iconColour(entry.file.kind)}
                             selected={highlighted}
                             size={18}
-                            bg={highlighted ? 'var(--p-sel-bg)' : 'var(--p-bg)'}
+                            bg={highlighted ? 'var(--p-sel-seen)' : 'var(--p-bg)'}
                           />
                         )
                       )}
