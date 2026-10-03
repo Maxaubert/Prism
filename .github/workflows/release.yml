@@ -12,6 +12,12 @@ name: release
 on:
   push:
     branches: [main]
+    # Licence text cannot change the binary. A push that touches only these would
+    # otherwise fail on "Require a new version", or, bumped, publish an installer
+    # identical to the last one under a new name for nothing.
+    paths-ignore:
+      - LICENSE
+      - THIRD-PARTY-NOTICES.md
 
 concurrency:
   group: release-main

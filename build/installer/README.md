@@ -14,9 +14,25 @@ control shows. There are no buttons; the same tick hit-tests the pointer.
 | `make-loop.cjs` | turns a source clip into the frame sequence, and makes it loop |
 | `kit.nsh` | the frameless window: size, DPI, GDI+, unpacking |
 | `video.nsh` | the player: decode, composite, hover, clicks, dragging |
-| `pages.nsh` | the four screens, and what each click means |
+| `pages.nsh` | the five screens, and what each click means |
 | `assoc.nsh` | file type registration (offered, never taken) |
 | `media/<size>/` | generated: `v/` frames, `o/` overlays. Not hand-edited. |
+
+## The licence screen (issue #247)
+
+The screen after Welcome is the licence (`over.html` screens 4 and 5, `licence` and
+`licenceok`: one screen before and after its box is ticked, because Continue is baked
+into the art; `prismLicenceCreate` / `prismLicenceLeave` in `pages.nsh`). Continue is
+drawn disabled and does nothing until "I accept the licence agreement" is ticked; Back
+works either way. The summary on it has to stay true to `LICENSE`.
+
+"Read the full licence" never opens a copy from `$PLUGINSDIR`: an elevated NSIS locks
+that folder to Administrators, so the viewer explorer starts is refused (Wind hit this
+in its #258). It extracts `LICENSE.txt` into a fresh `GetTempFileName` folder in the
+user's own temp, opens it through `$WINDIR\explorer.exe`, and deletes that copy on
+`.onGUIEnd`. A silent install (`/S`) skips the screen like every other one, and
+`LICENSE.txt` is installed next to `Prism.exe` either way (`customInstall`); the
+uninstaller removes it (`customUnInstall` in `assoc.nsh`).
 
 ## Changing the words or the layout
 

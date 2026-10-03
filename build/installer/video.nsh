@@ -31,7 +31,7 @@ Var DibBytes
 Var OldBmp
 Var Canvas      ; the one static that shows everything
 Var Frame
-Var Screen      ; 0 welcome, 1 where, 3 done
+Var Screen      ; 0 welcome, 1 where, 2 copying, 3 done, 4 licence
 Var OverName    ; which overlay is loaded, so we only reload on a change
 Var OverImg
 Var Hot         ; control under the pointer
@@ -39,6 +39,8 @@ Var WasDown
 Var Leaving     ; an action is posted; this page is finished
 Var WantMenu    ; the finish screen's three options
 Var WantDesk
+Var Accepted    ; the licence box: Continue does nothing until this is 1
+Var LicenceDir  ; where "Read the full licence" put its copy, empty until then
 Var BoxOn       ; the two states of a checkbox, stamped rather than baked
 Var BoxOff
 Var CanvasW
@@ -212,6 +214,8 @@ Function PrismDraw
     !insertmacro STAMP_BOX DONE_BOX_RUN $RunAfter
     !insertmacro STAMP_BOX DONE_BOX_MENU $WantMenu
     !insertmacro STAMP_BOX DONE_BOX_DESK $WantDesk
+  ${ElseIf} $Screen = 4
+    !insertmacro STAMP_BOX LICENCE_BOX_ACCEPT $Accepted
   ${EndIf}
   System::Call 'gdiplus::GdipDeleteGraphics(p $3)'
 
@@ -307,6 +311,26 @@ Function PrismInput
       ${If} $0 = 1
         StrCpy $Hot "next"
       ${EndIf}
+    ${ElseIf} $Screen = 4
+      ; Continue only exists once the licence is accepted: before that it is
+      ; drawn disabled and neither lights up nor clicks
+      ${If} $Accepted = 1
+        !insertmacro HITS LICENCE_NEXT $0
+        ${If} $0 = 1
+          StrCpy $Hot "next"
+        ${EndIf}
+      ${EndIf}
+      ${If} $Hot == ""
+        !insertmacro HITS LICENCE_BACK $0
+        ${If} $0 = 1
+          StrCpy $Hot "back"
+        ${Else}
+          !insertmacro HITS LICENCE_READ $0
+          ${If} $0 = 1
+            StrCpy $Hot "read"
+          ${EndIf}
+        ${EndIf}
+      ${EndIf}
     ${EndIf}
   ${EndIf}
 
@@ -373,10 +397,16 @@ Function PrismClick
     Call PrismBrowse
     Return
   ${EndIf}
+  ${If} $Hot == "read"
+    Call PrismOpenLicence
+    Return
+  ${EndIf}
   ${If} $Screen = 3
     !insertmacro TOGGLE_ROW DONE_OPT_RUN $RunAfter
     !insertmacro TOGGLE_ROW DONE_OPT_MENU $WantMenu
     !insertmacro TOGGLE_ROW DONE_OPT_DESK $WantDesk
+  ${ElseIf} $Screen = 4
+    !insertmacro TOGGLE_ROW LICENCE_OPT_ACCEPT $Accepted
   ${EndIf}
 
   ; nothing hit, and the pointer is up in the caption: drag the window. Windows
@@ -411,12 +441,18 @@ Function PrismPickOverlay
     StrCpy $1 "where"
   ${ElseIf} $Screen = 2
     StrCpy $1 "copy"
-  ${Else}
-    ${If} $RunAfter = 1
-      StrCpy $1 "done"
+  ${ElseIf} $Screen = 4
+    ; two overlay sets, because the Continue button's state is part of the art
+    ${If} $Accepted = 1
+      StrCpy $1 "licenceok"
     ${Else}
-      StrCpy $1 "done-off"
+      StrCpy $1 "licence"
     ${EndIf}
+  ${Else}
+    ; one overlay whatever "Open Prism now" says: the art is rendered without its
+    ; box, which is stamped at runtime, so there is no done-off set (there never
+    ; was, and unticking the box used to make the overlay vanish)
+    StrCpy $1 "done"
   ${EndIf}
   ${If} $Hot != ""
     StrCpy $1 "$1-hot-$Hot"

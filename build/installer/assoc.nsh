@@ -1305,4 +1305,7 @@
   !insertmacro PRISM_UNINSTALL_INDEXER
   !insertmacro PRISM_UNREGISTER_WIN_E
   !insertmacro PRISM_UNREGISTER_TYPES
+  ; the licence and notices setup put next to the app (pages.nsh, customInstall)
+  Delete "$INSTDIR\LICENSE.txt"
+  Delete "$INSTDIR\THIRD-PARTY-NOTICES.md"
 !macroend

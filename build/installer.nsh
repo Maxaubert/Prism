@@ -24,7 +24,7 @@
 !ifndef BUILD_UNINSTALLER
   !include "installer\kit.nsh"     ; the window
   !include "installer\video.nsh"   ; the picture, and every click in it
-  !include "installer\pages.nsh"   ; the four screens
+  !include "installer\pages.nsh"   ; the five screens
 !endif
 
 ; Registering the file types has nothing to do with the pages, and the
