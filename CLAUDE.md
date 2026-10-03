@@ -2413,9 +2413,12 @@ the associations still register, and that the resident app actually launches.
 `npm run package`, then install `dist/Prism-Setup-x64-<version>.exe` silently with `/S`
 (per-user, no elevation), closing any running Prism first. Report the installed version.
 
-**THE FULL E2E RUNS BEFORE A PUSH, NOT BEFORE AN INSTALL** (owner, 2026-09-02). It is four
-minutes, and it is the PR gate, not a step between "the change is written" and "let me see it".
-Run the SCENARIOS THAT COVER THE CHANGE while iterating, the whole suite before pushing.
+**THE E2E IS THE PR GATE AND NOTHING ELSE; AN INSTALL RUNS NONE** (owner, 2026-09-02, and again
+2026-10-03 after installs that ran suites first: "no e2e, just install, e2e only before pr, as part
+of the pipeline ... always with prism"). "Install" means package, silent install, launch, report the
+version, with no e2e at all. The e2e runs as the gate before a PR is opened or pushed: the
+SCENARIOS THAT COVER THE CHANGE while iterating, the whole suite before pushing. Agents and
+workflows follow the same split.
 
 **AND THE INSTALL IS NOT DONE UNTIL THE EXE'S TIMESTAMP MOVES** (2026-09-02). Two ways to be
 fooled, both met on the same day. `Start-Process -Wait` on the installer hung for five minutes
