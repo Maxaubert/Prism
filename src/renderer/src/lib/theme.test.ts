@@ -118,6 +118,16 @@ describe.each(STYLES.map((s) => [s.name, s] as const))('%s', (_name, style) => {
     // moment the glass is turned off.
     expect(t['--p-side-flat']).toBe(t['--p-bg'])
   })
+
+  it("names the tab strip's flat colour, opaque, on every material", () => {
+    // A see-through agent tint is laid on it before its ink is chosen (#253).
+    for (const material of ['solid', 'oled', 'acrylic', 'mica', 'gradient', 'tinted'] as const) {
+      const v = variablesFor({ ...style, material })
+      expect(v['--p-tabs-flat']).toMatch(/^#[0-9a-f]{6}$/i)
+      expect(v['--p-tabs-flat']).toBe(tabsOf({ ...style, material }))
+      if (material === 'solid') expect(v['--p-tabs-flat']).toBe(v['--p-tabs'])
+    }
+  })
 })
 
 describe('the accent-following visualizer scheme', () => {
