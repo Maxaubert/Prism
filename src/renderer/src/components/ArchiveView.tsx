@@ -1318,13 +1318,13 @@ function ArchiveInner({
             {band && (
               <div
                 data-arc-band
-                className="pointer-events-none absolute rounded-[3px] border border-[color:var(--p-accent-hi)]"
+                className="pointer-events-none absolute rounded-[3px] border border-[color:var(--p-sel-hue-hi)]"
                 style={{
                   left: band.x,
                   top: band.y,
                   width: band.w,
                   height: band.h,
-                  background: 'color-mix(in srgb, var(--p-accent) 22%, transparent)'
+                  background: 'color-mix(in srgb, var(--p-sel-hue) 22%, transparent)'
                 }}
               />
             )}

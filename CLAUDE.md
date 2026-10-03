@@ -549,7 +549,9 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   value back is no edit. A pick past the floors (names 4.5:1, quiet columns 3.2:1) keeps its
   hue and loses strength (`selectionTintAlpha`'s `start`). The Accent keeps the rail, buttons,
   progress. The edge is SOFTER: `TINT_LINE` 0.28 (was 0.5; "the border contrast is slightly
-  too much"), scaled with a picked strength up to 0.5 (`tintLineAlpha`).
+  too much"), scaled with a picked strength up to 0.5 (`tintLineAlpha`). The SWEEP BAND (the
+  Explorer's and the archive's drag box) wears it too, as Windows' does: `--p-sel-hue` /
+  `--p-sel-hue-hi`, which unset are `--p-accent` / `--p-accent-hi` exactly.
   `theme.selectionColour.test.ts`, `markTint` and `styleColours` e2e.
   **NO STRIPES IN THE EXPLORER** (owner, same day: "try no alternating row bg for explorer"):
   every `.browse-row` is the plain ground. The archive view keeps its zebra (`p-zebra`).

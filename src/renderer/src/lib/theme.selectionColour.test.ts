@@ -170,3 +170,22 @@ describe('it is stored with the style', () => {
     expect(cleanPresets([{ ...base, selection: 'x' }])[0].selection).toBeUndefined()
   })
 })
+
+describe('the sweep band', () => {
+  // Windows draws its drag box in the selection colour, so a box dragged over
+  // green marks must not be blue; unset, it is the accent it always was.
+  it('unset, is drawn from the accent fill and its lifted hi, on every built-in style', () => {
+    for (const s of STYLES) {
+      const t = derive(s)
+      expect(t['--p-sel-hue'], s.id).toBe(t['--p-accent'])
+      expect(t['--p-sel-hue-hi'], s.id).toBe(t['--p-accent-hi'])
+    }
+  })
+  it('picked, is drawn from the pick, with an edge that reads on the stage', () => {
+    for (const s of STYLES) {
+      const t = derive({ ...s, selection: '#2ecc7138' })
+      expect(t['--p-sel-hue'], s.id).toBe('#2ecc71')
+      expect(contrast(opaque(t['--p-sel-hue-hi']), t['--p-preview']), s.id).toBeGreaterThanOrEqual(2.9)
+    }
+  })
+})

@@ -637,6 +637,17 @@ export function derive(input: Style): Record<string, string> {
     picked ? picked.a : TINT_ALPHA
   )
   const tint = withAlpha(tintHue, tintA)
+  // The sweep band's colour (Windows draws its drag box in the selection
+  // colour): unset, the accent fill and `hi` it has always been drawn from, so
+  // nobody's band changes; picked, the pick, lifted off the stage for its edge
+  // the way `hi` is lifted from the accent.
+  const accentFill = alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha))
+  let bandHi = tintHue
+  if (picked) {
+    for (let i = 0; i < 14 && contrast(bandHi, stage) < 3; i += 1) {
+      bandHi = light ? mix(bandHi, '#000000', 0.1) : mix(bandHi, '#ffffff', 0.1)
+    }
+  }
 
   return {
     '--p-bg': bg,
@@ -652,6 +663,9 @@ export function derive(input: Style): Record<string, string> {
     '--p-sel-line': withAlpha(tintHue, tintLineAlpha(tintA)),
     '--p-sel-tint-seen': composite(tint, bg),
     '--p-sel-tint-side': composite(tint, sideG),
+    // The sweep band: its fill's colour and its edge's (see `bandHi`).
+    '--p-sel-hue': picked ? tintHue : accentFill,
+    '--p-sel-hue-hi': picked ? bandHi : hi,
     // A chosen PAGE (the settings rail, a chosen card): the accent solid and
     // whole whatever its alpha (owner, 2026-10-03: "the selected tab which i
     // want more saturated"), nudged only as far as its label needs for 4.5:1.
@@ -663,7 +677,7 @@ export function derive(input: Style): Record<string, string> {
     // chips print --p-on-accent on it, and that ink was chosen so the
     // selection's fill clears 4.5:1 on every ground. The raw accent at the
     // same alpha does not (MEASURED in review: Frost at 80% gave 3.78:1).
-    '--p-accent': alpha >= 1 ? accent : (flat ?? fillOf(selection.fill, alpha)),
+    '--p-accent': accentFill,
     // The accent as picked, never see-through: lines, rings, a progress bar
     // against its track and native controls, which the alpha must not reach
     // (the owner's pick was fills only).

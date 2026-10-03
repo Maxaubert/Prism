@@ -734,10 +734,11 @@ function FileRow({ f, depth }: { f: ViewerFile; depth: number }): JSX.Element {
 }
 
 /**
- * The sweep rectangle (#257): the accent at a low strength with a thin light
- * edge, Explorer's look in this app's colours. `color-mix` against transparent
- * keeps an accent that is itself see-through see-through. Never animated: it
- * is where the pointer is, and nothing else.
+ * The sweep rectangle (#257): the Selection colour (the accent while none is
+ * picked) at a low strength with a thin light edge, Explorer's look in this
+ * app's colours; Windows draws its drag box in the selection colour too.
+ * `color-mix` against transparent keeps an accent that is itself see-through
+ * see-through. Never animated: it is where the pointer is, and nothing else.
  */
 export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }): JSX.Element {
   const box = bandBox(band)
@@ -746,12 +747,12 @@ export function SweepBand({ band, as = 'li' }: { band: Band; as?: 'li' | 'div' }
     top: box.top,
     width: box.width,
     height: box.height,
-    background: 'color-mix(in srgb, var(--p-accent) 16%, transparent)',
-    // The edge is the accent pulled toward the text colour: a pure accent
-    // edge vanished into the rows it crossed when a mark was a solid accent
-    // fill (MEASURED in the first screenshot, #257), and it still has to stand
-    // apart from the marked rows' own accent edges.
-    border: '1px solid color-mix(in srgb, var(--p-accent-hi) 45%, var(--p-text))',
+    background: 'color-mix(in srgb, var(--p-sel-hue) 16%, transparent)',
+    // The edge is the hue pulled toward the text colour: a pure accent edge
+    // vanished into the rows it crossed when a mark was a solid accent fill
+    // (MEASURED in the first screenshot, #257), and it still has to stand
+    // apart from the marked rows' own edges, which are the same hue.
+    border: '1px solid color-mix(in srgb, var(--p-sel-hue-hi) 45%, var(--p-text))',
     borderRadius: 2
   }
   const Tag = as

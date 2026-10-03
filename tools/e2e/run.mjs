@@ -8074,7 +8074,18 @@ async function styleColoursScenario(fixtures) {
     const kept = (await draft()).selection ?? ''
     ok(/^#[0-9a-f]{8}$/.test(kept), `a press outside keeps the pick (${kept})`)
     const tint = await token('--p-sel-tint')
-    ok(tint.slice(0, 3).join(',') !== '0,0,0' && Math.abs(tint[3] - 0x38 / 255) < 0.01, `and it is the tint (${tint.join(',')})`)
+    // The token must be the PICK, not merely a tint of the same strength: the
+    // unset accent tint is also at 0x38, so only its colour tells them apart.
+    const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 1)
+    ok(
+      near(tint.slice(0, 3), rgbOf(kept)) && !near(tint.slice(0, 3), rgbOf(tintShown)) && Math.abs(tint[3] - 0x38 / 255) < 0.01,
+      `and it is the tint (${tint.join(',')} for ${kept}, unset was ${tintShown})`
+    )
+    // The sweep band wears the Selection too (Windows' drag box is the
+    // selection colour), so a box dragged over green marks is not blue.
+    const hue = await token('--p-sel-hue')
+    ok(near(hue.slice(0, 3), rgbOf(kept)), `the sweep band's hue is the pick (${hue.join(',')} for ${kept})`)
     ok(JSON.stringify(await token('--p-sel-solid')) === JSON.stringify(accentBefore), 'the accent fill does not move')
     await rowOf('c-selection').scrollIntoViewIfNeeded()
     await win.screenshot({ path: join(SHOTS, 'style-colours-selection.png') })
