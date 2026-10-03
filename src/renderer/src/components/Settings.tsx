@@ -818,6 +818,9 @@ function StyleTab(): JSX.Element {
               100 it is solid; the range is the slider's two ends. A hue edit
               never touches the glass. Every style still takes frost (owner,
               2026-08-08). */}
+          {/* THE COLOURS RUN BY IMPORTANCE (owner, 2026-10-03: "make the most
+              important colours appear first ... primary and secondary first then
+              accent"): Primary, Secondary, Accent, Text, Folder icons. */}
           <Pref
             id="c-bg"
             label="Primary colour"
@@ -864,6 +867,27 @@ function StyleTab(): JSX.Element {
               onRevert={putBack(['side', 'title', 'tabs'])}
             />
           </Pref>
+          {/* One picker, like Background and Text: the accent is a colour you
+              choose, not a scheme you browse. (The swatch grid lived here until
+              2026-08-21.) Its alpha is in the picker (#249; owner, 2026-10-02:
+              "the accent colour should be able to have an alpha value", fills
+              only), not a slider of its own (owner, 2026-10-03: "it should not
+              be a separate opacity setting"). A Pref, so its description is read
+              by the plain-words test. */}
+          <Pref id="c-accent" label="Accent" hint="The colour of the selection, progress bar and visualizer.">
+            <StyleColour
+              id="c-accent"
+              label="Accent"
+              value={withAlpha(paletteOf(style.accent)[0], accentAlpha)}
+              // An alpha of its own is an edit of the accent too, so the one
+              // Reset gives back both.
+              custom={!!edits.accent || edits.accentAlpha !== undefined}
+              onChange={setAccentColour}
+              onReset={resetAccent}
+              onRevert={putBack(['accent', 'accentAlpha'])}
+              alphaMin={ALPHA_MIN}
+            />
+          </Pref>
           <Pref id="c-text" label="Text" hint="The colour of file names, labels and readouts.">
             <StyleColour
               id="c-text"
@@ -873,13 +897,6 @@ function StyleTab(): JSX.Element {
               onChange={(v) => setOverride('text', v)}
               onReset={() => setOverride('text', null)}
               onRevert={putBack(['text'])}
-            />
-          </Pref>
-          <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
-            <Segmented
-              value={style.corners}
-              onChange={(v) => setOverride('corners', v)}
-              options={CORNER_OPTIONS}
             />
           </Pref>
           <Pref id="c-folder-icon" label="Folder icons" hint="The colour of folder icons in the tree.">
@@ -903,25 +920,11 @@ function StyleTab(): JSX.Element {
               Coloured wired to setOverride('iconScheme'), plus flipping
               ICON_SCHEME_SHOWN. The zip and the comic are coloured regardless
               of any of it. */}
-          {/* One picker, like Background and Text: the accent is a colour you
-              choose, not a scheme you browse. (The swatch grid lived here until
-              2026-08-21.) Its alpha is in the picker (#249; owner, 2026-10-02:
-              "the accent colour should be able to have an alpha value", fills
-              only), not a slider of its own (owner, 2026-10-03: "it should not
-              be a separate opacity setting"). A Pref, so its description is read
-              by the plain-words test. */}
-          <Pref id="c-accent" label="Accent" hint="The colour of the selection, progress bar and visualizer.">
-            <StyleColour
-              id="c-accent"
-              label="Accent"
-              value={withAlpha(paletteOf(style.accent)[0], accentAlpha)}
-              // An alpha of its own is an edit of the accent too, so the one
-              // Reset gives back both.
-              custom={!!edits.accent || edits.accentAlpha !== undefined}
-              onChange={setAccentColour}
-              onReset={resetAccent}
-              onRevert={putBack(['accent', 'accentAlpha'])}
-              alphaMin={ALPHA_MIN}
+          <Pref id="c-corners" label="Corners" hint="How round the larger surfaces of the window are.">
+            <Segmented
+              value={style.corners}
+              onChange={(v) => setOverride('corners', v)}
+              options={CORNER_OPTIONS}
             />
           </Pref>
         </div>
