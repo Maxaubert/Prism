@@ -7903,6 +7903,113 @@ async function explorerSizeScenario(fixtures) {
     rmSync(dir, { recursive: true, force: true })
   }
 }
+/**
+ * THE ADDRESS BAR IS A FIELD, AND A FIELD ON BLACK IS A DARK GREY (#267;
+ * owner, 2026-10-04, of the Explorer toolbar on Void: "make the url box more
+ * visible and for the black theme make the grey colours used in search and in
+ * the url bar darker grey"). The breadcrumb sat on the toolbar with no box at
+ * all, so only the search looked like something to type in. Both now wear
+ * `.browse-field`: one height, one radius, one fill, one edge. On a near-black
+ * ground (MEASURED, not read off the style's name) the fill is --p-field's
+ * dark step; anywhere else it is --p-control, as the search always was.
+ * Screenshots of the toolbar on Void and on Paper go to .e2e/shots.
+ */
+async function addressFieldScenario(fixtures) {
+  console.log('address field')
+  const dir = join(fixtures, 'addrfield')
+  rmSync(dir, { recursive: true, force: true })
+  mkdirSync(dir, { recursive: true })
+  for (const n of ['a1.txt', 'a2.txt']) writeFileSync(join(dir, n), `field ${n}\n`)
+  const { app, win } = await launch(join(dir, 'a1.txt'))
+  let before = null
+  const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number)
+  const lum = ([r, g, b]) => {
+    const lin = (v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  }
+  const contrast = (a, b) => {
+    const [x, y] = [lum(a), lum(b)]
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  const look = () =>
+    win.evaluate(() => {
+      const box = (sel) => {
+        const el = document.querySelector(sel)
+        if (!el) return null
+        const s = getComputedStyle(el)
+        const r = el.getBoundingClientRect()
+        return { h: r.height, radius: s.borderTopLeftRadius, fill: s.backgroundColor, edge: s.borderTopColor, edgeW: s.borderTopWidth }
+      }
+      const tb = document.querySelector('[data-testid="browse-toolbar"]')
+      const input = document.querySelector('[data-testid="browse-toolbar"] .browse-search input')
+      const crumb = document.querySelector('[data-testid="browse-toolbar"] .browse-crumb button')
+      return {
+        path: box('[data-testid="browse-toolbar"] nav.browse-path'),
+        search: box('[data-testid="browse-toolbar"] .browse-search'),
+        ground: tb ? getComputedStyle(tb).backgroundColor : null,
+        placeholder: input ? getComputedStyle(input, '::placeholder').color : null,
+        crumb: crumb ? getComputedStyle(crumb).color : null
+      }
+    })
+  const intoFolder = async () => {
+    await win.locator('[role="tablist"] [data-pinned] [role="tab"]').click()
+    await win.waitForSelector('[data-testid="browse-list"] .browse-row', { timeout: 10000 })
+    if ((await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) !== 2)
+      await win.locator('[data-testid="browse-list"] [data-browse-path$="addrfield"]').dblclick()
+    return until(async () => (await win.locator('[data-testid="browse-list"] [data-browse-path$=".txt"]').count()) === 2, 10000)
+  }
+  const shoot = (name) =>
+    win.locator('[data-testid="browse-toolbar"]').first().screenshot({ path: join(SHOTS, `address-field-${name}.png`) })
+  try {
+    ok(await intoFolder(), 'the Explorer shows the folder')
+    before = await switchStyle(win, 'new-void', 'dark')
+    await sleep(500)
+    const v = await look()
+    console.log('  void', JSON.stringify(v))
+    await shoot('void')
+    await switchStyle(win, 'paper', 'light')
+    await sleep(500)
+    const p = await look()
+    console.log('  paper', JSON.stringify(p))
+    await shoot('paper')
+    for (const [name, l] of [['Void', v], ['Paper', p]]) {
+      ok(l.path && l.search, `${name}: both fields are there`)
+      ok(l.path.h === l.search.h && l.path.h === 36, `${name}: the address and the search are one height (${l.path.h}, ${l.search.h})`)
+      ok(l.path.radius === l.search.radius, `${name}: one radius (${l.path.radius}, ${l.search.radius})`)
+      ok(l.path.fill === l.search.fill, `${name}: one fill (${l.path.fill}, ${l.search.fill})`)
+      ok(
+        l.path.edge === l.search.edge && l.path.edgeW === l.search.edgeW,
+        `${name}: one edge (${l.path.edge} ${l.path.edgeW}, ${l.search.edge} ${l.search.edgeW})`
+      )
+      const ph = contrast(rgb(l.placeholder), rgb(l.search.fill))
+      ok(ph >= 4.5, `${name}: the placeholder reads on the field (${ph.toFixed(2)}:1)`)
+      const cr = contrast(rgb(l.crumb), rgb(l.path.fill))
+      ok(cr >= 4.5, `${name}: a crumb reads on the field (${cr.toFixed(2)}:1)`)
+    }
+    // On Void the fill is DARKER than the old control step (rgb 8,8,8), still
+    // a step off the black, and the edge carries the box at 3:1.
+    ok(lum(rgb(v.search.fill)) < lum([8, 8, 8]) && lum(rgb(v.search.fill)) > 0, `Void: the field is a darker grey than before (${v.search.fill})`)
+    const edge = contrast(rgb(v.path.edge), rgb(v.ground))
+    ok(edge >= 3, `Void: the field's edge shows against the ground (${edge.toFixed(2)}:1)`)
+    // Paper keeps the search's fill as it always was.
+    ok(p.search.fill === 'rgb(231, 231, 232)', `Paper: the field fill is unchanged (${p.search.fill})`)
+    // A hover strengthens the edge and leaves the fill alone; focus draws the ring.
+    const pathBox = win.locator('[data-testid="browse-toolbar"] nav.browse-path')
+    await pathBox.hover({ position: { x: 4, y: 18 } })
+    await sleep(150)
+    const hovered = await look()
+    ok(hovered.path.fill === p.path.fill && hovered.path.edge !== p.path.edge, `Paper: a hover strengthens the edge only (${hovered.path.edge}, ${hovered.path.fill})`)
+    await win.locator('[data-testid="browse-toolbar"] .browse-search input').focus()
+    const ring = await win.evaluate(() => getComputedStyle(document.querySelector('[data-testid="browse-toolbar"] .browse-search')).outlineStyle)
+    ok(ring === 'solid', `the focused search draws its ring (${ring})`)
+    await win.keyboard.press('Escape')
+  } finally {
+    if (before) await switchStyle(win, before[0], before[1]).catch(() => {})
+    await app.close().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 async function selectionScenario(fixtures) {
   console.log('explorer selection')
   // 2026-08-22: the tree keeps its quick-look single click; shift and ctrl
@@ -10708,6 +10815,7 @@ await run(marqueeScenario)
 await run(marqueeQuietScenario)
 await run(markTintScenario)
 await run(explorerSizeScenario)
+await run(addressFieldScenario)
 await run(phoneScenario)
 await run(phoneHlsScenario)
 await run(phoneDocsScenario)

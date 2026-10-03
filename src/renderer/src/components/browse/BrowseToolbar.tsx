@@ -137,7 +137,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
         </form>
       ) : (
         <nav
-          className="browse-path"
+          className="browse-path browse-field"
           aria-label="Folder path"
           title={props.directory}
           onClick={(event) => {
@@ -197,7 +197,7 @@ export function BrowseToolbar(props: Props): JSX.Element {
         />
       )}
       {props.showSearch !== false && (
-        <label className="browse-search">
+        <label className="browse-search browse-field">
           <BrowseIcon name="search" />
           <input
             type="search"

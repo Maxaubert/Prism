@@ -534,6 +534,12 @@ native `<input type=color>`, no Acrylic or Accent opacity slider. Spec and plan:
   12px icon, Medium (DEFAULT) 26 / 12.5 / 14, Large the pre-#257 Explorer, 40 / 15 / 18 with
   its old padding and columns (`[data-row-size='large']` in browse.css). The Explorer's list
   ALONE: the tree keeps General's Font size. `explorerSize` e2e.
+  **THE ADDRESS AND THE SEARCH ARE ONE FIELD** (#267; owner, 2026-10-04: "make the url box more
+  visible and for the black theme make the grey colours used in search and in the url bar darker
+  grey"). Both wear `.browse-field` (`--p-field`, `-edge`, `-edge-hover`, `-hint`). On a ground
+  MEASURED darker than #121212 (`lib/fieldColours.ts`) the fill is a 2.5% step (Void #060606, was
+  #080808) and a 3:1 edge carries the box; every other style keeps --p-control and --p-divider.
+  The placeholder is held to 4.5:1 on the field. `addressField` e2e.
   **A MARKED FILE IS A TINT, A CHOSEN PAGE IS SOLID** (owner, same day: "more transparent like
   selecting files in file explorer" for files, "more saturated" for the settings page).
   Explorer, tree, sidebar search and archive rows wear `--p-sel-tint` (`hi` at 22%, stepped down only
