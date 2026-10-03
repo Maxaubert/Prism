@@ -16,7 +16,7 @@ import { useFileCut } from '../../lib/fileClipboard'
 import { DRAG_MIME, setDrag } from '../../lib/dragDrop'
 import { FolderIcon, KindIcon, SweepBand, iconColour } from '../TreeRows'
 import { rowLook, useTreeSize } from '../../lib/treePrefs'
-import { bandBox, inAnyRect, nearestRow, rowsInBand } from '../../lib/marquee'
+import { bandBox, nearestRow, onRowOwnPart, rowsInBand } from '../../lib/marquee'
 import { useSweep } from '../../hooks/useSweep'
 import { BrowseIcon } from './BrowseIcon'
 import { useFolderDrop } from './useFolderDrop'
@@ -186,10 +186,10 @@ export function BrowseList(props: Props): JSX.Element {
     const el = e.target as HTMLElement
     const row = el.closest<HTMLElement>('.browse-row')
     if (row) {
-      // The icon and the name are the file's: they drag it, as before.
+      // The row up to the end of its name is the file's: it drags it, as
+      // before. The other columns are blank space and sweep.
       const name = row.querySelectorAll('.browse-name > svg, .browse-name-text')
-      if (inAnyRect(e.clientX, e.clientY, [...name].map((n) => n.getBoundingClientRect())))
-        return
+      if (onRowOwnPart(e.clientX, [...name].map((n) => n.getBoundingClientRect()))) return
     }
     sweepAdd.current = e.ctrlKey
     sweep.begin(e, row)

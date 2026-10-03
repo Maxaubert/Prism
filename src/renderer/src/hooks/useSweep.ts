@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import { SWEEP_THRESHOLD, edgeSpeed, sameHits, type Band } from '../lib/marquee'
 
 /**
@@ -13,7 +19,8 @@ import { SWEEP_THRESHOLD, edgeSpeed, sameHits, type Band } from '../lib/marquee'
  * - it begins ONLY from a real left press (`begin`, from a pointerdown), never
  *   from a drag or a drop, which fire no pointerdown at all;
  * - every listener is on `window` and goes on pointerup, pointercancel, a lost
- *   window focus, Escape, or ANY move that arrives with the left button up;
+ *   window focus, Escape, or ANY move that arrives with the left button up
+ *   (a cancel, a lost focus and Escape put back what was marked before);
  * - a press on a row's own icon or name never reaches here, so dragging a file
  *   out still drags the file. On a row's blank space the row's `draggable` is
  *   switched off for the length of the press, or Chromium would start an HTML5
@@ -26,7 +33,11 @@ export interface SweepOptions {
   toList: (clientX: number, clientY: number) => { x: number; y: number }
   /** The rows the span top..bottom covers, in list order, plus the one the
    *  pointer is nearest (where the keyboard carries on from). */
-  hitsBetween: (top: number, bottom: number, pointerY: number) => { paths: string[]; near: string | null }
+  hitsBetween: (
+    top: number,
+    bottom: number,
+    pointerY: number
+  ) => { paths: string[]; near: string | null }
   /** Scroll the list by this many screen pixels. */
   scrollBy: (dy: number) => void
   /** The sweep's covered rows, live, as it grows and shrinks. */
@@ -50,7 +61,8 @@ export function useSweep(options: SweepOptions): {
   useEffect(() => () => stop.current?.(), [])
 
   const begin = useCallback((e: ReactPointerEvent, row?: HTMLElement | null): void => {
-    if (e.button !== 0 || !e.isPrimary) return
+    // A finger pans the list; only a mouse or a pen sweeps.
+    if (e.button !== 0 || !e.isPrimary || e.pointerType === 'touch') return
     stop.current?.()
     const pointerId = e.pointerId
     const sx = e.clientX
@@ -132,7 +144,10 @@ export function useSweep(options: SweepOptions): {
       last = { x: ev.clientX, y: ev.clientY }
       if (cancelled) return
       if (!started) {
-        if (Math.abs(ev.clientX - sx) < SWEEP_THRESHOLD && Math.abs(ev.clientY - sy) < SWEEP_THRESHOLD)
+        if (
+          Math.abs(ev.clientX - sx) < SWEEP_THRESHOLD &&
+          Math.abs(ev.clientY - sy) < SWEEP_THRESHOLD
+        )
           return
         started = true
         const box = opts.current.scroller()
@@ -154,7 +169,14 @@ export function useSweep(options: SweepOptions): {
       if (started) swallowClick()
       finish()
     }
-    const abort = (): void => finish()
+    // A pointer the system took away (pointercancel) or a window that lost
+    // focus mid-sweep is not a release: the user never let go on a result, so
+    // the sweep is undone as Escape undoes it, not kept half made.
+    const abort = (): void => {
+      const undo = started && !cancelled
+      cleanup()
+      if (undo) opts.current.onCancel()
+    }
     const key = (ev: KeyboardEvent): void => {
       if (ev.key !== 'Escape' || !started || cancelled) return
       ev.preventDefault()

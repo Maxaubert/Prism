@@ -7223,6 +7223,38 @@ async function marqueeScenario(fixtures) {
     await win.keyboard.press('Escape')
     ok(treeNameBand === 0, 'a press on a name never draws the rectangle')
     ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it starts the file drag instead')
+    // The gap between the icon and the name is the row's too (review of #257:
+    // a drag from there drew a rectangle and marked rows).
+    const treeGap = await win.evaluate(() => {
+      const row = document.querySelectorAll('aside [data-row]')[1]
+      const icon = row?.querySelector('svg')?.getBoundingClientRect()
+      const name = row?.querySelector('span.truncate')?.getBoundingClientRect()
+      return icon && name ? { x: (icon.right + name.left) / 2, y: name.top + name.height / 2 } : null
+    })
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    await win.mouse.move(treeGap.x, treeGap.y)
+    await win.mouse.down()
+    await win.mouse.move(treeGap.x, treeGap.y + 60, { steps: 10 })
+    await sleep(150)
+    const treeGapBand = await band('aside')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(treeGapBand === 0, 'a press between the icon and the name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it drags the file as the name does')
+    // A right press on the space under the rows clears the marks, as any press
+    // there did before the sweep.
+    await sweep({ x: blankX, y: r4.box.y + r4.box.height / 2 }, { x: blankX - 10, y: r6.box.y + r6.box.height / 2 })
+    ok((await treeMarked()).length >= 3, `marks are lit before the right press (${await treeMarked()})`)
+    await win.mouse.click(blankX, r7.box.y + r7.box.height + 40, { button: 'right' })
+    await sleep(250)
+    await win.keyboard.press('Escape')
+    await sleep(150)
+    marked = await treeMarked()
+    ok(!marked.includes('a5.txt') && !marked.includes('a7.txt'), `a right press under the rows clears the marks (${marked})`)
 
     // The tree's row, for the Explorer to be measured against.
     const treeLook = await win.evaluate(() => {
@@ -7319,6 +7351,41 @@ async function marqueeScenario(fixtures) {
     ok(exEsc.band === 0, 'Escape takes the rectangle away at once')
     ex = await exMarked()
     ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `and puts back what was marked (${ex})`)
+    // A right press on one of several marked rows: the menu acts on all of
+    // them and offers nothing that is one row's (review of #257).
+    await rowAt(3).click({ button: 'right', position: { x: 30, y: f3.height / 2 } })
+    const multiMenu = await win
+      .locator('[role="menu"]')
+      .last()
+      .textContent({ timeout: 3000 })
+      .catch(() => '')
+    ok(/Delete 3 items/.test(multiMenu) && /Copy 3 items/.test(multiMenu), `the menu names all three marked rows (${multiMenu})`)
+    ok(!/Rename|Open|Properties/.test(multiMenu), 'and offers nothing that acts on one row')
+    await win.keyboard.press('Escape')
+    await sleep(200)
+    ex = await exMarked()
+    ok(ex.sort().join() === 'a1.txt,a4.txt,a5.txt', `the marks are still the three (${ex})`)
+    // A press in the gap between a file's icon and its name drags the file.
+    const exGap = await win.evaluate(() => {
+      const row = document.querySelector('[data-testid="browse-list"] [data-browse-index="2"]')
+      const icon = row?.querySelector('.browse-name > svg')?.getBoundingClientRect()
+      const name = row?.querySelector('.browse-name-text')?.getBoundingClientRect()
+      return icon && name ? { x: (icon.right + name.left) / 2, y: name.top + name.height / 2 } : null
+    })
+    await win.evaluate(() => {
+      globalThis.__sweepDrag = 0
+      window.addEventListener('dragstart', () => (globalThis.__sweepDrag += 1), { once: true, capture: true })
+    })
+    await win.mouse.move(exGap.x, exGap.y)
+    await win.mouse.down()
+    await win.mouse.move(exGap.x, exGap.y + 80, { steps: 10 })
+    await sleep(150)
+    const exGapBand = await band('[data-testid="browse-list"]')
+    await win.mouse.up()
+    await sleep(300)
+    await win.keyboard.press('Escape')
+    ok(exGapBand === 0, 'a press between the icon and the name never draws the rectangle')
+    ok((await win.evaluate(() => globalThis.__sweepDrag)) === 1, 'it drags the file as the name does')
     // A press on a file's name drags the file.
     await win.evaluate(() => {
       globalThis.__sweepDrag = 0

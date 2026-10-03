@@ -35,7 +35,7 @@ import { SortMenu } from './SortMenu'
 import { formatBytes } from '../lib/format'
 import { TreeProvider } from '../lib/treeContext'
 import { clickSelect, emptySelection, type Selection } from '../lib/selection'
-import { inAnyRect, nearestRow, rowsInBand, sweepSelect } from '../lib/marquee'
+import { nearestRow, onRowOwnPart, rowsInBand, sweepSelect } from '../lib/marquee'
 import { useSweep } from '../hooks/useSweep'
 import { DRAG_MIME, dragPayload, droppedPaths, setDrag, type DragPayload } from '../lib/dragDrop'
 
@@ -767,14 +767,20 @@ export function Sidebar({
     onCancel: () => setSel(sweepFrom.current.base)
   })
   const onTreePointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
-    if (e.button !== 0) return
     const el = e.target as HTMLElement
     if (el.closest('input,textarea')) return
     const row = el.closest<HTMLElement>('[data-row]')
-    // The row's chevron, icon and name are the row's: a click opens or
-    // selects, a drag carries the file. Only its blank space sweeps.
-    if (row && inAnyRect(e.clientX, e.clientY, [...row.children].map((c) => c.getBoundingClientRect())))
-      return
+    // Any press on the space under the rows that is not a Ctrl or Shift press
+    // clears, whatever the button, as it did before the sweep took this box
+    // out of `away` above: a right press there opens the folder's menu, and
+    // the old marks lit beside it would read as what that menu acts on.
+    if (!row && e.button !== 0 && !e.ctrlKey && !e.shiftKey)
+      setSel((s) => (s.items.size ? emptySelection : s))
+    if (e.button !== 0) return
+    // The row up to the end of its name (indent, chevron, icon, name and the
+    // gaps between) is the row's: a click opens or selects, a drag carries
+    // the file. Only the blank space past the name sweeps.
+    if (row && onRowOwnPart(e.clientX, [...row.children].map((c) => c.getBoundingClientRect()))) return
     sweepFrom.current = { base: selRef.current, add: e.ctrlKey }
     // A plain press on the space under the rows clears, as it always has.
     if (!row && !e.ctrlKey && !e.shiftKey) setSel((s) => (s.items.size ? emptySelection : s))

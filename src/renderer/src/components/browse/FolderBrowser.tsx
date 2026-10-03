@@ -102,7 +102,9 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
    */
   const [marks, setMarks] = useState<{ key: string; items: ReadonlySet<string> } | null>(null)
   const anchor = useRef<string | null>(null)
-  const marksKey = `${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
+  // The tab is part of the key: one FolderBrowser serves every tab, and two
+  // tabs on the same folder must not share each other's marks.
+  const marksKey = `${props.owner ?? ''}\u0000${props.directory}\u0000${props.query}\u0000${props.sort.key}${props.sort.direction}`
   const marked =
     marks && marks.key === marksKey && props.selectedPath && marks.items.has(props.selectedPath)
       ? marks.items
@@ -377,6 +379,19 @@ export function FolderBrowser(props: FolderBrowserProps): JSX.Element {
         marked={marked}
         onPick={pick}
         onSweep={swept}
+        // A right press inside several marked rows is a menu for all of them:
+        // the marks stay lit, so a menu for the one row under the pointer
+        // would delete one file while four looked chosen (review of #257).
+        onContextMenu={
+          props.onContextMenu &&
+          ((e, entry, source) =>
+            props.onContextMenu?.(
+              e,
+              entry,
+              source,
+              many && marked?.has(entry.path) ? markedPaths() : undefined
+            ))
+        }
         message={message}
         onVisibleFolders={onVisibleFolders}
       />

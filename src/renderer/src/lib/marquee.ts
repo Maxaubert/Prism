@@ -67,25 +67,22 @@ export function edgeSpeed(y: number, top: number, bottom: number, edge = 36, max
 /** A sweep's selection: what it covers now, plus what was marked before it
  *  when it was a Ctrl sweep. Shrinking the rectangle gives rows back, since
  *  the base is fixed when the sweep starts, not grown as it goes. */
-export function sweepSelect(
-  base: ReadonlySet<string>,
-  hits: readonly string[]
-): Set<string> {
+export function sweepSelect(base: ReadonlySet<string>, hits: readonly string[]): Set<string> {
   const out = new Set(base)
   for (const h of hits) out.add(h)
   return out
 }
 
-/** Is the point inside any of these boxes? How a press on a row's icon or name
- *  (which drags the file) is told from one on the row's blank space (which
- *  sweeps). */
-export function inAnyRect(
-  x: number,
-  y: number,
-  rects: Iterable<{ left: number; top: number; right: number; bottom: number }>
-): boolean {
-  for (const r of rects) if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true
-  return false
+/** Is a press at x on the row's own part? Everything from the row's left edge
+ *  to the right edge of its last leading box (chevron, icon, name) is the
+ *  row's: a press there clicks or drags the file. Only the space past the
+ *  name sweeps. Testing each box on its own left the gaps between them, the
+ *  padding and the indent as sweep ground, so a drag from a hair beside the
+ *  icon drew a rectangle instead of carrying the file (review of #257). */
+export function onRowOwnPart(x: number, rects: Iterable<{ right: number }>): boolean {
+  let end = -Infinity
+  for (const r of rects) end = Math.max(end, r.right)
+  return x <= end
 }
 
 /** Two hit lists the same? Saves a render per pointer move that changed nothing. */

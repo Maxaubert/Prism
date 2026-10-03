@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bandBox,
   edgeSpeed,
-  inAnyRect,
+  onRowOwnPart,
   nearestRow,
   rowsInBand,
   sameHits,
@@ -74,16 +74,24 @@ describe('sweepSelect', () => {
   })
 })
 
-describe('bandBox, inAnyRect, sameHits', () => {
+describe('bandBox, onRowOwnPart, sameHits', () => {
   it('normalises a band dragged up and left', () => {
-    expect(bandBox({ x0: 50, y0: 80, x1: 10, y1: 20 })).toEqual({ left: 10, top: 20, width: 40, height: 60 })
+    expect(bandBox({ x0: 50, y0: 80, x1: 10, y1: 20 })).toEqual({
+      left: 10,
+      top: 20,
+      width: 40,
+      height: 60
+    })
   })
-  it('finds a point in any of several boxes', () => {
-    const icon = { left: 0, top: 0, right: 14, bottom: 14 }
-    const name = { left: 20, top: 0, right: 90, bottom: 14 }
-    expect(inAnyRect(5, 5, [icon, name])).toBe(true)
-    expect(inAnyRect(50, 7, [icon, name])).toBe(true)
-    expect(inAnyRect(120, 7, [icon, name])).toBe(false)
+  it('gives the row everything up to the end of its name, gaps included', () => {
+    const icon = { right: 14 }
+    const name = { right: 90 }
+    expect(onRowOwnPart(-4, [icon, name])).toBe(true)
+    expect(onRowOwnPart(5, [icon, name])).toBe(true)
+    expect(onRowOwnPart(17, [icon, name])).toBe(true)
+    expect(onRowOwnPart(90, [icon, name])).toBe(true)
+    expect(onRowOwnPart(91, [icon, name])).toBe(false)
+    expect(onRowOwnPart(5, [])).toBe(false)
   })
   it('compares hit lists', () => {
     expect(sameHits(['a', 'b'], ['a', 'b'])).toBe(true)
